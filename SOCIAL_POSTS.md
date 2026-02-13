@@ -242,4 +242,79 @@ Best,
 
 ---
 
+## Facebook Post
+
+🚀 **Exciting News! Just Launched TITAN - The Future of AI Agents** 🤖
+
+Hey everyone! I'm thrilled to announce the launch of TITAN (The Intelligent Task Automation Network) - a brand new open-source AI agent platform I built from the ground up!
+
+**What Makes TITAN Special?**
+
+Unlike other AI assistants that can be risky to use, TITAN was designed with security as the #1 priority:
+
+🔒 **WASM Sandboxing** - Every skill runs in a secure sandbox (other platforms give full system access - yikes!)
+🧠 **Self-Improving** - It actually learns from its mistakes and gets smarter over time
+🤖 **Multi-Agent Teams** - Can spawn specialist agents to work on complex tasks together
+📡 **Industry Standard** - Native MCP support for the latest AI protocols
+⭐ **A+ Security Rating** - Independently audited and production-ready
+
+**The Problem with Current AI Agents:**
+Most AI agents (like AutoGPT) run with full access to your computer - they can delete files, install malware, or leak your secrets. That's scary! 😱
+
+**TITAN's Solution:**
+✅ Every action goes through mandatory approval
+✅ Skills are sandboxed and can't escape
+✅ Full audit trail of everything that happens
+✅ Emergency killswitch if something goes wrong
+✅ Your data stays local and private
+
+**Tech Stack (for the geeks):**
+Built in Rust 🦀 with WebAssembly, SQLite, and modern async frameworks. Memory-safe, blazing fast, and secure by design.
+
+**I Need Your Help! 🙏**
+
+This is an open-source project (MIT license) and I'm looking for passionate people to join the team:
+
+🔧 Rust Developers - Core architecture, WASM runtime, async systems
+🛡️ Security Engineers - Threat modeling, pen testing, audits
+🎨 UI/UX Designers - Web dashboard, Discord bot interfaces
+📝 Technical Writers - Documentation, tutorials, blog posts
+🧪 QA Engineers - Test automation, CI/CD, benchmarking
+💡 AI/ML Engineers - Prompt engineering, agent orchestration
+
+Whether you're a seasoned developer or just getting started, there's a place for you! This is a great opportunity to work on cutting-edge AI tech that prioritizes safety.
+
+**Links:**
+📁 GitHub: https://github.com/Djtony707/TITAN
+📧 Email: hello@titan.sh
+💬 Discord: Coming soon!
+
+**How to Get Started:**
+1. Check out the GitHub repo ⭐
+2. Read the README and docs 📚
+3. Join discussions or open an issue 💬
+4. Submit a PR (even small ones welcome!) 🔧
+
+Let's build the future of AI together - one that's powerful AND safe! 💪
+
+---
+
+**Tags:** #OpenSource #Rust #AI #ArtificialIntelligence #CyberSecurity #MachineLearning #GitHub #Tech #Innovation #Developer #Programming #WebAssembly #FutureOfWork #TechJobs #Hiring #JoinOurTeam
+
+---
+
+**Short Version (for sharing):**
+
+Just launched TITAN - a security-first AI agent platform that learns and improves itself! 🚀
+
+Built in Rust with WASM sandboxing (so it's actually safe unlike other AI agents 😅)
+
+Looking for contributors - Rust devs, security engineers, designers, writers - join us!
+
+🔗 https://github.com/Djtony707/TITAN
+
+#OpenSource #Rust #AI #TechJobs
+
+---
+
 **Copy and paste the version that fits your platform!**
