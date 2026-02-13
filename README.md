@@ -57,7 +57,7 @@ The wizard guides you through:
 
 ```bash
 # Clone
-git clone https://github.com/yourusername/titan.git
+git clone https://github.com/Djtony707/titan.git
 cd titan
 
 # Build
@@ -310,7 +310,7 @@ RUST_LOG=titan=debug cargo test
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/titan.git
+git clone https://github.com/Djtony707/titan.git
 cd titan
 
 # Build debug version
@@ -386,7 +386,7 @@ See [LICENSE: MIT License](LICENSE:%20MIT%20License) for full text.
 ## 💬 Community
 
 - **Discord:** [discord.gg/titan](https://discord.gg/titan)
-- **GitHub Discussions:** [github.com/titan/titan/discussions](https://github.com/titan/titan/discussions)
+- **GitHub Discussions:** [github.com/Djtony707/titan/discussions](https://github.com/Djtony707/titan/discussions)
 - **Twitter/X:** [@titan_agent](https://twitter.com/titan_agent)
 - **Email:** hello@titan.sh
 
@@ -394,7 +394,7 @@ See [LICENSE: MIT License](LICENSE:%20MIT%20License) for full text.
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=titan/titan&type=Date)](https://star-history.com/#titan/titan&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Djtony707/TITAN&type=Date)](https://star-history.com/#Djtony707/TITAN&Date)
 
 ---
 
