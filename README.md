@@ -249,7 +249,7 @@ TITAN schedules the task, executes autonomously (within permission bounds), and 
 ## 📚 Documentation
 
 - **[Getting Started](docs/GETTING_STARTED.md)** — Your first 10 minutes with TITAN
-- **[Installation](docs/INSTALL.md)** — Detailed installation guide
+- **[Installation](docs/INSTALL.md)** — Detailed installation instructions
 - **[Onboarding](docs/ONBOARDING.md)** — First-run wizard walkthrough
 - **[Security Architecture](docs/SECURITY_AUDIT.md)** — Complete security analysis (A+ rating)
 - **[Architecture Overview](docs/architecture.md)** — System design and cognitive loop
