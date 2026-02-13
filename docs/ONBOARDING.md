@@ -161,14 +161,15 @@ Expected behavior:
 
 ## Next Steps
 
-- Read [architecture.md](./architecture.md) to understand the internals
-- Explore [skills/](../skills/) to see available capabilities
-- Check out the [source code](../crates/) and customize
+- Read [Architecture Overview](./architecture.md) to understand the internals
+- Review [Getting Started](./GETTING_STARTED.md) for more examples
+- Check the [Roadmap](../ROADMAP.md) for upcoming features
 
 ## Getting Help
 
 - Web Dashboard: http://127.0.0.1:3000
 - Discord commands: `!help`
 - System status: `!status`
+- GitHub Issues: https://github.com/Djtony707/TITAN/issues
 
 Happy automating! 🤖

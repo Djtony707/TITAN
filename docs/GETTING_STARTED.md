@@ -87,16 +87,16 @@ Visit `http://127.0.0.1:3000` when running to see the dashboard.
 
 ## Next Steps
 
-- Read the [Architecture Overview](architecture.md)
+- Read the [Architecture Overview](./architecture.md)
 - Review [Security Features](../SECURITY.md)
 - Check the [Roadmap](../ROADMAP.md)
 - Join our [Discord](https://discord.gg/titan)
 
 ## Need Help?
 
-- GitHub Discussions: https://github.com/titan/titan/discussions
-- GitHub Issues: https://github.com/titan/titan/issues
-- Email: support@titan.dev
+- GitHub Discussions: https://github.com/Djtony707/TITAN/discussions
+- GitHub Issues: https://github.com/Djtony707/TITAN/issues
+- Email: hello@titan.sh
 
 ---
 
