@@ -39,4 +39,5 @@ url = "2.5.7"
 reqwest = { version = "0.12.23", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 axum = "0.8.6"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "net"] }
+serenity = { version = "0.12.4", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "cache"] }
 wasmparser = "0.240.0"

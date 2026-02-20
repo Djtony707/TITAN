@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, params};
-use titan_core::{Goal, GoalStatus, TraceEvent};
+use titan_core::{Goal, GoalStatus, PendingApprovalAction, StepResult, TaskRunResult, TraceEvent};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -23,6 +23,7 @@ pub struct MemoryStore {
 pub struct ApprovalRecord {
     pub id: String,
     pub nonce: String,
+    pub goal_id: Option<String>,
     pub tool_name: String,
     pub capability: String,
     pub input: String,
@@ -40,6 +41,25 @@ pub struct ToolRunRecord {
     pub tool_name: String,
     pub status: String,
     pub output: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct EpisodicMemoryRecord {
+    pub id: i64,
+    pub goal_id: String,
+    pub summary: String,
+    pub source: String,
+}
+
+pub struct RunPersistenceBundle<'a> {
+    pub run: &'a TaskRunResult,
+    pub source: &'a str,
+    pub requested_by: Option<&'a str>,
+    pub approval_ttl_ms: u64,
+}
+
+pub struct RunPersistenceOutcome {
+    pub approval_id: Option<String>,
 }
 
 impl MemoryStore {
@@ -150,6 +170,54 @@ impl MemoryStore {
             "#,
         )?;
 
+        self.apply_migration(
+            4,
+            "episodic_memory_and_goal_linked_approvals",
+            r#"
+            ALTER TABLE approval_requests ADD COLUMN goal_id TEXT;
+
+            CREATE TABLE IF NOT EXISTS episodic_memories (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              goal_id TEXT NOT NULL,
+              summary TEXT NOT NULL,
+              source TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(goal_id) REFERENCES goals(id)
+            );
+            "#,
+        )?;
+
+        self.apply_migration(
+            5,
+            "run_plan_and_step_tables",
+            r#"
+            CREATE TABLE IF NOT EXISTS run_plans (
+              id TEXT PRIMARY KEY,
+              goal_id TEXT NOT NULL,
+              intent TEXT NOT NULL,
+              selected_candidate_id TEXT NOT NULL,
+              selected_score REAL NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(goal_id) REFERENCES goals(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS run_steps (
+              id TEXT PRIMARY KEY,
+              goal_id TEXT NOT NULL,
+              plan_id TEXT NOT NULL,
+              step_id TEXT NOT NULL,
+              tool_name TEXT NOT NULL,
+              permission TEXT NOT NULL,
+              input TEXT,
+              status TEXT NOT NULL,
+              output TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(goal_id) REFERENCES goals(id),
+              FOREIGN KEY(plan_id) REFERENCES run_plans(id)
+            );
+            "#,
+        )?;
+
         self.conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_dedupe_key
              ON goals(dedupe_key)
@@ -219,6 +287,108 @@ impl MemoryStore {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn persist_run_bundle(
+        &mut self,
+        bundle: RunPersistenceBundle<'_>,
+    ) -> Result<RunPersistenceOutcome> {
+        let run = bundle.run;
+        let now_ms = now_epoch_ms();
+        let approval_expires_at_ms = now_ms.saturating_add(bundle.approval_ttl_ms as i64);
+        let selected = &run.plan.candidates[run.plan.selected_index];
+        let plan_id = Uuid::new_v4().to_string();
+        let mut step_outcomes = std::collections::HashMap::<&str, &StepResult>::new();
+        for result in &run.step_results {
+            step_outcomes.insert(result.step_id.as_str(), result);
+        }
+
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT OR IGNORE INTO goals (id, description, status, dedupe_key) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                run.goal.id,
+                run.goal.description,
+                run.goal.status.as_str(),
+                run.goal.dedupe_key
+            ],
+        )?;
+        tx.execute(
+            "UPDATE goals SET status = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![run.goal.status.as_str(), run.goal.id],
+        )?;
+        tx.execute(
+            "INSERT INTO run_plans (id, goal_id, intent, selected_candidate_id, selected_score)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                plan_id,
+                run.goal.id,
+                format!("{:?}", run.plan.intent),
+                selected.id,
+                selected.score
+            ],
+        )?;
+
+        for step in &selected.steps {
+            let outcome = step_outcomes.get(step.id.as_str());
+            let status = if outcome.is_some() {
+                "executed"
+            } else if run
+                .pending_approval
+                .as_ref()
+                .map(|pending| pending.tool_name.as_str())
+                == Some(step.tool_name.as_str())
+            {
+                "blocked_pending_approval"
+            } else {
+                "skipped"
+            };
+            let output = outcome
+                .map(|item| item.output.as_str())
+                .unwrap_or_default()
+                .to_string();
+            tx.execute(
+                "INSERT INTO run_steps
+                 (id, goal_id, plan_id, step_id, tool_name, permission, input, status, output)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    run.goal.id,
+                    plan_id,
+                    step.id,
+                    step.tool_name,
+                    step.permission.as_str(),
+                    step.input,
+                    status,
+                    output
+                ],
+            )?;
+        }
+
+        for trace in &run.traces {
+            tx.execute(
+                "INSERT INTO trace_events (goal_id, event_type, detail) VALUES (?1, ?2, ?3)",
+                params![trace.goal_id, trace.event_type, trace.detail],
+            )?;
+        }
+
+        let approval_id = persist_pending_approval(
+            &tx,
+            &run.goal.id,
+            run.pending_approval.as_ref(),
+            bundle.source,
+            bundle.requested_by,
+            approval_expires_at_ms,
+        )?;
+
+        tx.execute(
+            "INSERT INTO episodic_memories (goal_id, summary, source)
+             VALUES (?1, ?2, ?3)",
+            params![run.goal.id, run.reflection, bundle.source],
+        )?;
+        tx.commit()?;
+
+        Ok(RunPersistenceOutcome { approval_id })
     }
 
     pub fn find_goal_by_dedupe_key(&self, dedupe_key: &str) -> Result<Option<StoredGoal>> {
@@ -329,8 +499,96 @@ impl MemoryStore {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    pub fn list_recent_traces(&self, limit: usize) -> Result<Vec<TraceEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT goal_id, event_type, detail
+             FROM trace_events
+             ORDER BY id DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(TraceEvent {
+                goal_id: row.get(0)?,
+                event_type: row.get(1)?,
+                detail: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn count_plans_for_goal(&self, goal_id: &str) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(1) FROM run_plans WHERE goal_id = ?1",
+            params![goal_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    pub fn count_steps_for_goal(&self, goal_id: &str) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(1) FROM run_steps WHERE goal_id = ?1",
+            params![goal_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    pub fn mark_blocked_step_executed_for_goal(
+        &self,
+        goal_id: &str,
+        tool_name: &str,
+        output: &str,
+    ) -> Result<usize> {
+        let changed = self.conn.execute(
+            "UPDATE run_steps
+             SET status = 'executed_after_approval', output = ?1
+             WHERE id = (
+               SELECT id
+               FROM run_steps
+               WHERE goal_id = ?2
+                 AND tool_name = ?3
+                 AND status = 'blocked_pending_approval'
+               ORDER BY created_at DESC
+               LIMIT 1
+             )",
+            params![output, goal_id, tool_name],
+        )?;
+        Ok(changed)
+    }
+
+    pub fn count_active_goals(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(1)
+             FROM goals
+             WHERE status IN ('pending', 'planning', 'executing')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     pub fn create_approval_request(
         &self,
+        tool_name: &str,
+        capability: &str,
+        input: &str,
+        requested_by: Option<&str>,
+        ttl_ms: u64,
+    ) -> Result<ApprovalRecord> {
+        self.create_approval_request_for_goal(
+            None,
+            tool_name,
+            capability,
+            input,
+            requested_by,
+            ttl_ms,
+        )
+    }
+
+    pub fn create_approval_request_for_goal(
+        &self,
+        goal_id: Option<&str>,
         tool_name: &str,
         capability: &str,
         input: &str,
@@ -344,6 +602,7 @@ impl MemoryStore {
         let record = ApprovalRecord {
             id: id.clone(),
             nonce: nonce.clone(),
+            goal_id: goal_id.map(std::string::ToString::to_string),
             tool_name: tool_name.to_string(),
             capability: capability.to_string(),
             input: input.to_string(),
@@ -355,11 +614,12 @@ impl MemoryStore {
         };
         self.conn.execute(
             "INSERT INTO approval_requests
-             (id, nonce, tool_name, capability, input, status, requested_by, expires_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (id, nonce, goal_id, tool_name, capability, input, status, requested_by, expires_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 record.id,
                 record.nonce,
+                record.goal_id,
                 record.tool_name,
                 record.capability,
                 record.input,
@@ -374,7 +634,7 @@ impl MemoryStore {
     pub fn get_approval_request(&self, approval_id: &str) -> Result<Option<ApprovalRecord>> {
         self.expire_pending_approvals(now_epoch_ms())?;
         let mut stmt = self.conn.prepare(
-            "SELECT id, nonce, tool_name, capability, input, status, requested_by, resolved_by, expires_at_ms, decision_reason
+            "SELECT id, nonce, goal_id, tool_name, capability, input, status, requested_by, resolved_by, expires_at_ms, decision_reason
              FROM approval_requests
              WHERE id = ?1",
         )?;
@@ -383,14 +643,15 @@ impl MemoryStore {
             return Ok(Some(ApprovalRecord {
                 id: row.get(0)?,
                 nonce: row.get(1)?,
-                tool_name: row.get(2)?,
-                capability: row.get(3)?,
-                input: row.get(4)?,
-                status: row.get(5)?,
-                requested_by: row.get(6)?,
-                resolved_by: row.get(7)?,
-                expires_at_ms: row.get(8)?,
-                decision_reason: row.get(9)?,
+                goal_id: row.get(2)?,
+                tool_name: row.get(3)?,
+                capability: row.get(4)?,
+                input: row.get(5)?,
+                status: row.get(6)?,
+                requested_by: row.get(7)?,
+                resolved_by: row.get(8)?,
+                expires_at_ms: row.get(9)?,
+                decision_reason: row.get(10)?,
             }));
         }
         Ok(None)
@@ -399,7 +660,7 @@ impl MemoryStore {
     pub fn list_pending_approvals(&self) -> Result<Vec<ApprovalRecord>> {
         self.expire_pending_approvals(now_epoch_ms())?;
         let mut stmt = self.conn.prepare(
-            "SELECT id, nonce, tool_name, capability, input, status, requested_by, resolved_by, expires_at_ms, decision_reason
+            "SELECT id, nonce, goal_id, tool_name, capability, input, status, requested_by, resolved_by, expires_at_ms, decision_reason
              FROM approval_requests
              WHERE status = 'pending'
              ORDER BY created_at ASC",
@@ -408,14 +669,15 @@ impl MemoryStore {
             Ok(ApprovalRecord {
                 id: row.get(0)?,
                 nonce: row.get(1)?,
-                tool_name: row.get(2)?,
-                capability: row.get(3)?,
-                input: row.get(4)?,
-                status: row.get(5)?,
-                requested_by: row.get(6)?,
-                resolved_by: row.get(7)?,
-                expires_at_ms: row.get(8)?,
-                decision_reason: row.get(9)?,
+                goal_id: row.get(2)?,
+                tool_name: row.get(3)?,
+                capability: row.get(4)?,
+                input: row.get(5)?,
+                status: row.get(6)?,
+                requested_by: row.get(7)?,
+                resolved_by: row.get(8)?,
+                expires_at_ms: row.get(9)?,
+                decision_reason: row.get(10)?,
             })
         })?;
         let approvals = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -516,6 +778,33 @@ impl MemoryStore {
         Ok(())
     }
 
+    pub fn add_episodic_memory(&self, goal_id: &str, summary: &str, source: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO episodic_memories (goal_id, summary, source)
+             VALUES (?1, ?2, ?3)",
+            params![goal_id, summary, source],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_episodic_memory(&self, limit: usize) -> Result<Vec<EpisodicMemoryRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, goal_id, summary, source
+             FROM episodic_memories
+             ORDER BY id DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(EpisodicMemoryRecord {
+                id: row.get(0)?,
+                goal_id: row.get(1)?,
+                summary: row.get(2)?,
+                source: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     // Backup uses SQLite VACUUM INTO semantics via ATTACH-compatible copy.
     // Closing/re-opening the connection avoids file-lock surprises on active writers.
     pub fn backup_to(&self, destination: &Path) -> Result<()> {
@@ -554,4 +843,42 @@ fn now_epoch_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     now.as_millis() as i64
+}
+
+fn persist_pending_approval(
+    tx: &rusqlite::Transaction<'_>,
+    goal_id: &str,
+    pending: Option<&PendingApprovalAction>,
+    source: &str,
+    requested_by: Option<&str>,
+    expires_at_ms: i64,
+) -> Result<Option<String>> {
+    let Some(pending) = pending else {
+        return Ok(None);
+    };
+    let approval_id = Uuid::new_v4().to_string();
+    let nonce = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO approval_requests
+         (id, nonce, goal_id, tool_name, capability, input, status, requested_by, expires_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8)",
+        params![
+            approval_id,
+            nonce,
+            goal_id,
+            pending.tool_name,
+            pending.capability,
+            pending.input.clone().unwrap_or_default(),
+            requested_by.or(Some(source)),
+            expires_at_ms
+        ],
+    )?;
+    tx.execute(
+        "INSERT INTO trace_events (goal_id, event_type, detail) VALUES (?1, 'approval_queued', ?2)",
+        params![
+            goal_id,
+            format!("approval_id={} tool={}", approval_id, pending.tool_name)
+        ],
+    )?;
+    Ok(Some(approval_id))
 }

@@ -2,11 +2,15 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 use serde_json::Value;
+use serenity::all::{GatewayIntents, Message, Ready};
+use serenity::async_trait;
+use serenity::prelude::{Context as SerenityContext, EventHandler};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use titan_common::config::{AutonomyMode, ModelProvider, TitanConfig};
@@ -17,6 +21,7 @@ use titan_core::{
     SubagentOrchestrator, SubagentTask, SubmitOutcome, TraceEvent,
 };
 use titan_discord::DiscordGateway;
+use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::MemoryStore;
 use titan_skills::{SkillPackage, SkillRuntime};
 use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry};
@@ -33,6 +38,20 @@ struct Cli {
 enum Command {
     /// Validate local setup and generate default config if missing.
     Doctor,
+    /// Run core runtime services (Discord loop + web UI).
+    Run {
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        bind: String,
+        #[arg(long, default_value_t = 2_000)]
+        poll_interval_ms: u64,
+    },
+    /// Alias for `run`.
+    Start {
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        bind: String,
+        #[arg(long, default_value_t = 2_000)]
+        poll_interval_ms: u64,
+    },
     /// Guided first-run setup (workspace, mode, channels, model selection).
     Onboard {
         /// Install a startup daemon after setup completes.
@@ -252,6 +271,14 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Doctor) => doctor(),
+        Some(Command::Run {
+            bind,
+            poll_interval_ms,
+        }) => run_services(bind, poll_interval_ms),
+        Some(Command::Start {
+            bind,
+            poll_interval_ms,
+        }) => run_services(bind, poll_interval_ms),
         Some(Command::Onboard { install_daemon }) => onboard(install_daemon),
         Some(Command::Setup { install_daemon }) => onboard(install_daemon),
         Some(Command::Goal { command }) => goal(command),
@@ -409,7 +436,7 @@ fn onboard(install_daemon: bool) -> Result<()> {
     let discord_enabled = prompt_yes_no("Enable Discord integration", config.discord.enabled)?;
     config.discord.enabled = discord_enabled;
     if discord_enabled {
-        let token_default = config.discord.token.clone().unwrap_or_default();
+        let token_default = resolve_discord_token(&config).unwrap_or_default();
         let token = prompt_with_default("Discord bot token (DISCORD_BOT_TOKEN)", &token_default)?;
         if token.trim().is_empty() {
             config.discord.token = None;
@@ -421,6 +448,7 @@ fn onboard(install_daemon: bool) -> Result<()> {
             .discord
             .default_channel_id
             .clone()
+            .or_else(resolve_discord_channel_from_env)
             .unwrap_or_default();
         let channel =
             prompt_with_default("Default Discord channel id (optional)", &channel_default)?;
@@ -605,11 +633,40 @@ fn doctor() -> Result<()> {
     let (config, path, created) = TitanConfig::load_or_create()?;
     config.validate_and_prepare()?;
     logging::init(&config.log_level);
+    let db_path = config.workspace_dir.join("titan.db");
+    let _store = MemoryStore::open(&db_path)?;
+
+    let bind_addr = web_runtime::default_bind_addr();
+    let parsed_bind = bind_addr
+        .parse::<std::net::SocketAddr>()
+        .with_context(|| format!("invalid default web bind address: {bind_addr}"))?;
+    let listener = std::net::TcpListener::bind(parsed_bind)
+        .with_context(|| format!("web bind check failed for {bind_addr}"))?;
+    drop(listener);
+
+    let discord_token = resolve_discord_token(&config);
+    let discord_config_ok = if config.discord.enabled {
+        discord_token.is_some()
+    } else {
+        true
+    };
+    if config.discord.enabled && !discord_config_ok {
+        bail!("discord is enabled but no token found in config or DISCORD_BOT_TOKEN/DISCORD_TOKEN");
+    }
+    let default_channel_id = resolve_discord_channel_id(&config);
+    if config.discord.enabled && default_channel_id.is_none() {
+        bail!("discord.default_channel_id must be a numeric id when discord is enabled");
+    }
 
     println!("{} doctor: OK", APP_NAME);
     println!("config: {}", path.display());
     println!("workspace: {}", config.workspace_dir.display());
+    println!("db: {}", db_path.display());
     println!("mode: {:?}", config.mode);
+    println!("discord_enabled: {}", config.discord.enabled);
+    println!("discord_token_present: {}", discord_token.is_some());
+    println!("discord_config_ok: {}", discord_config_ok);
+    println!("web_bind_default: {}", bind_addr);
     println!("created_config: {created}");
 
     Ok(())
@@ -974,12 +1031,11 @@ fn memory(command: MemoryCommand) -> Result<()> {
 fn discord(command: DiscordCommand) -> Result<()> {
     let config = load_initialized_config()?;
 
-    let token = std::env::var("DISCORD_BOT_TOKEN")
-        .ok()
-        .or(config.discord.token.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!("discord token missing: set DISCORD_BOT_TOKEN or config.discord.token")
-        })?;
+    let token = resolve_discord_token(&config).ok_or_else(|| {
+        anyhow::anyhow!(
+            "discord token missing: set DISCORD_BOT_TOKEN or DISCORD_TOKEN or config.discord.token"
+        )
+    })?;
 
     let gateway = DiscordGateway::new(&token, 10_000)?;
     match command {
@@ -1047,10 +1103,177 @@ fn web(command: WebCommand) -> Result<()> {
                 &bind,
                 db_path,
                 config.workspace_dir.clone(),
+                autonomy_mode_name(&config.mode).to_string(),
             ))?;
         }
     }
     Ok(())
+}
+
+fn run_services(bind: String, _poll_interval_ms: u64) -> Result<()> {
+    let config = load_initialized_config()?;
+    let db_path = config.workspace_dir.join("titan.db");
+    let _store = MemoryStore::open(&db_path)?;
+    let runtime = TitanGatewayRuntime::new(
+        config.mode.clone(),
+        config.workspace_dir.clone(),
+        db_path.clone(),
+    );
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .with_context(|| "failed to build async runtime for titan run")?;
+    rt.block_on(run_services_async(config, bind, db_path, runtime))
+}
+
+struct DiscordHandler {
+    runtime: Arc<Mutex<TitanGatewayRuntime>>,
+    db_path: PathBuf,
+    default_channel_id: Option<u64>,
+}
+
+#[async_trait]
+impl EventHandler for DiscordHandler {
+    async fn ready(&self, _: SerenityContext, ready: Ready) {
+        println!("discord_ready: {} ({})", ready.user.name, ready.user.id);
+    }
+
+    async fn message(&self, ctx: SerenityContext, msg: Message) {
+        if msg.author.bot {
+            return;
+        }
+        if let Some(default_channel_id) = self.default_channel_id
+            && msg.channel_id.get() != default_channel_id
+        {
+            return;
+        }
+
+        let content = msg.content.trim().to_string();
+        if content.is_empty() {
+            return;
+        }
+
+        if content.starts_with("/titan") {
+            let runtime = Arc::clone(&self.runtime);
+            let db_path = self.db_path.clone();
+            let actor_id = msg.author.id.to_string();
+            let content_copy = content.clone();
+            let command_result = tokio::task::spawn_blocking(move || {
+                let mut lock = runtime
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
+                handle_discord_command(&mut lock, &content_copy, &actor_id, &db_path)
+            })
+            .await;
+
+            if let Ok(Ok(Some(reply))) = command_result {
+                let _ = msg.channel_id.say(&ctx.http, reply).await;
+            }
+            return;
+        }
+
+        let normalized = content.to_ascii_lowercase();
+        if !(normalized.contains("scan workspace")
+            || normalized.contains("update readme")
+            || normalized.contains("write ")
+            || normalized.contains("read "))
+        {
+            return;
+        }
+
+        let runtime = Arc::clone(&self.runtime);
+        let actor_id = msg.author.id.to_string();
+        let content_copy = content.clone();
+        let run_result = tokio::task::spawn_blocking(move || {
+            let lock = runtime
+                .lock()
+                .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
+            lock.process_event(InboundEvent::new(
+                GatewayChannel::Discord,
+                actor_id,
+                content_copy,
+            ))
+        })
+        .await;
+
+        let response = match run_result {
+            Ok(Ok(outcome)) => {
+                let mut reply = format!(
+                    "goal={} status={} summary={}",
+                    outcome.goal_id,
+                    outcome.goal_status.as_str(),
+                    outcome.summary
+                );
+                if let Some(approval_id) = outcome.pending_approval_id {
+                    reply.push_str(&format!(" approval_pending={approval_id}"));
+                }
+                reply
+            }
+            Ok(Err(err)) => format!("run_error: {err}"),
+            Err(err) => format!("runtime_join_error: {err}"),
+        };
+        let _ = msg.channel_id.say(&ctx.http, response).await;
+    }
+}
+
+async fn run_services_async(
+    config: TitanConfig,
+    bind: String,
+    db_path: PathBuf,
+    runtime: TitanGatewayRuntime,
+) -> Result<()> {
+    let web_bind = bind.clone();
+    let web_db = db_path.clone();
+    let web_workspace = config.workspace_dir.clone();
+    let web_mode = autonomy_mode_name(&config.mode).to_string();
+    tokio::spawn(async move {
+        if let Err(err) = web_runtime::serve(&web_bind, web_db, web_workspace, web_mode).await {
+            eprintln!("web runtime stopped: {err}");
+        }
+    });
+
+    println!("run_status: starting");
+    println!("workspace: {}", config.workspace_dir.display());
+    println!("db: {}", db_path.display());
+    println!("web_bind: {}", bind);
+    println!("mode: {}", autonomy_mode_name(&config.mode));
+
+    if !config.discord.enabled {
+        println!("discord_enabled: false");
+        println!("runtime: web-only (set discord.enabled=true to enable Discord gateway)");
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+    }
+
+    let token = resolve_discord_token(&config).ok_or_else(|| {
+        anyhow::anyhow!(
+            "discord token missing: set DISCORD_BOT_TOKEN or DISCORD_TOKEN or config.discord.token"
+        )
+    })?;
+    let default_channel_id = resolve_discord_channel_id(&config);
+    println!("discord_enabled: true");
+    if let Some(channel_id) = default_channel_id {
+        println!("discord_channel: {}", channel_id);
+    }
+
+    let intents = GatewayIntents::GUILD_MESSAGES
+        | GatewayIntents::DIRECT_MESSAGES
+        | GatewayIntents::MESSAGE_CONTENT;
+    let handler = DiscordHandler {
+        runtime: Arc::new(Mutex::new(runtime)),
+        db_path,
+        default_channel_id,
+    };
+    let mut client = serenity::Client::builder(token, intents)
+        .event_handler(handler)
+        .await
+        .with_context(|| "failed to build Discord gateway client")?;
+    client
+        .start()
+        .await
+        .with_context(|| "Discord gateway client stopped unexpectedly")
 }
 
 fn agent(command: AgentCommand) -> Result<()> {
@@ -1106,6 +1329,97 @@ fn agent(command: AgentCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_discord_command(
+    runtime: &mut TitanGatewayRuntime,
+    command: &str,
+    actor_id: &str,
+    db_path: &Path,
+) -> Result<Option<String>> {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    if parts.is_empty() || parts[0] != "/titan" {
+        return Ok(None);
+    }
+    if parts.len() == 1 {
+        return Ok(Some(
+            "usage: /titan status|mode <supervised|collab|auto>|approve <id>|deny <id>|trace last"
+                .to_string(),
+        ));
+    }
+
+    match parts[1] {
+        "status" => {
+            let store = MemoryStore::open(db_path)?;
+            let pending = store.list_pending_approvals()?.len();
+            let queue = store.count_active_goals()?;
+            return Ok(Some(format!(
+                "mode={} queue_depth={} pending_approvals={}",
+                autonomy_mode_name(&runtime.mode()),
+                queue,
+                pending
+            )));
+        }
+        "mode" => {
+            if parts.len() < 3 {
+                return Ok(Some(
+                    "usage: /titan mode <supervised|collab|auto>".to_string(),
+                ));
+            }
+            let selected = match parts[2].trim().to_ascii_lowercase().as_str() {
+                "supervised" => Some(AutonomyMode::Supervised),
+                "collab" | "collaborative" => Some(AutonomyMode::Collaborative),
+                "auto" | "autonomous" => Some(AutonomyMode::Autonomous),
+                _ => None,
+            };
+            let Some(new_mode) = selected else {
+                return Ok(Some("invalid mode. use supervised|collab|auto".to_string()));
+            };
+            let (mut config, path, _) = TitanConfig::load_or_create()?;
+            config.mode = new_mode.clone();
+            config.save(&path)?;
+            runtime.set_mode(new_mode.clone());
+            return Ok(Some(format!(
+                "mode_updated={}",
+                autonomy_mode_name(&new_mode)
+            )));
+        }
+        "approve" => {
+            if parts.len() < 3 {
+                return Ok(Some("usage: /titan approve <id>".to_string()));
+            }
+            let status =
+                runtime.resolve_approval(parts[2], true, actor_id, Some("discord approve"))?;
+            return Ok(Some(format!("approval_status={status}")));
+        }
+        "deny" => {
+            if parts.len() < 3 {
+                return Ok(Some("usage: /titan deny <id>".to_string()));
+            }
+            let status =
+                runtime.resolve_approval(parts[2], false, actor_id, Some("discord deny"))?;
+            return Ok(Some(format!("approval_status={status}")));
+        }
+        "trace" => {
+            if parts.len() == 3 && parts[2] == "last" {
+                let store = MemoryStore::open(db_path)?;
+                let rows = store.list_recent_traces(1)?;
+                if let Some(trace) = rows.first() {
+                    return Ok(Some(format!(
+                        "trace_last goal={} type={} detail={}",
+                        trace.goal_id, trace.event_type, trace.detail
+                    )));
+                }
+                return Ok(Some("trace_last none".to_string()));
+            }
+            return Ok(Some("usage: /titan trace last".to_string()));
+        }
+        _ => {}
+    }
+
+    Ok(Some(
+        "unknown subcommand. use status|mode|approve|deny|trace".to_string(),
+    ))
 }
 
 fn configure_model_interactive(config: &mut TitanConfig) -> Result<()> {
@@ -1402,6 +1716,41 @@ fn model_provider_name(provider: &ModelProvider) -> &'static str {
         ModelProvider::Ollama => "ollama",
         ModelProvider::Custom => "custom",
     }
+}
+
+fn autonomy_mode_name(mode: &AutonomyMode) -> &'static str {
+    match mode {
+        AutonomyMode::Supervised => "supervised",
+        AutonomyMode::Collaborative => "collaborative",
+        AutonomyMode::Autonomous => "autonomous",
+    }
+}
+
+fn resolve_discord_token(config: &TitanConfig) -> Option<String> {
+    std::env::var("DISCORD_BOT_TOKEN")
+        .ok()
+        .or_else(|| std::env::var("DISCORD_TOKEN").ok())
+        .or(config.discord.token.clone())
+}
+
+fn resolve_discord_channel_from_env() -> Option<String> {
+    std::env::var("DISCORD_CHANNEL_ID").ok().and_then(|raw| {
+        let trimmed = raw.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn resolve_discord_channel_id(config: &TitanConfig) -> Option<u64> {
+    config
+        .discord
+        .default_channel_id
+        .clone()
+        .or_else(resolve_discord_channel_from_env)
+        .and_then(|raw| raw.parse::<u64>().ok())
 }
 
 fn mode_index(mode: &AutonomyMode) -> usize {

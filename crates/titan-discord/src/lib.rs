@@ -24,6 +24,22 @@ pub struct DiscordMessageRef {
     pub channel_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscordInboundMessage {
+    pub id: String,
+    pub channel_id: String,
+    pub content: String,
+    pub author: DiscordMessageAuthor,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscordMessageAuthor {
+    pub id: String,
+    pub username: String,
+    #[serde(default)]
+    pub bot: bool,
+}
+
 impl DiscordGateway {
     pub fn new(token: &str, timeout_ms: u64) -> Result<Self> {
         let trimmed = token.trim();
@@ -94,5 +110,42 @@ impl DiscordGateway {
             .json::<DiscordMessageRef>()
             .with_context(|| "failed to parse discord message response")?;
         Ok(message)
+    }
+
+    pub fn list_recent_messages(
+        &self,
+        channel_id: &str,
+        after_message_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DiscordInboundMessage>> {
+        let channel_id = channel_id.trim();
+        if channel_id.is_empty() {
+            bail!("channel_id is required");
+        }
+        let bounded_limit = limit.clamp(1, 100);
+        let mut request = self
+            .client
+            .get(format!("{DISCORD_API_BASE}/channels/{channel_id}/messages"));
+        let limit_string = bounded_limit.to_string();
+        request = request.query(&[("limit", limit_string)]);
+        if let Some(after) = after_message_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request = request.query(&[("after", after.to_string())]);
+        }
+        let response = request
+            .send()
+            .with_context(|| "failed to fetch discord channel messages")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            bail!("discord list messages failed: {} {}", status.as_u16(), body);
+        }
+        let mut messages = response
+            .json::<Vec<DiscordInboundMessage>>()
+            .with_context(|| "failed to parse discord messages response")?;
+        messages.sort_by_key(|msg| msg.id.parse::<u64>().unwrap_or_default());
+        Ok(messages)
     }
 }

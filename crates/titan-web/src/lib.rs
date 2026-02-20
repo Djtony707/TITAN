@@ -16,6 +16,7 @@ use titan_tools::{ToolExecutionContext, ToolExecutor, ToolRegistry};
 struct AppState {
     db_path: PathBuf,
     workspace_root: PathBuf,
+    mode: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,6 +49,21 @@ struct TraceDto {
     detail: String,
 }
 
+#[derive(Debug, Serialize)]
+struct EpisodicMemoryDto {
+    id: i64,
+    goal_id: String,
+    summary: String,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RuntimeStatusDto {
+    mode: String,
+    queue_depth: usize,
+    pending_approvals: usize,
+}
+
 #[derive(Debug, Deserialize)]
 struct ListQuery {
     limit: Option<usize>,
@@ -71,16 +87,25 @@ struct DecisionOutput {
     detail: String,
 }
 
-pub async fn serve(bind_addr: &str, db_path: PathBuf, workspace_root: PathBuf) -> Result<()> {
+pub async fn serve(
+    bind_addr: &str,
+    db_path: PathBuf,
+    workspace_root: PathBuf,
+    mode: String,
+) -> Result<()> {
     let state = Arc::new(AppState {
         db_path,
         workspace_root,
+        mode,
     });
     let app = Router::new()
         .route("/", get(index))
         .route("/api/health", get(api_health))
+        .route("/api/runtime/status", get(api_runtime_status))
         .route("/api/goals", get(api_goals))
         .route("/api/approvals/pending", get(api_pending_approvals))
+        .route("/api/memory/episodic", get(api_episodic_memory))
+        .route("/api/traces/recent", get(api_recent_traces))
         .route("/api/traces/search", get(api_search_traces))
         .route("/api/approvals/{id}/approve", post(api_approve))
         .route("/api/approvals/{id}/deny", post(api_deny))
@@ -112,10 +137,13 @@ async fn index() -> impl IntoResponse {
 </head>
 <body>
   <h1>TITAN Web Dashboard</h1>
-  <p>Approvals, goals, and trace search.</p>
+  <p>Mode, approvals, goals, traces, and episodic memory.</p>
   <div class="grid">
+    <div class="card"><h3>Runtime</h3><pre id="runtime"></pre></div>
     <div class="card"><h3>Pending Approvals</h3><div id="approvals"></div></div>
     <div class="card"><h3>Goals</h3><div id="goals"></div></div>
+    <div class="card"><h3>Recent Traces</h3><pre id="recent_traces"></pre></div>
+    <div class="card"><h3>Episodic Memory</h3><pre id="memory"></pre></div>
     <div class="card"><h3>Trace Search</h3>
       <input id="pattern" value="execution" />
       <button onclick="loadTraces()">Search</button>
@@ -123,6 +151,12 @@ async fn index() -> impl IntoResponse {
     </div>
   </div>
   <script>
+    async function loadRuntime() {
+      const res = await fetch('/api/runtime/status');
+      const row = await res.json();
+      document.getElementById('runtime').textContent =
+        `mode=${row.mode}\nqueue_depth=${row.queue_depth}\npending_approvals=${row.pending_approvals}`;
+    }
     async function loadApprovals() {
       const res = await fetch('/api/approvals/pending');
       const rows = await res.json();
@@ -146,16 +180,31 @@ async fn index() -> impl IntoResponse {
       const rows = await res.json();
       document.getElementById('traces').textContent = rows.map(t => `${t.goal_id} | ${t.event_type} | ${t.detail}`).join('\n');
     }
+    async function loadRecentTraces() {
+      const res = await fetch('/api/traces/recent?limit=20');
+      const rows = await res.json();
+      document.getElementById('recent_traces').textContent =
+        rows.map(t => `${t.goal_id} | ${t.event_type} | ${t.detail}`).join('\n');
+    }
+    async function loadMemory() {
+      const res = await fetch('/api/memory/episodic?limit=20');
+      const rows = await res.json();
+      document.getElementById('memory').textContent =
+        rows.map(m => `#${m.id} | ${m.goal_id} | ${m.source}\n${m.summary}`).join('\n\n');
+    }
     async function approve(id) {
       await fetch('/api/approvals/' + id + '/approve', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({resolved_by:'web'}) });
-      await loadApprovals(); await loadGoals();
+      await loadApprovals(); await loadGoals(); await loadRecentTraces(); await loadMemory();
     }
     async function deny(id) {
       await fetch('/api/approvals/' + id + '/deny', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({resolved_by:'web'}) });
       await loadApprovals();
     }
-    loadApprovals(); loadGoals(); loadTraces();
+    loadRuntime(); loadApprovals(); loadGoals(); loadTraces(); loadRecentTraces(); loadMemory();
+    setInterval(loadRuntime, 3000);
     setInterval(loadApprovals, 3000);
+    setInterval(loadRecentTraces, 3000);
+    setInterval(loadMemory, 5000);
   </script>
 </body>
 </html>"#,
@@ -184,6 +233,22 @@ async fn api_goals(
         })
         .collect();
     Ok(Json(goals))
+}
+
+async fn api_runtime_status(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<RuntimeStatusDto>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let queue_depth = store.count_active_goals().map_err(internal_error)?;
+    let pending_approvals = store
+        .list_pending_approvals()
+        .map_err(internal_error)?
+        .len();
+    Ok(Json(RuntimeStatusDto {
+        mode: state.mode.clone(),
+        queue_depth,
+        pending_approvals,
+    }))
 }
 
 async fn api_pending_approvals(
@@ -226,6 +291,45 @@ async fn api_search_traces(
         })
         .collect();
     Ok(Json(traces))
+}
+
+async fn api_recent_traces(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<TraceDto>>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let limit = query.limit.unwrap_or(20).min(200);
+    let traces = store
+        .list_recent_traces(limit)
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|t| TraceDto {
+            goal_id: t.goal_id,
+            event_type: t.event_type,
+            detail: t.detail,
+        })
+        .collect();
+    Ok(Json(traces))
+}
+
+async fn api_episodic_memory(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<EpisodicMemoryDto>>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let limit = query.limit.unwrap_or(20).min(200);
+    let rows = store
+        .list_episodic_memory(limit)
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| EpisodicMemoryDto {
+            id: row.id,
+            goal_id: row.goal_id,
+            summary: row.summary,
+            source: row.source,
+        })
+        .collect();
+    Ok(Json(rows))
 }
 
 async fn api_approve(

@@ -1,0 +1,30 @@
+# TITAN Smoke Transcript (Sanitized)
+
+Date: 2026-02-20T23:46:49Z
+Workspace: /home/$USER/Desktop/TITAN
+
+$ ./target/release/titan doctor
+TITAN doctor: OK
+config: <temp-config-path>
+workspace: /home/$USER/titan-workspace
+db: /home/$USER/titan-workspace/titan.db
+mode: Collaborative
+discord_enabled: false
+discord_token_present: false
+discord_config_ok: true
+web_bind_default: 127.0.0.1:3000
+created_config: true
+
+$ ./target/release/titan run --bind 127.0.0.1:3000
+run_status: starting
+workspace: /home/$USER/titan-workspace
+db: /home/$USER/titan-workspace/titan.db
+web_bind: 127.0.0.1:3000
+mode: collaborative
+discord_enabled: false
+runtime: web-only (set discord.enabled=true to enable Discord gateway)
+
+Web UI: http://127.0.0.1:3000
+
+$ cargo test -p titan-gateway --all-features -- --nocapture
+run_proof goal_id=aebfd9a1-9ca9-4bf5-b64f-e84c55808f91 traces=14 plans=1 steps=3 episodic=1

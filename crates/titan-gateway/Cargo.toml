@@ -6,4 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+titan-core = { path = "../titan-core" }
+titan-memory = { path = "../titan-memory" }
+titan-tools = { path = "../titan-tools" }
 titan-common = { path = "../titan-common" }
+
+[dev-dependencies]
+tempfile.workspace = true

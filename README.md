@@ -73,10 +73,44 @@ packaging/winget/
 cargo build --release
 ```
 
-## First Run
+## Quickstart (Under 10 Minutes)
 
 ```bash
-./target/release/titan setup
+# 1) Clone
+cd /home/$USER/Desktop
+git clone https://github.com/Djtony707/TITAN.git
+cd TITAN
+
+# 2) Build
+cargo build --release
+
+# 3) Set Discord env vars (TITAN uses DISCORD_BOT_TOKEN; DISCORD_TOKEN alias is supported)
+export DISCORD_BOT_TOKEN="your-discord-bot-token"
+export DISCORD_CHANNEL_ID="your-channel-id"
+
+# 4) Onboard
+./target/release/titan onboard
+
+# 5) Validate + run
+./target/release/titan doctor
+./target/release/titan run --bind 127.0.0.1:3000
+```
+
+Then in your Discord channel:
+
+- Send `scan workspace` to trigger a read-only goal run.
+- Open [http://127.0.0.1:3000](http://127.0.0.1:3000) and verify run/trace/memory are visible.
+- Send `update readme with install steps` (in collaborative mode) to generate a pending approval.
+- Run `/titan approve <approval_id>` to proceed.
+- Confirm write trace + approval trace + episodic entry in the Web UI.
+
+Optional macOS path note:
+- Use `/Users/$USER/Desktop/TITAN` instead of `/home/$USER/Desktop/TITAN`.
+
+## First Run (Manual)
+
+```bash
+./target/release/titan onboard
 # Optional: install startup daemon as part of setup
 ./target/release/titan setup --install-daemon
 ```
@@ -84,9 +118,10 @@ cargo build --release
 Then validate setup:
 
 ```bash
-./target/release/titan doctor
-./target/release/titan model show
-./target/release/titan comm list
+titan doctor
+titan model show
+titan comm list
+titan run --bind 127.0.0.1:3000
 ```
 
 ## Core CLI
@@ -134,6 +169,7 @@ Open `http://127.0.0.1:3000` and you’re in business.
 ## Documentation
 
 - `docs/GETTING_STARTED.md`
+- `docs/first_run.md`
 - `docs/ONBOARDING.md`
 - `docs/API.md`
 - `docs/TITAN_COMMUNICATION_INTEGRATIONS.md`

@@ -266,7 +266,7 @@ Axum-based local UI:
 ## File Structure
 
 ```
-~/Desktop/TITAN/
+/home/$USER/Desktop/TITAN/
 ├── Cargo.toml              # Workspace root
 ├── README.md
 ├── LICENSE

@@ -18,7 +18,9 @@ titan-memory = { path = "../titan-memory" }
 titan-skills = { path = "../titan-skills" }
 titan-common = { path = "../titan-common" }
 titan-tools = { path = "../titan-tools" }
+titan-gateway = { path = "../titan-gateway" }
 tokio.workspace = true
+serenity.workspace = true
 titan-web = { path = "../titan-web" }
 
 [[bin]]
