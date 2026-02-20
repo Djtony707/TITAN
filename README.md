@@ -2,20 +2,37 @@
 
 TITAN is a Rust-based AI agent platform with local-first operation, explicit approval gates, and multi-channel communication support.
 
-## Current Status
+If you want an agent that is useful, auditable, and less likely to do something dramatic at 2 AM, this is the project.
 
-- Core goal lifecycle runtime is implemented.
-- Tool policy and approval flow are implemented.
-- SQLite memory and trace persistence are implemented.
-- Web dashboard and API are implemented.
-- Multi-channel communication surface is implemented (native + bridge adapters).
-- Onboarding wizard and model configuration (including local Ollama discovery) are implemented.
+## What’s Working Now
+
+- Core goal lifecycle runtime
+- Tool policy engine + approval workflow
+- SQLite memory + trace persistence
+- Web dashboard + HTTP API
+- Multi-channel communication surface (native + bridge adapters)
+- Onboarding wizard
+- Model configuration, including local Ollama discovery
 
 ## Requirements
 
-- Rust 1.85+
-- SQLite 3.x
-- Optional: Ollama for local models (`http://127.0.0.1:11434`)
+- Rust `1.85+`
+- SQLite `3.x`
+- Optional: Ollama at `http://127.0.0.1:11434` for local models
+
+## Fast Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.sh | bash
+```
+
+Local installer usage (from this repo):
+
+```bash
+./scripts/install.sh
+```
+
+By default, the installer links `titan` into `~/.local/bin` and starts onboarding automatically in interactive terminals.
 
 ## Build
 
@@ -26,10 +43,10 @@ cargo build --release
 ## First Run
 
 ```bash
-./target/release/titan onboard
+./target/release/titan setup
 ```
 
-Then validate:
+Then validate setup:
 
 ```bash
 ./target/release/titan doctor
@@ -37,9 +54,9 @@ Then validate:
 ./target/release/titan comm list
 ```
 
-## Key CLI Commands
+## Core CLI
 
-### Goal runtime
+### Goal Runtime
 
 ```bash
 titan goal submit "Summarize workspace status"
@@ -47,7 +64,7 @@ titan goal show <goal_id>
 titan goal cancel <goal_id>
 ```
 
-### Tools and approvals
+### Tools and Approvals
 
 ```bash
 titan tool run list_dir --input .
@@ -55,7 +72,7 @@ titan approval list
 titan approval approve <approval_id>
 ```
 
-### Model configuration
+### Model Configuration
 
 ```bash
 titan model show
@@ -63,7 +80,7 @@ titan model list-ollama
 titan model set ollama llama3.2:latest --endpoint http://127.0.0.1:11434
 ```
 
-### Communication integrations
+### Communication Integrations
 
 ```bash
 titan comm list
@@ -71,11 +88,13 @@ titan comm status discord
 titan comm send discord --target <channel_id> --message "TITAN online"
 ```
 
-### Web dashboard
+### Web Dashboard
 
 ```bash
 titan web serve --bind 127.0.0.1:3000
 ```
+
+Open `http://127.0.0.1:3000` and you’re in business.
 
 ## Documentation
 
@@ -87,6 +106,8 @@ titan web serve --bind 127.0.0.1:3000
 - `docs/originality.md`
 
 ## Quality Gates
+
+Run these before each release:
 
 ```bash
 cargo fmt --all

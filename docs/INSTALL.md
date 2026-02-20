@@ -14,13 +14,35 @@ cd TITAN
 cargo build --release
 ```
 
+## Fast Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.sh | bash
+```
+
+The installer will:
+1. Ensure Rust toolchain is present (installs via `rustup` if missing)
+2. Clone or update TITAN in `~/TITAN`
+3. Build TITAN (release profile)
+4. Install `titan` into `~/.local/bin` (with PATH guidance)
+5. Launch setup in interactive terminals
+
+Installer flags:
+
+```bash
+./scripts/install.sh --help
+./scripts/install.sh --dir ~/code/TITAN --skip-onboard
+./scripts/install.sh --debug
+./scripts/install.sh --no-link
+```
+
 ## First Setup
 
 ```bash
-./target/release/titan onboard
+./target/release/titan setup
 ```
 
-The onboarding wizard configures workspace, autonomy mode, optional Discord integration, and model provider/model.
+The setup wizard configures workspace, autonomy mode, optional Discord integration, and model provider/model.
 
 ## Validate Install
 
@@ -58,10 +80,10 @@ Make sure Rust is installed and up to date.
 
 ### Workspace permission issues
 
-Use onboarding again and choose a writable workspace path:
+Use setup again and choose a writable workspace path:
 
 ```bash
-./target/release/titan onboard
+./target/release/titan setup
 ```
 
 ### Model discovery issues (Ollama)

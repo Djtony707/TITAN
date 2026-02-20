@@ -35,6 +35,8 @@ enum Command {
     Doctor,
     /// Guided first-run setup (workspace, mode, channels, model selection).
     Onboard,
+    /// Alias for `onboard` for first-time setup.
+    Setup,
     /// Goal operations.
     Goal {
         #[command(subcommand)]
@@ -243,6 +245,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Command::Doctor) => doctor(),
         Some(Command::Onboard) => onboard(),
+        Some(Command::Setup) => onboard(),
         Some(Command::Goal { command }) => goal(command),
         Some(Command::Tool { command }) => tool(command),
         Some(Command::Approval { command }) => approval(command),

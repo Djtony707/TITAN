@@ -8,12 +8,12 @@ Last updated: February 20, 2026
 git clone https://github.com/Djtony707/TITAN.git
 cd TITAN
 cargo build --release
-./target/release/titan onboard
+./target/release/titan setup
 ```
 
 ## What onboarding does
 
-`titan onboard` is an interactive setup that configures:
+`titan setup` is an interactive setup that configures:
 1. Workspace directory
 2. Safety mode (`supervised`, `collaborative`, `autonomous`)
 3. Discord credentials (optional)

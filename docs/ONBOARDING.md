@@ -10,11 +10,13 @@ This guide matches the current CLI implementation.
 cargo build --release
 ```
 
-## 2. Run the onboarding wizard
+## 2. Run the setup wizard
 
 ```bash
-./target/release/titan onboard
+./target/release/titan setup
 ```
+
+(`titan setup` is an alias for `titan onboard`.)  
 
 The wizard configures:
 1. Workspace path
@@ -24,7 +26,7 @@ The wizard configures:
 
 ## 3. Model selection (including local Ollama)
 
-When you select `ollama` in onboarding, TITAN discovers local models from:
+When you select `ollama` in setup, TITAN discovers local models from:
 1. Ollama API (`/api/tags`)
 2. `ollama list` CLI output
 3. Local manifest files under `~/.ollama/models/manifests`
