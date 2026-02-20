@@ -1,0 +1,25 @@
+{
+  "name": "@titan-ai/cli",
+  "version": "0.1.0",
+  "description": "TITAN CLI wrapper that installs platform binaries from GitHub Releases",
+  "license": "MIT",
+  "homepage": "https://github.com/Djtony707/TITAN",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Djtony707/TITAN.git"
+  },
+  "bin": {
+    "titan": "bin/titan.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "vendor"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

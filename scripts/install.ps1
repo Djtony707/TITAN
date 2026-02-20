@@ -3,6 +3,7 @@ param(
     [string]$RepoUrl = "https://github.com/Djtony707/TITAN.git",
     [switch]$Debug,
     [switch]$SkipOnboard,
+    [switch]$InstallDaemon,
     [switch]$NoLink,
     [string]$BinDir = "$env:LOCALAPPDATA\Programs\TITAN\bin"
 )
@@ -113,10 +114,18 @@ if (-not $NoLink) {
 
 if (-not $SkipOnboard) {
     Write-Step "Launching setup wizard..."
-    & $TitanCmd setup
+    if ($InstallDaemon) {
+        & $TitanCmd setup --install-daemon
+    } else {
+        & $TitanCmd setup
+    }
 } else {
     Write-Step "Onboarding skipped by flag."
-    Write-Host "Run this next: $TitanCmd setup"
+    if ($InstallDaemon) {
+        Write-Host "Run this next: $TitanCmd setup --install-daemon"
+    } else {
+        Write-Host "Run this next: $TitanCmd setup"
+    }
 }
 
 Write-Step "Quick validation commands"

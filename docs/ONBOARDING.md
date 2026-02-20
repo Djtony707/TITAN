@@ -18,6 +18,12 @@ cargo build --release
 
 (`titan setup` is an alias for `titan onboard`.)  
 
+To install a startup daemon as part of setup:
+
+```bash
+./target/release/titan setup --install-daemon
+```
+
 The wizard configures:
 1. Workspace path
 2. Autonomy mode (`supervised`, `collaborative`, `autonomous`)

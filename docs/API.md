@@ -7,6 +7,7 @@
 - `titan doctor`
 - `titan onboard`
 - `titan setup` (alias for `titan onboard`)
+- `titan setup --install-daemon`
 - `titan goal submit <description> [--dedupe-key ...] [--simulate success|fail|timeout] [--max-retries N] [--timeout-ms N]`
 - `titan goal show <goal_id>`
 - `titan goal cancel <goal_id>`

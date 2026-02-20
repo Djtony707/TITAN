@@ -7,6 +7,7 @@ BUILD_PROFILE="release"
 RUN_ONBOARD="1"
 INSTALL_BIN="1"
 BIN_DIR="${HOME}/.local/bin"
+INSTALL_DAEMON="0"
 
 print_help() {
   cat <<'USAGE'
@@ -23,6 +24,7 @@ Options:
   --no-onboard        Alias for --skip-onboard
   --no-link           Do not install/link titan to ~/.local/bin
   --bin-dir <path>    Binary install directory (default: ~/.local/bin)
+  --install-daemon    Install startup daemon during setup
   -h, --help          Show this help message
 USAGE
 }
@@ -56,6 +58,10 @@ while [[ $# -gt 0 ]]; do
     --bin-dir)
       BIN_DIR="$2"
       shift 2
+      ;;
+    --install-daemon)
+      INSTALL_DAEMON="1"
+      shift
       ;;
     -h|--help)
       print_help
@@ -161,14 +167,26 @@ fi
 if [[ "${RUN_ONBOARD}" == "1" ]]; then
   if [[ -t 0 && -t 1 ]]; then
     echo "==> Launching setup wizard..."
-    run_titan setup
+    if [[ "${INSTALL_DAEMON}" == "1" ]]; then
+      run_titan setup --install-daemon
+    else
+      run_titan setup
+    fi
   else
     echo "==> Non-interactive shell detected; skipping onboarding wizard."
-    echo "Run this next: ${TITAN_CMD} setup"
+    if [[ "${INSTALL_DAEMON}" == "1" ]]; then
+      echo "Run this next: ${TITAN_CMD} setup --install-daemon"
+    else
+      echo "Run this next: ${TITAN_CMD} setup"
+    fi
   fi
 else
   echo "==> Onboarding skipped by flag."
-  echo "Run this next: ${TITAN_CMD} setup"
+  if [[ "${INSTALL_DAEMON}" == "1" ]]; then
+    echo "Run this next: ${TITAN_CMD} setup --install-daemon"
+  else
+    echo "Run this next: ${TITAN_CMD} setup"
+  fi
 fi
 
 echo "==> Quick validation commands"

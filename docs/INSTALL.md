@@ -34,6 +34,13 @@ curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/instal
 irm https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.ps1 | iex
 ```
 
+### NPM Global Install (release assets required)
+
+```bash
+npm install -g @titan-ai/cli@latest
+# or: pnpm add -g @titan-ai/cli@latest
+```
+
 The installer will:
 1. Ensure Rust toolchain is present (installs via `rustup` if missing)
 2. Clone or update TITAN in `~/TITAN`
@@ -48,6 +55,7 @@ Installer flags:
 ./scripts/install.sh --dir ~/code/TITAN --skip-onboard
 ./scripts/install.sh --debug
 ./scripts/install.sh --no-link
+./scripts/install.sh --install-daemon
 ```
 
 PowerShell flags:
@@ -57,6 +65,7 @@ PowerShell flags:
 ./scripts/install.ps1 -InstallDir \"$HOME\\code\\TITAN\" -SkipOnboard
 ./scripts/install.ps1 -Debug
 ./scripts/install.ps1 -NoLink
+./scripts/install.ps1 -InstallDaemon
 ```
 
 ### Homebrew (macOS/Linux)
@@ -81,6 +90,8 @@ cargo install --git https://github.com/Djtony707/TITAN.git titan-cli
 
 ```bash
 ./target/release/titan setup
+# Install startup daemon during setup
+./target/release/titan setup --install-daemon
 ```
 
 The setup wizard configures workspace, autonomy mode, optional Discord integration, and model provider/model.

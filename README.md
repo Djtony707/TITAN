@@ -34,6 +34,13 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.ps1 | iex
 ```
 
+NPM global install (release assets required):
+
+```bash
+npm install -g @titan-ai/cli@latest
+# or: pnpm add -g @titan-ai/cli@latest
+```
+
 Local installer usage (from this repo):
 
 ```bash
@@ -54,6 +61,12 @@ CLI-only non-interactive installer:
 curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install-cli.sh | bash
 ```
 
+Winget manifest templates are included at:
+
+```text
+packaging/winget/
+```
+
 ## Build
 
 ```bash
@@ -64,6 +77,8 @@ cargo build --release
 
 ```bash
 ./target/release/titan setup
+# Optional: install startup daemon as part of setup
+./target/release/titan setup --install-daemon
 ```
 
 Then validate setup:

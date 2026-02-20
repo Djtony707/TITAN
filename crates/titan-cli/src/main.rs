@@ -34,9 +34,17 @@ enum Command {
     /// Validate local setup and generate default config if missing.
     Doctor,
     /// Guided first-run setup (workspace, mode, channels, model selection).
-    Onboard,
+    Onboard {
+        /// Install a startup daemon after setup completes.
+        #[arg(long, default_value_t = false)]
+        install_daemon: bool,
+    },
     /// Alias for `onboard` for first-time setup.
-    Setup,
+    Setup {
+        /// Install a startup daemon after setup completes.
+        #[arg(long, default_value_t = false)]
+        install_daemon: bool,
+    },
     /// Goal operations.
     Goal {
         #[command(subcommand)]
@@ -244,8 +252,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Doctor) => doctor(),
-        Some(Command::Onboard) => onboard(),
-        Some(Command::Setup) => onboard(),
+        Some(Command::Onboard { install_daemon }) => onboard(install_daemon),
+        Some(Command::Setup { install_daemon }) => onboard(install_daemon),
         Some(Command::Goal { command }) => goal(command),
         Some(Command::Tool { command }) => tool(command),
         Some(Command::Approval { command }) => approval(command),
@@ -367,7 +375,7 @@ fn model(command: ModelCommand) -> Result<()> {
     Ok(())
 }
 
-fn onboard() -> Result<()> {
+fn onboard(install_daemon: bool) -> Result<()> {
     let (mut config, path, created) = TitanConfig::load_or_create()?;
     logging::init(&config.log_level);
 
@@ -441,12 +449,155 @@ fn onboard() -> Result<()> {
     );
     println!("model_id: {}", config.model.model_id);
     println!("discord_enabled: {}", config.discord.enabled);
+    if install_daemon {
+        let daemon = install_startup_daemon()?;
+        println!("daemon_installed: true");
+        println!("daemon_kind: {}", daemon.kind);
+        println!("daemon_detail: {}", daemon.detail);
+    } else {
+        println!("daemon_installed: false");
+    }
     println!("next_steps:");
     println!("- Run `titan doctor`");
     println!("- Run `titan model show`");
     println!("- Run `titan comm list`");
+    if !install_daemon {
+        println!("- Optional: run `titan setup --install-daemon`");
+    }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct DaemonInstallResult {
+    kind: &'static str,
+    detail: String,
+}
+
+fn install_startup_daemon() -> Result<DaemonInstallResult> {
+    let exe = std::env::current_exe().with_context(|| "failed to resolve titan executable path")?;
+    let exe_str = exe
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("executable path contains invalid UTF-8"))?;
+
+    if cfg!(target_os = "linux") {
+        return install_linux_user_daemon(exe_str);
+    }
+    if cfg!(target_os = "macos") {
+        return install_macos_launch_agent(exe_str);
+    }
+    if cfg!(target_os = "windows") {
+        return install_windows_task(exe_str);
+    }
+
+    bail!("daemon install not supported on this platform")
+}
+
+fn install_linux_user_daemon(exe: &str) -> Result<DaemonInstallResult> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    let service_dir = home.join(".config/systemd/user");
+    fs::create_dir_all(&service_dir)?;
+    let service_path = service_dir.join("titan.service");
+    let service = format!(
+        "[Unit]\nDescription=TITAN User Service\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart={} web serve --bind 127.0.0.1:3000\nRestart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        shell_escape_arg(exe)
+    );
+    fs::write(&service_path, service)?;
+
+    let _ = ProcessCommand::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status();
+    let _ = ProcessCommand::new("systemctl")
+        .args(["--user", "enable", "--now", "titan.service"])
+        .status();
+
+    Ok(DaemonInstallResult {
+        kind: "systemd-user",
+        detail: format!(
+            "service file at {} (enabled if systemctl --user is available)",
+            service_path.display()
+        ),
+    })
+}
+
+fn install_macos_launch_agent(exe: &str) -> Result<DaemonInstallResult> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    let launch_dir = home.join("Library/LaunchAgents");
+    fs::create_dir_all(&launch_dir)?;
+    let plist_path = launch_dir.join("dev.titan.agent.plist");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>dev.titan.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{}</string>
+      <string>web</string>
+      <string>serve</string>
+      <string>--bind</string>
+      <string>127.0.0.1:3000</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+  </dict>
+</plist>
+"#,
+        xml_escape(exe)
+    );
+    fs::write(&plist_path, plist)?;
+    let _ = ProcessCommand::new("launchctl")
+        .args(["load", "-w", plist_path.to_string_lossy().as_ref()])
+        .status();
+
+    Ok(DaemonInstallResult {
+        kind: "launchd",
+        detail: format!("launch agent at {}", plist_path.display()),
+    })
+}
+
+fn install_windows_task(exe: &str) -> Result<DaemonInstallResult> {
+    let task_name = "TITAN";
+    let tr = format!("\"{exe}\" web serve --bind 127.0.0.1:3000");
+    let status = ProcessCommand::new("schtasks")
+        .args([
+            "/Create", "/F", "/TN", task_name, "/SC", "ONLOGON", "/RL", "LIMITED", "/TR", &tr,
+        ])
+        .status()
+        .with_context(|| "failed to invoke schtasks for daemon install")?;
+    if !status.success() {
+        bail!("schtasks failed with status {}", status);
+    }
+    let _ = ProcessCommand::new("schtasks")
+        .args(["/Run", "/TN", task_name])
+        .status();
+
+    Ok(DaemonInstallResult {
+        kind: "windows-task",
+        detail: format!("scheduled task '{}' installed", task_name),
+    })
+}
+
+fn shell_escape_arg(arg: &str) -> String {
+    if arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+    {
+        return arg.to_string();
+    }
+    format!("'{}'", arg.replace('\'', "'\\''"))
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn doctor() -> Result<()> {

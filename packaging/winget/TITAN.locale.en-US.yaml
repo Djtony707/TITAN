@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+PackageIdentifier: Djtony707.TITAN
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Djtony707
+PublisherUrl: https://github.com/Djtony707
+PackageName: TITAN
+ShortDescription: Local-first AI agent platform with approvals and multi-channel integrations.
+License: MIT
+LicenseUrl: https://github.com/Djtony707/TITAN/blob/main/LICENSE
+ManifestType: locale
+ManifestVersion: 1.6.0

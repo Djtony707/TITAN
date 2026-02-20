@@ -1,0 +1,101 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-release-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: titan-linux-x86_64
+            bin_path: target/x86_64-unknown-linux-gnu/release/titan
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: titan-linux-aarch64
+            bin_path: target/aarch64-unknown-linux-gnu/release/titan
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: titan-macos-x86_64
+            bin_path: target/x86_64-apple-darwin/release/titan
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: titan-macos-aarch64
+            bin_path: target/aarch64-apple-darwin/release/titan
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: titan-windows-x86_64.exe
+            bin_path: target/x86_64-pc-windows-msvc/release/titan.exe
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset_name: titan-windows-aarch64.exe
+            bin_path: target/aarch64-pc-windows-msvc/release/titan.exe
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p titan-cli
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp "${{ matrix.bin_path }}" "${{ matrix.asset_name }}"
+          chmod +x "${{ matrix.asset_name }}"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "${{ matrix.bin_path }}" "${{ matrix.asset_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  publish:
+    needs: build-release-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find dist -type f -maxdepth 3 -exec cp {} out/ \;
+          ls -lah out
+
+      - name: Checksums
+        run: |
+          cd out
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
