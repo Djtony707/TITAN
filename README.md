@@ -22,8 +22,16 @@ If you want an agent that is useful, auditable, and less likely to do something 
 
 ## Fast Install
 
+macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.ps1 | iex
 ```
 
 Local installer usage (from this repo):
@@ -33,6 +41,18 @@ Local installer usage (from this repo):
 ```
 
 By default, the installer links `titan` into `~/.local/bin` and starts onboarding automatically in interactive terminals.
+
+Optional Homebrew source install (macOS/Linux):
+
+```bash
+brew install --HEAD ./packaging/homebrew/titan.rb
+```
+
+CLI-only non-interactive installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install-cli.sh | bash
+```
 
 ## Build
 

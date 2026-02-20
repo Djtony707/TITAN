@@ -16,8 +16,22 @@ cargo build --release
 
 ## Fast Install (Recommended)
 
+### macOS / Linux
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.sh | bash
+```
+
+Non-interactive CLI-only install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install-cli.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.ps1 | iex
 ```
 
 The installer will:
@@ -34,6 +48,33 @@ Installer flags:
 ./scripts/install.sh --dir ~/code/TITAN --skip-onboard
 ./scripts/install.sh --debug
 ./scripts/install.sh --no-link
+```
+
+PowerShell flags:
+
+```powershell
+./scripts/install.ps1 -Help
+./scripts/install.ps1 -InstallDir \"$HOME\\code\\TITAN\" -SkipOnboard
+./scripts/install.ps1 -Debug
+./scripts/install.ps1 -NoLink
+```
+
+### Homebrew (macOS/Linux)
+
+Use the included formula to build from source:
+
+```bash
+brew install --HEAD ./packaging/homebrew/titan.rb
+```
+
+For stable Homebrew release packaging, set `url` and `sha256` in `packaging/homebrew/titan.rb` during tag/release workflow.
+
+### Cargo (cross-platform fallback)
+
+If you already have Rust and want a direct install:
+
+```bash
+cargo install --git https://github.com/Djtony707/TITAN.git titan-cli
 ```
 
 ## First Setup
