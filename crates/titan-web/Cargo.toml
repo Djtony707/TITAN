@@ -1,0 +1,16 @@
+[package]
+name = "titan-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+titan-memory = { path = "../titan-memory" }
+titan-tools = { path = "../titan-tools" }
+titan-common = { path = "../titan-common" }
+tokio.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "titan-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+shlex.workspace = true
+titan-common = { path = "../titan-common" }
+url.workspace = true
+wait-timeout.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

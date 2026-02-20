@@ -1,0 +1,42 @@
+[workspace]
+members = [
+  "crates/titan-cli",
+  "crates/titan-comms",
+  "crates/titan-common",
+  "crates/titan-core",
+  "crates/titan-memory",
+  "crates/titan-skills",
+  "crates/titan-tools",
+  "crates/titan-gateway",
+  "crates/titan-discord",
+  "crates/titan-web",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.47", features = ["derive"] }
+dirs = "6.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.16"
+toml = "0.9.7"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+uuid = { version = "1.18.1", features = ["v4", "fast-rng"] }
+tempfile = "3.23.0"
+wait-timeout = "0.2.1"
+walkdir = "2.5.0"
+shlex = "1.3.0"
+url = "2.5.7"
+reqwest = { version = "0.12.23", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+axum = "0.8.6"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "net"] }
+wasmparser = "0.240.0"

@@ -1,0 +1,9 @@
+[package]
+name = "titan-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+titan-common = { path = "../titan-common" }
