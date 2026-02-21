@@ -9,6 +9,8 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use titan_common::AutonomyMode;
+use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::MemoryStore;
 use titan_tools::{ToolExecutionContext, ToolExecutor, ToolRegistry};
 
@@ -64,6 +66,16 @@ struct RuntimeStatusDto {
     pending_approvals: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct SkillDto {
+    slug: String,
+    name: String,
+    version: String,
+    signature_status: String,
+    scopes: String,
+    last_run_goal_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ListQuery {
     limit: Option<usize>,
@@ -87,6 +99,18 @@ struct DecisionOutput {
     detail: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ChatInput {
+    actor_id: String,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatOutput {
+    response: String,
+    session_id: String,
+}
+
 pub async fn serve(
     bind_addr: &str,
     db_path: PathBuf,
@@ -104,9 +128,11 @@ pub async fn serve(
         .route("/api/runtime/status", get(api_runtime_status))
         .route("/api/goals", get(api_goals))
         .route("/api/approvals/pending", get(api_pending_approvals))
+        .route("/api/chat", post(api_chat))
         .route("/api/memory/episodic", get(api_episodic_memory))
         .route("/api/traces/recent", get(api_recent_traces))
         .route("/api/traces/search", get(api_search_traces))
+        .route("/api/skills", get(api_skills))
         .route("/api/approvals/{id}/approve", post(api_approve))
         .route("/api/approvals/{id}/deny", post(api_deny))
         .with_state(state);
@@ -144,6 +170,13 @@ async fn index() -> impl IntoResponse {
     <div class="card"><h3>Goals</h3><div id="goals"></div></div>
     <div class="card"><h3>Recent Traces</h3><pre id="recent_traces"></pre></div>
     <div class="card"><h3>Episodic Memory</h3><pre id="memory"></pre></div>
+    <div class="card"><h3>Skills</h3><pre id="skills"></pre></div>
+    <div class="card"><h3>Webchat</h3>
+      <input id="chat_actor" value="web-user" />
+      <input id="chat_message" value="/status" />
+      <button onclick="sendChat()">Send</button>
+      <pre id="chat_output"></pre>
+    </div>
     <div class="card"><h3>Trace Search</h3>
       <input id="pattern" value="execution" />
       <button onclick="loadTraces()">Search</button>
@@ -192,19 +225,39 @@ async fn index() -> impl IntoResponse {
       document.getElementById('memory').textContent =
         rows.map(m => `#${m.id} | ${m.goal_id} | ${m.source}\n${m.summary}`).join('\n\n');
     }
+    async function loadSkills() {
+      const res = await fetch('/api/skills');
+      const rows = await res.json();
+      document.getElementById('skills').textContent =
+        rows.map(s => `${s.slug}@${s.version} | signed=${s.signature_status} | scopes=${s.scopes} | last_run=${s.last_run_goal_id || '<none>'}`).join('\n');
+    }
     async function approve(id) {
       await fetch('/api/approvals/' + id + '/approve', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({resolved_by:'web'}) });
-      await loadApprovals(); await loadGoals(); await loadRecentTraces(); await loadMemory();
+      await loadApprovals(); await loadGoals(); await loadRecentTraces(); await loadMemory(); await loadSkills();
+    }
+    async function sendChat() {
+      const actor = document.getElementById('chat_actor').value || 'web-user';
+      const message = document.getElementById('chat_message').value;
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'content-type':'application/json'},
+        body: JSON.stringify({actor_id: actor, message})
+      });
+      const body = await res.json();
+      document.getElementById('chat_output').textContent =
+        `session=${body.session_id}\n${body.response}`;
+      await loadRuntime(); await loadGoals(); await loadRecentTraces(); await loadMemory(); await loadApprovals(); await loadSkills();
     }
     async function deny(id) {
       await fetch('/api/approvals/' + id + '/deny', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({resolved_by:'web'}) });
       await loadApprovals();
     }
-    loadRuntime(); loadApprovals(); loadGoals(); loadTraces(); loadRecentTraces(); loadMemory();
+    loadRuntime(); loadApprovals(); loadGoals(); loadTraces(); loadRecentTraces(); loadMemory(); loadSkills();
     setInterval(loadRuntime, 3000);
     setInterval(loadApprovals, 3000);
     setInterval(loadRecentTraces, 3000);
     setInterval(loadMemory, 5000);
+    setInterval(loadSkills, 5000);
   </script>
 </body>
 </html>"#,
@@ -248,6 +301,34 @@ async fn api_runtime_status(
         mode: state.mode.clone(),
         queue_depth,
         pending_approvals,
+    }))
+}
+
+async fn api_chat(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<ChatInput>,
+) -> Result<Json<ChatOutput>, (StatusCode, String)> {
+    if input.actor_id.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "actor_id is required".to_string()));
+    }
+    if input.message.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "message is required".to_string()));
+    }
+    let runtime = TitanGatewayRuntime::new(
+        parse_mode(&state.mode),
+        state.workspace_root.clone(),
+        state.db_path.clone(),
+    );
+    let output = runtime
+        .process_chat_input(InboundEvent::new(
+            GatewayChannel::Webchat,
+            input.actor_id.trim(),
+            input.message.trim(),
+        ))
+        .map_err(internal_error)?;
+    Ok(Json(ChatOutput {
+        response: output.response,
+        session_id: output.session_id,
     }))
 }
 
@@ -312,6 +393,26 @@ async fn api_recent_traces(
     Ok(Json(traces))
 }
 
+async fn api_skills(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<SkillDto>>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let skills = store
+        .list_installed_skills()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| SkillDto {
+            slug: row.slug,
+            name: row.name,
+            version: row.version,
+            signature_status: row.signature_status,
+            scopes: row.scopes,
+            last_run_goal_id: row.last_run_goal_id,
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(skills))
+}
+
 async fn api_episodic_memory(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListQuery>,
@@ -362,6 +463,46 @@ async fn api_approve(
         return Ok(Json(DecisionOutput {
             status: "not_pending".to_string(),
             detail: id,
+        }));
+    }
+
+    if approval.tool_name == "skill_install" {
+        let payload =
+            titan_skills::deserialize_approval_payload(&approval.input).map_err(internal_error)?;
+        let installed =
+            titan_skills::finalize_install_from_payload(&payload).map_err(internal_error)?;
+        store
+            .upsert_installed_skill(&titan_memory::InstalledSkillRecord {
+                slug: installed.manifest.slug.clone(),
+                name: installed.manifest.name.clone(),
+                version: installed.manifest.version.clone(),
+                description: installed.manifest.description.clone(),
+                source: installed.source.clone(),
+                hash: installed.hash.clone(),
+                signature_status: installed.signature_status.clone(),
+                scopes: installed
+                    .manifest
+                    .permissions
+                    .scopes
+                    .iter()
+                    .map(|scope| scope.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                allowed_paths: installed.manifest.permissions.allowed_paths.join(","),
+                allowed_hosts: installed.manifest.permissions.allowed_hosts.join(","),
+                last_run_goal_id: None,
+            })
+            .map_err(internal_error)?;
+        return Ok(Json(DecisionOutput {
+            status: "approved".to_string(),
+            detail: "skill_install_finalized".to_string(),
+        }));
+    }
+
+    if approval.tool_name == "skill_exec_grant" {
+        return Ok(Json(DecisionOutput {
+            status: "approved".to_string(),
+            detail: "skill_exec_grant".to_string(),
         }));
     }
 
@@ -425,6 +566,14 @@ fn internal_error(err: impl std::fmt::Display) -> (StatusCode, String) {
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("internal error: {}", err),
     )
+}
+
+fn parse_mode(value: &str) -> AutonomyMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "supervised" => AutonomyMode::Supervised,
+        "autonomous" => AutonomyMode::Autonomous,
+        _ => AutonomyMode::Collaborative,
+    }
 }
 
 pub fn default_bind_addr() -> &'static str {

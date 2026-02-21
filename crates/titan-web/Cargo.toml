@@ -11,6 +11,8 @@ axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 titan-memory = { path = "../titan-memory" }
+titan-gateway = { path = "../titan-gateway" }
 titan-tools = { path = "../titan-tools" }
 titan-common = { path = "../titan-common" }
+titan-skills = { path = "../titan-skills" }
 tokio.workspace = true
