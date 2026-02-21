@@ -35,6 +35,7 @@ It is practical, inspectable, and built so you can see what happened, not just h
 - SQLite persistence for goals, plans, steps, traces, approvals, and episodic memory
 - Event-driven Discord runtime integration
 - Local web dashboard + HTTP API
+- Skills Registry v1 (search/install/list/inspect/update/remove/run/doctor)
 - Onboarding wizard
 - Model configuration, including local Ollama discovery
 
@@ -200,6 +201,37 @@ titan comm send discord --target <channel_id> --message "TITAN online"
 titan web serve --bind 127.0.0.1:3000
 ```
 
+### Skills
+
+```bash
+titan skill search docs
+titan skill install list-docs@1.0.0 --source local
+titan approval list
+titan approval approve <approval_id>
+titan skill list
+titan skill inspect list-docs
+titan skill run list-docs --input "docs"
+titan skill doctor list-docs
+titan skill update --all --source local
+titan skill remove list-docs
+```
+
+## Install Your First Skill
+
+```bash
+# 1) Find a skill in your configured local registry
+titan skill search "docs" --source local
+
+# 2) Request install (creates an approval record with scopes/paths/hosts/signature status)
+titan skill install list-docs@1.0.0 --source local
+
+# 3) Approve and finalize install
+titan approval approve <approval_id>
+
+# 4) Run it through TITAN policy/tool broker
+titan skill run list-docs --input "docs"
+```
+
 ## Architecture
 
 TITAN is split into focused Rust crates:
@@ -219,6 +251,7 @@ TITAN is split into focused Rust crates:
 - `docs/ONBOARDING.md`
 - `docs/API.md`
 - `docs/TITAN_COMMUNICATION_INTEGRATIONS.md`
+- `docs/skills.md`
 - `docs/architecture.md`
 - `docs/originality.md`
 - `docs/release_checklist.md`
