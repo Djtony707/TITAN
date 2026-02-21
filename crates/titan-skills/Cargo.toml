@@ -8,10 +8,23 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 toml.workspace = true
 titan-common = { path = "../titan-common" }
+titan-core = { path = "../titan-core" }
+titan-memory = { path = "../titan-memory" }
+titan-tools = { path = "../titan-tools" }
+reqwest.workspace = true
 wait-timeout.workspace = true
 wasmparser.workspace = true
+walkdir.workspace = true
+dirs.workspace = true
+url.workspace = true
+base64 = "0.22.1"
+ed25519-dalek = { version = "2.1.1", default-features = false, features = ["std"] }
+tempfile.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
