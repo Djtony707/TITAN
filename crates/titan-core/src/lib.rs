@@ -68,6 +68,7 @@ pub struct TraceEvent {
     pub goal_id: String,
     pub event_type: String,
     pub detail: String,
+    pub risk_mode: String,
 }
 
 impl TraceEvent {
@@ -80,7 +81,13 @@ impl TraceEvent {
             goal_id: goal_id.into(),
             event_type: event_type.into(),
             detail: detail.into(),
+            risk_mode: "secure".to_string(),
         }
+    }
+
+    pub fn with_risk_mode(mut self, risk_mode: impl Into<String>) -> Self {
+        self.risk_mode = risk_mode.into();
+        self
     }
 }
 

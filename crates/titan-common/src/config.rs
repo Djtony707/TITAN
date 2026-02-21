@@ -25,6 +25,10 @@ pub struct TitanConfig {
     pub model: ModelConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    #[serde(default)]
+    pub chat: ChatConfig,
+    #[serde(default)]
+    pub security: SecurityConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -65,6 +69,45 @@ pub struct DiscordConfig {
     pub default_channel_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationMode {
+    #[default]
+    Always,
+    Mention,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatConfig {
+    #[serde(default)]
+    pub activation_mode: ActivationMode,
+    #[serde(default)]
+    pub allowlist: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    #[serde(default = "default_true")]
+    pub yolo_bypass_path_guard: bool,
+}
+
+impl Default for ChatConfig {
+    fn default() -> Self {
+        Self {
+            activation_mode: ActivationMode::Always,
+            allowlist: Vec::new(),
+        }
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            yolo_bypass_path_guard: true,
+        }
+    }
+}
+
 impl Default for TitanConfig {
     fn default() -> Self {
         let workspace_dir = dirs::home_dir()
@@ -77,8 +120,14 @@ impl Default for TitanConfig {
             mode: AutonomyMode::default(),
             model: ModelConfig::default(),
             discord: DiscordConfig::default(),
+            chat: ChatConfig::default(),
+            security: SecurityConfig::default(),
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Error)]

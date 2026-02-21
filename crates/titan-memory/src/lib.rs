@@ -88,6 +88,39 @@ pub struct InstalledSkillRecord {
     pub last_run_goal_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RiskMode {
+    Secure,
+    Yolo,
+}
+
+impl RiskMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Secure => "secure",
+            Self::Yolo => "yolo",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "yolo" => Self::Yolo,
+            _ => Self::Secure,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeRiskState {
+    pub risk_mode: RiskMode,
+    pub yolo_armed_token: Option<String>,
+    pub yolo_armed_at_ms: Option<i64>,
+    pub yolo_expires_at_ms: Option<i64>,
+    pub yolo_bypass_path_guard: bool,
+    pub last_changed_at_ms: i64,
+    pub last_changed_by: String,
+}
+
 pub struct RunPersistenceBundle<'a> {
     pub run: &'a TaskRunResult,
     pub source: &'a str,
@@ -309,6 +342,28 @@ impl MemoryStore {
             "#,
         )?;
 
+        self.apply_migration(
+            8,
+            "runtime_risk_modes_and_trace_risk",
+            r#"
+            ALTER TABLE trace_events ADD COLUMN risk_mode TEXT NOT NULL DEFAULT 'secure';
+
+            CREATE TABLE IF NOT EXISTS runtime_risk_state (
+              id INTEGER PRIMARY KEY CHECK (id = 1),
+              risk_mode TEXT NOT NULL DEFAULT 'secure',
+              yolo_armed_token TEXT,
+              yolo_armed_at_ms INTEGER,
+              yolo_expires_at_ms INTEGER,
+              yolo_bypass_path_guard INTEGER NOT NULL DEFAULT 1,
+              last_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+              last_changed_by TEXT NOT NULL DEFAULT 'cli'
+            );
+
+            INSERT OR IGNORE INTO runtime_risk_state (id, risk_mode, yolo_bypass_path_guard, last_changed_at_ms, last_changed_by)
+            VALUES (1, 'secure', 1, 0, 'cli');
+            "#,
+        )?;
+
         self.conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_dedupe_key
              ON goals(dedupe_key)
@@ -482,8 +537,8 @@ impl MemoryStore {
 
         for trace in &run.traces {
             tx.execute(
-                "INSERT INTO trace_events (goal_id, event_type, detail) VALUES (?1, ?2, ?3)",
-                params![trace.goal_id, trace.event_type, trace.detail],
+                "INSERT INTO trace_events (goal_id, event_type, detail, risk_mode) VALUES (?1, ?2, ?3, ?4)",
+                params![trace.goal_id, trace.event_type, trace.detail, trace.risk_mode],
             )?;
         }
 
@@ -534,8 +589,8 @@ impl MemoryStore {
 
     pub fn add_trace_event(&self, event: &TraceEvent) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO trace_events (goal_id, event_type, detail) VALUES (?1, ?2, ?3)",
-            params![event.goal_id, event.event_type, event.detail],
+            "INSERT INTO trace_events (goal_id, event_type, detail, risk_mode) VALUES (?1, ?2, ?3, ?4)",
+            params![event.goal_id, event.event_type, event.detail, event.risk_mode],
         )?;
         Ok(())
     }
@@ -576,7 +631,7 @@ impl MemoryStore {
 
     pub fn get_traces(&self, goal_id: &str) -> Result<Vec<TraceEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT goal_id, event_type, detail
+            "SELECT goal_id, event_type, detail, risk_mode
              FROM trace_events
              WHERE goal_id = ?1
              -- insertion order currently models execution order for the goal timeline
@@ -588,6 +643,7 @@ impl MemoryStore {
                 goal_id: row.get(0)?,
                 event_type: row.get(1)?,
                 detail: row.get(2)?,
+                risk_mode: row.get(3)?,
             })
         })?;
 
@@ -598,7 +654,7 @@ impl MemoryStore {
     pub fn search_traces(&self, pattern: &str, limit: usize) -> Result<Vec<TraceEvent>> {
         let like = format!("%{}%", pattern);
         let mut stmt = self.conn.prepare(
-            "SELECT goal_id, event_type, detail
+            "SELECT goal_id, event_type, detail, risk_mode
              FROM trace_events
              WHERE detail LIKE ?1 OR event_type LIKE ?1
              ORDER BY id DESC
@@ -609,6 +665,7 @@ impl MemoryStore {
                 goal_id: row.get(0)?,
                 event_type: row.get(1)?,
                 detail: row.get(2)?,
+                risk_mode: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -616,7 +673,7 @@ impl MemoryStore {
 
     pub fn list_recent_traces(&self, limit: usize) -> Result<Vec<TraceEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT goal_id, event_type, detail
+            "SELECT goal_id, event_type, detail, risk_mode
              FROM trace_events
              ORDER BY id DESC
              LIMIT ?1",
@@ -626,6 +683,7 @@ impl MemoryStore {
                 goal_id: row.get(0)?,
                 event_type: row.get(1)?,
                 detail: row.get(2)?,
+                risk_mode: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -1102,6 +1160,106 @@ impl MemoryStore {
         Ok(rows.next()?.is_some())
     }
 
+    pub fn get_runtime_risk_state(&self) -> Result<RuntimeRiskState> {
+        let mut stmt = self.conn.prepare(
+            "SELECT risk_mode, yolo_armed_token, yolo_armed_at_ms, yolo_expires_at_ms, yolo_bypass_path_guard, last_changed_at_ms, last_changed_by
+             FROM runtime_risk_state
+             WHERE id = 1",
+        )?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            return Ok(RuntimeRiskState {
+                risk_mode: RiskMode::parse(&row.get::<_, String>(0)?),
+                yolo_armed_token: row.get(1)?,
+                yolo_armed_at_ms: row.get(2)?,
+                yolo_expires_at_ms: row.get(3)?,
+                yolo_bypass_path_guard: row.get::<_, i64>(4)? != 0,
+                last_changed_at_ms: row.get(5)?,
+                last_changed_by: row.get(6)?,
+            });
+        }
+        let now = now_epoch_ms();
+        self.conn.execute(
+            "INSERT INTO runtime_risk_state (id, risk_mode, yolo_bypass_path_guard, last_changed_at_ms, last_changed_by)
+             VALUES (1, 'secure', 1, ?1, 'cli')",
+            params![now],
+        )?;
+        self.get_runtime_risk_state()
+    }
+
+    pub fn arm_yolo(&self, changed_by: &str) -> Result<String> {
+        let token = Uuid::new_v4().simple().to_string();
+        let now = now_epoch_ms();
+        self.conn.execute(
+            "UPDATE runtime_risk_state
+             SET yolo_armed_token = ?1,
+                 yolo_armed_at_ms = ?2,
+                 last_changed_at_ms = ?2,
+                 last_changed_by = ?3
+             WHERE id = 1",
+            params![token, now, changed_by],
+        )?;
+        Ok(token)
+    }
+
+    pub fn enable_yolo(&self, changed_by: &str, ttl_minutes: i64) -> Result<()> {
+        let now = now_epoch_ms();
+        let ttl_ms = ttl_minutes.max(1).saturating_mul(60_000);
+        self.conn.execute(
+            "UPDATE runtime_risk_state
+             SET risk_mode = 'yolo',
+                 yolo_expires_at_ms = ?1,
+                 yolo_armed_token = NULL,
+                 yolo_armed_at_ms = NULL,
+                 last_changed_at_ms = ?2,
+                 last_changed_by = ?3
+             WHERE id = 1",
+            params![now.saturating_add(ttl_ms), now, changed_by],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_risk_mode_secure(&self, changed_by: &str) -> Result<()> {
+        let now = now_epoch_ms();
+        self.conn.execute(
+            "UPDATE runtime_risk_state
+             SET risk_mode = 'secure',
+                 yolo_expires_at_ms = NULL,
+                 yolo_armed_token = NULL,
+                 yolo_armed_at_ms = NULL,
+                 last_changed_at_ms = ?1,
+                 last_changed_by = ?2
+             WHERE id = 1",
+            params![now, changed_by],
+        )?;
+        Ok(())
+    }
+
+    pub fn apply_yolo_expiry(&self, changed_by: &str) -> Result<bool> {
+        let state = self.get_runtime_risk_state()?;
+        if state.risk_mode != RiskMode::Yolo {
+            return Ok(false);
+        }
+        let Some(expires_at) = state.yolo_expires_at_ms else {
+            return Ok(false);
+        };
+        if now_epoch_ms() >= expires_at {
+            self.set_risk_mode_secure(changed_by)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn set_yolo_expiry_at_ms(&self, expires_at_ms: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runtime_risk_state
+             SET yolo_expires_at_ms = ?1
+             WHERE id = 1",
+            params![expires_at_ms],
+        )?;
+        Ok(())
+    }
+
     pub fn last_goal_for_session(&self, session_id: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT id
@@ -1423,10 +1581,11 @@ fn persist_pending_approval(
         ],
     )?;
     tx.execute(
-        "INSERT INTO trace_events (goal_id, event_type, detail) VALUES (?1, 'approval_queued', ?2)",
+        "INSERT INTO trace_events (goal_id, event_type, detail, risk_mode) VALUES (?1, 'approval_queued', ?2, ?3)",
         params![
             goal_id,
-            format!("approval_id={} tool={}", approval_id, pending.tool_name)
+            format!("approval_id={} tool={}", approval_id, pending.tool_name),
+            "secure"
         ],
     )?;
     Ok(Some(approval_id))

@@ -6,8 +6,8 @@ use titan_core::{
     CoreEvent, Goal, GoalStatus, StepPermission, StepResult, TaskPipelineConfig, TraceEvent,
     build_task_plan, execute_task_plan_with_broker,
 };
-use titan_memory::{MemoryStore, RunPersistenceBundle};
-use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry};
+use titan_memory::{MemoryStore, RiskMode, RunPersistenceBundle};
+use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry, ToolRiskMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {
@@ -114,6 +114,11 @@ impl TitanGatewayRuntime {
 
     pub fn process_event(&self, inbound: InboundEvent) -> Result<ProcessedEvent> {
         let mut store = MemoryStore::open(&self.db_path)?;
+        store.apply_yolo_expiry("gateway")?;
+        let cfg = load_runtime_config(self.config_path.as_deref())?;
+        let risk_state = store.get_runtime_risk_state()?;
+        let risk_mode = risk_state.risk_mode;
+        let risk_mode_str = risk_mode.as_str().to_string();
         let session =
             store.get_or_create_active_session(inbound.channel.as_str(), &inbound.actor_id)?;
         if !is_message_allowed(&inbound, &session, self.config_path.as_deref())? {
@@ -137,8 +142,11 @@ impl TitanGatewayRuntime {
         store.add_session_message(&session.id, "user", inbound.text.trim(), false)?;
 
         let registry = ToolRegistry::with_defaults();
-        let execution_ctx =
+        let mut execution_ctx =
             ToolExecutionContext::default_for_workspace(self.workspace_root.clone());
+        execution_ctx.bypass_path_guard = matches!(risk_mode, RiskMode::Yolo)
+            && risk_state.yolo_bypass_path_guard
+            && cfg.security.yolo_bypass_path_guard;
 
         let goal_description = format!("[{}] {}", inbound.channel.as_str(), inbound.text.trim());
         let goal = Goal::new(goal_description).with_dedupe_key(inbound.dedupe_key.clone());
@@ -169,7 +177,12 @@ impl TitanGatewayRuntime {
                     StepPermission::Exec => titan_tools::CapabilityClass::Exec,
                     StepPermission::Net => titan_tools::CapabilityClass::Net,
                 };
-                PolicyEngine::requires_approval(self.mode.clone(), class)
+                let risk = if matches!(risk_mode, RiskMode::Yolo) {
+                    ToolRiskMode::Yolo
+                } else {
+                    ToolRiskMode::Secure
+                };
+                PolicyEngine::requires_approval_with_risk(self.mode.clone(), risk, class)
             },
             |step| {
                 let tool = registry
@@ -187,9 +200,13 @@ impl TitanGatewayRuntime {
             },
         );
         let mut run = result;
+        for trace in &mut run.traces {
+            trace.risk_mode = risk_mode.as_str().to_string();
+        }
         run.traces.insert(
             0,
-            TraceEvent::new(run.goal.id.clone(), "goal_submitted", inbound.text.clone()),
+            TraceEvent::new(run.goal.id.clone(), "goal_submitted", inbound.text.clone())
+                .with_risk_mode(risk_mode_str.clone()),
         );
         run.traces.insert(
             1,
@@ -201,7 +218,8 @@ impl TitanGatewayRuntime {
                     inbound.channel.as_str(),
                     inbound.actor_id
                 ),
-            ),
+            )
+            .with_risk_mode(risk_mode_str),
         );
         store.create_goal_for_session(&run.goal, Some(&session.id))?;
         let persisted = store.persist_run_bundle(RunPersistenceBundle {
@@ -248,12 +266,13 @@ impl TitanGatewayRuntime {
             "/help" => slash_help(),
             "/status" => {
                 let cfg = load_runtime_config(self.config_path.as_deref())?;
+                let risk = store.get_runtime_risk_state()?;
                 let pending = store.list_pending_approvals()?.len();
                 let last_run = store
                     .last_goal_for_session(&session.id)?
                     .unwrap_or_else(|| "<none>".to_string());
                 format!(
-                    "mode={} provider={} model={} session_id={} last_run_id={} compactions={} pending_approvals={} queue_depth={}",
+                    "mode={} provider={} model={} session_id={} last_run_id={} compactions={} pending_approvals={} queue_depth={} risk_mode={} yolo_expires_at_ms={}",
                     match self.mode {
                         AutonomyMode::Supervised => "supervised",
                         AutonomyMode::Collaborative => "collaborative",
@@ -265,7 +284,11 @@ impl TitanGatewayRuntime {
                     last_run,
                     session.compactions_count,
                     pending,
-                    session.queue_depth
+                    session.queue_depth,
+                    risk.risk_mode.as_str(),
+                    risk.yolo_expires_at_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "<none>".to_string())
                 )
             }
             "/mode" => {
@@ -410,6 +433,10 @@ impl TitanGatewayRuntime {
                 }
             }
             "/model" => self.handle_model_command(&store, &session.id, &args)?,
+            "/yolo" => {
+                "YOLO mode can only be enabled from local CLI via `titan yolo ...`".to_string()
+            }
+            "/skill" => self.handle_skill_command(&store, &args, inbound.actor_id.as_str())?,
             "/allowlist" => self.handle_allowlist_command(inbound, &store, &session, &args)?,
             "/activation" => self.handle_activation_command(inbound, &store, &session, &args)?,
             _ => "unknown command. try /help".to_string(),
@@ -488,6 +515,47 @@ impl TitanGatewayRuntime {
         Ok(format!("allowlist_updated action={action} id={id}"))
     }
 
+    fn handle_skill_command(
+        &self,
+        store: &MemoryStore,
+        args: &[&str],
+        actor_id: &str,
+    ) -> Result<String> {
+        if args.len() < 2 || args[0] != "install" {
+            return Ok("usage: /skill install <slug>[@version]".to_string());
+        }
+        let (slug, version) = parse_slug_and_version(args[1]);
+        let registry_root = self.workspace_root.join(".titan/registry/local");
+        let adapter = titan_skills::LocalRegistryAdapter::new(registry_root);
+        let staged = titan_skills::stage_install_v1(
+            &adapter,
+            &self.workspace_root,
+            &slug,
+            version.as_deref(),
+            false,
+        )?;
+        titan_skills::deny_unsigned_risky_install(&staged)?;
+        let payload = titan_skills::approval_payload_for_stage(&staged);
+        let payload_json = titan_skills::serialize_approval_payload(&payload)?;
+        let approval = store.create_approval_request(
+            "skill_install",
+            "write",
+            &payload_json,
+            Some(actor_id),
+            300_000,
+        )?;
+        Ok(format!(
+            "approval_required=true approval_id={} skill={}@{} signed={} scopes={} allowed_paths={} allowed_hosts={}",
+            approval.id,
+            payload.slug,
+            payload.version,
+            payload.signature_status,
+            payload.scopes.join(","),
+            payload.allowed_paths.join(","),
+            payload.allowed_hosts.join(",")
+        ))
+    }
+
     fn handle_activation_command(
         &self,
         inbound: &InboundEvent,
@@ -528,6 +596,8 @@ impl TitanGatewayRuntime {
         reason: Option<&str>,
     ) -> Result<String> {
         let store = MemoryStore::open(&self.db_path)?;
+        store.apply_yolo_expiry("gateway")?;
+        let cfg = load_runtime_config(self.config_path.as_deref())?;
         let approval = store
             .get_approval_request(approval_id)?
             .ok_or_else(|| anyhow!("approval not found: {approval_id}"))?;
@@ -570,6 +640,8 @@ impl TitanGatewayRuntime {
         if approval.tool_name == "skill_install" {
             let payload = titan_skills::deserialize_approval_payload(&approval.input)?;
             let installed = titan_skills::finalize_install_from_payload(&payload)?;
+            let installed_ref =
+                format!("{}@{}", installed.manifest.slug, installed.manifest.version);
             store.upsert_installed_skill(&titan_memory::InstalledSkillRecord {
                 slug: installed.manifest.slug.clone(),
                 name: installed.manifest.name.clone(),
@@ -590,7 +662,7 @@ impl TitanGatewayRuntime {
                 allowed_hosts: installed.manifest.permissions.allowed_hosts.join(","),
                 last_run_goal_id: None,
             })?;
-            return Ok("approved".to_string());
+            return Ok(format!("approved installed={installed_ref}"));
         }
         if approval.tool_name == "skill_exec_grant" {
             return Ok("approved".to_string());
@@ -605,7 +677,11 @@ impl TitanGatewayRuntime {
         } else {
             Some(approval.input.as_str())
         };
-        let exec_ctx = ToolExecutionContext::default_for_workspace(self.workspace_root.clone());
+        let mut exec_ctx = ToolExecutionContext::default_for_workspace(self.workspace_root.clone());
+        let risk = store.get_runtime_risk_state()?;
+        exec_ctx.bypass_path_guard = matches!(risk.risk_mode, RiskMode::Yolo)
+            && risk.yolo_bypass_path_guard
+            && cfg.security.yolo_bypass_path_guard;
         let result = ToolExecutor::execute(tool, input_ref, &exec_ctx)
             .with_context(|| format!("approved tool '{}' execution failed", tool.name))?;
         store.record_tool_run(
@@ -664,6 +740,8 @@ fn slash_help() -> String {
         "/model",
         "/model list",
         "/model status",
+        "/yolo (cli-only)",
+        "/skill install <slug>[@version]",
         "/usage off|tokens|full",
         "/context list|detail",
         "/allowlist add|remove <id>",
@@ -767,6 +845,13 @@ fn is_message_allowed(
     Ok(true)
 }
 
+fn parse_slug_and_version(input: &str) -> (String, Option<String>) {
+    match input.split_once('@') {
+        Some((slug, version)) => (slug.to_string(), Some(version.to_string())),
+        None => (input.to_string(), None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -781,6 +866,54 @@ mod tests {
         let tmp = workspace.join("test-config.toml");
         cfg.save(&tmp).expect("save config");
         tmp
+    }
+
+    fn seed_local_registry_skill(workspace: &std::path::Path, slug: &str, version: &str) {
+        let bundle = workspace
+            .join(".titan/registry/local/bundles")
+            .join(format!("{slug}-{version}"));
+        std::fs::create_dir_all(&bundle).expect("bundle dir");
+        std::fs::write(bundle.join("SKILL.md"), "# skill\n").expect("skill docs");
+        std::fs::write(
+            bundle.join("skill.toml"),
+            format!(
+                r#"name = "{slug}"
+slug = "{slug}"
+version = "{version}"
+description = "demo"
+entrypoint_type = "prompt"
+entrypoint = "tool:list_dir ."
+
+[permissions]
+scopes = ["READ"]
+allowed_paths = ["."]
+allowed_hosts = []
+"#
+            ),
+        )
+        .expect("skill manifest");
+        let hash = titan_skills::compute_bundle_hash(&bundle).expect("bundle hash");
+        let index = format!(
+            r#"{{
+  "skills": [
+    {{
+      "slug": "{slug}",
+      "name": "{slug}",
+      "latest": "{version}",
+      "versions": [
+        {{
+          "version": "{version}",
+          "download_url": "bundles/{slug}-{version}",
+          "sha256": "{hash}"
+        }}
+      ]
+    }}
+  ]
+}}"#
+        );
+        let index_path = workspace.join(".titan/registry/local/index.json");
+        std::fs::create_dir_all(index_path.parent().expect("parent")).expect("registry root");
+        std::fs::write(index_path, index).expect("index");
     }
 
     #[test]
@@ -1013,5 +1146,214 @@ mod tests {
             .last_goal_for_session(&session.id)
             .expect("last goal for session");
         assert!(last_goal.is_none());
+    }
+
+    #[test]
+    fn chat_skill_install_creates_approval_then_finalizes_on_approve() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        seed_local_registry_skill(&workspace, "list-docs", "1.0.0");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+
+        let out = runtime
+            .process_chat_input(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                "/titan skill install list-docs@1.0.0",
+            ))
+            .expect("skill install command");
+        assert!(out.response.contains("approval_required=true"));
+        let approval_id = out
+            .response
+            .split_whitespace()
+            .find(|part| part.starts_with("approval_id="))
+            .and_then(|part| part.split_once('=').map(|(_, value)| value.to_string()))
+            .expect("approval id");
+
+        let approval_status = runtime
+            .process_chat_input(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                format!("/approve {approval_id}"),
+            ))
+            .expect("approve");
+        assert!(
+            approval_status
+                .response
+                .contains("installed=list-docs@1.0.0")
+        );
+        let store = MemoryStore::open(&db_path).expect("store");
+        let installed = store
+            .get_installed_skill("list-docs")
+            .expect("installed lookup")
+            .expect("installed row");
+        assert_eq!(installed.version, "1.0.0");
+    }
+
+    #[test]
+    fn secure_mode_blocks_write_in_collab() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let outcome = runtime
+            .process_event(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                "update README with install steps",
+            ))
+            .expect("run");
+        assert!(outcome.pending_approval_id.is_some());
+    }
+
+    #[test]
+    fn yolo_allows_write_without_approval_and_traces() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        let _ = store.get_runtime_risk_state().expect("risk state");
+        store.enable_yolo("cli", 15).expect("enable yolo");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let outcome = runtime
+            .process_event(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                "update README with install steps",
+            ))
+            .expect("run");
+        assert!(outcome.pending_approval_id.is_none());
+        let readme = std::fs::read_to_string(workspace.join("README.md")).expect("readme");
+        assert!(readme.contains("Install Steps (Generated)"));
+        let traces = MemoryStore::open(&db_path)
+            .expect("store")
+            .get_traces(&outcome.goal_id)
+            .expect("traces");
+        assert!(traces.iter().any(|trace| trace.risk_mode == "yolo"));
+    }
+
+    #[test]
+    fn yolo_cannot_be_enabled_from_discord_or_web() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let discord = runtime
+            .process_chat_input(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                "/titan yolo enable abc I_ACCEPT_UNBOUNDED_AUTONOMY",
+            ))
+            .expect("discord yolo");
+        assert!(discord.response.contains("local CLI"));
+        let web = runtime
+            .process_chat_input(InboundEvent::new(
+                Channel::Webchat,
+                "u1",
+                "/yolo enable abc I_ACCEPT_UNBOUNDED_AUTONOMY",
+            ))
+            .expect("web yolo");
+        assert!(web.response.contains("local CLI"));
+    }
+
+    #[test]
+    fn yolo_auto_expires() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        let _ = store.get_runtime_risk_state().expect("risk");
+        store.enable_yolo("cli", 15).expect("yolo on");
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_millis() as i64;
+        store
+            .set_yolo_expiry_at_ms(now_ms.saturating_sub(1))
+            .expect("expire");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let outcome = runtime
+            .process_event(InboundEvent::new(
+                Channel::Discord,
+                "u1",
+                "update README with install steps",
+            ))
+            .expect("run");
+        assert!(outcome.pending_approval_id.is_some());
+        let state = MemoryStore::open(&db_path)
+            .expect("store")
+            .get_runtime_risk_state()
+            .expect("risk");
+        assert!(matches!(state.risk_mode, RiskMode::Secure));
+    }
+
+    #[test]
+    fn traces_include_risk_mode() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let outcome = runtime
+            .process_event(InboundEvent::new(Channel::Discord, "u1", "scan workspace"))
+            .expect("run");
+        let traces = MemoryStore::open(&db_path)
+            .expect("store")
+            .get_traces(&outcome.goal_id)
+            .expect("traces");
+        assert!(!traces.is_empty());
+        assert!(
+            traces
+                .iter()
+                .all(|trace| !trace.risk_mode.trim().is_empty())
+        );
     }
 }

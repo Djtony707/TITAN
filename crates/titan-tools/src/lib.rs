@@ -77,8 +77,25 @@ impl ToolRegistry {
 
 pub struct PolicyEngine;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolRiskMode {
+    Secure,
+    Yolo,
+}
+
 impl PolicyEngine {
     pub fn requires_approval(mode: AutonomyMode, class: CapabilityClass) -> bool {
+        Self::requires_approval_with_risk(mode, ToolRiskMode::Secure, class)
+    }
+
+    pub fn requires_approval_with_risk(
+        mode: AutonomyMode,
+        risk_mode: ToolRiskMode,
+        class: CapabilityClass,
+    ) -> bool {
+        if matches!(risk_mode, ToolRiskMode::Yolo) {
+            return false;
+        }
         match mode {
             AutonomyMode::Supervised => true,
             AutonomyMode::Collaborative => !matches!(class, CapabilityClass::Read),
@@ -99,6 +116,7 @@ pub struct ToolExecutionContext {
     pub command_allowlist: HashSet<String>,
     pub timeout_ms: u64,
     pub max_output_bytes: usize,
+    pub bypass_path_guard: bool,
 }
 
 impl ToolExecutionContext {
@@ -112,6 +130,7 @@ impl ToolExecutionContext {
             command_allowlist,
             timeout_ms: 10_000,
             max_output_bytes: 64 * 1024,
+            bypass_path_guard: false,
         }
     }
 }
@@ -129,10 +148,20 @@ impl ToolExecutor {
         let raw_input = input.unwrap_or("").trim();
 
         let output = match tool.name.as_str() {
-            "list_dir" => exec_list_dir(&workspace_root, raw_input)?,
-            "read_file" => exec_read_file(&workspace_root, raw_input, ctx.max_output_bytes)?,
-            "search_text" => exec_search_text(&workspace_root, raw_input, ctx.max_output_bytes)?,
-            "write_file" => exec_write_file(&workspace_root, raw_input)?,
+            "list_dir" => exec_list_dir(&workspace_root, raw_input, ctx.bypass_path_guard)?,
+            "read_file" => exec_read_file(
+                &workspace_root,
+                raw_input,
+                ctx.max_output_bytes,
+                ctx.bypass_path_guard,
+            )?,
+            "search_text" => exec_search_text(
+                &workspace_root,
+                raw_input,
+                ctx.max_output_bytes,
+                ctx.bypass_path_guard,
+            )?,
+            "write_file" => exec_write_file(&workspace_root, raw_input, ctx.bypass_path_guard)?,
             "run_command" => exec_run_command(&workspace_root, raw_input, ctx)?,
             "http_get" => exec_http_get(raw_input, ctx.timeout_ms, ctx.max_output_bytes)?,
             other => bail!("unsupported tool: {other}"),
@@ -145,8 +174,8 @@ impl ToolExecutor {
     }
 }
 
-fn exec_list_dir(root: &Path, input: &str) -> Result<String> {
-    let dir = resolve_existing_path_within(root, input)?;
+fn exec_list_dir(root: &Path, input: &str, bypass_path_guard: bool) -> Result<String> {
+    let dir = resolve_existing_path(root, input, bypass_path_guard)?;
     if !dir.is_dir() {
         bail!("list_dir target is not a directory: {}", dir.display());
     }
@@ -166,8 +195,13 @@ fn exec_list_dir(root: &Path, input: &str) -> Result<String> {
     Ok(entries.join("\n"))
 }
 
-fn exec_read_file(root: &Path, input: &str, max_output_bytes: usize) -> Result<String> {
-    let file = resolve_existing_path_within(root, input)?;
+fn exec_read_file(
+    root: &Path,
+    input: &str,
+    max_output_bytes: usize,
+    bypass_path_guard: bool,
+) -> Result<String> {
+    let file = resolve_existing_path(root, input, bypass_path_guard)?;
     if !file.is_file() {
         bail!("read_file target is not a file: {}", file.display());
     }
@@ -180,7 +214,12 @@ fn exec_read_file(root: &Path, input: &str, max_output_bytes: usize) -> Result<S
     Ok(String::from_utf8_lossy(truncated).to_string())
 }
 
-fn exec_search_text(root: &Path, input: &str, max_output_bytes: usize) -> Result<String> {
+fn exec_search_text(
+    root: &Path,
+    input: &str,
+    max_output_bytes: usize,
+    bypass_path_guard: bool,
+) -> Result<String> {
     let (pattern, scope_raw) = match input.split_once("::") {
         Some((pat, scope)) => (pat.trim(), scope.trim()),
         None => (input.trim(), ""),
@@ -188,7 +227,7 @@ fn exec_search_text(root: &Path, input: &str, max_output_bytes: usize) -> Result
     if pattern.is_empty() {
         bail!("search_text requires a non-empty pattern");
     }
-    let scope = resolve_existing_path_within(root, scope_raw)?;
+    let scope = resolve_existing_path(root, scope_raw, bypass_path_guard)?;
     if !scope.exists() {
         bail!("search scope does not exist");
     }
@@ -226,11 +265,11 @@ fn exec_search_text(root: &Path, input: &str, max_output_bytes: usize) -> Result
     Ok(output)
 }
 
-fn exec_write_file(root: &Path, input: &str) -> Result<String> {
+fn exec_write_file(root: &Path, input: &str, bypass_path_guard: bool) -> Result<String> {
     let (raw_path, content) = input
         .split_once("::")
         .ok_or_else(|| anyhow!("write_file expects '<path>::<content>'"))?;
-    let file = resolve_write_path_within(root, raw_path)?;
+    let file = resolve_write_path(root, raw_path, bypass_path_guard)?;
     fs::write(&file, content.as_bytes())?;
     Ok(format!("wrote {}", file.display()))
 }
@@ -317,6 +356,43 @@ fn exec_http_get(input: &str, timeout_ms: u64, max_output_bytes: usize) -> Resul
         status.as_u16(),
         String::from_utf8_lossy(&body)
     ))
+}
+
+fn resolve_existing_path(root: &Path, input: &str, bypass_path_guard: bool) -> Result<PathBuf> {
+    if !bypass_path_guard {
+        return resolve_existing_path_within(root, input);
+    }
+    let raw = input.trim();
+    if raw.is_empty() || raw == "." {
+        return Ok(root.to_path_buf());
+    }
+    let candidate = PathBuf::from(raw);
+    let path = if candidate.is_absolute() {
+        candidate
+    } else {
+        root.join(candidate)
+    };
+    Ok(path.canonicalize()?)
+}
+
+fn resolve_write_path(root: &Path, input: &str, bypass_path_guard: bool) -> Result<PathBuf> {
+    if !bypass_path_guard {
+        return resolve_write_path_within(root, input);
+    }
+    let raw = input.trim();
+    if raw.is_empty() {
+        return Ok(root.to_path_buf());
+    }
+    let candidate = PathBuf::from(raw);
+    let path = if candidate.is_absolute() {
+        candidate
+    } else {
+        root.join(candidate)
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(path)
 }
 
 #[cfg(test)]

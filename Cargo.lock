@@ -2064,12 +2064,16 @@ dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "tempfile",
  "titan-common",
+ "titan-comms",
+ "titan-core",
  "titan-gateway",
  "titan-memory",
  "titan-skills",
  "titan-tools",
  "tokio",
+ "tower",
 ]
 
 [[package]]

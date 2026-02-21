@@ -22,7 +22,7 @@ use titan_core::{
 };
 use titan_discord::DiscordGateway;
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
-use titan_memory::MemoryStore;
+use titan_memory::{MemoryStore, RiskMode};
 use titan_skills::{
     LocalRegistryAdapter, SkillPackage, SkillRegistryAdapter, SkillRunState,
     approval_payload_for_stage, deny_unsigned_risky_install, deserialize_approval_payload,
@@ -30,7 +30,7 @@ use titan_skills::{
     remove_installed_skill_v1, run_skill_v1, search_registry_v1, serialize_approval_payload,
     stage_install_v1,
 };
-use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry};
+use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry, ToolRiskMode};
 use titan_web as web_runtime;
 
 #[derive(Debug, Parser)]
@@ -116,6 +116,13 @@ enum Command {
         #[command(subcommand)]
         command: ModelCommand,
     },
+    /// Risk mode controls (SECURE/YOLO).
+    Yolo {
+        #[command(subcommand)]
+        command: YoloCommand,
+    },
+    /// Set risk mode quickly.
+    Mode { risk_mode: String },
     /// Skill runtime commands.
     Skill {
         #[command(subcommand)]
@@ -271,6 +278,19 @@ enum ModelCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum YoloCommand {
+    Status,
+    Arm,
+    Enable {
+        code: String,
+        phrase: String,
+        #[arg(long, default_value_t = 15)]
+        ttl: i64,
+    },
+    Disable,
+}
+
+#[derive(Debug, Subcommand)]
 enum SkillCommand {
     /// Search registry entries by slug/name.
     Search {
@@ -367,6 +387,8 @@ fn main() -> Result<()> {
         Some(Command::Discord { command }) => discord(command),
         Some(Command::Comm { command }) => comm(command),
         Some(Command::Model { command }) => model(command),
+        Some(Command::Yolo { command }) => yolo(command),
+        Some(Command::Mode { risk_mode }) => mode_risk(&risk_mode),
         Some(Command::Skill { command }) => skill(command),
         Some(Command::Web { command }) => web(command),
         Some(Command::Agent { command }) => agent(command),
@@ -479,6 +501,79 @@ fn model(command: ModelCommand) -> Result<()> {
     }
 
     Ok(())
+}
+
+const YOLO_ENABLE_PHRASE: &str = "I_ACCEPT_UNBOUNDED_AUTONOMY";
+
+fn yolo(command: YoloCommand) -> Result<()> {
+    let config = load_initialized_config()?;
+    let store = MemoryStore::open(&config.workspace_dir.join("titan.db"))?;
+    match command {
+        YoloCommand::Status => {
+            let state = store.get_runtime_risk_state()?;
+            println!("risk_mode: {}", state.risk_mode.as_str());
+            println!(
+                "yolo_expires_at_ms: {}",
+                state
+                    .yolo_expires_at_ms
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            );
+            println!(
+                "yolo_armed: {}",
+                state.yolo_armed_token.is_some() && matches!(state.risk_mode, RiskMode::Secure)
+            );
+            println!(
+                "last_changed: {} by={}",
+                state.last_changed_at_ms, state.last_changed_by
+            );
+        }
+        YoloCommand::Arm => {
+            let code = store.arm_yolo("cli")?;
+            println!("yolo_armed_code: {}", code);
+            println!("required_phrase: {}", YOLO_ENABLE_PHRASE);
+            println!("default_ttl_minutes: 15");
+        }
+        YoloCommand::Enable { code, phrase, ttl } => {
+            let state = store.get_runtime_risk_state()?;
+            let armed = state
+                .yolo_armed_token
+                .ok_or_else(|| anyhow::anyhow!("yolo not armed; run `titan yolo arm` first"))?;
+            if armed != code {
+                bail!("invalid yolo arm code");
+            }
+            if phrase != YOLO_ENABLE_PHRASE {
+                bail!("invalid yolo enable phrase");
+            }
+            store.enable_yolo("cli", ttl)?;
+            let new_state = store.get_runtime_risk_state()?;
+            println!("risk_mode: {}", new_state.risk_mode.as_str());
+            println!(
+                "yolo_expires_at_ms: {}",
+                new_state
+                    .yolo_expires_at_ms
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            );
+        }
+        YoloCommand::Disable => {
+            store.set_risk_mode_secure("cli")?;
+            println!("risk_mode: secure");
+        }
+    }
+    Ok(())
+}
+
+fn mode_risk(risk_mode: &str) -> Result<()> {
+    let requested = RiskMode::parse(risk_mode);
+    let config = load_initialized_config()?;
+    let store = MemoryStore::open(&config.workspace_dir.join("titan.db"))?;
+    if matches!(requested, RiskMode::Secure) {
+        store.set_risk_mode_secure("cli")?;
+        println!("risk_mode: secure");
+        return Ok(());
+    }
+    bail!("yolo cannot be enabled via `titan mode`; use `titan yolo arm` then `titan yolo enable`");
 }
 
 fn onboard(install_daemon: bool, accept_defaults: bool) -> Result<()> {
@@ -904,6 +999,7 @@ fn tool(command: ToolCommand) -> Result<()> {
 
     let db_path = config.workspace_dir.join("titan.db");
     let store = MemoryStore::open(&db_path)?;
+    store.apply_yolo_expiry("cli")?;
     let registry = ToolRegistry::with_defaults();
 
     match command {
@@ -922,7 +1018,13 @@ fn tool(command: ToolCommand) -> Result<()> {
             };
 
             // Apply mode-specific policy before any tool runs.
-            if PolicyEngine::requires_approval(config.mode.clone(), tool.class) {
+            let risk_state = store.get_runtime_risk_state()?;
+            let risk = if matches!(risk_state.risk_mode, RiskMode::Yolo) {
+                ToolRiskMode::Yolo
+            } else {
+                ToolRiskMode::Secure
+            };
+            if PolicyEngine::requires_approval_with_risk(config.mode.clone(), risk, tool.class) {
                 let approval = store.create_approval_request(
                     &tool.name,
                     tool.class.as_str(),
@@ -940,8 +1042,11 @@ fn tool(command: ToolCommand) -> Result<()> {
                 return Ok(());
             }
 
-            let exec_ctx =
+            let mut exec_ctx =
                 ToolExecutionContext::default_for_workspace(config.workspace_dir.clone());
+            exec_ctx.bypass_path_guard = matches!(risk_state.risk_mode, RiskMode::Yolo)
+                && risk_state.yolo_bypass_path_guard
+                && config.security.yolo_bypass_path_guard;
             let result = ToolExecutor::execute(tool, input.as_deref(), &exec_ctx)?;
             store.record_tool_run(None, &tool.name, &result.status, &result.output)?;
             println!("approval_required: false");
@@ -958,6 +1063,7 @@ fn approval(command: ApprovalCommand) -> Result<()> {
 
     let db_path = config.workspace_dir.join("titan.db");
     let store = MemoryStore::open(&db_path)?;
+    store.apply_yolo_expiry("cli")?;
     let registry = ToolRegistry::with_defaults();
 
     match command {
@@ -1093,8 +1199,12 @@ fn approval(command: ApprovalCommand) -> Result<()> {
             } else {
                 Some(approval.input.as_str())
             };
-            let exec_ctx =
+            let mut exec_ctx =
                 ToolExecutionContext::default_for_workspace(config.workspace_dir.clone());
+            let risk_state = store.get_runtime_risk_state()?;
+            exec_ctx.bypass_path_guard = matches!(risk_state.risk_mode, RiskMode::Yolo)
+                && risk_state.yolo_bypass_path_guard
+                && config.security.yolo_bypass_path_guard;
             let result = ToolExecutor::execute(tool, input, &exec_ctx)?;
             store.record_tool_run(
                 Some(&approval_id),
@@ -1522,6 +1632,7 @@ fn web(command: WebCommand) -> Result<()> {
                 db_path,
                 config.workspace_dir.clone(),
                 autonomy_mode_name(&config.mode).to_string(),
+                config.security.yolo_bypass_path_guard,
             ))?;
         }
     }
@@ -1636,8 +1747,11 @@ async fn run_services_async(
     let web_db = db_path.clone();
     let web_workspace = config.workspace_dir.clone();
     let web_mode = autonomy_mode_name(&config.mode).to_string();
+    let web_yolo_bypass = config.security.yolo_bypass_path_guard;
     tokio::spawn(async move {
-        if let Err(err) = web_runtime::serve(&web_bind, web_db, web_workspace, web_mode).await {
+        if let Err(err) =
+            web_runtime::serve(&web_bind, web_db, web_workspace, web_mode, web_yolo_bypass).await
+        {
             eprintln!("web runtime stopped: {err}");
         }
     });
@@ -1647,6 +1761,15 @@ async fn run_services_async(
     println!("db: {}", db_path.display());
     println!("web_bind: {}", bind);
     println!("mode: {}", autonomy_mode_name(&config.mode));
+    let expiry_db = db_path.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Ok(store) = MemoryStore::open(&expiry_db) {
+                let _ = store.apply_yolo_expiry("run_loop");
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
 
     if !config.discord.enabled {
         println!("discord_enabled: false");

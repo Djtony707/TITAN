@@ -10,6 +10,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use titan_common::AutonomyMode;
+use titan_comms::{ChannelKind, channel_status};
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::MemoryStore;
 use titan_tools::{ToolExecutionContext, ToolExecutor, ToolRegistry};
@@ -19,6 +20,7 @@ struct AppState {
     db_path: PathBuf,
     workspace_root: PathBuf,
     mode: String,
+    yolo_bypass_path_guard: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +51,7 @@ struct TraceDto {
     goal_id: String,
     event_type: String,
     detail: String,
+    risk_mode: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +67,8 @@ struct RuntimeStatusDto {
     mode: String,
     queue_depth: usize,
     pending_approvals: usize,
+    risk_mode: String,
+    yolo_expires_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,6 +79,36 @@ struct SkillDto {
     signature_status: String,
     scopes: String,
     last_run_goal_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelStatusDto {
+    channel: String,
+    configured: bool,
+    status: String,
+    detail: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionDto {
+    id: String,
+    channel: String,
+    peer_id: String,
+    queue_depth: i64,
+    compactions_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct MissionControlDto {
+    mode: String,
+    risk_mode: String,
+    yolo_expires_at_ms: Option<i64>,
+    channels: Vec<ChannelStatusDto>,
+    sessions: Vec<SessionDto>,
+    pending_approvals: Vec<ApprovalDto>,
+    skills: Vec<SkillDto>,
+    recent_runs: Vec<GoalDto>,
+    recent_traces: Vec<TraceDto>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,14 +151,28 @@ pub async fn serve(
     db_path: PathBuf,
     workspace_root: PathBuf,
     mode: String,
+    yolo_bypass_path_guard: bool,
 ) -> Result<()> {
     let state = Arc::new(AppState {
         db_path,
         workspace_root,
         mode,
+        yolo_bypass_path_guard,
     });
-    let app = Router::new()
+    let app = app_router(state);
+
+    let addr: SocketAddr = bind_addr
+        .parse()
+        .with_context(|| format!("invalid bind address: {bind_addr}"))?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+fn app_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/", get(index))
+        .route("/mission-control", get(mission_control_page))
         .route("/api/health", get(api_health))
         .route("/api/runtime/status", get(api_runtime_status))
         .route("/api/goals", get(api_goals))
@@ -133,16 +182,10 @@ pub async fn serve(
         .route("/api/traces/recent", get(api_recent_traces))
         .route("/api/traces/search", get(api_search_traces))
         .route("/api/skills", get(api_skills))
+        .route("/api/mission-control", get(api_mission_control))
         .route("/api/approvals/{id}/approve", post(api_approve))
         .route("/api/approvals/{id}/deny", post(api_deny))
-        .with_state(state);
-
-    let addr: SocketAddr = bind_addr
-        .parse()
-        .with_context(|| format!("invalid bind address: {bind_addr}"))?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+        .with_state(state)
 }
 
 async fn index() -> impl IntoResponse {
@@ -188,7 +231,7 @@ async fn index() -> impl IntoResponse {
       const res = await fetch('/api/runtime/status');
       const row = await res.json();
       document.getElementById('runtime').textContent =
-        `mode=${row.mode}\nqueue_depth=${row.queue_depth}\npending_approvals=${row.pending_approvals}`;
+        `mode=${row.mode}\nrisk_mode=${row.risk_mode}\nyolo_expires_at_ms=${row.yolo_expires_at_ms || '<none>'}\nqueue_depth=${row.queue_depth}\npending_approvals=${row.pending_approvals}`;
     }
     async function loadApprovals() {
       const res = await fetch('/api/approvals/pending');
@@ -264,6 +307,62 @@ async fn index() -> impl IntoResponse {
     )
 }
 
+async fn mission_control_page() -> impl IntoResponse {
+    Html(
+        r#"<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>TITAN Mission Control</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 24px; background: #f7f9fc; color: #14213d; }
+    h1 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { background: white; border: 1px solid #dfe7f3; border-radius: 10px; padding: 12px; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>TITAN Mission Control</h1>
+  <p>Runtime truth from SQLite + channel status probes.</p>
+  <div id="yolo_banner" style="display:none; background:#b00020; color:#fff; padding:10px; border-radius:8px; margin-bottom:12px;"></div>
+  <div class="grid">
+    <div class="card"><h3>Runtime</h3><pre id="runtime"></pre></div>
+    <div class="card"><h3>Channels</h3><pre id="channels"></pre></div>
+    <div class="card"><h3>Sessions</h3><pre id="sessions"></pre></div>
+    <div class="card"><h3>Pending Approvals</h3><pre id="approvals"></pre></div>
+    <div class="card"><h3>Installed Skills</h3><pre id="skills"></pre></div>
+    <div class="card"><h3>Recent Runs</h3><pre id="runs"></pre></div>
+    <div class="card"><h3>Recent Traces</h3><pre id="traces"></pre></div>
+  </div>
+  <script>
+    async function load() {
+      const res = await fetch('/api/mission-control');
+      const data = await res.json();
+      document.getElementById('runtime').textContent = `mode=${data.mode}\nrisk_mode=${data.risk_mode}\nyolo_expires_at_ms=${data.yolo_expires_at_ms || '<none>'}`;
+      const banner = document.getElementById('yolo_banner');
+      if (data.risk_mode === 'yolo') {
+        banner.style.display = 'block';
+        banner.textContent = `YOLO ACTIVE until ${data.yolo_expires_at_ms || '<none>'}. To disable: titan yolo disable`;
+      } else {
+        banner.style.display = 'none';
+        banner.textContent = '';
+      }
+      document.getElementById('channels').textContent = data.channels.map(c => `${c.channel} configured=${c.configured} status=${c.status}`).join('\n');
+      document.getElementById('sessions').textContent = data.sessions.map(s => `${s.id} ${s.channel}/${s.peer_id} queue=${s.queue_depth} compactions=${s.compactions_count}`).join('\n');
+      document.getElementById('approvals').textContent = data.pending_approvals.map(a => `${a.id} ${a.tool_name} ${a.capability}`).join('\n');
+      document.getElementById('skills').textContent = data.skills.map(s => `${s.slug}@${s.version} signed=${s.signature_status} scopes=${s.scopes}`).join('\n');
+      document.getElementById('runs').textContent = data.recent_runs.map(r => `${r.status} ${r.id} ${r.description}`).join('\n');
+      document.getElementById('traces').textContent = data.recent_traces.map(t => `${t.goal_id} ${t.event_type} ${t.detail}`).join('\n');
+    }
+    load();
+    setInterval(load, 3000);
+  </script>
+</body>
+</html>"#,
+    )
+}
+
 async fn api_health() -> Json<ApiHealth> {
     Json(ApiHealth { status: "ok" })
 }
@@ -292,6 +391,8 @@ async fn api_runtime_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<RuntimeStatusDto>, (StatusCode, String)> {
     let store = open_store(&state)?;
+    let _expired = store.apply_yolo_expiry("web").map_err(internal_error)?;
+    let risk = store.get_runtime_risk_state().map_err(internal_error)?;
     let queue_depth = store.count_active_goals().map_err(internal_error)?;
     let pending_approvals = store
         .list_pending_approvals()
@@ -301,6 +402,8 @@ async fn api_runtime_status(
         mode: state.mode.clone(),
         queue_depth,
         pending_approvals,
+        risk_mode: risk.risk_mode.as_str().to_string(),
+        yolo_expires_at_ms: risk.yolo_expires_at_ms,
     }))
 }
 
@@ -369,6 +472,7 @@ async fn api_search_traces(
             goal_id: t.goal_id,
             event_type: t.event_type,
             detail: t.detail,
+            risk_mode: t.risk_mode,
         })
         .collect();
     Ok(Json(traces))
@@ -388,6 +492,7 @@ async fn api_recent_traces(
             goal_id: t.goal_id,
             event_type: t.event_type,
             detail: t.detail,
+            risk_mode: t.risk_mode,
         })
         .collect();
     Ok(Json(traces))
@@ -411,6 +516,102 @@ async fn api_skills(
         })
         .collect::<Vec<_>>();
     Ok(Json(skills))
+}
+
+async fn api_mission_control(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<MissionControlDto>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let _expired = store.apply_yolo_expiry("web").map_err(internal_error)?;
+    let risk = store.get_runtime_risk_state().map_err(internal_error)?;
+    let channels = ChannelKind::all()
+        .iter()
+        .map(|channel| match channel_status(*channel) {
+            Ok(status) => ChannelStatusDto {
+                channel: status.channel,
+                configured: status.configured,
+                status: status.status,
+                detail: status.detail,
+            },
+            Err(err) => ChannelStatusDto {
+                channel: channel.as_str().to_string(),
+                configured: false,
+                status: "error".to_string(),
+                detail: err.to_string(),
+            },
+        })
+        .collect::<Vec<_>>();
+    let sessions = store
+        .list_sessions(50)
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| SessionDto {
+            id: row.id,
+            channel: row.channel,
+            peer_id: row.peer_id,
+            queue_depth: row.queue_depth,
+            compactions_count: row.compactions_count,
+        })
+        .collect::<Vec<_>>();
+    let pending_approvals = store
+        .list_pending_approvals()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|a| ApprovalDto {
+            id: a.id,
+            tool_name: a.tool_name,
+            capability: a.capability,
+            status: a.status,
+            requested_by: a.requested_by,
+            expires_at_ms: a.expires_at_ms,
+        })
+        .collect::<Vec<_>>();
+    let skills = store
+        .list_installed_skills()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| SkillDto {
+            slug: row.slug,
+            name: row.name,
+            version: row.version,
+            signature_status: row.signature_status,
+            scopes: row.scopes,
+            last_run_goal_id: row.last_run_goal_id,
+        })
+        .collect::<Vec<_>>();
+    let recent_runs = store
+        .list_goals(30)
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|g| GoalDto {
+            id: g.id,
+            description: g.description,
+            status: g.status,
+            dedupe_key: g.dedupe_key,
+        })
+        .collect::<Vec<_>>();
+    let recent_traces = store
+        .list_recent_traces(50)
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|t| TraceDto {
+            goal_id: t.goal_id,
+            event_type: t.event_type,
+            detail: t.detail,
+            risk_mode: t.risk_mode,
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(MissionControlDto {
+        mode: state.mode.clone(),
+        risk_mode: risk.risk_mode.as_str().to_string(),
+        yolo_expires_at_ms: risk.yolo_expires_at_ms,
+        channels,
+        sessions,
+        pending_approvals,
+        skills,
+        recent_runs,
+        recent_traces,
+    }))
 }
 
 async fn api_episodic_memory(
@@ -439,6 +640,7 @@ async fn api_approve(
     Json(input): Json<DecisionInput>,
 ) -> Result<Json<DecisionOutput>, (StatusCode, String)> {
     let store = open_store(&state)?;
+    let _expired = store.apply_yolo_expiry("web").map_err(internal_error)?;
     let approval = store
         .get_approval_request(&id)
         .map_err(internal_error)?
@@ -514,7 +716,11 @@ async fn api_approve(
         }));
     };
 
-    let exec_ctx = ToolExecutionContext::default_for_workspace(state.workspace_root.clone());
+    let mut exec_ctx = ToolExecutionContext::default_for_workspace(state.workspace_root.clone());
+    let risk = store.get_runtime_risk_state().map_err(internal_error)?;
+    exec_ctx.bypass_path_guard = matches!(risk.risk_mode, titan_memory::RiskMode::Yolo)
+        && risk.yolo_bypass_path_guard
+        && state.yolo_bypass_path_guard;
     let input_ref = if approval.input.trim().is_empty() {
         None
     } else {
@@ -578,4 +784,89 @@ fn parse_mode(value: &str) -> AutonomyMode {
 
 pub fn default_bind_addr() -> &'static str {
     "127.0.0.1:3000"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use tempfile::tempdir;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn mission_control_payload_includes_sessions_skills_and_traces() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        let session = store
+            .create_session("webchat", "tester", None)
+            .expect("create session");
+        store
+            .upsert_installed_skill(&titan_memory::InstalledSkillRecord {
+                slug: "list-docs".to_string(),
+                name: "List Docs".to_string(),
+                version: "1.0.0".to_string(),
+                description: "demo".to_string(),
+                source: "local".to_string(),
+                hash: "abcd".to_string(),
+                signature_status: "unsigned".to_string(),
+                scopes: "READ".to_string(),
+                allowed_paths: ".".to_string(),
+                allowed_hosts: "".to_string(),
+                last_run_goal_id: None,
+            })
+            .expect("skill row");
+        let goal = titan_core::Goal::new("demo goal".to_string());
+        store
+            .create_goal_for_session(&goal, Some(&session.id))
+            .expect("goal");
+        store
+            .add_trace_event(&titan_core::TraceEvent::new(
+                goal.id.clone(),
+                "demo_event",
+                "ok".to_string(),
+            ))
+            .expect("trace");
+
+        let state = Arc::new(AppState {
+            db_path: db_path.clone(),
+            workspace_root: workspace.clone(),
+            mode: "collaborative".to_string(),
+            yolo_bypass_path_guard: true,
+        });
+        let app = app_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mission-control")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(parsed["mode"], "collaborative");
+        assert!(
+            parsed["sessions"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
+        assert!(
+            parsed["skills"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
+        assert!(
+            parsed["recent_traces"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
+    }
 }

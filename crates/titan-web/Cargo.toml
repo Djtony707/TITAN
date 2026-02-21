@@ -13,6 +13,12 @@ serde_json.workspace = true
 titan-memory = { path = "../titan-memory" }
 titan-gateway = { path = "../titan-gateway" }
 titan-tools = { path = "../titan-tools" }
+titan-comms = { path = "../titan-comms" }
 titan-common = { path = "../titan-common" }
 titan-skills = { path = "../titan-skills" }
 tokio.workspace = true
+
+[dev-dependencies]
+tower = "0.5.2"
+tempfile.workspace = true
+titan-core = { path = "../titan-core" }
