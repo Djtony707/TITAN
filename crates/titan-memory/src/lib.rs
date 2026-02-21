@@ -121,6 +121,16 @@ pub struct RuntimeRiskState {
     pub last_changed_by: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConnectorRecord {
+    pub id: String,
+    pub connector_type: String,
+    pub display_name: String,
+    pub config_json: String,
+    pub last_test_at_ms: Option<i64>,
+    pub last_test_status: Option<String>,
+}
+
 pub struct RunPersistenceBundle<'a> {
     pub run: &'a TaskRunResult,
     pub source: &'a str,
@@ -361,6 +371,32 @@ impl MemoryStore {
 
             INSERT OR IGNORE INTO runtime_risk_state (id, risk_mode, yolo_bypass_path_guard, last_changed_at_ms, last_changed_by)
             VALUES (1, 'secure', 1, 0, 'cli');
+            "#,
+        )?;
+
+        self.apply_migration(
+            9,
+            "connectors_and_tool_usage",
+            r#"
+            CREATE TABLE IF NOT EXISTS connectors (
+              id TEXT PRIMARY KEY,
+              type TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              config_json TEXT NOT NULL,
+              last_test_at_ms INTEGER,
+              last_test_status TEXT,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS connector_tool_usage (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              connector_id TEXT NOT NULL,
+              tool_name TEXT NOT NULL,
+              last_used_at_ms INTEGER NOT NULL,
+              last_goal_id TEXT,
+              FOREIGN KEY(connector_id) REFERENCES connectors(id)
+            );
             "#,
         )?;
 
@@ -1256,6 +1292,112 @@ impl MemoryStore {
              SET yolo_expires_at_ms = ?1
              WHERE id = 1",
             params![expires_at_ms],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_connector(
+        &self,
+        id: &str,
+        connector_type: &str,
+        display_name: &str,
+        config_json: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO connectors (id, type, display_name, config_json)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![id, connector_type, display_name, config_json],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_connector(
+        &self,
+        id: &str,
+        display_name: &str,
+        config_json: &str,
+    ) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE connectors
+             SET display_name = ?1,
+                 config_json = ?2,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?3",
+            params![display_name, config_json, id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn remove_connector(&self, id: &str) -> Result<bool> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM connectors WHERE id = ?1", params![id])?;
+        Ok(changed > 0)
+    }
+
+    pub fn list_connectors(&self) -> Result<Vec<ConnectorRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, type, display_name, config_json, last_test_at_ms, last_test_status
+             FROM connectors
+             ORDER BY display_name ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ConnectorRecord {
+                id: row.get(0)?,
+                connector_type: row.get(1)?,
+                display_name: row.get(2)?,
+                config_json: row.get(3)?,
+                last_test_at_ms: row.get(4)?,
+                last_test_status: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn get_connector(&self, id: &str) -> Result<Option<ConnectorRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, type, display_name, config_json, last_test_at_ms, last_test_status
+             FROM connectors
+             WHERE id = ?1
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(ConnectorRecord {
+                id: row.get(0)?,
+                connector_type: row.get(1)?,
+                display_name: row.get(2)?,
+                config_json: row.get(3)?,
+                last_test_at_ms: row.get(4)?,
+                last_test_status: row.get(5)?,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub fn record_connector_test(&self, id: &str, status: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE connectors
+             SET last_test_at_ms = ?1,
+                 last_test_status = ?2,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?3",
+            params![now_epoch_ms(), status, id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn record_connector_tool_usage(
+        &self,
+        connector_id: &str,
+        tool_name: &str,
+        last_goal_id: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO connector_tool_usage
+             (connector_id, tool_name, last_used_at_ms, last_goal_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![connector_id, tool_name, now_epoch_ms(), last_goal_id],
         )?;
         Ok(())
     }

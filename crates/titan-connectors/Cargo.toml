@@ -1,0 +1,22 @@
+[package]
+name = "titan-connectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+titan-common = { path = "../titan-common" }
+titan-core = { path = "../titan-core" }
+titan-memory = { path = "../titan-memory" }
+titan-tools = { path = "../titan-tools" }
+titan-secrets = { path = "../titan-secrets" }
+
+[dev-dependencies]
+httpmock = "0.7.0"
+tempfile.workspace = true
