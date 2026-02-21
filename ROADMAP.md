@@ -1,108 +1,55 @@
 # TITAN Roadmap
 
-> The path to becoming the best open-source AI agent platform.
+This roadmap tracks implementation status against the active local-first runtime plan.
 
-## Current Status: v0.1.0 Alpha ✅
+## Current Status (February 21, 2026)
 
-**Completed:**
-- ✅ Core architecture (Rust workspace)
-- ✅ Security framework (WASM sandbox, approvals, audit)
-- ✅ Multi-agent orchestration
-- ✅ Self-improvement system
-- ✅ Reasoning personas
-- ✅ MCP support
-- ✅ Installation wizard
-- ✅ Configuration system
+### Completed
+- Phase 1: SECURE/YOLO risk modes with CLI-only YOLO arming, expiry, and risk-mode trace tagging.
+- Phase 2: Connectors foundation + encrypted secrets store.
+  - `titan-connectors` crate with GitHub and Google Calendar connectors.
+  - Connector metadata persisted in SQLite.
+  - Encrypted local secrets store (`~/.titan/secrets.enc`) with Argon2id + XChaCha20-Poly1305.
+  - Connector approvals integrated and finalized through existing approval flows.
+  - Mission Control and API connector visibility.
+- Phase 3: Autonomous jobs + scheduler.
+  - Persistent `jobs` and `job_runs` SQLite tables.
+  - In-process scheduler loop in `titan run` with bounded concurrency.
+  - Job CLI (`add/list/show/pause/resume/run-now/remove`).
+  - Jobs surfaced in Mission Control and `/api/jobs` routes.
+  - Scheduler and YOLO job behavior integration tests.
 
-## Phase 1: Foundation (Now - March 2026)
+### In Progress
+- Documentation sync and release polish for all completed phases.
 
-### v0.2.0 — GitHub Launch
-- [ ] Public GitHub repository
-- [ ] Initial community feedback
-- [ ] Bug fixes from alpha testing
-- [ ] Documentation improvements
-- [ ] First 100 GitHub stars
+## Next Phases
 
-### v0.3.0 — Core Stability
-- [ ] Full test coverage
-- [ ] CI/CD pipeline
-- [ ] Automated security scanning
-- [ ] Benchmark suite
-- [ ] Performance optimizations
+## Phase 4: Continuous Work Sessions
+- Pause/resume sessions on approval boundaries.
+- Bounded replanning on failures with retry limits.
+- Session progress persistence across restarts.
+- Integration tests for pause/resume, bounded replans, restart continuity.
 
-## Phase 2: Feature Parity (March - May 2026)
+## Phase 5: Local LLM-First Profiles + Retrieval Bounds
+- Router/planner/writer model profiles persisted and selectable.
+- Ollama-first defaults with deterministic fallback path.
+- Bounded memory retrieval controls (`retrieval_k`, token caps).
+- Trace visibility for retrieval decisions and counts.
 
-### v0.4.0 — Multi-Channel
-- [ ] Telegram support
-- [ ] Slack support
-- [ ] Signal support
-- [ ] Webhook integration
+## Phase 6: Final UX + Release Readiness
+- Mission Control polish (risk, connectors, jobs, sessions, approvals, skills, traces).
+- Final docs pass for quickstart, safety, jobs, connectors, and operations.
+- Smoke scripts and release checklist alignment.
+- Final quality gate pass before release tag.
 
-### v0.5.0 — Coding Excellence
-- [ ] GitHub integration
-- [ ] Repository-aware operations
-- [ ] Code review capabilities
-- [ ] IDE plugin (VS Code)
+## Always-On Quality Gates
 
-### v0.6.0 — Browser Power
-- [ ] Full browser automation
-- [ ] Screenshot analysis
-- [ ] Form interaction
-- [ ] Web scraping
-
-## Phase 3: Enterprise (May - July 2026)
-
-### v0.7.0 — Team Features
-- [ ] Multi-user support
-- [ ] Role-based access
-- [ ] Shared workspaces
-- [ ] Team audit logs
-
-### v0.8.0 — Enterprise Security
-- [ ] SSO integration (OIDC/SAML)
-- [ ] Policy enforcement
-- [ ] Compliance reporting
-- [ ] Audit dashboards
-
-### v0.9.0 — Scalability
-- [ ] Distributed mode
-- [ ] Multi-machine agents
-- [ ] Load balancing
-- [ ] Horizontal scaling
-
-## Phase 4: Domination (July+ 2026)
-
-### v1.0.0 — Production Ready
-- [ ] Stable API
-- [ ] Long-term support
-- [ ] Migration guide from alternatives
-- [ ] Case studies
-
-### v1.x — Ecosystem
-- [ ] Plugin marketplace
-- [ ] Skill registry
-- [ ] Agent templates
-- [ ] Community showcases
-
-### v2.0 — The Future
-- [ ] Voice interface
-- [ ] Mobile companion
-- [ ] Hardware integration
-- [ ] AI-to-AI negotiation protocol
-
-## Community Milestones
-
-- [ ] 1,000 GitHub stars
-- [ ] 100 Discord members
-- [ ] 50 contributors
-- [ ] First enterprise user
-- [ ] First conference talk
-
-## How to Contribute
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to help with any of these milestones.
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```
 
 ---
 
-**Last Updated:** February 12, 2026  
-**Next Review:** Monthly
+**Last Updated:** February 21, 2026
