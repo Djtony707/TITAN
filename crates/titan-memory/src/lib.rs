@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use chrono::{DateTime, TimeZone, Utc};
+use cron::Schedule;
 use rusqlite::{Connection, params};
 use titan_core::{Goal, GoalStatus, PendingApprovalAction, StepResult, TaskRunResult, TraceEvent};
 use uuid::Uuid;
@@ -129,6 +131,44 @@ pub struct ConnectorRecord {
     pub config_json: String,
     pub last_test_at_ms: Option<i64>,
     pub last_test_status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRecord {
+    pub job_id: String,
+    pub name: String,
+    pub schedule_kind: String,
+    pub schedule_value: String,
+    pub goal_template: String,
+    pub mode: String,
+    pub allowed_scopes: String,
+    pub enabled: bool,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_run_at_ms: Option<i64>,
+    pub last_status: Option<String>,
+    pub last_goal_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRunRecord {
+    pub run_id: String,
+    pub job_id: String,
+    pub started_at_ms: i64,
+    pub finished_at_ms: Option<i64>,
+    pub status: String,
+    pub goal_id: Option<String>,
+    pub error_summary: Option<String>,
+}
+
+pub struct NewJobRecord<'a> {
+    pub job_id: &'a str,
+    pub name: &'a str,
+    pub schedule_kind: &'a str,
+    pub schedule_value: &'a str,
+    pub goal_template: &'a str,
+    pub mode: &'a str,
+    pub allowed_scopes: &'a str,
 }
 
 pub struct RunPersistenceBundle<'a> {
@@ -396,6 +436,39 @@ impl MemoryStore {
               last_used_at_ms INTEGER NOT NULL,
               last_goal_id TEXT,
               FOREIGN KEY(connector_id) REFERENCES connectors(id)
+            );
+            "#,
+        )?;
+
+        self.apply_migration(
+            10,
+            "jobs_and_scheduler_runs",
+            r#"
+            CREATE TABLE IF NOT EXISTS jobs (
+              job_id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              schedule_kind TEXT NOT NULL,
+              schedule_value TEXT NOT NULL,
+              goal_template TEXT NOT NULL,
+              mode TEXT NOT NULL,
+              allowed_scopes TEXT NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at_ms INTEGER NOT NULL,
+              updated_at_ms INTEGER NOT NULL,
+              last_run_at_ms INTEGER,
+              last_status TEXT,
+              last_goal_id TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS job_runs (
+              run_id TEXT PRIMARY KEY,
+              job_id TEXT NOT NULL,
+              started_at_ms INTEGER NOT NULL,
+              finished_at_ms INTEGER,
+              status TEXT NOT NULL,
+              goal_id TEXT,
+              error_summary TEXT,
+              FOREIGN KEY(job_id) REFERENCES jobs(job_id)
             );
             "#,
         )?;
@@ -1402,6 +1475,180 @@ impl MemoryStore {
         Ok(())
     }
 
+    pub fn add_job(&self, job: NewJobRecord<'_>) -> Result<()> {
+        let now = now_epoch_ms();
+        self.conn.execute(
+            "INSERT INTO jobs
+             (job_id, name, schedule_kind, schedule_value, goal_template, mode, allowed_scopes, enabled, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)",
+            params![
+                job.job_id,
+                job.name,
+                job.schedule_kind,
+                job.schedule_value,
+                job.goal_template,
+                job.mode,
+                job.allowed_scopes,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_jobs(&self) -> Result<Vec<JobRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT job_id, name, schedule_kind, schedule_value, goal_template, mode, allowed_scopes, enabled,
+                    created_at_ms, updated_at_ms, last_run_at_ms, last_status, last_goal_id
+             FROM jobs
+             ORDER BY created_at_ms DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(JobRecord {
+                job_id: row.get(0)?,
+                name: row.get(1)?,
+                schedule_kind: row.get(2)?,
+                schedule_value: row.get(3)?,
+                goal_template: row.get(4)?,
+                mode: row.get(5)?,
+                allowed_scopes: row.get(6)?,
+                enabled: row.get::<_, i64>(7)? != 0,
+                created_at_ms: row.get(8)?,
+                updated_at_ms: row.get(9)?,
+                last_run_at_ms: row.get(10)?,
+                last_status: row.get(11)?,
+                last_goal_id: row.get(12)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn get_job(&self, job_id: &str) -> Result<Option<JobRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT job_id, name, schedule_kind, schedule_value, goal_template, mode, allowed_scopes, enabled,
+                    created_at_ms, updated_at_ms, last_run_at_ms, last_status, last_goal_id
+             FROM jobs
+             WHERE job_id = ?1
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![job_id])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(JobRecord {
+                job_id: row.get(0)?,
+                name: row.get(1)?,
+                schedule_kind: row.get(2)?,
+                schedule_value: row.get(3)?,
+                goal_template: row.get(4)?,
+                mode: row.get(5)?,
+                allowed_scopes: row.get(6)?,
+                enabled: row.get::<_, i64>(7)? != 0,
+                created_at_ms: row.get(8)?,
+                updated_at_ms: row.get(9)?,
+                last_run_at_ms: row.get(10)?,
+                last_status: row.get(11)?,
+                last_goal_id: row.get(12)?,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub fn set_job_enabled(&self, job_id: &str, enabled: bool) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE jobs
+             SET enabled = ?1, updated_at_ms = ?2
+             WHERE job_id = ?3",
+            params![if enabled { 1 } else { 0 }, now_epoch_ms(), job_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn remove_job(&self, job_id: &str) -> Result<bool> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM jobs WHERE job_id = ?1", params![job_id])?;
+        Ok(changed > 0)
+    }
+
+    pub fn list_due_jobs(&self, now_ms: i64, limit: usize) -> Result<Vec<JobRecord>> {
+        let all = self.list_jobs()?;
+        let due = all
+            .into_iter()
+            .filter(|job| job.enabled)
+            .filter(|job| is_job_due(job, now_ms).unwrap_or(false))
+            .take(limit)
+            .collect();
+        Ok(due)
+    }
+
+    pub fn start_job_run(&self, job_id: &str) -> Result<String> {
+        let run_id = Uuid::new_v4().to_string();
+        let started_at_ms = now_epoch_ms();
+        self.conn.execute(
+            "INSERT INTO job_runs (run_id, job_id, started_at_ms, status)
+             VALUES (?1, ?2, ?3, 'running')",
+            params![run_id, job_id, started_at_ms],
+        )?;
+        self.conn.execute(
+            "UPDATE jobs
+             SET last_run_at_ms = ?1, last_status = 'running', updated_at_ms = ?1
+             WHERE job_id = ?2",
+            params![started_at_ms, job_id],
+        )?;
+        Ok(run_id)
+    }
+
+    pub fn finish_job_run(
+        &self,
+        run_id: &str,
+        status: &str,
+        goal_id: Option<&str>,
+        error_summary: Option<&str>,
+    ) -> Result<bool> {
+        let finished_at_ms = now_epoch_ms();
+        let changed = self.conn.execute(
+            "UPDATE job_runs
+             SET finished_at_ms = ?1, status = ?2, goal_id = ?3, error_summary = ?4
+             WHERE run_id = ?5",
+            params![finished_at_ms, status, goal_id, error_summary, run_id],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        let job_id: String = self.conn.query_row(
+            "SELECT job_id FROM job_runs WHERE run_id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        self.conn.execute(
+            "UPDATE jobs
+             SET last_status = ?1, last_goal_id = ?2, updated_at_ms = ?3
+             WHERE job_id = ?4",
+            params![status, goal_id, finished_at_ms, job_id],
+        )?;
+        Ok(true)
+    }
+
+    pub fn list_job_runs(&self, job_id: &str, limit: usize) -> Result<Vec<JobRunRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT run_id, job_id, started_at_ms, finished_at_ms, status, goal_id, error_summary
+             FROM job_runs
+             WHERE job_id = ?1
+             ORDER BY started_at_ms DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![job_id, limit as i64], |row| {
+            Ok(JobRunRecord {
+                run_id: row.get(0)?,
+                job_id: row.get(1)?,
+                started_at_ms: row.get(2)?,
+                finished_at_ms: row.get(3)?,
+                status: row.get(4)?,
+                goal_id: row.get(5)?,
+                error_summary: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn last_goal_for_session(&self, session_id: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT id
@@ -1692,6 +1939,62 @@ fn now_epoch_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     now.as_millis() as i64
+}
+
+fn is_job_due(job: &JobRecord, now_ms: i64) -> Result<bool> {
+    match job.schedule_kind.as_str() {
+        "interval" => {
+            let interval_ms = parse_interval_ms(&job.schedule_value)?;
+            let due_at = job.last_run_at_ms.unwrap_or(0) + interval_ms;
+            Ok(now_ms >= due_at)
+        }
+        "cron" => is_cron_due(job.last_run_at_ms, &job.schedule_value, now_ms),
+        other => bail!("unsupported schedule_kind: {other}"),
+    }
+}
+
+fn parse_interval_ms(value: &str) -> Result<i64> {
+    let trimmed = value.trim();
+    if trimmed.len() < 2 {
+        bail!("invalid interval value: {value}");
+    }
+    let unit = &trimmed[trimmed.len() - 1..];
+    let number = &trimmed[..trimmed.len() - 1];
+    let n: i64 = number
+        .parse()
+        .with_context(|| format!("invalid interval number: {value}"))?;
+    if n <= 0 {
+        bail!("interval must be positive");
+    }
+    let scale = match unit {
+        "s" => 1_000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        _ => bail!("unsupported interval unit: {unit}"),
+    };
+    Ok(n * scale)
+}
+
+fn is_cron_due(last_run_at_ms: Option<i64>, expr: &str, now_ms: i64) -> Result<bool> {
+    let schedule = expr
+        .parse::<Schedule>()
+        .with_context(|| format!("invalid cron expression: {expr}"))?;
+    let now: DateTime<Utc> = Utc
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("invalid current timestamp"))?;
+    let baseline = if let Some(last_ms) = last_run_at_ms {
+        Utc.timestamp_millis_opt(last_ms)
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("invalid last_run_at_ms timestamp"))?
+    } else {
+        now - chrono::Duration::minutes(1)
+    };
+    let mut upcoming = schedule.after(&baseline);
+    if let Some(next) = upcoming.next() {
+        return Ok(next <= now);
+    }
+    Ok(false)
 }
 
 fn persist_pending_approval(

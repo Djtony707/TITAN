@@ -11,6 +11,8 @@ rusqlite.workspace = true
 titan-core = { path = "../titan-core" }
 titan-common = { path = "../titan-common" }
 uuid.workspace = true
+chrono.workspace = true
+cron.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
