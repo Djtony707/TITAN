@@ -57,12 +57,18 @@ enum Command {
         /// Install a startup daemon after setup completes.
         #[arg(long, default_value_t = false)]
         install_daemon: bool,
+        /// Apply defaults/non-interactive values and skip prompts.
+        #[arg(long, default_value_t = false)]
+        yes: bool,
     },
     /// Alias for `onboard` for first-time setup.
     Setup {
         /// Install a startup daemon after setup completes.
         #[arg(long, default_value_t = false)]
         install_daemon: bool,
+        /// Apply defaults/non-interactive values and skip prompts.
+        #[arg(long, default_value_t = false)]
+        yes: bool,
     },
     /// Goal operations.
     Goal {
@@ -279,8 +285,14 @@ fn main() -> Result<()> {
             bind,
             poll_interval_ms,
         }) => run_services(bind, poll_interval_ms),
-        Some(Command::Onboard { install_daemon }) => onboard(install_daemon),
-        Some(Command::Setup { install_daemon }) => onboard(install_daemon),
+        Some(Command::Onboard {
+            install_daemon,
+            yes,
+        }) => onboard(install_daemon, yes),
+        Some(Command::Setup {
+            install_daemon,
+            yes,
+        }) => onboard(install_daemon, yes),
         Some(Command::Goal { command }) => goal(command),
         Some(Command::Tool { command }) => tool(command),
         Some(Command::Approval { command }) => approval(command),
@@ -402,71 +414,98 @@ fn model(command: ModelCommand) -> Result<()> {
     Ok(())
 }
 
-fn onboard(install_daemon: bool) -> Result<()> {
+fn onboard(install_daemon: bool, accept_defaults: bool) -> Result<()> {
     let (mut config, path, created) = TitanConfig::load_or_create()?;
     logging::init(&config.log_level);
 
     println!("{} onboarding wizard", APP_NAME);
     println!("config_path: {}", path.display());
     println!("created_config: {}", created);
-    println!("Press Enter to accept defaults shown in brackets.");
-
-    let workspace_input = prompt_with_default(
-        "Workspace directory",
-        &config.workspace_dir.display().to_string(),
-    )?;
-    config.workspace_dir = PathBuf::from(expand_tilde(&workspace_input));
-
-    let mode_choice = prompt_choice(
-        "Autonomy mode",
-        &[
-            "supervised (all actions require approval)",
-            "collaborative (read auto, risky actions require approval)",
-            "autonomous (no approval gates)",
-        ],
-        mode_index(&config.mode),
-    )?;
-    config.mode = match mode_choice {
-        0 => AutonomyMode::Supervised,
-        1 => AutonomyMode::Collaborative,
-        2 => AutonomyMode::Autonomous,
-        _ => unreachable!("prompt_choice enforces valid range"),
-    };
-
-    let discord_enabled = prompt_yes_no("Enable Discord integration", config.discord.enabled)?;
-    config.discord.enabled = discord_enabled;
-    if discord_enabled {
-        let token_default = resolve_discord_token(&config).unwrap_or_default();
-        let token = prompt_with_default("Discord bot token (DISCORD_BOT_TOKEN)", &token_default)?;
-        if token.trim().is_empty() {
-            config.discord.token = None;
-        } else {
+    if accept_defaults {
+        println!("mode: non-interactive (--yes)");
+        // Minimal-friction defaults for first-time setup.
+        config.mode = AutonomyMode::Collaborative;
+        if let Some(token) = resolve_discord_token(&config) {
+            config.discord.enabled = true;
             config.discord.token = Some(token);
-        }
-
-        let channel_default = config
-            .discord
-            .default_channel_id
-            .clone()
-            .or_else(resolve_discord_channel_from_env)
-            .unwrap_or_default();
-        let channel =
-            prompt_with_default("Default Discord channel id (optional)", &channel_default)?;
-        if channel.trim().is_empty() {
-            config.discord.default_channel_id = None;
+            config.discord.default_channel_id = config
+                .discord
+                .default_channel_id
+                .clone()
+                .or_else(resolve_discord_channel_from_env);
         } else {
-            config.discord.default_channel_id = Some(channel);
+            config.discord.enabled = false;
+            config.discord.token = None;
+            config.discord.default_channel_id = None;
         }
+        auto_configure_model_defaults(&mut config)?;
     } else {
-        config.discord.token = None;
-        config.discord.default_channel_id = None;
-    }
+        println!("Press Enter to accept defaults shown in brackets.");
 
-    configure_model_interactive(&mut config)?;
+        let workspace_input = prompt_with_default(
+            "Workspace directory",
+            &config.workspace_dir.display().to_string(),
+        )?;
+        config.workspace_dir = PathBuf::from(expand_tilde(&workspace_input));
+
+        let mode_choice = prompt_choice(
+            "Autonomy mode",
+            &[
+                "supervised (all actions require approval)",
+                "collaborative (read auto, risky actions require approval)",
+                "autonomous (no approval gates)",
+            ],
+            mode_index(&config.mode),
+        )?;
+        config.mode = match mode_choice {
+            0 => AutonomyMode::Supervised,
+            1 => AutonomyMode::Collaborative,
+            2 => AutonomyMode::Autonomous,
+            _ => unreachable!("prompt_choice enforces valid range"),
+        };
+
+        let discord_enabled = prompt_yes_no("Enable Discord integration", config.discord.enabled)?;
+        config.discord.enabled = discord_enabled;
+        if discord_enabled {
+            let token_default = resolve_discord_token(&config).unwrap_or_default();
+            let token =
+                prompt_with_default("Discord bot token (DISCORD_BOT_TOKEN)", &token_default)?;
+            if token.trim().is_empty() {
+                config.discord.token = None;
+            } else {
+                config.discord.token = Some(token);
+            }
+
+            let channel_default = config
+                .discord
+                .default_channel_id
+                .clone()
+                .or_else(resolve_discord_channel_from_env)
+                .unwrap_or_default();
+            let channel =
+                prompt_with_default("Default Discord channel id (optional)", &channel_default)?;
+            if channel.trim().is_empty() {
+                config.discord.default_channel_id = None;
+            } else {
+                config.discord.default_channel_id = Some(channel);
+            }
+        } else {
+            config.discord.token = None;
+            config.discord.default_channel_id = None;
+        }
+
+        configure_model_interactive(&mut config)?;
+    }
 
     // Save then validate so newly chosen workspace can be created immediately.
     config.save(&path)?;
     config.validate_and_prepare()?;
+    let doctor_status = doctor();
+    if let Err(err) = doctor_status {
+        println!("post_onboard_doctor: failed ({err})");
+    } else {
+        println!("post_onboard_doctor: ok");
+    }
 
     println!("onboarding_status: complete");
     println!("workspace: {}", config.workspace_dir.display());
@@ -477,6 +516,9 @@ fn onboard(install_daemon: bool) -> Result<()> {
     );
     println!("model_id: {}", config.model.model_id);
     println!("discord_enabled: {}", config.discord.enabled);
+    if config.discord.enabled {
+        report_discord_onboarding_status(&config)?;
+    }
     if install_daemon {
         let daemon = install_startup_daemon()?;
         println!("daemon_installed: true");
@@ -1524,6 +1566,76 @@ fn configure_model_interactive(config: &mut TitanConfig) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn auto_configure_model_defaults(config: &mut TitanConfig) -> Result<()> {
+    match config.model.provider {
+        ModelProvider::Ollama => {
+            let endpoint = config
+                .model
+                .endpoint
+                .clone()
+                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+            let discovered = discover_ollama_models(&endpoint)?;
+            if let Some(model) = discovered.first() {
+                config.model.model_id = model.clone();
+            } else if config.model.model_id.trim().is_empty() {
+                config.model.model_id = "llama3.2:latest".to_string();
+            }
+            config.model.endpoint = Some(endpoint);
+            config.model.api_key_env = None;
+        }
+        ModelProvider::OpenAi => {
+            if config.model.model_id.trim().is_empty() {
+                config.model.model_id = "gpt-4o-mini".to_string();
+            }
+            if config.model.api_key_env.is_none() {
+                config.model.api_key_env = Some("OPENAI_API_KEY".to_string());
+            }
+        }
+        ModelProvider::Anthropic => {
+            if config.model.model_id.trim().is_empty() {
+                config.model.model_id = "claude-3-5-sonnet-latest".to_string();
+            }
+            if config.model.api_key_env.is_none() {
+                config.model.api_key_env = Some("ANTHROPIC_API_KEY".to_string());
+            }
+        }
+        ModelProvider::Custom => {
+            if config.model.model_id.trim().is_empty() {
+                config.model.model_id = "custom-model".to_string();
+            }
+        }
+    }
+    Ok(())
+}
+
+fn report_discord_onboarding_status(config: &TitanConfig) -> Result<()> {
+    let token = resolve_discord_token(config).unwrap_or_default();
+    if token.trim().is_empty() {
+        println!("discord_validation: skipped (missing token)");
+        return Ok(());
+    }
+    let channel = resolve_discord_channel_id(config);
+    println!(
+        "discord_channel_configured: {}",
+        channel
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "<none>".to_string())
+    );
+    let gateway = DiscordGateway::new(&token, 10_000)?;
+    match gateway.healthcheck() {
+        Ok(identity) => {
+            println!("discord_validation: ok");
+            println!("discord_bot_username: {}", identity.username);
+            println!("discord_bot_id: {}", identity.id);
+        }
+        Err(err) => {
+            println!("discord_validation: failed");
+            println!("discord_validation_error: {}", err);
+        }
+    }
     Ok(())
 }
 

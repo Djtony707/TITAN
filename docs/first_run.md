@@ -38,6 +38,12 @@ export DISCORD_CHANNEL_ID="your-channel-id"
 ./target/release/titan onboard
 ```
 
+Non-interactive shortcut (recommended when env vars are already set):
+
+```bash
+./target/release/titan onboard --yes
+```
+
 Recommended onboarding choices:
 - mode: `collaborative`
 - discord enabled: `true`

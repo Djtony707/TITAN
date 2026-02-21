@@ -113,6 +113,12 @@ Run onboarding:
 ./target/release/titan onboard
 ```
 
+Fast non-interactive onboarding (uses env vars + safe defaults):
+
+```bash
+./target/release/titan onboard --yes
+```
+
 Run health checks:
 
 ```bash
