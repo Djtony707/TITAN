@@ -15,6 +15,8 @@ titan-core = { path = "../titan-core" }
 titan-comms = { path = "../titan-comms" }
 titan-discord = { path = "../titan-discord" }
 titan-memory = { path = "../titan-memory" }
+titan-connectors = { path = "../titan-connectors" }
+titan-secrets = { path = "../titan-secrets" }
 titan-skills = { path = "../titan-skills" }
 titan-common = { path = "../titan-common" }
 titan-tools = { path = "../titan-tools" }
@@ -22,6 +24,7 @@ titan-gateway = { path = "../titan-gateway" }
 tokio.workspace = true
 serenity.workspace = true
 titan-web = { path = "../titan-web" }
+uuid.workspace = true
 
 [[bin]]
 name = "titan"

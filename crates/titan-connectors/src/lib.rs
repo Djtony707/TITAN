@@ -6,6 +6,7 @@ use serde_json::Value;
 use titan_common::AutonomyMode;
 use titan_core::{Goal, GoalStatus, TraceEvent};
 use titan_memory::{MemoryStore, RiskMode};
+use titan_secrets::SecretsStore;
 use titan_tools::{CapabilityClass, PolicyEngine, ToolRiskMode};
 use uuid::Uuid;
 
@@ -69,6 +70,38 @@ pub struct ConnectorContext<'a> {
 
 pub trait SecretResolver {
     fn get_secret(&self, key_id: &str) -> Result<Option<String>>;
+}
+
+pub struct CompositeSecretResolver {
+    store: Option<SecretsStore>,
+}
+
+impl CompositeSecretResolver {
+    pub fn locked() -> Self {
+        Self { store: None }
+    }
+
+    pub fn from_passphrase(passphrase: Option<&str>) -> Result<Self> {
+        let Some(passphrase) = passphrase.map(str::trim).filter(|v| !v.is_empty()) else {
+            return Ok(Self::locked());
+        };
+        let mut store = SecretsStore::open_default();
+        store.unlock(passphrase)?;
+        Ok(Self { store: Some(store) })
+    }
+
+    pub fn from_env() -> Result<Self> {
+        Self::from_passphrase(std::env::var("TITAN_SECRETS_PASSPHRASE").ok().as_deref())
+    }
+}
+
+impl SecretResolver for CompositeSecretResolver {
+    fn get_secret(&self, key_id: &str) -> Result<Option<String>> {
+        let Some(store) = &self.store else {
+            return Ok(None);
+        };
+        store.get_secret(key_id)
+    }
 }
 
 #[derive(Default)]

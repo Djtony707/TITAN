@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use titan_common::{ActivationMode, AutonomyMode, TitanConfig};
+use titan_connectors::{CompositeSecretResolver, execute_connector_tool_after_approval};
 use titan_core::{
     CoreEvent, Goal, GoalStatus, StepPermission, StepResult, TaskPipelineConfig, TraceEvent,
     build_task_plan, execute_task_plan_with_broker,
@@ -666,6 +667,19 @@ impl TitanGatewayRuntime {
         }
         if approval.tool_name == "skill_exec_grant" {
             return Ok("approved".to_string());
+        }
+        if approval.tool_name == "connector_tool" {
+            let resolver = CompositeSecretResolver::from_env()?;
+            let outcome = execute_connector_tool_after_approval(
+                &store,
+                resolved_by,
+                &approval.input,
+                &resolver,
+            )?;
+            return Ok(format!(
+                "approved connector_goal={} status={}",
+                outcome.goal_id, outcome.result_status
+            ));
         }
 
         let registry = ToolRegistry::with_defaults();

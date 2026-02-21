@@ -11,6 +11,9 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use titan_common::AutonomyMode;
 use titan_comms::{ChannelKind, channel_status};
+use titan_connectors::{
+    CompositeSecretResolver, execute_connector_tool_after_approval, test_connector,
+};
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::MemoryStore;
 use titan_tools::{ToolExecutionContext, ToolExecutor, ToolRegistry};
@@ -106,9 +109,26 @@ struct MissionControlDto {
     channels: Vec<ChannelStatusDto>,
     sessions: Vec<SessionDto>,
     pending_approvals: Vec<ApprovalDto>,
+    connectors: Vec<ConnectorDto>,
+    connector_summary: ConnectorSummaryDto,
     skills: Vec<SkillDto>,
     recent_runs: Vec<GoalDto>,
     recent_traces: Vec<TraceDto>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConnectorDto {
+    id: String,
+    connector_type: String,
+    display_name: String,
+    last_test_at_ms: Option<i64>,
+    last_test_status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConnectorSummaryDto {
+    total: usize,
+    failing: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,6 +202,8 @@ fn app_router(state: Arc<AppState>) -> Router {
         .route("/api/traces/recent", get(api_recent_traces))
         .route("/api/traces/search", get(api_search_traces))
         .route("/api/skills", get(api_skills))
+        .route("/api/connectors", get(api_connectors))
+        .route("/api/connectors/{id}/test", post(api_connector_test))
         .route("/api/mission-control", get(api_mission_control))
         .route("/api/approvals/{id}/approve", post(api_approve))
         .route("/api/approvals/{id}/deny", post(api_deny))
@@ -331,6 +353,7 @@ async fn mission_control_page() -> impl IntoResponse {
     <div class="card"><h3>Channels</h3><pre id="channels"></pre></div>
     <div class="card"><h3>Sessions</h3><pre id="sessions"></pre></div>
     <div class="card"><h3>Pending Approvals</h3><pre id="approvals"></pre></div>
+    <div class="card"><h3>Connectors</h3><pre id="connectors"></pre></div>
     <div class="card"><h3>Installed Skills</h3><pre id="skills"></pre></div>
     <div class="card"><h3>Recent Runs</h3><pre id="runs"></pre></div>
     <div class="card"><h3>Recent Traces</h3><pre id="traces"></pre></div>
@@ -351,6 +374,9 @@ async fn mission_control_page() -> impl IntoResponse {
       document.getElementById('channels').textContent = data.channels.map(c => `${c.channel} configured=${c.configured} status=${c.status}`).join('\n');
       document.getElementById('sessions').textContent = data.sessions.map(s => `${s.id} ${s.channel}/${s.peer_id} queue=${s.queue_depth} compactions=${s.compactions_count}`).join('\n');
       document.getElementById('approvals').textContent = data.pending_approvals.map(a => `${a.id} ${a.tool_name} ${a.capability}`).join('\n');
+      document.getElementById('connectors').textContent =
+        `total=${data.connector_summary.total} failing=${data.connector_summary.failing}\n` +
+        data.connectors.map(c => `${c.id} ${c.connector_type} ${c.display_name} test=${c.last_test_status || '<never>'}`).join('\n');
       document.getElementById('skills').textContent = data.skills.map(s => `${s.slug}@${s.version} signed=${s.signature_status} scopes=${s.scopes}`).join('\n');
       document.getElementById('runs').textContent = data.recent_runs.map(r => `${r.status} ${r.id} ${r.description}`).join('\n');
       document.getElementById('traces').textContent = data.recent_traces.map(t => `${t.goal_id} ${t.event_type} ${t.detail}`).join('\n');
@@ -518,6 +544,39 @@ async fn api_skills(
     Ok(Json(skills))
 }
 
+async fn api_connectors(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<ConnectorDto>>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let rows = store
+        .list_connectors()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| ConnectorDto {
+            id: row.id,
+            connector_type: row.connector_type,
+            display_name: row.display_name,
+            last_test_at_ms: row.last_test_at_ms,
+            last_test_status: row.last_test_status,
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(rows))
+}
+
+async fn api_connector_test(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let resolver = CompositeSecretResolver::from_env().map_err(internal_error)?;
+    let health = test_connector(&store, &id, &resolver).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({
+        "connector_id": id,
+        "ok": health.ok,
+        "detail": health.detail,
+    })))
+}
+
 async fn api_mission_control(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<MissionControlDto>, (StatusCode, String)> {
@@ -566,6 +625,29 @@ async fn api_mission_control(
             expires_at_ms: a.expires_at_ms,
         })
         .collect::<Vec<_>>();
+    let connectors = store
+        .list_connectors()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| ConnectorDto {
+            id: row.id,
+            connector_type: row.connector_type,
+            display_name: row.display_name,
+            last_test_at_ms: row.last_test_at_ms,
+            last_test_status: row.last_test_status,
+        })
+        .collect::<Vec<_>>();
+    let connector_summary = ConnectorSummaryDto {
+        total: connectors.len(),
+        failing: connectors
+            .iter()
+            .filter(|c| {
+                c.last_test_status
+                    .as_deref()
+                    .is_some_and(|status| status.starts_with("error:"))
+            })
+            .count(),
+    };
     let skills = store
         .list_installed_skills()
         .map_err(internal_error)?
@@ -608,6 +690,8 @@ async fn api_mission_control(
         channels,
         sessions,
         pending_approvals,
+        connectors,
+        connector_summary,
         skills,
         recent_runs,
         recent_traces,
@@ -705,6 +789,20 @@ async fn api_approve(
         return Ok(Json(DecisionOutput {
             status: "approved".to_string(),
             detail: "skill_exec_grant".to_string(),
+        }));
+    }
+
+    if approval.tool_name == "connector_tool" {
+        let resolver = CompositeSecretResolver::from_env().map_err(internal_error)?;
+        let outcome =
+            execute_connector_tool_after_approval(&store, "web", &approval.input, &resolver)
+                .map_err(internal_error)?;
+        return Ok(Json(DecisionOutput {
+            status: "approved".to_string(),
+            detail: format!(
+                "connector_goal={} status={}",
+                outcome.goal_id, outcome.result_status
+            ),
         }));
     }
 
@@ -830,6 +928,17 @@ mod tests {
                 "ok".to_string(),
             ))
             .expect("trace");
+        store
+            .add_connector(
+                "11111111-1111-1111-1111-111111111111",
+                "github",
+                "GitHub",
+                r#"{"owner":"acme","repo":"titan","base_url":"https://api.github.com"}"#,
+            )
+            .expect("connector");
+        store
+            .record_connector_test("11111111-1111-1111-1111-111111111111", "ok: healthy")
+            .expect("connector test");
 
         let state = Arc::new(AppState {
             db_path: db_path.clone(),
@@ -864,9 +973,54 @@ mod tests {
                 .is_some_and(|rows| !rows.is_empty())
         );
         assert!(
+            parsed["connectors"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
+        assert!(
             parsed["recent_traces"]
                 .as_array()
                 .is_some_and(|rows| !rows.is_empty())
         );
+    }
+
+    #[tokio::test]
+    async fn connectors_endpoint_returns_rows() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        store
+            .add_connector(
+                "22222222-2222-2222-2222-222222222222",
+                "google_calendar",
+                "Calendar",
+                r#"{"calendar_id":"primary","base_url":"https://example.test","access_token_env":"GCAL_TOKEN"}"#,
+            )
+            .expect("connector");
+
+        let state = Arc::new(AppState {
+            db_path: db_path.clone(),
+            workspace_root: workspace.clone(),
+            mode: "collaborative".to_string(),
+            yolo_bypass_path_guard: true,
+        });
+        let app = app_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/connectors")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert!(parsed.as_array().is_some_and(|rows| !rows.is_empty()));
     }
 }

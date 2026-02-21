@@ -2718,14 +2718,17 @@ dependencies = [
  "serenity",
  "titan-common",
  "titan-comms",
+ "titan-connectors",
  "titan-core",
  "titan-discord",
  "titan-gateway",
  "titan-memory",
+ "titan-secrets",
  "titan-skills",
  "titan-tools",
  "titan-web",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -2796,6 +2799,7 @@ dependencies = [
  "anyhow",
  "tempfile",
  "titan-common",
+ "titan-connectors",
  "titan-core",
  "titan-memory",
  "titan-skills",
@@ -2879,6 +2883,7 @@ dependencies = [
  "tempfile",
  "titan-common",
  "titan-comms",
+ "titan-connectors",
  "titan-core",
  "titan-gateway",
  "titan-memory",

@@ -12,6 +12,7 @@ titan-memory = { path = "../titan-memory" }
 titan-tools = { path = "../titan-tools" }
 titan-common = { path = "../titan-common" }
 titan-skills = { path = "../titan-skills" }
+titan-connectors = { path = "../titan-connectors" }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -16,6 +16,9 @@ use std::time::{Duration, Instant};
 use titan_common::config::{AutonomyMode, ModelProvider, TitanConfig};
 use titan_common::{APP_NAME, logging};
 use titan_comms::{ChannelKind, channel_send, channel_status};
+use titan_connectors::{
+    CompositeSecretResolver, ConnectorType, execute_connector_tool_after_approval, test_connector,
+};
 use titan_core::{
     Goal, GoalAttemptBehavior, GoalExecutionConfig, GoalJob, GoalStatus, Runtime, SubagentConfig,
     SubagentOrchestrator, SubagentTask, SubmitOutcome, TraceEvent,
@@ -23,6 +26,7 @@ use titan_core::{
 use titan_discord::DiscordGateway;
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::{MemoryStore, RiskMode};
+use titan_secrets::{SecretsStatus, SecretsStore};
 use titan_skills::{
     LocalRegistryAdapter, SkillPackage, SkillRegistryAdapter, SkillRunState,
     approval_payload_for_stage, deny_unsigned_risky_install, deserialize_approval_payload,
@@ -32,6 +36,7 @@ use titan_skills::{
 };
 use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry, ToolRiskMode};
 use titan_web as web_runtime;
+use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 #[command(name = "titan", about = "TITAN agent platform CLI", version)]
@@ -123,6 +128,16 @@ enum Command {
     },
     /// Set risk mode quickly.
     Mode { risk_mode: String },
+    /// Encrypted local secrets store operations.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCommand,
+    },
+    /// Connector lifecycle and health commands.
+    Connector {
+        #[command(subcommand)]
+        command: ConnectorCommand,
+    },
     /// Skill runtime commands.
     Skill {
         #[command(subcommand)]
@@ -291,6 +306,34 @@ enum YoloCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum SecretsCommand {
+    /// Show whether encrypted secrets store is currently locked.
+    Status,
+    /// Unlock encrypted secrets store for this process.
+    Unlock,
+    /// Lock encrypted secrets store for this process.
+    Lock,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConnectorCommand {
+    /// List configured connectors.
+    List,
+    /// Add a connector row.
+    Add {
+        connector_type: String,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Configure connector fields and secret material.
+    Configure { id: String },
+    /// Run connector health check and persist last test status.
+    Test { id: String },
+    /// Remove connector by id.
+    Remove { id: String },
+}
+
+#[derive(Debug, Subcommand)]
 enum SkillCommand {
     /// Search registry entries by slug/name.
     Search {
@@ -389,6 +432,8 @@ fn main() -> Result<()> {
         Some(Command::Model { command }) => model(command),
         Some(Command::Yolo { command }) => yolo(command),
         Some(Command::Mode { risk_mode }) => mode_risk(&risk_mode),
+        Some(Command::Secrets { command }) => secrets(command),
+        Some(Command::Connector { command }) => connector(command),
         Some(Command::Skill { command }) => skill(command),
         Some(Command::Web { command }) => web(command),
         Some(Command::Agent { command }) => agent(command),
@@ -576,6 +621,179 @@ fn mode_risk(risk_mode: &str) -> Result<()> {
     bail!("yolo cannot be enabled via `titan mode`; use `titan yolo arm` then `titan yolo enable`");
 }
 
+fn secrets(command: SecretsCommand) -> Result<()> {
+    match command {
+        SecretsCommand::Status => {
+            let store = SecretsStore::open_default();
+            println!(
+                "status: {}",
+                match store.status() {
+                    SecretsStatus::Locked => "locked",
+                    SecretsStatus::Unlocked => "unlocked",
+                }
+            );
+            println!("path: {}", SecretsStore::default_path().display());
+        }
+        SecretsCommand::Unlock => {
+            let passphrase = prompt_with_default("Secrets passphrase", "")?;
+            if passphrase.trim().is_empty() {
+                bail!("passphrase cannot be empty");
+            }
+            let mut store = SecretsStore::open_default();
+            store.unlock(&passphrase)?;
+            let key_count = store.list_keys()?.len();
+            println!("status: unlocked");
+            println!("keys: {key_count}");
+        }
+        SecretsCommand::Lock => {
+            let mut store = SecretsStore::open_default();
+            store.lock();
+            println!("status: locked");
+        }
+    }
+    Ok(())
+}
+
+fn connector(command: ConnectorCommand) -> Result<()> {
+    let config = load_initialized_config()?;
+    let store = MemoryStore::open(&config.workspace_dir.join("titan.db"))?;
+    match command {
+        ConnectorCommand::List => {
+            let rows = store.list_connectors()?;
+            println!("connectors: {}", rows.len());
+            for row in rows {
+                println!(
+                    "- {} | {} | {} | last_test={}",
+                    row.id,
+                    row.connector_type,
+                    row.display_name,
+                    row.last_test_status
+                        .unwrap_or_else(|| "<never>".to_string())
+                );
+            }
+        }
+        ConnectorCommand::Add {
+            connector_type,
+            name,
+        } => {
+            let parsed = ConnectorType::parse(&connector_type)
+                .ok_or_else(|| anyhow::anyhow!("unsupported connector type: {connector_type}"))?;
+            let id = Uuid::new_v4().to_string();
+            let display_name = name.unwrap_or_else(|| parsed.as_str().to_string());
+            let config_json = default_connector_config(parsed)?.to_string();
+            store.add_connector(&id, parsed.as_str(), &display_name, &config_json)?;
+            println!("connector_added: {id}");
+            println!("type: {}", parsed.as_str());
+            println!("display_name: {display_name}");
+        }
+        ConnectorCommand::Configure { id } => {
+            let row = store
+                .get_connector(&id)?
+                .ok_or_else(|| anyhow::anyhow!("connector not found: {id}"))?;
+            let parsed = ConnectorType::parse(&row.connector_type).ok_or_else(|| {
+                anyhow::anyhow!("unsupported connector type: {}", row.connector_type)
+            })?;
+            let existing_cfg: Value = serde_json::from_str(&row.config_json)
+                .with_context(|| "invalid connector config json")?;
+            let mut store_secrets = maybe_unlock_secrets_store_interactive()?;
+
+            let (display_name, config_json) = match parsed {
+                ConnectorType::Github => {
+                    let display_name = prompt_with_default("Display name", &row.display_name)?;
+                    let owner_default = existing_cfg
+                        .get("owner")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let repo_default = existing_cfg
+                        .get("repo")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let base_default = existing_cfg
+                        .get("base_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or("https://api.github.com");
+                    let owner = prompt_with_default("GitHub owner", owner_default)?;
+                    let repo = prompt_with_default("GitHub repo", repo_default)?;
+                    let base_url = prompt_with_default("GitHub API base URL", base_default)?;
+                    let token = prompt_with_default("GitHub token (blank to keep env-only)", "")?;
+                    if !token.trim().is_empty() {
+                        if let Some(secrets) = &mut store_secrets {
+                            secrets.set_secret(
+                                &format!("connector:{id}:github_token"),
+                                token.trim(),
+                            )?;
+                        } else {
+                            bail!("secrets store is locked; unlock to persist connector token");
+                        }
+                    }
+                    (
+                        display_name,
+                        serde_json::json!({
+                            "owner": owner,
+                            "repo": repo,
+                            "base_url": base_url,
+                        }),
+                    )
+                }
+                ConnectorType::GoogleCalendar => {
+                    let display_name = prompt_with_default("Display name", &row.display_name)?;
+                    let calendar_id_default = existing_cfg
+                        .get("calendar_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("primary");
+                    let base_default = existing_cfg
+                        .get("base_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or("https://www.googleapis.com/calendar/v3");
+                    let env_default = existing_cfg
+                        .get("access_token_env")
+                        .and_then(Value::as_str)
+                        .unwrap_or("GOOGLE_CALENDAR_TOKEN");
+                    let calendar_id = prompt_with_default("Calendar ID", calendar_id_default)?;
+                    let base_url =
+                        prompt_with_default("Google Calendar API base URL", base_default)?;
+                    let access_token_env =
+                        prompt_with_default("Access token env var name", env_default)?;
+                    let token = prompt_with_default("Calendar token (blank to keep env-only)", "")?;
+                    if !token.trim().is_empty() {
+                        if let Some(secrets) = &mut store_secrets {
+                            secrets
+                                .set_secret(&format!("connector:{id}:gcal_token"), token.trim())?;
+                        } else {
+                            bail!("secrets store is locked; unlock to persist connector token");
+                        }
+                    }
+                    (
+                        display_name,
+                        serde_json::json!({
+                            "calendar_id": calendar_id,
+                            "base_url": base_url,
+                            "access_token_env": access_token_env,
+                        }),
+                    )
+                }
+            };
+
+            let updated = store.update_connector(&id, &display_name, &config_json.to_string())?;
+            println!("connector_config_updated: {updated}");
+            println!("connector_id: {id}");
+        }
+        ConnectorCommand::Test { id } => {
+            let resolver = CompositeSecretResolver::from_env()?;
+            let health = test_connector(&store, &id, &resolver)?;
+            println!("connector_id: {id}");
+            println!("health_ok: {}", health.ok);
+            println!("detail: {}", health.detail);
+        }
+        ConnectorCommand::Remove { id } => {
+            let removed = store.remove_connector(&id)?;
+            println!("connector_removed: {removed}");
+            println!("connector_id: {id}");
+        }
+    }
+    Ok(())
+}
+
 fn onboard(install_daemon: bool, accept_defaults: bool) -> Result<()> {
     let (mut config, path, created) = TitanConfig::load_or_create()?;
     logging::init(&config.log_level);
@@ -601,6 +819,12 @@ fn onboard(install_daemon: bool, accept_defaults: bool) -> Result<()> {
             config.discord.default_channel_id = None;
         }
         auto_configure_model_defaults(&mut config)?;
+        if let Ok(passphrase) = std::env::var("TITAN_SECRETS_PASSPHRASE")
+            && !passphrase.trim().is_empty()
+        {
+            let mut secrets = SecretsStore::open_default();
+            secrets.unlock(passphrase.trim())?;
+        }
     } else {
         println!("Press Enter to accept defaults shown in brackets.");
 
@@ -657,6 +881,18 @@ fn onboard(install_daemon: bool, accept_defaults: bool) -> Result<()> {
         }
 
         configure_model_interactive(&mut config)?;
+
+        let passphrase = prompt_with_default(
+            "Set a TITAN secrets passphrase (blank to use env-vars only)",
+            "",
+        )?;
+        if passphrase.trim().is_empty() {
+            println!("secrets_store: locked (env vars only)");
+        } else {
+            let mut secrets = SecretsStore::open_default();
+            secrets.unlock(passphrase.trim())?;
+            println!("secrets_store: initialized");
+        }
     }
 
     // Save then validate so newly chosen workspace can be created immediately.
@@ -1185,6 +1421,20 @@ fn approval(command: ApprovalCommand) -> Result<()> {
                 println!("approval_status: approved");
                 println!("grant: skill_exec");
                 println!("slug: {}", approval.input);
+                return Ok(());
+            }
+
+            if approval.tool_name == "connector_tool" {
+                let resolver = CompositeSecretResolver::from_env()?;
+                let outcome = execute_connector_tool_after_approval(
+                    &store,
+                    "cli",
+                    &approval.input,
+                    &resolver,
+                )?;
+                println!("approval_status: approved");
+                println!("execution_status: {}", outcome.result_status);
+                println!("goal_id: {}", outcome.goal_id);
                 return Ok(());
             }
 
@@ -2129,6 +2379,36 @@ fn collect_manifest_leaf_models(
         models.insert(format!("{name}:{tag}"));
     }
     Ok(())
+}
+
+fn default_connector_config(connector_type: ConnectorType) -> Result<Value> {
+    let value = match connector_type {
+        ConnectorType::Github => serde_json::json!({
+            "owner": "",
+            "repo": "",
+            "base_url": "https://api.github.com",
+        }),
+        ConnectorType::GoogleCalendar => serde_json::json!({
+            "calendar_id": "primary",
+            "base_url": "https://www.googleapis.com/calendar/v3",
+            "access_token_env": "GOOGLE_CALENDAR_TOKEN",
+        }),
+    };
+    Ok(value)
+}
+
+fn maybe_unlock_secrets_store_interactive() -> Result<Option<SecretsStore>> {
+    let choice = prompt_yes_no("Unlock encrypted secrets store", false)?;
+    if !choice {
+        return Ok(None);
+    }
+    let passphrase = prompt_with_default("Secrets passphrase", "")?;
+    if passphrase.trim().is_empty() {
+        bail!("passphrase cannot be empty");
+    }
+    let mut store = SecretsStore::open_default();
+    store.unlock(passphrase.trim())?;
+    Ok(Some(store))
 }
 
 fn prompt_with_default(label: &str, default: &str) -> Result<String> {

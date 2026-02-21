@@ -16,6 +16,7 @@ titan-tools = { path = "../titan-tools" }
 titan-comms = { path = "../titan-comms" }
 titan-common = { path = "../titan-common" }
 titan-skills = { path = "../titan-skills" }
+titan-connectors = { path = "../titan-connectors" }
 tokio.workspace = true
 
 [dev-dependencies]
