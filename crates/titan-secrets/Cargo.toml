@@ -1,0 +1,19 @@
+[package]
+name = "titan-secrets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64 = "0.22.1"
+chacha20poly1305 = { version = "0.10.1", features = ["std", "stream"] }
+argon2 = "0.5.3"
+rand = "0.9.2"
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
