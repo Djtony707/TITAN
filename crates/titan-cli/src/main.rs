@@ -23,7 +23,13 @@ use titan_core::{
 use titan_discord::DiscordGateway;
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
 use titan_memory::MemoryStore;
-use titan_skills::{SkillPackage, SkillRuntime};
+use titan_skills::{
+    LocalRegistryAdapter, SkillPackage, SkillRegistryAdapter, SkillRunState,
+    approval_payload_for_stage, deny_unsigned_risky_install, deserialize_approval_payload,
+    finalize_install_from_payload, inspect_registry_v1, list_installed_skills_v1,
+    remove_installed_skill_v1, run_skill_v1, search_registry_v1, serialize_approval_payload,
+    stage_install_v1,
+};
 use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry};
 use titan_web as web_runtime;
 
@@ -89,6 +95,11 @@ enum Command {
     Memory {
         #[command(subcommand)]
         command: MemoryCommand,
+    },
+    /// Session operations.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
     },
     /// Discord integration commands.
     Discord {
@@ -195,6 +206,27 @@ enum MemoryCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum SessionCommand {
+    /// List recent sessions.
+    List {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Show one session details.
+    Show { session_id: String },
+    /// Reset session history.
+    Reset { session_id: String },
+    /// Compact session history.
+    Compact {
+        session_id: String,
+        #[arg(long)]
+        instructions: Option<String>,
+    },
+    /// Stop a session run queue.
+    Stop { session_id: String },
+}
+
+#[derive(Debug, Subcommand)]
 enum DiscordCommand {
     /// Validate configured Discord token with Discord API.
     Status,
@@ -240,16 +272,50 @@ enum ModelCommand {
 
 #[derive(Debug, Subcommand)]
 enum SkillCommand {
+    /// Search registry entries by slug/name.
+    Search {
+        query: String,
+        #[arg(long, default_value = "local")]
+        source: String,
+    },
+    /// Install a skill from a registry.
+    Install {
+        skill: String,
+        #[arg(long, default_value = "local")]
+        source: String,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// List installed skills.
+    List,
+    /// Inspect one skill (installed preferred; falls back to registry).
+    Inspect {
+        slug: String,
+        #[arg(long, default_value = "local")]
+        source: String,
+    },
+    /// Update one or all skills.
+    Update {
+        #[arg(long, default_value_t = false)]
+        all: bool,
+        slug: Option<String>,
+        #[arg(long, default_value = "local")]
+        source: String,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// Remove installed skill by slug.
+    Remove { slug: String },
+    /// Validate installed skill against lock/hash/signature policy.
+    Doctor { slug: String },
+    /// Run an installed skill through broker + policy.
+    Run {
+        slug: String,
+        #[arg(long)]
+        input: Option<String>,
+    },
     /// Validate skill manifest and wasm binary.
     Validate { skill_dir: PathBuf },
-    /// Run a skill with optional args.
-    Run {
-        skill_dir: PathBuf,
-        #[arg(long, default_value_t = 10_000)]
-        timeout_ms: u64,
-        #[arg(long = "arg")]
-        args: Vec<String>,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -297,6 +363,7 @@ fn main() -> Result<()> {
         Some(Command::Tool { command }) => tool(command),
         Some(Command::Approval { command }) => approval(command),
         Some(Command::Memory { command }) => memory(command),
+        Some(Command::Session { command }) => session(command),
         Some(Command::Discord { command }) => discord(command),
         Some(Command::Comm { command }) => comm(command),
         Some(Command::Model { command }) => model(command),
@@ -997,6 +1064,24 @@ fn approval(command: ApprovalCommand) -> Result<()> {
                 return Ok(());
             }
 
+            if approval.tool_name == "skill_install" {
+                let payload = deserialize_approval_payload(&approval.input)?;
+                let installed = finalize_install_from_payload(&payload)?;
+                persist_installed_skill(&store, &installed)?;
+                println!("approval_status: approved");
+                println!("install_status: finalized");
+                println!("slug: {}", installed.manifest.slug);
+                println!("version: {}", installed.manifest.version);
+                return Ok(());
+            }
+
+            if approval.tool_name == "skill_exec_grant" {
+                println!("approval_status: approved");
+                println!("grant: skill_exec");
+                println!("slug: {}", approval.input);
+                return Ok(());
+            }
+
             // Approving triggers execution immediately to keep operator workflow single-step.
             let Some(tool) = registry.get(&approval.tool_name) else {
                 println!("approval_status: approved");
@@ -1070,6 +1155,70 @@ fn memory(command: MemoryCommand) -> Result<()> {
     Ok(())
 }
 
+fn session(command: SessionCommand) -> Result<()> {
+    let config = load_initialized_config()?;
+    let db_path = config.workspace_dir.join("titan.db");
+    let store = MemoryStore::open(&db_path)?;
+
+    match command {
+        SessionCommand::List { limit } => {
+            let rows = store.list_sessions(limit.min(200))?;
+            println!("sessions: {}", rows.len());
+            for row in rows {
+                println!(
+                    "- {} | {}:{} | queue={} | compactions={} | activation={} | usage={}",
+                    row.id,
+                    row.channel,
+                    row.peer_id,
+                    row.queue_depth,
+                    row.compactions_count,
+                    row.activation_mode,
+                    row.usage_mode
+                );
+            }
+        }
+        SessionCommand::Show { session_id } => {
+            let Some(row) = store.get_session(&session_id)? else {
+                println!("session_not_found: {session_id}");
+                return Ok(());
+            };
+            println!("session_id: {}", row.id);
+            println!("channel: {}", row.channel);
+            println!("peer_id: {}", row.peer_id);
+            println!(
+                "model_override: {}",
+                row.model_override
+                    .unwrap_or_else(|| "<default>".to_string())
+            );
+            println!("usage_mode: {}", row.usage_mode);
+            println!("activation_mode: {}", row.activation_mode);
+            println!("compactions_count: {}", row.compactions_count);
+            println!("queue_depth: {}", row.queue_depth);
+            println!("stop_requested: {}", row.stop_requested);
+            let messages = store.list_session_messages(&session_id, 20)?;
+            println!("recent_messages: {}", messages.len());
+        }
+        SessionCommand::Reset { session_id } => {
+            let deleted = store.reset_session(&session_id)?;
+            println!("session_reset: {}", session_id);
+            println!("messages_deleted: {}", deleted);
+        }
+        SessionCommand::Compact {
+            session_id,
+            instructions,
+        } => {
+            let compacted = store.compact_session(&session_id, instructions.as_deref())?;
+            println!("session_compact: {}", session_id);
+            println!("messages_compacted: {}", compacted);
+        }
+        SessionCommand::Stop { session_id } => {
+            store.mark_session_stop(&session_id)?;
+            println!("session_stop_requested: {}", session_id);
+        }
+    }
+    Ok(())
+}
+
 fn discord(command: DiscordCommand) -> Result<()> {
     let config = load_initialized_config()?;
 
@@ -1102,8 +1251,195 @@ fn discord(command: DiscordCommand) -> Result<()> {
 
 fn skill(command: SkillCommand) -> Result<()> {
     let config = load_initialized_config()?;
+    let workspace_root = config.workspace_dir.clone();
+    let store = MemoryStore::open(&workspace_root.join("titan.db"))?;
 
     match command {
+        SkillCommand::Search { query, source } => {
+            let adapter = registry_adapter_from_source(&source)?;
+            let hits = search_registry_v1(adapter.as_ref(), &query)?;
+            println!("results: {}", hits.len());
+            for item in hits {
+                println!("{} {} latest={}", item.slug, item.name, item.latest);
+            }
+        }
+        SkillCommand::Install {
+            skill,
+            source,
+            force,
+        } => {
+            let (slug, version) = parse_slug_and_version(&skill);
+            let adapter = registry_adapter_from_source(&source)?;
+            let staged = stage_install_v1(
+                adapter.as_ref(),
+                &workspace_root,
+                &slug,
+                version.as_deref(),
+                force,
+            )?;
+            deny_unsigned_risky_install(&staged)?;
+            let payload = approval_payload_for_stage(&staged);
+            let payload_json = serialize_approval_payload(&payload)?;
+            let approval = store.create_approval_request(
+                "skill_install",
+                "write",
+                &payload_json,
+                Some("cli"),
+                300_000,
+            )?;
+
+            let read_only = staged
+                .manifest
+                .permissions
+                .scopes
+                .iter()
+                .all(|scope| matches!(scope, titan_skills::SkillScope::Read));
+            let auto_finalize = matches!(config.mode, AutonomyMode::Autonomous)
+                || (matches!(config.mode, AutonomyMode::Supervised) && read_only);
+
+            if auto_finalize {
+                store.resolve_approval_request(
+                    &approval.id,
+                    true,
+                    Some("cli-auto"),
+                    Some("auto-approved by mode policy"),
+                )?;
+                let installed = finalize_install_from_payload(&payload)?;
+                persist_installed_skill(&store, &installed)?;
+                println!(
+                    "installed: {}@{}",
+                    installed.manifest.slug, installed.manifest.version
+                );
+                println!("approval_id: {}", approval.id);
+                println!("signature_status: {}", installed.signature_status);
+                println!(
+                    "scopes: {}",
+                    format_skill_scopes(&installed.manifest.permissions.scopes)
+                );
+            } else {
+                println!("approval_required: true");
+                println!("approval_id: {}", approval.id);
+                println!("slug: {}", payload.slug);
+                println!("version: {}", payload.version);
+                println!("signature_status: {}", payload.signature_status);
+                println!("scopes: {}", payload.scopes.join(","));
+            }
+        }
+        SkillCommand::List => {
+            let items = list_installed_skills_v1(&workspace_root)?;
+            println!("installed_skills: {}", items.len());
+            for skill in items {
+                println!(
+                    "{} {} signed={} scopes={}",
+                    skill.manifest.slug,
+                    skill.manifest.version,
+                    skill.signature_status,
+                    format_skill_scopes(&skill.manifest.permissions.scopes)
+                );
+            }
+        }
+        SkillCommand::Inspect { slug, source } => {
+            if let Some(local) = list_installed_skills_v1(&workspace_root)?
+                .into_iter()
+                .find(|s| s.manifest.slug == slug)
+            {
+                println!("slug: {}", local.manifest.slug);
+                println!("name: {}", local.manifest.name);
+                println!("version: {}", local.manifest.version);
+                println!("entrypoint_type: {:?}", local.manifest.entrypoint_type);
+                println!("entrypoint: {}", local.manifest.entrypoint);
+                println!("signature_status: {}", local.signature_status);
+                println!(
+                    "scopes: {}",
+                    format_skill_scopes(&local.manifest.permissions.scopes)
+                );
+                return Ok(());
+            }
+            let adapter = registry_adapter_from_source(&source)?;
+            let resolved = inspect_registry_v1(adapter.as_ref(), &slug, None)?;
+            println!("slug: {}", resolved.slug);
+            println!("name: {}", resolved.name);
+            println!("version: {}", resolved.version);
+            println!("sha256: {}", resolved.sha256);
+            println!("download_url: {}", resolved.download_url);
+        }
+        SkillCommand::Update {
+            all,
+            slug,
+            source,
+            force,
+        } => {
+            let targets = if all {
+                list_installed_skills_v1(&workspace_root)?
+                    .into_iter()
+                    .map(|skill| skill.manifest.slug)
+                    .collect::<Vec<_>>()
+            } else {
+                vec![slug.ok_or_else(|| anyhow::anyhow!("provide <slug> or --all"))?]
+            };
+            for item in targets {
+                skill(SkillCommand::Install {
+                    skill: item,
+                    source: source.clone(),
+                    force,
+                })?;
+            }
+        }
+        SkillCommand::Remove { slug } => {
+            let removed = remove_installed_skill_v1(&workspace_root, &slug)?;
+            let _ = store.remove_installed_skill(&slug)?;
+            println!("removed: {}", removed);
+            println!("slug: {}", slug);
+        }
+        SkillCommand::Doctor { slug } => {
+            let Some(skill) = list_installed_skills_v1(&workspace_root)?
+                .into_iter()
+                .find(|s| s.manifest.slug == slug)
+            else {
+                bail!("skill not installed: {slug}");
+            };
+            let lock = titan_skills::load_skills_lock_v1(&workspace_root.join("skills.lock"))?;
+            let lock_entry = lock
+                .entries
+                .iter()
+                .find(|entry| entry.slug == skill.manifest.slug);
+            println!("slug: {}", skill.manifest.slug);
+            println!("version: {}", skill.manifest.version);
+            println!("signature_status: {}", skill.signature_status);
+            println!(
+                "scopes: {}",
+                format_skill_scopes(&skill.manifest.permissions.scopes)
+            );
+            println!(
+                "lock_aligned: {}",
+                lock_entry
+                    .map(|entry| entry.hash == skill.hash && entry.version == skill.manifest.version)
+                    .unwrap_or(false)
+            );
+        }
+        SkillCommand::Run { slug, input } => {
+            let outcome = run_skill_v1(
+                &store,
+                &workspace_root,
+                config.mode.clone(),
+                "cli",
+                &slug,
+                input.as_deref(),
+            )?;
+            match outcome.state {
+                SkillRunState::Completed => {
+                    println!("state: completed");
+                    println!("goal_id: {}", outcome.goal_id);
+                    println!("output:\n{}", outcome.output);
+                }
+                SkillRunState::PendingApproval(approval_id) => {
+                    println!("state: pending_approval");
+                    println!("goal_id: {}", outcome.goal_id);
+                    println!("approval_id: {}", approval_id);
+                    println!("detail: {}", outcome.output);
+                }
+            }
+        }
         SkillCommand::Validate { skill_dir } => {
             let package = SkillPackage::load(&skill_dir)?;
             println!("skill_valid: true");
@@ -1111,21 +1447,61 @@ fn skill(command: SkillCommand) -> Result<()> {
             println!("version: {}", package.manifest.version);
             println!("entrypoint: {}", package.wasm_path.display());
         }
-        SkillCommand::Run {
-            skill_dir,
-            timeout_ms,
-            args,
-        } => {
-            let package = SkillPackage::load(&skill_dir)?;
-            let runtime = SkillRuntime {
-                workspace_root: config.workspace_dir.clone(),
-                timeout_ms,
-            };
-            let result = runtime.run(&package, &args)?;
-            println!("skill_status: {}", result.status);
-            println!("output:\n{}", result.output);
-        }
     }
+    Ok(())
+}
+
+fn registry_adapter_from_source(source: &str) -> Result<Box<dyn SkillRegistryAdapter>> {
+    let trimmed = source.trim();
+    if trimmed.eq_ignore_ascii_case("local") {
+        let root = titan_skills::default_registry_root();
+        return Ok(Box::new(LocalRegistryAdapter::new(root)));
+    }
+    if let Some(path) = trimmed.strip_prefix("local:") {
+        return Ok(Box::new(LocalRegistryAdapter::new(PathBuf::from(path))));
+    }
+    if let Some(url) = trimmed.strip_prefix("git:") {
+        return Ok(Box::new(titan_skills::GitRegistryAdapter::new(url)));
+    }
+    if let Some(url) = trimmed.strip_prefix("http:") {
+        return Ok(Box::new(titan_skills::HttpRegistryAdapter::new(url)));
+    }
+    bail!("unsupported skill registry source: {source}");
+}
+
+fn parse_slug_and_version(input: &str) -> (String, Option<String>) {
+    match input.split_once('@') {
+        Some((slug, version)) => (slug.to_string(), Some(version.to_string())),
+        None => (input.to_string(), None),
+    }
+}
+
+fn format_skill_scopes(scopes: &[titan_skills::SkillScope]) -> String {
+    scopes
+        .iter()
+        .map(|scope| scope.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn persist_installed_skill(
+    store: &MemoryStore,
+    installed: &titan_skills::InstalledSkillV1,
+) -> Result<()> {
+    let record = titan_memory::InstalledSkillRecord {
+        slug: installed.manifest.slug.clone(),
+        name: installed.manifest.name.clone(),
+        version: installed.manifest.version.clone(),
+        description: installed.manifest.description.clone(),
+        source: installed.source.clone(),
+        hash: installed.hash.clone(),
+        signature_status: installed.signature_status.clone(),
+        scopes: format_skill_scopes(&installed.manifest.permissions.scopes),
+        allowed_paths: installed.manifest.permissions.allowed_paths.join(","),
+        allowed_hosts: installed.manifest.permissions.allowed_hosts.join(","),
+        last_run_goal_id: None,
+    };
+    store.upsert_installed_skill(&record)?;
     Ok(())
 }
 
@@ -1171,7 +1547,6 @@ fn run_services(bind: String, _poll_interval_ms: u64) -> Result<()> {
 
 struct DiscordHandler {
     runtime: Arc<Mutex<TitanGatewayRuntime>>,
-    db_path: PathBuf,
     default_channel_id: Option<u64>,
 }
 
@@ -1196,21 +1571,24 @@ impl EventHandler for DiscordHandler {
             return;
         }
 
-        if content.starts_with("/titan") {
+        if content.starts_with('/') {
             let runtime = Arc::clone(&self.runtime);
-            let db_path = self.db_path.clone();
             let actor_id = msg.author.id.to_string();
             let content_copy = content.clone();
             let command_result = tokio::task::spawn_blocking(move || {
-                let mut lock = runtime
+                let lock = runtime
                     .lock()
                     .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
-                handle_discord_command(&mut lock, &content_copy, &actor_id, &db_path)
+                lock.process_chat_input(InboundEvent::new(
+                    GatewayChannel::Discord,
+                    actor_id,
+                    content_copy,
+                ))
             })
             .await;
 
-            if let Ok(Ok(Some(reply))) = command_result {
-                let _ = msg.channel_id.say(&ctx.http, reply).await;
+            if let Ok(Ok(reply)) = command_result {
+                let _ = msg.channel_id.say(&ctx.http, reply.response).await;
             }
             return;
         }
@@ -1231,7 +1609,7 @@ impl EventHandler for DiscordHandler {
             let lock = runtime
                 .lock()
                 .map_err(|_| anyhow::anyhow!("runtime lock poisoned"))?;
-            lock.process_event(InboundEvent::new(
+            lock.process_chat_input(InboundEvent::new(
                 GatewayChannel::Discord,
                 actor_id,
                 content_copy,
@@ -1240,18 +1618,7 @@ impl EventHandler for DiscordHandler {
         .await;
 
         let response = match run_result {
-            Ok(Ok(outcome)) => {
-                let mut reply = format!(
-                    "goal={} status={} summary={}",
-                    outcome.goal_id,
-                    outcome.goal_status.as_str(),
-                    outcome.summary
-                );
-                if let Some(approval_id) = outcome.pending_approval_id {
-                    reply.push_str(&format!(" approval_pending={approval_id}"));
-                }
-                reply
-            }
+            Ok(Ok(outcome)) => outcome.response,
             Ok(Err(err)) => format!("run_error: {err}"),
             Err(err) => format!("runtime_join_error: {err}"),
         };
@@ -1305,7 +1672,6 @@ async fn run_services_async(
         | GatewayIntents::MESSAGE_CONTENT;
     let handler = DiscordHandler {
         runtime: Arc::new(Mutex::new(runtime)),
-        db_path,
         default_channel_id,
     };
     let mut client = serenity::Client::builder(token, intents)
@@ -1371,97 +1737,6 @@ fn agent(command: AgentCommand) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn handle_discord_command(
-    runtime: &mut TitanGatewayRuntime,
-    command: &str,
-    actor_id: &str,
-    db_path: &Path,
-) -> Result<Option<String>> {
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    if parts.is_empty() || parts[0] != "/titan" {
-        return Ok(None);
-    }
-    if parts.len() == 1 {
-        return Ok(Some(
-            "usage: /titan status|mode <supervised|collab|auto>|approve <id>|deny <id>|trace last"
-                .to_string(),
-        ));
-    }
-
-    match parts[1] {
-        "status" => {
-            let store = MemoryStore::open(db_path)?;
-            let pending = store.list_pending_approvals()?.len();
-            let queue = store.count_active_goals()?;
-            return Ok(Some(format!(
-                "mode={} queue_depth={} pending_approvals={}",
-                autonomy_mode_name(&runtime.mode()),
-                queue,
-                pending
-            )));
-        }
-        "mode" => {
-            if parts.len() < 3 {
-                return Ok(Some(
-                    "usage: /titan mode <supervised|collab|auto>".to_string(),
-                ));
-            }
-            let selected = match parts[2].trim().to_ascii_lowercase().as_str() {
-                "supervised" => Some(AutonomyMode::Supervised),
-                "collab" | "collaborative" => Some(AutonomyMode::Collaborative),
-                "auto" | "autonomous" => Some(AutonomyMode::Autonomous),
-                _ => None,
-            };
-            let Some(new_mode) = selected else {
-                return Ok(Some("invalid mode. use supervised|collab|auto".to_string()));
-            };
-            let (mut config, path, _) = TitanConfig::load_or_create()?;
-            config.mode = new_mode.clone();
-            config.save(&path)?;
-            runtime.set_mode(new_mode.clone());
-            return Ok(Some(format!(
-                "mode_updated={}",
-                autonomy_mode_name(&new_mode)
-            )));
-        }
-        "approve" => {
-            if parts.len() < 3 {
-                return Ok(Some("usage: /titan approve <id>".to_string()));
-            }
-            let status =
-                runtime.resolve_approval(parts[2], true, actor_id, Some("discord approve"))?;
-            return Ok(Some(format!("approval_status={status}")));
-        }
-        "deny" => {
-            if parts.len() < 3 {
-                return Ok(Some("usage: /titan deny <id>".to_string()));
-            }
-            let status =
-                runtime.resolve_approval(parts[2], false, actor_id, Some("discord deny"))?;
-            return Ok(Some(format!("approval_status={status}")));
-        }
-        "trace" => {
-            if parts.len() == 3 && parts[2] == "last" {
-                let store = MemoryStore::open(db_path)?;
-                let rows = store.list_recent_traces(1)?;
-                if let Some(trace) = rows.first() {
-                    return Ok(Some(format!(
-                        "trace_last goal={} type={} detail={}",
-                        trace.goal_id, trace.event_type, trace.detail
-                    )));
-                }
-                return Ok(Some("trace_last none".to_string()));
-            }
-            return Ok(Some("usage: /titan trace last".to_string()));
-        }
-        _ => {}
-    }
-
-    Ok(Some(
-        "unknown subcommand. use status|mode|approve|deny|trace".to_string(),
-    ))
 }
 
 fn configure_model_interactive(config: &mut TitanConfig) -> Result<()> {

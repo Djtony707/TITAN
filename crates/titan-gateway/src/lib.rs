@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use titan_common::AutonomyMode;
+use titan_common::{ActivationMode, AutonomyMode, TitanConfig};
 use titan_core::{
     CoreEvent, Goal, GoalStatus, StepPermission, StepResult, TaskPipelineConfig, TraceEvent,
     build_task_plan, execute_task_plan_with_broker,
@@ -13,6 +13,7 @@ use titan_tools::{PolicyEngine, ToolExecutionContext, ToolExecutor, ToolRegistry
 pub enum Channel {
     Cli,
     Discord,
+    Webchat,
 }
 
 impl Channel {
@@ -20,6 +21,7 @@ impl Channel {
         match self {
             Self::Cli => "cli",
             Self::Discord => "discord",
+            Self::Webchat => "webchat",
         }
     }
 }
@@ -45,16 +47,24 @@ impl InboundEvent {
 
 #[derive(Debug, Clone)]
 pub struct ProcessedEvent {
+    pub session_id: String,
     pub goal_id: String,
     pub goal_status: GoalStatus,
     pub pending_approval_id: Option<String>,
     pub summary: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChatCommandResult {
+    pub session_id: String,
+    pub response: String,
+}
+
 pub struct TitanGatewayRuntime {
     mode: AutonomyMode,
     workspace_root: PathBuf,
     db_path: PathBuf,
+    config_path: Option<PathBuf>,
 }
 
 impl TitanGatewayRuntime {
@@ -63,7 +73,13 @@ impl TitanGatewayRuntime {
             mode,
             workspace_root,
             db_path,
+            config_path: None,
         }
+    }
+
+    pub fn with_config_path(mut self, config_path: PathBuf) -> Self {
+        self.config_path = Some(config_path);
+        self
     }
 
     pub fn set_mode(&mut self, mode: AutonomyMode) {
@@ -74,8 +90,52 @@ impl TitanGatewayRuntime {
         self.mode.clone()
     }
 
+    pub fn process_chat_input(&self, inbound: InboundEvent) -> Result<ChatCommandResult> {
+        let trimmed = inbound.text.trim();
+        if let Some(command) = parse_slash_command(trimmed) {
+            let output = self.handle_slash_command(&inbound, &command)?;
+            return Ok(output);
+        }
+        let event_result = self.process_event(inbound)?;
+        Ok(ChatCommandResult {
+            session_id: event_result.session_id,
+            response: format!(
+                "goal={} status={} summary={}{}",
+                event_result.goal_id,
+                event_result.goal_status.as_str(),
+                event_result.summary,
+                event_result
+                    .pending_approval_id
+                    .map(|id| format!(" approval_pending={id}"))
+                    .unwrap_or_default()
+            ),
+        })
+    }
+
     pub fn process_event(&self, inbound: InboundEvent) -> Result<ProcessedEvent> {
         let mut store = MemoryStore::open(&self.db_path)?;
+        let session =
+            store.get_or_create_active_session(inbound.channel.as_str(), &inbound.actor_id)?;
+        if !is_message_allowed(&inbound, &session, self.config_path.as_deref())? {
+            let detail = "Message ignored by activation/allowlist policy".to_string();
+            store.add_trace_event(&TraceEvent::new(
+                session.id.clone(),
+                "command_invoked",
+                detail.clone(),
+            ))?;
+            return Ok(ProcessedEvent {
+                session_id: session.id,
+                goal_id: "policy_blocked".to_string(),
+                goal_status: GoalStatus::Cancelled,
+                pending_approval_id: None,
+                summary: detail,
+            });
+        }
+
+        store.set_session_queue_depth(&session.id, 1)?;
+        store.clear_session_stop(&session.id)?;
+        store.add_session_message(&session.id, "user", inbound.text.trim(), false)?;
+
         let registry = ToolRegistry::with_defaults();
         let execution_ctx =
             ToolExecutionContext::default_for_workspace(self.workspace_root.clone());
@@ -143,20 +203,321 @@ impl TitanGatewayRuntime {
                 ),
             ),
         );
+        store.create_goal_for_session(&run.goal, Some(&session.id))?;
         let persisted = store.persist_run_bundle(RunPersistenceBundle {
             run: &run,
             source: inbound.channel.as_str(),
             requested_by: Some(inbound.actor_id.as_str()),
             approval_ttl_ms: 300_000,
         })?;
+        store.set_session_queue_depth(&session.id, 0)?;
+        store.add_session_message(&session.id, "assistant", &run.reflection, false)?;
         let pending_approval_id = persisted.approval_id;
 
         Ok(ProcessedEvent {
+            session_id: session.id,
             goal_id: run.goal.id,
             goal_status: run.goal.status,
             pending_approval_id,
             summary: run.reflection,
         })
+    }
+
+    fn handle_slash_command(
+        &self,
+        inbound: &InboundEvent,
+        command: &str,
+    ) -> Result<ChatCommandResult> {
+        let store = MemoryStore::open(&self.db_path)?;
+        let mut session =
+            store.get_or_create_active_session(inbound.channel.as_str(), &inbound.actor_id)?;
+        let trace_goal_id = store.last_goal_for_session(&session.id)?;
+        if let Some(goal_id) = trace_goal_id.as_deref() {
+            store.add_trace_event(&TraceEvent::new(
+                goal_id.to_string(),
+                "command_invoked",
+                format!("{} {}", inbound.channel.as_str(), command),
+            ))?;
+        }
+
+        let mut parts = command.split_whitespace();
+        let head = parts.next().unwrap_or_default();
+        let args: Vec<&str> = parts.collect();
+
+        let response = match head {
+            "/help" => slash_help(),
+            "/status" => {
+                let cfg = load_runtime_config(self.config_path.as_deref())?;
+                let pending = store.list_pending_approvals()?.len();
+                let last_run = store
+                    .last_goal_for_session(&session.id)?
+                    .unwrap_or_else(|| "<none>".to_string());
+                format!(
+                    "mode={} provider={} model={} session_id={} last_run_id={} compactions={} pending_approvals={} queue_depth={}",
+                    match self.mode {
+                        AutonomyMode::Supervised => "supervised",
+                        AutonomyMode::Collaborative => "collaborative",
+                        AutonomyMode::Autonomous => "autonomous",
+                    },
+                    model_provider_name(&cfg.model.provider),
+                    session.model_override.clone().unwrap_or(cfg.model.model_id),
+                    session.id,
+                    last_run,
+                    session.compactions_count,
+                    pending,
+                    session.queue_depth
+                )
+            }
+            "/mode" => {
+                if args.len() != 1 {
+                    "usage: /mode supervised|collab|auto".to_string()
+                } else {
+                    let selected = match args[0].trim().to_ascii_lowercase().as_str() {
+                        "supervised" => Some(AutonomyMode::Supervised),
+                        "collab" | "collaborative" => Some(AutonomyMode::Collaborative),
+                        "auto" | "autonomous" => Some(AutonomyMode::Autonomous),
+                        _ => None,
+                    };
+                    if let Some(mode) = selected {
+                        let (mut cfg, path, _) =
+                            load_runtime_config_with_path(self.config_path.as_deref())
+                                .map_err(|err| anyhow!("{err}"))?;
+                        cfg.mode = mode.clone();
+                        cfg.save(&path).map_err(|err| anyhow!("{err}"))?;
+                        format!(
+                            "mode_updated={}",
+                            match mode {
+                                AutonomyMode::Supervised => "supervised",
+                                AutonomyMode::Collaborative => "collaborative",
+                                AutonomyMode::Autonomous => "autonomous",
+                            }
+                        )
+                    } else {
+                        "usage: /mode supervised|collab|auto".to_string()
+                    }
+                }
+            }
+            "/new" | "/reset" => {
+                let model_or_text = args.first().map(|s| s.to_string());
+                session = store.create_session(
+                    inbound.channel.as_str(),
+                    &inbound.actor_id,
+                    model_or_text.as_deref(),
+                )?;
+                format!(
+                    "session_reset: {} model={}",
+                    session.id,
+                    session
+                        .model_override
+                        .unwrap_or_else(|| "<default>".to_string())
+                )
+            }
+            "/compact" => {
+                let instructions = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                let compacted = store.compact_session(&session.id, instructions.as_deref())?;
+                let refreshed = store.get_session(&session.id)?.unwrap_or(session.clone());
+                session = refreshed;
+                format!(
+                    "session_compacted: {} messages_compacted={} compactions={}",
+                    session.id, compacted, session.compactions_count
+                )
+            }
+            "/stop" => {
+                store.mark_session_stop(&session.id)?;
+                "session_stop_requested: true".to_string()
+            }
+            "/approve" => {
+                if args.len() != 1 {
+                    "usage: /approve <approval_id>".to_string()
+                } else {
+                    let status = self.resolve_approval(
+                        args[0],
+                        true,
+                        inbound.actor_id.as_str(),
+                        Some("chat approve"),
+                    )?;
+                    format!("approval_status={status}")
+                }
+            }
+            "/deny" => {
+                if args.len() != 1 {
+                    "usage: /deny <approval_id>".to_string()
+                } else {
+                    let status = self.resolve_approval(
+                        args[0],
+                        false,
+                        inbound.actor_id.as_str(),
+                        Some("chat deny"),
+                    )?;
+                    format!("approval_status={status}")
+                }
+            }
+            "/trace" => {
+                if args.first().copied() == Some("last") {
+                    let rows = store.list_recent_traces(1)?;
+                    if let Some(trace) = rows.first() {
+                        format!(
+                            "trace_last goal={} type={} detail={}",
+                            trace.goal_id, trace.event_type, trace.detail
+                        )
+                    } else {
+                        "trace_last none".to_string()
+                    }
+                } else {
+                    "usage: /trace last".to_string()
+                }
+            }
+            "/usage" => {
+                if args.is_empty() {
+                    format!("usage_mode={}", session.usage_mode)
+                } else {
+                    let mode = args[0];
+                    if !matches!(mode, "off" | "tokens" | "full") {
+                        "usage: /usage off|tokens|full".to_string()
+                    } else {
+                        store.set_session_usage_mode(&session.id, mode)?;
+                        format!("usage_mode_updated={mode}")
+                    }
+                }
+            }
+            "/context" => {
+                if args.first().copied() == Some("detail") {
+                    let rows = store.list_session_messages(&session.id, 20)?;
+                    let mut out = format!("context_detail session={}\n", session.id);
+                    for row in rows {
+                        out.push_str(&format!(
+                            "#{} {} compacted={} bytes={}\n",
+                            row.id,
+                            row.role,
+                            row.compacted,
+                            row.content.len()
+                        ));
+                    }
+                    out
+                } else {
+                    let rows = store.list_session_messages(&session.id, 20)?;
+                    let total: usize = rows.iter().map(|r| r.content.len()).sum();
+                    format!(
+                        "context_list session={} items={} bytes={}",
+                        session.id,
+                        rows.len(),
+                        total
+                    )
+                }
+            }
+            "/model" => self.handle_model_command(&store, &session.id, &args)?,
+            "/allowlist" => self.handle_allowlist_command(inbound, &store, &session, &args)?,
+            "/activation" => self.handle_activation_command(inbound, &store, &session, &args)?,
+            _ => "unknown command. try /help".to_string(),
+        };
+        if let Some(goal_id) = trace_goal_id.as_deref() {
+            store.add_trace_event(&TraceEvent::new(
+                goal_id.to_string(),
+                "command_outcome",
+                response.clone(),
+            ))?;
+        }
+        Ok(ChatCommandResult {
+            session_id: session.id,
+            response,
+        })
+    }
+
+    fn handle_model_command(
+        &self,
+        store: &MemoryStore,
+        session_id: &str,
+        args: &[&str],
+    ) -> Result<String> {
+        let cfg = load_runtime_config(self.config_path.as_deref())?;
+        if args.is_empty() || args[0] == "status" {
+            let session = store
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found"))?;
+            let active_model = session
+                .model_override
+                .unwrap_or_else(|| cfg.model.model_id.clone());
+            return Ok(format!(
+                "provider={} model={}",
+                model_provider_name(&cfg.model.provider),
+                active_model
+            ));
+        }
+        if args[0] == "list" {
+            return Ok(format!("model_list: {}", cfg.model.model_id));
+        }
+        let selection = args.join(" ");
+        store.set_session_model_override(session_id, Some(selection.trim()))?;
+        Ok(format!("model_override_updated={}", selection.trim()))
+    }
+
+    fn handle_allowlist_command(
+        &self,
+        inbound: &InboundEvent,
+        store: &MemoryStore,
+        _session: &titan_memory::SessionRecord,
+        args: &[&str],
+    ) -> Result<String> {
+        if args.len() < 2 {
+            return Ok("usage: /allowlist add|remove <id>".to_string());
+        }
+        let action = args[0];
+        let id = args[1].trim();
+        if id.is_empty() {
+            return Ok("usage: /allowlist add|remove <id>".to_string());
+        }
+        if requires_config_approval(self.mode.clone()) {
+            let approval = store.create_approval_request_for_goal(
+                None,
+                "config_allowlist",
+                "write",
+                &format!("{action}:{id}"),
+                Some(inbound.actor_id.as_str()),
+                300_000,
+            )?;
+            return Ok(format!(
+                "approval_required=true approval_id={}",
+                approval.id
+            ));
+        }
+        apply_allowlist_change(action, id, self.config_path.as_deref())?;
+        Ok(format!("allowlist_updated action={action} id={id}"))
+    }
+
+    fn handle_activation_command(
+        &self,
+        inbound: &InboundEvent,
+        store: &MemoryStore,
+        _session: &titan_memory::SessionRecord,
+        args: &[&str],
+    ) -> Result<String> {
+        if args.len() != 1 {
+            return Ok("usage: /activation mention|always".to_string());
+        }
+        let mode = args[0].trim().to_ascii_lowercase();
+        if mode != "mention" && mode != "always" {
+            return Ok("usage: /activation mention|always".to_string());
+        }
+        if requires_config_approval(self.mode.clone()) {
+            let approval = store.create_approval_request_for_goal(
+                None,
+                "config_activation",
+                "write",
+                &mode,
+                Some(inbound.actor_id.as_str()),
+                300_000,
+            )?;
+            return Ok(format!(
+                "approval_required=true approval_id={}",
+                approval.id
+            ));
+        }
+        apply_activation_mode(&mode, self.config_path.as_deref())?;
+        Ok(format!("activation_mode_updated={mode}"))
     }
 
     pub fn resolve_approval(
@@ -192,6 +553,47 @@ impl TitanGatewayRuntime {
 
         if store.approval_has_tool_run(approval_id)? {
             return Ok("replay_blocked".to_string());
+        }
+
+        if approval.tool_name == "config_allowlist" {
+            let (action, value) = approval
+                .input
+                .split_once(':')
+                .ok_or_else(|| anyhow!("invalid config_allowlist approval payload"))?;
+            apply_allowlist_change(action, value, self.config_path.as_deref())?;
+            return Ok("approved".to_string());
+        }
+        if approval.tool_name == "config_activation" {
+            apply_activation_mode(approval.input.trim(), self.config_path.as_deref())?;
+            return Ok("approved".to_string());
+        }
+        if approval.tool_name == "skill_install" {
+            let payload = titan_skills::deserialize_approval_payload(&approval.input)?;
+            let installed = titan_skills::finalize_install_from_payload(&payload)?;
+            store.upsert_installed_skill(&titan_memory::InstalledSkillRecord {
+                slug: installed.manifest.slug.clone(),
+                name: installed.manifest.name.clone(),
+                version: installed.manifest.version.clone(),
+                description: installed.manifest.description.clone(),
+                source: installed.source.clone(),
+                hash: installed.hash.clone(),
+                signature_status: installed.signature_status.clone(),
+                scopes: installed
+                    .manifest
+                    .permissions
+                    .scopes
+                    .iter()
+                    .map(|scope| scope.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                allowed_paths: installed.manifest.permissions.allowed_paths.join(","),
+                allowed_hosts: installed.manifest.permissions.allowed_hosts.join(","),
+                last_run_goal_id: None,
+            })?;
+            return Ok("approved".to_string());
+        }
+        if approval.tool_name == "skill_exec_grant" {
+            return Ok("approved".to_string());
         }
 
         let registry = ToolRegistry::with_defaults();
@@ -235,10 +637,151 @@ impl TitanGatewayRuntime {
     }
 }
 
+fn parse_slash_command(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.starts_with("/titan ") {
+        let cmd = trimmed.trim_start_matches("/titan").trim();
+        return Some(format!("/{cmd}"));
+    }
+    if trimmed.starts_with('/') {
+        return Some(trimmed.to_string());
+    }
+    None
+}
+
+fn slash_help() -> String {
+    [
+        "commands:",
+        "/status",
+        "/mode supervised|collab|auto",
+        "/new [model?]",
+        "/reset",
+        "/compact [instructions?]",
+        "/stop",
+        "/approve <approval_id>",
+        "/deny <approval_id>",
+        "/trace last",
+        "/model",
+        "/model list",
+        "/model status",
+        "/usage off|tokens|full",
+        "/context list|detail",
+        "/allowlist add|remove <id>",
+        "/activation mention|always",
+        "/help",
+    ]
+    .join("\n")
+}
+
+fn load_runtime_config(config_path: Option<&std::path::Path>) -> Result<TitanConfig> {
+    let (cfg, _, _) = load_runtime_config_with_path(config_path)?;
+    Ok(cfg)
+}
+
+fn load_runtime_config_with_path(
+    config_path: Option<&std::path::Path>,
+) -> Result<(TitanConfig, PathBuf, bool)> {
+    if let Some(path) = config_path {
+        if path.exists() {
+            let cfg = TitanConfig::load(path).map_err(|err| anyhow!("{err}"))?;
+            Ok((cfg, path.to_path_buf(), false))
+        } else {
+            let cfg = TitanConfig::default();
+            cfg.save(path).map_err(|err| anyhow!("{err}"))?;
+            Ok((cfg, path.to_path_buf(), true))
+        }
+    } else {
+        TitanConfig::load_or_create().map_err(|err| anyhow!("{err}"))
+    }
+}
+
+fn model_provider_name(provider: &titan_common::ModelProvider) -> &'static str {
+    match provider {
+        titan_common::ModelProvider::OpenAi => "openai",
+        titan_common::ModelProvider::Anthropic => "anthropic",
+        titan_common::ModelProvider::Ollama => "ollama",
+        titan_common::ModelProvider::Custom => "custom",
+    }
+}
+
+fn requires_config_approval(mode: AutonomyMode) -> bool {
+    !matches!(mode, AutonomyMode::Autonomous)
+}
+
+fn apply_allowlist_change(
+    action: &str,
+    value: &str,
+    config_path: Option<&std::path::Path>,
+) -> Result<()> {
+    let (mut cfg, path, _) = load_runtime_config_with_path(config_path)?;
+    let mut allowlist: std::collections::BTreeSet<String> =
+        cfg.chat.allowlist.into_iter().collect();
+    match action {
+        "add" => {
+            allowlist.insert(value.trim().to_string());
+        }
+        "remove" => {
+            allowlist.remove(value.trim());
+        }
+        _ => return Err(anyhow!("unknown allowlist action: {action}")),
+    }
+    cfg.chat.allowlist = allowlist.into_iter().collect();
+    cfg.save(&path).map_err(|err| anyhow!("{err}"))?;
+    Ok(())
+}
+
+fn apply_activation_mode(mode: &str, config_path: Option<&std::path::Path>) -> Result<()> {
+    let (mut cfg, path, _) = load_runtime_config_with_path(config_path)?;
+    cfg.chat.activation_mode = match mode.trim().to_ascii_lowercase().as_str() {
+        "always" => ActivationMode::Always,
+        "mention" => ActivationMode::Mention,
+        _ => return Err(anyhow!("invalid activation mode: {mode}")),
+    };
+    cfg.save(&path).map_err(|err| anyhow!("{err}"))?;
+    Ok(())
+}
+
+fn is_message_allowed(
+    inbound: &InboundEvent,
+    session: &titan_memory::SessionRecord,
+    config_path: Option<&std::path::Path>,
+) -> Result<bool> {
+    let cfg = load_runtime_config(config_path)?;
+    if !cfg.chat.allowlist.is_empty()
+        && !cfg.chat.allowlist.iter().any(|id| id == &inbound.actor_id)
+    {
+        return Ok(false);
+    }
+    let session_mode = session.activation_mode.to_ascii_lowercase();
+    let effective_mode = if session_mode == "mention" {
+        ActivationMode::Mention
+    } else {
+        cfg.chat.activation_mode
+    };
+    if matches!(effective_mode, ActivationMode::Mention) {
+        let lowered = inbound.text.to_ascii_lowercase();
+        if !lowered.contains("titan") && !inbound.text.contains('/') {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn write_test_config(workspace: &std::path::Path) -> std::path::PathBuf {
+        let mut cfg = TitanConfig {
+            workspace_dir: workspace.to_path_buf(),
+            ..TitanConfig::default()
+        };
+        cfg.chat.activation_mode = ActivationMode::Always;
+        let tmp = workspace.join("test-config.toml");
+        cfg.save(&tmp).expect("save config");
+        tmp
+    }
 
     #[test]
     fn injected_read_event_executes_and_persists_trace_and_memory() {
@@ -246,13 +789,15 @@ mod tests {
         let workspace = tmp.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("workspace");
         std::fs::write(workspace.join("README.md"), "hello").expect("seed readme");
+        let config_path = write_test_config(&workspace);
         let db_path = workspace.join("titan.db");
 
         let runtime = TitanGatewayRuntime::new(
             AutonomyMode::Collaborative,
             workspace.clone(),
             db_path.clone(),
-        );
+        )
+        .with_config_path(config_path);
         let outcome = runtime
             .process_event(InboundEvent::new(Channel::Discord, "u1", "scan workspace"))
             .expect("process event");
@@ -303,13 +848,15 @@ mod tests {
         let workspace = tmp.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("workspace");
         std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
         let db_path = workspace.join("titan.db");
 
         let runtime = TitanGatewayRuntime::new(
             AutonomyMode::Collaborative,
             workspace.clone(),
             db_path.clone(),
-        );
+        )
+        .with_config_path(config_path);
         let outcome = runtime
             .process_event(InboundEvent::new(
                 Channel::Discord,
@@ -362,5 +909,109 @@ mod tests {
                 .expect("read readme")
                 .contains("Install Steps (Generated)")
         );
+    }
+
+    #[test]
+    fn slash_status_reports_expected_fields() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let out = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/status"))
+            .expect("status");
+        assert!(out.response.contains("mode="));
+        assert!(out.response.contains("session_id="));
+        assert!(out.response.contains("pending_approvals="));
+    }
+
+    #[test]
+    fn slash_new_and_compact_and_stop_mutate_session_state() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let _ = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "scan workspace"))
+            .expect("run1");
+        let status1 = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/status"))
+            .expect("status1");
+        let session_id_old = status1
+            .response
+            .split_whitespace()
+            .find(|part| part.starts_with("session_id="))
+            .and_then(|part| part.split_once('=').map(|(_, v)| v.to_string()))
+            .expect("session id");
+
+        let _ = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/new"))
+            .expect("new");
+        let status2 = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/status"))
+            .expect("status2");
+        let session_id_new = status2
+            .response
+            .split_whitespace()
+            .find(|part| part.starts_with("session_id="))
+            .and_then(|part| part.split_once('=').map(|(_, v)| v.to_string()))
+            .expect("session id");
+        assert_ne!(session_id_old, session_id_new);
+
+        let _ = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "scan workspace"))
+            .expect("run2");
+        let compact = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/compact"))
+            .expect("compact");
+        assert!(compact.response.contains("session_compacted"));
+        let stop = runtime
+            .process_chat_input(InboundEvent::new(Channel::Discord, "u1", "/stop"))
+            .expect("stop");
+        assert!(stop.response.contains("session_stop_requested"));
+    }
+
+    #[test]
+    fn webchat_slash_is_intercepted_not_routed_as_goal() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "seed").expect("seed readme");
+        let config_path = write_test_config(&workspace);
+        let db_path = workspace.join("titan.db");
+        let runtime = TitanGatewayRuntime::new(
+            AutonomyMode::Collaborative,
+            workspace.clone(),
+            db_path.clone(),
+        )
+        .with_config_path(config_path);
+        let out = runtime
+            .process_chat_input(InboundEvent::new(Channel::Webchat, "web-user", "/status"))
+            .expect("web status");
+        assert!(out.response.contains("session_id="));
+        let store = MemoryStore::open(&db_path).expect("store");
+        let session = store
+            .get_or_create_active_session("webchat", "web-user")
+            .expect("session");
+        let last_goal = store
+            .last_goal_for_session(&session.id)
+            .expect("last goal for session");
+        assert!(last_goal.is_none());
     }
 }

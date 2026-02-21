@@ -51,6 +51,43 @@ pub struct EpisodicMemoryRecord {
     pub source: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SessionRecord {
+    pub id: String,
+    pub channel: String,
+    pub peer_id: String,
+    pub model_override: Option<String>,
+    pub usage_mode: String,
+    pub activation_mode: String,
+    pub compactions_count: i64,
+    pub queue_depth: i64,
+    pub stop_requested: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionMessageRecord {
+    pub id: i64,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub compacted: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstalledSkillRecord {
+    pub slug: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub source: String,
+    pub hash: String,
+    pub signature_status: String,
+    pub scopes: String,
+    pub allowed_paths: String,
+    pub allowed_hosts: String,
+    pub last_run_goal_id: Option<String>,
+}
+
 pub struct RunPersistenceBundle<'a> {
     pub run: &'a TaskRunResult,
     pub source: &'a str,
@@ -218,6 +255,60 @@ impl MemoryStore {
             "#,
         )?;
 
+        self.apply_migration(
+            6,
+            "sessions_and_chat_history",
+            r#"
+            ALTER TABLE goals ADD COLUMN session_id TEXT;
+
+            CREATE TABLE IF NOT EXISTS sessions (
+              id TEXT PRIMARY KEY,
+              channel TEXT NOT NULL,
+              peer_id TEXT NOT NULL,
+              model_override TEXT,
+              usage_mode TEXT NOT NULL DEFAULT 'tokens',
+              activation_mode TEXT NOT NULL DEFAULT 'always',
+              compactions_count INTEGER NOT NULL DEFAULT 0,
+              queue_depth INTEGER NOT NULL DEFAULT 0,
+              stop_requested INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS session_messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              role TEXT NOT NULL,
+              content TEXT NOT NULL,
+              compacted INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
+            "#,
+        )?;
+
+        self.apply_migration(
+            7,
+            "installed_skills_table",
+            r#"
+            CREATE TABLE IF NOT EXISTS installed_skills (
+              slug TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              version TEXT NOT NULL,
+              description TEXT NOT NULL,
+              source TEXT NOT NULL,
+              hash TEXT NOT NULL,
+              signature_status TEXT NOT NULL,
+              scopes TEXT NOT NULL,
+              allowed_paths TEXT NOT NULL,
+              allowed_hosts TEXT NOT NULL,
+              last_run_goal_id TEXT,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            "#,
+        )?;
+
         self.conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_dedupe_key
              ON goals(dedupe_key)
@@ -228,6 +319,16 @@ impl MemoryStore {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_runs_approval_id
              ON tool_runs(approval_id)
              WHERE approval_id IS NOT NULL",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_channel_peer_updated
+             ON sessions(channel, peer_id, updated_at DESC)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goals_session_id
+             ON goals(session_id)",
             [],
         )?;
 
@@ -284,6 +385,20 @@ impl MemoryStore {
                 goal.description,
                 goal.status.as_str(),
                 goal.dedupe_key
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn create_goal_for_session(&self, goal: &Goal, session_id: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO goals (id, description, status, dedupe_key, session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                goal.id,
+                goal.description,
+                goal.status.as_str(),
+                goal.dedupe_key,
+                session_id
             ],
         )?;
         Ok(())
@@ -566,6 +681,440 @@ impl MemoryStore {
             |row| row.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    pub fn get_or_create_active_session(
+        &self,
+        channel: &str,
+        peer_id: &str,
+    ) -> Result<SessionRecord> {
+        if let Some(existing) = self.get_latest_session_for_peer(channel, peer_id)? {
+            return Ok(existing);
+        }
+        self.create_session(channel, peer_id, None)
+    }
+
+    pub fn create_session(
+        &self,
+        channel: &str,
+        peer_id: &str,
+        model_override: Option<&str>,
+    ) -> Result<SessionRecord> {
+        let session = SessionRecord {
+            id: Uuid::new_v4().to_string(),
+            channel: channel.to_string(),
+            peer_id: peer_id.to_string(),
+            model_override: model_override.map(std::string::ToString::to_string),
+            usage_mode: "tokens".to_string(),
+            activation_mode: "always".to_string(),
+            compactions_count: 0,
+            queue_depth: 0,
+            stop_requested: false,
+        };
+        self.conn.execute(
+            "INSERT INTO sessions
+             (id, channel, peer_id, model_override, usage_mode, activation_mode, compactions_count, queue_depth, stop_requested)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                session.id,
+                session.channel,
+                session.peer_id,
+                session.model_override,
+                session.usage_mode,
+                session.activation_mode,
+                session.compactions_count,
+                session.queue_depth,
+                if session.stop_requested { 1 } else { 0 }
+            ],
+        )?;
+        Ok(session)
+    }
+
+    pub fn get_latest_session_for_peer(
+        &self,
+        channel: &str,
+        peer_id: &str,
+    ) -> Result<Option<SessionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, peer_id, model_override, usage_mode, activation_mode, compactions_count, queue_depth, stop_requested
+             FROM sessions
+             WHERE channel = ?1 AND peer_id = ?2
+             ORDER BY updated_at DESC, rowid DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![channel, peer_id])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(SessionRecord {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                peer_id: row.get(2)?,
+                model_override: row.get(3)?,
+                usage_mode: row.get(4)?,
+                activation_mode: row.get(5)?,
+                compactions_count: row.get(6)?,
+                queue_depth: row.get(7)?,
+                stop_requested: row.get::<_, i64>(8)? != 0,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, peer_id, model_override, usage_mode, activation_mode, compactions_count, queue_depth, stop_requested
+             FROM sessions
+             WHERE id = ?1
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(SessionRecord {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                peer_id: row.get(2)?,
+                model_override: row.get(3)?,
+                usage_mode: row.get(4)?,
+                activation_mode: row.get(5)?,
+                compactions_count: row.get(6)?,
+                queue_depth: row.get(7)?,
+                stop_requested: row.get::<_, i64>(8)? != 0,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, peer_id, model_override, usage_mode, activation_mode, compactions_count, queue_depth, stop_requested
+             FROM sessions
+             ORDER BY updated_at DESC, rowid DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(SessionRecord {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                peer_id: row.get(2)?,
+                model_override: row.get(3)?,
+                usage_mode: row.get(4)?,
+                activation_mode: row.get(5)?,
+                compactions_count: row.get(6)?,
+                queue_depth: row.get(7)?,
+                stop_requested: row.get::<_, i64>(8)? != 0,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn add_session_message(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        compacted: bool,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO session_messages (session_id, role, content, compacted)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![session_id, role, content, if compacted { 1 } else { 0 }],
+        )?;
+        self.conn.execute(
+            "UPDATE sessions
+             SET updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_session_messages(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SessionMessageRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, role, content, compacted
+             FROM session_messages
+             WHERE session_id = ?1
+             ORDER BY id DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![session_id, limit as i64], |row| {
+            Ok(SessionMessageRecord {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                compacted: row.get::<_, i64>(4)? != 0,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn reset_session(&self, session_id: &str) -> Result<usize> {
+        let deleted = self.conn.execute(
+            "DELETE FROM session_messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        self.conn.execute(
+            "UPDATE sessions
+             SET queue_depth = 0, stop_requested = 0, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(deleted)
+    }
+
+    pub fn compact_session(&self, session_id: &str, instructions: Option<&str>) -> Result<usize> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, role, content
+             FROM session_messages
+             WHERE session_id = ?1 AND compacted = 0
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let messages = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if messages.len() < 3 {
+            return Ok(0);
+        }
+        let cutoff = messages.len().saturating_sub(2);
+        let mut summary = String::new();
+        if let Some(custom) = instructions {
+            summary.push_str("instructions: ");
+            summary.push_str(custom.trim());
+            summary.push('\n');
+        }
+        for (_, role, content) in messages.iter().take(cutoff) {
+            summary.push_str(role);
+            summary.push_str(": ");
+            summary.push_str(content);
+            summary.push('\n');
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        for (id, _, _) in messages.iter().take(cutoff) {
+            tx.execute(
+                "UPDATE session_messages SET compacted = 1 WHERE id = ?1",
+                params![id],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO session_messages (session_id, role, content, compacted)
+             VALUES (?1, 'summary', ?2, 1)",
+            params![session_id, summary.trim()],
+        )?;
+        tx.execute(
+            "UPDATE sessions
+             SET compactions_count = compactions_count + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        tx.commit()?;
+        Ok(cutoff)
+    }
+
+    pub fn set_session_queue_depth(&self, session_id: &str, depth: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET queue_depth = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            params![depth.max(0), session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_session_stop(&self, session_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET stop_requested = 1, queue_depth = 0, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_session_stop(&self, session_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET stop_requested = 0, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_session_usage_mode(&self, session_id: &str, usage_mode: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET usage_mode = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            params![usage_mode, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_session_model_override(
+        &self,
+        session_id: &str,
+        model_override: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET model_override = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            params![model_override, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_session_activation_mode(
+        &self,
+        session_id: &str,
+        activation_mode: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions
+             SET activation_mode = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            params![activation_mode, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn upsert_installed_skill(&self, record: &InstalledSkillRecord) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO installed_skills
+             (slug, name, version, description, source, hash, signature_status, scopes, allowed_paths, allowed_hosts, last_run_goal_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(slug) DO UPDATE SET
+               name=excluded.name,
+               version=excluded.version,
+               description=excluded.description,
+               source=excluded.source,
+               hash=excluded.hash,
+               signature_status=excluded.signature_status,
+               scopes=excluded.scopes,
+               allowed_paths=excluded.allowed_paths,
+               allowed_hosts=excluded.allowed_hosts,
+               last_run_goal_id=COALESCE(excluded.last_run_goal_id, installed_skills.last_run_goal_id),
+               updated_at=CURRENT_TIMESTAMP",
+            params![
+                record.slug,
+                record.name,
+                record.version,
+                record.description,
+                record.source,
+                record.hash,
+                record.signature_status,
+                record.scopes,
+                record.allowed_paths,
+                record.allowed_hosts,
+                record.last_run_goal_id
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_installed_skills(&self) -> Result<Vec<InstalledSkillRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT slug, name, version, description, source, hash, signature_status, scopes, allowed_paths, allowed_hosts, last_run_goal_id
+             FROM installed_skills
+             ORDER BY slug ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(InstalledSkillRecord {
+                slug: row.get(0)?,
+                name: row.get(1)?,
+                version: row.get(2)?,
+                description: row.get(3)?,
+                source: row.get(4)?,
+                hash: row.get(5)?,
+                signature_status: row.get(6)?,
+                scopes: row.get(7)?,
+                allowed_paths: row.get(8)?,
+                allowed_hosts: row.get(9)?,
+                last_run_goal_id: row.get(10)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn get_installed_skill(&self, slug: &str) -> Result<Option<InstalledSkillRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT slug, name, version, description, source, hash, signature_status, scopes, allowed_paths, allowed_hosts, last_run_goal_id
+             FROM installed_skills
+             WHERE slug = ?1
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![slug])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(InstalledSkillRecord {
+                slug: row.get(0)?,
+                name: row.get(1)?,
+                version: row.get(2)?,
+                description: row.get(3)?,
+                source: row.get(4)?,
+                hash: row.get(5)?,
+                signature_status: row.get(6)?,
+                scopes: row.get(7)?,
+                allowed_paths: row.get(8)?,
+                allowed_hosts: row.get(9)?,
+                last_run_goal_id: row.get(10)?,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub fn remove_installed_skill(&self, slug: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "DELETE FROM installed_skills WHERE slug = ?1",
+            params![slug],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn set_skill_last_run_goal(&self, slug: &str, goal_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE installed_skills
+             SET last_run_goal_id = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE slug = ?2",
+            params![goal_id, slug],
+        )?;
+        Ok(())
+    }
+
+    pub fn has_approved_skill_exec_grant(&self, slug: &str) -> Result<bool> {
+        let mut stmt = self.conn.prepare(
+            "SELECT 1
+             FROM approval_requests
+             WHERE tool_name = 'skill_exec_grant'
+               AND input = ?1
+               AND status = 'approved'
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![slug])?;
+        Ok(rows.next()?.is_some())
+    }
+
+    pub fn last_goal_for_session(&self, session_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id
+             FROM goals
+             WHERE session_id = ?1
+             ORDER BY updated_at DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            return Ok(Some(row.get(0)?));
+        }
+        Ok(None)
     }
 
     pub fn create_approval_request(
