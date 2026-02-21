@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="DEMO.md">Epic Demo</a> •
   <a href="#quickstart-under-10-minutes">Quickstart</a> •
   <a href="#whats-working-now">Features</a> •
   <a href="#architecture">Architecture</a> •
@@ -31,10 +32,13 @@ It is practical, inspectable, and built so you can see what happened, not just h
 
 - Core goal lifecycle runtime
 - Deterministic planning + tool execution pipeline
+- SECURE/YOLO risk modes with trace visibility
 - Policy-gated approvals for risky actions
 - SQLite persistence for goals, plans, steps, traces, approvals, and episodic memory
 - Event-driven Discord runtime integration
 - Local web dashboard + HTTP API
+- Connectors framework with encrypted local secrets store
+- Persistent autonomous jobs + in-process scheduler in `titan run`
 - Skills Registry v1 (search/install/list/inspect/update/remove/run/doctor)
 - Onboarding wizard
 - Model configuration, including local Ollama discovery
@@ -195,6 +199,46 @@ titan comm status discord
 titan comm send discord --target <channel_id> --message "TITAN online"
 ```
 
+### Risk Modes
+
+```bash
+titan yolo status
+titan yolo arm
+titan yolo enable <code> "I_ACCEPT_UNBOUNDED_AUTONOMY" --ttl 15
+titan yolo disable
+```
+
+### Secrets
+
+```bash
+titan secrets status
+titan secrets unlock
+titan secrets lock
+```
+
+### Connectors
+
+```bash
+titan connector list
+titan connector add github --name "GitHub Main"
+titan connector configure <connector_id>
+titan connector test <connector_id>
+titan connector remove <connector_id>
+```
+
+### Jobs
+
+```bash
+titan job add --name "Scan Workspace" --interval 15m --template "scan workspace"
+titan job add --name "Daily Summary" --cron "0 9 * * *" --template "summarize yesterday runs"
+titan job list
+titan job show <job_id>
+titan job pause <job_id>
+titan job resume <job_id>
+titan job run-now <job_id>
+titan job remove <job_id>
+```
+
 ### Web
 
 ```bash
@@ -252,6 +296,9 @@ TITAN is split into focused Rust crates:
 - `docs/API.md`
 - `docs/TITAN_COMMUNICATION_INTEGRATIONS.md`
 - `docs/skills.md`
+- `docs/connectors.md`
+- `docs/secrets.md`
+- `docs/jobs.md`
 - `docs/architecture.md`
 - `docs/originality.md`
 - `docs/release_checklist.md`
