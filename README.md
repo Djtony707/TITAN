@@ -1,16 +1,40 @@
-# TITAN
+<p align="center">
+  <img src="Titanlogo.jpg" alt="TITAN Logo" width="240" />
+</p>
 
-TITAN is a Rust-based AI agent platform with local-first operation, explicit approval gates, and multi-channel communication support.
+<h1 align="center">TITAN</h1>
 
-If you want an agent that is useful, auditable, and less likely to do something dramatic at 2 AM, this is the project.
+<p align="center"><strong>The Intelligent Task Automation Network</strong></p>
+
+<p align="center">
+  Rust-based AI agent platform with local-first execution, approval gates, and full traceability.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/status-experimental-orange" alt="experimental" />
+  <img src="https://img.shields.io/badge/Rust-1.85%2B-blue" alt="Rust 1.85+" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" />
+  <img src="https://img.shields.io/badge/mode-local--first-6f42c1" alt="local-first" />
+</p>
+
+<p align="center">
+  <a href="#quickstart-under-10-minutes">Quickstart</a> •
+  <a href="#whats-working-now">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#documentation">Docs</a>
+</p>
+
+If you want an agent that gets work done and still asks before making big changes, TITAN exists for that.  
+It is practical, inspectable, and built so you can see what happened, not just hope it worked.
 
 ## What’s Working Now
 
 - Core goal lifecycle runtime
-- Tool policy engine + approval workflow
-- SQLite memory + trace persistence
-- Web dashboard + HTTP API
-- Multi-channel communication surface (native + bridge adapters)
+- Deterministic planning + tool execution pipeline
+- Policy-gated approvals for risky actions
+- SQLite persistence for goals, plans, steps, traces, approvals, and episodic memory
+- Event-driven Discord runtime integration
+- Local web dashboard + HTTP API
 - Onboarding wizard
 - Model configuration, including local Ollama discovery
 
@@ -34,20 +58,13 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.ps1 | iex
 ```
 
-NPM global install (release assets required):
-
-```bash
-npm install -g @titan-ai/cli@latest
-# or: pnpm add -g @titan-ai/cli@latest
-```
-
 Local installer usage (from this repo):
 
 ```bash
 ./scripts/install.sh
 ```
 
-By default, the installer links `titan` into `~/.local/bin` and starts onboarding automatically in interactive terminals.
+By default, the installer links `titan` into `~/.local/bin` and launches onboarding in interactive terminals.
 
 Optional Homebrew source install (macOS/Linux):
 
@@ -61,57 +78,70 @@ CLI-only non-interactive installer:
 curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install-cli.sh | bash
 ```
 
-Winget manifest templates are included at:
+Winget templates are included at:
 
 ```text
 packaging/winget/
 ```
 
-## Build
-
-```bash
-cargo build --release
-```
-
 ## Quickstart (Under 10 Minutes)
 
+Clone the repo:
+
 ```bash
-# 1) Clone
 cd /home/$USER/Desktop
 git clone https://github.com/Djtony707/TITAN.git
 cd TITAN
+```
 
-# 2) Build
+Build the release binary:
+
+```bash
 cargo build --release
+```
 
-# 3) Set Discord env vars (TITAN uses DISCORD_BOT_TOKEN; DISCORD_TOKEN alias is supported)
+Set Discord environment variables (`DISCORD_TOKEN` alias is also supported):
+
+```bash
 export DISCORD_BOT_TOKEN="your-discord-bot-token"
 export DISCORD_CHANNEL_ID="your-channel-id"
+```
 
-# 4) Onboard
+Run onboarding:
+
+```bash
 ./target/release/titan onboard
+```
 
-# 5) Validate + run
+Run health checks:
+
+```bash
 ./target/release/titan doctor
+```
+
+Start TITAN:
+
+```bash
 ./target/release/titan run --bind 127.0.0.1:3000
 ```
 
-Then in your Discord channel:
+Discord test flow:
 
-- Send `scan workspace` to trigger a read-only goal run.
-- Open [http://127.0.0.1:3000](http://127.0.0.1:3000) and verify run/trace/memory are visible.
-- Send `update readme with install steps` (in collaborative mode) to generate a pending approval.
-- Run `/titan approve <approval_id>` to proceed.
-- Confirm write trace + approval trace + episodic entry in the Web UI.
+- Send `scan workspace` (read-only flow)
+- Open [http://127.0.0.1:3000](http://127.0.0.1:3000) and verify run + trace + memory entries
+- Send `update readme with install steps` (should create a pending approval in collaborative mode)
+- Approve with `/titan approve <approval_id>`
+- Verify approval trace + write trace + episodic memory in Web UI
 
 Optional macOS path note:
+
 - Use `/Users/$USER/Desktop/TITAN` instead of `/home/$USER/Desktop/TITAN`.
 
 ## First Run (Manual)
 
 ```bash
 ./target/release/titan onboard
-# Optional: install startup daemon as part of setup
+# Optional: install startup daemon during setup
 ./target/release/titan setup --install-daemon
 ```
 
@@ -126,7 +156,7 @@ titan run --bind 127.0.0.1:3000
 
 ## Core CLI
 
-### Goal Runtime
+### Goals
 
 ```bash
 titan goal submit "Summarize workspace status"
@@ -134,7 +164,7 @@ titan goal show <goal_id>
 titan goal cancel <goal_id>
 ```
 
-### Tools and Approvals
+### Tools & Approvals
 
 ```bash
 titan tool run list_dir --input .
@@ -142,7 +172,7 @@ titan approval list
 titan approval approve <approval_id>
 ```
 
-### Model Configuration
+### Models
 
 ```bash
 titan model show
@@ -150,7 +180,7 @@ titan model list-ollama
 titan model set ollama llama3.2:latest --endpoint http://127.0.0.1:11434
 ```
 
-### Communication Integrations
+### Communication
 
 ```bash
 titan comm list
@@ -158,13 +188,23 @@ titan comm status discord
 titan comm send discord --target <channel_id> --message "TITAN online"
 ```
 
-### Web Dashboard
+### Web
 
 ```bash
 titan web serve --bind 127.0.0.1:3000
 ```
 
-Open `http://127.0.0.1:3000` and you’re in business.
+## Architecture
+
+TITAN is split into focused Rust crates:
+
+- `titan-core`: deterministic planning and run model
+- `titan-gateway`: event processing and run orchestration
+- `titan-memory`: SQLite persistence and approval state
+- `titan-comms`: communication adapter layer
+- `titan-tools`: tool broker + policy-gated execution
+- `titan-skills`: extensibility runtime for skills
+- `titan-cli`: onboarding, operations, and runtime entrypoint
 
 ## Documentation
 
@@ -175,6 +215,7 @@ Open `http://127.0.0.1:3000` and you’re in business.
 - `docs/TITAN_COMMUNICATION_INTEGRATIONS.md`
 - `docs/architecture.md`
 - `docs/originality.md`
+- `docs/release_checklist.md`
 
 ## Quality Gates
 
