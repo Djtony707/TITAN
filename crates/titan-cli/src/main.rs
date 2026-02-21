@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use titan_common::config::{AutonomyMode, ModelProvider, TitanConfig};
 use titan_common::{APP_NAME, logging};
 use titan_comms::{ChannelKind, channel_send, channel_status};
@@ -25,7 +25,7 @@ use titan_core::{
 };
 use titan_discord::DiscordGateway;
 use titan_gateway::{Channel as GatewayChannel, InboundEvent, TitanGatewayRuntime};
-use titan_memory::{MemoryStore, RiskMode};
+use titan_memory::{MemoryStore, NewJobRecord, RiskMode};
 use titan_secrets::{SecretsStatus, SecretsStore};
 use titan_skills::{
     LocalRegistryAdapter, SkillPackage, SkillRegistryAdapter, SkillRunState,
@@ -105,6 +105,11 @@ enum Command {
     Session {
         #[command(subcommand)]
         command: SessionCommand,
+    },
+    /// Job scheduler operations.
+    Job {
+        #[command(subcommand)]
+        command: JobCommand,
     },
     /// Discord integration commands.
     Discord {
@@ -246,6 +251,37 @@ enum SessionCommand {
     },
     /// Stop a session run queue.
     Stop { session_id: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum JobCommand {
+    /// Add an interval or cron scheduled job.
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        interval: Option<String>,
+        #[arg(long)]
+        cron: Option<String>,
+        #[arg(long)]
+        template: String,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long, default_value = "[]")]
+        allowed_scopes: String,
+    },
+    /// List scheduled jobs.
+    List,
+    /// Show one scheduled job.
+    Show { job_id: String },
+    /// Pause a job.
+    Pause { job_id: String },
+    /// Resume a job.
+    Resume { job_id: String },
+    /// Trigger a job immediately.
+    RunNow { job_id: String },
+    /// Remove a job.
+    Remove { job_id: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -427,6 +463,7 @@ fn main() -> Result<()> {
         Some(Command::Approval { command }) => approval(command),
         Some(Command::Memory { command }) => memory(command),
         Some(Command::Session { command }) => session(command),
+        Some(Command::Job { command }) => job(command),
         Some(Command::Discord { command }) => discord(command),
         Some(Command::Comm { command }) => comm(command),
         Some(Command::Model { command }) => model(command),
@@ -1579,6 +1616,181 @@ fn session(command: SessionCommand) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct JobExecutionOutcome {
+    goal_id: String,
+    goal_status: String,
+}
+
+fn job(command: JobCommand) -> Result<()> {
+    let config = load_initialized_config()?;
+    let workspace = config.workspace_dir.clone();
+    let db_path = workspace.join("titan.db");
+    let store = MemoryStore::open(&db_path)?;
+
+    match command {
+        JobCommand::Add {
+            name,
+            interval,
+            cron,
+            template,
+            mode,
+            allowed_scopes,
+        } => {
+            if name.trim().is_empty() {
+                bail!("--name is required");
+            }
+            if template.trim().is_empty() {
+                bail!("--template is required");
+            }
+            let (schedule_kind, schedule_value) = match (interval, cron) {
+                (Some(v), None) => ("interval".to_string(), v),
+                (None, Some(v)) => ("cron".to_string(), v),
+                _ => bail!("provide exactly one of --interval or --cron"),
+            };
+            let mode_value = normalize_job_mode(mode.as_deref()).unwrap_or_else(|| {
+                normalize_job_mode(Some(autonomy_mode_name(&config.mode))).expect("valid mode")
+            });
+            let job_id = Uuid::new_v4().to_string();
+            store.add_job(NewJobRecord {
+                job_id: &job_id,
+                name: name.trim(),
+                schedule_kind: &schedule_kind,
+                schedule_value: schedule_value.trim(),
+                goal_template: template.trim(),
+                mode: mode_value,
+                allowed_scopes: allowed_scopes.trim(),
+            })?;
+            println!("job_added: {job_id}");
+            println!("name: {}", name.trim());
+            println!("schedule_kind: {schedule_kind}");
+            println!("schedule_value: {}", schedule_value.trim());
+            println!("mode: {mode_value}");
+        }
+        JobCommand::List => {
+            let rows = store.list_jobs()?;
+            println!("jobs: {}", rows.len());
+            for row in rows {
+                println!(
+                    "- {} | {} | {} {} | enabled={} | last_status={}",
+                    row.job_id,
+                    row.name,
+                    row.schedule_kind,
+                    row.schedule_value,
+                    row.enabled,
+                    row.last_status.unwrap_or_else(|| "<never>".to_string())
+                );
+            }
+        }
+        JobCommand::Show { job_id } => {
+            let Some(row) = store.get_job(&job_id)? else {
+                println!("job_not_found: {job_id}");
+                return Ok(());
+            };
+            println!("job_id: {}", row.job_id);
+            println!("name: {}", row.name);
+            println!("schedule_kind: {}", row.schedule_kind);
+            println!("schedule_value: {}", row.schedule_value);
+            println!("goal_template: {}", row.goal_template);
+            println!("mode: {}", row.mode);
+            println!("allowed_scopes: {}", row.allowed_scopes);
+            println!("enabled: {}", row.enabled);
+            println!(
+                "last_run_at_ms: {}",
+                row.last_run_at_ms
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            );
+            println!(
+                "last_status: {}",
+                row.last_status.unwrap_or_else(|| "<none>".to_string())
+            );
+            println!(
+                "last_goal_id: {}",
+                row.last_goal_id.unwrap_or_else(|| "<none>".to_string())
+            );
+            let runs = store.list_job_runs(&job_id, 10)?;
+            println!("recent_runs: {}", runs.len());
+        }
+        JobCommand::Pause { job_id } => {
+            let changed = store.set_job_enabled(&job_id, false)?;
+            println!("job_paused: {changed}");
+            println!("job_id: {job_id}");
+        }
+        JobCommand::Resume { job_id } => {
+            let changed = store.set_job_enabled(&job_id, true)?;
+            println!("job_resumed: {changed}");
+            println!("job_id: {job_id}");
+        }
+        JobCommand::RunNow { job_id } => {
+            let outcome = execute_job_now(&db_path, &workspace, &job_id)?;
+            println!("job_run_now: {job_id}");
+            println!("goal_id: {}", outcome.goal_id);
+            println!("status: {}", outcome.goal_status);
+        }
+        JobCommand::Remove { job_id } => {
+            let removed = store.remove_job(&job_id)?;
+            println!("job_removed: {removed}");
+            println!("job_id: {job_id}");
+        }
+    }
+    Ok(())
+}
+
+fn normalize_job_mode(value: Option<&str>) -> Option<&'static str> {
+    let raw = value?.trim().to_ascii_lowercase();
+    match raw.as_str() {
+        "supervised" => Some("supervised"),
+        "collaborative" | "collab" => Some("collab"),
+        "autonomous" | "auto" => Some("auto"),
+        _ => None,
+    }
+}
+
+fn job_mode_to_autonomy(value: &str) -> AutonomyMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "supervised" => AutonomyMode::Supervised,
+        "auto" | "autonomous" => AutonomyMode::Autonomous,
+        _ => AutonomyMode::Collaborative,
+    }
+}
+
+fn execute_job_now(
+    db_path: &Path,
+    workspace_root: &Path,
+    job_id: &str,
+) -> Result<JobExecutionOutcome> {
+    let store = MemoryStore::open(db_path)?;
+    let job = store
+        .get_job(job_id)?
+        .ok_or_else(|| anyhow::anyhow!("job not found: {job_id}"))?;
+    let run_id = store.start_job_run(job_id)?;
+    let runtime = TitanGatewayRuntime::new(
+        job_mode_to_autonomy(&job.mode),
+        workspace_root.to_path_buf(),
+        db_path.to_path_buf(),
+    );
+    let result = runtime.process_event(InboundEvent::new(
+        GatewayChannel::Cli,
+        format!("job:{job_id}"),
+        job.goal_template.clone(),
+    ));
+    match result {
+        Ok(outcome) => {
+            let status = outcome.goal_status.as_str().to_string();
+            let _ = store.finish_job_run(&run_id, &status, Some(&outcome.goal_id), None)?;
+            Ok(JobExecutionOutcome {
+                goal_id: outcome.goal_id,
+                goal_status: status,
+            })
+        }
+        Err(err) => {
+            let _ = store.finish_job_run(&run_id, "failed", None, Some(&err.to_string()))?;
+            Err(err)
+        }
+    }
+}
+
 fn discord(command: DiscordCommand) -> Result<()> {
     let config = load_initialized_config()?;
 
@@ -1889,7 +2101,7 @@ fn web(command: WebCommand) -> Result<()> {
     Ok(())
 }
 
-fn run_services(bind: String, _poll_interval_ms: u64) -> Result<()> {
+fn run_services(bind: String, poll_interval_ms: u64) -> Result<()> {
     let config = load_initialized_config()?;
     let db_path = config.workspace_dir.join("titan.db");
     let _store = MemoryStore::open(&db_path)?;
@@ -1903,7 +2115,13 @@ fn run_services(bind: String, _poll_interval_ms: u64) -> Result<()> {
         .enable_all()
         .build()
         .with_context(|| "failed to build async runtime for titan run")?;
-    rt.block_on(run_services_async(config, bind, db_path, runtime))
+    rt.block_on(run_services_async(
+        config,
+        bind,
+        db_path,
+        runtime,
+        poll_interval_ms,
+    ))
 }
 
 struct DiscordHandler {
@@ -1992,6 +2210,7 @@ async fn run_services_async(
     bind: String,
     db_path: PathBuf,
     runtime: TitanGatewayRuntime,
+    poll_interval_ms: u64,
 ) -> Result<()> {
     let web_bind = bind.clone();
     let web_db = db_path.clone();
@@ -2018,6 +2237,20 @@ async fn run_services_async(
                 let _ = store.apply_yolo_expiry("run_loop");
             }
             tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    let scheduler_db = db_path.clone();
+    let scheduler_workspace = config.workspace_dir.clone();
+    let scheduler_tick_ms = poll_interval_ms.max(500);
+    tokio::spawn(async move {
+        loop {
+            match scheduler_tick_once(&scheduler_db, &scheduler_workspace).await {
+                Ok(count) if count > 0 => println!("scheduler_triggered_jobs: {count}"),
+                Ok(_) => {}
+                Err(err) => eprintln!("scheduler_tick_error: {err}"),
+            }
+            tokio::time::sleep(Duration::from_millis(scheduler_tick_ms)).await;
         }
     });
 
@@ -2055,6 +2288,40 @@ async fn run_services_async(
         .start()
         .await
         .with_context(|| "Discord gateway client stopped unexpectedly")
+}
+
+async fn scheduler_tick_once(db_path: &Path, workspace_root: &Path) -> Result<usize> {
+    let store = MemoryStore::open(db_path)?;
+    let due_jobs = store.list_due_jobs(current_epoch_ms(), 64)?;
+    if due_jobs.is_empty() {
+        return Ok(0);
+    }
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(2));
+    let mut tasks = Vec::with_capacity(due_jobs.len());
+    for job in due_jobs {
+        let permit = semaphore.clone().acquire_owned().await?;
+        let db = db_path.to_path_buf();
+        let workspace = workspace_root.to_path_buf();
+        let job_id = job.job_id.clone();
+        tasks.push(tokio::spawn(async move {
+            let _permit = permit;
+            tokio::task::spawn_blocking(move || execute_job_now(&db, &workspace, &job_id))
+                .await
+                .map_err(|err| anyhow::anyhow!("scheduler join failure: {err}"))??;
+            Ok::<(), anyhow::Error>(())
+        }));
+    }
+    let mut triggered = 0_usize;
+    for task in tasks {
+        if task
+            .await
+            .map_err(|err| anyhow::anyhow!("scheduler task error: {err}"))?
+            .is_ok()
+        {
+            triggered += 1;
+        }
+    }
+    Ok(triggered)
 }
 
 fn agent(command: AgentCommand) -> Result<()> {
@@ -2381,6 +2648,14 @@ fn collect_manifest_leaf_models(
     Ok(())
 }
 
+fn current_epoch_ms() -> i64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0));
+    let millis = now.as_millis();
+    i64::try_from(millis).unwrap_or(i64::MAX)
+}
+
 fn default_connector_config(connector_type: ConnectorType) -> Result<Value> {
     let value = match connector_type {
         ConnectorType::Github => serde_json::json!({
@@ -2571,4 +2846,110 @@ fn expand_tilde(path: &str) -> String {
         return home.display().to_string();
     }
     path.replacen('~', &home.display().to_string(), 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn seed_workspace() -> (tempfile::TempDir, PathBuf, PathBuf, MemoryStore) {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "Initial").expect("readme");
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        (tmp, workspace, db_path, store)
+    }
+
+    #[tokio::test]
+    async fn job_scheduler_triggers_goal_and_persists_trace() {
+        let (_tmp, workspace, db_path, store) = seed_workspace();
+        store
+            .add_job(NewJobRecord {
+                job_id: "job-interval",
+                name: "Scan Workspace",
+                schedule_kind: "interval",
+                schedule_value: "1s",
+                goal_template: "scan workspace",
+                mode: "collab",
+                allowed_scopes: "[]",
+            })
+            .expect("add job");
+
+        let triggered = scheduler_tick_once(&db_path, &workspace)
+            .await
+            .expect("scheduler tick");
+        assert_eq!(triggered, 1);
+
+        let store = MemoryStore::open(&db_path).expect("store");
+        let runs = store.list_job_runs("job-interval", 10).expect("runs");
+        assert!(!runs.is_empty());
+        let goal_id = runs[0].goal_id.clone().expect("goal id");
+        let traces = store.get_traces(&goal_id).expect("traces");
+        assert!(!traces.is_empty());
+    }
+
+    #[tokio::test]
+    async fn paused_job_does_not_run() {
+        let (_tmp, workspace, db_path, store) = seed_workspace();
+        store
+            .add_job(NewJobRecord {
+                job_id: "job-paused",
+                name: "Paused Job",
+                schedule_kind: "interval",
+                schedule_value: "1s",
+                goal_template: "scan workspace",
+                mode: "collab",
+                allowed_scopes: "[]",
+            })
+            .expect("add job");
+        store
+            .set_job_enabled("job-paused", false)
+            .expect("pause job");
+
+        let triggered = scheduler_tick_once(&db_path, &workspace)
+            .await
+            .expect("scheduler tick");
+        assert_eq!(triggered, 0);
+
+        let store = MemoryStore::open(&db_path).expect("store");
+        let runs = store.list_job_runs("job-paused", 10).expect("runs");
+        assert!(runs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn yolo_job_write_executes_without_approval() {
+        let (_tmp, workspace, db_path, store) = seed_workspace();
+        store.arm_yolo("test").expect("arm yolo");
+        store.enable_yolo("test", 5).expect("enable yolo");
+        store
+            .add_job(NewJobRecord {
+                job_id: "job-write-yolo",
+                name: "Update Readme",
+                schedule_kind: "interval",
+                schedule_value: "1s",
+                goal_template: "update README with install steps",
+                mode: "collab",
+                allowed_scopes: "[]",
+            })
+            .expect("add job");
+
+        let triggered = scheduler_tick_once(&db_path, &workspace)
+            .await
+            .expect("scheduler tick");
+        assert_eq!(triggered, 1);
+
+        let store = MemoryStore::open(&db_path).expect("store");
+        let pending = store.list_pending_approvals().expect("approvals");
+        assert!(pending.is_empty());
+        let job = store
+            .get_job("job-write-yolo")
+            .expect("job")
+            .expect("job exists");
+        let goal_id = job.last_goal_id.expect("goal id");
+        let traces = store.get_traces(&goal_id).expect("traces");
+        assert!(traces.iter().any(|trace| trace.risk_mode == "yolo"));
+    }
 }

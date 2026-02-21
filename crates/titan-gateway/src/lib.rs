@@ -838,6 +838,10 @@ fn is_message_allowed(
     session: &titan_memory::SessionRecord,
     config_path: Option<&std::path::Path>,
 ) -> Result<bool> {
+    // Local/system-triggered events (CLI + scheduler jobs) bypass channel activation and allowlist checks.
+    if matches!(inbound.channel, Channel::Cli) {
+        return Ok(true);
+    }
     let cfg = load_runtime_config(config_path)?;
     if !cfg.chat.allowlist.is_empty()
         && !cfg.chat.allowlist.iter().any(|id| id == &inbound.actor_id)

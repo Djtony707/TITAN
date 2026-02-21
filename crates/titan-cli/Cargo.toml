@@ -29,3 +29,6 @@ uuid.workspace = true
 [[bin]]
 name = "titan"
 path = "src/main.rs"
+
+[dev-dependencies]
+tempfile.workspace = true

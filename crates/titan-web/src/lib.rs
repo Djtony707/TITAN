@@ -111,6 +111,7 @@ struct MissionControlDto {
     pending_approvals: Vec<ApprovalDto>,
     connectors: Vec<ConnectorDto>,
     connector_summary: ConnectorSummaryDto,
+    jobs: Vec<JobDto>,
     skills: Vec<SkillDto>,
     recent_runs: Vec<GoalDto>,
     recent_traces: Vec<TraceDto>,
@@ -129,6 +130,19 @@ struct ConnectorDto {
 struct ConnectorSummaryDto {
     total: usize,
     failing: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct JobDto {
+    job_id: String,
+    name: String,
+    schedule_kind: String,
+    schedule_value: String,
+    mode: String,
+    enabled: bool,
+    last_run_at_ms: Option<i64>,
+    last_status: Option<String>,
+    last_goal_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,6 +218,10 @@ fn app_router(state: Arc<AppState>) -> Router {
         .route("/api/skills", get(api_skills))
         .route("/api/connectors", get(api_connectors))
         .route("/api/connectors/{id}/test", post(api_connector_test))
+        .route("/api/jobs", get(api_jobs))
+        .route("/api/jobs/{id}/run-now", post(api_job_run_now))
+        .route("/api/jobs/{id}/pause", post(api_job_pause))
+        .route("/api/jobs/{id}/resume", post(api_job_resume))
         .route("/api/mission-control", get(api_mission_control))
         .route("/api/approvals/{id}/approve", post(api_approve))
         .route("/api/approvals/{id}/deny", post(api_deny))
@@ -354,6 +372,7 @@ async fn mission_control_page() -> impl IntoResponse {
     <div class="card"><h3>Sessions</h3><pre id="sessions"></pre></div>
     <div class="card"><h3>Pending Approvals</h3><pre id="approvals"></pre></div>
     <div class="card"><h3>Connectors</h3><pre id="connectors"></pre></div>
+    <div class="card"><h3>Jobs</h3><pre id="jobs"></pre></div>
     <div class="card"><h3>Installed Skills</h3><pre id="skills"></pre></div>
     <div class="card"><h3>Recent Runs</h3><pre id="runs"></pre></div>
     <div class="card"><h3>Recent Traces</h3><pre id="traces"></pre></div>
@@ -377,6 +396,8 @@ async fn mission_control_page() -> impl IntoResponse {
       document.getElementById('connectors').textContent =
         `total=${data.connector_summary.total} failing=${data.connector_summary.failing}\n` +
         data.connectors.map(c => `${c.id} ${c.connector_type} ${c.display_name} test=${c.last_test_status || '<never>'}`).join('\n');
+      document.getElementById('jobs').textContent =
+        data.jobs.map(j => `${j.job_id} ${j.name} ${j.schedule_kind}:${j.schedule_value} enabled=${j.enabled} last=${j.last_status || '<never>'}`).join('\n');
       document.getElementById('skills').textContent = data.skills.map(s => `${s.slug}@${s.version} signed=${s.signature_status} scopes=${s.scopes}`).join('\n');
       document.getElementById('runs').textContent = data.recent_runs.map(r => `${r.status} ${r.id} ${r.description}`).join('\n');
       document.getElementById('traces').textContent = data.recent_traces.map(t => `${t.goal_id} ${t.event_type} ${t.detail}`).join('\n');
@@ -577,6 +598,55 @@ async fn api_connector_test(
     })))
 }
 
+async fn api_jobs(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<JobDto>>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let jobs = store
+        .list_jobs()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(map_job_record)
+        .collect::<Vec<_>>();
+    Ok(Json(jobs))
+}
+
+async fn api_job_run_now(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let outcome = execute_job_now_for_state(&state, &id).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({
+        "job_id": id,
+        "goal_id": outcome.goal_id,
+        "status": outcome.goal_status,
+    })))
+}
+
+async fn api_job_pause(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let changed = store.set_job_enabled(&id, false).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({
+        "job_id": id,
+        "paused": changed,
+    })))
+}
+
+async fn api_job_resume(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = open_store(&state)?;
+    let changed = store.set_job_enabled(&id, true).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({
+        "job_id": id,
+        "resumed": changed,
+    })))
+}
+
 async fn api_mission_control(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<MissionControlDto>, (StatusCode, String)> {
@@ -648,6 +718,12 @@ async fn api_mission_control(
             })
             .count(),
     };
+    let jobs = store
+        .list_jobs()
+        .map_err(internal_error)?
+        .into_iter()
+        .map(map_job_record)
+        .collect::<Vec<_>>();
     let skills = store
         .list_installed_skills()
         .map_err(internal_error)?
@@ -692,6 +768,7 @@ async fn api_mission_control(
         pending_approvals,
         connectors,
         connector_summary,
+        jobs,
         skills,
         recent_runs,
         recent_traces,
@@ -880,6 +957,66 @@ fn parse_mode(value: &str) -> AutonomyMode {
     }
 }
 
+fn parse_job_mode(value: &str) -> AutonomyMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "supervised" => AutonomyMode::Supervised,
+        "auto" | "autonomous" => AutonomyMode::Autonomous,
+        _ => AutonomyMode::Collaborative,
+    }
+}
+
+fn map_job_record(row: titan_memory::JobRecord) -> JobDto {
+    JobDto {
+        job_id: row.job_id,
+        name: row.name,
+        schedule_kind: row.schedule_kind,
+        schedule_value: row.schedule_value,
+        mode: row.mode,
+        enabled: row.enabled,
+        last_run_at_ms: row.last_run_at_ms,
+        last_status: row.last_status,
+        last_goal_id: row.last_goal_id,
+    }
+}
+
+#[derive(Debug)]
+struct JobExecutionOutcome {
+    goal_id: String,
+    goal_status: String,
+}
+
+fn execute_job_now_for_state(state: &AppState, job_id: &str) -> Result<JobExecutionOutcome> {
+    let store = MemoryStore::open(&state.db_path)?;
+    let job = store
+        .get_job(job_id)?
+        .ok_or_else(|| anyhow::anyhow!("job not found: {job_id}"))?;
+    let run_id = store.start_job_run(job_id)?;
+    let runtime = TitanGatewayRuntime::new(
+        parse_job_mode(&job.mode),
+        state.workspace_root.clone(),
+        state.db_path.clone(),
+    );
+    let result = runtime.process_event(InboundEvent::new(
+        GatewayChannel::Cli,
+        format!("job:{job_id}"),
+        job.goal_template.clone(),
+    ));
+    match result {
+        Ok(outcome) => {
+            let status = outcome.goal_status.as_str().to_string();
+            let _ = store.finish_job_run(&run_id, &status, Some(&outcome.goal_id), None)?;
+            Ok(JobExecutionOutcome {
+                goal_id: outcome.goal_id,
+                goal_status: status,
+            })
+        }
+        Err(err) => {
+            let _ = store.finish_job_run(&run_id, "failed", None, Some(&err.to_string()))?;
+            Err(err)
+        }
+    }
+}
+
 pub fn default_bind_addr() -> &'static str {
     "127.0.0.1:3000"
 }
@@ -939,6 +1076,17 @@ mod tests {
         store
             .record_connector_test("11111111-1111-1111-1111-111111111111", "ok: healthy")
             .expect("connector test");
+        store
+            .add_job(titan_memory::NewJobRecord {
+                job_id: "job-1",
+                name: "Scan",
+                schedule_kind: "interval",
+                schedule_value: "60s",
+                goal_template: "scan workspace",
+                mode: "collab",
+                allowed_scopes: "[]",
+            })
+            .expect("job");
 
         let state = Arc::new(AppState {
             db_path: db_path.clone(),
@@ -974,6 +1122,11 @@ mod tests {
         );
         assert!(
             parsed["connectors"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
+        assert!(
+            parsed["jobs"]
                 .as_array()
                 .is_some_and(|rows| !rows.is_empty())
         );
@@ -1022,5 +1175,49 @@ mod tests {
             .expect("body");
         let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert!(parsed.as_array().is_some_and(|rows| !rows.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn run_now_executes_immediately() {
+        let tmp = tempdir().expect("tempdir");
+        let workspace = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::write(workspace.join("README.md"), "hello").expect("seed file");
+        let db_path = workspace.join("titan.db");
+        let store = MemoryStore::open(&db_path).expect("store");
+        store
+            .add_job(titan_memory::NewJobRecord {
+                job_id: "job-run-now",
+                name: "Readme Scan",
+                schedule_kind: "interval",
+                schedule_value: "60s",
+                goal_template: "scan workspace",
+                mode: "collab",
+                allowed_scopes: "[]",
+            })
+            .expect("job");
+
+        let state = Arc::new(AppState {
+            db_path: db_path.clone(),
+            workspace_root: workspace.clone(),
+            mode: "collaborative".to_string(),
+            yolo_bypass_path_guard: true,
+        });
+        let app = app_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/jobs/job-run-now/run-now")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let store = MemoryStore::open(&db_path).expect("store");
+        let runs = store.list_job_runs("job-run-now", 10).expect("runs");
+        assert!(!runs.is_empty());
+        assert!(runs[0].goal_id.is_some());
     }
 }
