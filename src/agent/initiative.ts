@@ -23,14 +23,19 @@ export interface InitiativeResult {
     proposed?: string;  // In supervised mode, what we would have done
 }
 
+export interface InitiativeOptions {
+    dryRun?: boolean;
+}
+
 /**
  * Check for and optionally execute the next ready task.
  * In autonomous mode: executes immediately.
  * In supervised mode: returns a proposal without executing.
  */
-export async function checkInitiative(): Promise<InitiativeResult> {
+export async function checkInitiative(options: InitiativeOptions = {}): Promise<InitiativeResult> {
     const config = loadConfig();
     const now = Date.now();
+    const dryRun = options.dryRun === true;
 
     // Configurable rate limiting
     const autonomyCfg = config.autonomy as Record<string, unknown>;
@@ -54,6 +59,17 @@ export async function checkInitiative(): Promise<InitiativeResult> {
             goalId: goal.id,
             subtaskId: subtask.id,
             proposed: `Next task for goal "${goal.title}": ${subtask.title} — ${subtask.description}`,
+        };
+    }
+
+    if (dryRun) {
+        const proposed = `Dry-run: would self-initiate goal "${goal.title}" subtask "${subtask.title}" using template "${inferTemplate(subtask.description)}"`;
+        logger.info(COMPONENT, proposed);
+        return {
+            acted: false,
+            goalId: goal.id,
+            subtaskId: subtask.id,
+            proposed,
         };
     }
 

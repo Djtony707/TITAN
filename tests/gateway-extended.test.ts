@@ -136,8 +136,9 @@ vi.mock('../src/agent/autopilot.js', () => ({
     initAutopilot: vi.fn(),
     stopAutopilot: vi.fn(),
     runAutopilotNow: vi.fn().mockResolvedValue({ run: { classification: 'ok' }, delivered: false }),
-    getAutopilotStatus: vi.fn().mockReturnValue({ enabled: false, schedule: '0 2 * * *', lastRun: null, nextRunEstimate: null, totalRuns: 0, isRunning: false }),
+    getAutopilotStatus: vi.fn().mockReturnValue({ enabled: false, dryRun: false, schedule: '0 2 * * *', lastRun: null, nextRunEstimate: null, totalRuns: 0, isRunning: false }),
     getRunHistory: vi.fn().mockReturnValue([]),
+    setAutopilotDryRun: vi.fn(),
 }));
 
 vi.mock('../src/skills/builtin/webhook.js', () => ({
@@ -168,6 +169,7 @@ vi.mock('../src/gateway/slashCommands.js', () => ({
 import { startGateway, stopGateway } from '../src/gateway/server.js';
 import { handleSlashCommand } from '../src/gateway/slashCommands.js';
 import { routeMessage } from '../src/agent/multiAgent.js';
+import { runAutopilotNow, setAutopilotDryRun } from '../src/agent/autopilot.js';
 
 // Auth header for routes that require it
 const authHeaders = { Authorization: 'Bearer noauth' };
@@ -525,6 +527,30 @@ describe('Gateway Extended', () => {
     });
 
     // ── API Routes: Profile ──────────────────────────────────────────
+
+    describe('Autopilot routes', () => {
+        it('POST /api/autopilot/toggle should accept dryRun flag', async () => {
+            const res = await fetch(`${BASE}/api/autopilot/toggle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: true, dryRun: true }),
+            });
+
+            expect(res.status).toBe(200);
+            expect(vi.mocked(setAutopilotDryRun)).toHaveBeenCalledWith(true);
+        });
+
+        it('POST /api/autopilot/run should pass through dryRun override', async () => {
+            const res = await fetch(`${BASE}/api/autopilot/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dryRun: true }),
+            });
+
+            expect(res.status).toBe(200);
+            expect(vi.mocked(runAutopilotNow)).toHaveBeenCalledWith({ dryRun: true });
+        });
+    });
 
     describe('Profile routes', () => {
         it('GET /api/profile should return profile data', async () => {
