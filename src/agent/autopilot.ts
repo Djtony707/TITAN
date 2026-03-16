@@ -323,7 +323,7 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
                 duration,
                 tokensUsed: 0,
                 cost: 0,
-                classification: 'notable',
+                classification: 'ok',
                 summary: `Dry-run: would evaluate ${checklistItems} checklist item(s) and execute follow-up actions without executing tools.`,
                 toolsUsed: [],
                 skipped: true,
@@ -426,7 +426,7 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
                 duration,
                 tokensUsed: 0,
                 cost: 0,
-                classification: 'notable',
+                classification: 'ok',
                 summary: `Dry-run: would execute goal "${goal.title}" -> "${subtask.title}" with template "${templateKey}".`,
                 toolsUsed: [],
                 skipped: true,
@@ -479,7 +479,7 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
         // After successful subtask, check if initiative has a natural next step
         if (result.success) {
             try {
-                const initiative = await checkInitiative();
+                const initiative = await checkInitiative({ dryRun });
                 if (initiative.acted) {
                     logger.info(COMPONENT, `Initiative chained: ${initiative.result?.slice(0, 100)}`);
                 } else if (initiative.proposed) {
@@ -527,7 +527,7 @@ async function runSelfImproveAutopilot(config: TitanConfig, startTime: number, d
             duration,
             tokensUsed: 0,
             cost: 0,
-            classification: 'notable',
+            classification: 'ok',
             summary: summary.slice(0, 500),
             toolsUsed: [],
             skipped: true,
@@ -596,7 +596,7 @@ async function runAutoresearchAutopilot(config: TitanConfig, startTime: number, 
             duration,
             tokensUsed: 0,
             cost: 0,
-            classification: 'notable',
+            classification: 'ok',
             summary: `Dry-run: would run autoresearch experiments with a ${budgetMinutes} minute budget.`,
             toolsUsed: [],
             skipped: true,
@@ -716,8 +716,6 @@ async function deliverResult(config: TitanConfig, run: AutopilotRun): Promise<bo
 // ─── Init / Stop ────────────────────────────────────────────────
 
 export function initAutopilot(config: TitanConfig): void {
-    runtimeDryRun = (config.autopilot as Record<string, unknown>).dryRun === true;
-
     if (!config.autopilot.enabled) {
         logger.debug(COMPONENT, 'Autopilot disabled in config');
         return;
@@ -746,7 +744,7 @@ export function stopAutopilot(): void {
     }
 }
 
-export function setAutopilotDryRun(enabled: boolean): void {
+export function setAutopilotDryRun(enabled?: boolean): void {
     runtimeDryRun = enabled;
 }
 

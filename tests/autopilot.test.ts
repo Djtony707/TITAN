@@ -97,6 +97,7 @@ import {
     runAutopilotNow,
     initAutopilot,
     stopAutopilot,
+    setAutopilotDryRun,
     getAutopilotStatus,
 } from '../src/agent/autopilot.js';
 import { TitanConfigSchema } from '../src/config/schema.js';
@@ -106,6 +107,7 @@ import { TitanConfigSchema } from '../src/config/schema.js';
 describe('Autopilot Engine', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setAutopilotDryRun(undefined);
         mockLoadConfig.mockReturnValue(makeConfig());
         mockExistsSync.mockReturnValue(false);
         mockReadFileSync.mockReturnValue('');
@@ -602,8 +604,44 @@ describe('Autopilot Engine', () => {
 
             expect(result.run.skipped).toBe(true);
             expect(result.run.skipReason).toBe('dry_run');
+            expect(result.run.classification).toBe('ok');
             expect(result.run.summary).toContain('Dry-run');
             expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor per-call dryRun=true over config dryRun=false', async () => {
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+
+            const result = await runAutopilotNow({ dryRun: true });
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor runtime dryRun override via setAutopilotDryRun(true)', async () => {
+            setAutopilotDryRun(true);
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+
+            const result = await runAutopilotNow();
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor per-call dryRun=false over runtime dryRun=true', async () => {
+            setAutopilotDryRun(true);
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+            mockProcessMessage.mockResolvedValue(makeAgentResponse('OK. Classification: OK'));
+
+            const result = await runAutopilotNow({ dryRun: false });
+
+            expect(result.run.skipped).toBeUndefined();
+            expect(mockProcessMessage).toHaveBeenCalled();
         });
     });
 
@@ -636,6 +674,21 @@ describe('Autopilot Engine', () => {
             mockCronSchedule.mockReturnValue({ stop: vi.fn() });
             initAutopilot(config as any);
             expect(mockCronSchedule).toHaveBeenCalledWith('*/15 * * * *', expect.any(Function));
+        });
+
+        it('should not reset runtime dryRun when initAutopilot is called', async () => {
+            setAutopilotDryRun(true);
+            const config = makeConfig({ autopilot: { enabled: true, dryRun: false, skipIfEmpty: false } });
+            mockCronValidate.mockReturnValue(true);
+            mockCronSchedule.mockReturnValue({ stop: vi.fn() });
+            mockExistsSync.mockReturnValue(false);
+            mockLoadConfig.mockReturnValue(config);
+
+            initAutopilot(config as any);
+            const result = await runAutopilotNow();
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
         });
     });
 
