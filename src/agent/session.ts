@@ -3,7 +3,7 @@
  * Manages per-user/per-channel isolated sessions with history and context.
  */
 import { v4 as uuid } from 'uuid';
-import { getDb, getHistory, saveMessage } from '../memory/memory.js';
+import { getDb, getHistory, saveMessage, updateSessionMeta } from '../memory/memory.js';
 import type { ChatMessage } from '../providers/base.js';
 import { MAX_CONTEXT_MESSAGES, SESSION_TIMEOUT_MS } from '../utils/constants.js';
 import { generateKey } from '../security/encryption.js';
@@ -20,6 +20,8 @@ export interface Session {
     messageCount: number;
     createdAt: string;
     lastActive: string;
+    name?: string;
+    lastMessage?: string;
     e2eKey?: string; // Stored only in memory for active sessions
     /** Team ID if this session belongs to a team (for RBAC) */
     teamId?: string;
@@ -64,6 +66,8 @@ export function getOrCreateSession(channel: string, userId: string, agentId: str
                 messageCount: existing.message_count,
                 createdAt: existing.created_at,
                 lastActive: existing.last_active,
+                name: existing.name,
+                lastMessage: existing.last_message,
                 // Note: If a session was encrypted but dropped from memory, we cannot recover the key
                 // A robust implementation would involve key exchange, but for now we warn:
                 e2eKey: undefined
@@ -143,6 +147,18 @@ export function addMessage(
         sessionRec.message_count = session.messageCount;
         sessionRec.last_active = session.lastActive;
     }
+
+    // Auto-name session from first user message; track last user message snippet
+    if (role === 'user') {
+        const snippet = content.slice(0, 60) + (content.length > 60 ? '…' : '');
+        const meta: { name?: string; last_message?: string } = { last_message: snippet };
+        if (!session.name) {
+            session.name = snippet;
+            meta.name = snippet;
+        }
+        session.lastMessage = snippet;
+        updateSessionMeta(session.id, meta);
+    }
 }
 
 /** Get the context messages for a session (for sending to LLM) */
@@ -156,22 +172,74 @@ export function getContextMessages(session: Session, maxMessages: number = MAX_C
     }));
 }
 
+/** Mark sessions that have been inactive > SESSION_TIMEOUT_MS as idle */
+export function cleanupStaleSessions(): void {
+    const store = getDb();
+    const now = Date.now();
+    let cleaned = 0;
+    for (const s of store.sessions) {
+        if (s.status === 'active') {
+            const lastActive = new Date(s.last_active || s.created_at).getTime();
+            if (now - lastActive > SESSION_TIMEOUT_MS) {
+                s.status = 'idle';
+                cleaned++;
+            }
+        }
+    }
+    if (cleaned > 0) {
+        logger.info(COMPONENT, `Cleaned up ${cleaned} stale session(s)`);
+    }
+}
+
+/** Rename a session */
+export function renameSession(sessionId: string, name: string): boolean {
+    const store = getDb();
+    const s = store.sessions.find((s) => s.id === sessionId);
+    if (!s) return false;
+    s.name = name.trim().slice(0, 100);
+    updateSessionMeta(sessionId, { name: s.name });
+    // Update in-memory cache too
+    for (const session of activeSessions.values()) {
+        if (session.id === sessionId) {
+            session.name = s.name;
+            break;
+        }
+    }
+    logger.info(COMPONENT, `Renamed session ${sessionId.slice(0, 8)} → "${s.name}"`);
+    return true;
+}
+
 /** List all active sessions */
 export function listSessions(): Session[] {
+    cleanupStaleSessions();
     const store = getDb();
     return store.sessions
         .filter((s) => s.status === 'active')
         .sort((a, b) => b.last_active.localeCompare(a.last_active))
-        .map((s) => ({
-            id: s.id,
-            channel: s.channel,
-            userId: s.user_id,
-            agentId: s.agent_id,
-            status: s.status as 'active',
-            messageCount: s.message_count,
-            createdAt: s.created_at,
-            lastActive: s.last_active,
-        }));
+        .map((s) => {
+            // Backfill name/lastMessage from conversation history for sessions created before this feature
+            if (!s.name) {
+                const msgs = store.conversations.filter(m => m.sessionId === s.id && m.role === 'user');
+                if (msgs.length > 0) {
+                    const first = msgs[0].content.slice(0, 60) + (msgs[0].content.length > 60 ? '…' : '');
+                    const last = msgs[msgs.length - 1].content.slice(0, 60) + (msgs[msgs.length - 1].content.length > 60 ? '…' : '');
+                    s.name = first;
+                    s.last_message = last;
+                }
+            }
+            return {
+                id: s.id,
+                channel: s.channel,
+                userId: s.user_id,
+                agentId: s.agent_id,
+                status: s.status as 'active',
+                messageCount: s.message_count,
+                createdAt: s.created_at,
+                lastActive: s.last_active,
+                name: s.name,
+                lastMessage: s.last_message,
+            };
+        });
 }
 
 /** Set a model override for the current session */

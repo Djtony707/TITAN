@@ -68,14 +68,14 @@ export function registerHunterSkill(): void {
     registerSkill(
         {
             name: 'hunter',
-            description: 'Hunter.io email finder and lead generation',
+            description: 'Use this skill when Tony says "find emails for X company", "find the contact at Y", "who do I reach out to at [company]?", "find [person]\'s email", "verify this email", or "how many contacts does [company] have?". Uses Hunter.io API to find, verify, and count professional email addresses. Requires HUNTER_API_KEY.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'hunter_domain_search',
-            description: 'Find all email addresses associated with a company domain. Returns names, roles, departments, confidence scores, and LinkedIn profiles.',
+            description: 'Find all known email addresses at a company domain. Use when Tony says "find emails for [company.com]", "who works at [company]?", or "get me contacts at [company]". Returns names, roles, departments, confidence scores, and LinkedIn profiles.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -131,14 +131,14 @@ export function registerHunterSkill(): void {
     registerSkill(
         {
             name: 'hunter',
-            description: 'Hunter.io email finder and lead generation',
+            description: 'Use this skill when Tony says "find emails for X company", "find the contact at Y", "who do I reach out to at [company]?", "find [person]\'s email", "verify this email", or "how many contacts does [company] have?". Uses Hunter.io API to find, verify, and count professional email addresses. Requires HUNTER_API_KEY.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'hunter_email_finder',
-            description: 'Find the email address of a specific person at a company. Provide their name and domain.',
+            description: 'Find the email address of a specific person at a company. Use when Tony says "find [person]\'s email", "what\'s the email for [name] at [company]?", or "I need to contact [person] at [domain]".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -206,14 +206,14 @@ export function registerHunterSkill(): void {
     registerSkill(
         {
             name: 'hunter',
-            description: 'Hunter.io email finder and lead generation',
+            description: 'Use this skill when Tony says "find emails for X company", "find the contact at Y", "who do I reach out to at [company]?", "find [person]\'s email", "verify this email", or "how many contacts does [company] have?". Uses Hunter.io API to find, verify, and count professional email addresses. Requires HUNTER_API_KEY.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'hunter_verify_email',
-            description: 'Verify if an email address is valid and deliverable. Returns status, score, and mail server info.',
+            description: 'Verify whether an email address is valid and deliverable. Use when Tony says "verify this email", "is [email] real?", or "check if [email] will bounce". Returns status, confidence score, and mail server diagnostics.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -256,14 +256,14 @@ export function registerHunterSkill(): void {
     registerSkill(
         {
             name: 'hunter',
-            description: 'Hunter.io email finder and lead generation',
+            description: 'Use this skill when Tony says "find emails for X company", "find the contact at Y", "who do I reach out to at [company]?", "find [person]\'s email", "verify this email", or "how many contacts does [company] have?". Uses Hunter.io API to find, verify, and count professional email addresses. Requires HUNTER_API_KEY.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'hunter_email_count',
-            description: 'Get the number of email addresses Hunter.io has for a domain. Quick way to check a company\'s size before doing a full search.',
+            description: 'Get a quick count of how many emails Hunter.io has indexed for a company domain. Use when Tony asks "how big is [company]?", "how many contacts does [company] have?", or before running a full domain search to gauge coverage.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -302,14 +302,14 @@ export function registerHunterSkill(): void {
     registerSkill(
         {
             name: 'hunter',
-            description: 'Hunter.io email finder and lead generation',
+            description: 'Use this skill when Tony says "find emails for X company", "find the contact at Y", "who do I reach out to at [company]?", "find [person]\'s email", "verify this email", or "how many contacts does [company] have?". Uses Hunter.io API to find, verify, and count professional email addresses. Requires HUNTER_API_KEY.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'hunter_account',
-            description: 'Check your Hunter.io account status — remaining API requests, plan info, and usage.',
+            description: 'Check Hunter.io account status — API credits remaining, plan info, and usage. Use when Tony asks "how many Hunter searches do I have left?" or "check my Hunter.io account".',
             parameters: {
                 type: 'object',
                 properties: {},

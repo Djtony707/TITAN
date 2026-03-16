@@ -51,16 +51,16 @@ async function pollTask(taskId: string, maxWaitMs: number = 120_000): Promise<Re
 export function registerSkyvernSkill(): void {
     // Tool 1: skyvern_task — Run browser automation with natural language
     registerSkill(
-        { name: 'skyvern_task', description: 'Run a browser automation task', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'skyvern_task', description: 'Use this when asked to "automate this website", "fill out this form for me", "click X on that site", "do this thing on the web", or any task that requires interacting with a browser. Skyvern uses vision + AI to control web pages without selectors.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'skyvern_task',
-            description: 'Run a browser automation task using natural language. Skyvern uses vision + LLMs to interact with web pages without brittle selectors.',
+            description: 'Automate any browser task using natural language. Use this when asked to "automate this website", "fill out this form for me", "click X on that site", "log in and do Y", "submit this application", or any task that involves navigating and interacting with a web page. Skyvern uses computer vision + LLMs so it works on any site without fragile selectors.',
             parameters: {
                 type: 'object',
                 properties: {
-                    prompt: { type: 'string', description: 'Natural language description of the task to perform' },
+                    prompt: { type: 'string', description: 'Natural language description of what to do on the website' },
                     url: { type: 'string', description: 'Starting URL (optional — Skyvern can navigate on its own)' },
-                    extraction_schema: { type: 'object', description: 'JSON Schema for data to extract from the page (optional)' },
+                    extraction_schema: { type: 'object', description: 'JSON Schema for structured data to extract from the page (optional)' },
                 },
                 required: ['prompt'],
             },
@@ -98,16 +98,16 @@ export function registerSkyvernSkill(): void {
 
     // Tool 2: skyvern_extract — Extract structured data from a webpage
     registerSkill(
-        { name: 'skyvern_extract', description: 'Extract data from a webpage', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'skyvern_extract', description: 'Use this when asked to "scrape this page", "pull data from this site", "extract the prices from X", "get the table on this page", or any task that needs structured data pulled from a website.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'skyvern_extract',
-            description: 'Extract structured data from a webpage using natural language. Shortcut for skyvern_task focused on data extraction.',
+            description: 'Scrape and extract structured data from any webpage using natural language. Use this when asked to "scrape this page", "pull data from this site", "extract the prices from X", "get the table on this URL", or "collect the listings from this page". Returns the data in a structured format.',
             parameters: {
                 type: 'object',
                 properties: {
                     url: { type: 'string', description: 'URL of the page to extract data from' },
-                    prompt: { type: 'string', description: 'What data to extract (natural language)' },
-                    schema: { type: 'object', description: 'JSON Schema defining the structure of extracted data (optional)' },
+                    prompt: { type: 'string', description: 'What data to extract, in natural language (e.g., "all product names and prices")' },
+                    schema: { type: 'object', description: 'Optional JSON Schema defining the structure you want the extracted data in' },
                 },
                 required: ['url', 'prompt'],
             },
@@ -143,15 +143,15 @@ export function registerSkyvernSkill(): void {
 
     // Tool 3: skyvern_sessions — Manage persistent browser sessions
     registerSkill(
-        { name: 'skyvern_sessions', description: 'Manage browser sessions', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'skyvern_sessions', description: 'Use this to manage persistent browser sessions for multi-step web automation — "start a browser session", "keep the browser open", "end the session". Useful when automating multi-page workflows that need to stay logged in.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'skyvern_sessions',
-            description: 'Create, list, or close persistent Skyvern browser sessions for multi-step workflows.',
+            description: 'Manage persistent browser sessions for multi-step web automation. Use this when a web task needs to stay logged in across multiple steps, or when asked to "start a browser session", "keep the browser open", "reuse the same session", or "end the browser session". Sessions persist cookies and state across tasks.',
             parameters: {
                 type: 'object',
                 properties: {
-                    action: { type: 'string', enum: ['create', 'list', 'close'], description: 'Session action to perform' },
-                    session_id: { type: 'string', description: 'Session ID (required for close)' },
+                    action: { type: 'string', enum: ['create', 'list', 'close'], description: 'What to do: create a new session, list existing sessions, or close one' },
+                    session_id: { type: 'string', description: 'Session ID — required when action is "close"' },
                 },
                 required: ['action'],
             },

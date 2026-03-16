@@ -1,8 +1,9 @@
 """
-TITAN Voice Server — TTS abstraction (Kokoro default, Orpheus optional)
+TITAN Voice Server — TADA TTS (Hume AI)
+0.09 RTF, zero hallucinations, voice cloning via reference WAV files.
 """
+import os
 import numpy as np
-import io
 from abc import ABC, abstractmethod
 from config import cfg
 
@@ -21,62 +22,97 @@ class TTSEngine(ABC):
         ...
 
 
-class KokoroTTS(TTSEngine):
-    """Kokoro TTS — 82M params, runs on CPU at ~210x realtime. Zero VRAM."""
+class TadaTTS(TTSEngine):
+    """TADA TTS — Hume AI, 0.09 RTF, zero hallucinations, voice cloning via reference WAV."""
 
     def __init__(self):
-        import kokoro
-        self._pipeline = kokoro.KPipeline(lang_code="a")  # American English
-        self._voice = cfg.TTS_VOICE
+        import torch
+        import torchaudio
+        from tada.modules.encoder import Encoder
+        from tada.modules.tada import TadaForCausalLM
+
+        device = cfg.TTS_DEVICE if cfg.TTS_DEVICE != "cpu" else "cuda"
+        # Validate CUDA availability
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+        self._device = device
+
+        self._encoder = Encoder.from_pretrained(
+            "HumeAI/tada-codec", subfolder="encoder"
+        ).to(self._device)
+        self._model = TadaForCausalLM.from_pretrained(
+            "HumeAI/tada-1b"
+        ).to(self._device)
+
+        # Reference voice WAV files for voice cloning
+        self._voices_dir = os.path.expanduser("~/.titan/voices")
+        os.makedirs(self._voices_dir, exist_ok=True)
+        self._default_voice = cfg.TTS_VOICE or "default"
+        self._torch = torch
+        self._torchaudio = torchaudio
+
+        # Cache loaded prompts to avoid re-encoding on every call
+        self._prompt_cache: dict = {}
+
+    def _get_voice_prompt(self, voice: str):
+        """Load reference audio for a voice name, returns encoder prompt."""
+        if voice in self._prompt_cache:
+            return self._prompt_cache[voice]
+
+        wav_path = os.path.join(self._voices_dir, f"{voice}.wav")
+        if not os.path.exists(wav_path):
+            wav_path = os.path.join(self._voices_dir, "default.wav")
+            if not os.path.exists(wav_path):
+                return None  # No reference = model's default voice
+
+        audio, sr = self._torchaudio.load(wav_path)
+        audio = audio.to(self._device)
+        prompt = self._encoder(audio, text=["reference"], sample_rate=sr)
+
+        self._prompt_cache[voice] = prompt
+        return prompt
+
+    def available_voices(self) -> list[str]:
+        """List available voice names based on WAV files in voices dir."""
+        voices = []
+        if os.path.isdir(self._voices_dir):
+            import glob
+            for f in sorted(glob.glob(os.path.join(self._voices_dir, "*.wav"))):
+                name = os.path.splitext(os.path.basename(f))[0]
+                voices.append(name)
+        return voices if voices else ["default"]
 
     def synthesize(self, text: str, voice: str | None = None) -> np.ndarray:
-        voice = voice or self._voice
-        chunks = []
-        for result in self._pipeline(text, voice=voice):
-            if result.audio is not None:
-                chunks.append(result.audio.numpy() if hasattr(result.audio, 'numpy') else np.array(result.audio))
-        if not chunks:
-            return np.array([], dtype=np.float32)
-        return np.concatenate(chunks)
+        voice = voice or self._default_voice
+        prompt = self._get_voice_prompt(voice)
+
+        output = self._model.generate(prompt=prompt, text=text)
+
+        # Extract audio tensor → numpy float32
+        audio_tensor = output.audio if hasattr(output, 'audio') else output
+        if hasattr(audio_tensor, 'cpu'):
+            audio = audio_tensor.cpu().numpy().astype(np.float32)
+        else:
+            audio = np.array(audio_tensor, dtype=np.float32)
+
+        # Normalize to [-1, 1] if needed
+        if audio.max() > 1.0 or audio.min() < -1.0:
+            peak = max(abs(audio.max()), abs(audio.min()))
+            if peak > 0:
+                audio = audio / peak
+
+        # Flatten to 1D if multi-channel
+        if audio.ndim > 1:
+            audio = audio.squeeze()
+
+        return audio
 
     def stream(self, text: str, voice: str | None = None):
-        """Yield audio chunks as numpy float32 arrays."""
-        voice = voice or self._voice
-        for result in self._pipeline(text, voice=voice):
-            if result.audio is not None:
-                audio = result.audio.numpy() if hasattr(result.audio, 'numpy') else np.array(result.audio)
-                yield audio
-
-
-class OrpheusTTS(TTSEngine):
-    """Orpheus 3B TTS — high quality, requires ~4-6GB VRAM."""
-
-    def __init__(self):
-        try:
-            from orpheus_tts import OrpheusModel
-            self._model = OrpheusModel(model_name="canopylabs/orpheus-3b-0.1-ft")
-        except ImportError:
-            raise ImportError("Orpheus TTS requires: pip install orpheus-tts")
-
-    def synthesize(self, text: str, voice: str | None = None) -> np.ndarray:
-        voice = voice or "tara"
-        chunks = list(self._model.generate_speech(prompt=text, voice=voice))
-        if not chunks:
-            return np.array([], dtype=np.float32)
-        return np.concatenate(chunks)
-
-    def stream(self, text: str, voice: str | None = None):
-        voice = voice or "tara"
-        for chunk in self._model.generate_speech(prompt=text, voice=voice):
-            yield chunk
+        """TADA generates full audio in one shot. Yield as single chunk."""
+        audio = self.synthesize(text, voice)
+        yield audio
 
 
 def create_tts_engine() -> TTSEngine:
-    """Factory: create the configured TTS engine."""
-    engine = cfg.TTS_ENGINE.lower()
-    if engine == "kokoro":
-        return KokoroTTS()
-    elif engine == "orpheus":
-        return OrpheusTTS()
-    else:
-        raise ValueError(f"Unknown TTS engine: {engine}. Use 'kokoro' or 'orpheus'.")
+    """Factory: create the TADA TTS engine."""
+    return TadaTTS()

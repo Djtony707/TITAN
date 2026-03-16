@@ -13,7 +13,7 @@ const COMPONENT = 'VisionTool';
 
 const meta = {
     name: 'analyze_image',
-    description: 'Analyzes an image file from the local filesystem to answer a question or describe it.',
+    description: 'Analyzes an image file to answer questions or describe its contents. USE THIS WHEN Tony says: "what\'s in this image", "describe this screenshot", "read the text in this image", "analyze this photo", "what does this image show", "look at this file". WORKFLOW: Pass the absolute file path and a specific question or prompt about the image. RULES: Works on local file paths (png, jpg, webp, gif). Requires Anthropic or OpenAI API key configured.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -112,7 +112,7 @@ async function analyzeWithOpenAI(base64Data: string, mediaType: string, prompt: 
 
 const handler: ToolHandler = {
     name: 'analyze_image',
-    description: 'Use this tool to "look" at an image. Pass the absolute filepath to the image and a specific question or prompt about what you want to know.',
+    description: 'Analyzes a local image file using a vision-capable model to answer questions or describe its contents. USE THIS WHEN Tony says: "what\'s in this image", "describe this screenshot", "read text in this image", "analyze this photo", "what does this picture show". WORKFLOW: Pass the absolute filePath and a prompt/question. RULES: Requires an absolute local file path. Supports png, jpg, webp, gif. Uses Anthropic Claude or OpenAI GPT-4o depending on configured API keys.',
     parameters: {
         type: 'object',
         properties: {

@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "2026.10.26",
+  "version": "2026.10.40",
   "description": "TITAN — The Intelligent Task Automation Network. A premium, autonomous AI agent framework with configurable autonomy, prompt injection shield, and Mission Control GUI.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -36,6 +36,7 @@
     "build:ui": "cd ui && npm install && npm run build",
     "postinstall": "node scripts/postinstall.cjs",
     "build": "tsup",
+    "build:personal": "node scripts/build-personal.cjs",
     "dev": "tsx src/cli/index.ts",
     "dev:gateway": "tsx src/cli/index.ts gateway",
     "dev:onboard": "tsx src/cli/index.ts onboard",
@@ -83,8 +84,14 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "esbuild": "^0.25.0",
+    "yauzl": "^3.2.1",
+    "langsmith": "^0.5.0"
+  },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
+    "@langchain/core": "^1.1.32",
     "@mozilla/readability": "^0.6.0",
     "boxen": "^8.0.1",
     "chalk": "^5.3.0",
@@ -190,11 +197,11 @@
     "@browserbasehq/stagehand": "^3.1.0",
     "@whiskeysockets/baileys": "^6.7.0",
     "bonjour-service": "^1.3.0",
-    "matrix-js-sdk": "^34.0.0",
-    "pdf-parse": "^1.1.1",
+    "livekit-server-sdk": "^2.9.1",
+    "matrix-js-sdk": "^41.1.0",
     "node-llama-cpp": "^3.0.0",
-    "playwright": "^1.58.2",
-    "livekit-server-sdk": "^2.9.1"
+    "pdf-parse": "^1.1.1",
+    "playwright": "^1.58.2"
   },
   "credits": {}
 }

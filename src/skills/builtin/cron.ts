@@ -121,10 +121,10 @@ export function initCronScheduler(): void {
 
 export function registerCronSkill(): void {
     registerSkill(
-        { name: 'cron', description: 'Manage scheduled tasks', version: '1.1.0', source: 'bundled', enabled: true },
+        { name: 'cron', description: 'Schedule and manage recurring tasks using cron expressions. USE THIS WHEN Tony says: "schedule this to run every X", "set up a recurring task", "run this daily at 9am", "run this every 5 minutes", "add a cron job", "automate X on a schedule". WORKFLOW: action=create with name, schedule (cron expression), and shell command — action=list to see all jobs — action=enable/disable to toggle — action=delete to remove.', version: '1.1.0', source: 'bundled', enabled: true },
         {
             name: 'cron',
-            description: 'Create, list, enable/disable, or delete scheduled cron jobs. Jobs run automatically at specified intervals using standard cron expressions.',
+            description: 'Creates, lists, enables/disables, or deletes scheduled cron jobs. USE THIS WHEN Tony says: "schedule this to run every X", "set up a recurring task", "run this daily at 9am", "run every 5 minutes", "add a cron job", "automate X on a schedule", "stop that cron job". WORKFLOW: action=create (requires name, schedule as cron expression, command) — action=list to view all — action=enable/disable to toggle with jobId — action=delete with jobId to remove. RULES: Cron expressions format: "0 9 * * *" = daily at 9am, "*/5 * * * *" = every 5 min. Jobs survive restarts.',
             parameters: {
                 type: 'object',
                 properties: {

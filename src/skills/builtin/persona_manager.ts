@@ -9,13 +9,13 @@ import { listPersonas, getPersona, invalidatePersonaCache } from '../../personas
 export function registerPersonaManagerSkill(): void {
     registerSkill({
         name: 'list_personas',
-        description: 'List available TITAN personas',
+        description: 'Use this when asked "what personalities do you have?", "show me your personas", "what modes can you be in?", or before switching to help the user choose.',
         version: '1.0.0',
         source: 'bundled',
         enabled: true,
     }, {
         name: 'list_personas',
-        description: 'List all available TITAN personas (personality profiles). Shows name, description, and division for each.',
+        description: 'List all available TITAN personality profiles (personas). Use when asked "what personalities do you have?", "show me your personas", "what modes can you switch to?", or to help the user pick one before switching.',
         parameters: { type: 'object', properties: {}, required: [] },
         execute: async () => {
             const personas = listPersonas();
@@ -31,17 +31,17 @@ export function registerPersonaManagerSkill(): void {
 
     registerSkill({
         name: 'switch_persona',
-        description: 'Switch TITAN active persona',
+        description: 'Use this when the user says "change your personality", "be more concise", "act as X", "switch to work mode", "be more casual", "switch to developer mode", "change how you talk", or any request to shift TITAN\'s communication style or role.',
         version: '1.0.0',
         source: 'bundled',
         enabled: true,
     }, {
         name: 'switch_persona',
-        description: 'Switch TITAN to a different persona (personality profile). Changes take effect on the next message.',
+        description: 'Switch TITAN\'s personality and communication style. Use this when asked to "change your personality", "be more concise", "act as X", "switch to work mode", "be more casual", "talk like a developer", "be more formal", or any request to shift how TITAN communicates. Use list_personas first if you\'re unsure which persona fits.',
         parameters: {
             type: 'object',
             properties: {
-                persona: { type: 'string', description: 'Persona ID to switch to (use list_personas to see options)' },
+                persona: { type: 'string', description: 'Persona ID to switch to (use list_personas to see available options)' },
             },
             required: ['persona'],
         },
@@ -63,17 +63,17 @@ export function registerPersonaManagerSkill(): void {
 
     registerSkill({
         name: 'get_persona',
-        description: 'Get details of a TITAN persona',
+        description: 'Use this when asked "tell me about the X persona", "what does the developer persona do?", or "describe that mode" to show the full personality definition.',
         version: '1.0.0',
         source: 'bundled',
         enabled: true,
     }, {
         name: 'get_persona',
-        description: 'Get full details of a specific persona including its personality definition.',
+        description: 'Show the full definition and personality traits of a specific persona. Use when asked "tell me about the X persona", "what does the developer mode do?", "describe that personality", or before switching to help explain what the persona is like.',
         parameters: {
             type: 'object',
             properties: {
-                persona: { type: 'string', description: 'Persona ID to inspect' },
+                persona: { type: 'string', description: 'Persona ID to inspect (use list_personas to see IDs)' },
             },
             required: ['persona'],
         },

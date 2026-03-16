@@ -1,4 +1,4 @@
-import { Search, Beaker, BookOpen, Lightbulb, Wrench, BarChart3 } from 'lucide-react';
+import { Search, Code, Globe, Zap, Wrench, Bot } from 'lucide-react';
 
 interface QuickAction {
   icon: typeof Search;
@@ -12,23 +12,30 @@ const QUICK_ACTIONS: QuickAction[] = [
   {
     icon: Search,
     label: 'Research something',
-    description: 'Get a detailed report on any topic',
+    description: 'Deep research pipeline on any topic',
     prompt: 'Use the research pipeline to investigate: ',
     color: 'text-blue-400',
   },
   {
-    icon: Beaker,
-    label: 'Run an experiment',
-    description: 'Try different approaches, keep the best',
-    prompt: 'Help me set up an experiment loop to optimize: ',
+    icon: Code,
+    label: 'Write & run code',
+    description: 'Write, execute, and test code',
+    prompt: 'Write and run code to: ',
     color: 'text-green-400',
   },
   {
-    icon: Lightbulb,
-    label: 'Brainstorm ideas',
-    description: 'Creative thinking on any topic',
-    prompt: '/brainstorm ',
+    icon: Zap,
+    label: 'Automate a task',
+    description: 'Set up goals, cron jobs, or workflows',
+    prompt: 'Help me automate: ',
     color: 'text-yellow-400',
+  },
+  {
+    icon: Globe,
+    label: 'Browse the web',
+    description: 'Navigate, scrape, or fill forms',
+    prompt: 'Browse to and interact with: ',
+    color: 'text-cyan-400',
   },
   {
     icon: Wrench,
@@ -38,18 +45,11 @@ const QUICK_ACTIONS: QuickAction[] = [
     color: 'text-red-400',
   },
   {
-    icon: BookOpen,
-    label: 'Explain code',
-    description: 'Understand what code does',
-    prompt: '/explain ',
+    icon: Bot,
+    label: 'Autonomous mode',
+    description: 'Set a goal and let TITAN run with it',
+    prompt: 'Work autonomously toward this goal: ',
     color: 'text-purple-400',
-  },
-  {
-    icon: BarChart3,
-    label: 'Market analysis',
-    description: 'Analyze a market or competitor',
-    prompt: '/market-analysis ',
-    color: 'text-cyan-400',
   },
 ];
 

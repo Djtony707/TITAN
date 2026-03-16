@@ -1092,7 +1092,7 @@ export function registerWebBrowseLlmSkill(): void {
         enabled: true,
     }, {
         name: 'web_read',
-        description: 'Read a webpage and return its content as clean, structured markdown. Strips ads, navigation, scripts — just the article content with headings, links, lists, and code blocks preserved. Perfect for reading articles, documentation, news, and reference pages. Works great with local text-only LLMs.',
+        description: 'Fetch a URL and return clean structured markdown — strips ads, nav, scripts, leaving just the article content.\n\nUSE THIS WHEN Tony says: "read X" / "summarize this article" / "what does this page say" / "get the content from X" / "open this link"\n\nUSE web_read (not web_fetch) when:\n- You need clean readable article/doc content (Readability extraction)\n- Working with a local LLM that needs minimal noise\n\nWORKFLOW: Call web_read → summarize the content → answer Tony\'s question\nNEVER just return the raw markdown dump — always synthesize it.',
         parameters: {
             type: 'object',
             properties: {
@@ -1125,7 +1125,7 @@ export function registerWebBrowseLlmSkill(): void {
         enabled: true,
     }, {
         name: 'web_act',
-        description: 'Interactive browser for LLMs. Actions: "open <url>", "click <n>", "type <n> <text>", "press <n> Enter", "select <n> <value>", "scroll up|down", "back", "snapshot", "text", "fill_form [url] {json}", "read_form". For FORM FILLING, prefer the smart_form_fill tool instead — it handles the entire read→fill→verify workflow in ONE call. Use web_act for general browsing, clicking links, navigating pages, and non-form interactions.',
+        description: 'Interactive browser — navigate, click, type, scroll, and interact with web pages step by step.\n\nUSE THIS WHEN Tony says: "click X on that page" / "go to X then click Y" / "scroll down" / "navigate to X" / "log in to X" / "browse X" / "interact with X website"\n\nACTIONS: "open <url>", "click <n>", "type <n> <text>", "press <n> Enter", "select <n> <value>", "scroll up|down", "back", "snapshot", "text", "read_form"\n\nRULES:\n- For filling forms, prefer smart_form_fill — it handles the full read→fill→verify workflow in ONE call\n- Use web_act for general browsing, clicking links, navigating pages, and non-form interactions\n- After each action, call "snapshot" to see the current state of the page',
         parameters: {
             type: 'object',
             properties: {
@@ -1248,7 +1248,7 @@ export function registerWebBrowseLlmSkill(): void {
         enabled: true,
     }, {
         name: 'smart_form_fill',
-        description: `Fill a web form end-to-end in ONE call. Reads form fields automatically, matches your data to the correct inputs, fills them, verifies the values were set, and reports results. Handles CAPTCHA detection gracefully.
+        description: `Fill a web form completely in ONE call — reads fields, matches data, fills inputs, verifies, and reports.\n\nUSE THIS WHEN Tony says: "fill out the form at X" / "apply to X" / "submit my info to X" / "fill in my details on X"\n\nWORKFLOW: ONE call does everything — read → match → fill → verify → report\nDo NOT use web_act for form filling unless smart_form_fill fails.\n\nFull description:\nReads form fields automatically, matches your data to the correct inputs, fills them, verifies the values were set, and reports results. Handles CAPTCHA detection gracefully.
 
 HOW TO USE:
   smart_form_fill url="https://jobs.example.com/apply" data='{"Full Name": "Tony Elliott", "Email": "tony@example.com", "Location": "Los Angeles, CA", "Visa Sponsorship": "No"}' submit=true

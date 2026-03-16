@@ -176,10 +176,20 @@ export async function initVectors(): Promise<boolean> {
             }
         }
 
-        // Test embedding
-        const testVec = await embed('test');
-        if (!testVec) {
-            logger.warn(COMPONENT, 'Embedding test failed');
+        // Test embedding — call Ollama directly (cannot use embed() here since available=false)
+        const testResp = await fetch(`${embeddingBaseUrl}/api/embed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: embeddingModel, input: 'test' }),
+            signal: AbortSignal.timeout(10000),
+        });
+        if (!testResp.ok) {
+            logger.warn(COMPONENT, `Embedding test failed (HTTP ${testResp.status})`);
+            return false;
+        }
+        const testData = await testResp.json() as { embeddings?: number[][] };
+        if (!testData.embeddings?.[0]) {
+            logger.warn(COMPONENT, 'Embedding test failed (no vector returned)');
             return false;
         }
 
@@ -192,12 +202,13 @@ export async function initVectors(): Promise<boolean> {
             store.entries = [];
             store.model = embeddingModel;
         }
+        const dims = testData.embeddings![0].length;
         if (store) {
             store.model = embeddingModel;
-            store.dimensions = testVec.length;
+            store.dimensions = dims;
         }
 
-        logger.info(COMPONENT, `Vector search ready: ${store?.entries.length || 0} vectors, ${testVec.length}d, model=${embeddingModel}`);
+        logger.info(COMPONENT, `Vector search ready: ${store?.entries.length || 0} vectors, ${dims}d, model=${embeddingModel}`);
         return true;
     } catch (e) {
         logger.info(COMPONENT, `Ollama not available for vector search: ${(e as Error).message}`);

@@ -31,7 +31,7 @@ export function registerProcessSkill(): void {
         { name: 'exec', description: 'Execute commands with background/timeout support', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'exec',
-            description: 'Execute a shell command. Supports background execution (returns immediately with sessionId), timeouts, and PTY mode. Use the process tool to poll/kill background processes.',
+            description: 'Execute a shell command — supports background mode, custom timeouts, and working directory.\n\nUSE THIS WHEN Tony says: "run X in the background" / "start X" / "launch X server" / "run X and don\'t wait" / "execute X with a timeout"\n\nVS shell tool: exec adds background execution support. Use exec when:\n- The command is long-running (server, watcher, build) — set background:true\n- You need a custom timeout beyond 30s\n- Use shell for quick synchronous commands\n\nWORKFLOW for background: call exec with background:true → get sessionId → use process tool to poll/log/kill',
             parameters: {
                 type: 'object',
                 properties: {
@@ -108,7 +108,7 @@ export function registerProcessSkill(): void {
         { name: 'process', description: 'Manage background processes', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'process',
-            description: 'Manage background processes: list running processes, poll for output, view logs, write to stdin, kill, or clear completed processes.',
+            description: 'Manage background processes started with exec — list, poll, log, write to stdin, kill, or clear.\n\nUSE THIS WHEN Tony says: "what\'s running" / "check on that process" / "show logs for X" / "kill process X" / "is X still running" / "stop that background task"\n\nACTIONS:\n- list: show all managed background processes and their status\n- poll: get the last 20 lines of output from a process\n- log: get the last N lines of full output\n- write: send input to a running process via stdin\n- kill: stop a process (SIGTERM then SIGKILL)\n- clear: remove all completed (exited) processes from the list\n\nRequires a sessionId from a previous exec call with background:true.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -184,30 +184,24 @@ export function registerResearchPipelineSkill(): void {
     registerSkill(
         {
             name: 'research_pipeline',
-            description: 'Multi-agent parallel research pipeline with synthesis',
+            description: 'Use this when asked to "do deep research on X", "research X thoroughly", "find everything about X", "comprehensive report on X", or any request for multi-source, thorough research with synthesis. This is the most powerful research tool — it spawns multiple agents in parallel.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'deep_research_pipeline',
-            description:
-                'Run a multi-agent research pipeline. Decomposes the question into sub-questions, ' +
-                'spawns parallel researcher sub-agents, then synthesizes all findings into a structured ' +
-                'report with confidence levels, contradiction analysis, and ranked sources.',
+            description: 'Run a comprehensive parallel research pipeline on any topic. Use this for "do deep research on X", "research X thoroughly", "find everything about X", "give me a comprehensive report", or any topic where you need multi-source coverage, contradiction analysis, and synthesized findings. Automatically decomposes the question, spawns parallel researcher agents, and produces a structured report with confidence levels and ranked sources.',
             parameters: {
                 type: 'object',
                 properties: {
                     question: {
                         type: 'string',
-                        description: 'The research question to investigate',
+                        description: 'The research question or topic to investigate thoroughly',
                     },
                     depth: {
                         type: 'string',
-                        description:
-                            'Research depth: "quick" (2 sub-questions, 5 sources each), ' +
-                            '"standard" (3 sub-questions, 10 sources each), or ' +
-                            '"deep" (4 sub-questions, 15 sources each). Default: "standard"',
+                        description: 'How deep to go: "quick" (2 angles, 5 sources each), "standard" (3 angles, 10 sources each), or "deep" (4 angles, 15 sources each). Default: "standard"',
                     },
                     maxSources: {
                         type: 'number',
@@ -266,6 +260,7 @@ export function registerResearchPipelineSkill(): void {
                             task: prompt,
                             tools: template.tools,
                             systemPrompt: template.systemPrompt,
+                            tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
                             maxRounds: depth === 'deep' ? 10 : depth === 'quick' ? 3 : 5,
                         }).then(
                             (result) => {
@@ -387,14 +382,14 @@ export function registerResearchPipelineSkill(): void {
     registerSkill(
         {
             name: 'research_pipeline',
-            description: 'Multi-agent parallel research pipeline with synthesis',
+            description: 'Use this when asked to "do deep research on X", "research X thoroughly", "find everything about X", "comprehensive report on X", or any request for multi-source, thorough research with synthesis. This is the most powerful research tool — it spawns multiple agents in parallel.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'research_pipeline_status',
-            description: 'Check the status of a research pipeline. Lists all pipelines if no ID is provided.',
+            description: 'Check the progress of a running or completed research pipeline. Use when asked "how is the research going?", "is that research done yet?", or "show me what the researchers found so far".',
             parameters: {
                 type: 'object',
                 properties: {

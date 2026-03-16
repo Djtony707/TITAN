@@ -149,7 +149,7 @@ export function initWebBrowserTool(): void {
         enabled: true,
     }, {
         name: 'browse_url',
-        description: 'Browse any webpage and extract its content as clean text. Uses a real browser with JavaScript support for dynamic sites. Perfect for reading articles, documentation, news, checking websites, or any web research.',
+        description: 'Browse any URL using a real Playwright browser and return clean extracted text.\n\nUSE THIS WHEN:\n- Tony gives a URL that needs JavaScript to render (SPAs, React/Vue apps, dashboards)\n- web_fetch or web_read returned empty or minimal content\n- Tony says "open X in browser" / "check X" / "load X" / "browse to X"\n\nVS OTHER TOOLS:\n- Use web_fetch for simple static pages (faster, no browser overhead)\n- Use web_read for clean article/doc extraction\n- Use browser_auto_nav for multi-step form or click workflows\n\nAuto-detects JS-heavy pages and uses Playwright; falls back to fast fetch for simple pages.',
         parameters: {
             type: 'object',
             properties: {
@@ -202,7 +202,7 @@ export function initWebBrowserTool(): void {
         enabled: true,
     }, {
         name: 'browser_search',
-        description: 'Search the internet for current information using a real browser. Returns real search results with titles, URLs, and snippets. Works without any API key — truly set and forget.',
+        description: 'Search the internet using a real Playwright browser — bypasses bot detection that blocks plain HTTP fetches.\n\nUSE THIS WHEN:\n- web_search fails or returns no results\n- Tony says "search for X" and the query needs JS rendering\n- Searching for current events, prices, or real-time info\n\nWORKFLOW: Call browser_search → review results → call browse_url on the best result for full content\nNo API key needed.',
         parameters: {
             type: 'object',
             properties: {
@@ -239,7 +239,7 @@ export function initWebBrowserTool(): void {
         enabled: true,
     }, {
         name: 'browser_auto_nav',
-        description: 'Navigate a website blazingly fast by executing a bulk sequence of actions (click, fill) in a single tool call, and then returning a Smart Extract DOM of the resulting page. Use this for instant form submissions, logins, and pagination.',
+        description: 'Execute a bulk sequence of browser actions (click, fill, wait, evaluate) in one call — machine-speed navigation.\n\nUSE THIS WHEN Tony says: "log in to X" / "click X then fill Y" / "submit that form" / "go through the steps on X" / "automate X website"\n\nWORKFLOW: Provide the URL + an array of step actions → get back the final page state (smart DOM map, text, or screenshot)\n\nBEST FOR: logins, multi-step forms, pagination, any sequence of clicks and inputs\nFor single-call form filling, smart_form_fill is even simpler.',
         parameters: {
             type: 'object',
             properties: {

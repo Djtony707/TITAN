@@ -58,7 +58,7 @@ export interface VoiceConfig {
   livekitApiSecret: string;
   agentUrl: string;
   ttsVoice: string;
-  ttsEngine?: 'orpheus' | 'kokoro';
+  ttsEngine?: string;
   ttsUrl?: string;
   sttUrl?: string;
 }
@@ -250,6 +250,90 @@ export interface AutoresearchSummary {
   avgImprovement: number;
   lastRunTime: string | null;
   isRunning: boolean;
+}
+
+// ---- MCP ----
+export interface McpServerInfo {
+  id: string;
+  name: string;
+  description: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  timeoutMs: number;
+  enabled: boolean;
+  status: 'connected' | 'disconnected' | 'error';
+  toolCount: number;
+}
+
+export interface McpPreset {
+  id: string;
+  name: string;
+  description: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  url?: string;
+  enabled: boolean;
+}
+
+// ---- Daemon ----
+export interface DaemonStatus {
+  running: boolean;
+  startedAt: string | null;
+  uptimeMs: number;
+  activeWatchers: string[];
+  actionsThisHour: number;
+  maxActionsPerHour: number;
+  errorRatePercent: number;
+  paused: boolean;
+  pauseReason: string | null;
+}
+
+// ---- Audit Log ----
+export interface AuditEntry {
+  timestamp: string;
+  action: string;
+  source: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  result?: 'success' | 'failure' | 'escalated';
+  detail?: Record<string, unknown>;
+  durationMs?: number;
+  cost?: number;
+}
+
+export interface AuditStats {
+  totalActions: number;
+  bySource: Record<string, number>;
+  byAction: Record<string, number>;
+  successRate: number;
+  topTools: Array<{ tool: string; count: number }>;
+}
+
+// ---- Files Browser ----
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size: number;
+  modified: string;
+}
+
+export interface FileListing {
+  path: string;
+  entries: FileEntry[];
+  basePath: string;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  truncated: boolean;
+  size: number;
+  modified: string;
 }
 
 export type TrainingType = 'tool_router' | 'main_agent';

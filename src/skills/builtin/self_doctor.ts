@@ -19,19 +19,19 @@ const SAFE_FIXES = new Set(['staleSessions', 'titanHome', 'workspace']);
 export function registerSelfDoctorSkill(): void {
     registerSkill({
         name: 'self_doctor',
-        description: 'Run self-diagnostics on TITAN to check health and detect issues.',
+        description: 'Use this when the user says "something\'s broken", "fix yourself", "diagnose the issue", "you\'re not working right", "run a health check", or when TITAN notices its own tools are failing or responses are degraded. Also call this proactively if something feels off.',
         version: '1.0.0',
         source: 'bundled',
         enabled: true,
     }, {
         name: 'self_doctor',
-        description: 'Run TITAN self-diagnostics. Checks providers, config, stalls, model health, memory, and disk. Use this when you suspect your own capabilities are degraded or tools are not working.',
+        description: 'Diagnose and report on TITAN\'s own health. Use this when tools are failing, responses seem degraded, the model appears stuck, or the user says "something\'s broken" / "fix yourself" / "you\'re not working right". Checks providers, config validity, stall detection, active model, memory usage, and disk. Run with checks="all" by default.',
         parameters: {
             type: 'object',
             properties: {
                 checks: {
                     type: 'string',
-                    description: 'Comma-separated list of checks: providers,config,stalls,disk,model,all (default: all)',
+                    description: 'Which checks to run: providers, config, stalls, disk, model, or all (default: all)',
                 },
             },
         },

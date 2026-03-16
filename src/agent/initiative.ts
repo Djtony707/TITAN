@@ -80,11 +80,13 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     try {
         // Choose template based on subtask content
         const template = inferTemplate(subtask.description);
+        const templateDef = SUB_AGENT_TEMPLATES[template] || {};
         const result = await spawnSubAgent({
             name: `Initiative-${template}`,
             task: `Goal: ${goal.title}\n\nSubtask: ${subtask.title}\n\nInstructions: ${subtask.description}`,
-            tools: SUB_AGENT_TEMPLATES[template]?.tools,
-            systemPrompt: SUB_AGENT_TEMPLATES[template]?.systemPrompt,
+            tools: templateDef.tools,
+            systemPrompt: templateDef.systemPrompt,
+            tier: (templateDef as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
         });
 
         if (result.success) {

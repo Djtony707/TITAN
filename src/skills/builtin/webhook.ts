@@ -56,10 +56,10 @@ export async function initPersistentWebhooks(): Promise<void> {
 
 export function registerWebhookSkill(): void {
     registerSkill(
-        { name: 'webhook', description: 'Manage webhook endpoints', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'webhook', description: 'Create, list, or delete HTTP webhook endpoints. USE THIS WHEN Tony says: "create a webhook", "set up a webhook endpoint", "trigger webhook", "call endpoint X", "send data to URL", "register a webhook for X", "delete webhook X". WORKFLOW: action=create to register a new endpoint, action=list to see active webhooks, action=delete to remove one.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'webhook',
-            description: 'Create, list, or delete HTTP webhook endpoints that trigger actions when called.',
+            description: 'Creates, lists, or deletes HTTP webhook endpoints that trigger actions when called. USE THIS WHEN Tony says: "create a webhook", "set up a webhook endpoint", "trigger webhook", "call endpoint X", "send data to URL", "register a webhook for X", "delete webhook X". WORKFLOW: action=create with name, path, method, and handler command to register — action=list to see all active webhooks — action=delete with webhookId to remove. RULES: Webhooks persist across restarts.',
             parameters: {
                 type: 'object',
                 properties: {

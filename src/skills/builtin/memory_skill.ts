@@ -10,7 +10,7 @@ export function registerMemorySkill(): void {
         { name: 'memory', description: 'Persistent memory management', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'memory',
-            description: 'Store and recall persistent memories. Use this to remember user preferences, important facts, project details, and anything that should persist across conversations.',
+            description: 'Store and recall persistent facts, preferences, and project details that should survive across conversations.\n\nUSE THIS WHEN Tony says: "remember X" / "don\'t forget X" / "save that" / "what do you know about X" / "do you remember X" / "forget X"\n\nACTIONS:\n- remember: save a fact (requires key + value)\n- recall: retrieve a specific fact by key\n- search: find memories matching a query\n- list: show all stored memories\n\nRULES:\n- Auto-save important facts without being asked — if Tony shares preferences, project details, or key decisions, call memory:remember proactively\n- Use descriptive keys (e.g., "preferred_editor", "project_name", "api_key_location")\n- Search before recalling if you\'re not sure of the exact key',
             parameters: {
                 type: 'object',
                 properties: {

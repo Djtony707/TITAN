@@ -74,6 +74,11 @@ export class OpenAIProvider extends LLMProvider {
 
         if (options.tools && options.tools.length > 0) {
             body.tools = options.tools;
+            // Force at least one tool call on first round when task requires it.
+            // Use "auto" for o-series (they manage tool use internally via reasoning).
+            if (options.forceToolUse && !isReasoningModel) {
+                body.tool_choice = 'required';
+            }
         }
 
         // o-series models reject the temperature parameter

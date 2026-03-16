@@ -42,6 +42,10 @@ export interface ChatOptions {
     stream?: boolean;
     thinking?: boolean;
     thinkingLevel?: 'off' | 'low' | 'medium' | 'high';
+    /** Force the model to call a tool on this turn (tool_choice: required/any).
+     *  Only set to true on the first round when the task clearly requires tool use.
+     *  Subsequent rounds always use auto (model decides). */
+    forceToolUse?: boolean;
 }
 
 /** Response from a chat completion */

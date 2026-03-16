@@ -44,10 +44,13 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh();
+    // Poll every 4 seconds — keeps model name, config changes live without a reload
+    const interval = setInterval(refresh, 4000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Voice is available if enabled and TTS is up (LiveKit/STT optional for text-to-speech)
-  const voiceAvailable = Boolean(config?.voice?.enabled && (voiceHealth?.overall || voiceHealth?.tts));
+  // Voice button is available whenever voice is enabled in config — don't gate on health
+  const voiceAvailable = Boolean(config?.voice?.enabled);
 
   return (
     <ConfigContext.Provider value={{ config, voiceHealth, voiceAvailable, loading, refresh }}>

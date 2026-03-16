@@ -449,32 +449,32 @@ export function registerAutoresearchSkill(): void {
     registerSkill(
         {
             name: 'autoresearch',
-            description: 'Bounded iterative experimentation with keep/discard/crash tracking (Karpathy autoresearch pattern)',
+            description: 'Use this when asked to "set up automated experiments on X", "keep iterating on X until it\'s optimal", "run an experiment loop to improve X", or "autonomously optimize this file/metric". Runs iterative LLM-guided experiments with git-tracked keep/discard decisions.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'experiment_loop',
-            description: `Run an automated experiment loop that iteratively modifies a target file to optimize a metric. Uses LLM-guided hypotheses, evaluates each change, and keeps improvements while discarding regressions. Git branches track each experiment. Based on Karpathy's autoresearch pattern.`,
+            description: `Run an autonomous iterative experiment loop to optimize a file toward a measurable goal. Use this when asked to "keep iterating until X improves", "run experiments to optimize Y", "autonomously improve this metric", or "set up an experiment loop on this file". The agent proposes hypotheses, tests each change against a metric, keeps improvements, discards regressions, and tracks everything in git. Based on Karpathy's autoresearch pattern.`,
             parameters: {
                 type: 'object',
                 properties: {
                     goal: {
                         type: 'string',
-                        description: 'What to optimize (e.g., "maximize test pass rate", "minimize inference latency")',
+                        description: 'What to optimize — describe the desired outcome (e.g., "maximize test pass rate", "minimize inference latency")',
                     },
                     targetFile: {
                         type: 'string',
-                        description: 'Absolute path to the file to modify during experiments',
+                        description: 'Absolute path to the file to iteratively modify',
                     },
                     evalCommand: {
                         type: 'string',
-                        description: 'Shell command to evaluate the current state (must print a metric to stdout)',
+                        description: 'Shell command to measure the current state (must print a numeric metric to stdout)',
                     },
                     evalMetric: {
                         type: 'string',
-                        description: 'What to measure in eval output (e.g., "pass rate", "latency ms", "accuracy")',
+                        description: 'What metric to parse from eval output (e.g., "pass rate", "latency ms", "accuracy")',
                     },
                     maxExperiments: {
                         type: 'number',
@@ -486,7 +486,7 @@ export function registerAutoresearchSkill(): void {
                     },
                     programMd: {
                         type: 'string',
-                        description: 'Optional markdown directives to guide the experiment agent (constraints, hints, forbidden approaches)',
+                        description: 'Optional markdown constraints or hints to guide the experiment agent (forbidden approaches, required invariants, etc.)',
                     },
                 },
                 required: ['goal', 'targetFile', 'evalCommand', 'evalMetric'],
@@ -511,14 +511,14 @@ export function registerAutoresearchSkill(): void {
     registerSkill(
         {
             name: 'autoresearch',
-            description: 'Bounded iterative experimentation with keep/discard/crash tracking (Karpathy autoresearch pattern)',
+            description: 'Use this when asked to "set up automated experiments on X", "keep iterating on X until it\'s optimal", "run an experiment loop to improve X", or "autonomously optimize this file/metric". Runs iterative LLM-guided experiments with git-tracked keep/discard decisions.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'experiment_status',
-            description: 'Check the status of running or completed autoresearch experiments. Without an ID, lists all experiments.',
+            description: 'Check the progress of running autoresearch experiments. Use when asked "how are the experiments going?", "what\'s the best metric so far?", or "show me all experiments". Without an ID, lists all experiments.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -626,20 +626,20 @@ export function registerAutoresearchSkill(): void {
     registerSkill(
         {
             name: 'autoresearch',
-            description: 'Bounded iterative experimentation with keep/discard/crash tracking (Karpathy autoresearch pattern)',
+            description: 'Use this when asked to "set up automated experiments on X", "keep iterating on X until it\'s optimal", "run an experiment loop to improve X", or "autonomously optimize this file/metric". Runs iterative LLM-guided experiments with git-tracked keep/discard decisions.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'experiment_results',
-            description: 'Get detailed results for a completed autoresearch experiment, formatted as a markdown table with summary statistics.',
+            description: 'Get the full detailed results for a completed autoresearch experiment — what was tried, what improved, the keep/discard/crash breakdown, and a summary table. Use when asked "show me the experiment results" or "what did the experiments find?".',
             parameters: {
                 type: 'object',
                 properties: {
                     experimentId: {
                         type: 'string',
-                        description: 'The experiment ID (from experiment_status)',
+                        description: 'The experiment ID to get results for (from experiment_status)',
                     },
                 },
                 required: ['experimentId'],

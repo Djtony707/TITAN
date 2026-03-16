@@ -101,7 +101,7 @@ function scoreChunk(chunk: string, queryWords: string[]): number {
 
 const SKILL_META = {
     name: 'revenuecat_kb',
-    description: 'RevenueCat knowledge base — ingest docs and search for answers',
+    description: 'Use this skill for ANY RevenueCat-related question — "how do subscriptions work?", "how do I set up in-app purchases?", "RevenueCat API question", "how does entitlements work?", "what\'s the RevenueCat SDK?", "how do I handle subscription events?", or "explain RevenueCat webhooks". This is the go-to knowledge base for RevenueCat documentation. Run rc_ingest first if the knowledge base is empty.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -115,7 +115,7 @@ export function registerRevenueCatKBSkill(): void {
         { ...SKILL_META },
         {
             name: 'rc_ingest',
-            description: 'Bulk ingest RevenueCat documentation into the local knowledge base for RAG retrieval.',
+            description: 'Fetch and ingest RevenueCat documentation into the local knowledge base. Use when Tony says "load the RevenueCat docs", "refresh the RevenueCat knowledge base", or when rc_search returns no results because the KB is empty. Scrapes official RevenueCat docs and stores them locally for fast retrieval.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -210,7 +210,7 @@ export function registerRevenueCatKBSkill(): void {
         { ...SKILL_META },
         {
             name: 'rc_search',
-            description: 'Search the RevenueCat knowledge base using keyword relevance scoring.',
+            description: 'Search the RevenueCat knowledge base to answer questions. Use for ANY RevenueCat-related query: "how do subscriptions work?", "how do I set up in-app purchases?", "RevenueCat API docs", "explain entitlements", "how do webhooks work in RevenueCat?", or "what SDK methods are available?". Returns the most relevant doc chunks ranked by keyword relevance.',
             parameters: {
                 type: 'object',
                 properties: {

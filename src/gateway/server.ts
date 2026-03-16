@@ -6,7 +6,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import net from 'net';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir, hostname as osHostname, cpus, loadavg } from 'os';
 import { randomBytes, timingSafeEqual } from 'crypto';
@@ -20,7 +20,7 @@ import { initBuiltinSkills, getSkills, toggleSkill, getSkillTools } from '../ski
 import { listPersonas, getPersona, invalidatePersonaCache } from '../personas/manager.js';
 import { searchSkills as marketplaceSearch, installSkill, uninstallSkill, listSkills as listMarketplaceSkills, listInstalled as listInstalledMarketplace } from '../skills/marketplace.js';
 import { getRegisteredTools } from '../agent/toolRunner.js';
-import { listSessions } from '../agent/session.js';
+import { listSessions, cleanupStaleSessions } from '../agent/session.js';
 import { healthCheckAll, discoverAllModels, getModelAliases, chatStream, getFallbackState } from '../providers/router.js';
 import { auditSecurity } from '../security/sandbox.js';
 import { WebChatChannel } from '../channels/webchat.js';
@@ -46,7 +46,8 @@ import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
 import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal } from './metrics.js';
 import { initSlashCommands, handleSlashCommand } from './slashCommands.js';
-import { initMcpServers } from '../mcp/registry.js';
+import { initMcpServers, listMcpServers, addMcpServer, removeMcpServer, setMcpServerEnabled, getMcpStatus, BUILTIN_PRESETS } from '../mcp/registry.js';
+import { connectMcpServer, testMcpServer } from '../mcp/client.js';
 import { mountMcpHttpEndpoints, getMcpServerStatus } from '../mcp/server.js';
 import { initMonitors, setMonitorTriggerHandler } from '../agent/monitor.js';
 import { seedBuiltinRecipes, listRecipes, getRecipe, saveRecipe, deleteRecipe, getBuiltinRecipes, importRecipeYaml } from '../recipes/store.js';
@@ -55,7 +56,7 @@ import { getCostStatus } from '../agent/costOptimizer.js';
 import { initLearning, getLearningStats } from '../memory/learning.js';
 import { initGraph, getGraphData, getGraphStats, clearGraph } from '../memory/graph.js';
 import { getLogFilePath } from '../utils/logger.js';
-import { closeSession } from '../agent/session.js';
+import { closeSession, renameSession } from '../agent/session.js';
 import { initCronScheduler } from '../skills/builtin/cron.js';
 import { checkAndSendBriefing } from '../memory/briefing.js';
 import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
@@ -117,6 +118,16 @@ export function stopGateway(): Promise<void> {
 
 /** Active session tokens (in-memory, cleared on restart) */
 const authTokens = new Map<string, { createdAt: number }>();
+
+// Active session abort controllers — keyed by sessionId
+const sessionAborts = new Map<string, AbortController>();
+
+// Periodic cleanup of orphaned abort controllers
+setInterval(() => {
+    for (const [id, controller] of sessionAborts) {
+        if (controller.signal.aborted) sessionAborts.delete(id);
+    }
+}, 60_000).unref();
 
 // Clean expired tokens every 10 minutes
 tokenCleanupInterval = setInterval(() => {
@@ -331,6 +342,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   let host = options?.host || config.gateway.host;
 
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
+
+  // ── Stale session cleanup: mark orphaned active sessions as idle ──
+  cleanupStaleSessions();
 
   // ── Port pre-check: fail fast before loading subsystems ────
   const portAvailable = await new Promise<boolean>((resolve) => {
@@ -593,6 +607,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  app.patch('/api/sessions/:id', (req, res) => {
+    try {
+      const { name } = req.body as { name?: string };
+      if (!name || typeof name !== 'string') {
+        res.status(400).json({ error: 'name is required' });
+        return;
+      }
+      const ok = renameSession(req.params.id, name);
+      if (!ok) { res.status(404).json({ error: 'Session not found' }); return; }
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   app.get('/api/skills', (_req, res) => {
     const skills = getSkills();
     res.json(skills);
@@ -753,6 +782,77 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(getMcpServerStatus());
   });
 
+  // MCP client management
+  app.get('/api/mcp/clients', (_req, res) => {
+    const servers = listMcpServers();
+    const status = getMcpStatus();
+    const merged = servers.map(s => {
+      const live = status.find(st => st.server.id === s.id);
+      return { ...s, status: live?.status || 'disconnected', toolCount: live?.toolCount || 0 };
+    });
+    res.json({ servers: merged });
+  });
+
+  app.post('/api/mcp/clients', async (req, res) => {
+    try {
+      const { presetId, ...serverConfig } = req.body;
+      let server;
+      if (presetId) {
+        const preset = BUILTIN_PRESETS.find(p => p.id === presetId);
+        if (!preset) { res.status(400).json({ error: `Unknown preset: ${presetId}` }); return; }
+        server = addMcpServer(preset as Parameters<typeof addMcpServer>[0]);
+      } else {
+        server = addMcpServer(serverConfig);
+      }
+      if (server.enabled) {
+        await connectMcpServer(server).catch(() => { /* connect errors are non-fatal */ });
+      }
+      res.json({ ok: true, server });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/mcp/clients/:id', (req, res) => {
+    try {
+      removeMcpServer(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/mcp/clients/:id/toggle', (req, res) => {
+    try {
+      const { enabled } = req.body;
+      setMcpServerEnabled(req.params.id, !!enabled);
+      if (enabled) {
+        const servers = listMcpServers();
+        const server = servers.find(s => s.id === req.params.id);
+        if (server) connectMcpServer(server).catch(() => {});
+      }
+      res.json({ ok: true, enabled: !!enabled });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/mcp/clients/:id/test', async (req, res) => {
+    try {
+      const servers = listMcpServers();
+      const server = servers.find(s => s.id === req.params.id);
+      if (!server) { res.status(404).json({ error: 'Server not found' }); return; }
+      const result = await testMcpServer(server);
+      res.json(result);
+    } catch (err) {
+      res.json({ ok: false, tools: 0, error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/mcp/presets', (_req, res) => {
+    res.json({ presets: BUILTIN_PRESETS });
+  });
+
   // Multi-agent endpoints
   app.get('/api/agents', (_req, res) => {
     res.json({ agents: listAgents(), capacity: getAgentCapacity() });
@@ -775,7 +875,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(60000, 30), async (req, res) => {
-    const { content, channel = 'api', userId = 'api-user', agentId } = req.body;
+    const { content, channel = 'api', userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
     if (!content) {
       res.status(400).json({ error: 'content is required' });
       return;
@@ -783,6 +883,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
+
+    // Set up abort controller for this request
+    const abortController = new AbortController();
+    if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
 
     // Check slash commands first (same as handleInboundMessage)
     try {
@@ -805,6 +909,33 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         return;
       }
     } catch { /* fall through to routeMessage */ }
+
+    // ── Auto-detect credentials in user messages ──────────────────────
+    // If the user pastes a Home Assistant URL + JWT token, save them automatically
+    // before the LLM even sees the message (prevents hallucination / tool-skip).
+    try {
+      const haKeywords = /home\s*assistant|homeassistant|\bha\b\s*(token|url|key|setup|connect)/i;
+      const jwtPattern = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
+      const urlPattern = /https?:\/\/[^\s,'"]+/i;
+      if (haKeywords.test(content) && (jwtPattern.test(content) || urlPattern.test(content))) {
+        const jwtMatch = content.match(jwtPattern);
+        const urlMatch = content.match(urlPattern);
+        const cfg = loadConfig();
+        let saved = false;
+        if (jwtMatch && (!cfg.homeAssistant?.token || cfg.homeAssistant.token !== jwtMatch[0])) {
+          cfg.homeAssistant.token = jwtMatch[0];
+          saved = true;
+        }
+        if (urlMatch && urlMatch[0].match(/:\d{4}/) && (!cfg.homeAssistant?.url || cfg.homeAssistant.url !== urlMatch[0].replace(/\/+$/, ''))) {
+          cfg.homeAssistant.url = urlMatch[0].replace(/\/+$/, '');
+          saved = true;
+        }
+        if (saved) {
+          updateConfig({ homeAssistant: cfg.homeAssistant });
+          logger.info('Gateway', 'Auto-saved Home Assistant credentials from user message');
+        }
+      }
+    } catch { /* non-critical — let the LLM handle it */ }
 
     // Concurrent LLM request limit (auto-tuned to 2 on CPU-only systems)
     const maxConcurrent = maxConcurrentOverride ?? (loadConfig().security.maxConcurrentTasks || 5);
@@ -847,7 +978,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           onToolCall: (name, args) => {
             safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args })}\n\n`);
           },
-        }, agentId);
+        }, agentId, abortController.signal);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -862,7 +993,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, userId, undefined, agentId);
+        const response = await routeMessage(content, channel, userId, undefined, agentId, abortController.signal);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -887,6 +1018,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       titanActiveSessions.dec();
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
+      if (requestedSessionId) sessionAborts.delete(requestedSessionId);
+    }
+  });
+
+  // Abort a running session
+  app.post('/api/sessions/:id/abort', (req, res) => {
+    const { id } = req.params;
+    const controller = sessionAborts.get(id);
+    if (controller) {
+      controller.abort();
+      sessionAborts.delete(id);
+      res.json({ ok: true, message: 'Session aborted' });
+    } else {
+      res.json({ ok: true, message: 'No active session to abort' });
     }
   });
 
@@ -983,6 +1128,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         enabled: Boolean(cfg.voice?.enabled),
         livekitUrl: cfg.voice?.livekitUrl || '',
         agentUrl: cfg.voice?.agentUrl || '',
+        ttsEngine: cfg.voice?.ttsEngine || 'orpheus',
+        ttsUrl: cfg.voice?.ttsUrl || 'http://localhost:5005',
+        ttsVoice: cfg.voice?.ttsVoice || 'tara',
+        sttUrl: cfg.voice?.sttUrl || 'http://localhost:48421',
       },
       agent: cfg.agent,
       autonomy: cfg.autonomy,
@@ -1077,6 +1226,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (body.gatewayAuthMode !== undefined) { cfg.gateway.auth.mode = body.gatewayAuthMode as 'none' | 'token' | 'password'; changedFields.push('gateway.auth.mode'); }
       if (body.gatewayPassword !== undefined) { cfg.gateway.auth.password = body.gatewayPassword as string; changedFields.push('gateway.auth.password'); }
       if (body.gatewayToken !== undefined) { cfg.gateway.auth.token = body.gatewayToken as string; changedFields.push('gateway.auth.token'); }
+      // Voice settings (nested object from SettingsPanel)
+      if (body.voice !== undefined && typeof body.voice === 'object') {
+        const v = body.voice as Record<string, unknown>;
+        if (v.enabled !== undefined) cfg.voice.enabled = Boolean(v.enabled);
+        if (v.livekitUrl !== undefined) cfg.voice.livekitUrl = String(v.livekitUrl);
+        if (v.livekitApiKey !== undefined) cfg.voice.livekitApiKey = String(v.livekitApiKey);
+        if (v.livekitApiSecret !== undefined) cfg.voice.livekitApiSecret = String(v.livekitApiSecret);
+        if (v.agentUrl !== undefined) cfg.voice.agentUrl = String(v.agentUrl);
+        if (v.ttsVoice !== undefined) cfg.voice.ttsVoice = String(v.ttsVoice);
+        if (v.ttsEngine !== undefined) cfg.voice.ttsEngine = String(v.ttsEngine);
+        if (v.ttsUrl !== undefined) cfg.voice.ttsUrl = String(v.ttsUrl);
+        if (v.sttUrl !== undefined) cfg.voice.sttUrl = String(v.sttUrl);
+        changedFields.push('voice');
+      }
+      // Home Assistant
+      if (body.homeAssistantUrl !== undefined) { cfg.homeAssistant.url = body.homeAssistantUrl as string; changedFields.push('homeAssistant.url'); }
+      if (body.homeAssistantToken !== undefined) { cfg.homeAssistant.token = body.homeAssistantToken as string; changedFields.push('homeAssistant.token'); }
       // Channels
       if (body.channels !== undefined && typeof body.channels === 'object') {
         for (const [ch, val] of Object.entries(body.channels as Record<string, unknown>)) {
@@ -1091,7 +1257,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           'googleKey', 'ollamaUrl', 'groqKey', 'mistralKey', 'openrouterKey', 'fireworksKey', 'xaiKey',
           'togetherKey', 'deepseekKey', 'perplexityKey', 'maxTokens', 'temperature', 'systemPrompt',
           'shieldEnabled', 'shieldMode', 'deniedTools', 'networkAllowlist', 'gatewayPort', 'gatewayAuthMode',
-          'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret'];
+          'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
+          'homeAssistantUrl', 'homeAssistantToken', 'voice'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
@@ -1631,8 +1798,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
                      'daemon:heartbeat', 'goal:subtask:ready', 'health:ollama:down',
                      'health:ollama:degraded', 'cron:stuck'];
 
+    // Store per-client listener references so we only remove THIS client's listeners on disconnect
+    const listeners = new Map<string, (data: unknown) => void>();
     for (const evt of events) {
-      titanEvents.on(evt, (data: unknown) => onEvent(evt, data));
+      const handler = (data: unknown) => onEvent(evt, data);
+      listeners.set(evt, handler);
+      titanEvents.on(evt, handler);
     }
 
     const keepalive = setInterval(() => {
@@ -1641,10 +1812,91 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     req.on('close', () => {
       clearInterval(keepalive);
-      for (const evt of events) {
-        titanEvents.removeAllListeners(evt);
+      for (const [evt, handler] of listeners) {
+        titanEvents.removeListener(evt, handler);
       }
     });
+  });
+
+  // ── Files API (Workspace file browser) ────────────────────
+
+  app.get('/api/files', (req, res) => {
+    const reqPath = (req.query.path as string) || '';
+    const basePath = homedir() + '/.titan';
+    const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
+
+    // Security: prevent traversal above TITAN_HOME
+    if (!fullPath.startsWith(basePath)) {
+      res.status(403).json({ error: 'Access denied: path outside TITAN home' });
+      return;
+    }
+
+    try {
+      if (!fs.existsSync(fullPath)) {
+        res.status(404).json({ error: 'Path not found' });
+        return;
+      }
+      const stat = fs.statSync(fullPath);
+      if (!stat.isDirectory()) {
+        res.status(400).json({ error: 'Not a directory. Use /api/files/read for files.' });
+        return;
+      }
+      const entries = fs.readdirSync(fullPath).map(name => {
+        try {
+          const entryPath = join(fullPath, name);
+          const entryStat = fs.statSync(entryPath);
+          return {
+            name,
+            path: reqPath ? `${reqPath}/${name}` : name,
+            type: entryStat.isDirectory() ? 'directory' as const : 'file' as const,
+            size: entryStat.size,
+            modified: entryStat.mtime.toISOString(),
+          };
+        } catch {
+          return { name, path: reqPath ? `${reqPath}/${name}` : name, type: 'file' as const, size: 0, modified: '' };
+        }
+      });
+      // Sort: directories first, then alphabetical
+      entries.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      res.json({ path: reqPath || '/', entries, basePath });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/files/read', (req, res) => {
+    const reqPath = req.query.path as string;
+    if (!reqPath) { res.status(400).json({ error: 'path parameter required' }); return; }
+
+    const basePath = homedir() + '/.titan';
+    const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
+
+    if (!fullPath.startsWith(basePath)) {
+      res.status(403).json({ error: 'Access denied: path outside TITAN home' });
+      return;
+    }
+
+    try {
+      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'File not found' }); return; }
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
+
+      // Cap at 1MB to prevent browser hangs
+      const MAX_SIZE = 1024 * 1024;
+      if (stat.size > MAX_SIZE) {
+        const content = fs.readFileSync(fullPath, 'utf-8').slice(0, MAX_SIZE);
+        res.json({ path: reqPath, content, truncated: true, size: stat.size, modified: stat.mtime.toISOString() });
+        return;
+      }
+
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      res.json({ path: reqPath, content, truncated: false, size: stat.size, modified: stat.mtime.toISOString() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   // ── Audit API ────────────────────────────────────────────
@@ -2054,13 +2306,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.get('/api/voice/health', async (_req, res) => {
     const cfg = loadConfig();
     if (!cfg.voice?.enabled) {
-      res.json({ livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: 'orpheus' });
+      res.json({ livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: cfg.voice?.ttsEngine || 'orpheus' });
       return;
     }
-    const results = { livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: cfg.voice.ttsEngine || 'orpheus' };
-    const sttUrl = cfg.voice.sttUrl || 'http://localhost:8300';
+    const engine = cfg.voice.ttsEngine || 'orpheus';
+    const results = { livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: engine };
+    const sttUrl = cfg.voice.sttUrl || 'http://localhost:48421';
     const ttsUrl = cfg.voice.ttsUrl || 'http://localhost:5005';
-    const ttsHealthUrl = cfg.voice.ttsEngine === 'kokoro' ? `${ttsUrl}/v1/audio/voices` : `${ttsUrl}/v1/audio/speech`;
     const checks = [
       { key: 'livekit' as const, url: cfg.voice.livekitUrl.replace('ws://', 'http://').replace('wss://', 'https://') },
       { key: 'agent' as const, url: cfg.voice.agentUrl },
@@ -2072,70 +2324,287 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         results[key] = resp.ok || resp.status < 500;
       } catch { results[key] = false; }
     }));
-    // TTS check — probe the actual TTS endpoint (not root URL which may 404)
+    // TTS health check — try /health first, then /v1/audio/speech probe (Orpheus)
     try {
-      const resp = await fetch(ttsHealthUrl, {
-        method: cfg.voice.ttsEngine === 'kokoro' ? 'GET' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: cfg.voice.ttsEngine === 'kokoro' ? undefined : JSON.stringify({ input: 'test', voice: 'tara', response_format: 'wav' }),
-        signal: AbortSignal.timeout(5000),
-      });
-      // Any non-5xx means the server is alive (even 400 from bad input is fine)
-      results.tts = resp.status < 500;
+      let resp = await fetch(`${ttsUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (!resp || resp.status >= 500) {
+        // Orpheus doesn't have /health — try a lightweight probe
+        resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'pcm' }),
+          signal: AbortSignal.timeout(5000),
+        });
+      }
+      results.tts = resp ? resp.status < 500 : false;
     } catch { results.tts = false; }
-    // Overall: TTS is required, LiveKit/STT optional for text-to-speech mode
     results.overall = results.tts;
     res.json(results);
   });
 
-  // Voice preview — synthesize a short sample and return audio
+  // Voice preview — synthesize a short sample via TTS server (engine-aware)
   app.post('/api/voice/preview', async (req, res) => {
     const cfg = loadConfig();
+    const engine = cfg.voice?.ttsEngine || 'orpheus';
     const voiceId = req.body?.voice || cfg.voice?.ttsVoice || 'tara';
     const rawText = req.body?.text || 'Hey! I\'m TITAN, your AI assistant.';
-    // Truncate to prevent extremely long TTS requests from hanging
     const text = rawText.length > 500 ? rawText.slice(0, 497) + '...' : rawText;
     const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
-    const ttsEndpoint = `${ttsUrl}/v1/audio/speech`;
-    logger.info('Gateway', `TTS request: voice=${voiceId}, text=${text.slice(0, 80)}...`);
+    logger.info('Gateway', `TTS [${engine}] request: voice=${voiceId}, text=${text.slice(0, 80)}...`);
+
+    // Browser engine — no server call, client handles it
+    if (engine === 'browser') {
+      res.json({ engine: 'browser', text, voice: voiceId });
+      return;
+    }
 
     try {
-      const ttsRes = await fetch(ttsEndpoint, {
+      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: text, voice: voiceId, response_format: 'wav' }),
-        signal: AbortSignal.timeout(60000), // Orpheus can take longer on CPU
+        signal: AbortSignal.timeout(30000),
       });
+
       if (!ttsRes.ok) {
-        res.status(502).json({ error: 'TTS service unavailable' });
+        res.status(502).json({ error: `TTS service unavailable`, status: ttsRes.status });
         return;
       }
       res.setHeader('Content-Type', 'audio/wav');
       const buffer = Buffer.from(await ttsRes.arrayBuffer());
       res.send(buffer);
-    } catch {
-      res.status(502).json({ error: 'TTS service unavailable' });
+    } catch (err) {
+      res.status(502).json({ error: `TTS service unavailable` });
     }
   });
 
-  // Voice available voices
+  // ── Streaming voice endpoint: LLM → sentence chunking → TTS per sentence ──
+  // Returns SSE with interleaved text and audio events for low-latency voice
+  app.post('/api/voice/stream', rateLimit(60000, 30), async (req, res) => {
+    const { content, sessionId: requestedSessionId, voice: reqVoice } = req.body || {};
+    if (!content) { res.status(400).json({ error: 'content is required' }); return; }
+
+    const cfg = loadConfig();
+    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
+    const ttsEngine = cfg.voice?.ttsEngine || 'orpheus';
+    const voiceId = reqVoice || cfg.voice?.ttsVoice || 'tara';
+    const channel = 'voice';
+    const userId = 'voice-user';
+
+    // SSE setup
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    let clientDisconnected = false;
+    res.on('close', () => { clientDisconnected = true; });
+    const safeWrite = (data: string) => {
+      if (clientDisconnected) return;
+      try { res.write(data); } catch { clientDisconnected = true; }
+    };
+
+    // SSE heartbeat — keeps the connection alive during LLM inference
+    const heartbeat = setInterval(() => {
+      if (clientDisconnected) { clearInterval(heartbeat); return; }
+      safeWrite(': heartbeat\n\n');
+    }, 2000);
+
+    const abortController = new AbortController();
+    if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
+
+    // Sentence buffer and sequential TTS queue
+    let tokenBuffer = '';
+    let sentenceIndex = 0;
+    let firstChunkSent = false;
+    let totalTtsChars = 0;
+    const FIRST_CHUNK_MIN = 60; // chars before forcing first flush (low TTFA)
+    const MAX_TTS_SENTENCES = 4; // only TTS first N sentences, display rest as text only
+    const MAX_TTS_CHARS = 500;   // stop TTS after this many chars spoken
+
+    // Sequential TTS queue — processes one sentence at a time to avoid overwhelming Orpheus
+    const ttsQueue: Array<{ sentence: string; index: number }> = [];
+    let ttsRunning = false;
+    let ttsResolve: (() => void) | null = null;
+    const ttsAllDone = new Promise<void>(resolve => { ttsResolve = resolve; });
+    let ttsFinished = false;
+
+    const processTtsQueue = async () => {
+      if (ttsRunning) return;
+      ttsRunning = true;
+      while (ttsQueue.length > 0) {
+        if (clientDisconnected) break;
+        const item = ttsQueue.shift()!;
+        await fireTTSInternal(item.sentence, item.index);
+      }
+      ttsRunning = false;
+      if (ttsFinished && ttsQueue.length === 0 && ttsResolve) {
+        ttsResolve();
+      }
+    };
+
+    // Strip markdown/emotion/tool narration for voice display+TTS
+    const cleanForVoice = (text: string): string => {
+      return text
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/^#+\s+/gm, '')
+        .replace(/^[-*]\s+/gm, '')
+        .replace(/\n{2,}/g, ' ')
+        .replace(/<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp|smile)>/gi, '')
+        .replace(/(?:Let me |I'll |I will |I'm going to )(?:use|call|check|run|invoke|execute|try)(?: the)? \w[\w_]*(?: tool)?(?:\s+(?:to|for|and)\b[^.!?]*)?[.!]?\s*/gi, '')
+        .replace(/\b(?:Using|Calling|Running|Checking|Invoking|Executing) (?:the )?\w[\w_]*(?: tool)?(?:\s+(?:to|for)\b[^.!?]*)?[.!]?\s*/gi, '')
+        .replace(/\b\w[\w_]*(?:_\w+)+\b/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    };
+
+    // Fire TTS for a single sentence — called sequentially from the queue
+    const fireTTSInternal = async (sentence: string, index: number) => {
+      const clean = cleanForVoice(sentence);
+      if (!clean || clean.length < 3) return;
+
+      // Always send text event so client can display it
+      safeWrite(`event: sentence\ndata: ${JSON.stringify({ text: clean, index })}\n\n`);
+
+      // Skip audio if we've exceeded TTS limits (still display text)
+      if (index >= MAX_TTS_SENTENCES || totalTtsChars >= MAX_TTS_CHARS) return;
+      if (ttsEngine === 'browser') return;
+
+      totalTtsChars += clean.length;
+
+      try {
+        const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: clean, voice: voiceId, response_format: 'wav' }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (ttsRes.ok && !clientDisconnected) {
+          const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+          const audioBase64 = audioBuffer.toString('base64');
+          safeWrite(`event: audio\ndata: ${JSON.stringify({ index, audio: audioBase64, format: 'wav' })}\n\n`);
+        }
+      } catch (e) {
+        logger.debug('Gateway', `Voice stream TTS failed for sentence ${index}: ${(e as Error).message}`);
+      }
+    };
+
+    // Flush accumulated buffer as a sentence — adds to sequential queue
+    const flushSentence = (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed.length < 3) return;
+      const idx = sentenceIndex++;
+      ttsQueue.push({ sentence: trimmed, index: idx });
+      processTtsQueue(); // kick off processing if not already running
+    };
+
+    activeLlmRequests++;
+    titanActiveSessions.inc();
+    const startTime = process.hrtime.bigint();
+
+    try {
+      const response = await routeMessage(content, channel, userId, {
+        onToken: (token) => {
+          if (clientDisconnected) return;
+          tokenBuffer += token;
+
+          // Force first chunk early for low time-to-first-audio
+          if (!firstChunkSent && tokenBuffer.length >= FIRST_CHUNK_MIN) {
+            const lastSpace = tokenBuffer.lastIndexOf(' ');
+            if (lastSpace > 30) {
+              flushSentence(tokenBuffer.slice(0, lastSpace));
+              tokenBuffer = tokenBuffer.slice(lastSpace + 1);
+              firstChunkSent = true;
+              return;
+            }
+          }
+
+          // Detect sentence boundaries: .!? followed by space or end
+          // Negative lookbehind avoids splitting on decimals like "PM2.5" or "8.8kW"
+          const match = tokenBuffer.match(/^(.*?(?<!\d)[.!?])(\s|$)/s);
+          if (match) {
+            flushSentence(match[1]);
+            tokenBuffer = tokenBuffer.slice(match[0].length);
+            firstChunkSent = true;
+          } else if (tokenBuffer.length > 150) {
+            // Force flush long runs without punctuation (bullet lists, etc.)
+            const lastSpace = tokenBuffer.lastIndexOf(' ', 150);
+            if (lastSpace > 50) {
+              flushSentence(tokenBuffer.slice(0, lastSpace));
+              tokenBuffer = tokenBuffer.slice(lastSpace + 1);
+              firstChunkSent = true;
+            }
+          }
+        },
+        onToolCall: (name) => {
+          // Notify client that tools are running (shows "Thinking..." state)
+          safeWrite(`event: tool\ndata: ${JSON.stringify({ name })}\n\n`);
+        },
+      }, undefined, abortController.signal);
+
+      // Flush remaining buffer
+      if (tokenBuffer.trim()) {
+        flushSentence(tokenBuffer);
+        tokenBuffer = '';
+      }
+
+      // Signal no more sentences coming, wait for TTS queue to drain
+      ttsFinished = true;
+      if (!ttsRunning && ttsQueue.length === 0 && ttsResolve) {
+        ttsResolve();
+      }
+      await ttsAllDone;
+
+      // Send done event with metadata
+      if (!clientDisconnected) {
+        safeWrite(`event: done\ndata: ${JSON.stringify({
+          sessionId: response.sessionId,
+          model: response.model,
+          durationMs: response.durationMs,
+          toolsUsed: response.toolsUsed,
+          fullText: response.content,
+        })}\n\n`);
+        try { res.end(); } catch { /* client gone */ }
+      }
+    } catch (error) {
+      if (!clientDisconnected) {
+        safeWrite(`event: done\ndata: ${JSON.stringify({ error: (error as Error).message })}\n\n`);
+        try { res.end(); } catch { /* client gone */ }
+      }
+    } finally {
+      clearInterval(heartbeat);
+      activeLlmRequests--;
+      titanActiveSessions.dec();
+      const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
+      titanRequestDuration.observe(durationSec, { channel });
+      if (requestedSessionId) sessionAborts.delete(requestedSessionId);
+    }
+  });
+
+  // Voice available voices — engine-aware
   app.get('/api/voice/voices', async (_req, res) => {
     const cfg = loadConfig();
     const engine = cfg.voice?.ttsEngine || 'orpheus';
-    if (engine === 'orpheus') {
-      // Orpheus voices are fixed — return the known set
-      res.json({ voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac', 'zoe'] });
+    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
+
+    const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'];
+
+    if (engine === 'browser') {
+      res.json({ voices: [], engine: 'browser' });
       return;
     }
-    // Kokoro — query the service
-    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:8880';
+
+    // Orpheus (default)
     try {
       const ttsRes = await fetch(`${ttsUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(3000) });
-      if (!ttsRes.ok) { res.json({ voices: [] }); return; }
+      if (!ttsRes.ok) { res.json({ voices: ORPHEUS_VOICES, engine: 'orpheus' }); return; }
       const data = await ttsRes.json() as { voices?: string[] };
-      res.json(data);
+      res.json({ ...data, engine: 'orpheus' });
     } catch {
-      res.json({ voices: [] });
+      res.json({ voices: ORPHEUS_VOICES, engine: 'orpheus' });
     }
   });
 
@@ -2150,7 +2619,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const publicUrl = (cfg.gateway as Record<string, unknown>).publicUrl as string | undefined;
     return publicUrl
       ? `${publicUrl}/api/auth/google/callback`
-      : `http://127.0.0.1:${port}/api/auth/google/callback`;
+      : `http://localhost:${port}/api/auth/google/callback`;
   }
 
   app.get('/api/auth/google/status', (_req, res) => {

@@ -109,7 +109,7 @@ function requireOwnerRepo(owner: unknown, repo: unknown, action: string): string
 
 const metaRepos = {
     name: 'github_repos',
-    description: 'List, get, or search GitHub repositories',
+    description: 'List, get, or search GitHub repositories. USE THIS WHEN Tony says: "list my repos", "show my GitHub repos", "search for repos about X", "find the repo named X". WORKFLOW: use action=list for owned repos, action=get for a specific repo, action=search to find public repos by keyword.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -117,7 +117,7 @@ const metaRepos = {
 
 const metaIssues = {
     name: 'github_issues',
-    description: 'List, create, close, or comment on GitHub issues',
+    description: 'List, create, close, or comment on GitHub issues. USE THIS WHEN Tony says: "check issues", "show open issues", "create an issue", "close issue #X", "comment on issue #X", "what bugs are open". WORKFLOW: Use action=list to see issues, action=create to file a new one, action=close to close, action=comment to add a comment.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -125,7 +125,7 @@ const metaIssues = {
 
 const metaPRs = {
     name: 'github_prs',
-    description: 'List, create, merge, or review GitHub pull requests',
+    description: 'List, create, merge, or review GitHub pull requests. USE THIS WHEN Tony says: "create a PR", "open a pull request", "merge PR #X", "show open PRs", "what\'s the diff on PR #X", "review pull request". WORKFLOW: For "create PR" — use action=create with title, head branch, and base branch. For diff — use action=diff with prNumber.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -133,7 +133,7 @@ const metaPRs = {
 
 const metaCommits = {
     name: 'github_commits',
-    description: 'List commits, get commit details, or compare branches on GitHub',
+    description: 'List, inspect, or compare commits on GitHub. USE THIS WHEN Tony says: "show recent commits", "what changed in the last commit", "what\'s the diff between main and feature branch", "compare branches", "show commit history", "what did we commit". WORKFLOW: Use action=list for history, action=get for a specific SHA, action=compare to diff two branches.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -141,7 +141,7 @@ const metaCommits = {
 
 const metaFiles = {
     name: 'github_files',
-    description: 'Read file contents, list directories, or create/update files in a GitHub repository',
+    description: 'Read, list, create, or update files in a GitHub repository. USE THIS WHEN Tony says: "read file X from repo", "show me the contents of X in GitHub", "push this file to GitHub", "update file X in repo", "list files in directory". WORKFLOW: Use action=read to view a file, action=list to browse a directory, action=create for new files (requires content + commit message), action=update for existing files (requires sha from action=read first).',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -152,8 +152,9 @@ const metaFiles = {
 const githubReposHandler: ToolHandler = {
     name: 'github_repos',
     description:
-        'Interact with GitHub repositories. Use action="list" to list the authenticated user\'s repos, ' +
-        '"get" to fetch a specific repo\'s details, or "search" to search all public repos by keyword.',
+        'Interacts with GitHub repositories. USE THIS WHEN Tony says: "list my repos", "show my GitHub repos", "get info on repo X", "search for repos about Y". ' +
+        'WORKFLOW: action=list for owned repos, action=get for a specific repo (requires owner+repo), action=search to find public repos by keyword. ' +
+        'RULES: Requires GITHUB_TOKEN env var for private repos and authenticated requests.',
     parameters: {
         type: 'object',
         properties: {
@@ -238,8 +239,9 @@ const githubReposHandler: ToolHandler = {
 const githubIssuesHandler: ToolHandler = {
     name: 'github_issues',
     description:
-        'Manage GitHub issues: list open/closed issues, get a single issue, create new issues, ' +
-        'close issues, or post comments on existing issues.',
+        'Manages GitHub issues. USE THIS WHEN Tony says: "check issues", "show open issues", "create an issue", "close issue #X", "comment on issue #X", "what bugs are open in repo X". ' +
+        'WORKFLOW: action=list to see issues, action=get for details on one issue, action=create to file a new issue (requires title), action=close to close, action=comment to add a comment. ' +
+        'RULES: Always include owner and repo. For action=create, always provide a clear title and body.',
     parameters: {
         type: 'object',
         properties: {
@@ -371,8 +373,9 @@ const githubIssuesHandler: ToolHandler = {
 const githubPRsHandler: ToolHandler = {
     name: 'github_prs',
     description:
-        'Manage GitHub pull requests: list PRs, get a single PR, create new PRs, merge PRs, ' +
-        'or fetch the raw diff of a PR.',
+        'Manages GitHub pull requests. USE THIS WHEN Tony says: "create a PR", "open a pull request", "merge PR #X", "show open PRs", "what\'s the diff on PR #X", "review pull request". ' +
+        'WORKFLOW: action=list for all PRs, action=get for one PR, action=create to open a new PR (requires title, head branch, base branch), action=merge to merge, action=diff to see raw diff. ' +
+        'RULES: For action=create, always confirm head and base branch names before proceeding.',
     parameters: {
         type: 'object',
         properties: {
@@ -506,8 +509,9 @@ const githubPRsHandler: ToolHandler = {
 const githubCommitsHandler: ToolHandler = {
     name: 'github_commits',
     description:
-        'Inspect GitHub commit history: list commits on a branch, get details of a single commit by SHA, ' +
-        'or compare two branches/tags/SHAs to see what changed.',
+        'Inspects GitHub commit history. USE THIS WHEN Tony says: "show recent commits", "what changed in the last commit", "what\'s the diff between branches", "compare main and feature-x", "show commit history", "what did we push". ' +
+        'WORKFLOW: action=list for commit history on a branch, action=get for a specific commit SHA, action=compare to diff two refs (base...head). ' +
+        'RULES: Always include owner and repo.',
     parameters: {
         type: 'object',
         properties: {
@@ -600,8 +604,9 @@ const githubCommitsHandler: ToolHandler = {
 const githubFilesHandler: ToolHandler = {
     name: 'github_files',
     description:
-        'Access and modify files in a GitHub repository: read a file\'s decoded contents, list the contents ' +
-        'of a directory, or create/update a file with a commit message.',
+        'Reads, lists, creates, or updates files in a GitHub repository. USE THIS WHEN Tony says: "read file X from GitHub", "show contents of X in repo", "push this file to GitHub", "update file X with new content", "list files in src/". ' +
+        'WORKFLOW: action=read to decode file contents, action=list to browse a directory, action=create for new files (requires content + message), action=update for existing files (requires sha from action=read first to prevent conflicts). ' +
+        'RULES: For action=update, always fetch the current sha via action=read before writing.',
     parameters: {
         type: 'object',
         properties: {

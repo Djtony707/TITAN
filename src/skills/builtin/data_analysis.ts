@@ -215,20 +215,20 @@ export function registerDataAnalysisSkill(): void {
     registerSkill(
         {
             name: 'data_analysis',
-            description: 'Parse and analyze CSV files',
+            description: 'Use this when the user says "analyze this data", "what does this CSV say", "parse this file", "look at this dataset", "show me the data", or shares a CSV file they want read and displayed.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'csv_parse',
-            description: 'Parse a CSV file and return structured data with headers and rows',
+            description: 'Read and display the contents of a CSV file. Use this when the user says "open this CSV", "show me what\'s in this file", "read this dataset", "what does this CSV contain", or shares a spreadsheet path they want viewed. Returns the data as a formatted table.',
             parameters: {
                 type: 'object',
                 properties: {
                     path: {
                         type: 'string',
-                        description: 'Path to CSV file',
+                        description: 'Path to the CSV file',
                     },
                     delimiter: {
                         type: 'string',
@@ -265,24 +265,24 @@ export function registerDataAnalysisSkill(): void {
     registerSkill(
         {
             name: 'data_analysis',
-            description: 'Parse and analyze CSV files',
+            description: 'Use this when the user says "analyze this data", "find patterns in X", "summarize this dataset", "what are the stats on this?", "give me the numbers on this CSV", or asks for statistical insight into tabular data.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'csv_stats',
-            description: 'Calculate statistics (count, sum, average, min, max, stddev) for CSV columns',
+            description: 'Compute statistics on a CSV file — counts, sums, averages, min/max, and standard deviation. Use when asked to "analyze this data", "find patterns in X", "summarize this dataset", "what are the stats?", "give me the numbers on this CSV", or "how does column Y look?".',
             parameters: {
                 type: 'object',
                 properties: {
                     path: {
                         type: 'string',
-                        description: 'Path to CSV file',
+                        description: 'Path to the CSV file',
                     },
                     columns: {
                         type: 'string',
-                        description: 'Comma-separated column names to analyze (optional, all if not specified)',
+                        description: 'Comma-separated column names to analyze (optional — all columns if not specified)',
                     },
                     delimiter: {
                         type: 'string',
@@ -337,28 +337,28 @@ export function registerDataAnalysisSkill(): void {
     registerSkill(
         {
             name: 'data_analysis',
-            description: 'Parse and analyze CSV files',
+            description: 'Use this when the user says "filter this data", "show me rows where X", "find entries matching Y", "sort by Z", or wants to query/slice a CSV dataset.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'csv_query',
-            description: 'Filter and sort CSV data with simple expressions (e.g., "age > 30", "status == active")',
+            description: 'Filter, sort, and slice a CSV dataset with simple expressions. Use when asked to "show me rows where X > 30", "find all entries where status is active", "sort by date", "filter this data by Y", or "which rows match Z". Supports expressions like "age > 30", "name contains john", "status == active".',
             parameters: {
                 type: 'object',
                 properties: {
                     path: {
                         type: 'string',
-                        description: 'Path to CSV file',
+                        description: 'Path to the CSV file',
                     },
                     filter: {
                         type: 'string',
-                        description: 'Filter expression (e.g., "age > 30", "name contains john")',
+                        description: 'Filter expression (e.g., "age > 30", "name contains john", "status == active")',
                     },
                     sort: {
                         type: 'string',
-                        description: 'Column name to sort by (optional)',
+                        description: 'Column name to sort results by (optional)',
                     },
                     limit: {
                         type: 'number',
@@ -366,7 +366,7 @@ export function registerDataAnalysisSkill(): void {
                     },
                     columns: {
                         type: 'string',
-                        description: 'Comma-separated columns to display (optional, all if not specified)',
+                        description: 'Comma-separated columns to include in results (optional — all if not specified)',
                     },
                     delimiter: {
                         type: 'string',

@@ -67,14 +67,14 @@ export function registerIncomeTrackerSkill(): void {
     registerSkill(
         {
             name: 'income_tracker',
-            description: 'Track income and expenses with a JSONL ledger',
+            description: 'Use this skill when Tony says "track this income", "log this payment", "I just got paid X", "log an expense", "how much have I made this month?", "show me my revenue", or "what\'s my net profit?". Manages a local financial ledger for income and expenses.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'income_log',
-            description: 'Record an income or expense entry. Tracks financial activity in a local JSONL ledger.',
+            description: 'Record a new income or expense entry in the ledger. Use when Tony says "log this income", "I just got paid X from Y", "track this expense", "add a payment from [source]", or "log that I spent X on Y".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -136,14 +136,14 @@ export function registerIncomeTrackerSkill(): void {
     registerSkill(
         {
             name: 'income_tracker',
-            description: 'Track income and expenses with a JSONL ledger',
+            description: 'Use this skill when Tony says "track this income", "log this payment", "I just got paid X", "log an expense", "how much have I made this month?", "show me my revenue", or "what\'s my net profit?". Manages a local financial ledger for income and expenses.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'income_summary',
-            description: 'Get income/expense summary totals by period (day, week, month, all) and category.',
+            description: 'Summarize income and expenses by period. Use when Tony asks "how much have I made this month?", "what\'s my revenue this week?", "show me my financials", "what\'s my net profit?", or "break down my income by category".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -248,14 +248,14 @@ export function registerIncomeTrackerSkill(): void {
     registerSkill(
         {
             name: 'income_tracker',
-            description: 'Track income and expenses with a JSONL ledger',
+            description: 'Use this skill when Tony says "track this income", "log this payment", "I just got paid X", "log an expense", "how much have I made this month?", "show me my revenue", or "what\'s my net profit?". Manages a local financial ledger for income and expenses.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'income_list',
-            description: 'List recent income/expense entries with optional filters.',
+            description: 'List recent income and expense entries with optional filters. Use when Tony asks "show me recent transactions", "what payments came in from Upwork?", or "list my recent expenses".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -324,14 +324,14 @@ export function registerIncomeTrackerSkill(): void {
     registerSkill(
         {
             name: 'income_tracker',
-            description: 'Track income and expenses with a JSONL ledger',
+            description: 'Use this skill when Tony says "track this income", "log this payment", "I just got paid X", "log an expense", "how much have I made this month?", "show me my revenue", or "what\'s my net profit?". Manages a local financial ledger for income and expenses.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'income_goal',
-            description: 'Set or check monthly income goals. Shows progress toward target.',
+            description: 'Set or check monthly income goals and track progress toward them. Use when Tony says "set my income goal to X this month", "am I on track for my revenue goal?", or "how much more do I need to hit my goal?".',
             parameters: {
                 type: 'object',
                 properties: {

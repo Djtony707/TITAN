@@ -9,10 +9,10 @@ import { ensureDir } from '../../utils/helpers.js';
 
 export function registerApplyPatchSkill(): void {
     registerSkill(
-        { name: 'apply_patch', description: 'Apply unified diff patches to files', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'apply_patch', description: 'Apply unified diff patches to files. USE THIS WHEN Tony says: "apply this patch", "apply the diff", "patch these files", or when editing code via unified diff format.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'apply_patch',
-            description: 'Apply a unified diff patch to one or more files. The patch should be in unified diff format (like git diff output). Creates new files if they don\'t exist.',
+            description: 'Applies a unified diff patch to one or more files. USE THIS WHEN Tony says: "apply this patch", "apply the diff", "patch these files", "here\'s a unified diff, apply it". Used internally when editing code via unified diff format (like git diff output). Creates new files if they don\'t exist. RULES: Patch must be in unified diff format. Provide cwd if using relative paths.',
             parameters: {
                 type: 'object',
                 properties: {

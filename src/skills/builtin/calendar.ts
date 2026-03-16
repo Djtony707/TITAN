@@ -45,10 +45,10 @@ function isValidIsoDate(dateStr: string): boolean {
 
 export function registerCalendarSkill(): void {
     registerSkill(
-        { name: 'calendar', description: 'Google Calendar integration', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'calendar', description: 'Google Calendar integration for scheduling and event management. USE THIS WHEN Tony says: "schedule a meeting", "add event", "what\'s on my calendar", "what do I have today/this week", "am I free on X", "cancel meeting", "delete event". WORKFLOW: Before creating an event, always call action=list first to check for conflicts. Then call action=create with the confirmed details. RULES: Never create duplicate events — check first.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'calendar',
-            description: 'Manage Google Calendar events. List upcoming events, create new events, or delete events. Requires GOOGLE_CALENDAR_API_KEY and optionally GOOGLE_CALENDAR_ID environment variables.',
+            description: 'Manages Google Calendar events: list upcoming events, create new events, or delete events. USE THIS WHEN Tony says: "schedule a meeting", "add event", "what\'s on my calendar", "what do I have today/this week", "am I free on X", "cancel meeting", "delete event". WORKFLOW: 1) Call action=list to check existing events and avoid conflicts. 2) Call action=create with confirmed title, startTime, and endTime. RULES: Always check calendar before adding — never create duplicate events.',
             parameters: {
                 type: 'object',
                 properties: {

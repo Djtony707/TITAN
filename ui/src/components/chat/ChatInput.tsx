@@ -4,12 +4,13 @@ import { MiniFluidBubble } from './MiniFluidBubble';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
+  onStop?: () => void;
   disabled?: boolean;
   voiceAvailable?: boolean;
   onVoiceClick?: () => void;
 }
 
-export function ChatInput({ onSend, disabled, voiceAvailable, onVoiceClick }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceClick }: ChatInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -84,8 +85,8 @@ export function ChatInput({ onSend, disabled, voiceAvailable, onVoiceClick }: Ch
             {/* Send / Stop button */}
             <button
               type="button"
-              onClick={handleSend}
-              disabled={!canSend && !disabled}
+              onClick={disabled ? onStop : handleSend}
+              disabled={!canSend && !disabled && !onStop}
               className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all ${
                 disabled
                   ? 'bg-[#fafafa] text-[#09090b]'

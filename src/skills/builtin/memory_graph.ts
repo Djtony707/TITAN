@@ -23,7 +23,7 @@ export function registerMemoryGraphSkill(): void {
         },
         {
             name: 'graph_remember',
-            description: 'Add the current context or a piece of information to the temporal graph memory. Use this to store important facts, conversation context, or user preferences.',
+            description: 'Add a piece of information or context to the temporal knowledge graph memory.\n\nUSE THIS WHEN: Tony shares something important that should be remembered long-term, or at the end of a meaningful conversation to capture key context.\n\nAUTO-SAVE: Proactively call this when Tony shares project details, preferences, decisions, or facts — do not wait to be asked.\nVS memory tool: graph_remember stores richer episodic context with entity extraction; use it for narratives and facts. Use memory:remember for simple key-value preferences.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -53,7 +53,7 @@ export function registerMemoryGraphSkill(): void {
         },
         {
             name: 'graph_search',
-            description: 'Search the temporal graph memory by keyword. Returns relevant episodes sorted by relevance and recency.',
+            description: 'Search the temporal knowledge graph memory by keyword — returns relevant episodes sorted by relevance and recency.\n\nUSE THIS WHEN Tony says: "what do you know about X" / "do you remember X" / "find memories about X" / "search your memory for X"\n\nWORKFLOW: Call graph_search first when asked to recall something, then use graph_recall for deeper info on a specific entity found in results.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -85,7 +85,7 @@ export function registerMemoryGraphSkill(): void {
         },
         {
             name: 'graph_entities',
-            description: 'List known entities in the graph memory. Can filter by type: person, topic, project, place, fact.',
+            description: 'List known entities in the knowledge graph — people, projects, topics, places, and facts TITAN has learned about.\n\nUSE THIS WHEN Tony says: "what people do you know about" / "what projects are in your memory" / "list all X in your memory" / "show me known entities"\n\nFilter by type: person, topic, project, place, or fact.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -119,7 +119,7 @@ export function registerMemoryGraphSkill(): void {
         },
         {
             name: 'graph_recall',
-            description: 'Recall all graph memories related to a specific entity (person, project, topic, etc.).',
+            description: 'Recall all graph memories related to a specific named entity — returns known facts and all related episodes.\n\nUSE THIS WHEN Tony says: "tell me everything you know about X" / "what do you remember about X" / "recall X" / "X history"\n\nWORKFLOW: Use graph_search first to find relevant entities, then call graph_recall on the specific entity name for full context.',
             parameters: {
                 type: 'object',
                 properties: {

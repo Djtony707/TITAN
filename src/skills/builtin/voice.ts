@@ -31,7 +31,7 @@ const metaTTS = {
 
 const sttHandler: ToolHandler = {
     name: 'transcribe_audio',
-    description: 'Reads an audio file from the filesystem and transcribes the speech into text. Extremely useful if a user sends a voice note.',
+    description: 'Transcribe an audio file into text using OpenAI Whisper (STT).\n\nUSE THIS WHEN Tony says: "transcribe this audio" / "what does this voice note say" / "convert this recording to text" / "read this audio file"\n\nRequires an audio file path on the filesystem. Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg.\nRequires OpenAI API key configured.',
     parameters: {
         type: 'object',
         properties: {
@@ -86,7 +86,7 @@ const sttHandler: ToolHandler = {
 
 const ttsHandler: ToolHandler = {
     name: 'generate_speech',
-    description: 'Generates spoken audio from text and saves it as an MP3 file. Useful if the user asks you to read something out loud or send a voice message.',
+    description: 'Convert text to spoken audio (MP3) using OpenAI TTS.\n\nUSE THIS WHEN Tony says: "say that out loud" / "speak this" / "read this to me" / "generate audio for X" / "create a voice message" / "speak X"\n\nRULES:\n- Call this tool immediately when Tony asks for speech — do NOT just print the text\n- Returns the path to the saved MP3 file\n- Voice options: alloy (default), echo, fable, onyx, nova, shimmer\n- Requires OpenAI API key configured',
     parameters: {
         type: 'object',
         properties: {

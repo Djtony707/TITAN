@@ -11,10 +11,10 @@ const COMPONENT = 'ImageGen';
 export function registerImageGenSkill(): void {
     // Tool 1: generate_image
     registerSkill(
-        { name: 'image_gen', description: 'Generate images from text prompts', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'image_gen', description: 'Generate images from text prompts using DALL-E 3. USE THIS WHEN Tony says: "generate an image of X", "create a picture of X", "draw X", "make art of X", "make an image that looks like X". RULES: Requires OpenAI API key. Use descriptive prompts for best results.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'generate_image',
-            description: 'Generate a high-quality image from a detailed text prompt using OpenAI DALL-E 3. Perfect for creating visual assets, illustrations, and designs.',
+            description: 'Generates a high-quality image from a detailed text prompt using OpenAI DALL-E 3. USE THIS WHEN Tony says: "generate an image of X", "create a picture of X", "draw X", "make art of X", "visualize X", "make an image that looks like X". WORKFLOW: Craft a detailed descriptive prompt, call generate_image, return the image URL. RULES: Requires OpenAI API key. More detail in the prompt = better results.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -112,10 +112,10 @@ Revised Prompt (DALL-E interpretation): ${revisedPrompt}`;
 
     // Tool 2: edit_image
     registerSkill(
-        { name: 'image_edit', description: 'Edit existing images', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'image_edit', description: 'Edit or modify an existing image. USE THIS WHEN Tony says: "edit this image", "modify this picture", "change X in this image". NOTE: Full editing requires a PNG with transparency. For most cases, generate_image is simpler.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'edit_image',
-            description: 'Provides information about how to edit images using DALL-E 2. Note: Full image editing is advanced and requires base64-encoded image data and an alpha channel mask.',
+            description: 'Provides guidance on editing an existing image using DALL-E 2. USE THIS WHEN Tony says: "edit this image", "modify this picture", "change X in this image". NOTE: Full image editing requires a PNG file with an alpha channel transparency mask. For most cases, use generate_image instead — it\'s simpler and more reliable.',
             parameters: {
                 type: 'object',
                 properties: {

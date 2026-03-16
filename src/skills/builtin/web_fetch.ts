@@ -99,7 +99,7 @@ export function registerWebFetchSkill(): void {
         { name: 'web_fetch', description: 'Fetch URL content', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'web_fetch',
-            description: 'Fetch a URL and extract its content as markdown or plain text. Good for reading documentation, articles, and web pages. For JS-heavy sites, prefer the browser tool.',
+            description: 'Fetch a URL and return its full content as markdown or plain text.\n\nUSE THIS WHEN:\n- Tony gives you a URL directly: "go to X" / "open X" / "read X" / "check out X"\n- After web_search, to get full page content from the top result URLs\n- Tony says "summarize this article" and provides a link\n\nRULES:\n- Always call this after web_search — never rely on search snippets alone\n- For JS-heavy or interactive sites (SPAs, apps), prefer browse_url or web_act instead\n- Returns clean markdown by default; use extractMode:"text" for plain text',
             parameters: {
                 type: 'object',
                 properties: {

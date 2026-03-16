@@ -59,7 +59,7 @@ function getWeekKey(dateStr: string): string {
 
 const SKILL_META = {
     name: 'content_calendar',
-    description: 'Plan, schedule, and track content publishing across blogs, tutorials, social, and docs',
+    description: 'Use this skill when Tony says things like "plan my content", "what should I post this week?", "schedule posts for next week", "content ideas for X", "show me my content calendar", or "what content do I have coming up?". This skill manages the full content planning pipeline — add ideas, view the calendar grouped by week, update status, and get suggestions. Always show a calendar view when asked about upcoming content.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -71,7 +71,7 @@ export function registerContentCalendarSkill(): void {
         { ...SKILL_META },
         {
             name: 'calendar_add',
-            description: 'Add a content item to the publishing calendar.',
+            description: 'Add a new content idea or scheduled post to the content calendar. Use when Tony says "add this to the calendar", "schedule a post about X", or "I want to publish X on [date]".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -136,7 +136,7 @@ export function registerContentCalendarSkill(): void {
         { ...SKILL_META },
         {
             name: 'calendar_view',
-            description: 'View the content calendar grouped by week with publishing compliance indicators.',
+            description: 'Show the content calendar grouped by week. Use when Tony asks "what do I have scheduled?", "show my content plan", "what am I posting this week?", or "do I have enough content lined up?". Flags weeks that fall below the 2/week publishing target.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -233,7 +233,7 @@ export function registerContentCalendarSkill(): void {
         { ...SKILL_META },
         {
             name: 'calendar_update',
-            description: 'Update a content calendar entry (status, date, notes, URL).',
+            description: 'Update an existing content calendar entry — change its status, reschedule it, add notes, or set the target URL. Use when Tony says "mark that as published", "move that post to next week", or "update the notes on [entry]".',
             parameters: {
                 type: 'object',
                 properties: {

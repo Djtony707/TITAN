@@ -659,20 +659,20 @@ export function registerSelfImproveSkill(): void {
     registerSkill(
         {
             name: 'self_improve',
-            description: 'Autonomous self-improvement — TITAN iteratively experiments on its own prompts and behavior to get better over time',
+            description: 'Use this when the user says "improve yourself", "get better at X", "optimize your behavior", "learn from this mistake", or when TITAN proactively wants to improve its own responses, tool selection, prompts, or error handling. Runs iterative self-improvement experiments and keeps whatever works.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'self_improve_start',
-            description: `Start a self-improvement session targeting a specific area. TITAN will iteratively modify its own prompts, evaluate against benchmarks, and keep improvements. Areas: prompts, tool-selection, response-quality, error-recovery.`,
+            description: `Use this when asked to "improve yourself", "get better at X", "optimize your behavior", or "work on your error recovery". Also call this proactively on a schedule to keep TITAN improving over time. Runs LLM-guided experiments on TITAN's own prompts, evaluates quality against benchmarks, and keeps whatever improves the score. Areas: prompts (system prompt wording), tool-selection (picking the right tool), response-quality (clarity and accuracy), error-recovery (handling failures gracefully).`,
             parameters: {
                 type: 'object',
                 properties: {
                     area: {
                         type: 'string',
-                        description: 'Improvement area: prompts, tool-selection, response-quality, error-recovery',
+                        description: 'What to improve: prompts, tool-selection, response-quality, or error-recovery',
                     },
                     budgetMinutes: {
                         type: 'number',
@@ -692,14 +692,14 @@ export function registerSelfImproveSkill(): void {
     registerSkill(
         {
             name: 'self_improve',
-            description: 'Autonomous self-improvement — TITAN iteratively experiments on its own prompts and behavior to get better over time',
+            description: 'Use this when the user says "improve yourself", "get better at X", "optimize your behavior", "learn from this mistake", or when TITAN proactively wants to improve its own responses, tool selection, prompts, or error handling. Runs iterative self-improvement experiments and keeps whatever works.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'self_improve_status',
-            description: 'Check the status of self-improvement: active sessions, configuration, and recent history.',
+            description: 'Check whether TITAN is currently running any self-improvement sessions, view configuration, and see the history of past improvement runs with score trends.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -712,14 +712,14 @@ export function registerSelfImproveSkill(): void {
     registerSkill(
         {
             name: 'self_improve',
-            description: 'Autonomous self-improvement — TITAN iteratively experiments on its own prompts and behavior to get better over time',
+            description: 'Use this when the user says "improve yourself", "get better at X", "optimize your behavior", "learn from this mistake", or when TITAN proactively wants to improve its own responses, tool selection, prompts, or error handling. Runs iterative self-improvement experiments and keeps whatever works.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'self_improve_apply',
-            description: 'Apply a successful self-improvement experiment to TITAN\'s live configuration.',
+            description: 'Apply a completed self-improvement result to TITAN\'s live config so the better prompt goes into effect immediately.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -741,14 +741,14 @@ export function registerSelfImproveSkill(): void {
     registerSkill(
         {
             name: 'self_improve',
-            description: 'Autonomous self-improvement — TITAN iteratively experiments on its own prompts and behavior to get better over time',
+            description: 'Use this when the user says "improve yourself", "get better at X", "optimize your behavior", "learn from this mistake", or when TITAN proactively wants to improve its own responses, tool selection, prompts, or error handling. Runs iterative self-improvement experiments and keeps whatever works.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'self_improve_history',
-            description: 'View history of all self-improvement sessions with scores, keep/discard ratios, and improvement trends.',
+            description: 'Show the full history of self-improvement sessions — what was tried, what improved, keep/discard ratios, and overall score trends over time.',
             parameters: {
                 type: 'object',
                 properties: {

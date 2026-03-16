@@ -5,7 +5,7 @@
  */
 import { chat } from '../providers/router.js';
 import { loadConfig } from '../config/config.js';
-import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult } from './subAgent.js';
+import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult, type ModelTier } from './subAgent.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Orchestrator';
@@ -142,7 +142,7 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
                     task: t.task,
                     tools: template.tools,
                     systemPrompt: template.systemPrompt,
-                    model: config.agent.modelAliases?.fast || undefined,
+                    tier: (template as { tier?: ModelTier }).tier,
                 });
                 return { index: t.index, result };
             })
@@ -174,7 +174,7 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
             task: enrichedTask,
             tools: template.tools,
             systemPrompt: template.systemPrompt,
-            model: config.agent.modelAliases?.fast || undefined,
+            tier: (template as { tier?: ModelTier }).tier,
         });
         taskResults.set(t.index, result);
         results.push(result);

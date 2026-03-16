@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.26
+- **Current version**: v2026.10.40
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 20, pure ESM
@@ -16,10 +16,10 @@
 | Stat | Value |
 |------|-------|
 | Providers | 34 (4 native + 30 OpenAI-compatible) |
-| Skills | 91 loaded |
-| Tools | ~149 across 91 loaded skills |
+| Skills | 100 loaded |
+| Tools | ~189 across 100 loaded skills |
 | Channels | 15 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, etc.) |
-| Tests | 3,839+ across 123 files (vitest) |
+| Tests | 4,321+ across 135 files (vitest) |
 | Default model | `anthropic/claude-sonnet-4-20250514` |
 | Gateway port | 48420 |
 
@@ -192,6 +192,15 @@ Always publish to npm after pushing to git.
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v2026.10.40**: 9 new skills (40 tools) — structured output, workflows, social scheduler, agent handoff, event triggers, knowledge base, evals, approval gates, A2A protocol. 2 critical security fixes (SSE listener leak, YAML sandbox). 4,321 tests across 135 files.
+- **v2026.10.39**: Security release — resolved all 23 Dependabot alerts (0 vulnerabilities), matrix-js-sdk v41, npm overrides for transitive deps
+- **v2026.10.38**: `titan doctor --json` (Issue #2), better provider error messages (Issue #3), npm download stats (Issue #4), 27 weather skill tests (Issue #6), 5 dependency patches
+- **v2026.10.33**: HA auto-save (gateway intercepts tokens), ha_setup in coreTools, voice test fix
+- **v2026.10.32**: Orpheus TTS restored (reverted TADA), voice selector dropdown in VoiceOverlay, VoicePicker with 8 named Orpheus voices, separate TTS AbortController, browser TTS fallback, all TADA references removed
+- **v2026.10.30**: Home Assistant skill (11 tools), voice server REST API, voice echo cancellation
+- **v2026.10.29**: Personal skills bridge (ghost registry fix), stop button (end-to-end abort), task continuation injection, tool-aware system prompt compression, Gmail delete_label/bulk_delete_labels, confirmation gate string vs boolean fix, Google OAuth panel
+- **v2026.10.28**: Critical bug fixes — vector search circular dependency fixed (initVectors now does direct API call instead of calling embed() while available=false), ActiveLearning no-op loop fixed (no longer records "use shell instead of shell"), ESLint prefer-const fix
+- **v2026.10.27**: System prompt architecture overhaul — Tool Execution rules moved to top, ReAct loop pattern, MUST/NEVER directives, negative examples, task-aware dynamic injection, API-level `tool_choice` forcing, cloud prompt compression fixed, all 11 sub-agent prompts rewritten with proper tool enforcement
 - **v2026.10.26**: Live training feed (SSE streaming + terminal UI), incremental training data writes (critical fix — data survives tool timeouts), cloud-assisted training pipeline
 - **v2026.10.25**: Production hardening — 0 TypeScript errors, 0 ESLint errors, SSE write safety, rate limit cap, `.unref()` intervals, unhandled rejection handler, hardcoded IPs removed
 - **v2026.10.24**: GitHub Actions CI, "Why TITAN?" comparison table, README badges, npm SEO keywords, CODE_OF_CONDUCT, examples/, migration guide, benchmarks doc

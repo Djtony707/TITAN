@@ -61,6 +61,11 @@ export class AnthropicProvider extends LLMProvider {
                 description: t.function.description,
                 input_schema: t.function.parameters,
             }));
+            // Force at least one tool call on first round when task requires it.
+            // Cannot combine tool_choice:any with extended thinking — skip if thinking enabled.
+            if (options.forceToolUse && !options.thinking) {
+                body.tool_choice = { type: 'any' };
+            }
         }
 
         if (options.temperature !== undefined) {

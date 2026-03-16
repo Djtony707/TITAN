@@ -135,6 +135,7 @@ export async function routeMessage(
     userId: string,
     streamCallbacks?: StreamCallbacks,
     overrideAgentId?: string,
+    signal?: AbortSignal,
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
     let agent = resolveAgent(channel, userId);
 
@@ -175,7 +176,7 @@ export async function routeMessage(
     const response = await processMessage(message, channel, userId, {
         model: effectiveModel,
         systemPrompt: agent.systemPrompt,
-    }, streamCallbacks);
+    }, streamCallbacks, signal);
 
     return {
         ...response,

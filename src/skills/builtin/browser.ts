@@ -13,7 +13,7 @@ export function registerBrowserSkill(): void {
         { name: 'browser', description: 'Browser control and web automation', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'browser',
-            description: 'Control a Chromium-based browser to navigate websites, take snapshots, click elements, type text, evaluate JavaScript, and extract page content. Uses Chrome DevTools Protocol (CDP).',
+            description: 'CDP-based browser control — navigate, snapshot, click, type, evaluate JS, and extract page content.\n\nUSE THIS WHEN Tony says: "take a screenshot of X" / "navigate to X" / "click X on that page" / "extract links from X" / "run JavaScript on X"\n\nACTIONS:\n- navigate: go to a URL and extract its text\n- snapshot/extract: get title, description, and links from a page\n- click: click an element by CSS selector (requires live CDP session)\n- type: type text into an element (requires live CDP session)\n- evaluate: run JavaScript in the page context\n- screenshot: capture a visual screenshot\n\nNOTE: Full interactive actions (click, type, evaluate, screenshot) require a connected Chromium browser via CDP. For most browsing tasks, prefer browse_url or web_read.',
             parameters: {
                 type: 'object',
                 properties: {

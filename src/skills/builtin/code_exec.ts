@@ -13,14 +13,14 @@ export function registerCodeExecSkill(): void {
     registerSkill(
         {
             name: 'code_exec',
-            description: 'Execute code in an isolated Docker sandbox with tool access',
+            description: 'Execute Python or JavaScript code in an isolated Docker sandbox. USE THIS WHEN Tony says: "run this code", "test this script", "execute this Python/JS", "what does this output", "run a quick calculation", "batch process this data", "write and run a script to X". WORKFLOW: Write the code, call code_exec with the code string, return the output. RULES: Runs in a sandboxed Docker container — no direct system access. Use for quick testing, data processing, or automation scripts.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'code_exec',
-            description: `Execute Python code in a secure Docker sandbox. The code runs in an isolated container with no direct system access. You can import and call TITAN tools as Python functions by importing from "tools":
+            description: `Executes Python or JavaScript code in a secure Docker sandbox. USE THIS WHEN Tony says: "run this code", "test this script", "execute this Python/JS", "what does this output", "run a quick calculation", "batch process this", "write a script to X". WORKFLOW: Write the code with print() for output, call code_exec. RULES: Runs in isolated Docker container — no direct system access. Python 3.12 with pandas/numpy available. Import TITAN tools from "tools" module. Example:
 
 \`\`\`python
 from tools import web_search, read_file, memory

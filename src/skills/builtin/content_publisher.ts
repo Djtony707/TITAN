@@ -10,14 +10,14 @@ export function registerContentPublisherSkill(): void {
     registerSkill(
         {
             name: 'content_publisher',
-            description: 'SEO content pipeline — research, outline, publish, schedule',
+            description: 'Use this skill when Tony says "publish this post", "schedule this tweet/post", "post to social media", "write and publish content about X", or "set up automated content publishing". Handles the full SEO content pipeline: research topics, create outlines, publish to GitHub, and schedule recurring content. ALWAYS show Tony exactly what will be posted/published and wait for explicit approval before executing. Never publish without confirmation.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'content_research',
-            description: 'Research trending topics for content creation. Uses web search to find trending subjects, competitor articles, and keyword opportunities.',
+            description: 'Research trending topics for content creation. Use when Tony asks "what should I write about?", "what\'s trending in X?", or "find content ideas for my niche". Uses web search to find trending subjects, competitor articles, and keyword opportunities.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -108,14 +108,14 @@ export function registerContentPublisherSkill(): void {
     registerSkill(
         {
             name: 'content_publisher',
-            description: 'SEO content pipeline — research, outline, publish, schedule',
+            description: 'Use this skill when Tony says "publish this post", "schedule this tweet/post", "post to social media", "write and publish content about X", or "set up automated content publishing". Handles the full SEO content pipeline: research topics, create outlines, publish to GitHub, and schedule recurring content. ALWAYS show Tony exactly what will be posted/published and wait for explicit approval before executing. Never publish without confirmation.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'content_outline',
-            description: 'Generate an article outline from a topic and research notes. Produces a structured markdown outline ready for writing.',
+            description: 'Generate a structured article outline from a topic and research notes. Use when Tony says "outline an article about X", "give me a structure for a post on X", or after content_research to turn findings into a ready-to-write plan.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -207,14 +207,14 @@ export function registerContentPublisherSkill(): void {
     registerSkill(
         {
             name: 'content_publisher',
-            description: 'SEO content pipeline — research, outline, publish, schedule',
+            description: 'Use this skill when Tony says "publish this post", "schedule this tweet/post", "post to social media", "write and publish content about X", or "set up automated content publishing". Handles the full SEO content pipeline: research topics, create outlines, publish to GitHub, and schedule recurring content. ALWAYS show Tony exactly what will be posted/published and wait for explicit approval before executing. Never publish without confirmation.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'content_publish',
-            description: 'Publish a markdown article to a GitHub repository (GitHub Pages, Hugo, Jekyll). Commits the file via the GitHub API.',
+            description: 'Publish a completed markdown article to a GitHub repository (GitHub Pages, Hugo, Jekyll). Use when Tony says "publish this article", "push this post to my site", or "commit this to my blog repo". ALWAYS show Tony the full content and target path and wait for explicit confirmation before committing. Never publish without approval.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -335,14 +335,14 @@ export function registerContentPublisherSkill(): void {
     registerSkill(
         {
             name: 'content_publisher',
-            description: 'SEO content pipeline — research, outline, publish, schedule',
+            description: 'Use this skill when Tony says "publish this post", "schedule this tweet/post", "post to social media", "write and publish content about X", or "set up automated content publishing". Handles the full SEO content pipeline: research topics, create outlines, publish to GitHub, and schedule recurring content. ALWAYS show Tony exactly what will be posted/published and wait for explicit approval before executing. Never publish without confirmation.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'content_schedule',
-            description: 'Generate a cron-compatible schedule instruction for automated content publishing. Returns a message for the user to add to AUTOPILOT.md.',
+            description: 'Set up an automated content publishing schedule. Use when Tony says "publish content automatically", "schedule weekly posts about X", or "automate my content pipeline for [niche]". Creates a recurring goal with subtasks that run on cron.',
             parameters: {
                 type: 'object',
                 properties: {

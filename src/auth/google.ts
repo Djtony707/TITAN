@@ -177,6 +177,21 @@ export async function gmailFetch(path: string, options?: RequestInit): Promise<R
     return fetch(url, { ...options, headers });
 }
 
+/** Make an authenticated request to any Google API base URL */
+export async function googleFetch(baseUrl: string, path: string, options?: RequestInit): Promise<Response> {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Google not connected. Connect your Google account in Settings.');
+
+    const url = `${baseUrl}${path}`;
+    const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+    };
+
+    return fetch(url, { ...options, headers });
+}
+
 // ── Token storage ─────────────────────────────────────────────────
 
 function loadTokens(): GoogleTokens | null {

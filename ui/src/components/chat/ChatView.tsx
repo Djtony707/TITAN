@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2 } from 'lucide-react';
+import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
-import { getSessions, getSessionMessages, deleteSession, getAgents } from '@/api/client';
+import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession } from '@/api/client';
 import type { ChatMessage, Session, AgentInfo } from '@/api/types';
 import { useConfig } from '@/hooks/useConfig';
 import { MessageBubble } from './MessageBubble';
@@ -19,10 +19,12 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { isStreaming, streamingContent, activeTools, send } = useSSE();
+  const { isStreaming, streamingContent, activeTools, send, cancel } = useSSE();
   const { voiceAvailable } = useConfig();
 
   useEffect(() => {
@@ -97,6 +99,29 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
     [currentSessionId],
   );
 
+  const handleStartRename = useCallback((e: React.MouseEvent, session: Session) => {
+    e.stopPropagation();
+    setRenamingId(session.id);
+    setRenameValue(session.name || session.lastMessage || '');
+  }, []);
+
+  const handleConfirmRename = useCallback(async (sessionId: string) => {
+    const trimmed = renameValue.trim();
+    if (trimmed) {
+      try {
+        await renameSession(sessionId, trimmed);
+        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, name: trimmed } : s));
+      } catch (err) {
+        console.error('Failed to rename session:', err);
+      }
+    }
+    setRenamingId(null);
+  }, [renameValue]);
+
+  const handleCancelRename = useCallback(() => {
+    setRenamingId(null);
+  }, []);
+
   const handleSend = useCallback(
     async (content: string) => {
       const userMessage: ChatMessage = {
@@ -151,24 +176,56 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
             key={session.id}
             role="button"
             tabIndex={0}
-            onClick={() => loadSession(session.id)}
-            onKeyDown={(e) => { if (e.key === 'Enter') loadSession(session.id); }}
+            onClick={() => renamingId !== session.id && loadSession(session.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && renamingId !== session.id) loadSession(session.id); }}
             className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors group flex items-center justify-between gap-2 cursor-pointer ${
               session.id === currentSessionId
                 ? 'bg-[#27272a] text-[#fafafa]'
                 : 'text-[#a1a1aa] hover:bg-[#1c1c1e] hover:text-[#fafafa]'
             }`}
           >
-            <span className="truncate flex-1">
-              {session.name || session.lastMessage?.slice(0, 40) || 'Untitled'}
-            </span>
-            <button
-              onClick={(e) => handleDeleteSession(e, session.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all shrink-0"
-              aria-label="Delete session"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {renamingId === session.id ? (
+              <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirmRename(session.id);
+                    if (e.key === 'Escape') handleCancelRename();
+                  }}
+                  className="flex-1 min-w-0 bg-[#18181b] text-[#fafafa] text-xs px-2 py-1 rounded border border-[#6366f1]/50 outline-none"
+                />
+                <button onClick={() => handleConfirmRename(session.id)} className="p-1 text-green-400 hover:text-green-300 shrink-0">
+                  <Check className="w-3 h-3" />
+                </button>
+                <button onClick={handleCancelRename} className="p-1 text-[#71717a] hover:text-[#fafafa] shrink-0">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <span className="truncate flex-1">
+                  {session.name || session.lastMessage?.slice(0, 40) || 'Untitled'}
+                </span>
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-all">
+                  <button
+                    onClick={(e) => handleStartRename(e, session)}
+                    className="p-1 hover:text-[#6366f1] transition-colors"
+                    aria-label="Rename session"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="p-1 hover:text-red-400 transition-colors"
+                    aria-label="Delete session"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ))}
 
@@ -190,16 +247,16 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
           className="relative w-16 h-16 rounded-2xl ring-1 ring-white/10"
         />
       </div>
-      <h2 className="text-2xl font-semibold text-[#fafafa] mb-2">What can I help with?</h2>
+      <h2 className="text-2xl font-semibold text-[#fafafa] mb-2">What would you like to tackle?</h2>
       <p className="text-sm text-[#52525b] max-w-md text-center mb-8">
-        I can search the web, write and run code, use 100+ tools, control smart devices, and much more.
+        I can search the web, write &amp; run code, automate browsers, manage files, execute shell commands, use ~149 tools across 34 providers, and operate autonomously toward goals.
       </p>
       <div className="flex flex-wrap justify-center gap-2 max-w-lg">
         {[
           'Research a topic',
           'Write some code',
-          'Analyze data',
-          'Search the web',
+          'Automate a task',
+          'Browse the web',
         ].map((suggestion) => (
           <button
             key={suggestion}
@@ -280,9 +337,30 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
             emptyState
           ) : (
             <div className="max-w-3xl mx-auto px-4 py-6">
-              {messages.map((msg, i) => (
-                <MessageBubble key={`${msg.timestamp}-${i}`} message={msg} />
-              ))}
+              {messages.map((msg, i) => {
+                const msgDate = msg.timestamp ? new Date(msg.timestamp).toDateString() : null;
+                const prevDate = i > 0 && messages[i - 1].timestamp
+                  ? new Date(messages[i - 1].timestamp!).toDateString()
+                  : null;
+                const showSeparator = msgDate && msgDate !== prevDate;
+                const separatorLabel = msgDate
+                  ? new Date(msg.timestamp!).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                  : null;
+                return (
+                  <div key={`${msg.timestamp}-${i}`}>
+                    {showSeparator && (
+                      <div className="flex items-center gap-3 my-4">
+                        <div className="flex-1 h-px bg-[#27272a]" />
+                        <span className="text-[10px] font-medium text-[#52525b] uppercase tracking-wider whitespace-nowrap">
+                          {separatorLabel}
+                        </span>
+                        <div className="flex-1 h-px bg-[#27272a]" />
+                      </div>
+                    )}
+                    <MessageBubble message={msg} />
+                  </div>
+                );
+              })}
               {isStreaming && (
                 <StreamingMessage content={streamingContent} activeTools={activeTools} />
               )}
@@ -293,6 +371,10 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         {/* Input */}
         <ChatInput
           onSend={handleSend}
+          onStop={() => {
+            cancel();
+            if (currentSessionId) abortSession(currentSessionId).catch(() => {});
+          }}
           disabled={isStreaming}
           voiceAvailable={voiceAvailable}
           onVoiceClick={handleVoiceClick}

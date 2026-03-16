@@ -198,14 +198,14 @@ export function registerXPosterSkill(): void {
     registerSkill(
         {
             name: 'x_poster',
-            description: 'X/Twitter tools — post, reply, search, and read timeline',
+            description: 'Use this skill when Tony says "tweet this", "post to X", "post to Twitter", "schedule a tweet", "reply to that tweet", or "search Twitter for X". CRITICAL SAFETY RULE: ALWAYS show Tony the exact tweet text before posting and wait for explicit confirmation ("yes", "go ahead", "post it"). Never post to X/Twitter without Tony\'s explicit approval — queue it for review if unsure.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'x_post',
-            description: 'Post a tweet to X/Twitter. Posts are queued for human review before publishing (configurable).',
+            description: 'Post a tweet to X/Twitter. Use when Tony says "tweet this", "post this to X", or "send this tweet". ALWAYS show Tony the exact tweet text first and wait for explicit approval before posting. By default queues for review — never bypasses unless Tony explicitly says to skip review.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -253,14 +253,14 @@ export function registerXPosterSkill(): void {
     registerSkill(
         {
             name: 'x_poster',
-            description: 'X/Twitter tools — post, reply, search, and read timeline',
+            description: 'Use this skill when Tony says "tweet this", "post to X", "post to Twitter", "schedule a tweet", "reply to that tweet", or "search Twitter for X". CRITICAL SAFETY RULE: ALWAYS show Tony the exact tweet text before posting and wait for explicit confirmation ("yes", "go ahead", "post it"). Never post to X/Twitter without Tony\'s explicit approval — queue it for review if unsure.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'x_reply',
-            description: 'Reply to a specific tweet on X/Twitter.',
+            description: 'Reply to a specific tweet on X/Twitter. Use when Tony says "reply to that tweet", "respond to [tweet ID]", or "write a reply to [tweet]". ALWAYS show Tony the exact reply text and confirm before posting. Queue for review by default.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -312,14 +312,14 @@ export function registerXPosterSkill(): void {
     registerSkill(
         {
             name: 'x_poster',
-            description: 'X/Twitter tools — post, reply, search, and read timeline',
+            description: 'Use this skill when Tony says "tweet this", "post to X", "post to Twitter", "schedule a tweet", "reply to that tweet", or "search Twitter for X". CRITICAL SAFETY RULE: ALWAYS show Tony the exact tweet text before posting and wait for explicit confirmation ("yes", "go ahead", "post it"). Never post to X/Twitter without Tony\'s explicit approval — queue it for review if unsure.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'x_search',
-            description: 'Search recent tweets on X/Twitter for a query.',
+            description: 'Search recent tweets on X/Twitter. Use when Tony asks "search Twitter for X", "what\'s being said about [topic] on X?", or "find tweets about [query]". Read-only — no confirmation needed.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -347,14 +347,14 @@ export function registerXPosterSkill(): void {
     registerSkill(
         {
             name: 'x_poster',
-            description: 'X/Twitter tools — post, reply, search, and read timeline',
+            description: 'Use this skill when Tony says "tweet this", "post to X", "post to Twitter", "schedule a tweet", "reply to that tweet", or "search Twitter for X". CRITICAL SAFETY RULE: ALWAYS show Tony the exact tweet text before posting and wait for explicit confirmation ("yes", "go ahead", "post it"). Never post to X/Twitter without Tony\'s explicit approval — queue it for review if unsure.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'x_review',
-            description: 'Review and approve/reject queued X/Twitter posts.',
+            description: 'Review, approve, or reject queued X/Twitter posts waiting for Tony\'s approval. Use when Tony says "show my tweet queue", "what tweets are pending?", "approve that tweet", or "reject that tweet".',
             parameters: {
                 type: 'object',
                 properties: {

@@ -52,7 +52,7 @@ function saveExperiments(experiments: Experiment[]): void {
 
 const SKILL_META = {
     name: 'growth_experiments',
-    description: 'Create, track, and evaluate growth experiments with hypothesis-driven methodology',
+    description: 'Use this skill when Tony says "run a growth experiment", "A/B test X", "track this experiment", "let\'s try to grow X by doing Y", "test if [hypothesis]", or "what experiments are running?". Manages hypothesis-driven growth experiments with metrics, timelines, and outcome tracking.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -64,7 +64,7 @@ export function registerGrowthExperimentsSkill(): void {
         { ...SKILL_META },
         {
             name: 'experiment_create',
-            description: 'Create a new growth experiment with a hypothesis, method, metric, and timeline.',
+            description: 'Create and launch a new growth experiment. Use when Tony says "run an experiment", "let\'s test if X leads to Y", "A/B test this", or "I want to try [approach] and measure [metric]". Captures hypothesis, method, metric, and timeline.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -135,7 +135,7 @@ export function registerGrowthExperimentsSkill(): void {
         { ...SKILL_META },
         {
             name: 'experiment_update',
-            description: 'Update an experiment with results, outcome, learnings, or status change.',
+            description: 'Update a running experiment with measured results, outcome summary, learnings, or a status change. Use when Tony says "the experiment got [result]", "mark that experiment as complete", or "log what we learned from [experiment]".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -209,7 +209,7 @@ export function registerGrowthExperimentsSkill(): void {
         { ...SKILL_META },
         {
             name: 'experiment_list',
-            description: 'List growth experiments, optionally filtered by status.',
+            description: 'List all growth experiments, optionally filtered by status. Use when Tony asks "what experiments are running?", "show me completed experiments", or "what have we tested so far?".',
             parameters: {
                 type: 'object',
                 properties: {

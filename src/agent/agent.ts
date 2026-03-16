@@ -110,6 +110,7 @@ function ensureSpawnAgentRegistered(): void {
                 tools: template.tools,
                 systemPrompt: template.systemPrompt,
                 model: args.model as string | undefined,
+                tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
                 depth: 0, // Top-level spawn from agent
             });
             const validTag = result.validated ? '' : ' [OUTPUT UNVALIDATED]';
@@ -178,7 +179,7 @@ function extractToolCallFromContent(
                         function: { name: toolName, arguments: JSON.stringify(args) },
                     };
                 }
-            } catch { /* not valid JSON, skip */ }
+            } catch (e) { logger.debug(COMPONENT, `Non-JSON tool argument, skipping: ${(e as Error).message}`); }
         }
 
         // No JSON found but tool is mentioned — call with empty args to let the tool guide
@@ -202,7 +203,7 @@ function extractToolCallFromContent(
                             }),
                         },
                     };
-                } catch { /* skip */ }
+                } catch (e) { logger.debug(COMPONENT, `Tool output parse failed: ${(e as Error).message}`); }
             }
         }
     }
@@ -234,7 +235,7 @@ export interface AgentResponse {
 function readPromptFile(path: string): string {
     try {
         if (existsSync(path)) return readFileSync(path, 'utf-8');
-    } catch { /* ignore */ }
+    } catch (e) { logger.debug(COMPONENT, `Prompt file read failed: ${(e as Error).message}`); }
     return '';
 }
 
@@ -291,7 +292,50 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const graphContext = userMessage ? getGraphContext(userMessage) : '';
     const graphSection = graphContext ? `\n\n## Knowledge Graph Memory\n${graphContext}` : '';
 
-    return `## CRITICAL: Your Identity
+    return `## Tool Execution — HIGHEST PRIORITY
+You are an AI agent. Your PRIMARY function is to execute tasks using tools — not to describe what you could do, not to output content inline when a tool should create it.
+
+**ReAct Loop — follow this for EVERY task:**
+1. THINK: What information or action is needed? Which tool handles this?
+2. ACT: Call the tool with the correct parameters
+3. OBSERVE: Read what the tool returned
+4. REPEAT until the task is fully complete, then give a concise summary
+
+**MUST — non-negotiable rules:**
+- MUST call web_search + web_fetch for ANY factual question or current information — never generate facts from memory alone
+- MUST call write_file or edit_file when asked to create/save/write/update any file — NEVER output file content as text in your reply
+- MUST call shell when asked to run commands, install packages, execute scripts, or check system state
+- MUST call tool_search if you don't see the right tool in your list — never say "I don't have a tool for that"
+- MUST call weather tool for weather — do NOT use web_search for weather
+
+**NEVER — hard prohibitions:**
+- NEVER describe what you could do — do it immediately with a tool call
+- NEVER output file content as text in your response when write_file should be called
+- NEVER generate current data (prices, news, scores, events) from training knowledge — always use web_search
+- NEVER tell the user to visit a URL — fetch it yourself with web_fetch and return the content
+- NEVER say "I'll write that file" and then put the content in your message instead of calling write_file
+
+**NEVER fabricate past actions or experiences:**
+- NEVER claim to have done work, research, or taken actions that didn't happen as tool calls in this conversation
+- NEVER invent timelines like "I spent the last 48 hours doing X" — if you didn't call tools to do it, it didn't happen
+- NEVER make up specific statistics, results, or deliverables to sound impressive when answering identity/capability questions
+- NEVER roleplay having completed tasks you haven't actually executed — if asked what you've done, cite real tool calls or say you haven't done it yet
+- When asked "why are you the right candidate / what makes you different / what have you done", answer based on your ACTUAL capabilities and what you have ACTUALLY done via tools in this session — not invented narratives
+
+**Right vs wrong — burn these patterns in:**
+❌ Asked to write a file → you output the content as text in your reply
+✓  Asked to write a file → you call write_file(path="...", content="...") immediately
+
+❌ Asked to research a topic → you reply "Based on my knowledge..."
+✓  Asked to research a topic → you call web_search, read results, call web_fetch on top URLs, synthesize findings
+
+❌ Asked to run a command → you describe what the command would do
+✓  Asked to run a command → you call shell(command="...") and report the output
+
+❌ Asked "why are you the right candidate?" → you invent "I spent 48 hours simulating the role, built SDKs, debugged entitlements..."
+✓  Asked "why are you the right candidate?" → you state your real capabilities and what you've actually done via tools in this session
+
+## CRITICAL: Your Identity
 You are TITAN (The Intelligent Task Automation Network). Your name is TITAN. You were built by Tony Elliott.
 You are powered by the language model "${modelId}", but your identity is always TITAN — never Claude, never GPT, never Gemini, never any other product name.
 - If asked "who are you?": say "I'm TITAN, your personal AI assistant built by Tony Elliott."
@@ -303,27 +347,21 @@ You are ${TITAN_NAME}, The Intelligent Task Automation Network — a powerful pe
 
 ## Core Capabilities
 - Execute shell commands and scripts on the user's system
-- Read, write, edit, and manage files
+- Read, write, edit, and manage files (always via tools — never inline text output)
 - Browse the web and extract information (browser control via CDP)
 - Schedule automated tasks with cron
-- Set up webhook endpoints
-- Search the web for current information
+- Search the web for current information (always via web_search + web_fetch)
 - Control browser sessions (navigate, snapshot, evaluate)
 - Manage agent sessions (list, history, send, close)
 - Remember facts and user preferences persistently
 
 ## Behavior Guidelines
-- **Respond quickly and with quality.** Lead with the answer, not the reasoning. Be concise but thorough.
+- **Lead with action.** Don't explain what you're about to do — do it. Brief explanation after.
 - Be proactive: if a task implies follow-up actions, suggest or perform them
-- **ALWAYS use your tools to complete tasks — NEVER just describe what could be done or suggest URLs for the user to visit. Execute the task yourself.**
-- When executing commands, briefly explain what you're doing
 - If a task could be destructive (deleting files, etc.), confirm with the user first
-- For weather requests, ALWAYS use the \`weather\` tool — it returns accurate real-time data. Do NOT use web_search for weather.
-- When the user asks for information (prices, news, etc.), use web_search to find it, then use web_fetch to read the full page content. Return the data directly — do NOT tell the user to go check a website.
-- **Learn and adapt:** Remember important information about the user for future conversations. Notice their preferences, communication style, and common tasks. Get better over time.
-- If you encounter an error, try alternative approaches before reporting failure
-- If web_search results don't contain enough detail, follow up with web_fetch on the most relevant URL
-- **Use the right tool for the job.** Don't default to web_search when a specialized tool (weather, system_info, shell, etc.) exists. Check your available tools first.
+- If you encounter an error, try an alternative approach before reporting failure
+- **Use the right tool.** Don't default to web_search when a specialized tool (weather, system_info, shell) exists. Check tool_search first.
+- **Learn and adapt:** Remember important information about the user. Notice preferences, communication style, common tasks. Get better over time.
 
 ## Security
 - Never expose API keys, passwords, or other secrets
@@ -362,6 +400,7 @@ export async function processMessage(
     userId: string = 'default',
     overrides?: { model?: string; systemPrompt?: string },
     streamCallbacks?: StreamCallbacks,
+    signal?: AbortSignal,
 ): Promise<AgentResponse> {
     const startTime = Date.now();
     const config = loadConfig();
@@ -390,12 +429,21 @@ export async function processMessage(
     const autonomyOverride = isAutonomous
         ? (config.autonomy as Record<string, unknown>).maxToolRoundsOverride as number || 25
         : MAX_TOOL_ROUNDS;
-    const effectiveMaxRounds = Math.max(dynamicBudget, autonomyOverride);
-    const reflectionEnabled = config.agent.reflectionEnabled ?? true;
+    const isVoice = channel === 'voice';
+    const voiceFastPath = isVoice && ((config.voice as Record<string, unknown>)?.fastPath !== false);
+    let effectiveMaxRounds = Math.max(dynamicBudget, autonomyOverride);
+    const reflectionEnabled = voiceFastPath ? false : (config.agent.reflectionEnabled ?? true);
     const reflectionInterval = config.agent.reflectionInterval ?? 3;
 
-    // ── Brain: background warmup (non-blocking) ──────────────
-    ensureBrainLoaded().catch(() => {});
+    // Voice fast-path: cap tool rounds + skip heavyweight operations for faster responses
+    if (voiceFastPath) {
+        const voiceMaxRounds = (config.voice as Record<string, unknown>)?.maxToolRounds as number || 3;
+        effectiveMaxRounds = Math.min(voiceMaxRounds, effectiveMaxRounds);
+        logger.debug(COMPONENT, `[Voice fast-path] maxRounds=${effectiveMaxRounds}, reflection=off, Brain=off`);
+    }
+
+    // ── Brain: background warmup (non-blocking) — skip for voice fast-path ──
+    if (!voiceFastPath) ensureBrainLoaded().catch(() => {});
 
     // ── Deliberation intercept ─────────────────────────────────
     const existingDelib = getDeliberation(session.id);
@@ -424,7 +472,7 @@ export async function processMessage(
     // Don't start a new deliberation if one is already executing
     if (existingDelib?.stage === 'executing') {
         // Fall through to normal processing
-    } else if (shouldDeliberate(message, config)) {
+    } else if (!voiceFastPath && shouldDeliberate(message, config)) {
         addMessage(session, 'user', message);
         const state = await analyze(message, session.id, config);
         if (state.stage === 'planning') {
@@ -521,6 +569,41 @@ export async function processMessage(
     if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
     if (preRoutedContext) systemPrompt += preRoutedContext;
 
+    // Task-aware enforcement injection — strengthen tool-use requirements based on message intent
+    // Also tracks whether to force tool_choice on round 0 via the API
+    let taskEnforcementActive = false;
+
+    // Continuation injection: short messages like "CONFIRM", "yes", "all of them" lose all task
+    // context after system prompt compression. Re-inject the task context so the model knows
+    // exactly what it was doing and can continue without re-planning or going rogue.
+    const isContinuation = /^(confirm|yes|ok|okay|do it|go|go ahead|proceed|continue|approve|sure|yep|yup|all of them?|all steps?|\d+)\s*[.!]?$/i.test(message.trim());
+    if (isContinuation) {
+        const sessionMsgs = getContextMessages(session);
+        const recentAssistant = sessionMsgs
+            .filter(m => m.role === 'assistant')
+            .slice(-2)
+            .map(m => m.content.slice(0, 600))
+            .join('\n---\n');
+        if (recentAssistant) {
+            systemPrompt += `\n\n[TASK CONTINUATION] The user replied "${message}" to confirm/continue a pending action. You were in the middle of a task. Here is your most recent context:\n\n${recentAssistant}\n\nContinue executing this task NOW using the appropriate tools. Do NOT re-explain, re-plan, or ask for clarification — take the next action immediately.`;
+            taskEnforcementActive = true;
+            logger.info(COMPONENT, `[TaskContinuation] Injected context for short confirmation: "${message}"`);
+        }
+    }
+
+    if (/\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
+        systemPrompt += '\n\n[TASK ENFORCEMENT — FILE WRITE] You MUST call write_file or edit_file to complete this task. Do NOT output the file content as text in your response. The user expects a file to exist on disk when you are done.';
+        taskEnforcementActive = true;
+    }
+    if (/\b(research|search|find|look ?up|what is|what are|current|latest|today|news|price|stock|score|update)\b/i.test(message) && !/weather/i.test(message)) {
+        systemPrompt += '\n\n[TASK ENFORCEMENT — RESEARCH] You MUST call web_search to get current information, then web_fetch to read the full content of top results. Do NOT answer from training data alone.';
+        taskEnforcementActive = true;
+    }
+    if (/\b(run|execute|install|check|build|compile|start|stop|restart|deploy|test)\b.{0,40}\b(command|script|package|service|server|process|app)\b/i.test(message)) {
+        systemPrompt += '\n\n[TASK ENFORCEMENT — SHELL] You MUST call the shell tool to execute this command. Do NOT describe what the command would do — run it and report the actual output.';
+        taskEnforcementActive = true;
+    }
+
     // Voice mode: force concise, conversational responses suitable for TTS
     if (channel === 'voice') {
         systemPrompt += `\n\n## VOICE MODE — CRITICAL (HIGHEST PRIORITY)
@@ -531,10 +614,13 @@ STRICT RULES — NEVER BREAK THESE:
 - Be conversational and natural — like talking to a friend
 - ABSOLUTELY NO: bullet points, numbered lists, markdown, code blocks, emojis, headers, bold, italics
 - ABSOLUTELY NO: long explanations, context dumps, capability descriptions, action plans
+- NEVER mention tool names, function names, or say things like "I'll use the X tool" or "Let me check with X". Just give the answer.
 - Do NOT mention your tools, personas, knowledge graph, or internal systems unless directly asked
 - For greetings, just greet back warmly in one sentence
 - Answer the question directly. If you don't know, say so briefly.
 - Write as plain spoken English only. No formatting of any kind.
+- After using tools, ALWAYS summarize the actual results conversationally. NEVER say "I completed the tool operations" or similar generic filler. Tell the user what you found.
+- If asked about counts or lists, give the key number and 2-3 highlights. Do NOT list everything.
 
 ## Orpheus TTS Emotion Tags
 Express emotions naturally using these inline tags:
@@ -543,7 +629,12 @@ Example: "That's hilarious! <laugh> I can't believe that happened."
 Example: "<sigh> That's a tough one, but I'll figure it out."
 Use sparingly and naturally. They make you sound more human.`;
     }
-    const historyMessages = getContextMessages(session);
+    // Voice sessions: limit context to last 6 messages (3 turns) to prevent
+    // multi-turn degradation with local models. Long contexts cause Qwen to
+    // hallucinate system prompts and get stuck in tool loops.
+    const historyMessages = voiceFastPath
+        ? getContextMessages(session, 6)
+        : getContextMessages(session);
     const tools = getToolDefinitions();
 
     // ── Learning feedback: inject reliability tags into tool descriptions ──
@@ -615,7 +706,7 @@ Use sparingly and naturally. They make you sound more human.`;
     }
 
     // ── Brain: intelligent tool pre-filtering ──────────────────
-    if (!isKimiSwarm && !isSmallModel && isBrainAvailable()) {
+    if (!voiceFastPath && !isKimiSwarm && !isSmallModel && isBrainAvailable()) {
         const brainFiltered = await brainSelectTools(message, activeTools);
         if (brainFiltered.length > 0 && brainFiltered.length < activeTools.length) {
             logger.info(COMPONENT, `[Brain] Filtered: ${activeTools.length} → ${brainFiltered.length} tools`);
@@ -648,11 +739,11 @@ Use sparingly and naturally. They make you sound more human.`;
     resetProgress();
     let pivotCount = 0;
     const MAX_PIVOTS = 1; // Max 1 strategic pivot per request
-    let failedApproaches: string[] = [];
+    const failedApproaches: string[] = [];
 
     // ── Orchestration: check if task benefits from sub-agent delegation ──
     const autoDelegate = (subAgentConfig as Record<string, unknown> | undefined)?.autoDelegate !== false;
-    if (isAutonomous && autoDelegate && message.split(/\s+/).length >= 10) {
+    if (!voiceFastPath && isAutonomous && autoDelegate && message.split(/\s+/).length >= 10) {
         try {
             const delegationPlan = await analyzeForDelegation(message);
             if (delegationPlan.shouldDelegate && delegationPlan.tasks.length >= 2) {
@@ -673,6 +764,19 @@ Use sparingly and naturally. They make you sound more human.`;
 
     // Agent loop with tool calling
     for (let round = 0; round < effectiveMaxRounds; round++) {
+        // Check if the user aborted this session
+        if (signal?.aborted) {
+            logger.info(COMPONENT, `Session aborted by user at round ${round + 1}`);
+            return {
+                content: '[Stopped by user]',
+                sessionId: session.id,
+                toolsUsed,
+                tokenUsage: { prompt: 0, completion: 0, total: 0 },
+                model: modelUsed,
+                durationMs: Date.now() - startTime,
+            };
+        }
+
         logger.debug(COMPONENT, `Round ${round + 1}: ${messages.length} messages, ${activeTools.length} tools: [${activeTools.map(t => t.function.name).join(', ')}]`);
 
         // ── Graceful degradation: wrap-up prompt when approaching round limit ───
@@ -746,24 +850,32 @@ Use sparingly and naturally. They make you sound more human.`;
                     });
                 }
                 // 'continue' → no injection, just keep going
-            } catch {
-                // Reflection failed, continue without it
+            } catch (e) {
+                logger.warn(COMPONENT, `Reflection failed, continuing: ${(e as Error).message}`);
             }
         }
 
-        // ── Cost optimizer: context compression to save tokens ───
-        const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(
-            messages.filter((m) => m.role !== 'tool' || round < 3) // keep recent tool results
-        );
-        if (didCompress) {
-            logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
-            messages.length = 0;
-            messages.push(...compressedMessages);
-        }
+        // ── Cost optimizer: context compression to save tokens (skip for voice fast-path) ───
+        let smartMessages: ChatMessage[];
+        if (voiceFastPath) {
+            // Voice fast-path: skip compression overhead — voice convos are short
+            smartMessages = messages as ChatMessage[];
+        } else {
+            const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(
+                messages.filter((m) => m.role !== 'tool' || round < 3) // keep recent tool results
+            );
+            if (didCompress) {
+                logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
+                messages.length = 0;
+                messages.push(...compressedMessages);
+            }
 
-        // ── Smart context manager: second compression layer ───
-        const tokenBudget = (config.agent.maxTokens || 4096) * 4; // rough context window estimate
-        const smartMessages = buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+            // ── Smart context manager: second compression layer (skip if already compressed) ───
+            const tokenBudget = (config.agent.maxTokens || 4096) * 4; // rough context window estimate
+            smartMessages = didCompress
+                ? compressedMessages as ChatMessage[]
+                : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+        }
 
         // ── Response cache: check before calling LLM ───
         const cachedResponse = getCachedResponse(smartMessages, activeModel);
@@ -778,10 +890,15 @@ Use sparingly and naturally. They make you sound more human.`;
             model: activeModel,
             messages: smartMessages,
             tools: activeTools.length > 0 ? activeTools : undefined,
-            maxTokens: config.agent.maxTokens,
+            maxTokens: voiceFastPath ? Math.min(config.agent.maxTokens, 100) : config.agent.maxTokens,
             temperature: config.agent.temperature,
             thinking: thinkingMode !== 'off',
             thinkingLevel: thinkingMode,
+            // Force a tool call on round 0 when task enforcement is active and tools are available.
+            // This adds API-level guarantees on top of prompt-level instructions.
+            // Respects config.agent.forceToolUse (default: true).
+            forceToolUse: round === 0 && taskEnforcementActive && activeTools.length > 0
+                && (config.agent as Record<string, unknown>).forceToolUse !== false,
         };
 
         let response: ChatResponse;
@@ -966,8 +1083,8 @@ Use sparingly and naturally. They make you sound more human.`;
             const taskType = classifyTaskType(message);
             recordToolPreference(result.name, taskType, success);
 
-            // Active Learning: auto-inject known error resolutions
-            if (!success) {
+            // Active Learning: auto-inject known error resolutions (skip for voice — adds noise)
+            if (!success && !voiceFastPath) {
                 const resolution = getErrorResolution(result.content);
                 if (resolution) {
                     logger.info(COMPONENT, `[ActiveLearning] Known fix for error: ${resolution.slice(0, 80)}`);
@@ -978,10 +1095,14 @@ Use sparingly and naturally. They make you sound more human.`;
                 }
             }
 
-            // Track error resolutions: when a previous tool failed and this one succeeded
-            if (success && lastFailedTool) {
-                recordErrorResolution(lastFailedTool.error, `Resolved by using ${result.name} instead of ${lastFailedTool.name}`);
-                lastFailedTool = null;
+            // Track error resolutions: when a previous tool failed and a DIFFERENT tool succeeded
+            // Skip for voice fast-path to avoid recording noisy patterns from short voice sessions
+            if (!voiceFastPath && success && lastFailedTool) {
+                if (result.name !== lastFailedTool.name) {
+                    // Different tool resolved it — that's a meaningful pattern worth recording
+                    recordErrorResolution(lastFailedTool.error, `Resolved by using ${result.name} instead of ${lastFailedTool.name}`);
+                }
+                lastFailedTool = null; // Clear regardless — the error is no longer active
             } else if (!success) {
                 lastFailedTool = { name: result.name, error: result.content.slice(0, 200) };
             }
@@ -1077,7 +1198,7 @@ Use sparingly and naturally. They make you sound more human.`;
                 lastContent: finalContent.slice(0, 500),
                 timestamp: Date.now(),
             });
-        } catch { /* ignore serialization failures */ }
+        } catch (e) { logger.debug(COMPONENT, `Response serialization failed: ${(e as Error).message}`); }
     }
 
     return {

@@ -1,20 +1,26 @@
 """
-TITAN Voice Server — FastAPI + WebSocket endpoint
+TITAN Voice Server — FastAPI + WebSocket + REST endpoints
 Standalone Python service for voice chat (STT + TTS + VAD).
+Also exposes OpenAI-compatible REST API for TTS synthesis.
 """
 import asyncio
+import glob
+import io
 import logging
+import os
 import time
+import wave
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import numpy as np
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from config import cfg
 from vad import VoiceActivityDetector
 from stt import SpeechToText
 from tts import create_tts_engine, TTSEngine
-from pipeline import VoicePipeline
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("titan-voice")
@@ -76,6 +82,73 @@ async def health():
         "ttsVoice": cfg.TTS_VOICE,
     }
 
+
+# ── OpenAI-compatible TTS REST API ──────────────────────────────────────
+
+@app.post("/v1/audio/speech")
+async def synthesize_speech(request: Request):
+    """OpenAI-compatible TTS endpoint. Accepts {input, voice, response_format}."""
+    if not _tts:
+        return Response(content="TTS not loaded", status_code=503)
+
+    body = await request.json()
+    text = body.get("input", "")
+    voice = body.get("voice", cfg.TTS_VOICE)
+    # response_format: wav (default) or pcm
+    response_format = body.get("response_format", "wav")
+
+    if not text:
+        return Response(content="No input text", status_code=400)
+
+    t0 = time.monotonic()
+    audio = _tts.synthesize(text, voice)
+    duration = time.monotonic() - t0
+    log.info("TTS synthesized %d samples in %.2fs (voice=%s)", len(audio), duration, voice)
+
+    if response_format == "pcm":
+        # Raw 16-bit PCM
+        pcm16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        return Response(content=pcm16.tobytes(), media_type="audio/pcm")
+
+    # WAV format (default)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit
+        wf.setframerate(cfg.TTS_SAMPLE_RATE)
+        pcm16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        wf.writeframes(pcm16.tobytes())
+
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="audio/wav")
+
+
+@app.get("/v1/audio/voices")
+async def list_voices():
+    """List available TTS voices."""
+    # TADA: scan ~/.titan/voices/ for WAV files
+    if hasattr(_tts, "available_voices"):
+        return {"voices": _tts.available_voices()}
+
+    # Orpheus: fixed voice set
+    if cfg.TTS_ENGINE == "orpheus":
+        return {"voices": ["tara", "leah", "jess", "mia", "zoe", "leo", "dan", "zac"]}
+
+    # Kokoro: fixed set (query would need external API)
+    if cfg.TTS_ENGINE == "kokoro":
+        return {"voices": ["af_heart", "af_bella", "af_nova", "af_sky", "am_adam", "am_michael"]}
+
+    # Fallback: scan voices directory
+    voices_dir = os.path.expanduser("~/.titan/voices")
+    voices = []
+    if os.path.isdir(voices_dir):
+        for f in sorted(glob.glob(os.path.join(voices_dir, "*.wav"))):
+            name = os.path.splitext(os.path.basename(f))[0]
+            voices.append(name)
+    return {"voices": voices if voices else ["default"]}
+
+
+# ── WebSocket voice chat ────────────────────────────────────────────────
 
 @app.websocket("/ws/voice")
 async def voice_ws(ws: WebSocket):

@@ -91,14 +91,14 @@ export function registerLeadScorerSkill(): void {
     registerSkill(
         {
             name: 'lead_scorer',
-            description: 'Monitor Reddit/forums for leads with intent signal detection',
+            description: 'Use this skill when Tony says "score this lead", "rank these prospects", "which leads are hottest?", "scan Reddit for leads", "find people looking for [service]", or "show me my lead pipeline". Monitors Reddit and HackerNews for buying intent signals, scores leads 1-10, and manages the lead queue.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'lead_scan',
-            description: 'Search Reddit, HN, and forums for posts with intent signals ("looking for", "need help with", etc.). Returns scored results.',
+            description: 'Scan Reddit and HackerNews for posts with buying intent signals like "looking for", "need help with", "hiring", or "willing to pay". Use when Tony says "scan for leads", "find people who need [service]", or "what\'s on Reddit about [topic]?". Returns results scored by intent strength.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -193,14 +193,14 @@ export function registerLeadScorerSkill(): void {
     registerSkill(
         {
             name: 'lead_scorer',
-            description: 'Monitor Reddit/forums for leads with intent signal detection',
+            description: 'Use this skill when Tony says "score this lead", "rank these prospects", "which leads are hottest?", "scan Reddit for leads", "find people looking for [service]", or "show me my lead pipeline". Monitors Reddit and HackerNews for buying intent signals, scores leads 1-10, and manages the lead queue.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'lead_score',
-            description: 'Score a specific lead 1-10 based on intent signals, recency, and engagement indicators.',
+            description: 'Score a specific lead 1-10 based on intent signals, recency, and engagement indicators. Use when Tony says "score this lead", "how good is this prospect?", or "rate this post as a lead". Returns priority level (HIGH/MEDIUM/LOW) with reasoning.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -255,14 +255,14 @@ export function registerLeadScorerSkill(): void {
     registerSkill(
         {
             name: 'lead_scorer',
-            description: 'Monitor Reddit/forums for leads with intent signal detection',
+            description: 'Use this skill when Tony says "score this lead", "rank these prospects", "which leads are hottest?", "scan Reddit for leads", "find people looking for [service]", or "show me my lead pipeline". Monitors Reddit and HackerNews for buying intent signals, scores leads 1-10, and manages the lead queue.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'lead_queue',
-            description: 'Save or manage leads in the lead queue (JSONL persistence).',
+            description: 'Save, update, and manage leads in the lead queue. Use when Tony says "add this lead", "I contacted that prospect", "mark lead as qualified/converted", "show me my hottest leads", or "what\'s in my lead pipeline?".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -390,14 +390,14 @@ export function registerLeadScorerSkill(): void {
     registerSkill(
         {
             name: 'lead_scorer',
-            description: 'Monitor Reddit/forums for leads with intent signal detection',
+            description: 'Use this skill when Tony says "score this lead", "rank these prospects", "which leads are hottest?", "scan Reddit for leads", "find people looking for [service]", or "show me my lead pipeline". Monitors Reddit and HackerNews for buying intent signals, scores leads 1-10, and manages the lead queue.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'lead_report',
-            description: 'Generate a lead summary report for a given period. Useful for daily/weekly digests.',
+            description: 'Generate a lead summary report for a given period. Use when Tony asks "give me a lead report", "how many leads this week?", "what\'s my lead conversion rate?", or "daily lead digest".',
             parameters: {
                 type: 'object',
                 properties: {

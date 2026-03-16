@@ -39,7 +39,7 @@ describe('MeshConfigSchema', () => {
 });
 
 describe('AgentConfigSchema', () => {
-    it('should have 5 default model aliases', () => {
+    it('should have default model aliases including cloud tier', () => {
         const agent = AgentConfigSchema.parse({});
         expect(agent.modelAliases).toEqual({
             fast: 'openai/gpt-4o-mini',
@@ -47,6 +47,7 @@ describe('AgentConfigSchema', () => {
             reasoning: 'openai/o3-mini',
             cheap: 'google/gemini-2.0-flash',
             local: 'ollama/qwen3.5:4b',
+            cloud: 'ollama/qwen3.5:397b-cloud',
         });
     });
 

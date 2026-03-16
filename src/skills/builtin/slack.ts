@@ -105,7 +105,7 @@ async function sendSlackMessage(channel: string, text: string, threadTs?: string
 
 const SKILL_META = {
     name: 'slack',
-    description: 'Slack tools — post, read, search, react, thread reply, list channels',
+    description: 'Slack tools for posting, reading, searching, reacting, and managing channels. USE THIS WHEN Tony says: "send to Slack", "post in #channel", "DM X on Slack", "read Slack messages", "search Slack for X", "react to that message", "reply in thread". RULES: Requires SLACK_BOT_TOKEN. Messages are queued for review before sending unless skipReview=true.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -119,7 +119,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_post',
-            description: 'Post a message to a Slack channel. Messages are queued for human review before sending (configurable).',
+            description: 'Posts a message to a Slack channel. USE THIS WHEN Tony says: "send to Slack", "post in #channel", "message the team on Slack", "post X to #general". WORKFLOW: Call slack_post with channel and text. Message is queued for review — Tony must approve via slack_review unless skipReview=true. RULES: Use channel ID or name with #. Messages are held for review by default.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -173,7 +173,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_read',
-            description: 'Read recent messages from a Slack channel.',
+            description: 'Reads recent messages from a Slack channel. USE THIS WHEN Tony says: "read Slack messages", "what\'s in #channel", "show recent Slack messages", "what did people say in #general".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -228,7 +228,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_search',
-            description: 'Search Slack messages. Note: requires a user token with search:read scope (bot tokens cannot search).',
+            description: 'Searches Slack messages using a query string. USE THIS WHEN Tony says: "search Slack for X", "find messages about Y in Slack", "who mentioned X in Slack". NOTE: Requires a user token with search:read scope — bot tokens cannot search.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -287,7 +287,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_react',
-            description: 'Add an emoji reaction to a Slack message.',
+            description: 'Adds an emoji reaction to a Slack message. USE THIS WHEN Tony says: "react to that Slack message", "add a thumbsup to message X", "react with rocket emoji".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -329,7 +329,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_thread_reply',
-            description: 'Reply to a specific Slack thread. Messages are queued for human review before sending (configurable).',
+            description: 'Replies to a specific Slack thread. USE THIS WHEN Tony says: "reply in that Slack thread", "respond to the thread", "DM reply in thread X". WORKFLOW: Provide channel, threadTs, and text. Message is queued for review unless skipReview=true.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -383,7 +383,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_channels',
-            description: 'List available Slack channels the bot has access to.',
+            description: 'Lists available Slack channels the bot has access to. USE THIS WHEN Tony says: "list Slack channels", "what channels am I in", "show Slack channels", "what channels does the bot have access to".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -432,7 +432,7 @@ export function registerSlackSkill(): void {
         { ...SKILL_META },
         {
             name: 'slack_review',
-            description: 'Review and approve/reject queued Slack messages.',
+            description: 'Reviews and approves or rejects queued Slack messages. USE THIS WHEN Tony says: "show pending Slack messages", "approve that Slack message", "reject the queued message", "what Slack messages are waiting". WORKFLOW: action=list to see queue, action=approve with messageId to send, action=reject to discard.',
             parameters: {
                 type: 'object',
                 properties: {

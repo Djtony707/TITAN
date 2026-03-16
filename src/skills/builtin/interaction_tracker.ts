@@ -74,7 +74,7 @@ function filterByPeriod(entries: InteractionEntry[], period: string): Interactio
 
 const SKILL_META = {
     name: 'interaction_tracker',
-    description: 'Log, search, and analyze community interactions across platforms',
+    description: 'Use this skill when Tony says "log this interaction", "track that I talked to X", "note this reply I made", "I commented on [post]", "how many interactions have I had this week?", or "find interactions where I mentioned X". Tracks community engagement across X, GitHub, Discord, Slack, and forums with stats and trends.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -86,7 +86,7 @@ export function registerInteractionTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'interaction_log',
-            description: 'Log a community interaction (reply, comment, post, issue, PR, review) on any platform.',
+            description: 'Log a community interaction — reply, comment, post, GitHub issue/PR, or review. Use when Tony says "log this interaction", "track that I replied to [person]", "note this comment I made", or "record this engagement on [platform]".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -140,7 +140,7 @@ export function registerInteractionTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'interaction_stats',
-            description: 'Get interaction statistics — totals, breakdowns by platform/type, daily trends.',
+            description: 'Get interaction statistics — totals, breakdowns by platform and type, and daily trend charts. Use when Tony asks "how many interactions have I had this week?", "am I on track with my engagement goals?", or "show me a breakdown of my community activity".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -227,7 +227,7 @@ export function registerInteractionTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'interaction_search',
-            description: 'Search past interactions by keyword in content summary.',
+            description: 'Search past interactions by keyword. Use when Tony asks "find interactions where I mentioned X", "did I talk to someone about Y?", or "search my interaction history for [topic]".',
             parameters: {
                 type: 'object',
                 properties: {

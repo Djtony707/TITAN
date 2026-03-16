@@ -249,6 +249,15 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerWeeklyReportSkill } = await import('./builtin/weekly_report.js');
     const { registerSelfImproveSkill } = await import('./builtin/self_improve.js');
     const { registerModelTrainerSkill } = await import('./builtin/model_trainer.js');
+    const { registerSocialSchedulerSkill } = await import('./builtin/social_scheduler.js');
+    const { registerStructuredOutputSkill } = await import('./builtin/structured_output.js');
+    const { registerWorkflowsSkill } = await import('./builtin/workflows.js');
+    const { registerAgentHandoffSkill } = await import('./builtin/agent_handoff.js');
+    const { registerKnowledgeBaseSkill } = await import('./builtin/knowledge_base.js');
+    const { registerEventTriggersSkill } = await import('./builtin/event_triggers.js');
+    const { registerA2AProtocolSkill } = await import('./builtin/a2a_protocol.js');
+    const { registerEvalsSkill } = await import('./builtin/evals.js');
+    const { registerApprovalGatesSkill } = await import('./builtin/approval_gates.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -303,6 +312,15 @@ export async function initBuiltinSkills(): Promise<void> {
         ['weekly_report', registerWeeklyReportSkill],
         ['self_improve', registerSelfImproveSkill],
         ['model_trainer', registerModelTrainerSkill],
+        ['social_scheduler', registerSocialSchedulerSkill],
+        ['structured_output', registerStructuredOutputSkill],
+        ['workflows', registerWorkflowsSkill],
+        ['agent_handoff', registerAgentHandoffSkill],
+        ['knowledge_base', registerKnowledgeBaseSkill],
+        ['event_triggers', registerEventTriggersSkill],
+        ['evals', registerEvalsSkill],
+        ['a2a_protocol', registerA2AProtocolSkill],
+        ['approval_gates', registerApprovalGatesSkill],
     ];
 
     for (const [name, fn] of registrations) {
@@ -332,6 +350,35 @@ export async function initBuiltinSkills(): Promise<void> {
     if (process.env.NODE_ENV !== 'production' || process.env.TITAN_DEV) {
         const { initDevSkills } = await import('./dev/loader.js');
         await initDevSkills();
+    }
+
+    // Load personal skills (private, gitignored — only when TITAN_PERSONAL=1)
+    // Primary location: dist/skills/personal/loader.js (co-located with dist/skills/registry.js
+    //   so `../registry` resolves to the SAME module instance — tools register into the correct registry)
+    // Fallback: ~/.titan/personal/loader.js (legacy / TITAN_PERSONAL_DIR override)
+    if (process.env.TITAN_PERSONAL === '1') {
+        try {
+            const { pathToFileURL, fileURLToPath } = await import('node:url');
+            const { join: _join, dirname: _dirname } = await import('node:path');
+            // Compute dist/skills/ dir from this file's location (works on any machine)
+            const thisDir = _dirname(fileURLToPath(import.meta.url));
+            const distPersonalDir = _join(thisDir, 'personal');
+            // TITAN_PERSONAL_DIR env var overrides; otherwise try dist-local first, then ~/.titan/personal/
+            const personalDir = process.env.TITAN_PERSONAL_DIR
+                || (existsSync(_join(distPersonalDir, 'loader.js')) ? distPersonalDir : _join(TITAN_HOME, 'personal'));
+            const loaderPath = _join(personalDir, 'loader.js');
+            if (existsSync(loaderPath)) {
+                // Inject the main app's registerSkill into a global so the personal bundle
+                // (which has its own bundled copy) uses the correct shared toolRegistry instance.
+                (globalThis as Record<string, unknown>).__titanRegisterSkill = registerSkill;
+                const { initPersonalSkills } = await import(pathToFileURL(loaderPath).href) as { initPersonalSkills: () => Promise<void> };
+                await initPersonalSkills();
+            } else {
+                logger.warn(COMPONENT, `TITAN_PERSONAL=1 but ${loaderPath} not found — run: npm run build:personal`);
+            }
+        } catch (err) {
+            logger.warn(COMPONENT, `Personal skills failed to load: ${(err as Error).message}`);
+        }
     }
 }
 
@@ -475,7 +522,8 @@ function loadYamlSkill(filePath: string): ToolHandler | null {
             try {
                 // Run in a restricted VM context — no access to globalThis, process, eval, or Function
                 const safeRequire = (mod: string) => {
-                    const allowed = ['fs', 'path', 'os', 'crypto', 'child_process', 'http', 'https', 'url', 'util'];
+                    // SECURITY: child_process, http, https removed — YAML skills must use builtin tools for shell/network
+                    const allowed = ['fs', 'path', 'os', 'crypto', 'url', 'util'];
                     if (!allowed.includes(mod)) throw new Error(`Module "${mod}" not allowed in YAML skills`);
                     return require(mod); // eslint-disable-line @typescript-eslint/no-require-imports
                 };

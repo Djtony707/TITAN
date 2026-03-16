@@ -19,14 +19,14 @@ export function registerGoalsSkill(): void {
     registerSkill(
         {
             name: 'goals',
-            description: 'Goal management — create, track, and complete long-running objectives',
+            description: 'Goal management — create, track, and complete long-running objectives. USE THIS WHEN Tony says: "set a goal", "I want to achieve X", "track this", "add a goal", "create a new objective".',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'goal_create',
-            description: 'Create a new goal with optional subtasks and schedule. Goals persist across sessions and drive autopilot cycles.',
+            description: 'Creates a new goal with optional subtasks and schedule. USE THIS WHEN Tony says: "set a goal", "I want to achieve X", "add a new goal", "create an objective", "track this goal". Goals persist across sessions and drive autopilot cycles. RULES: Always provide a clear title and description. Optionally add subtasks as a JSON array.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -98,14 +98,14 @@ export function registerGoalsSkill(): void {
     registerSkill(
         {
             name: 'goals',
-            description: 'Goal management — create, track, and complete long-running objectives',
+            description: 'Goal management — list, track, and review long-running objectives. USE THIS WHEN Tony says: "what are my goals", "show my goals", "list active goals", "what am I working on".',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'goal_list',
-            description: 'List all goals with their progress and status. Optionally filter by status.',
+            description: 'Lists all goals with their progress and status. USE THIS WHEN Tony says: "what are my goals", "show my goals", "list active goals", "what am I working on", "show goal progress". Optionally filter by status (active, paused, completed, failed).',
             parameters: {
                 type: 'object',
                 properties: {
@@ -138,14 +138,14 @@ export function registerGoalsSkill(): void {
     registerSkill(
         {
             name: 'goals',
-            description: 'Goal management — create, track, and complete long-running objectives',
+            description: 'Goal management — update progress and status on existing objectives. USE THIS WHEN Tony says: "update goal progress", "mark goal as complete", "pause this goal", "set progress to X%".',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'goal_update',
-            description: 'Update a goal\'s status, progress, priority, or other properties.',
+            description: 'Updates a goal\'s status, progress, priority, or adds subtasks. USE THIS WHEN Tony says: "update goal progress", "mark goal as complete", "pause this goal", "set progress to X%", "add a subtask to goal X", "change priority of goal Y". WORKFLOW: Use goal_list first to get the goal ID, then call goal_update with id and the fields to change.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -208,14 +208,14 @@ export function registerGoalsSkill(): void {
     registerSkill(
         {
             name: 'goals',
-            description: 'Goal management — create, track, and complete long-running objectives',
+            description: 'Goal management — delete goals and their subtasks. USE THIS WHEN Tony says: "delete this goal", "remove goal X", "get rid of that objective".',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'goal_delete',
-            description: 'Delete a goal and all its subtasks.',
+            description: 'Deletes a goal and all its subtasks permanently. USE THIS WHEN Tony says: "delete this goal", "remove goal X", "get rid of that objective", "cancel goal Y". WORKFLOW: Use goal_list first to get the goal ID, then call goal_delete with the id.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -13,10 +13,10 @@ const COMPONENT = 'Sessions';
 export function registerSessionsSkill(): void {
     // sessions_list
     registerSkill(
-        { name: 'sessions_list', description: 'List active sessions', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'sessions_list', description: 'List all active agent sessions. USE THIS WHEN Tony says: "show active sessions", "what sessions are running", "list sessions".', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'sessions_list',
-            description: 'List all active agent sessions with their IDs, channels, users, and message counts.',
+            description: 'Lists all active agent sessions with their IDs, channels, users, and message counts. USE THIS WHEN Tony says: "show active sessions", "what sessions are running", "list sessions", "who is connected".',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -33,10 +33,10 @@ export function registerSessionsSkill(): void {
 
     // sessions_history
     registerSkill(
-        { name: 'sessions_history', description: 'Get session message history', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'sessions_history', description: 'Get message history for a specific session. USE THIS WHEN Tony says: "show conversation history", "what did we discuss before", "show session messages", "recall previous conversation".', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'sessions_history',
-            description: 'Retrieve the recent message history for a specific session.',
+            description: 'Retrieves the recent message history for a specific session. USE THIS WHEN Tony says: "show conversation history", "what did we discuss before", "show session messages", "recall previous conversation", "what was said in session X". WORKFLOW: Requires sessionChannel and sessionUserId to identify the session.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -62,10 +62,10 @@ export function registerSessionsSkill(): void {
 
     // sessions_send
     registerSkill(
-        { name: 'sessions_send', description: 'Send a message to another session', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'sessions_send', description: 'Send a message to another agent session, triggering agent processing. USE THIS WHEN an agent needs to communicate with another session or delegate a task.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'sessions_send',
-            description: 'Send a message to a specific user\'s session on a channel, triggering agent processing.',
+            description: 'Sends a message to a specific user\'s session on a channel, triggering agent processing. USE THIS for agent-to-agent communication — when one agent needs to delegate a task, send a message, or coordinate with another session. WORKFLOW: Provide targetChannel, targetUserId, and message.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -93,10 +93,10 @@ export function registerSessionsSkill(): void {
 
     // sessions_close
     registerSkill(
-        { name: 'sessions_close', description: 'Close a session', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'sessions_close', description: 'Close and clear a specific session. USE THIS WHEN Tony says: "clear history", "reset this session", "close session X", "start fresh".', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'sessions_close',
-            description: 'Close a specific session by its session ID.',
+            description: 'Closes a specific session by its session ID, clearing its context. USE THIS WHEN Tony says: "clear history", "reset this session", "close session X", "start fresh", "end that session". WORKFLOW: Use sessions_list first to get the session ID, then call sessions_close.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -16,9 +16,9 @@ class Config:
     STT_DEVICE: str = os.getenv("STT_DEVICE", "cuda")
     STT_COMPUTE_TYPE: str = os.getenv("STT_COMPUTE_TYPE", "float16")
 
-    # TTS engine: kokoro | orpheus | chatterbox
-    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "kokoro")
-    TTS_VOICE: str = os.getenv("TTS_VOICE", "af_heart")
+    # TTS engine: tada (Hume AI TADA)
+    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "tada")
+    TTS_VOICE: str = os.getenv("TTS_VOICE", "default")
     TTS_DEVICE: str = os.getenv("TTS_DEVICE", "cpu")
 
     # VAD (Silero)

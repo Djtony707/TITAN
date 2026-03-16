@@ -4,6 +4,211 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.40] — 2026-03-16
+
+### Added
+- **Structured Output skill** — `json_extract`, `json_transform`, `validate_json` tools with JSON Schema validation
+- **Workflow Engine skill** — DAG-based declarative workflows with parallel execution, conditional steps, template substitution
+- **Social Media Scheduler** — Multi-platform post scheduling (X, LinkedIn, Bluesky, Mastodon, Threads) with character limits and AI drafts
+- **Agent Handoff skill** — `agent_delegate`, `agent_team`, `agent_chain`, `agent_critique` for multi-agent patterns
+- **Event Triggers skill** — Reactive "when X → do Y" automation (file_change, webhook, schedule, system, email, custom)
+- **Knowledge Base skill** — `kb_ingest`, `kb_search`, `kb_ingest_url`, `kb_ingest_file`, `kb_list`, `kb_delete` with TF-IDF search
+- **Eval Framework skill** — Dataset management, 5 scorers (exact_match, contains, llm_judge, length, json_valid), model comparison
+- **Approval Gates skill** — Human-in-the-loop tool-level approve/deny with timeout auto-actions and audit history
+- **A2A Protocol skill** — Agent-to-Agent interoperability following Google/Linux Foundation standard
+- **Integration tests** — 1,522-line cross-skill interaction test suite
+- **Security tests** — 391-line injection, traversal, and DoS vector test suite
+
+### Fixed
+- **Critical**: SSE daemon `removeAllListeners` bug — multi-client disconnect no longer nukes other clients' listeners
+- **Critical**: YAML skill sandbox — removed `child_process`, `http`, `https` from allowed modules (arbitrary code execution vector)
+- Knowledge base path validation now includes `os.tmpdir()` (macOS compatibility)
+- Event triggers file watcher cleanup and input validation hardened
+- A2A protocol stricter task state transitions
+- Structured output JSON schema edge cases
+- Workflow template substitution safety improvements
+
+### Stats
+- 9 new skills, 40 new tools (~189 total)
+- 4,321 tests across 135 files (all passing)
+
+---
+
+## [2026.10.39] — 2026-03-16
+
+### Fixed
+- **Security**: Resolved all 23 Dependabot vulnerability alerts (0 remaining)
+- Upgraded matrix-js-sdk v34 → v41
+- Added npm overrides for transitive deps: esbuild ^0.25.0, yauzl ^3.2.1, langsmith ^0.5.0
+
+---
+
+## [2026.10.38] — 2026-03-16
+
+### Added
+- **`titan doctor --json`** — Machine-readable JSON output with full DoctorReport (Issue #2)
+- **npm download stats** — `titan doctor` now shows weekly npm download count from registry (Issue #4)
+- **Weather skill tests** — 27 unit tests covering registration, execution, forecasts, errors (Issue #6)
+
+### Improved
+- **Provider error messages** — Actionable hints for missing API keys: env var names, config paths, Ollama-specific messages, key validity vs missing (Issue #3)
+
+---
+
+## [2026.10.37] — 2026-03-15
+
+### Added
+- **Streaming voice endpoint** (`POST /api/voice/stream`) — LLM tokens streamed via SSE, chunked at sentence boundaries, TTS fired per-sentence
+- **Sentence-chunked TTS** — First audio arrives while LLM is still generating; ~1-2s faster time-to-first-audio
+- **Server-side voice text processing** — stripMarkdown, stripEmotionTags, stripToolNarration in streaming endpoint
+- **Audio playback queue** — VoiceOverlay plays sentence chunks sequentially as they stream in
+
+### Changed
+- VoiceOverlay uses `/api/voice/stream` by default with fallback to sequential `/api/message` + `/api/voice/preview`
+
+---
+
+## [2026.10.36] — 2026-03-15
+
+### Added
+- **Voice fast-path** — Voice channel skips deliberation, Brain tool filtering, reflection, orchestration, and context compression for ~200-500ms savings per request
+- **Adaptive silence timer** — STT silence detection adapts to utterance length: 400ms for short commands, 700ms for longer questions (was fixed 1200ms)
+- **Ollama keep_alive** — Models stay loaded in VRAM for 30 minutes between requests, eliminating 2-5s cold-start penalty
+- **Voice performance config** — New `voice.maxToolRounds` (default 3) and `voice.fastPath` (default true) settings
+
+### Changed
+- Echo grace period reduced from 1500ms to 500ms (browser echoCancellation + mic energy interrupt handle echo)
+- Voice tool rounds capped at 3 (configurable) for faster responses
+
+---
+
+## [2026.10.35] — 2026-03-15
+
+### Fixed
+- **Voice echo prevention** — `processingRef` guard prevents duplicate API calls; 1500ms grace period after TTS playback; transcript buffer cleared between exchanges
+- **TTS/display mismatch** — TTS now uses same `displayText` as chat display (was using pre-stripped `cleanText`)
+- **Tool narration in voice mode** — Client-side `stripToolNarration()` removes LLM tool-mention leaks ("I'll use the ha_setup tool...") from voice responses
+- **STT restart after first exchange** — `processingRef` removed from `onresult`/`onend` callbacks (only guards `handleUserMessage`)
+
+### Changed
+- Voice mode system prompt strengthened with explicit "NEVER mention tool names" directive
+- Voice text pipeline: `rawText → stripMarkdown → stripEmotionTags → stripToolNarration → displayText`
+
+---
+
+## [2026.10.34] — 2026-03-15
+
+### Changed
+- **Fish Speech removed** — All Fish Speech code, UI, and Gradio integration stripped; TTS is Orpheus-only with browser fallback
+- **TTS engine schema validated** — `z.enum(['orpheus', 'browser'])` replaces unvalidated string
+- **Dead code removed** — VoiceSettingsPanel.tsx (11KB, never imported)
+- **Agent error logging** — 5 silent catch blocks now log warnings/debug messages
+- **Double compression fix** — Skip `buildSmartContext` when `maybeCompressContext` already compressed
+- **Session cleanup hardening** — Periodic sweep of orphaned AbortControllers
+- **Titan PC cleanup** — Removed unhealthy llama-cpp-server container (3.8GB VRAM), Fish Speech files (11GB+ disk)
+
+---
+
+## [2026.10.33] — 2026-03-15
+
+### Changed
+- **Home Assistant auto-save** — Gateway auto-detects HA URL + JWT token in user messages and saves to config before LLM processes (prevents model hallucination/tool-skip)
+- **ha_setup tool hardened** — Stronger description, rawInput param for free-form text parsing, atomic config saves, logging
+- **ha_setup in coreTools** — Always visible to LLM, no tool_search needed
+- **Voice test fix** — ttsVoice default assertion updated from 'default' to 'tara'
+
+---
+
+## [2026.10.32] — 2026-03-15
+
+### Changed
+- **Orpheus TTS restored** — Reverted from TADA (too slow on CPU) back to Orpheus TTS with GPU acceleration and emotional speech. Default voice `tara`, 8 voices: tara, leah, jess, mia, zoe, leo, dan, zac. Port 5005.
+- **Voice selector in VoiceOverlay** — Dropdown during active voice chat to switch between all 8 Orpheus voices mid-conversation. Color-coded dots, saves to localStorage and server config.
+- **VoicePicker overhaul** — Proper Orpheus voice presets with unique gradients, descriptions, and gender hints. Exported `getVoiceInfo()` utility.
+- **Separate TTS AbortController** — TTS fetch no longer shares AbortController with main request, preventing cascade aborts.
+- **Browser TTS fallback** — If Orpheus server is unreachable (15s timeout), falls back to browser Speech Synthesis API instantly.
+
+### Fixed
+- **Speech recognition error handling** — Descriptive error messages for mic denied, network errors, audio capture failures.
+- **Gateway TTS health check** — Tries `/health` first, falls back to `/v1/audio/speech` probe for Orpheus compatibility.
+- **All TADA references removed** — Settings panel, voice settings panel, config schema, gateway, types, and VoiceOverlay updated to Orpheus.
+
+---
+
+## [2026.10.31] — 2026-03-15
+
+### Fixed
+- **Config migration for ttsEngine** — Old configs with `ttsEngine: 'orpheus'` or `'kokoro'` no longer crash Zod parse; gracefully coerced. Prevents `onboarded` reset on upgrade.
+
+---
+
+## [2026.10.30] — 2026-03-15
+
+### Added
+- **Home Assistant skill (11 tools)** — Full smart home control: `ha_setup`, `ha_devices`, `ha_control`, `ha_status`, `ha_automations`, `ha_scenes`, `ha_history`, `ha_areas`, `ha_call_service`, `ha_dashboard`, `ha_notify`. Config persistence via chat. `src/skills/builtin/smart_home.ts`
+- **Voice server REST API** — OpenAI-compatible `/v1/audio/speech` + `/v1/audio/voices` + `/health` endpoints. `titan-voice-server/server.py`
+- **Home Assistant config in schema** — `homeAssistant.url` and `homeAssistant.token` fields in Zod config. `src/config/schema.ts`
+
+### Fixed
+- **Voice echo cancellation** — Browser AEC/noise suppression constraints, STT paused during TTS playback, 500ms grace period, confidence filtering (< 0.5 = echo). `ui/src/components/voice/VoiceOverlay.tsx`
+- **Ollama provider** — Improved error handling and response parsing. `src/providers/ollama.ts`
+
+---
+
+## [2026.10.29] — 2026-03-14
+
+### Added
+- **Personal skills global bridge** — `globalThis.__titanRegisterSkill` pattern ensures personal skills (esbuild bundles) register tools into the main app's registry instead of an isolated ghost Map. `src/skills/registry.ts`
+- **Personal skills build script** — `scripts/build-personal.cjs` compiles `src/skills/personal/` → `dist/skills/personal/loader.js` via esbuild
+- **Stop button (end-to-end)** — Chat stop button now actually works: `POST /api/sessions/:id/abort` + `AbortController` in agent loop + SSE cancellation wired through UI. `src/gateway/server.ts`, `src/agent/agent.ts`, `ui/src/components/chat/ChatInput.tsx`, `ui/src/components/chat/ChatView.tsx`
+- **Session abort API** — `POST /api/sessions/:id/abort` endpoint with session-level `AbortController` map. `src/gateway/server.ts`
+- **Task continuation injection** — Short confirmation messages (CONFIRM, yes, ok, etc.) now re-inject last 2 assistant messages as `[TASK CONTINUATION]` context so the model doesn't lose its place after system prompt compression. `src/agent/agent.ts`
+- **Gmail `delete_label` action** — Delete a single label by ID or name, two CONFIRMs required. `src/skills/personal/google_workspace.ts`
+- **Gmail `bulk_delete_labels` action** — Delete multiple labels by name array in one operation, two CONFIRMs required. `src/skills/personal/google_workspace.ts`
+- **Google OAuth integration panel** — IntegrationsPanel now has full Google OAuth flow with connection status display. `ui/src/components/admin/IntegrationsPanel.tsx`
+- **`abortSession()` API client** — Frontend API function for session abort. `ui/src/api/client.ts`
+
+### Fixed
+- **System prompt compression stripping tool instructions** — `compressSystemPrompt()` raised from 3500 → 8000 chars and made tool-aware: active tools with descriptions >200 chars get their full description preserved in a dedicated section. `src/providers/ollama.ts`
+- **Confirmation gate `"true"` vs `true` bug** — `requireConfirmation()` checked `confirmed === true` (boolean) but the schema type was `string`, so LLMs sent `"true"` which never passed. Added `|| confirmed === 'true'`. `src/skills/personal/google_workspace.ts`
+- **Personal skills registering into ghost registry** — esbuild `--bundle` created a self-contained bundle with its own `toolRegistry` Map instance, separate from the main TITAN app. Tools registered but were invisible. Fixed with global bridge pattern.
+- **ToolSearch compact mode hiding personal tools** — Gmail and other personal workspace tools weren't in `coreTools`, so they disappeared after short messages. Added 8 personal tools to `toolSearch.coreTools` config.
+- **Skill description consistency** — Standardized description field types across all 50+ builtin skills (string literals, no runtime expressions)
+
+### Changed
+- **systemd service** — Added `TITAN_PERSONAL_DIR` env var pointing to `dist/skills/personal/` so the bridge-aware bundle is used. `scripts/titan-gateway.service`
+
+---
+
+## [2026.10.28] — 2026-03-14
+
+### Fixed
+
+- **Vector search circular dependency** — `initVectors()` was calling `embed('test')` to verify the embedding model was available, but `embed()` starts with `if (!available) return null` — and `available` is `false` during init. This meant the test always failed, the init always bailed, and RAG/vector search never initialized. Fixed by replacing the test call with a direct `fetch()` to Ollama's `/api/embed` endpoint (bypassing the availability guard) and using the response to confirm dimensions before setting `available = true`. `src/memory/vectors.ts`
+- **ActiveLearning recording no-op resolutions** — When a tool call failed and then succeeded on retry with the *same* tool, `recordErrorResolution()` stored entries like "Resolved by using shell instead of shell." Added a guard: `if (result.name !== lastFailedTool.name)` before recording. `lastFailedTool` is now always cleared on success regardless. `src/agent/agent.ts`
+- **ESLint prefer-const** — `let failedApproaches` in `agent.ts` was never reassigned (only `.push()` used), changed to `const`. `src/agent/agent.ts`
+
+---
+
+## [2026.10.27] — 2026-03-14
+
+### Changed — System Prompt Architecture Overhaul
+- **Tool Execution section moved to top of system prompt** — Critical tool-use rules now appear before identity/capabilities, ensuring models process enforcement instructions first (LLMs prioritize early context)
+- **ReAct loop pattern added** — All models now receive explicit Reason→Act→Observe loop instructions, dramatically increasing tool-call reliability vs. inline text responses
+- **MUST/NEVER directives** — Replaced scattered behavior bullets with clear non-negotiable rules: MUST call write_file for files, MUST call web_search for research, MUST call shell for commands, NEVER output file content as text
+- **Negative examples injected** — Side-by-side ❌/✓ examples show models exactly what wrong vs. correct behavior looks like for common tasks (write file, research, run command)
+- **Task-aware dynamic injection** — System prompt now auto-appends `[TASK ENFORCEMENT]` sections based on message intent detection (file write / research / shell patterns), adding targeted enforcement for each task type
+- **API-level `tool_choice` forcing** — When task enforcement is active, round 0 now passes `tool_choice: "required"` (OpenAI/Ollama) or `tool_choice: {type: "any"}` (Anthropic) via API, adding a hard guarantee on top of prompt instructions
+- **Cloud model compressed prompt fixed** — `compressSystemPrompt()` in Ollama provider now preserves the full Tool Execution rules section (previously it was stripped, leaving only a vague "use tools" line). Limit raised from 2000 → 3500 chars
+- **All 11 sub-agent prompts rewritten** — Explorer, Coder, Browser, Analyst, Researcher, Reporter, Fact Checker, Dev Debugger, Dev Tester, Dev Reviewer, Dev Architect now each have detailed prompts with tool-specific guidance, MUST rules, and output format requirements (was: one-liner descriptions with no enforcement)
+- **`forceToolUse` config flag** — New `agent.forceToolUse: boolean` (default: true) controls API-level tool forcing
+
+### Added
+- `forceToolUse?: boolean` field in `ChatOptions` interface (base.ts)
+- `forceToolUse` config option in `AgentConfigSchema` (schema.ts)
+
+---
+
 ## [2026.10.26] — 2026-03-14
 
 ### Added

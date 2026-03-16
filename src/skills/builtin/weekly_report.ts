@@ -210,7 +210,7 @@ function formatReport(report: WeeklyReport): string {
 
 const SKILL_META = {
     name: 'weekly_report',
-    description: 'Weekly report generator — aggregate metrics and deliver async check-ins',
+    description: 'Use this when the user says "generate my weekly report", "what did I accomplish this week", "summarize the week", "send the weekly update", or "how did we do this week". Aggregates content published, community interactions, experiments, and feedback into a structured report.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -220,13 +220,13 @@ export function registerWeeklyReportSkill(): void {
     // Tool 1: report_generate
     registerSkill(SKILL_META, {
         name: 'report_generate',
-        description: 'Generate a structured weekly report aggregating content, interactions, experiments, and feedback.',
+        description: 'Generate the weekly report. Use when asked "generate my weekly report", "what did I accomplish this week?", "summarize the week", "give me the weekly numbers", or "how did we do this week?". Pulls together content published, community interactions, growth experiments, and product feedback into a formatted markdown report.',
         parameters: {
             type: 'object',
             properties: {
                 weekOf: {
                     type: 'string',
-                    description: 'ISO date for the Monday of the target week (default: current week)',
+                    description: 'ISO date (YYYY-MM-DD) for the Monday of the target week (default: current week)',
                 },
             },
             required: [],
@@ -245,13 +245,13 @@ export function registerWeeklyReportSkill(): void {
     // Tool 2: report_deliver
     registerSkill(SKILL_META, {
         name: 'report_deliver',
-        description: 'Post the weekly report to a Slack channel. Generates the report first if not already generated.',
+        description: 'Post the weekly report to Slack. Use when asked to "send the weekly report", "post the weekly update to Slack", or "deliver the check-in". Generates the report first if it hasn\'t been generated yet, then posts it to the specified channel.',
         parameters: {
             type: 'object',
             properties: {
                 weekOf: {
                     type: 'string',
-                    description: 'ISO date for the Monday of the target week (default: current week)',
+                    description: 'ISO date (YYYY-MM-DD) for the Monday of the target week (default: current week)',
                 },
                 channel: {
                     type: 'string',
@@ -295,7 +295,7 @@ export function registerWeeklyReportSkill(): void {
     // Tool 3: report_history
     registerSkill(SKILL_META, {
         name: 'report_history',
-        description: 'List past weekly reports with key metrics.',
+        description: 'Show past weekly reports with key metrics. Use when asked "show me previous weekly reports", "how have we been trending?", or "compare this week to last week".',
         parameters: {
             type: 'object',
             properties: {

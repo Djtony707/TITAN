@@ -43,8 +43,19 @@ export function getLogLevel(): LogLevel {
     return currentLevel;
 }
 
+function formatLocalTimestamp(): string {
+    const now = new Date();
+    const y = now.getFullYear();
+    const mo = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const h = String(now.getHours()).padStart(2, '0');
+    const mi = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    return `${y}-${mo}-${d} ${h}:${mi}:${s}`;
+}
+
 function formatTimestamp(): string {
-    return chalk.gray(new Date().toISOString().replace('T', ' ').slice(0, 19));
+    return chalk.gray(formatLocalTimestamp());
 }
 
 function log(level: LogLevel, component: string, message: string, ...args: unknown[]): void {
@@ -52,7 +63,7 @@ function log(level: LogLevel, component: string, message: string, ...args: unkno
     const prefix = `${formatTimestamp()} ${LEVEL_LABELS[level]} ${chalk.blue(`[${component}]`)}`;
     console.log(`${prefix} ${message}`, ...args);
     if (fileStream) {
-        const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        const ts = formatLocalTimestamp();
         const extra = args.length
             ? ' ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')
             : '';
@@ -70,7 +81,7 @@ export const logger = {
 export function initFileLogger(logDir: string): void {
     if (fileStream) return; // idempotent
     mkdirSync(logDir, { recursive: true });
-    const date = new Date().toISOString().slice(0, 10);
+    const date = formatLocalTimestamp().slice(0, 10);
     logFilePath = `${logDir}/titan-${date}.log`;
     fileStream = createWriteStream(logFilePath, { flags: 'a', encoding: 'utf-8' });
     fileStream.on('error', (err) => {

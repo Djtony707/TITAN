@@ -61,7 +61,7 @@ function wordOverlap(a: string, b: string): number {
 
 const SKILL_META = {
     name: 'feedback_tracker',
-    description: 'Submit, list, and update structured product feedback with dedup detection',
+    description: 'Use this skill when Tony says "log this feedback", "track this user complaint", "someone said X about the product", "what feedback do we have?", "note this bug report", or "track this feature request". Stores structured product feedback with dedup detection and status tracking.',
     version: '1.0.0',
     source: 'bundled' as const,
     enabled: true,
@@ -73,7 +73,7 @@ export function registerFeedbackTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'feedback_submit',
-            description: 'Create structured product feedback. Checks for duplicates before saving.',
+            description: 'Log new structured product feedback. Use when Tony says "log this feedback", "someone reported a bug with X", "user said Y about the product", "track this feature request", or "note this complaint". Checks for duplicates before saving.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -144,7 +144,7 @@ export function registerFeedbackTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'feedback_list',
-            description: 'List submitted feedback, optionally filtered by status or category.',
+            description: 'Show all tracked product feedback, optionally filtered by status or category. Use when Tony asks "what feedback do we have?", "show me open bugs", "what feature requests are pending?", or "list all critical feedback".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -205,7 +205,7 @@ export function registerFeedbackTrackerSkill(): void {
         { ...SKILL_META },
         {
             name: 'feedback_update',
-            description: 'Update the status of a feedback entry and optionally add a note.',
+            description: 'Update the status of a feedback entry and optionally add a note. Use when Tony says "mark that feedback as resolved", "acknowledge this bug", "that feature is now planned", or "add a note to feedback [ID]".',
             parameters: {
                 type: 'object',
                 properties: {

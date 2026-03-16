@@ -114,7 +114,7 @@ export function registerWeatherSkill(): void {
         { name: 'weather', description: 'Get real-time weather', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'weather',
-            description: 'Get current weather conditions and forecast for any location. Accepts city names, zip codes, coordinates, or airport codes. Returns real-time data including temperature, humidity, wind, UV index, and multi-day forecast. Use this tool whenever the user asks about weather.',
+            description: 'Get real-time weather conditions and multi-day forecast for any location.\n\nUSE THIS WHEN Tony says: "what\'s the weather" / "weather in X" / "temperature in X" / "will it rain in X" / "how hot is it in X" / "forecast for X" / "what\'s it like outside in X"\n\nRULES:\n- Call this tool directly — do NOT ask Tony for location if he already mentioned it\n- Infer the location from context if Tony just says "what\'s the weather" (ask only if truly no location is available)\n- Accepts city names, zip codes, coordinates, or airport codes\n- Use days:3 for multi-day forecasts',
             parameters: {
                 type: 'object',
                 properties: {

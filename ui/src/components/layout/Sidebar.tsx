@@ -12,6 +12,7 @@ import {
   Network,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Brain,
   Zap,
   Shield,
@@ -24,6 +25,12 @@ import {
   CheckCircle2,
   XCircle,
   RotateCw,
+  Bot,
+  Eye,
+  ClipboardList,
+  Cable,
+  FolderOpen,
+  type LucideIcon,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,28 +38,73 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-const navItems = [
-  { label: 'Chat', icon: MessageSquare, path: '/' },
-  { label: 'Activity', icon: Radio, path: '/activity' },
-  { label: 'Overview', icon: Activity, path: '/overview' },
-  { label: 'Agents', icon: Users, path: '/agents' },
-  { label: 'Sessions', icon: ScrollText, path: '/sessions' },
-  { label: 'Settings', icon: Settings, path: '/settings' },
-  { label: 'Integrations', icon: Plug, path: '/integrations' },
-  { label: 'Channels', icon: Radio, path: '/channels' },
-  { label: 'Skills', icon: Wrench, path: '/skills' },
-  { label: 'Telemetry', icon: BarChart3, path: '/telemetry' },
-  { label: 'Logs', icon: ScrollText, path: '/logs' },
-  { label: 'Mesh', icon: Network, path: '/mesh' },
-  { label: 'Learning', icon: Brain, path: '/learning' },
-  { label: 'Autopilot', icon: Zap, path: '/autopilot' },
-  { label: 'Security', icon: Shield, path: '/security' },
-  { label: 'Workflows', icon: GitBranch, path: '/workflows' },
-  { label: 'Memory', icon: Network, path: '/memory-graph' },
-  { label: 'Personas', icon: UserCircle, path: '/personas' },
-  { label: 'Self-Improve', icon: Brain, path: '/self-improve' },
-  { label: 'Autoresearch', icon: FlaskConical, path: '/autoresearch' },
-] as const;
+interface NavItem {
+  label: string;
+  icon: LucideIcon;
+  path: string;
+}
+
+interface NavGroup {
+  label: string;
+  icon: LucideIcon;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: 'Dashboard',
+    icon: Activity,
+    items: [
+      { label: 'Overview', icon: BarChart3, path: '/overview' },
+      { label: 'Activity', icon: Radio, path: '/activity' },
+      { label: 'Sessions', icon: ScrollText, path: '/sessions' },
+      { label: 'Agents', icon: Users, path: '/agents' },
+      { label: 'Telemetry', icon: BarChart3, path: '/telemetry' },
+      { label: 'Logs', icon: ScrollText, path: '/logs' },
+    ],
+  },
+  {
+    label: 'Agent',
+    icon: Bot,
+    items: [
+      { label: 'Autopilot', icon: Zap, path: '/autopilot' },
+      { label: 'Daemon', icon: Eye, path: '/daemon' },
+      { label: 'Workflows', icon: GitBranch, path: '/workflows' },
+      { label: 'Personas', icon: UserCircle, path: '/personas' },
+      { label: 'Self-Improve', icon: Brain, path: '/self-improve' },
+      { label: 'Autoresearch', icon: FlaskConical, path: '/autoresearch' },
+      { label: 'Files', icon: FolderOpen, path: '/files' },
+    ],
+  },
+  {
+    label: 'Tools',
+    icon: Cable,
+    items: [
+      { label: 'Skills', icon: Wrench, path: '/skills' },
+      { label: 'MCP', icon: Plug, path: '/mcp' },
+      { label: 'Integrations', icon: Plug, path: '/integrations' },
+      { label: 'Channels', icon: Radio, path: '/channels' },
+      { label: 'Mesh', icon: Network, path: '/mesh' },
+    ],
+  },
+  {
+    label: 'Memory',
+    icon: Brain,
+    items: [
+      { label: 'Learning', icon: Brain, path: '/learning' },
+      { label: 'Graph', icon: Network, path: '/memory-graph' },
+      { label: 'Audit Log', icon: ClipboardList, path: '/audit' },
+    ],
+  },
+  {
+    label: 'Settings',
+    icon: Settings,
+    items: [
+      { label: 'Settings', icon: Settings, path: '/settings' },
+      { label: 'Security', icon: Shield, path: '/security' },
+    ],
+  },
+];
 
 interface VersionInfo {
   current: string;
@@ -71,6 +123,43 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   });
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
   const [updateError, setUpdateError] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    // Auto-expand the group containing the current path
+    const initial = new Set<string>();
+    for (const group of navGroups) {
+      if (group.items.some(item => {
+        if (item.path === '/') return location.pathname === '/';
+        return location.pathname.startsWith(item.path);
+      })) {
+        initial.add(group.label);
+      }
+    }
+    return initial;
+  });
+
+  const toggleGroup = (label: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
+
+  // Auto-expand when navigating to a new group
+  useEffect(() => {
+    for (const group of navGroups) {
+      if (group.items.some(item => {
+        if (item.path === '/') return location.pathname === '/';
+        return location.pathname.startsWith(item.path);
+      })) {
+        setExpandedGroups(prev => {
+          if (prev.has(group.label)) return prev;
+          return new Set(prev).add(group.label);
+        });
+      }
+    }
+  }, [location.pathname]);
 
   const triggerUpdate = useCallback(async () => {
     if (updateStatus === 'updating' || updateStatus === 'restarting') return;
@@ -90,7 +179,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       }
       if (data.restarting) {
         setUpdateStatus('restarting');
-        // Poll until server comes back
         const poll = setInterval(async () => {
           try {
             const h = await fetch('/api/health');
@@ -101,7 +189,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             }
           } catch { /* server still restarting */ }
         }, 2000);
-        // Give up after 60s
         setTimeout(() => clearInterval(poll), 60_000);
       } else {
         setUpdateStatus('success');
@@ -113,7 +200,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   }, [updateStatus]);
 
-  // Get version from health endpoint and check npm for updates
   useEffect(() => {
     (async () => {
       try {
@@ -121,8 +207,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         const health = await res.json();
         const current = health.version || '';
         setVersionInfo((prev) => ({ ...prev, current }));
-
-        // Check npm registry for latest version
         try {
           const npmRes = await fetch('https://registry.npmjs.org/titan-agent/latest');
           const pkg = await npmRes.json();
@@ -132,12 +216,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           } else {
             setVersionInfo({ current, latest, updateAvailable: false });
           }
-        } catch {
-          // npm check is non-critical
-        }
-      } catch {
-        // health check failed
-      }
+        } catch { /* npm check is non-critical */ }
+      } catch { /* health check failed */ }
     })();
   }, []);
 
@@ -164,22 +244,98 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        {navItems.map(({ label, icon: Icon, path }) => {
-          const active = isActive(path);
+        {/* Chat — always top-level */}
+        <Link
+          to="/"
+          title={collapsed ? 'Chat' : undefined}
+          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            isActive('/')
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
+          } ${collapsed ? 'justify-center' : ''}`}
+        >
+          <MessageSquare size={18} className="flex-shrink-0" />
+          {!collapsed && <span>Chat</span>}
+        </Link>
+
+        {/* Grouped navigation */}
+        {navGroups.map((group) => {
+          const isExpanded = expandedGroups.has(group.label);
+          const hasActiveChild = group.items.some(item => isActive(item.path));
+          const GroupIcon = group.icon;
+
           return (
-            <Link
-              key={path}
-              to={path}
-              title={collapsed ? label : undefined}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
-              } ${collapsed ? 'justify-center' : ''}`}
-            >
-              <Icon size={18} className="flex-shrink-0" />
-              {!collapsed && <span>{label}</span>}
-            </Link>
+            <div key={group.label} className="mt-1">
+              {/* Group header */}
+              <button
+                onClick={() => collapsed ? undefined : toggleGroup(group.label)}
+                title={collapsed ? group.label : undefined}
+                className={`flex items-center w-full px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  hasActiveChild && collapsed
+                    ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+                } ${collapsed ? 'justify-center' : 'gap-2'}`}
+              >
+                {collapsed ? (
+                  <GroupIcon size={18} className={hasActiveChild ? 'text-[var(--accent)]' : ''} />
+                ) : (
+                  <>
+                    <GroupIcon size={14} className="flex-shrink-0" />
+                    <span className="flex-1 text-left">{group.label}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
+                    />
+                  </>
+                )}
+              </button>
+
+              {/* Group items */}
+              {!collapsed && isExpanded && (
+                <div className="ml-2 mt-0.5 space-y-0.5 border-l border-[var(--border)] pl-2">
+                  {group.items.map(({ label, icon: Icon, path }) => {
+                    const active = isActive(path);
+                    return (
+                      <Link
+                        key={path}
+                        to={path}
+                        className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                          active
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
+                        }`}
+                      >
+                        <Icon size={16} className="flex-shrink-0" />
+                        <span>{label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Collapsed mode — show items as tooltipped icons on click */}
+              {collapsed && (
+                <div className="space-y-0.5">
+                  {group.items.map(({ label, icon: Icon, path }) => {
+                    const active = isActive(path);
+                    return (
+                      <Link
+                        key={path}
+                        to={path}
+                        title={label}
+                        className={`flex items-center justify-center px-3 py-1.5 rounded-md transition-colors ${
+                          active
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
+                        }`}
+                      >
+                        <Icon size={16} />
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

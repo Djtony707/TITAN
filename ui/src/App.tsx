@@ -24,6 +24,10 @@ const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
 const SelfImprovePanel = lazy(() => import('@/components/admin/SelfImprovePanel'));
 const AutoresearchPanel = lazy(() => import('@/components/admin/AutoresearchPanel'));
+const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
+const DaemonPanel = lazy(() => import('@/components/admin/DaemonPanel'));
+const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
+const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
@@ -89,6 +93,10 @@ export default function App() {
             <Route path="/integrations" element={<AdminPage><IntegrationsPanel /></AdminPage>} />
             <Route path="/self-improve" element={<AdminPage><SelfImprovePanel /></AdminPage>} />
             <Route path="/autoresearch" element={<AdminPage><AutoresearchPanel /></AdminPage>} />
+            <Route path="/mcp" element={<AdminPage><McpPanel /></AdminPage>} />
+            <Route path="/daemon" element={<AdminPage><DaemonPanel /></AdminPage>} />
+            <Route path="/audit" element={<AdminPage><AuditPanel /></AdminPage>} />
+            <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
           </Routes>
         </Suspense>
       </Layout>

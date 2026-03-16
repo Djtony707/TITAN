@@ -19,3 +19,6 @@ target/
 # OS/process artifacts
 *.pid
 *.tmp
+
+# Personal skills — private, never committed
+src/skills/personal/

@@ -138,10 +138,10 @@ async function extractPdfMetadata(
 export function registerPdfSkill(): void {
     // Tool 1: pdf_read
     registerSkill(
-        { name: 'pdf_read', description: 'Extract text from PDF files', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'pdf_read', description: 'Extract text content from PDF files. USE THIS WHEN Tony says: "read this PDF", "extract text from PDF", "summarize this PDF", "what does this PDF say", "parse PDF at path X". Works on local file paths. RULES: Use the absolute file path.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'pdf_read',
-            description: 'Extract all text content from a PDF file. Returns the full text up to 50,000 characters. Page breaks are marked with ---PAGE BREAK---',
+            description: 'Extracts all text content from a PDF file at a local path. USE THIS WHEN Tony says: "read this PDF", "extract text from PDF", "summarize this PDF", "what does this PDF say", "get the text out of file X.pdf". Returns the full text up to 50,000 characters. Page breaks are marked with ---PAGE BREAK---. RULES: Provide an absolute file path. If Tony gives a URL, download the file first.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -184,10 +184,10 @@ export function registerPdfSkill(): void {
 
     // Tool 2: pdf_info
     registerSkill(
-        { name: 'pdf_info', description: 'Get PDF metadata', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'pdf_info', description: 'Get PDF metadata (page count, author, title). USE THIS WHEN Tony says: "how many pages is this PDF", "who wrote this PDF", "get PDF info", "PDF metadata".', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'pdf_info',
-            description: 'Extract metadata from a PDF file including page count, author, and title.',
+            description: 'Extracts metadata from a PDF file including page count, author, and title. USE THIS WHEN Tony says: "how many pages is this PDF", "who wrote this PDF", "get PDF info", "PDF metadata for X". RULES: Provide an absolute file path.',
             parameters: {
                 type: 'object',
                 properties: {

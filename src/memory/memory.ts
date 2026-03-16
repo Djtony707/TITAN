@@ -43,6 +43,8 @@ interface SessionRecord {
   message_count: number;
   created_at: string;
   last_active: string;
+  name?: string;
+  last_message?: string;
 }
 
 interface UsageRecord {
@@ -224,6 +226,16 @@ export function getHistory(sessionId: string, limit: number = 50, e2eKey?: strin
     }
     return m;
   });
+}
+
+/** Update session name and/or last message snippet */
+export function updateSessionMeta(sessionId: string, meta: { name?: string; last_message?: string }): void {
+  const s = loadStore();
+  const rec = s.sessions.find(ses => ses.id === sessionId);
+  if (!rec) return;
+  if (meta.name !== undefined) rec.name = meta.name;
+  if (meta.last_message !== undefined) rec.last_message = meta.last_message;
+  debouncedSave();
 }
 
 /** Clear conversation history for a session */

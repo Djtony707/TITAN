@@ -167,11 +167,29 @@ export async function getSessions(): Promise<Session[]> {
 }
 
 export async function getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
-  return request(`/api/sessions/${sessionId}/messages`);
+  const raw = await request<Array<Record<string, unknown>>>(`/api/sessions/${sessionId}/messages`);
+  return raw.map((m) => ({
+    role: (m.role as ChatMessage['role']) ?? 'assistant',
+    content: (m.content as string) ?? '',
+    timestamp: (m.createdAt as string) ?? (m.timestamp as string) ?? undefined,
+    model: (m.model as string) ?? undefined,
+  }));
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
   await request(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function renameSession(sessionId: string, name: string): Promise<void> {
+  await request(`/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function abortSession(sessionId: string): Promise<void> {
+  await request(`/api/sessions/${sessionId}/abort`, { method: 'POST' });
 }
 
 // ---- Config ----
@@ -393,6 +411,79 @@ export async function getActivityRecent(filter?: string, limit?: number): Promis
 
 export async function getActivitySummary(): Promise<ActivitySummary> {
   return request('/api/activity/summary');
+}
+
+// ---- MCP ----
+
+export async function getMcpClients(): Promise<import('./types').McpServerInfo[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = await request<any>('/api/mcp/clients');
+  return raw.servers ?? [];
+}
+
+export async function addMcpClient(server: Record<string, unknown>): Promise<{ ok: boolean; server?: unknown; error?: string }> {
+  return request('/api/mcp/clients', { method: 'POST', body: JSON.stringify(server) });
+}
+
+export async function removeMcpClient(id: string): Promise<void> {
+  await request(`/api/mcp/clients/${id}`, { method: 'DELETE' });
+}
+
+export async function toggleMcpClient(id: string, enabled: boolean): Promise<void> {
+  await request(`/api/mcp/clients/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) });
+}
+
+export async function testMcpClient(id: string): Promise<{ ok: boolean; tools: number; error?: string }> {
+  return request(`/api/mcp/clients/${id}/test`, { method: 'POST' });
+}
+
+export async function getMcpPresets(): Promise<import('./types').McpPreset[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = await request<any>('/api/mcp/presets');
+  return raw.presets ?? [];
+}
+
+// ---- Daemon ----
+
+export async function getDaemonStatus(): Promise<import('./types').DaemonStatus> {
+  return request('/api/daemon/status');
+}
+
+export async function pauseDaemon(): Promise<void> {
+  await request('/api/daemon/stop', { method: 'POST' });
+}
+
+export async function resumeDaemon(): Promise<void> {
+  await request('/api/daemon/resume', { method: 'POST' });
+}
+
+// ---- Audit ----
+
+export async function getAuditLog(params?: { since?: string; action?: string; source?: string; limit?: number }): Promise<import('./types').AuditEntry[]> {
+  const qs = new URLSearchParams();
+  if (params?.since) qs.set('since', params.since);
+  if (params?.action) qs.set('action', params.action);
+  if (params?.source) qs.set('source', params.source);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const q = qs.toString();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = await request<any>(`/api/audit${q ? `?${q}` : ''}`);
+  return raw.entries ?? [];
+}
+
+export async function getAuditStats(hours?: number): Promise<import('./types').AuditStats> {
+  const qs = hours ? `?hours=${hours}` : '';
+  return request(`/api/audit/stats${qs}`);
+}
+
+// ---- Files Browser ----
+export async function listFiles(path?: string): Promise<import('./types').FileListing> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request(`/api/files${qs}`);
+}
+
+export async function readFile(path: string): Promise<import('./types').FileContent> {
+  return request(`/api/files/read?path=${encodeURIComponent(path)}`);
 }
 
 // ---- Auth ----

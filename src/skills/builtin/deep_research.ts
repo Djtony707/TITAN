@@ -80,20 +80,20 @@ export function registerDeepResearchSkill(): void {
     registerSkill(
         {
             name: 'deep_research',
-            description: 'Deep multi-source research with citations',
+            description: 'Use this when asked to "deep dive into X", "research X", "find out everything about X", "look into X thoroughly", or "give me a detailed report on X". Spawns a dedicated researcher agent that searches multiple sources and produces a cited report.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'research',
-            description: 'Start a deep research task. Spawns a researcher sub-agent that searches multiple sources, cross-verifies claims, and returns a structured markdown report with numbered citations.',
+            description: 'Do a deep research dive on any topic. Use this when asked to "research X", "deep dive into X", "find out everything about X", "give me a detailed report on X", or "look into X thoroughly". Spawns a researcher sub-agent that queries multiple sources, cross-verifies key claims, and returns a structured markdown report with numbered citations. For even more thorough coverage with parallel agents, use deep_research_pipeline instead.',
             parameters: {
                 type: 'object',
                 properties: {
                     question: {
                         type: 'string',
-                        description: 'The research question to investigate',
+                        description: 'The research question or topic to investigate',
                     },
                     depth: {
                         type: 'string',
@@ -139,6 +139,7 @@ export function registerDeepResearchSkill(): void {
                         task: prompt,
                         tools: template.tools,
                         systemPrompt: template.systemPrompt,
+                        tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
                         maxRounds,
                     });
 
@@ -171,14 +172,14 @@ export function registerDeepResearchSkill(): void {
     registerSkill(
         {
             name: 'deep_research',
-            description: 'Deep multi-source research with citations',
+            description: 'Use this when asked to "deep dive into X", "research X", "find out everything about X", "look into X thoroughly", or "give me a detailed report on X". Spawns a dedicated researcher agent that searches multiple sources and produces a cited report.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'research_status',
-            description: 'Check the status of a research task. Lists all recent research tasks if no ID is provided.',
+            description: 'Check on a running or completed research task. Use when asked "how is the research going?", "is that research done?", or "show me all research tasks".',
             parameters: {
                 type: 'object',
                 properties: {

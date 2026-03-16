@@ -41,10 +41,10 @@ async function fetchUrl(url: string): Promise<string> {
 export function registerRagSkill(): void {
     // ── rag_ingest ────────────────────────────────────────────────
     registerSkill(
-        { name: 'rag_ingest', description: 'Ingest documents into RAG store', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'rag_ingest', description: 'Use this when the user says "add this to your knowledge", "remember this document", "learn from this file", "save this to your knowledge base", or pastes text they want TITAN to be able to recall later.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'rag_ingest',
-            description: 'Ingest a file or URL into the RAG vector store for later retrieval. Supports text, markdown, code files, and web URLs. The content is chunked and embedded for semantic search.',
+            description: 'Add a document, file, URL, or raw text to TITAN\'s knowledge base so it can be recalled later with semantic search. Use this when asked to "add this to your knowledge", "remember this document", "save this page", "learn from this file", or when the user pastes content they want TITAN to reference in future conversations. Supports text, markdown, code files, and web URLs.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -120,14 +120,14 @@ export function registerRagSkill(): void {
 
     // ── rag_search ────────────────────────────────────────────────
     registerSkill(
-        { name: 'rag_search', description: 'Search RAG documents', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'rag_search', description: 'Use this when the user says "search your knowledge base", "what do you know about X", "find in your documents", "look that up in your notes", or any question that might be answered by previously ingested content.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'rag_search',
-            description: 'Search ingested RAG documents by semantic similarity. Returns the most relevant chunks matching the query.',
+            description: 'Search TITAN\'s knowledge base using semantic similarity. Use this when asked "what do you know about X?", "search your documents for Y", "look that up in your notes", "find in your knowledge base", or any question that could be answered by previously stored documents. Returns the most relevant chunks. Always try this before saying you don\'t know something.',
             parameters: {
                 type: 'object',
                 properties: {
-                    query: { type: 'string', description: 'The search query' },
+                    query: { type: 'string', description: 'What to search for (natural language or keywords)' },
                     topK: { type: 'number', description: 'Number of results to return (default: 5)' },
                     minScore: { type: 'number', description: 'Minimum similarity score 0-1 (default: 0.3)' },
                 },
@@ -157,10 +157,10 @@ export function registerRagSkill(): void {
 
     // ── rag_list ──────────────────────────────────────────────────
     registerSkill(
-        { name: 'rag_list', description: 'List RAG documents', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'rag_list', description: 'Use this when asked "what\'s in your knowledge base?", "show me your documents", or "what have you learned?"', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'rag_list',
-            description: 'List all documents ingested into the RAG vector store with their metadata.',
+            description: 'Show all documents currently stored in TITAN\'s knowledge base. Use when asked "what\'s in your knowledge base?", "show me your documents", "what have you saved?", or "what do you know about?"',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -183,14 +183,14 @@ export function registerRagSkill(): void {
 
     // ── rag_delete ────────────────────────────────────────────────
     registerSkill(
-        { name: 'rag_delete', description: 'Delete RAG document', version: '1.0.0', source: 'bundled', enabled: true },
+        { name: 'rag_delete', description: 'Use this when asked to "remove that document", "forget that file", or "delete from your knowledge base".', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'rag_delete',
-            description: 'Delete a document and all its chunks from the RAG vector store.',
+            description: 'Remove a document from TITAN\'s knowledge base. Use when asked to "remove that document", "forget that file", "delete from your knowledge base", or "stop using that source".',
             parameters: {
                 type: 'object',
                 properties: {
-                    docId: { type: 'string', description: 'The document ID to delete (from rag_list)' },
+                    docId: { type: 'string', description: 'The document ID to delete (get this from rag_list)' },
                 },
                 required: ['docId'],
             },

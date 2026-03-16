@@ -459,7 +459,7 @@ export function registerEmailSkill(): void {
     registerSkill(
         {
             name: 'email_send',
-            description: 'Send an email via SMTP',
+            description: 'Send email via SMTP or Gmail API. USE THIS WHEN Tony says: "send an email", "email X about Y", "send a message to Z". WORKFLOW: Confirm recipient address, subject, and body before sending. RULES: Always confirm the recipient and subject with Tony before sending. Supports plain text and HTML.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
@@ -467,9 +467,10 @@ export function registerEmailSkill(): void {
         {
             name: 'email_send',
             description:
-                'Send an email to one or more recipients. ' +
-                'Requires GMAIL_ADDRESS + GMAIL_APP_PASSWORD env vars (or SMTP_HOST/SMTP_USER/SMTP_PASS). ' +
-                'Supports plain text and HTML bodies, CC, and BCC.',
+                'Sends an email to one or more recipients via Gmail API (if connected) or SMTP fallback. ' +
+                'USE THIS WHEN Tony says: "send an email", "email X about Y", "send a message to Z", "draft and send an email to ...". ' +
+                'WORKFLOW: 1) Confirm recipient(s), subject, and body with Tony. 2) Call email_send with to, subject, body. ' +
+                'RULES: Always confirm the recipient and content before sending. Never send without explicit approval.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -650,7 +651,7 @@ export function registerEmailSkill(): void {
     registerSkill(
         {
             name: 'email_search',
-            description: 'Search Gmail messages (requires OAuth2)',
+            description: 'Search Gmail messages using query syntax. USE THIS WHEN Tony says: "find emails from X", "search my email for Y", "show unread emails", "did I get an email about Z". RULES: Requires Gmail OAuth2 — prompt Tony to connect Google account if not connected.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
@@ -658,8 +659,9 @@ export function registerEmailSkill(): void {
         {
             name: 'email_search',
             description:
-                'Search for emails using Gmail API query syntax (e.g. "from:boss@company.com subject:report is:unread"). ' +
-                'NOTE: Requires Gmail OAuth2 setup — currently returns setup instructions.',
+                'Searches Gmail messages using Gmail query syntax (e.g. "from:boss@company.com subject:report is:unread"). ' +
+                'USE THIS WHEN Tony says: "find emails from X", "search my email for Y", "show unread emails", "did I get an email about Z", "check my inbox for ...". ' +
+                'RULES: Requires Gmail OAuth2 connection — if not connected, tell Tony to connect Google account in Dashboard Settings.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -719,7 +721,7 @@ export function registerEmailSkill(): void {
     registerSkill(
         {
             name: 'email_read',
-            description: 'Read a specific Gmail message by ID (requires OAuth2)',
+            description: 'Read the full content of a specific email by message ID. USE THIS WHEN Tony says: "read that email", "open email ID X", "show me the full email". RULES: Use email_search first to find the message ID, then call email_read.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
@@ -727,8 +729,10 @@ export function registerEmailSkill(): void {
         {
             name: 'email_read',
             description:
-                'Retrieve the full content of a specific email by its Gmail message ID. ' +
-                'NOTE: Requires Gmail OAuth2 setup — currently returns setup instructions.',
+                'Retrieves the full content of a specific Gmail message by its message ID. ' +
+                'USE THIS WHEN Tony says: "read that email", "open email ID X", "show me the full email", "what does that message say". ' +
+                'WORKFLOW: Use email_search first to find the message ID, then call email_read with the messageId. ' +
+                'RULES: Requires Gmail OAuth2 connection.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -795,7 +799,7 @@ export function registerEmailSkill(): void {
     registerSkill(
         {
             name: 'email_list',
-            description: 'List recent emails in a folder (requires IMAP/OAuth2)',
+            description: 'List recent emails in a mailbox folder. USE THIS WHEN Tony says: "show my inbox", "list recent emails", "what\'s in my sent folder", "check my spam". RULES: Requires Gmail OAuth2 connection.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
@@ -803,8 +807,9 @@ export function registerEmailSkill(): void {
         {
             name: 'email_list',
             description:
-                'List recent emails from a mailbox folder such as inbox, sent, or spam. ' +
-                'NOTE: Requires Gmail OAuth2 or IMAP setup — currently returns setup instructions.',
+                'Lists recent emails from a mailbox folder (inbox, sent, spam, etc.). ' +
+                'USE THIS WHEN Tony says: "show my inbox", "list recent emails", "what\'s in my sent folder", "check my spam", "show me emails from today". ' +
+                'RULES: Requires Gmail OAuth2 connection — tell Tony to connect Google account in Dashboard Settings if not connected.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -65,14 +65,14 @@ export function registerFreelanceMonitorSkill(): void {
     registerSkill(
         {
             name: 'freelance_monitor',
-            description: 'Monitor freelance platforms for job opportunities',
+            description: 'Use this skill when Tony says "check my freelance projects", "any new jobs on Upwork?", "monitor freelance platforms", "find freelance work for X skills", "draft a proposal for this job", or "track this freelance lead". Searches Upwork, Fiverr, and Toptal for matching jobs, scores them against Tony\'s profile, and manages the lead pipeline.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'freelance_search',
-            description: 'Search freelance platforms (Upwork, Fiverr, Toptal) for jobs matching keywords. Uses DuckDuckGo site-specific search.',
+            description: 'Search Upwork, Fiverr, and Toptal for job listings matching keywords. Use when Tony says "find freelance jobs for X", "any new jobs on Upwork?", "search for [skill] gigs", or "what\'s available on freelance platforms?".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -160,14 +160,14 @@ export function registerFreelanceMonitorSkill(): void {
     registerSkill(
         {
             name: 'freelance_monitor',
-            description: 'Monitor freelance platforms for job opportunities',
+            description: 'Use this skill when Tony says "check my freelance projects", "any new jobs on Upwork?", "monitor freelance platforms", "find freelance work for X skills", "draft a proposal for this job", or "track this freelance lead". Searches Upwork, Fiverr, and Toptal for matching jobs, scores them against Tony\'s profile, and manages the lead pipeline.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'freelance_match',
-            description: 'Score a job listing against your freelance profile stored in ~/.titan/freelance-profile.json. Returns a match score 1-10.',
+            description: 'Score a job listing against Tony\'s stored freelance profile to determine fit. Use when Tony says "is this job a good match for me?", "how well do I fit this listing?", or "should I apply to this job?".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -252,14 +252,14 @@ export function registerFreelanceMonitorSkill(): void {
     registerSkill(
         {
             name: 'freelance_monitor',
-            description: 'Monitor freelance platforms for job opportunities',
+            description: 'Use this skill when Tony says "check my freelance projects", "any new jobs on Upwork?", "monitor freelance platforms", "find freelance work for X skills", "draft a proposal for this job", or "track this freelance lead". Searches Upwork, Fiverr, and Toptal for matching jobs, scores them against Tony\'s profile, and manages the lead pipeline.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'freelance_draft',
-            description: 'Generate a proposal structure/outline for a freelance job listing. The LLM fills in the actual writing.',
+            description: 'Generate a proposal outline for a freelance job listing. Use when Tony says "draft a proposal for this job", "help me write a pitch for X", or "create a proposal outline for [job title]". Pulls from Tony\'s stored profile to personalize the structure.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -345,14 +345,14 @@ export function registerFreelanceMonitorSkill(): void {
     registerSkill(
         {
             name: 'freelance_monitor',
-            description: 'Monitor freelance platforms for job opportunities',
+            description: 'Use this skill when Tony says "check my freelance projects", "any new jobs on Upwork?", "monitor freelance platforms", "find freelance work for X skills", "draft a proposal for this job", or "track this freelance lead". Searches Upwork, Fiverr, and Toptal for matching jobs, scores them against Tony\'s profile, and manages the lead pipeline.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'freelance_track',
-            description: 'Track freelance leads. Save new leads or update status of existing ones.',
+            description: 'Track freelance leads — save new opportunities, update their status, or view the pipeline. Use when Tony says "track this freelance lead", "I applied to that job", "mark that lead as won/lost", or "show me my freelance pipeline".',
             parameters: {
                 type: 'object',
                 properties: {

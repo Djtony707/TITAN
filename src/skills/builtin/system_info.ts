@@ -215,7 +215,7 @@ export function registerSystemInfoSkill(): void {
         },
         {
             name: 'system_info',
-            description: 'Get real hardware and software information about the system TITAN is running on. Returns actual data from CPU, memory, GPU (NVIDIA), disk, network interfaces, OS details, Docker containers, and Ollama models. Use this tool whenever the user asks about system specs, hardware, performance, or environment.',
+            description: 'Get real hardware and software information about the system TITAN is running on.\n\nUSE THIS WHEN Tony says: "what are the system specs" / "how much RAM do I have" / "what GPU is this" / "show me CPU info" / "check disk space" / "what\'s my IP" / "what Docker containers are running" / "what Ollama models are installed" / "system stats" / "how much memory is free"\n\nSECTIONS: "cpu", "memory", "gpu", "disk", "network", "os", "docker", "ollama", or omit for all\nPass specific sections for faster results (e.g., sections:["memory","gpu"] to check VRAM).',
             parameters: {
                 type: 'object',
                 properties: {

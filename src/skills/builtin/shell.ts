@@ -48,7 +48,7 @@ export function registerShellSkill(): void {
         },
         {
             name: 'shell',
-            description: 'Execute a shell command on the user\'s system. Use this for running scripts, installing packages, checking system status, compiling code, git operations, and any other command-line task.',
+            description: 'Execute any shell command on the system and return the real output.\n\nUSE THIS WHEN Tony says: "run X" / "execute X" / "install X" / "check if X is installed" / "what\'s running on port X" / "build the project" / "git X" / "npm X" / "start X" / "restart X" / "check X status"\n\nRULES:\n- ALWAYS actually run the command — never describe what you would do\n- ALWAYS show the real output to Tony, not a summary\n- For long-running tasks, use exec with background:true instead\n- Use cwd parameter when the command must run in a specific directory',
             parameters: {
                 type: 'object',
                 properties: {

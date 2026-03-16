@@ -19,6 +19,8 @@ interface ProviderStatus {
 interface OAuthStatus {
   clientIdSet: boolean;
   clientSecretSet: boolean;
+  connected?: boolean;
+  email?: string;
 }
 
 interface ProviderDef {
@@ -156,7 +158,17 @@ function IntegrationsPanel() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = await getConfig() as any;
         if (cfg.providers) setProviders(cfg.providers);
-        if (cfg.oauth?.google) setOAuth(cfg.oauth.google);
+        if (cfg.oauth?.google) {
+          const status = cfg.oauth.google as OAuthStatus;
+          // Also check live connection status
+          try {
+            const res = await fetch('/api/auth/google/status');
+            const gs = await res.json() as { connected: boolean; email?: string };
+            status.connected = gs.connected;
+            status.email = gs.email;
+          } catch { /* ignore */ }
+          setOAuth(status);
+        }
       } catch {
         // ignore
       } finally {
@@ -165,6 +177,20 @@ function IntegrationsPanel() {
     };
     load();
   }, []);
+
+  const handleGoogleConnect = () => {
+    window.location.href = '/api/auth/google/start';
+  };
+
+  const handleGoogleDisconnect = async () => {
+    try {
+      await fetch('/api/auth/google/disconnect', { method: 'POST' });
+      setOAuth((prev) => ({ ...prev, connected: false, email: undefined }));
+      showToast('success', 'Google account disconnected');
+    } catch {
+      showToast('error', 'Failed to disconnect');
+    }
+  };
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -279,10 +305,29 @@ function IntegrationsPanel() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium text-[#fafafa]">Google OAuth 2.0</h3>
-              <p className="text-xs text-[#52525b] mt-0.5">Used for Gmail, Google Calendar integration</p>
+              <p className="text-xs text-[#52525b] mt-0.5">
+                {oauth.connected && oauth.email ? `Connected as ${oauth.email}` : 'Gmail, Drive, Calendar, Docs, Sheets, Tasks'}
+              </p>
             </div>
-            <div className="flex gap-2">
-              <StatusBadge configured={oauth.clientIdSet} />
+            <div className="flex items-center gap-2">
+              <StatusBadge configured={!!oauth.connected} />
+              {oauth.clientIdSet && !oauth.connected && (
+                <button
+                  onClick={handleGoogleConnect}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6366f1]/80 transition-colors"
+                >
+                  <Plug className="h-3.5 w-3.5" />
+                  Connect Google
+                </button>
+              )}
+              {oauth.connected && (
+                <button
+                  onClick={handleGoogleDisconnect}
+                  className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Disconnect
+                </button>
+              )}
             </div>
           </div>
 

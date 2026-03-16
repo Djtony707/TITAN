@@ -87,7 +87,7 @@ export function registerWebSearchSkill(): void {
         { name: 'web_search', description: 'Search the web', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'web_search',
-            description: 'Search the web for information. Returns search results with titles, URLs, and snippets. Useful for finding current information, documentation, tutorials, etc.',
+            description: 'Search the web and return the top results with titles, URLs, and snippets.\n\nUSE THIS WHEN Tony says: "search for X" / "look up X" / "find info on X" / "what is X" / "latest news on X" / "google X" / "who is X" / "how do I X"\n\nWORKFLOW:\n1. Call web_search with the query\n2. ALWAYS follow up by calling web_fetch on the most relevant result URL(s) to get the full content — snippets alone are not enough\n3. Synthesize the full content into an answer\n\nNEVER just return snippets as the final answer — always fetch the full page.\nFor weather queries ("what\'s the weather in X"), this tool auto-detects and returns real-time weather data directly.',
             parameters: {
                 type: 'object',
                 properties: {

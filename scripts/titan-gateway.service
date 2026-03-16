@@ -9,10 +9,12 @@ User=dj
 WorkingDirectory=/opt/TITAN
 ExecStart=/usr/bin/node dist/cli/index.js gateway
 Restart=on-failure
-RestartSec=5
-WatchdogSec=120
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
 Environment=NODE_ENV=production
 Environment=TITAN_GATEWAY_HOST=0.0.0.0
+Environment=TITAN_PERSONAL=1
 StandardOutput=append:/var/log/titan-gateway.log
 StandardError=append:/var/log/titan-gateway.log
 

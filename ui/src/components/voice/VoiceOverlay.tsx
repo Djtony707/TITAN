@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Mic, MicOff, PhoneOff } from 'lucide-react';
+import { X, Mic, MicOff, PhoneOff, ChevronDown } from 'lucide-react';
 import { FluidOrb } from './FluidOrb';
 import { TranscriptView } from './TranscriptView';
-import { VoicePicker } from './VoicePicker';
+import { VoicePicker, getVoiceInfo } from './VoicePicker';
 
 interface VoiceOverlayProps {
   onClose: () => void;
@@ -30,6 +30,15 @@ const stripMarkdown = (text: string) =>
     .replace(/^#+\s+/gm, '')           // headings
     .replace(/^[-*]\s+/gm, '')         // bullet points
     .replace(/\n{2,}/g, ' ')           // collapse newlines
+    .trim();
+
+/** Strip tool narration that LLMs leak despite prompt instructions */
+const stripToolNarration = (text: string) =>
+  text
+    .replace(/(?:Let me |I'll |I will |I'm going to )(?:use|call|check|run|invoke|execute|try)(?: the)? \w[\w_]*(?: tool)?(?:\s+(?:to|for|and)\b[^.!?]*)?[.!]?\s*/gi, '')
+    .replace(/\b(?:Using|Calling|Running|Checking|Invoking|Executing) (?:the )?\w[\w_]*(?: tool)?(?:\s+(?:to|for)\b[^.!?]*)?[.!]?\s*/gi, '')
+    .replace(/\b\w[\w_]*(?:_\w+)+\b/g, '')  // bare tool_names like ha_setup, web_search
+    .replace(/\s{2,}/g, ' ')
     .trim();
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -61,9 +70,10 @@ interface SpeechRecognitionAlternative {
  */
 export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const [visible, setVisible] = useState(false);
-  const [phase, setPhase] = useState<'picking' | 'active'>('picking');
-  const [selectedVoice, setSelectedVoice] = useState<string>('');
-  const selectedVoiceRef = useRef<string>('');
+  const savedVoice = localStorage.getItem('titan-voice') || '';
+  const [phase, setPhase] = useState<'picking' | 'active'>(savedVoice ? 'active' : 'picking');
+  const [selectedVoice, setSelectedVoice] = useState<string>(savedVoice);
+  const selectedVoiceRef = useRef<string>(savedVoice);
   const [isMuted, setIsMuted] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -72,6 +82,9 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const [audioLevel, setAudioLevel] = useState(0);
   const [interimText, setInterimText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+
+  const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'];
 
   const recognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -83,13 +96,17 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const sessionIdRef = useRef<string | undefined>(undefined);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const interruptCheckRef = useRef<number>(0);
+  const processingRef = useRef(false); // guard against overlapping handleUserMessage calls
 
   // Refs to avoid stale closures in recognition callbacks
   const isMutedRef = useRef(false);
+  const isSpeakingRef = useRef(false);
   const phaseRef = useRef<'picking' | 'active'>('picking');
 
   // Keep refs in sync with state
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // Animate in
@@ -97,21 +114,25 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     requestAnimationFrame(() => setVisible(true));
   }, []);
 
-  // Load saved voice preference
+  // Close voice menu on outside click
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('titan-voice');
-      if (saved) {
-        setSelectedVoice(saved);
-        selectedVoiceRef.current = saved;
-      }
-    } catch { /* ignore */ }
-  }, []);
+    if (!showVoiceMenu) return;
+    const handler = () => setShowVoiceMenu(false);
+    // Delay so the toggle click doesn't immediately close
+    const id = setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => { clearTimeout(id); document.removeEventListener('click', handler); };
+  }, [showVoiceMenu]);
 
   // Mic level monitoring
   const startMicMonitor = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       micStreamRef.current = stream;
       const ctx = new AudioContext();
       audioContextRef.current = ctx;
@@ -139,6 +160,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
   const stopMicMonitor = useCallback(() => {
     cancelAnimationFrame(levelAnimRef.current);
+    cancelAnimationFrame(interruptCheckRef.current);
     micStreamRef.current?.getTracks().forEach(t => t.stop());
     audioContextRef.current?.close();
     micStreamRef.current = null;
@@ -164,11 +186,17 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     recognition.lang = 'en-US';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // Ignore speech recognition results while TITAN is speaking — it's echo
+      if (isSpeakingRef.current) return;
+
       let interim = '';
       let final = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+        // Filter low-confidence results — likely echo artifacts from speaker bleed
+        if (result[0].confidence > 0 && result[0].confidence < 0.5) continue;
+
         if (result.isFinal) {
           final += result[0].transcript;
         } else {
@@ -184,21 +212,24 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
         currentTranscriptRef.current += final;
         setInterimText('');
 
-        // Reset silence timer — wait for user to stop speaking
+        // Reset silence timer — adaptive: short utterances fire faster
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        const wordCount = currentTranscriptRef.current.trim().split(/\s+/).length;
+        const silenceMs = wordCount < 10 ? 400 : 700;
         silenceTimerRef.current = setTimeout(() => {
           const text = currentTranscriptRef.current.trim();
           if (text) {
             currentTranscriptRef.current = '';
             handleUserMessage(text);
           }
-        }, 1200); // 1.2s silence = end of utterance
+        }, silenceMs);
       }
     };
 
     recognition.onend = () => {
       // Use refs (not state) to avoid stale closure — these always have current values
-      if (!isMutedRef.current && phaseRef.current === 'active') {
+      // Don't auto-restart while TITAN is speaking — mic would pick up TTS audio
+      if (!isMutedRef.current && !isSpeakingRef.current && phaseRef.current === 'active') {
         try { recognition.start(); } catch { /* already started */ }
       }
       setIsListening(false);
@@ -211,7 +242,20 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     recognition.onerror = (e: any) => {
       console.error('Speech recognition error:', e.error);
       if (e.error === 'not-allowed') {
+        setErrorMsg('Mic access denied — check browser permissions');
         setIsListening(false);
+      } else if (e.error === 'network') {
+        setErrorMsg('Speech recognition network error');
+        setTimeout(() => {
+          if (!isMutedRef.current && phaseRef.current === 'active') {
+            try { recognition.start(); } catch { /* ok */ }
+          }
+        }, 2000);
+      } else if (e.error === 'audio-capture') {
+        setErrorMsg('Mic not available — is another app using it?');
+        setIsListening(false);
+      } else if (e.error !== 'no-speech') {
+        console.error('STT error:', e.error);
       }
     };
 
@@ -229,12 +273,105 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       audio.src = '';
       currentAudioRef.current = null;
     }
+    // Also cancel browser speech synthesis
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     setIsSpeaking(false);
     setAudioLevel(0);
   }, []);
 
-  // Send user message to TITAN and speak the response via Orpheus TTS
+  // Auto-start mic when resuming a saved voice (skipping picker)
+  useEffect(() => {
+    if (savedVoice && phase === 'active') {
+      startMicMonitor();
+      startRecognition();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Reactive audio queue player — pulls from a shared array as new items arrive.
+   * Unlike a static snapshot, this checks for new entries after each track finishes.
+   * Call `queue.finish()` when the stream is done so it knows when to stop waiting.
+   */
+  const createAudioPlayer = useCallback(() => {
+    const urls: string[] = [];
+    let idx = 0;
+    let cancelled = false;
+    let streamDone = false;
+    let onDone: (() => void) | null = null;
+    let waitingForMore: (() => void) | null = null;
+
+    const levelInterval = setInterval(() => {
+      if (!cancelled) setAudioLevel(0.3 + Math.random() * 0.4);
+    }, 100);
+
+    const cleanup = () => {
+      clearInterval(levelInterval);
+      setAudioLevel(0);
+    };
+
+    const playNext = () => {
+      if (cancelled) { cleanup(); return; }
+
+      if (idx < urls.length) {
+        // There's audio to play
+        const dataUrl = urls[idx++];
+        const audio = new Audio(dataUrl);
+        currentAudioRef.current = audio;
+        audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
+        audio.onended = () => { URL.revokeObjectURL(dataUrl); playNext(); };
+        audio.onerror = () => { URL.revokeObjectURL(dataUrl); playNext(); };
+        audio.play().catch(() => { URL.revokeObjectURL(dataUrl); playNext(); });
+      } else if (streamDone) {
+        // Stream finished and no more audio — we're done
+        cleanup();
+        if (onDone) onDone();
+      } else {
+        // Waiting for more audio from the stream
+        waitingForMore = playNext;
+      }
+    };
+
+    return {
+      /** Add a new audio URL to the queue */
+      push(url: string) {
+        urls.push(url);
+        // If the player was waiting for more audio, wake it up
+        if (waitingForMore) {
+          const resume = waitingForMore;
+          waitingForMore = null;
+          resume();
+        }
+      },
+      /** Signal that no more audio will arrive */
+      finish() {
+        streamDone = true;
+        // If waiting, trigger final check
+        if (waitingForMore) {
+          const resume = waitingForMore;
+          waitingForMore = null;
+          resume();
+        }
+      },
+      /** Start playing */
+      start(done: () => void) {
+        onDone = done;
+        playNext();
+      },
+      /** Cancel playback */
+      cancel() {
+        cancelled = true;
+        cleanup();
+      },
+      get length() { return urls.length; },
+    };
+  }, []);
+
+  // Send user message to TITAN and speak the response via streaming TTS
   const handleUserMessage = useCallback(async (text: string) => {
+    // Prevent overlapping calls (echo can trigger rapid duplicate messages)
+    if (processingRef.current) return;
+    processingRef.current = true;
+
     // If TITAN is speaking, interrupt it
     stopCurrentAudio();
 
@@ -253,91 +390,158 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     abortRef.current = controller;
 
     try {
-      // Send to TITAN with session continuity and timeout
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      // Try streaming endpoint first (sentence-by-sentence TTS)
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const voice = selectedVoiceRef.current || 'tara';
 
-      const res = await fetch('/api/message', {
+      const res = await fetch('/api/voice/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: text,
-          channel: 'voice',
           sessionId: sessionIdRef.current,
+          voice,
         }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error(`TITAN request failed (${res.status})`);
-      const data = await res.json();
-
-      // Track session for continuity
-      if (data.sessionId) {
-        sessionIdRef.current = data.sessionId;
-      }
-
-      // Process response text
-      const rawText = data.content || 'Sorry, I couldn\'t process that.';
-      const cleanText = stripMarkdown(rawText);
-      // Strip emotion tags for display, keep for TTS
-      const displayText = stripEmotionTags(cleanText);
-
-      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: displayText }]);
-      setIsThinking(false);
-
-      // Generate and play TTS audio via Orpheus (use cleanText with emotion tags intact)
-      setIsSpeaking(true);
-      const voice = selectedVoiceRef.current || 'tara';
-
-      // Truncate text for TTS to avoid long hangs (max ~300 chars)
-      const ttsText = cleanText.length > 300 ? cleanText.slice(0, 297) + '...' : cleanText;
-
-      const ttsTimeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const ttsRes = await fetch('/api/voice/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice, text: ttsText }),
-        signal: controller.signal,
-      });
-      clearTimeout(ttsTimeoutId);
-
-      if (!ttsRes.ok) {
-        setErrorMsg('TTS unavailable');
-        setTimeout(() => setErrorMsg(null), 3000);
-        setIsSpeaking(false);
-        try { recognitionRef.current?.start(); } catch { /* ok */ }
+      // Fallback to old sequential path if streaming endpoint doesn't exist
+      if (res.status === 404) {
+        await handleUserMessageLegacy(text);
         return;
       }
+      if (!res.ok) throw new Error(`TITAN request failed (${res.status})`);
 
-      const blob = await ttsRes.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      currentAudioRef.current = audio;
+      // Parse SSE stream
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
 
-      // Simulate audio levels from playback
-      let levelFrame: number;
-      const simulateLevel = () => {
-        setAudioLevel(0.3 + Math.random() * 0.4);
-        levelFrame = requestAnimationFrame(simulateLevel);
-      };
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const sentences: string[] = [];
+      let assistantMsgId = '';
+      let displayText = '';
+      let audioPlaying = false;
 
-      audio.onplay = () => { simulateLevel(); };
+      // Reactive audio player — items pushed as they arrive from SSE
+      const audioPlayer = createAudioPlayer();
 
-      const cleanup = () => {
-        cancelAnimationFrame(levelFrame);
-        URL.revokeObjectURL(url);
-        audio.src = '';
+      const audioDoneCleanup = () => {
         currentAudioRef.current = null;
         setIsSpeaking(false);
         setAudioLevel(0);
-        try { recognitionRef.current?.start(); } catch { /* ok */ }
+        currentTranscriptRef.current = '';
+        setInterimText('');
+        setTimeout(() => {
+          processingRef.current = false;
+          if (!isMutedRef.current && phaseRef.current === 'active') {
+            try { recognitionRef.current?.start(); } catch { /* ok */ }
+          }
+        }, 500);
       };
 
-      audio.onended = cleanup;
-      audio.onerror = cleanup;
+      let currentEvent = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      await audio.play();
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const evt = currentEvent;
+              currentEvent = '';
+
+              if (evt === 'sentence') {
+                sentences.push(data.text);
+                displayText = sentences.join(' ');
+                if (!assistantMsgId) {
+                  assistantMsgId = nextMsgId();
+                  setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', text: displayText }]);
+                } else {
+                  setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: displayText } : m));
+                }
+                setIsThinking(false);
+              } else if (evt === 'audio') {
+                // Convert base64 WAV to blob URL and push to reactive queue
+                const binary = atob(data.audio);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const blob = new Blob([bytes], { type: 'audio/wav' });
+                audioPlayer.push(URL.createObjectURL(blob));
+
+                // Start playback on first audio chunk
+                if (!audioPlaying) {
+                  audioPlaying = true;
+                  setIsSpeaking(true);
+                  setIsThinking(false);
+                  audioPlayer.start(audioDoneCleanup);
+                }
+              } else if (evt === 'tool') {
+                setIsThinking(true);
+              } else if (evt === 'done') {
+                if (data.sessionId) sessionIdRef.current = data.sessionId;
+                if (!assistantMsgId && data.fullText) {
+                  const clean = stripToolNarration(stripEmotionTags(stripMarkdown(data.fullText)));
+                  setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: clean }]);
+                }
+                if (data.error) {
+                  setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: 'Sorry, something went wrong.' }]);
+                }
+              }
+            } catch { currentEvent = ''; }
+          } else if (line === '') {
+            currentEvent = '';
+          }
+        }
+      }
+
+      // Stream ended — tell the audio player no more chunks are coming
+      audioPlayer.finish();
+
+      // If no audio was played (browser TTS mode or TTS failure), handle cleanup
+      if (!audioPlaying) {
+        setIsThinking(false);
+        setIsSpeaking(false);
+        // Try browser TTS for the full text
+        if (displayText && 'speechSynthesis' in window) {
+          setIsSpeaking(true);
+          const utterance = new SpeechSynthesisUtterance(displayText.slice(0, 500));
+          utterance.rate = 1.05;
+          const synthInterval = setInterval(() => setAudioLevel(0.3 + Math.random() * 0.3), 100);
+          utterance.onend = () => {
+            clearInterval(synthInterval);
+            setIsSpeaking(false);
+            setAudioLevel(0);
+            currentTranscriptRef.current = '';
+            setTimeout(() => {
+              processingRef.current = false;
+              if (!isMutedRef.current && phaseRef.current === 'active') {
+                try { recognitionRef.current?.start(); } catch { /* ok */ }
+              }
+            }, 500);
+          };
+          utterance.onerror = () => {
+            clearInterval(synthInterval);
+            setIsSpeaking(false);
+            processingRef.current = false;
+            try { recognitionRef.current?.start(); } catch { /* ok */ }
+          };
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        } else {
+          currentTranscriptRef.current = '';
+          processingRef.current = false;
+          try { recognitionRef.current?.start(); } catch { /* ok */ }
+        }
+      }
     } catch (e: any) {
       // Ignore aborts from component close
       if (e?.name === 'AbortError' && !abortRef.current) return;
@@ -350,9 +554,104 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: isTimeout ? 'Sorry, that took too long. Try again.' : 'Sorry, something went wrong.' }]);
       setIsThinking(false);
       setIsSpeaking(false);
+      currentTranscriptRef.current = '';
+      processingRef.current = false;
       try { recognitionRef.current?.start(); } catch { /* ok */ }
     }
-  }, [stopCurrentAudio]);
+  }, [stopCurrentAudio, createAudioPlayer]);
+
+  // Legacy sequential path — fallback when /api/voice/stream is not available
+  const handleUserMessageLegacy = useCallback(async (text: string) => {
+    const controller = abortRef.current;
+    if (!controller) return;
+
+    try {
+      const res = await fetch('/api/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, channel: 'voice', sessionId: sessionIdRef.current }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`TITAN request failed (${res.status})`);
+      const data = await res.json();
+      if (data.sessionId) sessionIdRef.current = data.sessionId;
+
+      const rawText = data.content || 'Sorry, I couldn\'t process that.';
+      const displayText = stripToolNarration(stripEmotionTags(stripMarkdown(rawText)));
+      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: displayText }]);
+      setIsThinking(false);
+      setIsSpeaking(true);
+
+      const voice = selectedVoiceRef.current || 'tara';
+      const ttsText = displayText.length > 500 ? displayText.slice(0, 497) + '...' : displayText;
+
+      try {
+        const ttsRes = await fetch('/api/voice/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voice, text: ttsText }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (ttsRes.ok) {
+          const blob = await ttsRes.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          currentAudioRef.current = audio;
+          audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
+          const cleanup = () => {
+            URL.revokeObjectURL(url);
+            audio.src = '';
+            currentAudioRef.current = null;
+            setIsSpeaking(false);
+            setAudioLevel(0);
+            currentTranscriptRef.current = '';
+            setTimeout(() => {
+              processingRef.current = false;
+              if (!isMutedRef.current && phaseRef.current === 'active') {
+                try { recognitionRef.current?.start(); } catch { /* ok */ }
+              }
+            }, 500);
+          };
+          audio.onended = cleanup;
+          audio.onerror = cleanup;
+          await audio.play();
+          return;
+        }
+      } catch { /* TTS failed, fall through */ }
+
+      // Browser TTS fallback
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(ttsText);
+        utterance.rate = 1.05;
+        utterance.onend = () => {
+          setIsSpeaking(false);
+          currentTranscriptRef.current = '';
+          setTimeout(() => {
+            processingRef.current = false;
+            if (!isMutedRef.current && phaseRef.current === 'active') {
+              try { recognitionRef.current?.start(); } catch { /* ok */ }
+            }
+          }, 500);
+        };
+        utterance.onerror = () => {
+          setIsSpeaking(false);
+          processingRef.current = false;
+          try { recognitionRef.current?.start(); } catch { /* ok */ }
+        };
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setIsSpeaking(false);
+        processingRef.current = false;
+        try { recognitionRef.current?.start(); } catch { /* ok */ }
+      }
+    } catch (e: any) {
+      setIsThinking(false);
+      setIsSpeaking(false);
+      processingRef.current = false;
+      try { recognitionRef.current?.start(); } catch { /* ok */ }
+    }
+  }, []);
 
   // Voice selection handler
   const handleVoiceSelect = useCallback(async (voiceId: string) => {
@@ -373,6 +672,20 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     startMicMonitor();
     startRecognition();
   }, [startMicMonitor, startRecognition]);
+
+  // Switch voice during active chat (no need to go back to picker)
+  const switchVoice = useCallback((voiceId: string) => {
+    setSelectedVoice(voiceId);
+    selectedVoiceRef.current = voiceId;
+    localStorage.setItem('titan-voice', voiceId);
+    setShowVoiceMenu(false);
+    // Update server config
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice: { ttsVoice: voiceId } }),
+    }).catch(() => {/* non-critical */});
+  }, []);
 
   // Preview voice
   const handlePreview = useCallback(async (voiceId: string) => {
@@ -490,8 +803,52 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
                 {errorMsg}
               </div>
             )}
-            <div className="text-xs mt-1" style={{ color: '#52525b' }}>
-              Orpheus TTS · Browser STT
+            {/* Voice selector */}
+            <div className="relative mt-2">
+              <button
+                onClick={() => setShowVoiceMenu(prev => !prev)}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors hover:bg-[#27272a]"
+                style={{ color: getVoiceInfo(selectedVoice || 'tara').glow }}
+              >
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ backgroundColor: getVoiceInfo(selectedVoice || 'tara').glow }}
+                />
+                {getVoiceInfo(selectedVoice || 'tara').name}
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {showVoiceMenu && (
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 mt-1 rounded-xl border border-[#27272a] bg-[#18181b]/95 backdrop-blur-sm p-1.5 shadow-xl z-30"
+                  style={{ minWidth: 180 }}
+                >
+                  {ORPHEUS_VOICES.map(v => {
+                    const info = getVoiceInfo(v);
+                    const isActive = v === (selectedVoice || 'tara');
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => switchVoice(v)}
+                        className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[#27272a]"
+                        style={{ color: isActive ? info.glow : '#a1a1aa' }}
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: info.glow,
+                            boxShadow: isActive ? `0 0 8px ${info.glow}60` : 'none',
+                          }}
+                        />
+                        <span className="font-medium">{info.name}</span>
+                        {isActive && (
+                          <span className="ml-auto text-xs opacity-60">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

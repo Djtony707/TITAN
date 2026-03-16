@@ -112,6 +112,7 @@ export const AgentConfigSchema = z.object({
         reasoning: 'openai/o3-mini',
         cheap: 'google/gemini-2.0-flash',
         local: 'ollama/qwen3.5:4b',
+        cloud: 'ollama/qwen3.5:397b-cloud',
     }),
     costOptimization: z.object({
         smartRouting: z.boolean().default(true),
@@ -138,6 +139,9 @@ export const AgentConfigSchema = z.object({
     selfHealThreshold: z.number().min(2).max(10).default(3),
     /** Models known to reliably support tool calling — used as self-heal fallbacks */
     toolCapableModels: z.array(z.string()).default([]),
+    /** Force API-level tool_choice on round 0 for task-enforcement scenarios (file writes, research, shell).
+     *  Adds a hard guarantee on top of prompt-level tool instructions. Default: true. */
+    forceToolUse: z.boolean().default(true),
 });
 
 export const MeshConfigSchema = z.object({
@@ -184,7 +188,7 @@ export const ToolSearchConfigSchema = z.object({
     /** Core tools always sent to the LLM without needing search */
     coreTools: z.array(z.string()).default([
         'shell', 'read_file', 'write_file', 'edit_file', 'list_dir',
-        'web_search', 'memory', 'tool_search',
+        'web_search', 'memory', 'tool_search', 'ha_setup',
     ]),
 });
 
@@ -244,12 +248,16 @@ export const VoiceConfigSchema = z.object({
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */
     ttsVoice: z.string().default('tara'),
-    /** TTS engine: 'orpheus' (emotional, local GPU) or 'kokoro' (legacy) */
-    ttsEngine: z.enum(['orpheus', 'kokoro']).default('orpheus'),
-    /** TTS server URL (Orpheus: http://localhost:5005, Kokoro: http://localhost:8880) */
+    /** TTS engine: orpheus | browser */
+    ttsEngine: z.enum(['orpheus', 'browser']).default('orpheus'),
+    /** TTS server URL (Orpheus: 5005) */
     ttsUrl: z.string().default('http://localhost:5005'),
     /** STT server URL (e.g. faster-whisper) */
-    sttUrl: z.string().default('http://localhost:8300'),
+    sttUrl: z.string().default('http://localhost:48421'),
+    /** Voice performance: max tool rounds before forcing response */
+    maxToolRounds: z.number().default(3),
+    /** Voice performance: enable fast-path (skip deliberation, Brain, reflection) */
+    fastPath: z.boolean().default(true),
 });
 
 export const ContextEnginePluginConfigSchema = z.object({
@@ -280,6 +288,15 @@ export const OAuthConfigSchema = z.object({
         scopes: z.array(z.string()).default([
             'https://www.googleapis.com/auth/gmail.modify',
             'https://www.googleapis.com/auth/gmail.readonly',
+            'https://www.googleapis.com/auth/calendar',
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/documents',
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/tasks',
+            'https://www.googleapis.com/auth/contacts.readonly',
+            'https://www.googleapis.com/auth/youtube.readonly',
+            'https://www.googleapis.com/auth/userinfo.email',
+            'https://www.googleapis.com/auth/userinfo.profile',
         ]),
     }).default({}),
 });
@@ -505,6 +522,12 @@ export const TitanConfigSchema = z.object({
     teams: TeamConfigSchema.default({}),
     researchPipeline: ResearchPipelineConfigSchema.default({}),
     autoresearch: AutoresearchConfigSchema.default({}),
+    homeAssistant: z.object({
+        /** Home Assistant instance URL (e.g., http://homeassistant.local:8123) */
+        url: z.string().default(''),
+        /** Long-lived access token for Home Assistant API */
+        token: z.string().default(''),
+    }).default({}),
     mcp: z.object({
         /** MCP server mode — expose TITAN's tools to other agents */
         server: z.object({

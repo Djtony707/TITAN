@@ -932,20 +932,20 @@ export function registerModelTrainerSkill(): void {
     registerSkill(
         {
             name: 'model_trainer',
-            description: 'Fine-tune local LLM models on TITAN\'s conversation history using GPU',
+            description: 'Use this when the user says "train on this", "fine-tune with these examples", "add this to training data", "teach yourself from our conversation", or wants to improve the local model using past interactions. Runs LoRA fine-tuning on the RTX 5090 GPU.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'train_prepare',
-            description: 'Prepare training data from TITAN\'s conversation history. Extracts high-quality instruction/response pairs, scores them by tool success rates, and saves as JSONL.',
+            description: 'Prepare training data before launching a fine-tune. Use this when asked to "get the training data ready", "collect examples", or "prepare for training". Scans TITAN\'s conversation history, extracts high-quality instruction/response pairs scored by tool success rates, and saves as JSONL ready for fine-tuning.',
             parameters: {
                 type: 'object',
                 properties: {
                     minSamples: {
                         type: 'number',
-                        description: 'Minimum training samples required (default: 50)',
+                        description: 'Minimum training samples required before proceeding (default: 50)',
                     },
                 },
                 required: [],
@@ -957,14 +957,14 @@ export function registerModelTrainerSkill(): void {
     registerSkill(
         {
             name: 'model_trainer',
-            description: 'Fine-tune local LLM models on TITAN\'s conversation history using GPU',
+            description: 'Use this when the user says "train on this", "fine-tune with these examples", "add this to training data", "teach yourself from our conversation", or wants to improve the local model using past interactions. Runs LoRA fine-tuning on the RTX 5090 GPU.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'train_start',
-            description: 'Launch a LoRA fine-tuning job on the local GPU. Uses unsloth for efficient training. Runs as a background process.',
+            description: 'Start a LoRA fine-tuning job on the local GPU. Use when the user says "start training", "fine-tune the model", or "run the training". Requires training data to be prepared first (train_prepare). Runs as a background process on the RTX 5090.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -974,7 +974,7 @@ export function registerModelTrainerSkill(): void {
                     },
                     method: {
                         type: 'string',
-                        description: 'Training method: lora, qlora, full (default: lora)',
+                        description: 'Training method: lora, qlora, or full (default: lora)',
                     },
                     budgetMinutes: {
                         type: 'number',
@@ -994,20 +994,20 @@ export function registerModelTrainerSkill(): void {
     registerSkill(
         {
             name: 'model_trainer',
-            description: 'Fine-tune local LLM models on TITAN\'s conversation history using GPU',
+            description: 'Use this when the user says "train on this", "fine-tune with these examples", "add this to training data", "teach yourself from our conversation", or wants to improve the local model using past interactions. Runs LoRA fine-tuning on the RTX 5090 GPU.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'train_status',
-            description: 'Check training progress — shows log output, loss, and completion status. Without a runId, lists all training runs.',
+            description: 'Check how a training job is progressing. Use when asked "how is training going?", "what\'s the loss?", "is training done?". Shows log output, current loss, and completion status. Without a runId, lists all training runs.',
             parameters: {
                 type: 'object',
                 properties: {
                     runId: {
                         type: 'string',
-                        description: 'Specific training run ID to check (optional)',
+                        description: 'Specific training run ID to check (optional — omit to list all runs)',
                     },
                 },
                 required: [],
@@ -1019,14 +1019,14 @@ export function registerModelTrainerSkill(): void {
     registerSkill(
         {
             name: 'model_trainer',
-            description: 'Fine-tune local LLM models on TITAN\'s conversation history using GPU',
+            description: 'Use this when the user says "train on this", "fine-tune with these examples", "add this to training data", "teach yourself from our conversation", or wants to improve the local model using past interactions. Runs LoRA fine-tuning on the RTX 5090 GPU.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'train_deploy',
-            description: 'Convert a completed training run into an Ollama model and optionally switch TITAN to use it.',
+            description: 'Deploy a completed fine-tuned model into Ollama so TITAN can use it. Use when training is done and the user says "deploy the model", "use the trained model", or "switch to the fine-tuned version".',
             parameters: {
                 type: 'object',
                 properties: {
@@ -1036,7 +1036,7 @@ export function registerModelTrainerSkill(): void {
                     },
                     modelName: {
                         type: 'string',
-                        description: 'Name for the new Ollama model (default: titan-custom)',
+                        description: 'Name for the deployed Ollama model (default: titan-custom)',
                     },
                 },
                 required: ['runId'],
@@ -1050,14 +1050,14 @@ export function registerModelTrainerSkill(): void {
     registerSkill(
         {
             name: 'model_trainer',
-            description: 'Fine-tune local LLM models on TITAN\'s conversation history using GPU',
+            description: 'Use this when the user says "train on this", "fine-tune with these examples", "add this to training data", "teach yourself from our conversation", or wants to improve the local model using past interactions. Runs LoRA fine-tuning on the RTX 5090 GPU.',
             version: '1.0.0',
             source: 'bundled',
             enabled: true,
         },
         {
             name: 'train_generate_cloud',
-            description: 'Generate high-quality synthetic training data using cloud models as teachers. Uses Ollama cloud models (qwen3.5:397b-cloud, nemotron-3-super:cloud, etc.) to produce diverse agent training examples for fine-tuning the local model.',
+            description: 'Generate synthetic training examples using a large cloud model as teacher. Use when the user says "generate training data", "create examples for fine-tuning", or "use the cloud model to teach the local model". A smart cloud model (e.g. qwen3.5:397b-cloud) produces diverse, high-quality agent examples across tool use, reasoning, coding, research, conversation, and error recovery.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -1071,7 +1071,7 @@ export function registerModelTrainerSkill(): void {
                     },
                     categories: {
                         type: 'string',
-                        description: 'Comma-separated categories: tool_use,reasoning,coding,research,conversation,error_recovery (default: all)',
+                        description: 'Which categories to generate: tool_use, reasoning, coding, research, conversation, error_recovery (default: all)',
                     },
                     append: {
                         type: 'boolean',

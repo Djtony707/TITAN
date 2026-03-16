@@ -537,6 +537,7 @@ describe('routeMessage', () => {
                 systemPrompt: 'You are TITAN.',
             },
             undefined,
+            undefined,
         );
     });
 

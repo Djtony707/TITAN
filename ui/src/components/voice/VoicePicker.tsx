@@ -13,72 +13,47 @@ export interface VoiceOption {
   gender: 'female' | 'male';
 }
 
-const VOICES: VoiceOption[] = [
-  {
-    id: 'tara',
-    name: 'Tara',
-    description: 'Warm and expressive',
-    gradient: 'radial-gradient(circle at 35% 35%, #f472b6, #ec4899, #be185d)',
-    glow: '#ec4899',
-    gender: 'female',
-  },
-  {
-    id: 'leah',
-    name: 'Leah',
-    description: 'Clear and confident',
-    gradient: 'radial-gradient(circle at 35% 35%, #c084fc, #a855f7, #7c3aed)',
-    glow: '#a855f7',
-    gender: 'female',
-  },
-  {
-    id: 'jess',
-    name: 'Jess',
-    description: 'Friendly and energetic',
-    gradient: 'radial-gradient(circle at 35% 35%, #67e8f9, #22d3ee, #0891b2)',
-    glow: '#22d3ee',
-    gender: 'female',
-  },
-  {
-    id: 'mia',
-    name: 'Mia',
-    description: 'Calm and soothing',
-    gradient: 'radial-gradient(circle at 35% 35%, #93c5fd, #3b82f6, #1d4ed8)',
-    glow: '#3b82f6',
-    gender: 'female',
-  },
-  {
-    id: 'zoe',
-    name: 'Zoe',
-    description: 'Bright and playful',
-    gradient: 'radial-gradient(circle at 35% 35%, #fda4af, #fb7185, #e11d48)',
-    glow: '#fb7185',
-    gender: 'female',
-  },
-  {
-    id: 'leo',
-    name: 'Leo',
-    description: 'Bold and commanding',
-    gradient: 'radial-gradient(circle at 35% 35%, #86efac, #22c55e, #15803d)',
-    glow: '#22c55e',
-    gender: 'male',
-  },
-  {
-    id: 'dan',
-    name: 'Dan',
-    description: 'Steady and articulate',
-    gradient: 'radial-gradient(circle at 35% 35%, #fbbf24, #f59e0b, #b45309)',
-    glow: '#f59e0b',
-    gender: 'male',
-  },
-  {
-    id: 'zac',
-    name: 'Zac',
-    description: 'Smooth and trustworthy',
-    gradient: 'radial-gradient(circle at 35% 35%, #a5b4fc, #818cf8, #4f46e5)',
-    glow: '#818cf8',
-    gender: 'male',
-  },
+/** Orpheus voice presets with unique colors and descriptions */
+const ORPHEUS_VOICES: Record<string, Omit<VoiceOption, 'id'>> = {
+  tara:  { name: 'Tara',  description: 'Warm & expressive',      gradient: 'radial-gradient(circle at 35% 35%, #c084fc, #a855f7, #7c3aed)', glow: '#a855f7', gender: 'female' },
+  leah:  { name: 'Leah',  description: 'Calm & articulate',      gradient: 'radial-gradient(circle at 35% 35%, #f472b6, #ec4899, #be185d)', glow: '#ec4899', gender: 'female' },
+  jess:  { name: 'Jess',  description: 'Bright & energetic',     gradient: 'radial-gradient(circle at 35% 35%, #67e8f9, #22d3ee, #0891b2)', glow: '#22d3ee', gender: 'female' },
+  mia:   { name: 'Mia',   description: 'Soft & friendly',        gradient: 'radial-gradient(circle at 35% 35%, #86efac, #22c55e, #15803d)', glow: '#22c55e', gender: 'female' },
+  zoe:   { name: 'Zoe',   description: 'Confident & clear',      gradient: 'radial-gradient(circle at 35% 35%, #fda4af, #fb7185, #e11d48)', glow: '#fb7185', gender: 'female' },
+  leo:   { name: 'Leo',   description: 'Deep & authoritative',   gradient: 'radial-gradient(circle at 35% 35%, #93c5fd, #3b82f6, #1d4ed8)', glow: '#3b82f6', gender: 'male' },
+  dan:   { name: 'Dan',   description: 'Relaxed & natural',      gradient: 'radial-gradient(circle at 35% 35%, #fbbf24, #f59e0b, #b45309)', glow: '#f59e0b', gender: 'male' },
+  zac:   { name: 'Zac',   description: 'Bold & dynamic',         gradient: 'radial-gradient(circle at 35% 35%, #a5b4fc, #818cf8, #4f46e5)', glow: '#818cf8', gender: 'male' },
+};
+
+/** Fallback color palette for unknown voices */
+const VOICE_COLORS = [
+  { gradient: 'radial-gradient(circle at 35% 35%, #fdba74, #f97316, #c2410c)', glow: '#f97316' },
+  { gradient: 'radial-gradient(circle at 35% 35%, #5eead4, #14b8a6, #0f766e)', glow: '#14b8a6' },
 ];
+
+function buildVoiceOptions(voiceIds: string[]): VoiceOption[] {
+  return voiceIds.map((id, i) => {
+    const preset = ORPHEUS_VOICES[id];
+    if (preset) return { id, ...preset };
+    const color = VOICE_COLORS[i % VOICE_COLORS.length];
+    const name = id.charAt(0).toUpperCase() + id.slice(1);
+    return {
+      id,
+      name,
+      description: 'Custom voice',
+      gradient: color.gradient,
+      glow: color.glow,
+      gender: 'female' as const,
+    };
+  });
+}
+
+/** Export voice data for use by other components */
+export function getVoiceInfo(voiceId: string): { name: string; glow: string } {
+  const preset = ORPHEUS_VOICES[voiceId];
+  if (preset) return { name: preset.name, glow: preset.glow };
+  return { name: voiceId.charAt(0).toUpperCase() + voiceId.slice(1), glow: '#818cf8' };
+}
 
 interface VoicePickerProps {
   currentVoice?: string;
@@ -87,18 +62,41 @@ interface VoicePickerProps {
 }
 
 export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerProps) {
-  const initialIdx = currentVoice ? Math.max(0, VOICES.findIndex(v => v.id === currentVoice)) : 0;
-  const [activeIdx, setActiveIdx] = useState(initialIdx);
+  const [voices, setVoices] = useState<VoiceOption[]>(() =>
+    buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'])
+  );
+  const [activeIdx, setActiveIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const startX = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const voice = VOICES[activeIdx];
+  // Fetch voices from API
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/voice/voices');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.voices?.length) {
+            const opts = buildVoiceOptions(data.voices);
+            setVoices(opts);
+            // Set initial index to match currentVoice
+            if (currentVoice) {
+              const idx = opts.findIndex(v => v.id === currentVoice);
+              if (idx >= 0) setActiveIdx(idx);
+            }
+          }
+        }
+      } catch { /* voice server offline — keep defaults */ }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const voice = voices[activeIdx] || voices[0];
 
   const goTo = useCallback((idx: number) => {
-    setActiveIdx(Math.max(0, Math.min(VOICES.length - 1, idx)));
-  }, []);
+    setActiveIdx(Math.max(0, Math.min(voices.length - 1, idx)));
+  }, [voices.length]);
 
   const prev = useCallback(() => goTo(activeIdx - 1), [activeIdx, goTo]);
   const next = useCallback(() => goTo(activeIdx + 1), [activeIdx, goTo]);
@@ -108,11 +106,11 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') prev();
       if (e.key === 'ArrowRight') next();
-      if (e.key === 'Enter') onSelect(VOICES[activeIdx].id);
+      if (e.key === 'Enter') onSelect(voices[activeIdx].id);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeIdx, prev, next, onSelect]);
+  }, [activeIdx, prev, next, onSelect, voices]);
 
   // Touch/mouse drag
   const onPointerDown = (e: React.PointerEvent) => {
@@ -162,7 +160,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
 
         {/* Orbs */}
         <div className="relative" style={{ width: 220, height: 220 }}>
-          {VOICES.map((v, i) => {
+          {voices.map((v, i) => {
             const offset = i - activeIdx;
             const isActive = i === activeIdx;
             const drag = isDragging ? dragOffset * 0.3 : 0;
@@ -213,7 +211,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
         </div>
 
         {/* Right arrow */}
-        {activeIdx < VOICES.length - 1 && (
+        {activeIdx < voices.length - 1 && (
           <button
             onClick={next}
             className="absolute right-4 z-10 rounded-full p-2 text-[#71717a] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
@@ -242,7 +240,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
 
       {/* Dots */}
       <div className="flex items-center gap-2 mt-6">
-        {VOICES.map((v, i) => (
+        {voices.map((v, i) => (
           <button
             key={v.id}
             onClick={() => goTo(i)}
@@ -281,4 +279,5 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
   );
 }
 
-export { VOICES };
+/** Export VOICES for backward compatibility */
+export const VOICES = buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);

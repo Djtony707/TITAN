@@ -2,6 +2,7 @@
  * TITAN -- Doctor Diagnostic Tool
  * Checks system health, configuration, connectivity, and dependencies.
  * Supports --fix flag to auto-heal detected issues via selfHeal.ts.
+ * Supports --json flag for machine-readable output.
  */
 import chalk from 'chalk';
 import { existsSync, readdirSync, statSync } from 'fs';
@@ -31,11 +32,38 @@ interface CheckResult {
     fixKey?: string;
 }
 
-export async function runDoctor(options?: { fix?: boolean }): Promise<void> {
-    const autoFix = options?.fix ?? false;
+/** Fetch weekly npm download count for a package */
+async function fetchNpmDownloads(packageName: string): Promise<number | null> {
+    try {
+        const response = await fetch(`https://api.npmjs.org/downloads/point/last-week/${packageName}`, {
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) return null;
+        const data = await response.json() as { downloads?: number };
+        return data.downloads ?? null;
+    } catch {
+        return null;
+    }
+}
 
-    console.log(chalk.cyan(`\n🩺 TITAN Doctor v${TITAN_VERSION}\n`));
-    console.log(chalk.gray('Running diagnostics...\n'));
+export interface DoctorReport {
+    version: string;
+    timestamp: string;
+    checks: CheckResult[];
+    summary: { pass: number; warn: number; fail: number };
+    npm?: { weeklyDownloads: number | null };
+    fixes?: HealResult[];
+}
+
+export async function runDoctor(options?: { fix?: boolean; json?: boolean; dryRun?: boolean }): Promise<DoctorReport> {
+    const autoFix = options?.fix ?? false;
+    const dryRun = options?.dryRun ?? false;
+    const jsonOutput = options?.json ?? false;
+
+    if (!jsonOutput) {
+        console.log(chalk.cyan(`\n🩺 TITAN Doctor v${TITAN_VERSION}\n`));
+        console.log(chalk.gray('Running diagnostics...\n'));
+    }
 
     const checks: CheckResult[] = [];
     const healResults: HealResult[] = [];
@@ -82,14 +110,43 @@ export async function runDoctor(options?: { fix?: boolean }): Promise<void> {
 
     // 6. AI Provider connectivity
     if (configExists()) {
-        console.log(chalk.gray('  Checking AI providers...'));
+        if (!jsonOutput) console.log(chalk.gray('  Checking AI providers...'));
         try {
+            const config = loadConfig();
             const providerHealth = await healthCheckAll();
             for (const [name, healthy] of Object.entries(providerHealth)) {
+                let message = 'Reachable';
+                if (!healthy) {
+                    // Provide actionable error messages for missing API keys
+                    const providerConfig = (config.providers as Record<string, Record<string, unknown>>)?.[name];
+                    const hasApiKey = !!(providerConfig?.apiKey);
+                    const envVarMap: Record<string, string> = {
+                        anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY',
+                        google: 'GOOGLE_API_KEY', groq: 'GROQ_API_KEY',
+                        mistral: 'MISTRAL_API_KEY', openrouter: 'OPENROUTER_API_KEY',
+                        xai: 'XAI_API_KEY', together: 'TOGETHER_API_KEY',
+                        deepseek: 'DEEPSEEK_API_KEY', fireworks: 'FIREWORKS_API_KEY',
+                        cerebras: 'CEREBRAS_API_KEY', cohere: 'COHERE_API_KEY',
+                        perplexity: 'PERPLEXITY_API_KEY', azure: 'AZURE_OPENAI_API_KEY',
+                    };
+                    const envVar = envVarMap[name];
+                    const hasEnvVar = envVar ? !!process.env[envVar] : false;
+
+                    if (name === 'ollama') {
+                        const baseUrl = (providerConfig?.baseUrl as string) || 'http://localhost:11434';
+                        message = `Unreachable at ${baseUrl} — is Ollama running?`;
+                    } else if (!hasApiKey && !hasEnvVar) {
+                        message = envVar
+                            ? `No API key — set ${envVar} or add providers.${name}.apiKey to ~/.titan/titan.json`
+                            : `No API key — add providers.${name}.apiKey to ~/.titan/titan.json`;
+                    } else {
+                        message = 'API key set but provider unreachable — check key validity or network';
+                    }
+                }
                 checks.push({
                     name: `Provider: ${name}`,
                     status: healthy ? 'pass' : 'warn',
-                    message: healthy ? 'Reachable' : 'Not configured or unreachable',
+                    message,
                 });
             }
         } catch (error) {
@@ -282,16 +339,30 @@ export async function runDoctor(options?: { fix?: boolean }): Promise<void> {
         fixKey: 'permissions',
     });
 
-    // Print results
-    console.log('');
-    const statusIcons = { pass: chalk.green('✅'), warn: chalk.yellow('⚠️ '), fail: chalk.red('❌') };
-    for (const check of checks) {
-        console.log(`  ${statusIcons[check.status]} ${chalk.white(check.name)}: ${chalk.gray(check.message)}`);
+    // 15. npm download count
+    if (!jsonOutput) console.log(chalk.gray('  Checking npm downloads...'));
+    const npmDownloads = await fetchNpmDownloads('titan-agent');
+    if (npmDownloads !== null) {
+        checks.push({
+            name: 'npm weekly downloads',
+            status: 'pass',
+            message: `${npmDownloads.toLocaleString()} downloads/week (titan-agent)`,
+        });
+    } else {
+        checks.push({
+            name: 'npm weekly downloads',
+            status: 'warn',
+            message: 'Could not fetch npm download stats',
+        });
     }
 
     // Auto-fix pass if --fix was specified
     if (autoFix) {
-        console.log(chalk.cyan('\n  🔧 Running auto-fix...\n'));
+        if (dryRun) {
+            if (!jsonOutput) console.log(chalk.cyan('\n  🔧 Dry run — showing fixes that WOULD be applied:\n'));
+        } else {
+            if (!jsonOutput) console.log(chalk.cyan('\n  🔧 Running auto-fix...\n'));
+        }
 
         const issueChecks = checks.filter((c) => (c.status === 'warn' || c.status === 'fail') && c.fixKey);
         const fixKeysNeeded = new Set(issueChecks.map((c) => c.fixKey!));
@@ -307,32 +378,89 @@ export async function runDoctor(options?: { fix?: boolean }): Promise<void> {
             staleSessions: fixOrphanedSessions,
         };
 
-        for (const key of fixKeysNeeded) {
-            const fixFn = fixMap[key];
-            if (fixFn) {
-                const result = fixFn();
-                healResults.push(result);
-                const icon = result.success ? chalk.green('✅') : chalk.red('❌');
-                console.log(`  ${icon} ${result.action}: ${chalk.gray(result.message)}`);
+        const fixDescriptions: Record<string, string> = {
+            titanHome: 'Create TITAN home directory',
+            config: 'Create default configuration file',
+            invalidConfig: 'Reset invalid configuration to defaults',
+            workspace: 'Create workspace directory',
+            channels: 'Disable misconfigured channels',
+            permissions: 'Fix file permissions on TITAN home',
+            staleLogs: 'Clean up stale log files',
+            staleSessions: 'Remove orphaned session files',
+        };
+
+        if (dryRun) {
+            for (const key of fixKeysNeeded) {
+                if (fixMap[key]) {
+                    const description = fixDescriptions[key] ?? key;
+                    healResults.push({ action: key, success: true, message: `[dry-run] Would fix: ${description}` });
+                    if (!jsonOutput) {
+                        console.log(`  ${chalk.yellow('⏭')}  ${key}: ${chalk.gray(`Would fix: ${description}`)}`);
+                    }
+                }
+            }
+
+            if (!jsonOutput) {
+                console.log(chalk.cyan(`\n  🔧 Dry run complete — ${fixKeysNeeded.size} fix(es) would be applied. Run without --dry-run to apply.`));
+            }
+        } else {
+            for (const key of fixKeysNeeded) {
+                const fixFn = fixMap[key];
+                if (fixFn) {
+                    const result = fixFn();
+                    healResults.push(result);
+                    if (!jsonOutput) {
+                        const icon = result.success ? chalk.green('✅') : chalk.red('❌');
+                        console.log(`  ${icon} ${result.action}: ${chalk.gray(result.message)}`);
+                    }
+                }
+            }
+
+            if (!jsonOutput) {
+                const fixedCount = healResults.filter((r) => r.success).length;
+                const remainingCount = healResults.filter((r) => !r.success).length;
+                console.log(chalk.cyan(`\n  🔧 ${fixedCount} issues auto-fixed, ${remainingCount} remaining`));
             }
         }
-
-        const fixedCount = healResults.filter((r) => r.success).length;
-        const remainingCount = healResults.filter((r) => !r.success).length;
-        console.log(chalk.cyan(`\n  🔧 ${fixedCount} issues auto-fixed, ${remainingCount} remaining`));
     }
 
     const passCount = checks.filter((c) => c.status === 'pass').length;
     const warnCount = checks.filter((c) => c.status === 'warn').length;
     const failCount = checks.filter((c) => c.status === 'fail').length;
 
-    console.log(`\n  ${chalk.green(`${passCount} passed`)} | ${chalk.yellow(`${warnCount} warnings`)} | ${chalk.red(`${failCount} failed`)}`);
-
-    if (failCount > 0) {
-        console.log(chalk.red('\n  ⚠️  Some checks failed. Run `titan doctor --fix` or `titan onboard` to fix common issues.\n'));
-    } else if (warnCount > 0) {
-        console.log(chalk.yellow('\n  ℹ️  Some warnings found. Run `titan doctor --fix` to auto-fix or review the items above.\n'));
-    } else {
-        console.log(chalk.green('\n  🎉 All checks passed! TITAN is healthy.\n'));
+    // Build the report
+    const report: DoctorReport = {
+        version: TITAN_VERSION,
+        timestamp: new Date().toISOString(),
+        checks,
+        summary: { pass: passCount, warn: warnCount, fail: failCount },
+        npm: { weeklyDownloads: npmDownloads },
+    };
+    if (healResults.length > 0) {
+        report.fixes = healResults;
     }
+
+    // Output
+    if (jsonOutput) {
+        console.log(JSON.stringify(report, null, 2));
+    } else {
+        // Print results
+        console.log('');
+        const statusIcons = { pass: chalk.green('✅'), warn: chalk.yellow('⚠️ '), fail: chalk.red('❌') };
+        for (const check of checks) {
+            console.log(`  ${statusIcons[check.status]} ${chalk.white(check.name)}: ${chalk.gray(check.message)}`);
+        }
+
+        console.log(`\n  ${chalk.green(`${passCount} passed`)} | ${chalk.yellow(`${warnCount} warnings`)} | ${chalk.red(`${failCount} failed`)}`);
+
+        if (failCount > 0) {
+            console.log(chalk.red('\n  ⚠️  Some checks failed. Run `titan doctor --fix` or `titan onboard` to fix common issues.\n'));
+        } else if (warnCount > 0) {
+            console.log(chalk.yellow('\n  ℹ️  Some warnings found. Run `titan doctor --fix` to auto-fix or review the items above.\n'));
+        } else {
+            console.log(chalk.green('\n  🎉 All checks passed! TITAN is healthy.\n'));
+        }
+    }
+
+    return report;
 }
