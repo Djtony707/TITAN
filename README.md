@@ -1,5 +1,5 @@
 [//]: # (npm-text-start)
-> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, ~149 tools, 34 LLM providers, 15 channels, mesh networking, LiveKit voice, and a React dashboard. It trains itself. `npm i -g titan-agent`
+> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, ~155 tools, 34 LLM providers, 15 channels, mesh networking, LiveKit voice, and a React dashboard. It trains itself. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
 # TITAN — The Intelligent Task Automation Network
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, autonomous self-improvement, local model fine-tuning with dual training pipelines, 15 channels, 34 providers, ~149 tools, ~3,839 tests. It trains itself. Pure JavaScript. No native compilation. No, seriously.</strong>
+  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, autonomous self-improvement, local model fine-tuning with dual training pipelines, 15 channels, 34 providers, ~155 tools, ~4,321 tests. It trains itself. Pure JavaScript. No native compilation. No, seriously.</strong>
 </p>
 
 <p align="center">
@@ -23,9 +23,9 @@
   <a href="https://github.com/Djtony707/TITAN/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Djtony707/TITAN/ci.yml?label=tests" alt="CI Status"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
   <a href="#providers"><img src="https://img.shields.io/badge/providers-34-purple" alt="34 Providers"/></a>
-  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-149-orange" alt="149 Tools"/></a>
+  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-155-orange" alt="155 Tools"/></a>
   <a href="#channels"><img src="https://img.shields.io/badge/channels-15-blue" alt="15 Channels"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-3%2C839-brightgreen" alt="3,839 Tests"/></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C321-brightgreen" alt="4,321 Tests"/></a>
   <a href="https://github.com/Djtony707/TITAN/graphs/contributors"><img src="https://img.shields.io/github/contributors/Djtony707/TITAN" alt="Contributors"/></a>
 </p>
 
@@ -80,7 +80,8 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 | **Channel adapters** | 15 | 24+ | TBD | 0 | 0 | 0 |
 | **LLM providers** | 34 | Model-agnostic | NIM + others | ~5 | ~10 | ~20 |
 | **Mesh networking** | Multi-machine | — | — | — | — | — |
-| **Sandbox execution** | Docker | — | TBD | Docker | — | — |
+| **Sandbox execution** | Docker + NVIDIA OpenShell | — | TBD | Docker | — | — |
+| **GPU VRAM management** | Auto-swap orchestrator | — | — | — | — | — |
 | **MCP server mode** | Expose tools to other agents | Client only | TBD | Client | Client | Client |
 | **Prometheus metrics** | Built-in | — | TBD | — | — | — |
 | **One-line install** | `curl \| bash` | `npx` | — | — | — | — |
@@ -94,13 +95,11 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 
 ---
 
-> **What's New in v2026.10.28 — Bug Fixes: Vector Search + Active Learning**
+> **What's New in v2026.10.43 — VRAM Orchestrator + NVIDIA GPU Skills**
 >
-> Two bugs found in production logs on Titan PC, both fixed:
+> TITAN now manages your GPU memory automatically. The new **VRAM Orchestrator** monitors GPU state via `nvidia-smi`, tracks Ollama model loads, and auto-swaps models when services like cuOpt or TTS need VRAM. Time-bounded leases prevent services from hogging GPU memory. Emergency OOM protection unloads models if VRAM drops critically low. All through 3 agent tools (`vram_status`, `vram_acquire`, `vram_release`) and 4 API endpoints.
 >
-> **Vector search was broken since startup.** `initVectors()` called `embed()` to test if embeddings were available — but `embed()` checks `if (!available) return null` at the top, and `available` starts as `false`. So it always returned null, the test always failed, and RAG never initialized. Fixed by calling the Ollama `/api/embed` API directly (bypassing the guard) to warm up the embedding model and confirm dimensions before marking `available = true`.
->
-> **ActiveLearning was recording useless entries.** When a tool call failed and then succeeded on retry, TITAN logged "Resolved by using shell instead of shell" — same tool, no new information. Fixed by only recording the resolution when the successful tool is *different* from the failed one. `lastFailedTool` is now always cleared on any success.
+> Also new: **NVIDIA cuOpt** GPU-accelerated optimization (vehicle routing solved in 74ms), **AI-Q** deep research via Nemotron Super NIM, and **OpenShell** K3s-based secure sandboxing. All gated behind `TITAN_NVIDIA=1`.
 >
 > **— Tony**
 
@@ -187,7 +186,7 @@ TITAN SSHs into the target machine via the mesh network, pulls the latest code, 
 **"Get better at everything while I sleep"**
 TITAN runs self-improvement experiments overnight. It modifies its own prompts, evaluates the changes against a benchmark suite using LLM-as-judge scoring, and keeps only the improvements. It can even fine-tune its own local model on your GPU. You wake up to a smarter agent.
 
-No custom code required for any of the above. TITAN ships with 91 loaded skills exposing ~149 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly.
+No custom code required for any of the above. TITAN ships with 100+ loaded skills exposing ~155 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly.
 
 ---
 
@@ -218,7 +217,7 @@ No custom code required for any of the above. TITAN ships with 91 loaded skills 
        |         |       Mattermost         Peer Discovery
     Skills    Providers  Lark/Feishu        WS Transport
     82 loaded 34 total   Email (IMAP)
-    ~117 tools (4 native  LINE               Voice
+    ~155 tools (4 native  LINE               Voice
        |       + 30       Zulip             LiveKit WebRTC
     Memory     compat)
     Graph + RAG
@@ -601,7 +600,7 @@ Or add static peers manually: `titan mesh --add "192.168.1.100:48420"`
 
 ## MCP Server Mode
 
-TITAN can act as an **MCP server**, exposing all ~117 tools to other AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Code, Cursor, Windsurf, or any MCP client can connect and use TITAN's tools.
+TITAN can act as an **MCP server**, exposing all ~155 tools to other AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). Claude Code, Cursor, Windsurf, or any MCP client can connect and use TITAN's tools.
 
 **HTTP transport** (runs on the gateway port):
 ```json
@@ -653,6 +652,7 @@ print(f"Found {len(results)} results")
 ```json
 {
   "sandbox": {
+    "engine": "docker",
     "enabled": true,
     "timeoutMs": 60000,
     "memoryMB": 512,
@@ -661,11 +661,13 @@ print(f"Found {len(results)} results")
 }
 ```
 
+**Alternative: NVIDIA OpenShell** — For NVIDIA GPU machines, set `"engine": "openshell"` to use K3s-based sandboxes with declarative YAML security policies. Requires `TITAN_NVIDIA=1`.
+
 ---
 
 ## Built-in Tools
 
-91 loaded skills exposing ~149 tools. All individually toggleable from Mission Control.
+100+ loaded skills exposing ~155 tools. All individually toggleable from Mission Control.
 
 | Category | Tools |
 |----------|-------|
@@ -694,13 +696,15 @@ print(f"Found {len(results)} results")
 | **Self-Improvement** | `self_improve_start`, `self_improve_status`, `self_improve_apply`, `self_improve_history` |
 | **Model Training** | `train_prepare`, `train_start`, `train_status`, `train_deploy` (LoRA fine-tuning → GGUF → Ollama) |
 | **Sub-Agents** | `spawn_agent` (delegate to isolated sub-agents) |
+| **NVIDIA GPU** | `nvidia_cuopt_solve`, `nvidia_cuopt_health`, `nvidia_aiq_research` (requires `TITAN_NVIDIA=1`) |
+| **VRAM Management** | `vram_status`, `vram_acquire`, `vram_release` (auto-swap models for GPU services) |
 
 ### Tool Search — Compact Mode
 
-TITAN doesn't dump all 117 tool schemas into every LLM call. It sends only 8 core tools plus `tool_search`. When the LLM needs a capability, it calls `tool_search("email")` and gets the relevant tools added dynamically.
+TITAN doesn't dump all 155 tool schemas into every LLM call. It sends only 8 core tools plus `tool_search`. When the LLM needs a capability, it calls `tool_search("email")` and gets the relevant tools added dynamically.
 
 ```
-Before: 117 tools x ~50 tokens each = ~5,850 input tokens
+Before: 155 tools x ~50 tokens each = ~7,750 input tokens
 After:  10 core tools + tool_search  = ~700 input tokens (88% reduction)
 ```
 
@@ -860,7 +864,7 @@ The temporal graph is pure TypeScript — no Neo4j, no Docker, no external servi
 
 ```bash
 npm run build          # tsup ESM production build
-npm run test           # vitest (3,691 tests across 114 files)
+npm run test           # vitest (4,321 tests across 135 files)
 npm run test:coverage  # ~82% line coverage
 npm run ci             # typecheck + full test suite
 npm run typecheck      # tsc --noEmit
@@ -876,10 +880,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 
 ### Current (v2026.10.x)
 
+- **v2026.10.43**: **VRAM Orchestrator** — Automatic GPU VRAM management for RTX 5090. Monitors GPU via nvidia-smi, tracks Ollama model loads, auto-swaps to smaller models when GPU services need memory. Time-bounded leases with auto-expiry, async mutex for serialization, emergency OOM unload. 3 agent tools, 4 API endpoints, config schema.
+- **v2026.10.42**: **NVIDIA GPU Skills** — cuOpt v26.02 async VRP optimization (tested live, 74ms solve), AI-Q deep research via Nemotron Super NIM API, OpenShell K3s sandbox engine. NVIDIA skill loader gated behind `TITAN_NVIDIA=1`. Voice mic leak fix. 6 TypeScript fixes.
+- **v2026.10.41**: **Hotfix** — Tool visibility fix (security.allowedTools default), OpenAI-compat keepModelPrefix bug, voice system prompt rewrite, voice core tools, voice model override, HA debug logging.
+- **v2026.10.40**: **9 New Skills** — Structured output, workflow engine, social scheduler, agent handoff, event triggers, knowledge base, eval framework, approval gates, A2A protocol. 2 critical security fixes. 4,321 tests across 135 files.
+- **v2026.10.39**: **Security Release** — Resolved all 23 Dependabot alerts, 0 vulnerabilities.
 - **v2026.10.28**: **Bug Fixes** — Vector search circular dependency fixed (`initVectors` now calls Ollama `/api/embed` directly instead of `embed()` which was gated on `available=false` during init, causing RAG to never initialize). ActiveLearning no-op fixed (no longer records "use X instead of X" when same tool succeeds on retry). ESLint prefer-const fix.
 - **v2026.10.27**: **System Prompt Architecture Overhaul** — Complete redesign of how TITAN instructs AI models to use tools reliably. Tool Execution rules now appear first in the system prompt (before identity/capabilities). ReAct loop (Reason→Act→Observe) taught to every model. MUST/NEVER directives and negative examples (wrong vs. right behavior) burn in correct tool-call patterns. Task-aware dynamic injection appends `[TASK ENFORCEMENT]` blocks for file-write, research, and shell tasks detected in the message. API-level `tool_choice: "required"` added for OpenAI/Ollama and `tool_choice: {type: "any"}` for Anthropic on enforced first rounds. Ollama cloud prompt compression fixed — tool enforcement rules now survive compression (limit raised 2000→3500 chars). All 11 sub-agent templates (Explorer, Coder, Browser, Analyst, Researcher, Reporter, Fact Checker, Dev Debugger, Dev Tester, Dev Reviewer, Dev Architect) rewritten with tool-specific guidance, MUST rules, and output format requirements. New `agent.forceToolUse` config flag.
 - **v2026.10.26**: **Live Training Feed** — Real-time SSE streaming of training progress in Self-Improvement panel, incremental training data writes (data survives tool timeouts), cloud-assisted training pipeline
-- **v2026.10.22**: **Voice System Hardening** — 24 bug fixes across voice, gateway, and agent core. VoiceOverlay rewrite (stale closure fixes, AbortController cleanup, session continuity, emotion tag stripping). FluidOrb canvas rewrite (single animation loop, no 60fps teardown). Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor (Ollama/TTS/memory watchdog), fetchWithRetry timeout, systemd service unit, log rotation. 91 loaded skills, ~149 tools, 3,839 tests across 123 files.
+- **v2026.10.22**: **Voice System Hardening** — 24 bug fixes across voice, gateway, and agent core. VoiceOverlay rewrite (stale closure fixes, AbortController cleanup, session continuity, emotion tag stripping). FluidOrb canvas rewrite (single animation loop, no 60fps teardown). Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor (Ollama/TTS/memory watchdog), fetchWithRetry timeout, systemd service unit, log rotation. 91 loaded skills, ~155 tools, 3,839 tests across 123 files.
 - **v2026.10.21**: **Dual Training Pipelines** — Tool Router (single-turn tool selection) and Main Agent (multi-turn ChatML with OpenAI function calling) training modes. Self-Improve panel training type selector with fully customizable hyperparameters (base model, LoRA rank, learning rate, epochs, time budget, max sequence length). Training data generation, model deployment, and benchmarking from the UI. Ollama provider context management fix (prevents context over-allocation). New API endpoints: generate-data, deploy, type-filtered results.
 - **v2026.10.20**: **Autonomous Self-Improvement** — TITAN experiments on its own prompts, tool selection, response quality, and error recovery using LLM-as-judge evaluation. LoRA fine-tuning pipeline (unsloth → GGUF → Ollama) for local model training on GPU. Configurable schedule (1–12 runs/day), budget caps, auto-apply, weekend pause. Mission Control Self-Improvement panel. Autopilot `self-improve` mode. 8 new tools, 149 total tools, 91 skills, 3,839 tests across 123 files.
 - **v2026.10.17**: CapSolver CAPTCHA solving, direct form-fill API, deferred button clicks, React-compatible form automation

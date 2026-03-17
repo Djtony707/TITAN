@@ -28,6 +28,7 @@ const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const DaemonPanel = lazy(() => import('@/components/admin/DaemonPanel'));
 const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
 const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
+const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
@@ -97,6 +98,7 @@ export default function App() {
             <Route path="/daemon" element={<AdminPage><DaemonPanel /></AdminPage>} />
             <Route path="/audit" element={<AdminPage><AuditPanel /></AdminPage>} />
             <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
+            <Route path="/nvidia" element={<AdminPage><NvidiaPanel /></AdminPage>} />
           </Routes>
         </Suspense>
       </Layout>

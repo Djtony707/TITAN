@@ -185,16 +185,17 @@ export const TunnelConfigSchema = z.object({
 export const ToolSearchConfigSchema = z.object({
     /** Enable compact tool mode with tool_search discovery (saves 60-80% input tokens) */
     enabled: z.boolean().default(true),
-    /** Core tools always sent to the LLM without needing search */
-    coreTools: z.array(z.string()).default([
-        'shell', 'read_file', 'write_file', 'edit_file', 'list_dir',
-        'web_search', 'memory', 'tool_search', 'ha_setup',
-    ]),
+    /** Core tools always sent to the LLM without needing search.
+     *  When empty (default), uses DEFAULT_CORE_TOOLS from toolSearch.ts.
+     *  Override only if you need a specific custom list. */
+    coreTools: z.array(z.string()).default([]),
 });
 
 export const SandboxConfigSchema = z.object({
-    /** Enable sandbox code execution (requires Docker) */
+    /** Enable sandbox code execution (requires Docker or OpenShell) */
     enabled: z.boolean().default(true),
+    /** Sandbox engine: docker (default) or openshell (NVIDIA) */
+    engine: z.enum(['docker', 'openshell']).default('docker'),
     /** Docker image name for the sandbox container */
     image: z.string().default('titan-sandbox'),
     /** Default execution timeout in milliseconds */
@@ -252,12 +253,16 @@ export const VoiceConfigSchema = z.object({
     ttsEngine: z.enum(['orpheus', 'browser']).default('orpheus'),
     /** TTS server URL (Orpheus: 5005) */
     ttsUrl: z.string().default('http://localhost:5005'),
+    /** STT engine: faster-whisper | nemotron-asr | openai */
+    sttEngine: z.enum(['faster-whisper', 'nemotron-asr', 'openai']).default('faster-whisper'),
     /** STT server URL (e.g. faster-whisper) */
     sttUrl: z.string().default('http://localhost:48421'),
     /** Voice performance: max tool rounds before forcing response */
     maxToolRounds: z.number().default(3),
     /** Voice performance: enable fast-path (skip deliberation, Brain, reflection) */
     fastPath: z.boolean().default(true),
+    /** Override model for voice chat (faster model for low-latency responses). Falls back to agent.model if unset. */
+    model: z.string().optional(),
 });
 
 export const ContextEnginePluginConfigSchema = z.object({
@@ -397,6 +402,7 @@ export const TitanConfigSchema = z.object({
         anyscale: ProviderConfigSchema.default({}),
         octo: ProviderConfigSchema.default({}),
         nous: ProviderConfigSchema.default({}),
+        nvidia: ProviderConfigSchema.default({}),
     }).default({}),
     channels: z.object({
         discord: ChannelConfigSchema.default({}),
@@ -586,6 +592,59 @@ export const TitanConfigSchema = z.object({
         maxActionsPerHour: z.number().default(10),
     }).default({}),
     capsolver: CapsolverConfigSchema.default({}),
+    vram: z.object({
+        /** Master switch for VRAM orchestrator */
+        enabled: z.boolean().default(true),
+        /** GPU polling interval in milliseconds (0 = disabled) */
+        pollIntervalMs: z.number().default(10000),
+        /** Always keep this much VRAM free as a safety buffer (MB) */
+        reserveMB: z.number().default(1024),
+        /** Automatically swap to a smaller model when VRAM is needed */
+        autoSwapModel: z.boolean().default(true),
+        /** Fallback model to load when large model is evicted */
+        fallbackModel: z.string().default('qwen3:7b'),
+        /** Ollama API URL for model management */
+        ollamaUrl: z.string().default('http://localhost:11434'),
+        /** GPU service VRAM budgets and priorities */
+        services: z.record(z.string(), z.object({
+            estimatedMB: z.number(),
+            priority: z.number(),
+            type: z.enum(['ollama', 'docker', 'process']),
+        })).default({
+            ollama: { estimatedMB: 0, priority: 1, type: 'ollama' },
+            orpheus_tts: { estimatedMB: 4000, priority: 2, type: 'docker' },
+            cuopt: { estimatedMB: 5000, priority: 3, type: 'docker' },
+            nemotron_asr: { estimatedMB: 4000, priority: 4, type: 'docker' },
+        }),
+    }).default({}),
+    nvidia: z.object({
+        /** Master switch — enables all NVIDIA integrations (also triggered by TITAN_NVIDIA=1 env) */
+        enabled: z.boolean().default(false),
+        /** NVIDIA NIM API key (build.nvidia.com) */
+        apiKey: z.string().optional(),
+        /** cuOpt GPU-accelerated optimization engine */
+        cuopt: z.object({
+            enabled: z.boolean().default(false),
+            /** cuOpt server URL (REST API endpoint) */
+            url: z.string().default('http://localhost:5000'),
+        }).default({}),
+        /** Nemotron-ASR-Streaming for low-latency speech recognition */
+        asr: z.object({
+            enabled: z.boolean().default(false),
+            /** gRPC endpoint for Nemotron-ASR NIM container */
+            grpcUrl: z.string().default('localhost:50051'),
+            /** HTTP health endpoint */
+            healthUrl: z.string().default('http://localhost:9000'),
+        }).default({}),
+        /** NVIDIA OpenShell agent sandbox runtime */
+        openshell: z.object({
+            enabled: z.boolean().default(false),
+            /** Path to openshell CLI binary */
+            binaryPath: z.string().default('openshell'),
+            /** Path to TITAN sandbox policy YAML */
+            policyPath: z.string().default(''),
+        }).default({}),
+    }).default({}),
     x: z.object({
         /** Enable X/Twitter integration */
         enabled: z.boolean().default(false),
@@ -617,3 +676,4 @@ export type TunnelConfig = z.infer<typeof TunnelConfigSchema>;
 export type VoiceConfig = z.infer<typeof VoiceConfigSchema>;
 export type TeachingConfig = z.infer<typeof TeachingConfigSchema>;
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;
+export type NvidiaConfig = TitanConfig['nvidia'];

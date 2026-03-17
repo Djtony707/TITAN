@@ -1,0 +1,60 @@
+# TITAN — OpenShell Sandbox Policy
+# Declarative security policy for NVIDIA OpenShell code execution.
+# Licensed by NVIDIA Corporation under the NVIDIA Open Model License.
+#
+# This policy allows Python and Node.js execution with restricted
+# filesystem and network access. Tool calls route through the
+# TITAN bridge on the host machine.
+
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+    - /lib64
+    - /proc/self/status
+    - /dev/urandom
+    - /dev/null
+    - /etc/resolv.conf
+    - /etc/hosts
+    - /etc/ssl/certs
+  read_write:
+    - /tmp
+    - /sandbox
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+  max_processes: 50
+  max_open_files: 256
+
+resource_limits:
+  memory_mb: 512
+  cpu_shares: 1024
+  max_wall_time_seconds: 120
+
+network_policies:
+  # Allow TITAN bridge communication (tool calls back to host)
+  titan_bridge:
+    endpoints:
+      - host: host.docker.internal
+        port: ${bridgePort}
+    binaries:
+      - path: /usr/bin/python3
+      - path: /usr/bin/node
+  # Allow HTTPS for pip/npm installs (read-only)
+  package_registries:
+    endpoints:
+      - host: pypi.org
+        port: 443
+      - host: files.pythonhosted.org
+        port: 443
+      - host: registry.npmjs.org
+        port: 443
+    binaries:
+      - path: /usr/bin/python3
+      - path: /usr/bin/pip3
+      - path: /usr/bin/node
+      - path: /usr/bin/npm

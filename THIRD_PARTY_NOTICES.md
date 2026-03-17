@@ -56,6 +56,20 @@ This file lists the open-source software used by TITAN, organized by category.
 | Silero VAD | MIT | https://github.com/snakers4/silero-vad | Voice activity detection for speech segmentation |
 | Caddy | Apache-2.0 | https://caddyserver.com/ | Reverse proxy for voice services |
 
+## NVIDIA (Optional Integrations)
+
+| Project | License | URL | Usage |
+|---------|---------|-----|-------|
+| Nemotron 3 Models | NVIDIA Open Model License | https://build.nvidia.com | LLM inference via NIM API (local/cloud) |
+| Nemotron-ASR-Streaming | NVIDIA Open Model License | https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b | Low-latency streaming speech recognition |
+| cuOpt | Apache-2.0 | https://github.com/NVIDIA/cuopt | GPU-accelerated optimization (routing, MILP, LP) |
+| OpenShell | Open Source | https://github.com/NVIDIA/OpenShell | Agent sandbox runtime with policy enforcement |
+| Riva WebSocket Bridge | MIT | https://github.com/nvidia-riva/websocket-bridge | gRPC-to-HTTP bridge for speech services |
+| Riva Common Protos | MIT | https://github.com/nvidia-riva/common | gRPC service definitions for ASR/TTS |
+| NVIDIA AI-Q Blueprint | Open Source | https://github.com/NVIDIA-AI-Blueprints/aiq | Deep research agent with citations |
+
+Licensed by NVIDIA Corporation under the NVIDIA Open Model License.
+
 ## Channels (Optional)
 
 | Project | License | URL | Usage |

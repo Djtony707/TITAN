@@ -31,8 +31,9 @@ TITAN_API_URL = os.getenv("TITAN_API_URL", "http://localhost:48420/api/message")
 TITAN_AUTH_TOKEN = os.getenv("TITAN_AUTH_TOKEN", "")
 TITAN_AGENT_ID = os.getenv("TITAN_AGENT_ID", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.11:11434/v1")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:35b")
 STT_BASE_URL = os.getenv("STT_BASE_URL", "")
+STT_ENGINE = os.getenv("STT_ENGINE", "faster-whisper")  # faster-whisper | nemotron-asr | openai
 TTS_VOICE = os.getenv("TTS_VOICE", "af_heart")
 KOKORO_BASE_URL = os.getenv("KOKORO_BASE_URL", "http://localhost:8880/v1")
 
@@ -153,15 +154,26 @@ async def titan_session(ctx: JobContext):
     """Called when a participant joins the LiveKit room."""
     logger.info("TITAN Voice Agent starting...")
 
-    # STT
-    if STT_BASE_URL:
+    # STT — supports faster-whisper (default), nemotron-asr (NVIDIA), or Groq cloud
+    if STT_ENGINE == "nemotron-asr":
+        # NVIDIA Nemotron-ASR via Riva WebSocket bridge (24ms median finalization)
+        nemotron_url = STT_BASE_URL or "http://localhost:8300/v1"
+        stt = openai.STT(
+            base_url=nemotron_url,
+            api_key="not-needed",
+            model="nemotron-asr",
+        )
+        logger.info(f"STT: Nemotron-ASR at {nemotron_url}")
+    elif STT_BASE_URL:
         stt = openai.STT(
             base_url=STT_BASE_URL,
             api_key="not-needed",
             model="Systran/faster-whisper-base",
         )
+        logger.info(f"STT: faster-whisper at {STT_BASE_URL}")
     else:
         stt = openai.STT.with_groq(model="whisper-large-v3-turbo")
+        logger.info("STT: Groq cloud (whisper-large-v3-turbo)")
 
     session = AgentSession(
         stt=stt,

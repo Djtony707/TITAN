@@ -722,6 +722,72 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded });
   });
 
+  // ── VRAM API ────────────────────────────────────────────────
+  app.get('/api/vram', async (_req, res) => {
+    try {
+      const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
+      const orch = getVRAMOrchestrator();
+      const snapshot = await orch.getSnapshot();
+      if (!snapshot) {
+        res.json({ error: 'GPU state unavailable' });
+        return;
+      }
+      res.json(snapshot);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/vram/acquire', async (req, res) => {
+    try {
+      const { service, requiredMB, leaseDurationMs } = req.body as {
+        service?: string; requiredMB?: number; leaseDurationMs?: number;
+      };
+      if (!service || !requiredMB) {
+        res.status(400).json({ error: 'service and requiredMB required' });
+        return;
+      }
+      const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
+      const orch = getVRAMOrchestrator();
+      const result = await orch.acquire(service, requiredMB, leaseDurationMs || 300_000);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/vram/release', async (req, res) => {
+    try {
+      const { leaseId, restoreModel } = req.body as { leaseId?: string; restoreModel?: boolean };
+      if (!leaseId) {
+        res.status(400).json({ error: 'leaseId required' });
+        return;
+      }
+      const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
+      const orch = getVRAMOrchestrator();
+      const result = await orch.release(leaseId, restoreModel ?? true);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/vram/check', async (req, res) => {
+    try {
+      const mb = parseInt(req.query.mb as string, 10);
+      if (!mb || mb <= 0) {
+        res.status(400).json({ error: 'mb query param required (positive integer)' });
+        return;
+      }
+      const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
+      const orch = getVRAMOrchestrator();
+      const result = await orch.canAcquire(mb);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── Onboarding API ──────────────────────────────────────────
   app.get('/api/onboarding/status', (_req, res) => {
     const cfg = loadConfig();
@@ -1132,6 +1198,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         ttsUrl: cfg.voice?.ttsUrl || 'http://localhost:5005',
         ttsVoice: cfg.voice?.ttsVoice || 'tara',
         sttUrl: cfg.voice?.sttUrl || 'http://localhost:48421',
+        sttEngine: cfg.voice?.sttEngine || 'faster-whisper',
+        model: cfg.voice?.model || '',
       },
       agent: cfg.agent,
       autonomy: cfg.autonomy,
@@ -1173,6 +1241,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           return [k, { enabled: Boolean(ch.enabled), dmPolicy: ch.dmPolicy || 'pairing' }];
         })
       ),
+      nvidia: (() => {
+        const nv = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
+        if (!nv) return { enabled: false, apiKeySet: false, cuopt: { enabled: false, url: 'http://localhost:5000' }, asr: { enabled: false, grpcUrl: 'localhost:50051', healthUrl: 'http://localhost:9000' }, openshell: { enabled: false, binaryPath: 'openshell', policyPath: '' } };
+        return {
+          enabled: Boolean(nv.enabled),
+          apiKeySet: Boolean(nv.apiKey || process.env.NVIDIA_API_KEY),
+          cuopt: nv.cuopt ?? { enabled: false, url: 'http://localhost:5000' },
+          asr: nv.asr ?? { enabled: false, grpcUrl: 'localhost:50051', healthUrl: 'http://localhost:9000' },
+          openshell: nv.openshell ?? { enabled: false, binaryPath: 'openshell', policyPath: '' },
+        };
+      })(),
     });
   });
 
@@ -1235,9 +1314,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (v.livekitApiSecret !== undefined) cfg.voice.livekitApiSecret = String(v.livekitApiSecret);
         if (v.agentUrl !== undefined) cfg.voice.agentUrl = String(v.agentUrl);
         if (v.ttsVoice !== undefined) cfg.voice.ttsVoice = String(v.ttsVoice);
-        if (v.ttsEngine !== undefined) cfg.voice.ttsEngine = String(v.ttsEngine);
+        if (v.ttsEngine !== undefined) cfg.voice.ttsEngine = String(v.ttsEngine) as typeof cfg.voice.ttsEngine;
         if (v.ttsUrl !== undefined) cfg.voice.ttsUrl = String(v.ttsUrl);
         if (v.sttUrl !== undefined) cfg.voice.sttUrl = String(v.sttUrl);
+        if (v.sttEngine !== undefined) cfg.voice.sttEngine = String(v.sttEngine) as typeof cfg.voice.sttEngine;
+        if (v.model !== undefined) (cfg.voice as Record<string, unknown>).model = String(v.model) || undefined;
         changedFields.push('voice');
       }
       // Home Assistant
@@ -1252,13 +1333,45 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           }
         }
       }
+      // NVIDIA config (nested object)
+      if (body.nvidia !== undefined && typeof body.nvidia === 'object') {
+        const nv = body.nvidia as Record<string, unknown>;
+        const nvCfg = ((cfg as Record<string, unknown>).nvidia || {}) as Record<string, unknown>;
+        if (nv.enabled !== undefined) nvCfg.enabled = Boolean(nv.enabled);
+        if (nv.apiKey !== undefined) nvCfg.apiKey = String(nv.apiKey);
+        if (nv.cuopt !== undefined && typeof nv.cuopt === 'object') {
+          const cuopt = (nvCfg.cuopt || {}) as Record<string, unknown>;
+          const src = nv.cuopt as Record<string, unknown>;
+          if (src.enabled !== undefined) cuopt.enabled = Boolean(src.enabled);
+          if (src.url !== undefined) cuopt.url = String(src.url);
+          nvCfg.cuopt = cuopt;
+        }
+        if (nv.asr !== undefined && typeof nv.asr === 'object') {
+          const asr = (nvCfg.asr || {}) as Record<string, unknown>;
+          const src = nv.asr as Record<string, unknown>;
+          if (src.enabled !== undefined) asr.enabled = Boolean(src.enabled);
+          if (src.grpcUrl !== undefined) asr.grpcUrl = String(src.grpcUrl);
+          if (src.healthUrl !== undefined) asr.healthUrl = String(src.healthUrl);
+          nvCfg.asr = asr;
+        }
+        if (nv.openshell !== undefined && typeof nv.openshell === 'object') {
+          const os = (nvCfg.openshell || {}) as Record<string, unknown>;
+          const src = nv.openshell as Record<string, unknown>;
+          if (src.enabled !== undefined) os.enabled = Boolean(src.enabled);
+          if (src.binaryPath !== undefined) os.binaryPath = String(src.binaryPath);
+          if (src.policyPath !== undefined) os.policyPath = String(src.policyPath);
+          nvCfg.openshell = os;
+        }
+        (cfg as Record<string, unknown>).nvidia = nvCfg;
+        changedFields.push('nvidia');
+      }
       if (changedFields.length === 0) {
         const validFields = ['model', 'autonomyMode', 'sandboxMode', 'logLevel', 'anthropicKey', 'openaiKey',
           'googleKey', 'ollamaUrl', 'groqKey', 'mistralKey', 'openrouterKey', 'fireworksKey', 'xaiKey',
           'togetherKey', 'deepseekKey', 'perplexityKey', 'maxTokens', 'temperature', 'systemPrompt',
           'shieldEnabled', 'shieldMode', 'deniedTools', 'networkAllowlist', 'gatewayPort', 'gatewayAuthMode',
           'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
-          'homeAssistantUrl', 'homeAssistantToken', 'voice'];
+          'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
@@ -2313,10 +2426,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const results = { livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: engine };
     const sttUrl = cfg.voice.sttUrl || 'http://localhost:48421';
     const ttsUrl = cfg.voice.ttsUrl || 'http://localhost:5005';
+    const sttEngine = cfg.voice.sttEngine || 'faster-whisper';
+    const nvidia = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
+    const asrCfg = nvidia?.asr as Record<string, unknown> | undefined;
+    const sttHealthUrl = sttEngine === 'nemotron-asr'
+      ? `${(asrCfg?.healthUrl as string) || 'http://localhost:9000'}/v1/health/ready`
+      : `${sttUrl}/health`;
     const checks = [
       { key: 'livekit' as const, url: cfg.voice.livekitUrl.replace('ws://', 'http://').replace('wss://', 'https://') },
       { key: 'agent' as const, url: cfg.voice.agentUrl },
-      { key: 'stt' as const, url: `${sttUrl}/health` },
+      { key: 'stt' as const, url: sttHealthUrl },
     ];
     await Promise.allSettled(checks.map(async ({ key, url }) => {
       try {
@@ -2340,6 +2459,50 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch { results.tts = false; }
     results.overall = results.tts;
     res.json(results);
+  });
+
+  // ── NVIDIA Health Checks ─────────────────────────────────────────────
+  app.get('/api/nvidia/health/cuopt', async (_req, res) => {
+    const cfg = loadConfig();
+    const nvidia = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
+    const cuoptUrl = ((nvidia?.cuopt as Record<string, unknown>)?.url as string) || 'http://localhost:5000';
+    try {
+      const resp = await fetch(`${cuoptUrl}/cuopt/health`, { signal: AbortSignal.timeout(5000) });
+      res.json({ healthy: resp.ok, status: resp.status, url: cuoptUrl });
+    } catch {
+      res.json({ healthy: false, url: cuoptUrl });
+    }
+  });
+
+  app.get('/api/nvidia/health/asr', async (_req, res) => {
+    const cfg = loadConfig();
+    const nvidia = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
+    const healthUrl = ((nvidia?.asr as Record<string, unknown>)?.healthUrl as string) || 'http://localhost:9000';
+    try {
+      const resp = await fetch(`${healthUrl}/v1/health/ready`, { signal: AbortSignal.timeout(5000) });
+      res.json({ healthy: resp.ok, status: resp.status, url: healthUrl });
+    } catch {
+      res.json({ healthy: false, url: healthUrl });
+    }
+  });
+
+  app.get('/api/nvidia/health/nim', async (_req, res) => {
+    const cfg = loadConfig();
+    const nvidia = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
+    const apiKey = (nvidia?.apiKey as string) || process.env.NVIDIA_API_KEY || '';
+    if (!apiKey) {
+      res.json({ healthy: false, reason: 'No NVIDIA API key configured' });
+      return;
+    }
+    try {
+      const resp = await fetch('https://integrate.api.nvidia.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      res.json({ healthy: resp.ok, status: resp.status });
+    } catch {
+      res.json({ healthy: false, reason: 'NIM API unreachable' });
+    }
   });
 
   // Voice preview — synthesize a short sample via TTS server (engine-aware)
@@ -2426,7 +2589,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Sequential TTS queue — processes one sentence at a time to avoid overwhelming Orpheus
     const ttsQueue: Array<{ sentence: string; index: number }> = [];
     let ttsRunning = false;
-    let ttsResolve: (() => void) | null = null;
+    let ttsResolve: (() => void) = () => {};
     const ttsAllDone = new Promise<void>(resolve => { ttsResolve = resolve; });
     let ttsFinished = false;
 
@@ -2439,14 +2602,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         await fireTTSInternal(item.sentence, item.index);
       }
       ttsRunning = false;
-      if (ttsFinished && ttsQueue.length === 0 && ttsResolve) {
+      if (ttsFinished && ttsQueue.length === 0) {
         ttsResolve();
       }
     };
 
-    // Strip markdown/emotion/tool narration for voice display+TTS
+    // Strip markdown/emotion/tool narration/TOOLCALL tags for voice display+TTS
     const cleanForVoice = (text: string): string => {
       return text
+        .replace(/<TOOLCALL>[\s\S]*?(?:<\/TOOLCALL>|$)/g, '') // strip <TOOLCALL> blocks
+        .replace(/<TOOLCALL>\[[\s\S]*?\]/g, '')                // strip <TOOLCALL>[...] format
         .replace(/```[\s\S]*?```/g, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
         .replace(/\*(.*?)\*/g, '$1')
@@ -2553,7 +2718,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       // Signal no more sentences coming, wait for TTS queue to drain
       ttsFinished = true;
-      if (!ttsRunning && ttsQueue.length === 0 && ttsResolve) {
+      if (!ttsRunning && ttsQueue.length === 0) {
         ttsResolve();
       }
       await ttsAllDone;
@@ -3410,6 +3575,13 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
 
   // ── Autopilot — scheduled autonomous agent runs ─────────────
   initAutopilot(config);
+
+  // ── VRAM Orchestrator — GPU memory management ───────────────
+  if (config.vram?.enabled !== false) {
+    import('../vram/orchestrator.js').then(({ initVRAMOrchestrator }) => {
+      initVRAMOrchestrator().catch((e) => logger.warn(COMPONENT, `VRAM orchestrator init: ${(e as Error).message}`));
+    }).catch(() => { /* optional */ });
+  }
 
   // ── Daemon — persistent agent awareness loop ────────────────
   initDaemon();

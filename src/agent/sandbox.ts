@@ -268,7 +268,7 @@ export interface SandboxResult {
     durationMs: number;
 }
 
-/** Execute code in an isolated Docker sandbox */
+/** Execute code in an isolated sandbox (Docker or OpenShell) */
 export async function executeInSandbox(
     code: string,
     language: string = 'python',
@@ -276,6 +276,16 @@ export async function executeInSandbox(
 ): Promise<SandboxResult> {
     const startTime = Date.now();
 
+    // Check if OpenShell engine is configured
+    const config = loadConfig();
+    const sandboxEngine = ((config as Record<string, unknown>).sandbox as Record<string, unknown> | undefined)?.engine as string | undefined;
+    if (sandboxEngine === 'openshell') {
+        const port = await startBridge();
+        const { executeInOpenShell } = await import('./sandbox-openshell.js');
+        return executeInOpenShell(code, language, timeoutMs, port);
+    }
+
+    // Default: Docker engine
     // Verify Docker is available
     const hasDocker = await checkDocker();
     if (!hasDocker) {

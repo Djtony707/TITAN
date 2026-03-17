@@ -166,7 +166,7 @@ export function topologicalSort(steps: WorkflowStep[]): WorkflowStep[][] {
     }
 
     const layers: WorkflowStep[][] = [];
-    let remaining = new Set(steps.map(s => s.id));
+    const remaining = new Set(steps.map(s => s.id));
 
     while (remaining.size > 0) {
         const layer: WorkflowStep[] = [];

@@ -35,6 +35,9 @@ export const DEFAULT_CORE_TOOLS = [
     'spawn_agent',
     'tool_search',
     'self_doctor',
+    'ha_control',
+    'ha_devices',
+    'ha_status',
 ];
 
 /** Build a compact one-line catalog of all tools for the tool_search description */

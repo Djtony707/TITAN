@@ -319,11 +319,19 @@ export function registerSmartHomeSkill(): void {
                 const entityId = (args.entityId || args.entity_id || args.entity) as string;
                 const action = args.action as string;
                 const data = (args.data as Record<string, unknown>) || {};
-                if (!entityId) return 'Error: entityId is required';
+
+                logger.info('SmartHome', `ha_control called — raw args: ${JSON.stringify(args)}`);
+                logger.info('SmartHome', `ha_control resolved — entityId="${entityId}", action="${action}", data=${JSON.stringify(data)}`);
+
+                if (!entityId) {
+                    logger.warn('SmartHome', 'ha_control: entityId is empty/undefined after resolution');
+                    return 'Error: entityId is required';
+                }
 
                 // Extract domain from entity_id (e.g., "light" from "light.living_room")
                 const [domain] = entityId.split('.');
                 if (!domain) {
+                    logger.warn('SmartHome', `ha_control: invalid entity ID format: "${entityId}"`);
                     return `Error: Invalid entity ID format: ${entityId}`;
                 }
 
@@ -338,10 +346,15 @@ export function registerSmartHomeSkill(): void {
                     ...data,
                 };
 
-                await haRequest(`/api/services/${domain}/${service}`, 'POST', body);
+                const endpoint = `/api/services/${domain}/${service}`;
+                logger.info('SmartHome', `ha_control: calling HA API — POST ${endpoint} body=${JSON.stringify(body)}`);
 
+                await haRequest(endpoint, 'POST', body);
+
+                logger.info('SmartHome', `ha_control: success — ${action} on ${entityId}`);
                 return `Successfully executed ${action} on ${entityId}`;
             } catch (e) {
+                logger.error('SmartHome', `ha_control FAILED: ${(e as Error).message}\n${(e as Error).stack}`);
                 return `Error controlling Home Assistant device: ${(e as Error).message}`;
             }
         },

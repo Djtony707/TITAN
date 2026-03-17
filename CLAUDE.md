@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.40
+- **Current version**: v2026.10.43
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 20, pure ESM
@@ -16,8 +16,8 @@
 | Stat | Value |
 |------|-------|
 | Providers | 34 (4 native + 30 OpenAI-compatible) |
-| Skills | 100 loaded |
-| Tools | ~189 across 100 loaded skills |
+| Skills | 100+ loaded |
+| Tools | ~195 across 100+ loaded skills |
 | Channels | 15 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, etc.) |
 | Tests | 4,321+ across 135 files (vitest) |
 | Default model | `anthropic/claude-sonnet-4-20250514` |
@@ -37,9 +37,10 @@ src/
 ├── memory/       # Memory, learning, graph, relationship, briefings
 ├── mesh/         # P2P mesh networking (mDNS, WebSocket, HMAC)
 ├── providers/    # LLM provider router + 34 providers
-├── skills/       # Builtin skills (91 loaded, ~149 tools) + dev skills
+├── skills/       # Builtin skills (100+ loaded, ~195 tools) + dev + NVIDIA skills
 ├── utils/        # Constants, helpers, hardware detection
-└── voice/        # LiveKit WebRTC voice integration
+├── voice/        # LiveKit WebRTC voice integration
+└── vram/         # VRAM orchestrator (GPU memory management, model swap, leases)
 ui/               # React 19 SPA (Vite + Tailwind CSS 4 + React Router v7)
 tests/            # 123 vitest test files
 ```
@@ -121,6 +122,10 @@ Key endpoints:
 - `POST /api/recipes/:id/run` — Execute a saved recipe
 - `POST /api/browser/form-fill` — Direct form fill (bypasses LLM, supports `postClicks`)
 - `POST /api/browser/solve-captcha` — Solve CAPTCHA on a given URL via CapSolver
+- `GET /api/vram` — GPU VRAM snapshot (state, models, leases)
+- `POST /api/vram/acquire` — Request VRAM (auto-swaps models)
+- `POST /api/vram/release` — Release a VRAM lease
+- `GET /api/vram/check?mb=N` — Dry-run VRAM availability check
 
 ## Mission Control v2 (React SPA)
 
@@ -187,11 +192,16 @@ Always publish to npm after pushing to git.
 | `src/providers/base.ts` | LLM provider base class, `parseModelId()` |
 | `src/skills/registry.ts` | Skill/tool registration |
 | `ui/src/api/client.ts` | React SPA API client |
+| `src/vram/orchestrator.ts` | VRAM orchestrator singleton (GPU memory management) |
+| `src/skills/nvidia/` | NVIDIA GPU skills (cuOpt, AI-Q, gated by TITAN_NVIDIA=1) |
 | `package.json` | Dependencies, scripts, tsup config |
 
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v2026.10.43**: VRAM Orchestrator — auto GPU VRAM management (nvidia-smi polling, model swap, leases, 3 tools, 4 API endpoints)
+- **v2026.10.42**: NVIDIA GPU skills — cuOpt VRP optimization, AI-Q Nemotron research, OpenShell sandbox, voice mic fix
+- **v2026.10.41**: Hotfix — tool visibility, voice prompt, keepModelPrefix
 - **v2026.10.40**: 9 new skills (40 tools) — structured output, workflows, social scheduler, agent handoff, event triggers, knowledge base, evals, approval gates, A2A protocol. 2 critical security fixes (SSE listener leak, YAML sandbox). 4,321 tests across 135 files.
 - **v2026.10.39**: Security release — resolved all 23 Dependabot alerts (0 vulnerabilities), matrix-js-sdk v41, npm overrides for transitive deps
 - **v2026.10.38**: `titan doctor --json` (Issue #2), better provider error messages (Issue #3), npm download stats (Issue #4), 27 weather skill tests (Issue #6), 5 dependency patches
@@ -205,7 +215,7 @@ See `CHANGELOG.md` for full history. Key milestones:
 - **v2026.10.25**: Production hardening — 0 TypeScript errors, 0 ESLint errors, SSE write safety, rate limit cap, `.unref()` intervals, unhandled rejection handler, hardcoded IPs removed
 - **v2026.10.24**: GitHub Actions CI, "Why TITAN?" comparison table, README badges, npm SEO keywords, CODE_OF_CONDUCT, examples/, migration guide, benchmarks doc
 - **v2026.10.23**: Production autonomy — systemd service unit, health monitor, log rotation, fetchWithRetry timeout, autopilot, fallback chain, goals
-- **v2026.10.22**: Voice system hardening (24 fixes), VoiceOverlay rewrite (stale closure fixes, AbortController cleanup, session continuity), FluidOrb canvas rewrite (single animation loop), Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor, fetchWithRetry timeout, systemd service unit, log rotation, ~149 tools across 91 skills
+- **v2026.10.22**: Voice system hardening (24 fixes), VoiceOverlay rewrite, FluidOrb canvas rewrite, Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor
 - **v2026.10.21**: Dual training pipelines (Tool Router + Main Agent), training type selector UI with customizable hyperparameters, agent training data generator (530+ examples), Ollama context management fix, new API endpoints (generate-data, deploy, type-filtered results)
 - **v2026.10.20**: Autonomous self-improvement system (LLM-as-judge eval, autoresearch experiments), local model LoRA fine-tuning pipeline (unsloth → GGUF → Ollama), Self-Improvement Mission Control panel, autopilot self-improve mode, 8 new tools
 - **v2026.10.17**: CapSolver CAPTCHA integration, direct form-fill endpoint, deferred button clicks, React-compatible form automation

@@ -120,7 +120,7 @@ export function generateAgentCard(): A2AAgentCard {
     const host = config.gateway?.host || '0.0.0.0';
     const baseUrl = host === '0.0.0.0' ? `http://localhost:${port}` : `http://${host}:${port}`;
 
-    const authMode = config.gateway?.auth?.mode || config.auth?.mode || 'none';
+    const authMode = config.gateway?.auth?.mode || 'none';
 
     return {
         name: TITAN_NAME,

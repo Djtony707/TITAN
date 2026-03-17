@@ -114,6 +114,21 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     requestAnimationFrame(() => setVisible(true));
   }, []);
 
+  // Cleanup on unmount — ensures mic is released even if handleClose wasn't called
+  useEffect(() => {
+    return () => {
+      phaseRef.current = 'picking';
+      try { recognitionRef.current?.stop(); } catch { /* ok */ }
+      recognitionRef.current = null;
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
+      audioContextRef.current?.close();
+      abortRef.current?.abort();
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      cancelAnimationFrame(levelAnimRef.current);
+      cancelAnimationFrame(interruptCheckRef.current);
+    };
+  }, []);
+
   // Close voice menu on outside click
   useEffect(() => {
     if (!showVoiceMenu) return;
@@ -712,13 +727,20 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   // Close handler — abort in-flight requests, stop audio, stop mic
   const handleClose = useCallback(() => {
     setVisible(false);
+    // Set phase BEFORE stopping recognition — onend handler checks phaseRef
+    // to decide whether to auto-restart. Without this, recognition restarts
+    // immediately after stop(), keeping the mic active.
+    phaseRef.current = 'picking';
+    setPhase('picking');
     // Abort any in-flight fetches
     abortRef.current?.abort();
     abortRef.current = null;
     try { recognitionRef.current?.stop(); } catch { /* ok */ }
+    recognitionRef.current = null; // prevent any further restarts
     stopCurrentAudio();
     stopMicMonitor();
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    processingRef.current = false;
     setTimeout(onClose, 200);
   }, [onClose, stopMicMonitor, stopCurrentAudio]);
 

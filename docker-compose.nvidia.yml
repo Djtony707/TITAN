@@ -1,0 +1,82 @@
+# TITAN — NVIDIA GPU-Accelerated Services (Optional)
+#
+# Start with: docker compose -f docker-compose.nvidia.yml up -d
+# Requires: NVIDIA Container Toolkit + GPU
+#
+# Services:
+#   cuopt       - GPU-accelerated optimization (routing, MILP, LP)
+#   nemotron-asr - Low-latency speech recognition (24ms finalization)
+#   riva-bridge  - gRPC-to-HTTP bridge for Nemotron-ASR
+#
+# VRAM budget (RTX 5090, 32GB):
+#   cuOpt:       ~2-4GB
+#   Nemotron-ASR: ~3-4GB
+#   Total:       ~6-8GB (leaves room for LLM on same GPU)
+
+services:
+  cuopt:
+    image: nvidia/cuopt:latest-cuda12.9-py3.13
+    container_name: titan-cuopt
+    ports:
+      - "5000:5000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    profiles:
+      - cuopt
+      - all
+
+  nemotron-asr:
+    image: nvcr.io/nim/nvidia/nemotron-asr-streaming:latest
+    container_name: titan-nemotron-asr
+    ports:
+      - "50051:50051"   # gRPC
+      - "9000:9000"     # HTTP health
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY:-}
+      - NIM_HTTP_API_PORT=9000
+      - NIM_GRPC_API_PORT=50051
+    shm_size: 8g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/v1/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s  # First-run TensorRT compilation can take 5-10 minutes
+    profiles:
+      - asr
+      - voice
+      - all
+
+  riva-bridge:
+    build:
+      context: ./nvidia-riva-bridge
+      dockerfile: Dockerfile
+    image: titan-riva-bridge:local
+    container_name: titan-riva-bridge
+    ports:
+      - "8300:8300"
+    environment:
+      - RIVA_API_URL=nemotron-asr:50051
+      - PORT=8300
+    depends_on:
+      nemotron-asr:
+        condition: service_started
+    restart: unless-stopped
+    profiles:
+      - asr
+      - voice
+      - all

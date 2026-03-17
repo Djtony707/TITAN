@@ -38,6 +38,8 @@ export interface OpenAICompatConfig {
     extraHeaders?: Record<string, string>;
     /** Whether to fetch models from /v1/models endpoint */
     supportsModelList?: boolean;
+    /** Keep org/ prefix in model name (e.g. NIM API expects 'nvidia/model-name') */
+    keepModelPrefix?: boolean;
 }
 
 export class OpenAICompatProvider extends LLMProvider {
@@ -64,18 +66,31 @@ export class OpenAICompatProvider extends LLMProvider {
         return providerCfg?.baseUrl || this.config.defaultBaseUrl;
     }
 
+    /** Sanitize messages for strict APIs (e.g., NIM) that reject empty content strings */
+    private sanitizeMessages(messages: ChatOptions['messages']): ChatOptions['messages'] {
+        return messages.map(m => ({
+            ...m,
+            content: m.content || (m.role === 'assistant' && m.toolCalls ? '' : ' '),
+        }));
+    }
+
     async chat(options: ChatOptions): Promise<ChatResponse> {
-        const model = (options.model || this.config.defaultModel).replace(`${this.name}/`, '');
+        const rawModel = options.model || this.config.defaultModel;
+        // NIM API requires org/model format — keep prefix as-is or add it
+        const model = this.config.keepModelPrefix
+            ? (rawModel.includes('/') ? rawModel : `${this.name}/${rawModel}`)
+            : rawModel.replace(`${this.name}/`, '');
         const apiKey = this.apiKey;
         if (!apiKey) throw new Error(`${this.displayName} API key not configured (set ${this.config.envKey} or providers.${this.config.configKey}.apiKey)`);
 
         logger.debug(this.name, `Chat request: model=${model}, messages=${options.messages.length}`);
 
+        const sanitized = this.sanitizeMessages(options.messages);
         const body: Record<string, unknown> = {
             model,
-            messages: options.messages.map((m) => {
+            messages: sanitized.map((m) => {
                 if (m.role === 'tool') {
-                    return { role: 'tool', content: m.content, tool_call_id: m.toolCallId };
+                    return { role: 'tool', content: m.content || ' ', tool_call_id: m.toolCallId };
                 }
                 if (m.role === 'assistant' && m.toolCalls) {
                     return {
@@ -88,7 +103,7 @@ export class OpenAICompatProvider extends LLMProvider {
                         })),
                     };
                 }
-                return { role: m.role, content: m.content };
+                return { role: m.role, content: m.content || ' ' };
             }),
             max_tokens: options.maxTokens || 8192,
         };
@@ -127,7 +142,7 @@ export class OpenAICompatProvider extends LLMProvider {
                 content: '',
                 usage: undefined,
                 finishReason: 'stop',
-                model: `${this.name}/${model}`,
+                model: model.includes('/') ? model : `${this.name}/${model}`,
             };
         }
 
@@ -160,27 +175,31 @@ export class OpenAICompatProvider extends LLMProvider {
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : (choice.finish_reason as 'stop' | 'length') || 'stop',
-            model: `${this.name}/${model}`,
+            model: model.includes('/') ? model : `${this.name}/${model}`,
         };
     }
 
     async *chatStream(options: ChatOptions): AsyncGenerator<ChatStreamChunk> {
-        const model = (options.model || this.config.defaultModel).replace(`${this.name}/`, '');
+        const rawModel = options.model || this.config.defaultModel;
+        const model = this.config.keepModelPrefix
+            ? (rawModel.includes('/') ? rawModel : `${this.name}/${rawModel}`)
+            : rawModel.replace(`${this.name}/`, '');
         const apiKey = this.apiKey;
         if (!apiKey) { yield { type: 'error', error: `${this.displayName} API key not configured` }; return; }
 
+        const sanitized = this.sanitizeMessages(options.messages);
         const body: Record<string, unknown> = {
             model,
             stream: true,
-            messages: options.messages.map((m) => {
-                if (m.role === 'tool') return { role: 'tool', content: m.content, tool_call_id: m.toolCallId };
+            messages: sanitized.map((m) => {
+                if (m.role === 'tool') return { role: 'tool', content: m.content || ' ', tool_call_id: m.toolCallId };
                 if (m.role === 'assistant' && m.toolCalls) {
                     return {
                         role: 'assistant', content: m.content || null,
                         tool_calls: m.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: { name: tc.function.name, arguments: tc.function.arguments } })),
                     };
                 }
-                return { role: m.role, content: m.content };
+                return { role: m.role, content: m.content || ' ' };
             }),
             max_tokens: options.maxTokens || 8192,
         };
@@ -595,5 +614,23 @@ export const PROVIDER_PRESETS: OpenAICompatConfig[] = [
         defaultModel: 'hermes-3-llama-3.1-70b',
         knownModels: ['hermes-3-llama-3.1-70b', 'hermes-3-llama-3.1-8b', 'hermes-2-pro-mistral-7b'],
         supportsModelList: false,
+    },
+    {
+        name: 'nvidia',
+        displayName: 'NVIDIA NIM',
+        defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+        envKey: 'NVIDIA_API_KEY',
+        configKey: 'nvidia',
+        defaultModel: 'nvidia/llama-3.3-nemotron-super-49b-v1',
+        knownModels: [
+            'nvidia/llama-3.3-nemotron-super-49b-v1',
+            'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+            'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+            'nvidia/llama-3.1-nemotron-70b-instruct',
+            'nvidia/nemotron-3-nano-30b-a3b',
+            'nvidia/nemotron-3-super-120b-a12b',
+        ],
+        supportsModelList: true,
+        keepModelPrefix: true,
     },
 ];

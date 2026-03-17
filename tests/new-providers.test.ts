@@ -69,8 +69,8 @@ function makeJsonResponse(data: unknown, status = 200): Response {
 // ════════════════════════════════════════════════════════════════════════
 
 describe('PROVIDER_PRESETS — New Providers', () => {
-    it('should contain 30 total provider presets', () => {
-        expect(PROVIDER_PRESETS).toHaveLength(30);
+    it('should contain 31 total provider presets', () => {
+        expect(PROVIDER_PRESETS).toHaveLength(31);
     });
 
     it('should include venice in the presets', () => {
@@ -654,9 +654,9 @@ describe('Router — New Provider Aliases', () => {
     });
 
     describe('getAllProviders()', () => {
-        it('should return 34 total providers (4 core + 30 compat)', () => {
+        it('should return 35 total providers (4 core + 31 compat)', () => {
             const all = getAllProviders();
-            expect(all.size).toBe(34);
+            expect(all.size).toBe(35);
         });
 
         it('should include venice, bedrock, and litellm in the provider map', () => {
@@ -973,9 +973,9 @@ describe('New Providers — Edge Cases', () => {
         expect(keys.size).toBe(6);
     });
 
-    it('all thirty presets should have unique names', () => {
+    it('all thirty-one presets should have unique names', () => {
         const names = PROVIDER_PRESETS.map(p => p.name);
         const uniqueNames = new Set(names);
-        expect(uniqueNames.size).toBe(30);
+        expect(uniqueNames.size).toBe(31);
     });
 });

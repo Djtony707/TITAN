@@ -38,6 +38,8 @@ const PROVIDER_ALIASES: Record<string, string> = {
     'bigmodel': 'zhipu',
     'pi': 'inflection',
     'octoai': 'octo',
+    'nim': 'nvidia',
+    'nvidia-nim': 'nvidia',
 };
 
 /** Normalize provider names for consistency (e.g. "grok" → "xai", "local" → "ollama") */

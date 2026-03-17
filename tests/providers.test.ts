@@ -109,13 +109,13 @@ describe('getModelAliases', () => {
 });
 
 describe('PROVIDER_PRESETS', () => {
-    it('should contain exactly 30 presets', () => {
-        expect(PROVIDER_PRESETS).toHaveLength(30);
+    it('should contain exactly 31 presets', () => {
+        expect(PROVIDER_PRESETS).toHaveLength(31);
     });
 
     it('should have unique names', () => {
         const names = PROVIDER_PRESETS.map((p) => p.name);
-        expect(new Set(names).size).toBe(30);
+        expect(new Set(names).size).toBe(31);
     });
 
     it('every preset should have required fields and valid URL', () => {

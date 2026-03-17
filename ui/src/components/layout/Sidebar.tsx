@@ -29,6 +29,7 @@ import {
   Eye,
   ClipboardList,
   Cable,
+  Cpu,
   FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
@@ -83,6 +84,7 @@ const navGroups: NavGroup[] = [
       { label: 'Skills', icon: Wrench, path: '/skills' },
       { label: 'MCP', icon: Plug, path: '/mcp' },
       { label: 'Integrations', icon: Plug, path: '/integrations' },
+      { label: 'NVIDIA', icon: Cpu, path: '/nvidia' },
       { label: 'Channels', icon: Radio, path: '/channels' },
       { label: 'Mesh', icon: Network, path: '/mesh' },
     ],

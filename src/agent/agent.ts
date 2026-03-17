@@ -387,6 +387,34 @@ You have a knowledge graph (temporal memory) that persists across sessions. **Us
 ${buildSelfAwarenessContext(config)}`;
 }
 
+/** Build a compact system prompt for voice mode — ~500 tokens vs ~3000+ for regular */
+function buildVoiceSystemPrompt(config: ReturnType<typeof loadConfig>): string {
+    const modelId = (config.voice as Record<string, unknown>)?.model as string || config.agent.model || 'unknown';
+    return `You are TITAN, a personal AI assistant built by Tony Elliott. Powered by ${modelId}.
+You are speaking out loud via text-to-speech. Your response will be read aloud as audio.
+
+RULES — NEVER BREAK:
+- Max 2-3 short sentences, under 50 words total
+- Be conversational and natural — like talking to a friend
+- NO markdown, lists, code blocks, emojis, bold, italics, headers
+- NO tool narration — never say "I'll use the X tool". Just give the answer.
+- Answer directly. If you don't know, say so briefly.
+- After using tools, summarize the ACTUAL results conversationally with specific facts/numbers. Never say "I completed the tool operations."
+- If a tool failed, say so honestly: "I tried but couldn't do that."
+- You ARE speaking right now. Never say "I can't speak" or "I can't read aloud."
+- STAY ON TOPIC. Respond to what the user actually said.
+
+TOOL USE — CRITICAL:
+- When asked to control devices (lights, switches, thermostats): ALWAYS call ha_control with entityId and action. NEVER just say you did it — actually call the tool.
+- When asked about devices: ALWAYS call ha_devices first to get actual entity IDs.
+- Entity IDs use format like "switch.kitchen_light", "light.living_room", "climate.thermostat".
+- NEVER claim you turned something on/off without actually calling ha_control. That is lying.
+- For weather: ALWAYS call the weather tool. For web questions: ALWAYS call web_search.
+
+Orpheus TTS emotion tags (use sparingly): <laugh>, <chuckle>, <sigh>, <gasp>
+Example: "That's hilarious! <laugh> I can't believe that happened."`;
+}
+
 /** Streaming callbacks for real-time token delivery */
 export interface StreamCallbacks {
     onToken?: (token: string) => void;
@@ -564,15 +592,25 @@ export async function processMessage(
     // Auto-record user message to knowledge graph (fire-and-forget)
     addEpisode(`[${channel}/${userId}] ${message}`, channel).catch(() => {});
 
-    // Build context (pass user message for graph context injection)
-    let systemPrompt = await buildSystemPrompt(config, message);
-    if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
-    if (preRoutedContext) systemPrompt += preRoutedContext;
+    // Build context — voice gets a compact prompt (~500 tokens vs ~3000+)
+    let systemPrompt: string;
+    if (voiceFastPath) {
+        systemPrompt = buildVoiceSystemPrompt(config);
+        if (preRoutedContext) systemPrompt += preRoutedContext;
+    } else {
+        systemPrompt = await buildSystemPrompt(config, message);
+        if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
+        if (preRoutedContext) systemPrompt += preRoutedContext;
+    }
 
     // Task-aware enforcement injection — strengthen tool-use requirements based on message intent
     // Also tracks whether to force tool_choice on round 0 via the API
+    // Skip for voice — voice uses a compact prompt and doesn't need injection bloat
     let taskEnforcementActive = false;
 
+    if (voiceFastPath) {
+        // Voice skips task enforcement — compact prompt handles everything
+    } else {
     // Continuation injection: short messages like "CONFIRM", "yes", "all of them" lose all task
     // context after system prompt compression. Re-inject the task context so the model knows
     // exactly what it was doing and can continue without re-planning or going rogue.
@@ -603,32 +641,9 @@ export async function processMessage(
         systemPrompt += '\n\n[TASK ENFORCEMENT — SHELL] You MUST call the shell tool to execute this command. Do NOT describe what the command would do — run it and report the actual output.';
         taskEnforcementActive = true;
     }
+    } // end !voiceFastPath
 
-    // Voice mode: force concise, conversational responses suitable for TTS
-    if (channel === 'voice') {
-        systemPrompt += `\n\n## VOICE MODE — CRITICAL (HIGHEST PRIORITY)
-You are speaking out loud via text-to-speech (Orpheus TTS). Your response will be read aloud as audio.
-
-STRICT RULES — NEVER BREAK THESE:
-- Maximum 2-3 short sentences. NEVER exceed 50 words total.
-- Be conversational and natural — like talking to a friend
-- ABSOLUTELY NO: bullet points, numbered lists, markdown, code blocks, emojis, headers, bold, italics
-- ABSOLUTELY NO: long explanations, context dumps, capability descriptions, action plans
-- NEVER mention tool names, function names, or say things like "I'll use the X tool" or "Let me check with X". Just give the answer.
-- Do NOT mention your tools, personas, knowledge graph, or internal systems unless directly asked
-- For greetings, just greet back warmly in one sentence
-- Answer the question directly. If you don't know, say so briefly.
-- Write as plain spoken English only. No formatting of any kind.
-- After using tools, ALWAYS summarize the actual results conversationally. NEVER say "I completed the tool operations" or similar generic filler. Tell the user what you found.
-- If asked about counts or lists, give the key number and 2-3 highlights. Do NOT list everything.
-
-## Orpheus TTS Emotion Tags
-Express emotions naturally using these inline tags:
-<laugh>, <chuckle>, <sigh>, <cough>, <sniffle>, <groan>, <yawn>, <gasp>
-Example: "That's hilarious! <laugh> I can't believe that happened."
-Example: "<sigh> That's a tough one, but I'll figure it out."
-Use sparingly and naturally. They make you sound more human.`;
-    }
+    // Voice mode prompt is handled above via buildVoiceSystemPrompt() — no append needed
     // Voice sessions: limit context to last 6 messages (3 turns) to prevent
     // multi-turn degradation with local models. Long contexts cause Qwen to
     // hallucinate system prompts and get stuck in tool loops.
@@ -674,6 +689,11 @@ Use sparingly and naturally. They make you sound more human.`;
     // ── Cost optimizer: smart model routing ─────────────────
     let { model: activeModel, reason: routingReason } = routeModel(message, config.agent.model);
     if (overrides?.model) activeModel = overrides.model;
+    // Voice model override: use a faster model for voice chat (lower latency)
+    if (voiceFastPath && (config.voice as Record<string, unknown>)?.model) {
+        activeModel = (config.voice as Record<string, unknown>).model as string;
+        routingReason = 'voice model override';
+    }
     // Session override has highest priority (set via /model command)
     if (session.modelOverride) {
         activeModel = session.modelOverride;
@@ -726,7 +746,12 @@ Use sparingly and naturally. They make you sound more human.`;
     const discoveredTools = new Set<string>();
 
     if (toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12) {
-        const coreNames = new Set(toolSearchConfig?.coreTools ?? DEFAULT_CORE_TOOLS);
+        // Voice gets a minimal tool set for speed (fewer tool schemas = less prompt tokens)
+        const VOICE_CORE_TOOLS = ['shell', 'web_search', 'weather', 'memory', 'ha_control', 'ha_devices', 'ha_status', 'ha_setup', 'tool_search'];
+        // Use config coreTools only if non-empty; otherwise fall back to DEFAULT_CORE_TOOLS
+        const configCoreTools = toolSearchConfig?.coreTools;
+        const effectiveCoreTools = (configCoreTools && configCoreTools.length > 0) ? configCoreTools : DEFAULT_CORE_TOOLS;
+        const coreNames = new Set(voiceFastPath ? VOICE_CORE_TOOLS : effectiveCoreTools);
         activeTools = activeTools.filter(t => coreNames.has(t.function.name));
         logger.info(COMPONENT, `[ToolSearch] Compact mode: ${allToolsBackup.length} → ${activeTools.length} tools (${allToolsBackup.length - activeTools.length} discoverable via tool_search)`);
     }
@@ -890,7 +915,7 @@ Use sparingly and naturally. They make you sound more human.`;
             model: activeModel,
             messages: smartMessages,
             tools: activeTools.length > 0 ? activeTools : undefined,
-            maxTokens: voiceFastPath ? Math.min(config.agent.maxTokens, 100) : config.agent.maxTokens,
+            maxTokens: voiceFastPath ? Math.min(config.agent.maxTokens, 300) : config.agent.maxTokens,
             temperature: config.agent.temperature,
             thinking: thinkingMode !== 'off',
             thinkingLevel: thinkingMode,

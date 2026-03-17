@@ -176,9 +176,9 @@ describe('Tool Search', () => {
             expect(DEFAULT_CORE_TOOLS).toContain('tool_search');
         });
 
-        it('is a reasonable size (5-18 tools)', () => {
+        it('is a reasonable size (5-25 tools)', () => {
             expect(DEFAULT_CORE_TOOLS.length).toBeGreaterThanOrEqual(5);
-            expect(DEFAULT_CORE_TOOLS.length).toBeLessThanOrEqual(18);
+            expect(DEFAULT_CORE_TOOLS.length).toBeLessThanOrEqual(25);
         });
     });
 });
@@ -188,8 +188,8 @@ describe('ToolSearchConfig', () => {
         const { ToolSearchConfigSchema } = await import('../src/config/schema.js');
         const defaults = ToolSearchConfigSchema.parse({});
         expect(defaults.enabled).toBe(true);
-        expect(defaults.coreTools).toContain('tool_search');
-        expect(defaults.coreTools).toContain('shell');
+        // coreTools defaults to empty array (falls back to DEFAULT_CORE_TOOLS at runtime)
+        expect(defaults.coreTools).toEqual([]);
     });
 
     it('is included in TitanConfigSchema', async () => {

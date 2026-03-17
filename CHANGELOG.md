@@ -4,6 +4,56 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.44] — 2026-03-16
+
+### Changed
+- **README** — Updated "What's New" banner (VRAM orchestrator + NVIDIA GPU skills), tool count ~155, test count 4,321, added NVIDIA/VRAM to comparison table, tools table, sandbox section, and roadmap
+- **CLAUDE.md** — Updated version, stats, project structure (added `vram/` dir), API endpoints (VRAM), key files, recent history
+- **GitHub** — New release v2026.10.43, updated repo description + topics (gpu, vram, nvidia)
+
+## [2026.10.43] — 2026-03-16
+
+### Added
+- **VRAM Orchestrator** — Automatic GPU VRAM management for RTX 5090 multi-service workloads. Auto-swaps LLM models to smaller fallbacks when GPU services need VRAM.
+  - `src/vram/types.ts` — Interfaces: GpuState, LoadedModel, VRAMLease, AcquireResult, VRAMSnapshot, VRAMEvent
+  - `src/vram/gpuProbe.ts` — nvidia-smi queries, Ollama /api/ps model listing, model eviction (keep_alive:0), preload, getModelInfo
+  - `src/vram/leaseManager.ts` — Time-bounded VRAM reservations with auto-expiry timers
+  - `src/vram/orchestrator.ts` — Core singleton: async mutex, acquire/release with auto-swap and rollback, periodic GPU polling, event bus
+  - `src/skills/builtin/vram.ts` — Agent-facing tools: `vram_status`, `vram_acquire`, `vram_release`
+- **VRAM API endpoints** — `GET /api/vram` (snapshot), `POST /api/vram/acquire`, `POST /api/vram/release`, `GET /api/vram/check?mb=N` (dry run)
+- **VRAM config schema** — `vram.*` config section with `reserveMB`, `autoSwapModel`, `fallbackModel`, `ollamaUrl`, `services` budget map, `pollIntervalMs`
+- **Ollama VRAM env vars** — Applied `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_GPU_MEMORY_FRACTION=0.75`, `OLLAMA_KEEP_ALIVE=5m` on Titan PC
+
+## [2026.10.42] — 2026-03-16
+
+### Added
+- **NVIDIA NIM provider** — OpenAI-compatible provider preset for NVIDIA NIM API (`nvidia/` prefix). Supports Nemotron 3 Nano, Super, and Llama-Nemotron models. Aliases: `nim`, `nvidia-nim`.
+- **NVIDIA skills system** — env-gated (`TITAN_NVIDIA=1` or `nvidia.enabled`) skill loader for optional GPU-accelerated features.
+- **cuOpt GPU optimization skill** — `nvidia_cuopt_solve` + `nvidia_cuopt_health` tools for GPU-accelerated vehicle routing (VRP), MILP, LP via NVIDIA cuOpt v26.02 async API. Tested live.
+- **AI-Q research skill** — `nvidia_aiq_research` tool using Nemotron Super via NIM API for deep multi-source research with citations. Falls back to local AI-Q Docker deployment.
+- **OpenShell sandbox engine** — `sandbox-openshell.ts` wraps NVIDIA OpenShell CLI (v0.0.6) for secure K3s-based code execution with declarative YAML policies. Config: `sandbox.engine: 'openshell'`.
+- **NVIDIA config schema** — `nvidia.*` config section (enabled, apiKey, cuopt, asr, openshell subsections). All disabled by default.
+- **NVIDIA Docker Compose** — `docker-compose.nvidia.yml` with cuOpt, Nemotron-ASR, and Riva bridge services (separate from main compose).
+- **NVIDIA admin panel** — Mission Control UI panel for managing NVIDIA integration settings.
+- **THIRD_PARTY_NOTICES** — NVIDIA attribution for Nemotron, cuOpt, OpenShell, Riva.
+
+### Fixed
+- **Voice mic leak** — VoiceOverlay now sets `phaseRef` before stopping recognition to prevent `onend` auto-restart. Added unmount cleanup `useEffect` for mic stream, AudioContext, and timers.
+- **6 TypeScript errors** — sandbox-openshell `killed` type, server ttsEngine/sttEngine union casts, a2a_protocol `auth` → `oauth`, cuOpt fetchWithRetry timeout param, workflows prefer-const.
+- **cuOpt image tag** — corrected from `py3.14` (doesn't exist) to `py3.13`.
+
+## [2026.10.41] — 2026-03-16
+
+### Fixed
+- **Critical: Tool visibility** — `security.allowedTools` default changed from restrictive whitelist to empty (allow all). New tools added to skills were silently blocked.
+- **Critical: toolSearch.coreTools override** — config-level `coreTools` list overrode `DEFAULT_CORE_TOOLS` entirely. Schema default now empty (falls back to code defaults).
+- **Home Assistant tools invisible** — `ha_control`, `ha_devices`, `ha_status` added to `DEFAULT_CORE_TOOLS` so HA tools are always available without needing tool_search discovery.
+- **OpenAI-compat keepModelPrefix bug** — providers using `keepModelPrefix` (e.g., NIM API) had model prefix stripped when already present, breaking API calls. Fixed in both `chat()` and `chatStream()`.
+- **Voice system prompt** — new `buildVoiceSystemPrompt()` (~500 tokens vs ~3000+) with explicit tool-use rules, HA integration, and TTS emotion tags. Prevents hallucinated tool completion and off-topic responses.
+- **Voice core tools** — dedicated `VOICE_CORE_TOOLS` set (9 tools including HA) for faster voice response with fewer prompt tokens.
+- **Voice model override** — `voice.model` config allows separate model for voice (e.g., fast local model) vs text chat (e.g., cloud model).
+- **ha_control debug logging** — tool now logs raw args, resolved args, HA API call details, and success/failure for easier debugging.
+
 ## [2026.10.40] — 2026-03-16
 
 ### Added

@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '2026.10.40';
+export const TITAN_VERSION = '2026.10.44';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
 export const TITAN_ASCII_LOGO = `
@@ -58,10 +58,7 @@ export const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // Security
 export const DEFAULT_SANDBOX_MODE = 'host';
-export const ALLOWED_TOOLS_DEFAULT = [
-    'shell', 'read_file', 'write_file', 'edit_file', 'list_dir',
-    'web_search', 'web_fetch', 'web_read', 'web_act',
-    'browse_url', 'browser_search', 'browser_auto_nav', 'browser',
-    'cron', 'webhook', 'email', 'memory', 'weather',
-];
+/** Default allowed tools. Empty = allow ALL registered tools.
+ *  Use security.deniedTools to block specific tools instead. */
+export const ALLOWED_TOOLS_DEFAULT: string[] = [];
 export const DENIED_TOOLS_DEFAULT: string[] = [];

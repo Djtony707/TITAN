@@ -258,6 +258,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerA2AProtocolSkill } = await import('./builtin/a2a_protocol.js');
     const { registerEvalsSkill } = await import('./builtin/evals.js');
     const { registerApprovalGatesSkill } = await import('./builtin/approval_gates.js');
+    const { registerVRAMSkills } = await import('./builtin/vram.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -321,6 +322,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['evals', registerEvalsSkill],
         ['a2a_protocol', registerA2AProtocolSkill],
         ['approval_gates', registerApprovalGatesSkill],
+        ['vram', registerVRAMSkills],
     ];
 
     for (const [name, fn] of registrations) {
@@ -350,6 +352,25 @@ export async function initBuiltinSkills(): Promise<void> {
     if (process.env.NODE_ENV !== 'production' || process.env.TITAN_DEV) {
         const { initDevSkills } = await import('./dev/loader.js');
         await initDevSkills();
+    }
+
+    // Load NVIDIA skills (optional — only when TITAN_NVIDIA=1 or nvidia.enabled in config)
+    try {
+        let nvidiaEnabled = process.env.TITAN_NVIDIA === '1';
+        if (!nvidiaEnabled) {
+            try {
+                const { loadConfig: _loadConfig } = await import('../config/config.js');
+                const cfg = _loadConfig() as Record<string, unknown>;
+                const nvCfg = cfg.nvidia as Record<string, unknown> | undefined;
+                nvidiaEnabled = nvCfg?.enabled === true;
+            } catch { /* config not available in test env */ }
+        }
+        if (nvidiaEnabled) {
+            const { initNvidiaSkills } = await import('./nvidia/loader.js');
+            await initNvidiaSkills();
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `NVIDIA skills failed to load: ${(err as Error).message}`);
     }
 
     // Load personal skills (private, gitignored — only when TITAN_PERSONAL=1)
