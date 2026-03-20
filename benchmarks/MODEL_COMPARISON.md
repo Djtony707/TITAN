@@ -1,6 +1,6 @@
 # TITAN Model Benchmark — March 2026
 
-Comprehensive model comparison testing 15 LLMs through TITAN's unified gateway on an RTX 5090 system (i9-14900KF, 64GB DDR5-6000). Each model was tested with 25 prompts across 7 categories, scored 0-10 per prompt. Cloud models were accessed via their respective APIs; local models ran on Ollama with the RTX 5090 (32GB VRAM).
+Comprehensive model comparison testing 15 LLMs through TITAN's unified gateway. Each model was tested with 25 prompts across 7 categories, scored 0-10 per prompt. Cloud models were accessed via Ollama's cloud API; local models ran on Ollama with an NVIDIA RTX 5090 (32GB VRAM).
 
 ## Overall Rankings
 
@@ -178,7 +178,7 @@ Comprehensive model comparison testing 15 LLMs through TITAN's unified gateway o
 ## Key Takeaways
 
 1. **Top Overall**: GLM-5 (8.51/10, A-) — fastest cloud model with the highest score across all categories.
-2. **Best Local Model**: Qwen 3.5 35B (8.29/10, B+) — runs entirely on the RTX 5090 at 23GB.
+2. **Best Local Model**: Qwen 3.5 35B (8.29/10, B+) — runs entirely local at 23GB VRAM.
 3. **Best Value**: Nemotron 3 Nano 4B (8.29/10, B+) — only 2.8GB VRAM, competitive with models 10x its size.
 4. **Hardest Category**: Math — every model struggled here, with averages well below other categories.
 5. **Tool Use**: DeepSeek models (V3.1 and V3.2) scored poorly on tool-01 and tool-03, suggesting TITAN's tool format may need adapter work for DeepSeek. Gemini had HTTP 500 errors on multi-step tool calls.
@@ -187,8 +187,8 @@ Comprehensive model comparison testing 15 LLMs through TITAN's unified gateway o
 
 ## Methodology
 
-- **Gateway**: TITAN v2026.10.45 at `http://192.168.1.11:48420`
-- **Hardware**: Titan PC — Intel i9-14900KF, 64GB DDR5-6000, NVIDIA RTX 5090 (32GB VRAM)
+- **Gateway**: TITAN v2026.10.45
+- **Hardware**: NVIDIA RTX 5090 (32GB VRAM)
 - **Prompts**: 25 total across 7 categories (reasoning ×4, code ×4, math ×4, tool ×3, instruct ×4, creative ×3, summary ×3)
 - **Scoring**: Each prompt scored 0-10 by TITAN's built-in evaluator
 - **Timeout**: 120 seconds per request

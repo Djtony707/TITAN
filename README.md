@@ -433,7 +433,7 @@ TITAN supports split-machine deployments — run the gateway on a low-power node
 
 ```bash
 # On your Pi 5 / Mini PC (gateway)
-OLLAMA_BASE_URL=http://192.168.1.11:11434  # Points to GPU machine
+OLLAMA_BASE_URL=http://<gpu-machine-ip>:11434  # Points to GPU machine
 
 # On your GPU PC
 ollama serve  # Exposes models on the LAN
@@ -526,7 +526,7 @@ Built-in aliases: `fast`, `smart`, `cheap`, `reasoning`, `local` — fully confi
 
 ## Model Benchmark
 
-We benchmark every Ollama cloud and local model through TITAN's gateway. Tested on an RTX 5090 system (i9-14900KF, 64GB DDR5-6000) across 7 categories: reasoning, code, math, tool use, instruction following, creative writing, and summarization. **March 2026 results:**
+We benchmark every Ollama cloud and local model through TITAN's gateway across 7 categories: reasoning, code, math, tool use, instruction following, creative writing, and summarization. **March 2026 results:**
 
 | # | Model | Score | Grade | Latency | Type | Best For |
 |---|-------|-------|-------|---------|------|----------|
@@ -628,7 +628,7 @@ Approved peers persist to `~/.titan/approved-peers.json` and reconnect automatic
 }
 ```
 
-Or add static peers manually: `titan mesh --add "192.168.1.100:48420"`
+Or add static peers manually: `titan mesh --add "<peer-ip>:48420"`
 
 ---
 
