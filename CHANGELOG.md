@@ -4,6 +4,15 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.46] — 2026-03-20
+
+### Added
+- **Model Benchmark** — Comprehensive benchmark of 15 Ollama cloud + local models through TITAN's gateway. 25 prompts across 7 categories (reasoning, code, math, tool use, instruction, creative, summary). Results in README and `benchmarks/MODEL_COMPARISON.md`.
+  - Top models: GLM-5 (A-), Devstral Small 2 (A-), Qwen3 Coder Next (B+)
+  - Best value: Nemotron 3 Nano 4B — B+ at only 2.8GB VRAM
+
+---
+
 ## [2026.10.45] — 2026-03-19
 
 ### Added
