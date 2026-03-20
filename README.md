@@ -524,6 +524,38 @@ Built-in aliases: `fast`, `smart`, `cheap`, `reasoning`, `local` — fully confi
 
 ---
 
+## Model Benchmark
+
+We benchmark every Ollama cloud and local model through TITAN's gateway. Tested on an RTX 5090 system (i9-14900KF, 64GB DDR5-6000) across 7 categories: reasoning, code, math, tool use, instruction following, creative writing, and summarization. **March 2026 results:**
+
+| # | Model | Score | Grade | Latency | Type | Best For |
+|---|-------|-------|-------|---------|------|----------|
+| 1 | **GLM-5** | 8.5/10 | A- | 12.3s | ☁️ cloud | Code generation, summarization |
+| 2 | **Devstral Small 2** | 8.5/10 | A- | 5.3s | 💻 local (15GB) | Code generation, reasoning |
+| 3 | **Qwen3 Coder Next** | 8.4/10 | B+ | 3.5s | ☁️ cloud | Tool use (perfect 10), fastest cloud |
+| 4 | **GLM-4.7** | 8.4/10 | B+ | 16.1s | ☁️ cloud | Code generation, creative writing |
+| 5 | **Qwen 3.5 35B** | 8.3/10 | B+ | 11.7s | 💻 local (23GB) | Tool use, code generation |
+| 6 | **Nemotron 3 Nano 24B** | 8.3/10 | B+ | 7.0s | 💻 local (24GB) | Tool use, creative writing |
+| 7 | **Nemotron 3 Nano 4B** | 8.3/10 | B+ | 2.3s | 💻 local (2.8GB) | 🏆 Best value — full B+ at 2.8GB |
+| 8 | **MiniMax M2** | 8.3/10 | B+ | 10.2s | ☁️ cloud | Tool use (perfect 10) |
+| 9 | **Nemotron 3 Super** | 8.2/10 | B+ | 13.0s | ☁️ cloud | Math, tool use |
+| 10 | **Kimi K2.5** | 8.2/10 | B+ | 12.4s | ☁️ cloud | Tool use (perfect 10) |
+| 11 | **Qwen 3.5 397B** | 8.0/10 | B+ | 9.4s | ☁️ cloud | Code generation, creative writing |
+| 12 | **MiniMax M2.7** | 7.9/10 | B | 24.8s | ☁️ cloud | Code generation, creative writing |
+| 13 | **DeepSeek V3.1 671B** | 7.7/10 | B | 8.9s | ☁️ cloud | Code generation, creative writing |
+| 14 | **DeepSeek V3.2** | 7.6/10 | B | 22.8s | ☁️ cloud | Code, creative — weak tool use |
+| 15 | **Gemini 3 Flash Preview** | 7.6/10 | B | 4.9s | ☁️ cloud | Code, fast — tool use errors |
+
+**Key takeaways:**
+- 🥇 **GLM-5** is the top overall model — strong across every category
+- 🏆 **Nemotron 3 Nano 4B** is the best value play — B+ grade at only 2.8GB VRAM and 2.3s latency
+- ⚡ **Qwen3 Coder Next** is the fastest cloud model with perfect tool use
+- 💻 All 4 local models scored B+ — you don't need cloud APIs for great results
+
+> 📊 Full per-category breakdown: [benchmarks/MODEL_COMPARISON.md](benchmarks/MODEL_COMPARISON.md)
+
+---
+
 ## Voice (LiveKit WebRTC)
 
 TITAN's real-time voice uses [LiveKit](https://livekit.io/) — a production-grade WebRTC platform that handles echo cancellation, NAT traversal, codec negotiation, and jitter buffering. No custom audio pipelines, no PCM-over-WebSocket hacks.
