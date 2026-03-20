@@ -61,7 +61,7 @@ import { initCronScheduler } from '../skills/builtin/cron.js';
 import { checkAndSendBriefing } from '../memory/briefing.js';
 import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
-import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory } from '../agent/autopilot.js';
+import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
@@ -1800,9 +1800,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(getRunHistory(limit));
   });
 
-  app.post('/api/autopilot/run', async (_req, res) => {
+  app.post('/api/autopilot/run', async (req, res) => {
     try {
-      const result = await runAutopilotNow();
+      const dryRun = typeof req.body?.dryRun === 'boolean' ? req.body.dryRun : undefined;
+      const result = await runAutopilotNow({ dryRun });
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -1813,13 +1814,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const cfg = loadConfig();
       const enable = typeof req.body.enabled === 'boolean' ? req.body.enabled : !cfg.autopilot.enabled;
+      const dryRun = typeof req.body.dryRun === 'boolean' ? req.body.dryRun : undefined;
+
       cfg.autopilot.enabled = enable;
+      if (typeof dryRun === 'boolean') {
+        (cfg.autopilot as Record<string, unknown>).dryRun = dryRun;
+        setAutopilotDryRun(dryRun);
+      }
+
       if (enable) {
         initAutopilot(cfg);
       } else {
         stopAutopilot();
       }
-      res.json({ enabled: enable });
+      const status = getAutopilotStatus();
+      res.json({ enabled: enable, dryRun: status.dryRun });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }

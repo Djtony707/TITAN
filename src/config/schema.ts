@@ -445,6 +445,8 @@ export const TitanConfigSchema = z.object({
     autopilot: z.object({
         /** Enable autopilot scheduled runs */
         enabled: z.boolean().default(false),
+        /** Run autopilot in simulation mode (no tool execution) */
+        dryRun: z.boolean().default(false),
         /** Cron expression for scheduled runs (default: nightly 2am) */
         schedule: z.string().default('0 2 * * *'),
         /** Model override for autopilot runs (cheaper model for routine tasks) */

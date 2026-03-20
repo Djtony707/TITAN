@@ -112,10 +112,11 @@ vi.mock('../src/agent/autopilot.js', () => ({
     stopAutopilot: vi.fn(),
     runAutopilotNow: vi.fn().mockResolvedValue({ run: { classification: 'ok' }, delivered: false }),
     getAutopilotStatus: vi.fn().mockReturnValue({
-        enabled: false, schedule: '0 2 * * *', lastRun: null,
+        enabled: false, dryRun: false, schedule: '0 2 * * *', lastRun: null,
         nextRunEstimate: null, totalRuns: 0, isRunning: false,
     }),
     getRunHistory: vi.fn().mockReturnValue([]),
+    setAutopilotDryRun: vi.fn(),
 }));
 
 vi.mock('../src/agent/responseCache.js', () => ({

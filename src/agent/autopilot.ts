@@ -47,6 +47,7 @@ export interface AutopilotResult {
 
 export interface AutopilotStatus {
     enabled: boolean;
+    dryRun: boolean;
     schedule: string;
     lastRun: AutopilotRun | null;
     nextRunEstimate: string | null;
@@ -54,11 +55,16 @@ export interface AutopilotStatus {
     isRunning: boolean;
 }
 
+export interface AutopilotRunOptions {
+    dryRun?: boolean;
+}
+
 // ─── State ──────────────────────────────────────────────────────
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 let isRunning = false;
 let lastRun: AutopilotRun | null = null;
+let runtimeDryRun: boolean | undefined;
 
 // ─── Default checklist template ─────────────────────────────────
 
@@ -128,8 +134,8 @@ export function getRunHistory(limit: number = 30): AutopilotRun[] {
     try {
         const lines = readFileSync(AUTOPILOT_RUNS_PATH, 'utf-8')
             .split('\n')
-            .filter(l => l.trim());
-        const runs = lines.map(l => {
+            .filter((l: string) => l.trim());
+        const runs = lines.map((l: string) => {
             try { return JSON.parse(l) as AutopilotRun; }
             catch { return null; }
         }).filter(Boolean) as AutopilotRun[];
@@ -212,7 +218,7 @@ function buildAutopilotPrompt(checklist: string, previousRunSummary?: string): s
 
 // ─── Core run function ──────────────────────────────────────────
 
-export async function runAutopilotNow(): Promise<AutopilotResult> {
+export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promise<AutopilotResult> {
     if (isRunning) {
         throw new Error('Autopilot run already in progress');
     }
@@ -220,6 +226,8 @@ export async function runAutopilotNow(): Promise<AutopilotResult> {
     isRunning = true;
     const startTime = Date.now();
     const config = loadConfig();
+    const configDryRun = (config.autopilot as Record<string, unknown>).dryRun === true;
+    const dryRun = options.dryRun ?? runtimeDryRun ?? configDryRun;
 
     try {
         // Check active hours
@@ -281,17 +289,17 @@ export async function runAutopilotNow(): Promise<AutopilotResult> {
         // ── Goal-based mode: pick next subtask from active goals ──
         const autopilotMode = (config.autopilot as Record<string, unknown>).mode as string || 'checklist';
         if (autopilotMode === 'goals') {
-            return await runGoalBasedAutopilot(config, startTime);
+            return await runGoalBasedAutopilot(config, startTime, dryRun);
         }
 
         // ── Self-improve mode: run autonomous self-improvement experiments ──
         if (autopilotMode === 'self-improve') {
-            return await runSelfImproveAutopilot(config, startTime);
+            return await runSelfImproveAutopilot(config, startTime, dryRun);
         }
 
         // ── Autoresearch mode: run model fine-tuning experiments ──
         if (autopilotMode === 'autoresearch') {
-            return await runAutoresearchAutopilot(config, startTime);
+            return await runAutoresearchAutopilot(config, startTime, dryRun);
         }
 
         // Get previous run summary for context
@@ -301,6 +309,31 @@ export async function runAutopilotNow(): Promise<AutopilotResult> {
         // Build prompt and run agent
         const prompt = buildAutopilotPrompt(checklist, prevSummary);
         logger.info(COMPONENT, 'Starting autopilot run...');
+
+        if (dryRun) {
+            const duration = Date.now() - startTime;
+            const checklistItems = checklist
+                .split('\n')
+                .filter(line => line.trim().startsWith('-'))
+                .length;
+            logger.info(COMPONENT, `Dry-run enabled: would evaluate ${checklistItems} checklist item(s) and execute tools as needed`);
+
+            const run: AutopilotRun = {
+                timestamp: new Date().toISOString(),
+                duration,
+                tokensUsed: 0,
+                cost: 0,
+                classification: 'ok',
+                summary: `Dry-run: would evaluate ${checklistItems} checklist item(s) and execute follow-up actions without executing tools.`,
+                toolsUsed: [],
+                skipped: true,
+                skipReason: 'dry_run',
+            };
+            lastRun = run;
+            appendRun(run);
+            pruneHistory(config.autopilot.maxRunHistory);
+            return { run, delivered: false };
+        }
 
         const response = await processMessage(prompt, 'autopilot', 'system', {
             model: config.autopilot.model,
@@ -354,7 +387,7 @@ export async function runAutopilotNow(): Promise<AutopilotResult> {
 
 // ─── Goal-based autopilot ────────────────────────────────────────
 
-async function runGoalBasedAutopilot(config: TitanConfig, startTime: number): Promise<AutopilotResult> {
+async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
     const readyTasks = getReadyTasks();
     if (readyTasks.length === 0) {
         const run: AutopilotRun = {
@@ -384,6 +417,26 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number): Pr
         if (/\b(write|create|build|code|implement)\b/.test(lower)) templateKey = 'coder';
         else if (/\b(browse|navigate|login|click)\b/.test(lower)) templateKey = 'browser';
         else if (/\b(analyze|report|summarize|compare)\b/.test(lower)) templateKey = 'analyst';
+
+        if (dryRun) {
+            const duration = Date.now() - startTime;
+            logger.info(COMPONENT, `Dry-run enabled: would execute goal "${goal.title}" subtask "${subtask.title}" using template "${templateKey}"`);
+            const run: AutopilotRun = {
+                timestamp: new Date().toISOString(),
+                duration,
+                tokensUsed: 0,
+                cost: 0,
+                classification: 'ok',
+                summary: `Dry-run: would execute goal "${goal.title}" -> "${subtask.title}" with template "${templateKey}".`,
+                toolsUsed: [],
+                skipped: true,
+                skipReason: 'dry_run',
+            };
+            lastRun = run;
+            appendRun(run);
+            pruneHistory(config.autopilot.maxRunHistory);
+            return { run, delivered: false };
+        }
 
         const template = SUB_AGENT_TEMPLATES[templateKey] || {};
         const templateTier = (template as Record<string, unknown>).tier as string | undefined;
@@ -428,7 +481,7 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number): Pr
         // After successful subtask, check if initiative has a natural next step
         if (result.success) {
             try {
-                const initiative = await checkInitiative();
+                const initiative = await checkInitiative({ dryRun });
                 if (initiative.acted) {
                     logger.info(COMPONENT, `Initiative chained: ${initiative.result?.slice(0, 100)}`);
                 } else if (initiative.proposed) {
@@ -460,13 +513,33 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number): Pr
 
 // ─── Self-improve autopilot ──────────────────────────────────────
 
-async function runSelfImproveAutopilot(config: TitanConfig, startTime: number): Promise<AutopilotResult> {
+async function runSelfImproveAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
     const siConfig = (config as Record<string, unknown>).selfImprove as Record<string, unknown> | undefined;
     const areas = (siConfig?.areas as string[]) || ['prompts', 'tool-selection', 'response-quality', 'error-recovery'];
     const budgetMinutes = (siConfig?.budgetMinutes as number) || 30;
     const budgetPerArea = Math.floor(budgetMinutes / areas.length);
 
     logger.info(COMPONENT, `Self-improve autopilot: targeting ${areas.length} areas with ${budgetPerArea} min each`);
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const summary = `Dry-run: would run self-improvement experiments for ${areas.length} area(s): ${areas.join(', ')}`;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: summary.slice(0, 500),
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
 
     const results: string[] = [];
     const _totalKeeps = 0;
@@ -512,11 +585,30 @@ async function runSelfImproveAutopilot(config: TitanConfig, startTime: number): 
 
 // ─── Autoresearch autopilot ──────────────────────────────────────
 
-async function runAutoresearchAutopilot(config: TitanConfig, startTime: number): Promise<AutopilotResult> {
+async function runAutoresearchAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
     const trainingConfig = (config as Record<string, unknown>).training as Record<string, unknown> | undefined;
     const budgetMinutes = (trainingConfig?.budgetMinutes as number) || 120;
 
     logger.info(COMPONENT, `Autoresearch autopilot: budget ${budgetMinutes} min (Karpathy pattern)`);
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: `Dry-run: would run autoresearch experiments with a ${budgetMinutes} minute budget.`,
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
 
     // Read program.md directives
     const programMdPath = join(dirname(AUTOPILOT_MD), 'autoresearch', 'program.md');
@@ -654,6 +746,10 @@ export function stopAutopilot(): void {
     }
 }
 
+export function setAutopilotDryRun(enabled?: boolean): void {
+    runtimeDryRun = enabled;
+}
+
 export function getAutopilotStatus(): AutopilotStatus {
     const config = loadConfig();
     const history = getRunHistory(1);
@@ -661,6 +757,7 @@ export function getAutopilotStatus(): AutopilotStatus {
 
     return {
         enabled: config.autopilot.enabled,
+        dryRun: runtimeDryRun ?? ((config.autopilot as Record<string, unknown>).dryRun === true),
         schedule: config.autopilot.schedule,
         lastRun: latest,
         nextRunEstimate: cronTask ? 'scheduled' : null,

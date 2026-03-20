@@ -144,4 +144,21 @@ describe('Initiative', () => {
             name: 'Initiative-coder',
         }));
     });
+
+    it('returns a proposal and does not execute in dry-run mode', async () => {
+        mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
+        mockGetReadyTasks.mockReturnValue([{
+            goal: { id: 'g1', title: 'Safety Goal' },
+            subtask: { id: 'st-1', title: 'Inspect logs', description: 'Analyze suspicious activity' },
+        }]);
+
+        const result = await checkInitiative({ dryRun: true });
+
+        expect(result.acted).toBe(false);
+        expect(result.proposed).toContain('Dry-run');
+        expect(result.proposed).toContain('Safety Goal');
+        expect(mockSpawnSubAgent).not.toHaveBeenCalled();
+        expect(mockCompleteSubtask).not.toHaveBeenCalled();
+        expect(mockFailSubtask).not.toHaveBeenCalled();
+    });
 });

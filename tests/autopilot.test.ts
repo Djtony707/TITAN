@@ -59,6 +59,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
         },
         autopilot: {
             enabled: false,
+            dryRun: false,
             schedule: '0 2 * * *',
             model: 'anthropic/claude-haiku',
             maxTokensPerRun: 4000,
@@ -96,6 +97,7 @@ import {
     runAutopilotNow,
     initAutopilot,
     stopAutopilot,
+    setAutopilotDryRun,
     getAutopilotStatus,
 } from '../src/agent/autopilot.js';
 import { TitanConfigSchema } from '../src/config/schema.js';
@@ -105,6 +107,7 @@ import { TitanConfigSchema } from '../src/config/schema.js';
 describe('Autopilot Engine', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setAutopilotDryRun(undefined);
         mockLoadConfig.mockReturnValue(makeConfig());
         mockExistsSync.mockReturnValue(false);
         mockReadFileSync.mockReturnValue('');
@@ -117,6 +120,7 @@ describe('Autopilot Engine', () => {
             const config = TitanConfigSchema.parse({});
             expect(config.autopilot).toBeDefined();
             expect(config.autopilot.enabled).toBe(false);
+            expect(config.autopilot.dryRun).toBe(false);
             expect(config.autopilot.schedule).toBe('0 2 * * *');
             expect(config.autopilot.model).toBe('anthropic/claude-haiku');
             expect(config.autopilot.maxTokensPerRun).toBe(4000);
@@ -130,6 +134,7 @@ describe('Autopilot Engine', () => {
             const config = TitanConfigSchema.parse({
                 autopilot: {
                     enabled: true,
+                    dryRun: true,
                     schedule: '*/30 * * * *',
                     model: 'openai/gpt-4o-mini',
                     maxTokensPerRun: 8000,
@@ -140,6 +145,7 @@ describe('Autopilot Engine', () => {
                 },
             });
             expect(config.autopilot.enabled).toBe(true);
+            expect(config.autopilot.dryRun).toBe(true);
             expect(config.autopilot.schedule).toBe('*/30 * * * *');
             expect(config.autopilot.model).toBe('openai/gpt-4o-mini');
             expect(config.autopilot.maxTokensPerRun).toBe(8000);
@@ -590,6 +596,53 @@ describe('Autopilot Engine', () => {
             const result = await runAutopilotNow();
             expect(result.run.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
         });
+
+        it('should skip execution when dryRun is enabled', async () => {
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: true } }));
+            mockExistsSync.mockReturnValue(false);
+            const result = await runAutopilotNow();
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+            expect(result.run.classification).toBe('ok');
+            expect(result.run.summary).toContain('Dry-run');
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor per-call dryRun=true over config dryRun=false', async () => {
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+
+            const result = await runAutopilotNow({ dryRun: true });
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor runtime dryRun override via setAutopilotDryRun(true)', async () => {
+            setAutopilotDryRun(true);
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+
+            const result = await runAutopilotNow();
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should honor per-call dryRun=false over runtime dryRun=true', async () => {
+            setAutopilotDryRun(true);
+            mockLoadConfig.mockReturnValue(makeConfig({ autopilot: { skipIfEmpty: false, dryRun: false } }));
+            mockExistsSync.mockReturnValue(false);
+            mockProcessMessage.mockResolvedValue(makeAgentResponse('OK. Classification: OK'));
+
+            const result = await runAutopilotNow({ dryRun: false });
+
+            expect(result.run.skipped).toBeUndefined();
+            expect(mockProcessMessage).toHaveBeenCalled();
+        });
     });
 
     // ── initAutopilot / stopAutopilot ───────────────────────────
@@ -622,6 +675,21 @@ describe('Autopilot Engine', () => {
             initAutopilot(config as any);
             expect(mockCronSchedule).toHaveBeenCalledWith('*/15 * * * *', expect.any(Function));
         });
+
+        it('should not reset runtime dryRun when initAutopilot is called', async () => {
+            setAutopilotDryRun(true);
+            const config = makeConfig({ autopilot: { enabled: true, dryRun: false, skipIfEmpty: false } });
+            mockCronValidate.mockReturnValue(true);
+            mockCronSchedule.mockReturnValue({ stop: vi.fn() });
+            mockExistsSync.mockReturnValue(false);
+            mockLoadConfig.mockReturnValue(config);
+
+            initAutopilot(config as any);
+            const result = await runAutopilotNow();
+
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('dry_run');
+        });
     });
 
     describe('stopAutopilot()', () => {
@@ -648,6 +716,7 @@ describe('Autopilot Engine', () => {
             mockExistsSync.mockReturnValue(false);
             const status = getAutopilotStatus();
             expect(status.enabled).toBe(false);
+            expect(status.dryRun).toBe(false);
             expect(status.schedule).toBe('0 2 * * *');
             expect(status.isRunning).toBe(false);
         });
