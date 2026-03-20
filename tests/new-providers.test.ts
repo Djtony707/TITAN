@@ -70,7 +70,7 @@ function makeJsonResponse(data: unknown, status = 200): Response {
 
 describe('PROVIDER_PRESETS — New Providers', () => {
     it('should contain 31 total provider presets', () => {
-        expect(PROVIDER_PRESETS).toHaveLength(31);
+        expect(PROVIDER_PRESETS).toHaveLength(32);
     });
 
     it('should include venice in the presets', () => {
@@ -656,7 +656,7 @@ describe('Router — New Provider Aliases', () => {
     describe('getAllProviders()', () => {
         it('should return 35 total providers (4 core + 31 compat)', () => {
             const all = getAllProviders();
-            expect(all.size).toBe(35);
+            expect(all.size).toBe(36);
         });
 
         it('should include venice, bedrock, and litellm in the provider map', () => {
@@ -976,6 +976,6 @@ describe('New Providers — Edge Cases', () => {
     it('all thirty-one presets should have unique names', () => {
         const names = PROVIDER_PRESETS.map(p => p.name);
         const uniqueNames = new Set(names);
-        expect(uniqueNames.size).toBe(31);
+        expect(uniqueNames.size).toBe(32);
     });
 });

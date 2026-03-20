@@ -95,9 +95,9 @@ describe('TitanConfigSchema providers', () => {
         const keys = Object.keys(config.providers);
         const expected = ['anthropic', 'openai', 'google', 'ollama', 'groq', 'mistral',
             'openrouter', 'fireworks', 'xai', 'together', 'deepseek', 'cerebras', 'cohere', 'perplexity',
-            'venice', 'bedrock', 'litellm', 'azure', 'deepinfra', 'sambanova', 'nvidia'];
+            'venice', 'bedrock', 'litellm', 'azure', 'deepinfra', 'sambanova', 'nvidia', 'minimax'];
         for (const name of expected) expect(keys).toContain(name);
-        expect(keys).toHaveLength(35);
+        expect(keys).toHaveLength(36);
     });
 });
 

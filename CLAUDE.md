@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.43
+- **Current version**: v2026.10.45
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 20, pure ESM
@@ -15,11 +15,11 @@
 
 | Stat | Value |
 |------|-------|
-| Providers | 34 (4 native + 30 OpenAI-compatible) |
+| Providers | 36 (4 native + 32 OpenAI-compatible) |
 | Skills | 100+ loaded |
 | Tools | ~195 across 100+ loaded skills |
 | Channels | 15 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, etc.) |
-| Tests | 4,321+ across 135 files (vitest) |
+| Tests | 4,329+ across 135 files (vitest) |
 | Default model | `anthropic/claude-sonnet-4-20250514` |
 | Gateway port | 48420 |
 
@@ -199,6 +199,7 @@ Always publish to npm after pushing to git.
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v2026.10.45**: MiniMax M2.7 provider (#32), autopilot dry-run mode (community PR #7)
 - **v2026.10.43**: VRAM Orchestrator — auto GPU VRAM management (nvidia-smi polling, model swap, leases, 3 tools, 4 API endpoints)
 - **v2026.10.42**: NVIDIA GPU skills — cuOpt VRP optimization, AI-Q Nemotron research, OpenShell sandbox, voice mic fix
 - **v2026.10.41**: Hotfix — tool visibility, voice prompt, keepModelPrefix

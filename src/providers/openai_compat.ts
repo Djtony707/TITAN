@@ -633,4 +633,20 @@ export const PROVIDER_PRESETS: OpenAICompatConfig[] = [
         supportsModelList: true,
         keepModelPrefix: true,
     },
+    {
+        name: 'minimax',
+        displayName: 'MiniMax',
+        defaultBaseUrl: 'https://api.minimax.chat/v1',
+        envKey: 'MINIMAX_API_KEY',
+        configKey: 'minimax',
+        defaultModel: 'minimax-m2.7',
+        knownModels: [
+            'minimax-m2.7',
+            'minimax-m2.7-highspeed',
+            'minimax-m2.5',
+            'minimax-01',
+            'minimax-text-01',
+        ],
+        supportsModelList: false,
+    },
 ];

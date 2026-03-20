@@ -403,6 +403,7 @@ export const TitanConfigSchema = z.object({
         octo: ProviderConfigSchema.default({}),
         nous: ProviderConfigSchema.default({}),
         nvidia: ProviderConfigSchema.default({}),
+        minimax: ProviderConfigSchema.default({}),
     }).default({}),
     channels: z.object({
         discord: ChannelConfigSchema.default({}),

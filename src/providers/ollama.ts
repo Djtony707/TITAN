@@ -48,6 +48,8 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'gemini-3-flash-preview:latest': 1048576,
     // GPT OSS — 128K
     'gpt-oss:120b-cloud': 131072,
+    // MiniMax M2.7 — 200K context
+    'minimax-m2.7:cloud': 204800,
     // Qwen3.5 35B local — 32K
     'qwen3.5:35b': 32768,
 };

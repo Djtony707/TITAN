@@ -4,6 +4,15 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.45] — 2026-03-19
+
+### Added
+- **MiniMax M2.7 provider** — OpenAI-compatible preset for MiniMax's self-evolving agentic model (2.3T params, 100B active MoE, 200K context). Provider #32. Access via `minimax/minimax-m2.7` or Ollama cloud `ollama/minimax-m2.7:cloud`.
+  - Known models: `minimax-m2.7`, `minimax-m2.7-highspeed`, `minimax-m2.5`, `minimax-01`, `minimax-text-01`
+  - API: `https://api.minimax.chat/v1`, env: `MINIMAX_API_KEY`
+  - Ollama cloud context: 204,800 tokens
+- **Autopilot dry-run mode** — Community contribution by [@sastarogers](https://github.com/sastarogers) ([#7](https://github.com/Djtony707/TITAN/pull/7)). 3-tier precedence: config, runtime, per-call. Skips tool execution in all 4 autopilot modes.
+
 ## [2026.10.44] — 2026-03-16
 
 ### Changed
