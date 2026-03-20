@@ -932,6 +932,15 @@ npm run dev:gateway
 
 We don't bite. Unless you submit a PR that adds `is-even` as a dependency.
 
+### Contributors
+
+Thanks to everyone who has contributed to TITAN:
+
+| Contributor | Contribution |
+|-------------|-------------|
+| [Tony Elliott](https://github.com/Djtony707) | Creator & maintainer |
+| [sastarogers](https://github.com/sastarogers) | Autopilot dry-run mode ([#7](https://github.com/Djtony707/TITAN/pull/7)) |
+
 ---
 
 ## Acknowledgments
