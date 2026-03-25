@@ -10,6 +10,7 @@ import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.
 import { recordUsage, searchMemories } from '../memory/memory.js';
 import { recordToolResult, getLearningContext, learnFact, getToolWarnings, recordErrorResolution, classifyTaskType, recordToolPreference, recordStrategy, recordStrategyOutcome, getStrategyHints, getErrorResolution } from '../memory/learning.js';
 import { buildPersonalContext } from '../memory/relationship.js';
+import { retainStrategy, getHindsightHints } from '../memory/hindsightBridge.js';
 import { getTeachingContext, isCorrection } from './teaching.js';
 import { recordToolUsage, recordCorrection } from './userProfile.js';
 import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, clearSession, setStallHandler, setAutonomousMode, checkToolCallCapability, resetToolCallFailures } from './stallDetector.js';
@@ -281,8 +282,12 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     // Continuous learning context
     const learningContext = getLearningContext();
 
-    // Strategy hints — what worked for similar tasks before
+    // Strategy hints — what worked for similar tasks before (local + Hindsight cross-session)
     const strategyHint = userMessage ? getStrategyHints(userMessage) : null;
+    let hindsightHint: string | null = null;
+    if (!strategyHint && userMessage) {
+        try { hindsightHint = await getHindsightHints(userMessage); } catch { /* Hindsight unavailable */ }
+    }
 
     // Teaching context — adaptive skill level, corrections, tool suggestions
     const teachingContext = getTeachingContext();
@@ -373,7 +378,7 @@ You are ${TITAN_NAME}, The Intelligent Task Automation Network — a powerful pe
 ## Continuous Learning
 You get smarter with every interaction. Below is your accumulated knowledge:
 ${learningContext}
-${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}
+${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}
 ${teachingContext ? `\n## Adaptive Teaching\n${teachingContext}` : ''}
 ${customPrompt ? `\n## Custom Instructions\n${customPrompt}` : ''}${workspaceContext}${memoryContext}${personalContext}${graphSection}
 
@@ -1196,6 +1201,11 @@ export async function processMessage(
         // Feedback loop: record outcome for matching strategies
         if (orderedToolSequence.length > 0) {
             recordStrategyOutcome(classifyTaskType(message), orderedToolSequence, success);
+        }
+
+        // Hindsight MCP: retain successful strategies as cross-session experience (fire-and-forget)
+        if (success && orderedToolSequence.length > 0) {
+            try { retainStrategy(classifyTaskType(message), orderedToolSequence, 1, message.slice(0, 200)); } catch { /* Hindsight unavailable */ }
         }
     }
 

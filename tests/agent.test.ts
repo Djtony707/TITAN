@@ -124,6 +124,14 @@ vi.mock('../src/memory/relationship.js', () => ({
     buildPersonalContext: mockBuildPersonalContext,
 }));
 
+vi.mock('../src/memory/hindsightBridge.js', () => ({
+    retainStrategy: vi.fn().mockResolvedValue(undefined),
+    getHindsightHints: vi.fn().mockResolvedValue(null),
+    isHindsightConnected: vi.fn().mockReturnValue(false),
+    retainToHindsight: vi.fn().mockResolvedValue(undefined),
+    recallFromHindsight: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../src/agent/stallDetector.js', () => ({
     heartbeat: mockHeartbeat,
     recordToolCall: mockRecordToolCallStall,

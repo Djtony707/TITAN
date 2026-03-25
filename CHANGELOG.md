@@ -4,6 +4,15 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.49] — 2026-03-25
+
+### Added
+- **Hindsight MCP Bridge** — Cross-session episodic memory via Vectorize.io Hindsight. Successful strategies are retained as "experience" memories; cross-session recall supplements local strategy hints when no local match found. Fully fire-and-forget — never blocks or crashes if Hindsight is unavailable.
+  - New file: `src/memory/hindsightBridge.ts`
+  - 14 tests: `tests/hindsightBridge.test.ts`
+
+---
+
 ## [2026.10.48] — 2026-03-25
 
 ### Added
