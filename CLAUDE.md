@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.50
+- **Current version**: v2026.10.51
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 20, pure ESM
@@ -199,6 +199,7 @@ Always publish to npm after pushing to git.
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v2026.10.51**: Cloud model tool calling fix — ToolRescue + CloudRetry + HallucinationGuard (3-layer defense for cloud-routed Ollama models)
 - **v2026.10.50**: GEPA — Genetic Evolution of Prompts & Agents (population-based evolutionary optimization, tournament selection, crossover, mutation, elitism, 3 tools)
 - **v2026.10.49**: Hindsight MCP Bridge — cross-session episodic memory (retain strategies + recall hints via Vectorize.io Hindsight)
 - **v2026.10.48**: Smart auto-learning — SmartCompress plugin (task-type-aware compression), continuous learning feedback loop, ordered tool sequence capture, ContextEngine compact hook wired

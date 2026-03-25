@@ -4,6 +4,20 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.51] — 2026-03-25
+
+### Fixed
+- **Cloud Model Tool Calling** — Three-layer defense against cloud-routed Ollama models (Nemotron, Kimi, GLM, MiniMax) that ignore `tool_choice: 'required'` and hallucinate tool responses instead of making actual calls:
+  - **Enhanced ToolRescue**: For cloud models, rescue ALL tools from text responses (not just exotic ones). Extracts shell commands from code blocks, file paths, and search queries from natural language.
+  - **CloudRetry**: When a cloud model returns text instead of tool calls on round 0 with task enforcement active, injects a strong tool-forcing nudge and retries.
+  - **HallucinationGuard**: Detects when a cloud model claims completed actions ("I wrote the file", "Output: ...") but `toolsUsed` is empty. Sanitizes the response to prevent false memories from polluting session history and cross-session learning.
+
+### Changed
+- `extractToolCallFromContent()` now accepts `isCloudModel` flag — cloud models get aggressive rescue for all tools including shell, read_file, write_file, web_search
+- ESLint: fixed `prefer-const` in `smartCompress.ts`
+
+---
+
 ## [2026.10.50] — 2026-03-25
 
 ### Added
