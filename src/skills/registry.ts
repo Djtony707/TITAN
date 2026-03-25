@@ -342,6 +342,15 @@ export async function initBuiltinSkills(): Promise<void> {
         if (topFacts.bootstrap) await topFacts.bootstrap({});
     } catch (e) { logger.warn(COMPONENT, `Failed to register TopFacts plugin: ${(e as Error).message}`); }
 
+    // Register SmartCompress context engine plugin (task-type-aware compression)
+    try {
+        const { createSmartCompressPlugin } = await import('../plugins/smartCompress.js');
+        const { registerPlugin: regPlugin } = await import('../plugins/registry.js');
+        const smartCompress = createSmartCompressPlugin();
+        regPlugin(smartCompress);
+        if (smartCompress.bootstrap) await smartCompress.bootstrap({});
+    } catch (e) { logger.warn(COMPONENT, `Failed to register SmartCompress plugin: ${(e as Error).message}`); }
+
     // Register tool_search — meta-tool for discovering tools on demand
     const { getToolSearchHandler } = await import('../agent/toolSearch.js');
     try { registerTool(getToolSearchHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_search: ${(e as Error).message}`); }

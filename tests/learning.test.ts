@@ -507,4 +507,99 @@ describe('Learning Engine', () => {
             expect(saved.toolSuccessRates.shell.success).toBe(3);
         });
     });
+
+    // ── recordStrategyOutcome ────────────────────────────────────────────
+
+    describe('recordStrategyOutcome', () => {
+        it('should increment successCount on successful outcome', async () => {
+            const mod = await freshLearning();
+            mod.initLearning();
+
+            // Record a strategy first
+            mod.recordStrategy('write a function to parse JSON', ['shell', 'edit_file'], 2, true, ['shell', 'edit_file']);
+            vi.advanceTimersByTime(2500);
+
+            // Record successful outcome
+            mod.recordStrategyOutcome('coding', ['shell', 'edit_file'], true);
+            vi.advanceTimersByTime(2500);
+
+            const saved = JSON.parse(mockFiles['/tmp/titan-test-learning/knowledge.json']);
+            const strategy = saved.strategies.find((s: any) => s.taskType === 'coding');
+            expect(strategy).toBeDefined();
+            expect(strategy.successCount).toBe(2); // Initial 1 + outcome 1
+            expect(strategy.lastValidated).toBeDefined();
+        });
+
+        it('should increment failCount on failed outcome', async () => {
+            const mod = await freshLearning();
+            mod.initLearning();
+
+            mod.recordStrategy('write a function', ['shell'], 1, true, ['shell']);
+            vi.advanceTimersByTime(2500);
+
+            mod.recordStrategyOutcome('coding', ['shell'], false);
+            vi.advanceTimersByTime(2500);
+
+            const saved = JSON.parse(mockFiles['/tmp/titan-test-learning/knowledge.json']);
+            const strategy = saved.strategies.find((s: any) => s.taskType === 'coding');
+            expect(strategy.failCount).toBe(1);
+        });
+
+        it('should mark strategy as unsuccessful when failCount exceeds successCount', async () => {
+            const mod = await freshLearning();
+            mod.initLearning();
+
+            mod.recordStrategy('research topic', ['web_search'], 1, true, ['web_search']);
+            vi.advanceTimersByTime(2500);
+
+            // Fail twice (successCount starts at 1)
+            mod.recordStrategyOutcome('research', ['web_search'], false);
+            mod.recordStrategyOutcome('research', ['web_search'], false);
+            vi.advanceTimersByTime(2500);
+
+            const saved = JSON.parse(mockFiles['/tmp/titan-test-learning/knowledge.json']);
+            const strategy = saved.strategies.find((s: any) => s.taskType === 'research');
+            expect(strategy.success).toBe(false);
+        });
+
+        it('should not error when no matching strategy exists', async () => {
+            const mod = await freshLearning();
+            mod.initLearning();
+
+            expect(() => {
+                mod.recordStrategyOutcome('coding', ['nonexistent_tool'], true);
+            }).not.toThrow();
+        });
+    });
+
+    // ── Strategy decay in getStrategyHints ─────────────────────────────
+
+    describe('strategy decay', () => {
+        it('should decay successCount for strategies not validated in 30+ days', async () => {
+            const mod = await freshLearning();
+            mod.initLearning();
+
+            // Record a strategy with high success count
+            mod.recordStrategy('write code to handle errors', ['shell', 'edit_file'], 2, true, ['shell', 'edit_file']);
+            vi.advanceTimersByTime(2500);
+
+            // Manually boost successCount
+            const saved = JSON.parse(mockFiles['/tmp/titan-test-learning/knowledge.json']);
+            saved.strategies[0].successCount = 10;
+            saved.strategies[0].timestamp = new Date(Date.now() - 31 * 86400000).toISOString(); // 31 days ago
+            mockFiles['/tmp/titan-test-learning/knowledge.json'] = JSON.stringify(saved);
+
+            // Re-import to pick up the modified file
+            const mod2 = await freshLearning();
+            mod2.initLearning();
+
+            // Call getStrategyHints to trigger decay
+            mod2.getStrategyHints('write code to handle errors');
+            vi.advanceTimersByTime(2500);
+
+            const updated = JSON.parse(mockFiles['/tmp/titan-test-learning/knowledge.json']);
+            const strategy = updated.strategies[0];
+            expect(strategy.successCount).toBe(8); // 10 * 0.8 = 8
+        });
+    });
 });

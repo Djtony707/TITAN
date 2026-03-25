@@ -100,8 +100,24 @@ vi.mock('../src/memory/learning.js', () => ({
     classifyTaskType: vi.fn().mockReturnValue('general'),
     recordToolPreference: vi.fn(),
     recordStrategy: vi.fn(),
+    recordStrategyOutcome: vi.fn(),
     getStrategyHints: vi.fn().mockReturnValue(null),
     getErrorResolution: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock('../src/plugins/registry.js', () => ({
+    getPlugins: vi.fn().mockReturnValue([]),
+    registerPlugin: vi.fn(),
+    getPlugin: vi.fn(),
+    clearPlugins: vi.fn(),
+    initPlugins: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/plugins/contextEngine.js', () => ({
+    runAfterTurn: vi.fn().mockResolvedValue(undefined),
+    runAssemble: vi.fn().mockImplementation((_p: unknown, ctx: unknown) => Promise.resolve(ctx)),
+    runCompact: vi.fn().mockImplementation((_p: unknown, ctx: unknown) => Promise.resolve(ctx)),
+    runIngest: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../src/memory/relationship.js', () => ({
@@ -143,6 +159,7 @@ vi.mock('../src/agent/responseCache.js', () => ({
 
 vi.mock('../src/agent/contextManager.js', () => ({
     buildSmartContext: mockBuildSmartContext,
+    compactContextWithPlugins: vi.fn().mockImplementation((msgs: unknown[]) => Promise.resolve(msgs)),
 }));
 
 vi.mock('../src/agent/swarm.js', () => ({

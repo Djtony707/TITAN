@@ -8,7 +8,7 @@ import { loadConfig } from '../config/config.js';
 import { getOrCreateSession, addMessage, getContextMessages } from './session.js';
 import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
-import { recordToolResult, getLearningContext, learnFact, getToolWarnings, recordErrorResolution, classifyTaskType, recordToolPreference, recordStrategy, getStrategyHints, getErrorResolution } from '../memory/learning.js';
+import { recordToolResult, getLearningContext, learnFact, getToolWarnings, recordErrorResolution, classifyTaskType, recordToolPreference, recordStrategy, recordStrategyOutcome, getStrategyHints, getErrorResolution } from '../memory/learning.js';
 import { buildPersonalContext } from '../memory/relationship.js';
 import { getTeachingContext, isCorrection } from './teaching.js';
 import { recordToolUsage, recordCorrection } from './userProfile.js';
@@ -16,7 +16,9 @@ import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, clearSession
 import { checkForLoop, resetLoopDetection } from './loopDetection.js';
 import { routeModel, maybeCompressContext, recordTokenUsage } from './costOptimizer.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
-import { buildSmartContext } from './contextManager.js';
+import { buildSmartContext, compactContextWithPlugins } from './contextManager.js';
+import { getPlugins } from '../plugins/registry.js';
+import { runAfterTurn } from '../plugins/contextEngine.js';
 import { getSwarmRouterTools, runSubAgent, type Domain } from './swarm.js';
 import { shouldDeliberate, analyze, generatePlan, executePlan, handleApproval, getDeliberation, cancelDeliberation, formatPlanResults } from './deliberation.js';
 import type { ChatMessage, ChatResponse, ToolCall, ToolDefinition } from '../providers/base.js';
@@ -671,6 +673,7 @@ export async function processMessage(
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     const toolsUsed: string[] = [];
+    const orderedToolSequence: string[] = []; // Preserves execution order with repeats
     let finalContent = '';
     let modelUsed = config.agent.model;
 
@@ -895,11 +898,17 @@ export async function processMessage(
                 messages.push(...compressedMessages);
             }
 
-            // ── Smart context manager: second compression layer (skip if already compressed) ───
+            // ── Smart context manager: second compression layer + plugin compact hooks ───
             const tokenBudget = (config.agent.maxTokens || 4096) * 4; // rough context window estimate
-            smartMessages = didCompress
-                ? compressedMessages as ChatMessage[]
-                : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+            const cePlugins = getPlugins() || [];
+            if (cePlugins.length > 0 && cePlugins.some(p => p.compact)) {
+                // Route through plugin compact pipeline (includes SmartCompress, etc.)
+                smartMessages = await compactContextWithPlugins(compressedMessages as ChatMessage[], tokenBudget);
+            } else {
+                smartMessages = didCompress
+                    ? compressedMessages as ChatMessage[]
+                    : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+            }
         }
 
         // ── Response cache: check before calling LLM ───
@@ -1069,6 +1078,7 @@ export async function processMessage(
         let loopBroken = false;
         for (const result of toolResults) {
             toolsUsed.push(result.name);
+            orderedToolSequence.push(result.name);
             messages.push({
                 role: 'tool',
                 content: result.content,
@@ -1181,7 +1191,12 @@ export async function processMessage(
     // Active Learning: record strategy for future reference
     if (toolsUsed.length > 0) {
         const success = !finalContent.toLowerCase().includes('error') && !budgetExhausted;
-        recordStrategy(message, toolsUsed, toolsUsed.length, success, toolsUsed);
+        recordStrategy(message, [...new Set(toolsUsed)], orderedToolSequence.length, success, orderedToolSequence);
+
+        // Feedback loop: record outcome for matching strategies
+        if (orderedToolSequence.length > 0) {
+            recordStrategyOutcome(classifyTaskType(message), orderedToolSequence, success);
+        }
     }
 
     // Save assistant response to session
@@ -1210,6 +1225,12 @@ export async function processMessage(
             `User asked "${message.slice(0, 80)}" → used tools: ${uniqueTools.join(', ')} (${durationMs}ms)`,
             message.slice(0, 100),
         );
+    }
+
+    // ── ContextEngine afterTurn hooks (fire-and-forget — TopFacts, SmartCompress, etc.) ──
+    const afterTurnPlugins = getPlugins() || [];
+    if (afterTurnPlugins.length > 0) {
+        runAfterTurn(afterTurnPlugins, { content: finalContent, toolsUsed: [...new Set(toolsUsed)] }).catch(() => {});
     }
 
     // ── Checkpoint: if budget exhausted, build a checkpoint for potential resumption ──

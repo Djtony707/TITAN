@@ -4,6 +4,19 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.48] — 2026-03-25
+
+### Added
+- **SmartCompress Plugin** — Task-type-aware context compression via ContextEngine plugin. Classifies conversations by type (coding, research, analysis, general) and applies optimal compression: coding preserves code outputs, research summarizes fetched content, analysis keeps data shapes. Configurable aggressiveness (conservative/balanced/aggressive).
+  - New file: `src/plugins/smartCompress.ts`
+- **Continuous Learning Feedback Loop** — Strategy outcome tracking with `recordStrategyOutcome()`. Strategies that fail more than they succeed are automatically excluded from hints. Unvalidated strategies decay 20% per 30 days.
+
+### Fixed
+- **Ordered Tool Sequence Capture** — Agent loop now tracks true execution order with repeats (`orderedToolSequence`) separately from the deduplicated `toolsUsed` set. Strategy memory receives accurate tool call sequences.
+- **ContextEngine Compact Hook** — `runCompact()` and `runAfterTurn()` now fire in the agent loop. Plugins (SmartCompress, TopFacts) can participate in context compression and post-turn learning.
+
+---
+
 ## [2026.10.47] — 2026-03-25
 
 ### Added

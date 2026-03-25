@@ -40,6 +40,8 @@ interface StrategyEntry {
     roundCount: number;
     success: boolean;
     successCount?: number;     // How many times this sequence has succeeded
+    failCount?: number;        // How many times this strategy failed after being applied
+    lastValidated?: string;    // ISO timestamp of last successful validation
     timestamp: string;
 }
 
@@ -446,9 +448,70 @@ export function recordStrategy(
     debouncedSave();
 }
 
+/** Record outcome of an applied strategy (feedback loop) */
+export function recordStrategyOutcome(
+    taskType: string,
+    toolSequence: string[],
+    succeeded: boolean,
+): void {
+    const k = loadKnowledgeBase();
+    const seqKey = toolSequence.join('→');
+    const match = k.strategies.find(
+        s => s.taskType === taskType && s.toolSequence?.join('→') === seqKey,
+    );
+    if (!match) return;
+
+    if (succeeded) {
+        match.successCount = (match.successCount || 1) + 1;
+        match.lastValidated = new Date().toISOString();
+    } else {
+        match.failCount = (match.failCount || 0) + 1;
+    }
+
+    // High-fail strategies get marked as unsuccessful
+    if ((match.failCount || 0) > (match.successCount || 1)) {
+        match.success = false;
+    }
+
+    debouncedSave();
+}
+
+/** Decay unvalidated strategies — called on every getStrategyHints */
+function decayStrategies(strategies: StrategyEntry[]): boolean {
+    const now = Date.now();
+    const THIRTY_DAYS_MS = 30 * 86400000;
+    let changed = false;
+
+    for (const s of strategies) {
+        const lastValidated = s.lastValidated
+            ? new Date(s.lastValidated).getTime()
+            : new Date(s.timestamp).getTime();
+        const daysSinceValidated = (now - lastValidated) / 86400000;
+
+        // Strategies not validated in 30 days: reduce successCount by 20%
+        if (daysSinceValidated > 30 && (s.successCount || 1) > 1) {
+            s.successCount = Math.max(1, Math.floor((s.successCount || 1) * 0.8));
+            changed = true;
+        }
+
+        // High-fail strategies get excluded
+        if ((s.failCount || 0) > (s.successCount || 1) && s.success) {
+            s.success = false;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 /** Get strategy hints for a similar task */
 export function getStrategyHints(message: string): string | null {
     const k = loadKnowledgeBase();
+
+    // Apply decay to stale strategies
+    if (decayStrategies(k.strategies)) {
+        debouncedSave();
+    }
     if (k.strategies.length === 0) return null;
 
     const taskType = classifyTaskType(message);
