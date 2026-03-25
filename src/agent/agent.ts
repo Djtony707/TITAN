@@ -169,7 +169,7 @@ function extractToolCallFromContent(
 
         // Broad mention patterns — model says "I'll use shell", "running shell", "calling web_search", etc.
         const mentionRegex = new RegExp(
-            `(?:call(?:ing)?|us(?:e|ing)|invok(?:e|ing)|execut(?:e|ing)|runn?(?:ing)?|tool\\s+)\\s*(?:the\\s+)?(?:tool\\s+)?(?:named\\s+)?["\`\']?${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`\']?`,
+            `(?:call(?:ing)?|us(?:e|ing)|invok(?:e|ing)|execut(?:e|ing)|runn?(?:ing)?|tool\\s+)\\s*(?:the\\s+)?(?:tool\\s+)?(?:named\\s+)?["\`']?${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`']?`,
             'i',
         );
         if (!mentionRegex.test(content)) continue;
@@ -311,6 +311,15 @@ function readPromptFile(path: string): string {
 
 /** Module-level cache for prompt files — avoids re-reading on every request */
 const cachedPromptFiles: Map<string, string> = new Map();
+
+/** Invalidate prompt file cache entries (e.g. after GEPA evolves prompts) */
+export function invalidatePromptCache(area?: string): void {
+    if (area) {
+        cachedPromptFiles.delete(area);
+    } else {
+        cachedPromptFiles.clear();
+    }
+}
 
 /** Read a prompt file with a module-level cache (files are stable for the process lifetime) */
 function getCachedPromptFile(path: string): string {
@@ -867,6 +876,8 @@ export async function processMessage(
         // Check if the user aborted this session
         if (signal?.aborted) {
             logger.info(COMPONENT, `Session aborted by user at round ${round + 1}`);
+            clearSession(session.id);
+            resetLoopDetection(session.id);
             return {
                 content: '[Stopped by user]',
                 sessionId: session.id,
@@ -943,6 +954,7 @@ export async function processMessage(
                     // Reset progress tracking for the new approach
                     resetProgress();
                     toolsUsed.length = 0;
+                    orderedToolSequence.length = 0;
                 } else if (reflectionResult.decision === 'adjust') {
                     messages.push({
                         role: 'user',
@@ -1303,7 +1315,7 @@ export async function processMessage(
 
     if (isCloudHallucination) {
         logger.warn(COMPONENT, `[HallucinationGuard] Cloud model claimed action but toolsUsed is empty — sanitizing response`);
-        finalContent = `I attempted to complete your request but my tool calling didn't work as expected. Let me try again — please repeat your request and I'll make sure to use my tools properly.`;
+        finalContent = `I wasn't able to execute tools for this request. This can happen with cloud-routed models. Please try rephrasing your request, or switch to a local model for more reliable tool calling.`;
     }
 
     // Save assistant response to session

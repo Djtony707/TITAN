@@ -479,7 +479,6 @@ export function recordStrategyOutcome(
 /** Decay unvalidated strategies — called on every getStrategyHints */
 function decayStrategies(strategies: StrategyEntry[]): boolean {
     const now = Date.now();
-    const THIRTY_DAYS_MS = 30 * 86400000;
     let changed = false;
 
     for (const s of strategies) {

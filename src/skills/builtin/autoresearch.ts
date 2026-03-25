@@ -219,9 +219,6 @@ async function runExperimentLoop(args: Record<string, unknown>): Promise<string>
     activeExperiments.set(expId, state);
 
     const timeBudgetMs = timeBudgetMinutes * 60 * 1000;
-    const originalContent = readFileSync(targetFile, 'utf-8');
-    let currentBestContent = originalContent;
-
     // ── Experiment loop ──────────────────────────────────────────
     const config = loadConfig();
     const model = config.agent?.model || 'anthropic/claude-sonnet-4-20250514';
@@ -372,12 +369,11 @@ IMPORTANT:
             // Keep — improved
             logger.info(COMPONENT, `Experiment ${i}: KEEP — ${evalMetric}: ${state.bestMetric} → ${newMetric}`);
             state.bestMetric = newMetric;
-            currentBestContent = modifiedContent;
 
             if (useGit) {
                 try {
                     execSync(`git add "${targetFile}"`, { cwd: resolvedDir, stdio: 'pipe' });
-                    execSync(`git commit -m "keep: ${hypothesis.replace(/"/g, '\\"').slice(0, 100)}"`, {
+                    execSync(`git commit -m "keep: ${hypothesis.replace(/["`$\\]/g, '').slice(0, 100)}"`, {
                         cwd: resolvedDir,
                         stdio: 'pipe',
                     });

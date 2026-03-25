@@ -206,7 +206,6 @@ function isRetryableError(error: unknown): boolean {
     if (msg.includes('rate limit') || msg.includes('rate_limit')) return true;
     if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT')) return true;
     if (msg.includes('econnrefused') || msg.includes('econnreset')) return true;
-    if (status === 401 || status === 403 || msg.includes('auth') || msg.includes('unauthorized')) return true;
     if (msg.includes('503') || msg.includes('502') || msg.includes('500') || msg.includes('overloaded')) return true;
     return false;
 }

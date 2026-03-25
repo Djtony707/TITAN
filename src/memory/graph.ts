@@ -4,6 +4,7 @@
  * Uses TITAN's own LLM for entity extraction.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { v4 as uuid } from 'uuid';
@@ -105,11 +106,25 @@ function loadGraph(): void {
     }
 }
 
+let graphSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+
 function saveGraph(): void {
+    if (graphSaveTimeout) clearTimeout(graphSaveTimeout);
+    graphSaveTimeout = setTimeout(() => {
+        writeFile(GRAPH_PATH, JSON.stringify(graph, null, 2), 'utf-8').catch((e) => {
+            logger.error(COMPONENT, `Failed to save graph.json: ${(e as Error).message}`);
+        });
+    }, 1000);
+    graphSaveTimeout.unref();
+}
+
+/** Flush graph to disk immediately (for shutdown) */
+export function flushGraph(): void {
+    if (graphSaveTimeout) { clearTimeout(graphSaveTimeout); graphSaveTimeout = null; }
     try {
         writeFileSync(GRAPH_PATH, JSON.stringify(graph, null, 2), 'utf-8');
     } catch (e) {
-        logger.error(COMPONENT, `Failed to save graph.json: ${(e as Error).message}`);
+        logger.error(COMPONENT, `Failed to flush graph.json: ${(e as Error).message}`);
     }
 }
 
@@ -334,6 +349,12 @@ export async function addEpisode(content: string, source: string): Promise<Episo
         if (graph.entities.length > 1000) {
             graph.entities.sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
             graph.entities = graph.entities.slice(0, 1000);
+        }
+        const MAX_EDGES = 10000;
+        if (graph.edges.length > MAX_EDGES) {
+            // Sort by timestamp ascending and keep only the newest
+            graph.edges.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            graph.edges = graph.edges.slice(-MAX_EDGES);
         }
         saveGraph();
         logger.info(COMPONENT, `Episode ${episode.id.slice(0, 8)}: extracted ${extracted.length} entities, total ${graph.entities.length} entities, ${graph.edges.length} edges`);

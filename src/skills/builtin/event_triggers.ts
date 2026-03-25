@@ -213,7 +213,7 @@ export async function fireTrigger(trigger: Trigger, simulated: boolean = false):
  * Dispatch an event to all matching triggers.
  * Returns the number of triggers that fired.
  */
-export async function dispatchEvent(event: TriggerEvent, payload: Record<string, unknown> = {}): Promise<number> {
+export async function dispatchEvent(event: TriggerEvent, _payload: Record<string, unknown> = {}): Promise<number> {
     const triggers = loadAllTriggers().filter(t => t.enabled && t.event === event);
     let fired = 0;
 
@@ -298,7 +298,7 @@ function matchGlob(filename: string, pattern: string): boolean {
 // ─── Stop all watchers (for shutdown) ────────────────────────────
 
 export function stopAllWatchers(): void {
-    for (const [id, watcher] of activeWatchers) {
+    for (const watcher of activeWatchers.values()) {
         watcher.close();
     }
     activeWatchers.clear();

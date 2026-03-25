@@ -9,9 +9,9 @@
  */
 import { EventEmitter } from 'events';
 import { loadConfig } from '../config/config.js';
-import { listGoals, getReadyTasks, completeSubtask, failSubtask, type Goal, type Subtask } from './goals.js';
+import { getReadyTasks } from './goals.js';
 import { getAutopilotStatus } from './autopilot.js';
-import { auditLog, type AuditAction } from './auditLog.js';
+import { auditLog } from './auditLog.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Daemon';

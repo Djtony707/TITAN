@@ -109,7 +109,6 @@ Rules:
 /** Execute a delegation plan — runs independent tasks in parallel, dependent tasks sequentially */
 export async function executeDelegationPlan(plan: DelegationPlan): Promise<OrchestratorResult> {
     const startTime = Date.now();
-    const config = loadConfig();
     const results: SubAgentResult[] = [];
 
     if (!plan.shouldDelegate || plan.tasks.length === 0) {

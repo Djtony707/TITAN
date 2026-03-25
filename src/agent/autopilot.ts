@@ -542,8 +542,8 @@ async function runSelfImproveAutopilot(config: TitanConfig, startTime: number, d
     }
 
     const results: string[] = [];
-    const _totalKeeps = 0;
-    const _totalDiscards = 0;
+    const _totalKeeps = 0; void _totalKeeps;
+    const _totalDiscards = 0; void _totalDiscards;
 
     for (const area of areas) {
         try {

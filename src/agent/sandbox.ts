@@ -87,7 +87,7 @@ export async function startBridge(): Promise<number> {
         });
 
         server.on('error', reject);
-        server.listen(0, '0.0.0.0', () => {
+        server.listen(0, '127.0.0.1', () => {
             const addr = server.address();
             bridgePort = typeof addr === 'object' && addr ? addr.port : 0;
             bridgeServer = server;

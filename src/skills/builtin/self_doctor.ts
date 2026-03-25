@@ -7,14 +7,14 @@ import { registerSkill } from '../registry.js';
 import { loadConfig } from '../../config/config.js';
 import { getStallStats } from '../../agent/stallDetector.js';
 import logger from '../../utils/logger.js';
-import { existsSync, statSync } from 'fs';
+import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
 const COMPONENT = 'SelfDoctor';
 
 /** Safe fixes the self-doctor is allowed to perform (whitelist) */
-const SAFE_FIXES = new Set(['staleSessions', 'titanHome', 'workspace']);
+const _SAFE_FIXES = new Set(['staleSessions', 'titanHome', 'workspace']); void _SAFE_FIXES;
 
 export function registerSelfDoctorSkill(): void {
     registerSkill({

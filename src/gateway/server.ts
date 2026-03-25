@@ -15,7 +15,7 @@ import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
 import { processMessage } from '../agent/agent.js';
-import { initMemory, getUsageStats, getHistory, getDb } from '../memory/memory.js';
+import { initMemory, closeMemory, getUsageStats, getHistory, getDb } from '../memory/memory.js';
 import { initBuiltinSkills, getSkills, toggleSkill, getSkillTools } from '../skills/registry.js';
 import { listPersonas, getPersona, invalidatePersonaCache } from '../personas/manager.js';
 import { searchSkills as marketplaceSearch, installSkill, uninstallSkill, listSkills as listMarketplaceSkills, listInstalled as listInstalledMarketplace } from '../skills/marketplace.js';
@@ -54,7 +54,7 @@ import { seedBuiltinRecipes, listRecipes, getRecipe, saveRecipe, deleteRecipe, g
 import { parseSlashCommand, runRecipe } from '../recipes/runner.js';
 import { getCostStatus } from '../agent/costOptimizer.js';
 import { initLearning, getLearningStats } from '../memory/learning.js';
-import { initGraph, getGraphData, getGraphStats, clearGraph } from '../memory/graph.js';
+import { initGraph, getGraphData, getGraphStats, clearGraph, flushGraph } from '../memory/graph.js';
 import { getLogFilePath } from '../utils/logger.js';
 import { closeSession, renameSession } from '../agent/session.js';
 import { initCronScheduler } from '../skills/builtin/cron.js';
@@ -583,6 +583,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const history = getHistory(sessionId);
       // history may be an array of messages or an object with a messages field
       const messages = Array.isArray(history) ? history : (history as any).messages || [];
+      if (messages.length === 0) {
+        // Check if the session actually exists
+        const allSessions = listSessions();
+        const sessionExists = allSessions.some((s) => s.id === sessionId);
+        if (!sessionExists) {
+          res.status(404).json({ error: 'Session not found' });
+          return;
+        }
+      }
       res.json(messages);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -747,6 +756,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.status(400).json({ error: 'service and requiredMB required' });
         return;
       }
+      if (typeof requiredMB !== 'number' || !Number.isFinite(requiredMB) || requiredMB <= 0) {
+        res.status(400).json({ error: 'requiredMB must be a positive number' });
+        return;
+      }
       const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
       const orch = getVRAMOrchestrator();
       const result = await orch.acquire(service, requiredMB, leaseDurationMs || 300_000);
@@ -832,8 +845,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // Prometheus metrics endpoint
-  app.get('/metrics', (_req, res) => {
+  // Prometheus metrics endpoint (behind /api/ auth prefix)
+  app.get('/api/metrics', (_req, res) => {
     res.setHeader('Content-Type', 'text/plain; version=0.0.4');
     res.send(serializePrometheus());
   });
@@ -942,10 +955,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(60000, 30), async (req, res) => {
     const { content, channel = 'api', userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
-    if (!content) {
-      res.status(400).json({ error: 'content is required' });
+    if (!content || typeof content !== 'string') {
+      res.status(400).json({ error: 'content must be a non-empty string' });
       return;
     }
+
+    const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
@@ -1037,7 +1052,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.write(data); } catch { clientDisconnected = true; }
         };
 
-        const response = await routeMessage(content, channel, userId, {
+        const response = await routeMessage(content, channel, safeUserId, {
           onToken: (token) => {
             safeWrite(`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`);
           },
@@ -1059,7 +1074,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, userId, undefined, agentId, abortController.signal);
+        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -1201,7 +1216,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         sttEngine: cfg.voice?.sttEngine || 'faster-whisper',
         model: cfg.voice?.model || '',
       },
-      agent: cfg.agent,
+      agent: { ...cfg.agent, systemPrompt: undefined, systemPromptConfigured: Boolean(cfg.agent.systemPrompt) },
       autonomy: cfg.autonomy,
       security: {
         sandboxMode: cfg.security.sandboxMode,
@@ -1259,76 +1274,78 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const body = req.body as Record<string, unknown>;
       const cfg = loadConfig();
+      // Clone config to avoid mutating live state before validation succeeds
+      const draft = JSON.parse(JSON.stringify(cfg)) as typeof cfg;
 
       // Track which config fields are being changed for restart detection
       const changedFields: string[] = [];
 
-      if (body.model) { cfg.agent.model = body.model as string; changedFields.push('agent.model'); }
-      if (body.autonomyMode) { cfg.autonomy.mode = body.autonomyMode as 'supervised' | 'autonomous' | 'locked'; changedFields.push('autonomy.mode'); }
-      if (body.sandboxMode) { cfg.security.sandboxMode = body.sandboxMode as 'host' | 'docker' | 'none'; changedFields.push('security.sandboxMode'); }
-      if (body.logLevel) { cfg.logging.level = body.logLevel as 'info' | 'debug' | 'warn' | 'silent'; changedFields.push('logging.level'); }
+      if (body.model) { draft.agent.model = body.model as string; changedFields.push('agent.model'); }
+      if (body.autonomyMode) { draft.autonomy.mode = body.autonomyMode as 'supervised' | 'autonomous' | 'locked'; changedFields.push('autonomy.mode'); }
+      if (body.sandboxMode) { draft.security.sandboxMode = body.sandboxMode as 'host' | 'docker' | 'none'; changedFields.push('security.sandboxMode'); }
+      if (body.logLevel) { draft.logging.level = body.logLevel as 'info' | 'debug' | 'warn' | 'silent'; changedFields.push('logging.level'); }
       // Provider API keys
-      if (body.anthropicKey !== undefined) { cfg.providers.anthropic.apiKey = body.anthropicKey as string; changedFields.push('providers.anthropic.apiKey'); }
-      if (body.openaiKey !== undefined) { cfg.providers.openai.apiKey = body.openaiKey as string; changedFields.push('providers.openai.apiKey'); }
-      if (body.googleKey !== undefined) { cfg.providers.google.apiKey = body.googleKey as string; changedFields.push('providers.google.apiKey'); }
-      if (body.ollamaUrl !== undefined) { cfg.providers.ollama.baseUrl = body.ollamaUrl as string; changedFields.push('providers.ollama.baseUrl'); }
-      if (body.groqKey !== undefined) { cfg.providers.groq.apiKey = body.groqKey as string; changedFields.push('providers.groq.apiKey'); }
-      if (body.mistralKey !== undefined) { cfg.providers.mistral.apiKey = body.mistralKey as string; changedFields.push('providers.mistral.apiKey'); }
-      if (body.openrouterKey !== undefined) { cfg.providers.openrouter.apiKey = body.openrouterKey as string; changedFields.push('providers.openrouter.apiKey'); }
-      if (body.fireworksKey !== undefined) { cfg.providers.fireworks.apiKey = body.fireworksKey as string; changedFields.push('providers.fireworks.apiKey'); }
-      if (body.xaiKey !== undefined) { cfg.providers.xai.apiKey = body.xaiKey as string; changedFields.push('providers.xai.apiKey'); }
-      if (body.togetherKey !== undefined) { cfg.providers.together.apiKey = body.togetherKey as string; changedFields.push('providers.together.apiKey'); }
-      if (body.deepseekKey !== undefined) { cfg.providers.deepseek.apiKey = body.deepseekKey as string; changedFields.push('providers.deepseek.apiKey'); }
-      if (body.perplexityKey !== undefined) { cfg.providers.perplexity.apiKey = body.perplexityKey as string; changedFields.push('providers.perplexity.apiKey'); }
+      if (body.anthropicKey !== undefined) { draft.providers.anthropic.apiKey = body.anthropicKey as string; changedFields.push('providers.anthropic.apiKey'); }
+      if (body.openaiKey !== undefined) { draft.providers.openai.apiKey = body.openaiKey as string; changedFields.push('providers.openai.apiKey'); }
+      if (body.googleKey !== undefined) { draft.providers.google.apiKey = body.googleKey as string; changedFields.push('providers.google.apiKey'); }
+      if (body.ollamaUrl !== undefined) { draft.providers.ollama.baseUrl = body.ollamaUrl as string; changedFields.push('providers.ollama.baseUrl'); }
+      if (body.groqKey !== undefined) { draft.providers.groq.apiKey = body.groqKey as string; changedFields.push('providers.groq.apiKey'); }
+      if (body.mistralKey !== undefined) { draft.providers.mistral.apiKey = body.mistralKey as string; changedFields.push('providers.mistral.apiKey'); }
+      if (body.openrouterKey !== undefined) { draft.providers.openrouter.apiKey = body.openrouterKey as string; changedFields.push('providers.openrouter.apiKey'); }
+      if (body.fireworksKey !== undefined) { draft.providers.fireworks.apiKey = body.fireworksKey as string; changedFields.push('providers.fireworks.apiKey'); }
+      if (body.xaiKey !== undefined) { draft.providers.xai.apiKey = body.xaiKey as string; changedFields.push('providers.xai.apiKey'); }
+      if (body.togetherKey !== undefined) { draft.providers.together.apiKey = body.togetherKey as string; changedFields.push('providers.together.apiKey'); }
+      if (body.deepseekKey !== undefined) { draft.providers.deepseek.apiKey = body.deepseekKey as string; changedFields.push('providers.deepseek.apiKey'); }
+      if (body.perplexityKey !== undefined) { draft.providers.perplexity.apiKey = body.perplexityKey as string; changedFields.push('providers.perplexity.apiKey'); }
       // Google OAuth
       if (body.googleOAuthClientId !== undefined) {
-        if (!cfg.oauth) (cfg as Record<string, unknown>).oauth = { google: {} };
-        cfg.oauth.google.clientId = body.googleOAuthClientId as string;
+        if (!draft.oauth) (draft as Record<string, unknown>).oauth = { google: {} };
+        draft.oauth.google.clientId = body.googleOAuthClientId as string;
         changedFields.push('oauth.google.clientId');
       }
       if (body.googleOAuthClientSecret !== undefined) {
-        if (!cfg.oauth) (cfg as Record<string, unknown>).oauth = { google: {} };
-        cfg.oauth.google.clientSecret = body.googleOAuthClientSecret as string;
+        if (!draft.oauth) (draft as Record<string, unknown>).oauth = { google: {} };
+        draft.oauth.google.clientSecret = body.googleOAuthClientSecret as string;
         changedFields.push('oauth.google.clientSecret');
       }
       // Agent settings
-      if (body.maxTokens !== undefined) { cfg.agent.maxTokens = Number(body.maxTokens); changedFields.push('agent.maxTokens'); }
-      if (body.temperature !== undefined) { cfg.agent.temperature = Number(body.temperature); changedFields.push('agent.temperature'); }
-      if (body.systemPrompt !== undefined) { cfg.agent.systemPrompt = body.systemPrompt as string; changedFields.push('agent.systemPrompt'); }
+      if (body.maxTokens !== undefined) { draft.agent.maxTokens = Number(body.maxTokens); changedFields.push('agent.maxTokens'); }
+      if (body.temperature !== undefined) { draft.agent.temperature = Number(body.temperature); changedFields.push('agent.temperature'); }
+      if (body.systemPrompt !== undefined) { draft.agent.systemPrompt = body.systemPrompt as string; changedFields.push('agent.systemPrompt'); }
       // Security shield
-      if (body.shieldEnabled !== undefined) { cfg.security.shield.enabled = Boolean(body.shieldEnabled); changedFields.push('security.shield.enabled'); }
-      if (body.shieldMode !== undefined) { cfg.security.shield.mode = body.shieldMode as 'strict' | 'standard'; changedFields.push('security.shield.mode'); }
-      if (body.deniedTools !== undefined) { cfg.security.deniedTools = body.deniedTools as string[]; changedFields.push('security.deniedTools'); }
-      if (body.networkAllowlist !== undefined) { cfg.security.networkAllowlist = body.networkAllowlist as string[]; changedFields.push('security.networkAllowlist'); }
+      if (body.shieldEnabled !== undefined) { draft.security.shield.enabled = Boolean(body.shieldEnabled); changedFields.push('security.shield.enabled'); }
+      if (body.shieldMode !== undefined) { draft.security.shield.mode = body.shieldMode as 'strict' | 'standard'; changedFields.push('security.shield.mode'); }
+      if (body.deniedTools !== undefined) { draft.security.deniedTools = body.deniedTools as string[]; changedFields.push('security.deniedTools'); }
+      if (body.networkAllowlist !== undefined) { draft.security.networkAllowlist = body.networkAllowlist as string[]; changedFields.push('security.networkAllowlist'); }
       // Gateway
-      if (body.gatewayPort !== undefined) { cfg.gateway.port = Number(body.gatewayPort); changedFields.push('gateway.port'); }
-      if (body.gatewayAuthMode !== undefined) { cfg.gateway.auth.mode = body.gatewayAuthMode as 'none' | 'token' | 'password'; changedFields.push('gateway.auth.mode'); }
-      if (body.gatewayPassword !== undefined) { cfg.gateway.auth.password = body.gatewayPassword as string; changedFields.push('gateway.auth.password'); }
-      if (body.gatewayToken !== undefined) { cfg.gateway.auth.token = body.gatewayToken as string; changedFields.push('gateway.auth.token'); }
+      if (body.gatewayPort !== undefined) { draft.gateway.port = Number(body.gatewayPort); changedFields.push('gateway.port'); }
+      if (body.gatewayAuthMode !== undefined) { draft.gateway.auth.mode = body.gatewayAuthMode as 'none' | 'token' | 'password'; changedFields.push('gateway.auth.mode'); }
+      if (body.gatewayPassword !== undefined) { draft.gateway.auth.password = body.gatewayPassword as string; changedFields.push('gateway.auth.password'); }
+      if (body.gatewayToken !== undefined) { draft.gateway.auth.token = body.gatewayToken as string; changedFields.push('gateway.auth.token'); }
       // Voice settings (nested object from SettingsPanel)
       if (body.voice !== undefined && typeof body.voice === 'object') {
         const v = body.voice as Record<string, unknown>;
-        if (v.enabled !== undefined) cfg.voice.enabled = Boolean(v.enabled);
-        if (v.livekitUrl !== undefined) cfg.voice.livekitUrl = String(v.livekitUrl);
-        if (v.livekitApiKey !== undefined) cfg.voice.livekitApiKey = String(v.livekitApiKey);
-        if (v.livekitApiSecret !== undefined) cfg.voice.livekitApiSecret = String(v.livekitApiSecret);
-        if (v.agentUrl !== undefined) cfg.voice.agentUrl = String(v.agentUrl);
-        if (v.ttsVoice !== undefined) cfg.voice.ttsVoice = String(v.ttsVoice);
-        if (v.ttsEngine !== undefined) cfg.voice.ttsEngine = String(v.ttsEngine) as typeof cfg.voice.ttsEngine;
-        if (v.ttsUrl !== undefined) cfg.voice.ttsUrl = String(v.ttsUrl);
-        if (v.sttUrl !== undefined) cfg.voice.sttUrl = String(v.sttUrl);
-        if (v.sttEngine !== undefined) cfg.voice.sttEngine = String(v.sttEngine) as typeof cfg.voice.sttEngine;
-        if (v.model !== undefined) (cfg.voice as Record<string, unknown>).model = String(v.model) || undefined;
+        if (v.enabled !== undefined) draft.voice.enabled = Boolean(v.enabled);
+        if (v.livekitUrl !== undefined) draft.voice.livekitUrl = String(v.livekitUrl);
+        if (v.livekitApiKey !== undefined) draft.voice.livekitApiKey = String(v.livekitApiKey);
+        if (v.livekitApiSecret !== undefined) draft.voice.livekitApiSecret = String(v.livekitApiSecret);
+        if (v.agentUrl !== undefined) draft.voice.agentUrl = String(v.agentUrl);
+        if (v.ttsVoice !== undefined) draft.voice.ttsVoice = String(v.ttsVoice);
+        if (v.ttsEngine !== undefined) draft.voice.ttsEngine = String(v.ttsEngine) as typeof draft.voice.ttsEngine;
+        if (v.ttsUrl !== undefined) draft.voice.ttsUrl = String(v.ttsUrl);
+        if (v.sttUrl !== undefined) draft.voice.sttUrl = String(v.sttUrl);
+        if (v.sttEngine !== undefined) draft.voice.sttEngine = String(v.sttEngine) as typeof draft.voice.sttEngine;
+        if (v.model !== undefined) (draft.voice as Record<string, unknown>).model = String(v.model) || undefined;
         changedFields.push('voice');
       }
       // Home Assistant
-      if (body.homeAssistantUrl !== undefined) { cfg.homeAssistant.url = body.homeAssistantUrl as string; changedFields.push('homeAssistant.url'); }
-      if (body.homeAssistantToken !== undefined) { cfg.homeAssistant.token = body.homeAssistantToken as string; changedFields.push('homeAssistant.token'); }
+      if (body.homeAssistantUrl !== undefined) { draft.homeAssistant.url = body.homeAssistantUrl as string; changedFields.push('homeAssistant.url'); }
+      if (body.homeAssistantToken !== undefined) { draft.homeAssistant.token = body.homeAssistantToken as string; changedFields.push('homeAssistant.token'); }
       // Channels
       if (body.channels !== undefined && typeof body.channels === 'object') {
         for (const [ch, val] of Object.entries(body.channels as Record<string, unknown>)) {
-          if (cfg.channels[ch as keyof typeof cfg.channels]) {
-            Object.assign(cfg.channels[ch as keyof typeof cfg.channels], val);
+          if (draft.channels[ch as keyof typeof draft.channels]) {
+            Object.assign(draft.channels[ch as keyof typeof draft.channels], val);
             changedFields.push(`channels.${ch}`);
           }
         }
@@ -1336,7 +1353,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // NVIDIA config (nested object)
       if (body.nvidia !== undefined && typeof body.nvidia === 'object') {
         const nv = body.nvidia as Record<string, unknown>;
-        const nvCfg = ((cfg as Record<string, unknown>).nvidia || {}) as Record<string, unknown>;
+        const nvCfg = ((draft as Record<string, unknown>).nvidia || {}) as Record<string, unknown>;
         if (nv.enabled !== undefined) nvCfg.enabled = Boolean(nv.enabled);
         if (nv.apiKey !== undefined) nvCfg.apiKey = String(nv.apiKey);
         if (nv.cuopt !== undefined && typeof nv.cuopt === 'object') {
@@ -1362,7 +1379,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           if (src.policyPath !== undefined) os.policyPath = String(src.policyPath);
           nvCfg.openshell = os;
         }
-        (cfg as Record<string, unknown>).nvidia = nvCfg;
+        (draft as Record<string, unknown>).nvidia = nvCfg;
         changedFields.push('nvidia');
       }
       if (changedFields.length === 0) {
@@ -1375,7 +1392,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
-      updateConfig(cfg);
+      // Validation happens inside updateConfig (Zod parse) — draft is only applied if valid
+      updateConfig(draft);
 
       // Determine which changed fields require a restart
       const restartFields = changedFields.filter(field =>
@@ -1389,7 +1407,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       res.json({ ok: true, restartRequired: restartFields.length > 0, restartFields });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      // Return 400 for Zod validation errors, 500 for unexpected errors
+      const isValidationError = (e as Error).name === 'ZodError' || (e as Error).message?.includes('Validation');
+      res.status(isValidationError ? 400 : 500).json({ error: (e as Error).message });
     }
   });
 
@@ -3776,12 +3796,25 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     stopAutopilot();
     stopDaemon();
     stopTunnel();
+    closeMemory();
+    flushGraph();
+    try { const { flushVectors } = await import('../memory/vectors.js'); flushVectors(); } catch { /* ignore */ }
     await stopGateway();
     logger.info(COMPONENT, 'Gateway stopped. Goodbye.');
     process.exit(0);
   };
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+  // Global error handler — prevent stack trace leaks
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof SyntaxError && 'body' in err) {
+      res.status(400).json({ error: 'Invalid JSON in request body' });
+      return;
+    }
+    logger.error(COMPONENT, `Unhandled error: ${err.message}`);
+    res.status(500).json({ error: 'Internal server error' });
+  });
 
   httpServer.listen(port, host, () => {
     logger.info(COMPONENT, `Gateway listening on http://${host}:${port}`);

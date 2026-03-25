@@ -126,7 +126,8 @@ function loadAllPosts(): ScheduledPost[] {
     return posts.sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 }
 
-function deletePostFile(id: string): boolean {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _deletePostFile(id: string): boolean {
     const filePath = postFilePath(id);
     if (existsSync(filePath)) {
         unlinkSync(filePath);

@@ -103,6 +103,7 @@ vi.mock('../src/memory/graph.js', () => ({
     initGraph: vi.fn(),
     getGraphData: vi.fn().mockReturnValue({ nodes: [{ id: 'n1' }], edges: [{ from: 'n1', to: 'n2' }] }),
     getGraphStats: vi.fn().mockReturnValue({ episodeCount: 5, entityCount: 10, edgeCount: 3 }),
+    flushGraph: vi.fn(),
 }));
 
 vi.mock('../src/memory/briefing.js', () => ({
@@ -716,7 +717,7 @@ describe('Gateway Extended', () => {
             });
             expect(res.status).toBe(400);
             const body = await res.json() as any;
-            expect(body.error).toBe('content is required');
+            expect(body.error).toBe('content must be a non-empty string');
         });
 
         it('POST /api/message with content should route and respond', async () => {

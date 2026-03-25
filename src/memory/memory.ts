@@ -131,6 +131,7 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 function debouncedSave(): void {
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveStore, 1000);
+  saveTimeout.unref();
 }
 
 /** Initialize the memory system */

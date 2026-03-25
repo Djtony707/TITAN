@@ -69,11 +69,13 @@ export async function detectCaptchaInfo(page: Page): Promise<CaptchaInfo | null>
         }
 
         // Check global grecaptcha config (v3 sites often use this)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const gCfg = (window as any).___grecaptcha_cfg;
         if (gCfg?.clients) {
             for (const clientId of Object.keys(gCfg.clients)) {
                 const client = gCfg.clients[clientId];
                 // Walk the client object to find sitekey
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const findKey = (obj: any, depth = 0): string | null => {
                     if (!obj || depth > 5) return null;
                     if (typeof obj === 'string' && obj.length > 20 && obj.length < 60) return obj;
@@ -220,8 +222,10 @@ export async function injectCaptchaToken(page: Page, info: CaptchaInfo, token: s
             if (byId) (byId as HTMLTextAreaElement).value = t;
 
             // Try to invoke the reCAPTCHA callback
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const gCfg = (window as any).___grecaptcha_cfg;
             if (gCfg?.clients) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const findCallback = (obj: any, depth = 0): ((token: string) => void) | null => {
                     if (!obj || depth > 8) return null;
                     if (typeof obj === 'function') return null;
@@ -250,6 +254,7 @@ export async function injectCaptchaToken(page: Page, info: CaptchaInfo, token: s
             if (input) input.value = t;
 
             // Try Turnstile callback
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const turnstile = (window as any).turnstile;
             if (turnstile?._callbacks) {
                 for (const cb of Object.values(turnstile._callbacks)) {

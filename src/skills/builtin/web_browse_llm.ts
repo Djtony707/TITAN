@@ -12,6 +12,9 @@ import { recordSuccessPattern, recordToolResult, learnFact } from '../../memory/
 
 const COMPONENT = 'WebBrowseLLM';
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+type PlaywrightPage = import('playwright').Page;
+
 // ─── Shared Playwright types (same as web_browser.ts) ────────────
 interface PwLocator { first(): PwLocator; waitFor(opts: unknown): Promise<unknown>; click(opts?: unknown): Promise<void>; pressSequentially(text: string, opts?: unknown): Promise<void> }
 interface PwPage {
@@ -436,7 +439,7 @@ export async function fillFormSmart(session: WebActSession, url: string, fields:
     if (url && page.url() !== url) {
         // Monitor for network/console errors during page load
         try {
-            const realPage = page as unknown as import('playwright').Page;
+            const realPage = page as unknown as PlaywrightPage;
             realPage.on('pageerror', (err) => pageErrors.push(`JS Error: ${err.message}${err.stack ? '\n  Stack: ' + err.stack.split('\n').slice(1, 4).join('\n  ') : ''}`));
             realPage.on('requestfailed', (req) => pageErrors.push(`Network fail: ${req.url().slice(0, 150)} → ${req.failure()?.errorText || 'unknown'}`));
             realPage.on('console', (msg) => {
@@ -466,7 +469,7 @@ export async function fillFormSmart(session: WebActSession, url: string, fields:
     // Warm up for reCAPTCHA v3 scoring — natural mouse movements, scrolling, hovering
     // This builds trust score BEFORE we start filling the form
     try {
-        await warmUpForCaptcha(page as unknown as import('playwright').Page);
+        await warmUpForCaptcha(page as unknown as PlaywrightPage);
     } catch (e) {
         logger.warn(COMPONENT, `Warm-up failed (non-fatal): ${(e as Error).message}`);
     }
@@ -481,7 +484,7 @@ export async function fillFormSmart(session: WebActSession, url: string, fields:
             url: location.href,
             title: document.title,
             inputCount: document.querySelectorAll('input, textarea, select').length,
-        })) as any;
+        })) as { url: string; title: string; inputCount: number };
         logger.info(COMPONENT, `fillFormSmart: page="${pageState.title}", inputs=${pageState.inputCount}`);
     } catch { /* non-fatal */ }
 
@@ -741,7 +744,7 @@ export async function fillFormSmart(session: WebActSession, url: string, fields:
         // Try CapSolver if configured
         try {
             const { solveCaptcha } = await import('../../browsing/captchaSolver.js');
-            const solveResult = await solveCaptcha(page as unknown as import('playwright').Page);
+            const solveResult = await solveCaptcha(page as unknown as PlaywrightPage);
             if (solveResult.solved) {
                 results.push(`\n✅ ${solveResult.type} solved via CapSolver`);
                 captchaSolved = true;

@@ -84,6 +84,7 @@ function debouncedSave(): void {
             logger.error(COMPONENT, `Failed to save vectors: ${(e as Error).message}`);
         }
     }, 2000);
+    saveTimeout.unref();
 }
 
 // ── Ollama Embedding API ────────────────────────────────────────────

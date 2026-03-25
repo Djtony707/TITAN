@@ -6,7 +6,7 @@
  * Supports querying by time range, action type, and source.
  */
 import { appendFileSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
 

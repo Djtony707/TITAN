@@ -10,7 +10,7 @@ import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } from 'fs';
 import { join } from 'path';
-import { TITAN_HOME, TITAN_DB_PATH } from '../../utils/constants.js';
+import { TITAN_HOME } from '../../utils/constants.js';
 import { execSync } from 'child_process';
 import { EventEmitter } from 'events';
 
@@ -89,12 +89,12 @@ function getRunId(): string {
     return `train-${Date.now().toString(36)}`;
 }
 
-function appendTrainingHistory(run: TrainingRun): void {
+function _appendTrainingHistory(run: TrainingRun): void {
     ensureDirs();
     appendFileSync(TRAINING_HISTORY_PATH, JSON.stringify(run) + '\n', 'utf-8');
 }
 
-function readTrainingHistory(limit: number = 20): TrainingRun[] {
+function _readTrainingHistory(limit: number = 20): TrainingRun[] {
     if (!existsSync(TRAINING_HISTORY_PATH)) return [];
     try {
         const lines = readFileSync(TRAINING_HISTORY_PATH, 'utf-8').split('\n').filter(l => l.trim());
@@ -107,6 +107,8 @@ function readTrainingHistory(limit: number = 20): TrainingRun[] {
         return [];
     }
 }
+void _appendTrainingHistory;
+void _readTrainingHistory;
 
 /** Extract high-quality training pairs from TITAN's session database */
 function extractTrainingData(): TrainingDataPoint[] {

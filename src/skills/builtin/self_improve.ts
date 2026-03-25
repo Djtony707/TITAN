@@ -9,11 +9,10 @@
 import { registerSkill } from '../registry.js';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
-import { execSync } from 'child_process';
 
 const COMPONENT = 'SelfImprove';
 
@@ -367,7 +366,7 @@ async function selfImproveStart(args: Record<string, unknown>): Promise<string> 
     const promptPath = join(PROMPTS_DIR, area.promptFile);
     const startTime = Date.now();
     const timeBudgetMs = budgetMinutes * 60 * 1000;
-    const originalContent = readFileSync(promptPath, 'utf-8');
+    const _originalContent = readFileSync(promptPath, 'utf-8'); void _originalContent;
     const model = config.agent?.model || 'anthropic/claude-sonnet-4-20250514';
 
     for (let i = 1; i <= maxExperiments; i++) {

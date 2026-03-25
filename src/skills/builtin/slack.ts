@@ -17,8 +17,10 @@ const REVIEW_QUEUE_PATH = join(TITAN_HOME, 'slack-review-queue.json');
 
 // ─── Slack WebClient (lazy-loaded) ───────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let webClient: any = null;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getClient(): Promise<any> {
     if (webClient) return webClient;
     const token = process.env.SLACK_BOT_TOKEN;
@@ -77,6 +79,7 @@ function addToQueue(msg: QueuedSlackMessage): void {
 
 const userCache = new Map<string, string>();
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function resolveUserName(client: any, userId: string): Promise<string> {
     if (userCache.has(userId)) return userCache.get(userId)!;
     try {

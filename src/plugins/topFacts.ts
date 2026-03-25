@@ -134,7 +134,7 @@ function saveFacts(facts: TopFact[]): void {
         const tmpPath = FACTS_PATH + '.tmp';
         writeFileSync(tmpPath, JSON.stringify(facts, null, 2), 'utf-8');
         renameSync(tmpPath, FACTS_PATH);
-    } catch (e) {
+    } catch {
         // Fallback: direct write
         try {
             writeFileSync(FACTS_PATH, JSON.stringify(facts, null, 2), 'utf-8');

@@ -4,6 +4,40 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.52] — 2026-03-25
+
+### Fixed
+- **CRITICAL: Config mutation before validation** — `POST /api/config` now clones config before mutating; invalid values no longer corrupt the live in-memory config permanently
+- **CRITICAL: GEPA race condition** — Added per-area mutex to prevent concurrent evaluations from corrupting shared prompt files
+- **HIGH: Auth error fallback data leak** — 401/403 errors no longer trigger fallback chain (previously leaked request payload to unintended providers)
+- **HIGH: GEPA prompt cache stale** — Added `invalidatePromptCache()` export; GEPA evolution now takes effect on the live agent without restart
+- **HIGH: Tournament selection crash** — `tournamentSelect()` now guards against empty/single-element populations
+- **HIGH: Non-string content crash** — `POST /api/message` validates content is a string (returns 400, not 500)
+- **HIGH: Stack trace leaks** — Added global Express error handler; invalid JSON returns clean `{"error":"Invalid JSON"}` instead of HTML with file paths
+- **MEDIUM: Graph edges unbounded growth** — Capped at 10,000 edges with LRU trimming; prevents progressive performance degradation
+- **MEDIUM: VRAM acquire validation** — Rejects negative/non-numeric `requiredMB` (previously accepted strings and triggered real model evictions)
+- **MEDIUM: Session memory leak on abort** — `resetLoopDetection()` now called in abort path
+- **MEDIUM: Graceful shutdown data loss** — `closeMemory()`, `flushGraph()`, `flushVectors()` called before exit
+- **MEDIUM: saveTimeout blocks exit** — Added `.unref()` to debounced save timeouts in memory.ts and vectors.ts
+- **MEDIUM: Graph writeFileSync blocking** — Replaced with debounced async writes
+- **MEDIUM: Autoresearch shell injection** — Sanitized backticks and `$()` from hypothesis strings in git commit messages
+- **LOW: Pivot corrupts learning data** — `orderedToolSequence` now cleared alongside `toolsUsed` on strategic pivot
+- **LOW: Config validation returns 500** — Now returns 400 for Zod validation errors
+- **LOW: CloudRetry silent apology** — HallucinationGuard now gives informative error mentioning cloud model limitations
+
+### Security
+- **Sandbox bridge** — Bound to `127.0.0.1` instead of `0.0.0.0`
+- **Prometheus /metrics** — Moved behind auth at `/api/metrics`
+- **System prompt redacted** — `GET /api/config` returns `systemPromptConfigured: boolean` instead of raw prompt
+- **Session hijack prevention** — `userId` forced to `api-user` for API channel requests
+- **GEPA dead code cleanup** — Removed `readFileSync.length` (wrong API), unused `allGens` variable
+
+### Changed
+- ESLint warnings reduced from 53 → 14 (dead imports, unused vars, type annotations)
+- 4,406 tests passing across 139 files
+
+---
+
 ## [2026.10.51] — 2026-03-25
 
 ### Fixed

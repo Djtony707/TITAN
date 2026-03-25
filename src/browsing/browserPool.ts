@@ -13,7 +13,7 @@
  */
 import { join } from 'path';
 import { homedir } from 'os';
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync } from 'fs';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import type * as PlaywrightModule from 'playwright';
 import logger from '../utils/logger.js';

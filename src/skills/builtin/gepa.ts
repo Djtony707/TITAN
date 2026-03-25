@@ -14,7 +14,7 @@
 import { registerSkill } from '../registry.js';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { chat } from '../../providers/router.js';
 import {
@@ -94,12 +94,19 @@ const DEFAULT_CONFIG: EvolutionConfig = {
 
 const activeSessions: Map<string, EvolutionSession> = new Map();
 
+// ── Eval locks (serialize file writes per area) ─────────────────────
+
+const evalLocks = new Map<string, Promise<void>>();
+
 // ── Core Evolution Functions ─────────────────────────────────────────
 
 /** Tournament selection: pick k random individuals, return the fittest */
 export function tournamentSelect(individuals: Individual[], k: number): Individual {
+    if (individuals.length === 0) throw new Error('Cannot select from empty population');
+    if (individuals.length === 1) return individuals[0];
+    const effectiveK = Math.min(k, individuals.length);
     const pool: Individual[] = [];
-    for (let i = 0; i < k; i++) {
+    for (let i = 0; i < effectiveK; i++) {
         const idx = Math.floor(Math.random() * individuals.length);
         pool.push(individuals[idx]);
     }
@@ -202,17 +209,24 @@ async function evaluateIndividual(
     individual: Individual,
     area: ImprovementArea,
 ): Promise<number> {
-    // Temporarily write the individual's content to the prompt file
+    // Serialize evaluations per area to prevent file corruption
     const promptPath = join(PROMPTS_DIR, area.promptFile);
+    const lockKey = area.id;
+    while (evalLocks.has(lockKey)) {
+        await evalLocks.get(lockKey);
+    }
     const originalContent = existsSync(promptPath) ? readFileSync(promptPath, 'utf-8') : '';
-
+    let resolve: () => void;
+    evalLocks.set(lockKey, new Promise<void>(r => { resolve = r; }));
     try {
         writeFileSync(promptPath, individual.content, 'utf-8');
         const result = await runEval(area);
+        individual.fitness = result.score;
         return result.score;
     } finally {
-        // Restore original content
         writeFileSync(promptPath, originalContent, 'utf-8');
+        evalLocks.delete(lockKey);
+        resolve!();
     }
 }
 
@@ -527,7 +541,6 @@ export async function runEvolution(
     }
 
     // Apply best individual to prompt file
-    const allGens = generationLog.map(g => g.gen);
     const bestGen = session.bestIndividual.generation;
     const bestGenPath = join(EVOLUTION_DIR, area.id, `gen-${bestGen}.json`);
     if (existsSync(bestGenPath)) {
@@ -655,7 +668,6 @@ async function gepaStatus(args: Record<string, unknown>): Promise<string> {
         // Find latest generation
         let latestGen = -1;
         try {
-            const files = readFileSync.length; // Using existsSync check instead
             for (let g = 50; g >= 0; g--) {
                 if (existsSync(join(areaDir, `gen-${g}.json`))) {
                     latestGen = g;
