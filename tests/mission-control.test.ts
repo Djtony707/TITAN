@@ -81,6 +81,7 @@ vi.mock('../src/memory/learning.js', () => ({
 
 vi.mock('../src/memory/memory.js', () => ({
     initMemory: vi.fn(),
+    closeMemory: vi.fn(),
     getUsageStats: vi.fn().mockReturnValue({ sessions: 5, messages: 100, tokens: 50000 }),
     getHistory: vi.fn().mockReturnValue([]),
 }));
@@ -90,6 +91,7 @@ vi.mock('../src/memory/graph.js', () => ({
     getGraphData: vi.fn().mockReturnValue({ nodes: [{ id: 'n1' }], edges: [{ from: 'n1', to: 'n2' }] }),
     getGraphStats: vi.fn().mockReturnValue({ episodeCount: 5, entityCount: 10, edgeCount: 3 }),
     clearGraph: vi.fn(),
+    flushGraph: vi.fn(),
 }));
 
 vi.mock('../src/memory/briefing.js', () => ({

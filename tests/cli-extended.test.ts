@@ -100,6 +100,7 @@ vi.mock('../src/agent/agent.js', () => ({
 
 vi.mock('../src/memory/memory.js', () => ({
     initMemory: vi.fn(),
+    closeMemory: vi.fn(),
 }));
 
 vi.mock('../src/skills/registry.js', () => ({

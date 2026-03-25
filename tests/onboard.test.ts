@@ -48,6 +48,7 @@ vi.mock('../src/utils/helpers.js', () => ({
 
 vi.mock('../src/memory/memory.js', () => ({
     initMemory: vi.fn(),
+    closeMemory: vi.fn(),
 }));
 
 vi.mock('../src/memory/relationship.js', () => ({

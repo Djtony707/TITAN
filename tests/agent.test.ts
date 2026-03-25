@@ -89,6 +89,7 @@ vi.mock('../src/agent/toolRunner.js', () => ({
 vi.mock('../src/memory/memory.js', () => ({
     recordUsage: mockRecordUsage,
     searchMemories: mockSearchMemories,
+    closeMemory: vi.fn(),
 }));
 
 vi.mock('../src/memory/learning.js', () => ({
@@ -179,6 +180,7 @@ vi.mock('../src/memory/graph.js', () => ({
     initGraph: mockInitGraph,
     addEpisode: mockAddEpisode,
     getGraphContext: mockGetGraphContext,
+    flushGraph: vi.fn(),
 }));
 
 vi.mock('../src/agent/reflection.js', () => ({
