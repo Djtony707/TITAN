@@ -141,12 +141,13 @@ function stripToolJson(text: string): string {
 function extractToolCallFromContent(
     content: string,
     activeTools: ToolDefinition[],
+    isCloudModel = false,
 ): ToolCall | null {
     if (!content || content.length < 10) return null;
 
     const toolNames = activeTools.map(t => t.function.name);
 
-    // Strategy 1: Look for embedded JSON tool calls
+    // Strategy 1: Look for embedded JSON tool calls (any model)
     const jsonMatch = content.match(/\{"(?:name|tool_call)":\s*"([^"]+)",\s*"(?:parameters|arguments)":\s*(\{[^}]*(?:\{[^}]*\}[^}]*)?\})\s*\}/);
     if (jsonMatch && toolNames.includes(jsonMatch[1])) {
         return {
@@ -156,22 +157,31 @@ function extractToolCallFromContent(
         };
     }
 
-    // Strategy 2: Model says "call <tool>" or "use <tool>" with JSON args nearby
-    for (const toolName of toolNames) {
-        // Skip very common tools — only rescue specific high-value tools
-        if (['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory', 'web_search', 'web_fetch', 'tool_search'].includes(toolName)) continue;
+    // Strategy 2: Detect tool names + extract arguments from text.
+    // Cloud models often describe tool usage in natural language instead of structured calls.
+    // For cloud models, we rescue ALL tools (not just exotic ones).
+    const skipSet = isCloudModel
+        ? new Set<string>() // Cloud models: rescue everything
+        : new Set(['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory', 'web_search', 'web_fetch', 'tool_search']);
 
-        const mentionRegex = new RegExp(`(?:call|use|invoke|execute|run)\\s+(?:the\\s+)?(?:tool\\s+)?(?:named\\s+)?["\`]?${toolName}["\`]?`, 'i');
+    for (const toolName of toolNames) {
+        if (skipSet.has(toolName)) continue;
+
+        // Broad mention patterns — model says "I'll use shell", "running shell", "calling web_search", etc.
+        const mentionRegex = new RegExp(
+            `(?:call(?:ing)?|us(?:e|ing)|invok(?:e|ing)|execut(?:e|ing)|runn?(?:ing)?|tool\\s+)\\s*(?:the\\s+)?(?:tool\\s+)?(?:named\\s+)?["\`\']?${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`\']?`,
+            'i',
+        );
         if (!mentionRegex.test(content)) continue;
 
-        // Tool is mentioned — try to extract JSON args from the content
-        const jsonArgs = content.match(/\{[\s\S]*?"url"[\s\S]*?\}/);
+        logger.debug(COMPONENT, `[ToolRescue] Detected mention of "${toolName}" in text response`);
+
+        // Try to extract JSON args from nearby content
+        const jsonArgs = content.match(/\{[\s\S]*?\}/);
         if (jsonArgs) {
             try {
-                // Validate it's parseable JSON
                 const parsed = JSON.parse(jsonArgs[0]);
                 if (typeof parsed === 'object' && parsed !== null) {
-                    // Convert nested objects to strings (smart_form_fill expects data as string)
                     const args: Record<string, string> = {};
                     for (const [k, v] of Object.entries(parsed)) {
                         args[k] = typeof v === 'string' ? v : JSON.stringify(v);
@@ -182,18 +192,57 @@ function extractToolCallFromContent(
                         function: { name: toolName, arguments: JSON.stringify(args) },
                     };
                 }
-            } catch (e) { logger.debug(COMPONENT, `Non-JSON tool argument, skipping: ${(e as Error).message}`); }
+            } catch { /* not valid JSON — try other extraction methods */ }
         }
 
-        // No JSON found but tool is mentioned — call with empty args to let the tool guide
-        // Only for tools that can handle being called with partial info
+        // Tool-specific argument extraction from natural language
+        if (toolName === 'shell') {
+            // Extract shell commands from backticks, quotes, or "run: ..." patterns
+            const cmdMatch = content.match(/(?:`{1,3}(?:bash|sh|shell)?\n?(.*?)`{1,3}|(?:command|run|execute)[=:\s]+["'](.+?)["'])/s);
+            if (cmdMatch) {
+                const cmd = (cmdMatch[1] || cmdMatch[2]).trim();
+                if (cmd.length > 0) {
+                    return {
+                        id: `rescue_${Date.now()}`,
+                        type: 'function',
+                        function: { name: 'shell', arguments: JSON.stringify({ command: cmd }) },
+                    };
+                }
+            }
+        }
+
+        if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') {
+            // Extract file paths from content
+            const pathMatch = content.match(/(?:file|path)[=:\s]+["']?((?:\/|~\/|\.\/)\S+?)["'\s,)]/i)
+                || content.match(/((?:\/|~\/)\S+\.\w{1,10})/);
+            if (pathMatch && toolName === 'read_file') {
+                return {
+                    id: `rescue_${Date.now()}`,
+                    type: 'function',
+                    function: { name: 'read_file', arguments: JSON.stringify({ path: pathMatch[1] }) },
+                };
+            }
+        }
+
+        if (toolName === 'web_search') {
+            // Extract search query from quotes or "query: ..." pattern
+            const queryMatch = content.match(/(?:search(?:ing)?(?:\s+for)?|query)[=:\s]+["'](.+?)["']/i)
+                || content.match(/search(?:ing)?\s+(?:for\s+)?["'](.+?)["']/i);
+            if (queryMatch) {
+                return {
+                    id: `rescue_${Date.now()}`,
+                    type: 'function',
+                    function: { name: 'web_search', arguments: JSON.stringify({ query: queryMatch[1] }) },
+                };
+            }
+        }
+
         if (toolName === 'smart_form_fill') {
-            // Try to extract url and data from natural language
             const urlMatch = content.match(/url[=:]\s*["']?(https?:\/\/\S+)["']?/i);
             const dataMatch = content.match(/data[=:]\s*['"]?(\{[\s\S]*?\})['"]?/i);
             if (urlMatch && dataMatch) {
                 try {
-                    JSON.parse(dataMatch[1]); // validate
+                    JSON.parse(dataMatch[1]);
                     return {
                         id: `rescue_${Date.now()}`,
                         type: 'function' as const,
@@ -206,7 +255,25 @@ function extractToolCallFromContent(
                             }),
                         },
                     };
-                } catch (e) { logger.debug(COMPONENT, `Tool output parse failed: ${(e as Error).message}`); }
+                } catch { /* skip */ }
+            }
+        }
+    }
+
+    // Strategy 3 (cloud models only): If the model described a shell command anywhere
+    // but didn't mention "shell" tool by name — detect command patterns and rescue.
+    if (isCloudModel && toolNames.includes('shell')) {
+        // Look for code blocks with commands
+        const codeBlockCmd = content.match(/```(?:bash|sh|shell)?\n([\s\S]*?)```/);
+        if (codeBlockCmd) {
+            const cmd = codeBlockCmd[1].trim();
+            if (cmd.length > 0 && cmd.length < 2000) {
+                logger.debug(COMPONENT, `[ToolRescue] Detected shell command in code block`);
+                return {
+                    id: `rescue_${Date.now()}`,
+                    type: 'function',
+                    function: { name: 'shell', arguments: JSON.stringify({ command: cmd }) },
+                };
             }
         }
     }
@@ -1011,13 +1078,28 @@ export async function processMessage(
             }
 
             // ── Tool Call Rescue: detect tool names in text content and auto-call ──
-            // Local models sometimes mention a tool by name (even with JSON args) but
+            // Local and cloud models sometimes mention a tool by name (even with JSON args) but
             // fail to generate a proper tool_calls response. Rescue by parsing and executing.
-            const rescuedToolCall = extractToolCallFromContent(response.content, activeTools);
+            // Cloud models get aggressive rescue (all tools) since they often ignore tool_choice.
+            const isCloudRescue = activeModel.includes(':cloud') || activeModel.includes('-cloud');
+            const rescuedToolCall = extractToolCallFromContent(response.content, activeTools, isCloudRescue);
             if (rescuedToolCall) {
                 logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text — executing`);
                 response.toolCalls = [rescuedToolCall];
                 // Don't break — fall through to the tool execution path below
+            } else if (isCloudRescue && round === 0 && taskEnforcementActive && activeTools.length > 0) {
+                // Cloud model returned text instead of tool calls on round 0.
+                // Inject a strong tool-forcing nudge and retry once.
+                logger.warn(COMPONENT, `[CloudRetry] Cloud model returned text instead of tool calls — injecting tool-forcing nudge`);
+                messages.push({
+                    role: 'assistant',
+                    content: response.content,
+                });
+                messages.push({
+                    role: 'user',
+                    content: `IMPORTANT: You MUST use one of your available tools to complete this task. Do NOT describe what you would do — actually call a tool right now. Available tools: ${activeTools.map(t => t.function.name).join(', ')}. Make a function call.`,
+                });
+                continue;
             } else {
                 const stallEvent = checkResponse(session.id, response.content, round, effectiveMaxRounds);
                 if (stallEvent) {
@@ -1207,6 +1289,21 @@ export async function processMessage(
         if (success && orderedToolSequence.length > 0) {
             try { retainStrategy(classifyTaskType(message), orderedToolSequence, 1, message.slice(0, 200)); } catch { /* Hindsight unavailable */ }
         }
+    }
+
+    // ── Hallucination Guard: detect cloud models that claim tool use but never called tools ──
+    // Cloud models sometimes describe tool actions ("I wrote the file", "Output: ...") without
+    // actually making tool calls. This pollutes session memory with false action claims.
+    const isCloudHallucination = toolsUsed.length === 0
+        && taskEnforcementActive
+        && (activeModel.includes(':cloud') || activeModel.includes('-cloud'))
+        && finalContent.length > 0
+        && /(?:(?:I(?:'ve| have)?|successfully|done|completed|executed|created|wrote|saved|ran|output|result)[:\s])/i.test(finalContent)
+        && !/(?:I (?:can|could|would|will|should)|let me|I don't|I cannot|error|failed)/i.test(finalContent);
+
+    if (isCloudHallucination) {
+        logger.warn(COMPONENT, `[HallucinationGuard] Cloud model claimed action but toolsUsed is empty — sanitizing response`);
+        finalContent = `I attempted to complete your request but my tool calling didn't work as expected. Let me try again — please repeat your request and I'll make sure to use my tools properly.`;
     }
 
     // Save assistant response to session
