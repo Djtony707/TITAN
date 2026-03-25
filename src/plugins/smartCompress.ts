@@ -171,7 +171,7 @@ function estimateTokens(messages: ChatMessage[]): number {
 // ─── Plugin Factory ─────────────��───────────────────────────────────────────
 
 export function createSmartCompressPlugin(): ContextEnginePlugin {
-    let config: SmartCompressConfig = { aggressiveness: 'balanced' };
+    const config: SmartCompressConfig = { aggressiveness: 'balanced' };
 
     return {
         name: 'smartCompress',
