@@ -248,6 +248,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerRevenueCatKBSkill } = await import('./builtin/revenuecat_kb.js');
     const { registerWeeklyReportSkill } = await import('./builtin/weekly_report.js');
     const { registerSelfImproveSkill } = await import('./builtin/self_improve.js');
+    const { registerGepaSkill } = await import('./builtin/gepa.js');
     const { registerModelTrainerSkill } = await import('./builtin/model_trainer.js');
     const { registerSocialSchedulerSkill } = await import('./builtin/social_scheduler.js');
     const { registerStructuredOutputSkill } = await import('./builtin/structured_output.js');
@@ -312,6 +313,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['revenuecat_kb', registerRevenueCatKBSkill],
         ['weekly_report', registerWeeklyReportSkill],
         ['self_improve', registerSelfImproveSkill],
+        ['gepa', registerGepaSkill],
         ['model_trainer', registerModelTrainerSkill],
         ['social_scheduler', registerSocialSchedulerSkill],
         ['structured_output', registerStructuredOutputSkill],

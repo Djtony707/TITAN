@@ -4,6 +4,21 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.50] — 2026-03-25
+
+### Added
+- **GEPA: Genetic Evolution of Prompts & Agents** — Population-based evolutionary optimization of TITAN's prompts. Maintains a population of prompt variants, uses tournament selection, LLM-guided crossover, LLM-guided mutation, and elitism to evolve better prompts. Builds on existing self-improvement eval harness and benchmarks.
+  - New file: `src/skills/builtin/gepa.ts`
+  - 3 new tools: `gepa_evolve`, `gepa_status`, `gepa_history`
+  - Lineage tracking for evolutionary tree visualization
+  - Early-stop on fitness plateau (3 stale generations)
+  - 16 tests: `tests/gepa.test.ts`
+
+### Changed
+- Exported reusable functions from `self_improve.ts` (`runEval`, `IMPROVEMENT_AREAS`, paths, helpers) for shared use by GEPA
+
+---
+
 ## [2026.10.49] — 2026-03-25
 
 ### Added

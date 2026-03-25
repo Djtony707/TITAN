@@ -18,15 +18,15 @@ import { execSync } from 'child_process';
 const COMPONENT = 'SelfImprove';
 
 // ── Paths ────────────────────────────────────────────────────────────
-const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
-const PROMPTS_DIR = join(SELF_IMPROVE_DIR, 'prompts');
-const BENCHMARKS_DIR = join(SELF_IMPROVE_DIR, 'benchmarks');
-const RESULTS_DIR = join(SELF_IMPROVE_DIR, 'results');
+export const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
+export const PROMPTS_DIR = join(SELF_IMPROVE_DIR, 'prompts');
+export const BENCHMARKS_DIR = join(SELF_IMPROVE_DIR, 'benchmarks');
+export const RESULTS_DIR = join(SELF_IMPROVE_DIR, 'results');
 const HISTORY_PATH = join(SELF_IMPROVE_DIR, 'history.jsonl');
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface ImprovementArea {
+export interface ImprovementArea {
     id: string;
     label: string;
     promptFile: string;
@@ -34,7 +34,7 @@ interface ImprovementArea {
     description: string;
 }
 
-interface ImprovementSession {
+export interface ImprovementSession {
     id: string;
     area: string;
     status: 'running' | 'completed' | 'failed';
@@ -51,7 +51,7 @@ interface ImprovementSession {
 
 // ── Improvement area definitions ─────────────────────────────────────
 
-const IMPROVEMENT_AREAS: ImprovementArea[] = [
+export const IMPROVEMENT_AREAS: ImprovementArea[] = [
     {
         id: 'prompts',
         label: 'System Prompts',
@@ -84,7 +84,7 @@ const IMPROVEMENT_AREAS: ImprovementArea[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function ensureDirs(): void {
+export function ensureDirs(): void {
     for (const dir of [SELF_IMPROVE_DIR, PROMPTS_DIR, BENCHMARKS_DIR, RESULTS_DIR]) {
         mkdirSync(dir, { recursive: true });
     }
@@ -95,7 +95,7 @@ function getSessionId(area: string): string {
 }
 
 /** Initialize default prompt files if they don't exist */
-function initPromptFiles(): void {
+export function initPromptFiles(): void {
     ensureDirs();
 
     const defaults: Record<string, string> = {
@@ -129,7 +129,7 @@ function initPromptFiles(): void {
 }
 
 /** Initialize default benchmark files */
-function initBenchmarks(): void {
+export function initBenchmarks(): void {
     ensureDirs();
 
     const toolSelectionBenchmark = {
@@ -186,7 +186,7 @@ function initBenchmarks(): void {
 }
 
 /** Run the eval harness for a given area — returns a score 0-100 */
-async function runEval(area: ImprovementArea): Promise<{ score: number; details: string }> {
+export async function runEval(area: ImprovementArea): Promise<{ score: number; details: string }> {
     const benchmarkPath = join(BENCHMARKS_DIR, area.benchmarkFile);
     if (!existsSync(benchmarkPath)) {
         return { score: 0, details: 'Benchmark file not found' };
@@ -270,13 +270,13 @@ Respond with ONLY a JSON object, no other text: {"score": <number>, "reason": "<
 }
 
 /** Append a session to history */
-function appendHistory(session: ImprovementSession): void {
+export function appendHistory(session: ImprovementSession): void {
     ensureDirs();
     appendFileSync(HISTORY_PATH, JSON.stringify(session) + '\n', 'utf-8');
 }
 
 /** Read session history */
-function readHistory(limit: number = 50): ImprovementSession[] {
+export function readHistory(limit: number = 50): ImprovementSession[] {
     if (!existsSync(HISTORY_PATH)) return [];
     try {
         const lines = readFileSync(HISTORY_PATH, 'utf-8').split('\n').filter(l => l.trim());
