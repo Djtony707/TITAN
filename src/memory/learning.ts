@@ -34,9 +34,12 @@ interface ToolPreference {
 /** Strategy memory — records what approaches worked for task patterns */
 interface StrategyEntry {
     pattern: string;           // Task pattern description
-    toolsUsed: string[];
+    toolsUsed: string[];       // Deduplicated set
+    toolSequence?: string[];   // Ordered sequence of tool calls (preserves order + repeats)
+    taskType?: string;         // Classified task type (coding, research, etc.)
     roundCount: number;
     success: boolean;
+    successCount?: number;     // How many times this sequence has succeeded
     timestamp: string;
 }
 
@@ -390,27 +393,54 @@ export function getToolPreferences(taskType: string): ToolPreference[] {
 }
 
 /** Record a successful strategy for future reference */
-export function recordStrategy(message: string, toolsUsed: string[], roundCount: number, success: boolean): void {
+export function recordStrategy(
+    message: string,
+    toolsUsed: string[],
+    roundCount: number,
+    success: boolean,
+    toolSequence?: string[],
+): void {
     const k = loadKnowledgeBase();
+    const taskType = classifyTaskType(message);
+
+    // Check if a similar sequence already exists — merge instead of duplicating
+    if (success && toolSequence && toolSequence.length > 0) {
+        const seqKey = toolSequence.join('→');
+        const existing = k.strategies.find(
+            s => s.success && s.taskType === taskType && s.toolSequence?.join('→') === seqKey,
+        );
+        if (existing) {
+            existing.successCount = (existing.successCount || 1) + 1;
+            existing.timestamp = new Date().toISOString();
+            debouncedSave();
+            return;
+        }
+    }
 
     const entry: StrategyEntry = {
         pattern: message.slice(0, 200),
         toolsUsed: [...new Set(toolsUsed)],
+        toolSequence: toolSequence?.slice(0, 20), // Cap sequence length
+        taskType,
         roundCount,
         success,
+        successCount: success ? 1 : 0,
         timestamp: new Date().toISOString(),
     };
 
     k.strategies.push(entry);
 
-    // Evict old/failed strategies to keep at 50 max
-    if (k.strategies.length > 50) {
-        // Sort: keep successful + recent, evict failed + old
+    // Evict old/failed strategies to keep at 200 max
+    if (k.strategies.length > 200) {
+        // Sort: keep high-success + recent, evict failed + old + low-success
         k.strategies.sort((a, b) => {
             if (a.success !== b.success) return a.success ? -1 : 1;
+            const aCount = a.successCount || 1;
+            const bCount = b.successCount || 1;
+            if (aCount !== bCount) return bCount - aCount;
             return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
         });
-        k.strategies = k.strategies.slice(0, 50);
+        k.strategies = k.strategies.slice(0, 200);
     }
 
     debouncedSave();
@@ -421,29 +451,50 @@ export function getStrategyHints(message: string): string | null {
     const k = loadKnowledgeBase();
     if (k.strategies.length === 0) return null;
 
-    // Simple keyword matching — find strategies with overlapping words
+    const taskType = classifyTaskType(message);
     const words = new Set(message.toLowerCase().split(/\s+/).filter(w => w.length > 3));
     if (words.size === 0) return null;
 
+    const successfulStrategies = k.strategies.filter(s => s.success);
+    if (successfulStrategies.length === 0) return null;
+
+    // Score strategies by: task type match + keyword overlap + success count
     let bestMatch: StrategyEntry | null = null;
     let bestScore = 0;
 
-    for (const strategy of k.strategies.filter(s => s.success)) {
+    for (const strategy of successfulStrategies) {
         const patternWords = new Set(strategy.pattern.toLowerCase().split(/\s+/).filter(w => w.length > 3));
         let overlap = 0;
         for (const w of words) {
             if (patternWords.has(w)) overlap++;
         }
-        const score = overlap / Math.max(words.size, patternWords.size);
-        if (score > bestScore && score > 0.3) {
-            bestScore = score;
+        const keywordScore = overlap / Math.max(words.size, patternWords.size);
+
+        // Task type match bonus (0.2)
+        const typeBonus = strategy.taskType === taskType ? 0.2 : 0;
+
+        // Success count bonus (normalized, max 0.15)
+        const countBonus = Math.min((strategy.successCount || 1) / 10, 0.15);
+
+        const totalScore = keywordScore + typeBonus + countBonus;
+        if (totalScore > bestScore && keywordScore > 0.15) {
+            bestScore = totalScore;
             bestMatch = strategy;
         }
     }
 
     if (!bestMatch) return null;
 
-    return `For similar tasks, a successful strategy used: ${bestMatch.toolsUsed.join(', ')} (${bestMatch.roundCount} rounds).`;
+    // Prefer showing the ordered sequence if available
+    const toolInfo = bestMatch.toolSequence && bestMatch.toolSequence.length > 0
+        ? bestMatch.toolSequence.join(' → ')
+        : bestMatch.toolsUsed.join(', ');
+
+    const countInfo = (bestMatch.successCount || 1) > 1
+        ? ` (succeeded ${bestMatch.successCount}x)`
+        : '';
+
+    return `For similar ${bestMatch.taskType || 'general'} tasks, a proven tool sequence: ${toolInfo} (${bestMatch.roundCount} rounds)${countInfo}.`;
 }
 
 /** Get error resolution if a known pattern matches */

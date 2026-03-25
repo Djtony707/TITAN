@@ -169,7 +169,7 @@ class VRAMOrchestrator {
             if (!this.lastGpuState) {
                 return {
                     ok: false,
-                    error: 'GPU state unavailable (nvidia-smi failed)',
+                    error: 'GPU state unavailable (no supported GPU detected — requires NVIDIA, AMD ROCm, or Apple Silicon)',
                     currentFreeMB: 0,
                 };
             }

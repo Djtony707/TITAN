@@ -84,7 +84,7 @@ async function gatherSystemInfo(sections: string[]): Promise<string> {
         ].join('\n'));
     }
 
-    // ── GPU ─────────────────────────────────────────────────────
+    // ── GPU (multi-vendor: NVIDIA, AMD ROCm, Apple Silicon) ───
     if (wantAll || sections.includes('gpu')) {
         const nvsmi = await run('nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null');
         if (nvsmi) {
@@ -97,14 +97,54 @@ async function gatherSystemInfo(sections: string[]): Promise<string> {
                     `  Utilization: ${util}%`,
                 ].join('\n');
             });
-            results.push(['## GPU (NVIDIA)', ...gpuLines].join('\n'));
-        } else {
-            // Try macOS GPU
-            const macGpu = await run('system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Chipset|VRAM|Metal" | head -5');
-            if (macGpu) {
-                results.push(['## GPU', macGpu].join('\n'));
+            results.push(['## GPU (NVIDIA CUDA)', ...gpuLines].join('\n'));
+        } else if (os === 'darwin') {
+            // Apple Silicon / macOS — parse system_profiler for Metal GPU info
+            const spDisplay = await run('system_profiler SPDisplaysDataType 2>/dev/null');
+            if (spDisplay) {
+                const chipMatch = spDisplay.match(/Chipset Model:\s*(.+)/i) || spDisplay.match(/Chip:\s*(.+)/i);
+                const metalMatch = spDisplay.match(/Metal Family:\s*(.+)/i) || spDisplay.match(/Metal Support:\s*(.+)/i);
+                const coresMatch = spDisplay.match(/Total Number of Cores:\s*(\d+)/i);
+                const gpuName = chipMatch?.[1]?.trim() || 'Apple GPU';
+                const metalVer = metalMatch?.[1]?.trim() || 'Supported';
+                const cores = coresMatch?.[1] || 'unknown';
+
+                // Get unified memory
+                const memTotal = await run('sysctl -n hw.memsize 2>/dev/null');
+                const totalGB = memTotal ? Math.round(parseInt(memTotal.trim(), 10) / 1024 / 1024 / 1024) : 0;
+
+                const macOsVer = await run('sw_vers -productVersion 2>/dev/null');
+
+                results.push([
+                    `## GPU (Apple Silicon — Metal)`,
+                    `GPU: ${gpuName}${cores !== 'unknown' ? ` (${cores}-core GPU)` : ''}`,
+                    `  Metal: ${metalVer}`,
+                    `  Unified Memory: ${totalGB} GB (shared with system RAM)`,
+                    `  macOS: ${macOsVer?.trim() || 'unknown'}`,
+                    `  Backend: Metal Performance Shaders (MPS)`,
+                ].join('\n'));
             } else {
-                results.push('## GPU\nNo dedicated GPU detected (or nvidia-smi not available)');
+                results.push('## GPU\nNo GPU detected');
+            }
+        } else {
+            // Try AMD ROCm
+            const rocm = await run('rocm-smi --showmeminfo vram 2>/dev/null');
+            if (rocm && /vram total/i.test(rocm)) {
+                const totalMatch = rocm.match(/vram total[^:]*:\s*(\d+)/i);
+                const usedMatch = rocm.match(/vram used[^:]*:\s*(\d+)/i);
+                const totalMB = Math.round(parseInt(totalMatch?.[1] || '0', 10) / 1024 / 1024);
+                const usedMB = Math.round(parseInt(usedMatch?.[1] || '0', 10) / 1024 / 1024);
+                const nameOut = await run('rocm-smi --showproductname 2>/dev/null');
+                const nameMatch = nameOut?.match(/Card Series[^:]*:\s*(.+)/i) || nameOut?.match(/Card model[^:]*:\s*(.+)/i);
+                const gpuName = nameMatch?.[1]?.trim() || 'AMD GPU';
+
+                results.push([
+                    `## GPU (AMD ROCm)`,
+                    `GPU: ${gpuName}`,
+                    `  VRAM: ${usedMB} MB / ${totalMB} MB (${totalMB - usedMB} MB free)`,
+                ].join('\n'));
+            } else {
+                results.push('## GPU\nNo supported GPU detected (requires NVIDIA, AMD ROCm, or Apple Silicon)');
             }
         }
     }

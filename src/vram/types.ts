@@ -3,8 +3,12 @@
  * Interfaces for GPU memory management, model swapping, and lease tracking.
  */
 
-/** Current GPU state from nvidia-smi */
+/** GPU vendor type */
+export type GpuVendor = 'nvidia' | 'amd' | 'apple' | 'none';
+
+/** Current GPU state — works across NVIDIA (nvidia-smi), AMD (rocm-smi), and Apple Silicon (system_profiler) */
 export interface GpuState {
+    vendor: GpuVendor;
     totalMB: number;
     usedMB: number;
     freeMB: number;
@@ -12,6 +16,8 @@ export interface GpuState {
     utilizationPct: number;
     driverVersion: string;
     gpuName: string;
+    /** Whether memory is unified with system RAM (Apple Silicon) */
+    unifiedMemory: boolean;
 }
 
 /** A model currently loaded in Ollama */

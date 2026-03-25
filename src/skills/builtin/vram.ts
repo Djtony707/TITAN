@@ -38,18 +38,19 @@ Returns:
                 const snapshot = await orch.getSnapshot();
 
                 if (!snapshot) {
-                    return 'GPU state unavailable. nvidia-smi may not be installed or no NVIDIA GPU detected.';
+                    return 'GPU state unavailable. No supported GPU detected (NVIDIA, AMD ROCm, or Apple Silicon required).';
                 }
 
                 const { gpu, loadedModels, activeLeases, reservedMB, availableMB } = snapshot;
 
-                let report = `## GPU VRAM Status\n\n`;
-                report += `**${gpu.gpuName}** (Driver: ${gpu.driverVersion})\n`;
+                let report = `## GPU ${gpu.unifiedMemory ? 'Unified Memory' : 'VRAM'} Status\n\n`;
+                report += `**${gpu.gpuName}** (${gpu.driverVersion})\n`;
+                report += `- Vendor: ${gpu.vendor.toUpperCase()}${gpu.unifiedMemory ? ' (unified memory — shared with system RAM)' : ''}\n`;
                 report += `- Total: ${gpu.totalMB}MB\n`;
-                report += `- Used: ${gpu.usedMB}MB (${Math.round(gpu.usedMB / gpu.totalMB * 100)}%)\n`;
+                report += `- Used: ${gpu.usedMB}MB (${gpu.totalMB > 0 ? Math.round(gpu.usedMB / gpu.totalMB * 100) : 0}%)\n`;
                 report += `- Free: ${gpu.freeMB}MB\n`;
-                report += `- Temperature: ${gpu.temperatureC}°C\n`;
-                report += `- GPU Utilization: ${gpu.utilizationPct}%\n`;
+                if (gpu.temperatureC > 0) report += `- Temperature: ${gpu.temperatureC}°C\n`;
+                if (gpu.utilizationPct > 0) report += `- GPU Utilization: ${gpu.utilizationPct}%\n`;
                 report += `- Available (after reserves): **${availableMB}MB**\n`;
 
                 if (loadedModels.length > 0) {

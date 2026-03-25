@@ -596,6 +596,8 @@ export const TitanConfigSchema = z.object({
     vram: z.object({
         /** Master switch for VRAM orchestrator */
         enabled: z.boolean().default(true),
+        /** GPU vendor override — auto-detects by default. Set to force a specific vendor. */
+        gpuVendor: z.enum(['auto', 'nvidia', 'amd', 'apple', 'none']).default('auto'),
         /** GPU polling interval in milliseconds (0 = disabled) */
         pollIntervalMs: z.number().default(10000),
         /** Always keep this much VRAM free as a safety buffer (MB) */

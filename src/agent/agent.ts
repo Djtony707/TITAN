@@ -1181,7 +1181,7 @@ export async function processMessage(
     // Active Learning: record strategy for future reference
     if (toolsUsed.length > 0) {
         const success = !finalContent.toLowerCase().includes('error') && !budgetExhausted;
-        recordStrategy(message, toolsUsed, toolsUsed.length, success);
+        recordStrategy(message, toolsUsed, toolsUsed.length, success, toolsUsed);
     }
 
     // Save assistant response to session

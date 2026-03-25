@@ -30,6 +30,14 @@ export const BUILTIN_PRESETS: Omit<McpServer, 'timeoutMs'>[] = [
         },
         enabled: false,
     },
+    {
+        id: 'hindsight',
+        name: 'Hindsight Memory',
+        description: 'Cross-session episodic memory with 4 networks (world, experience, opinion, observation). retain/recall/reflect operations. 91% LongMemEval. By Vectorize.io.',
+        type: 'http',
+        url: 'http://localhost:8888/mcp',
+        enabled: false,
+    },
 ];
 
 // ─── Persistence ──────────────────────────────────────────────────

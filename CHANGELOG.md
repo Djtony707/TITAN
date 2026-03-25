@@ -4,6 +4,16 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.47] — 2026-03-25
+
+### Added
+- **Multi-Chip GPU Support** — TITAN now detects and monitors NVIDIA (CUDA), AMD (ROCm), and Apple Silicon (Metal/MPS) GPUs. VRAM orchestrator, GPU probe, and system info all dispatch to the correct vendor automatically. Unified memory support for Apple Silicon. New `vram.gpuVendor` config option to override auto-detection.
+  - Files: `src/vram/gpuProbe.ts`, `src/vram/types.ts`, `src/utils/hardware.ts`, `src/vram/orchestrator.ts`, `src/skills/builtin/vram.ts`, `src/skills/builtin/system_info.ts`, `src/config/schema.ts`
+- **Hindsight MCP Preset** — Built-in MCP server preset for Vectorize.io Hindsight cross-session episodic memory (4-network: world, experience, opinion, observation). Enable with `titan mcp --add hindsight`.
+- **Tool Sequence Memory** — Learning engine now stores ordered tool sequences (not just deduplicated sets), classifies strategies by task type, merges duplicate sequences with success counts, and provides richer strategy hints. Strategy cap raised from 50 to 200.
+
+---
+
 ## [2026.10.46] — 2026-03-20
 
 ### Added

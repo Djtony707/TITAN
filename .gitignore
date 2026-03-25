@@ -20,5 +20,9 @@ target/
 *.pid
 *.tmp
 
+# Benchmark results (raw data) — committed: MODEL_COMPARISON.md
+benchmarks/results.json
+benchmarks/runs/
+
 # Personal skills — private, never committed
 src/skills/personal/
