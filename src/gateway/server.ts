@@ -2541,11 +2541,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return;
     }
 
+    // Resolve TTS URL and model based on engine
+    const previewTtsUrl = engine === 'qwen3-tts' ? `http://localhost:${5006}` : ttsUrl;
+    const previewTtsModel = engine === 'qwen3-tts' ? 'mlx-community/Qwen3-TTS-0.6B-bf16' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+
     try {
-      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+      const ttsRes = await fetch(`${previewTtsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: text, voice: voiceId, response_format: 'wav' }),
+        body: JSON.stringify({ model: previewTtsModel, input: text, voice: voiceId, response_format: 'wav' }),
         signal: AbortSignal.timeout(30000),
       });
 
@@ -2597,14 +2601,27 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const abortController = new AbortController();
     if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
 
-    // Auto-detect TTS availability — probe Orpheus once at stream start
+    // Auto-detect TTS availability — probe the active TTS engine once at stream start
     let effectiveTtsEngine = ttsEngine;
-    if (ttsEngine === 'orpheus') {
+    let effectiveTtsUrl = ttsUrl;
+    let effectiveTtsModel = 'mlx-community/orpheus-3b-0.1-ft-4bit';
+
+    if (ttsEngine === 'qwen3-tts') {
+      effectiveTtsUrl = `http://localhost:${5006}`;
+      effectiveTtsModel = 'mlx-community/Qwen3-TTS-0.6B-bf16';
+      try {
+        const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
+        if (!probe.ok) effectiveTtsEngine = 'browser';
+      } catch {
+        effectiveTtsEngine = 'browser';
+        logger.warn(COMPONENT, `Qwen3-TTS unreachable at ${effectiveTtsUrl} — falling back to browser TTS`);
+      }
+    } else if (ttsEngine === 'orpheus') {
       try {
         const probe = await fetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: voiceId, response_format: 'wav' }),
+          body: JSON.stringify({ model: effectiveTtsModel, input: '.', voice: voiceId, response_format: 'wav' }),
           signal: AbortSignal.timeout(30000),
         });
         if (!probe.ok) effectiveTtsEngine = 'browser';
@@ -2684,10 +2701,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       totalTtsChars += clean.length;
 
       try {
-        const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+        const ttsRes = await fetch(`${effectiveTtsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: clean, voice: voiceId, response_format: 'wav' }),
+          body: JSON.stringify({ model: effectiveTtsModel, input: clean, voice: voiceId, response_format: 'wav' }),
           signal: AbortSignal.timeout(30000),
         });
         if (ttsRes.ok && !clientDisconnected) {
@@ -3034,6 +3051,234 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.json({ ok: true, message: 'Orpheus server starting — model loading may take a minute.' });
     } catch (e) {
       res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  // ── Qwen3-TTS Voice Cloning Auto-Installer ──────────────────
+  const QWEN3_PORT = 5006;
+  const QWEN3_MODEL = 'mlx-community/Qwen3-TTS-0.6B-bf16';
+  let qwen3Pid: number | null = null;
+
+  app.get('/api/voice/qwen3tts/status', async (_req, res) => {
+    const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
+    const installed = fs.existsSync(join(venvPath, 'bin', 'python'));
+    let running = false;
+    try {
+      const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+      running = probe.ok;
+    } catch { /* not running */ }
+    // List available cloned voices
+    const voicesDir = join(homedir(), '.titan', 'voices');
+    let voices: string[] = [];
+    try {
+      if (fs.existsSync(voicesDir)) {
+        voices = fs.readdirSync(voicesDir)
+          .filter((f: string) => f.endsWith('.wav'))
+          .map((f: string) => f.replace('.wav', ''));
+      }
+    } catch { /* ignore */ }
+    res.json({ installed, running, voices, port: QWEN3_PORT, model: QWEN3_MODEL });
+  });
+
+  app.post('/api/voice/qwen3tts/install', async (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders();
+
+    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => {
+      res.write(`data: ${JSON.stringify({ step, status, detail })}\n\n`);
+    };
+
+    const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
+    const voicesDir = join(homedir(), '.titan', 'voices');
+
+    try {
+      // Step 1: Create venv
+      send('venv', 'running', 'Creating Python virtual environment...');
+      if (!fs.existsSync(join(venvPath, 'bin', 'python'))) {
+        execSync(`python3 -m venv "${venvPath}"`, { timeout: 60000 });
+      }
+      send('venv', 'done');
+
+      // Step 2: Install mlx-audio
+      const pip = join(venvPath, 'bin', 'pip');
+      send('install', 'running', 'Installing mlx-audio + Qwen3-TTS dependencies (this may take 2-3 minutes)...');
+      execSync(`"${pip}" install "mlx-audio[server]" "setuptools<81" numpy`, { timeout: 600000 });
+      send('install', 'done');
+
+      // Step 3: Create voices directory
+      if (!fs.existsSync(voicesDir)) {
+        fs.mkdirSync(voicesDir, { recursive: true });
+      }
+
+      // Step 4: Start the server
+      send('start', 'running', 'Starting Qwen3-TTS voice cloning server on port 5006...');
+      const python = join(venvPath, 'bin', 'python');
+      const serverScript = join(__dirname, '..', 'scripts', 'qwen3-tts-server.py');
+      // Fall back to source path if dist path doesn't exist
+      const scriptPath = fs.existsSync(serverScript)
+        ? serverScript
+        : join(__dirname, '..', '..', 'scripts', 'qwen3-tts-server.py');
+
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT), '--preload'], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+      });
+      child.unref();
+      qwen3Pid = child.pid ?? null;
+      const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+      if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
+
+      // Wait for server to come up (model download + load)
+      send('model', 'running', 'Downloading Qwen3-TTS model (~1.2GB, first time only)...');
+      let ready = false;
+      for (let i = 0; i < 120; i++) { // up to 4 minutes
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(5000) });
+          if (probe.ok) { ready = true; break; }
+        } catch { /* still loading */ }
+      }
+      if (ready) {
+        send('model', 'done');
+        send('complete', 'done', 'Qwen3-TTS voice cloning server is ready!');
+      } else {
+        send('model', 'error', 'Server started but model loading timed out. It may still be downloading — try again in a few minutes.');
+      }
+    } catch (e) {
+      send('error', 'error', (e as Error).message);
+    }
+    res.end();
+  });
+
+  app.post('/api/voice/qwen3tts/stop', (_req, res) => {
+    const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+    try {
+      if (fs.existsSync(pidFile)) {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
+        process.kill(pid, 'SIGTERM');
+        fs.unlinkSync(pidFile);
+      }
+      qwen3Pid = null;
+      res.json({ ok: true });
+    } catch (e) {
+      res.json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  app.post('/api/voice/qwen3tts/start', async (_req, res) => {
+    const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
+    const python = join(venvPath, 'bin', 'python');
+    const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+
+    if (!fs.existsSync(python)) {
+      res.status(400).json({ ok: false, error: 'Qwen3-TTS not installed. Use POST /api/voice/qwen3tts/install first.' });
+      return;
+    }
+
+    // Check if already running
+    try {
+      const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+      if (probe.ok) {
+        res.json({ ok: true, message: 'Qwen3-TTS is already running' });
+        return;
+      }
+    } catch { /* not running, start it */ }
+
+    try {
+      const serverScript = join(__dirname, '..', 'scripts', 'qwen3-tts-server.py');
+      const scriptPath = fs.existsSync(serverScript)
+        ? serverScript
+        : join(__dirname, '..', '..', 'scripts', 'qwen3-tts-server.py');
+
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+      });
+      child.unref();
+      qwen3Pid = child.pid ?? null;
+      if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
+      res.json({ ok: true, message: 'Qwen3-TTS server starting — model loading may take a minute.' });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  // Upload reference audio for voice cloning
+  app.post('/api/voice/clone/upload', async (req, res) => {
+    try {
+      const voicesDir = join(homedir(), '.titan', 'voices');
+      if (!fs.existsSync(voicesDir)) fs.mkdirSync(voicesDir, { recursive: true });
+
+      // Accept raw binary with voice name in query/header, or base64 JSON body
+      const voiceName = (req.query.name as string) || req.headers['x-voice-name'] as string || 'custom';
+      const safeName = voiceName.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50) || 'custom';
+      const transcript = (req.query.transcript as string) || req.headers['x-voice-transcript'] as string || '';
+
+      const contentType = req.headers['content-type'] || '';
+
+      if (contentType.includes('application/json')) {
+        // JSON body with base64 audio
+        const body = req.body as { audio?: string; name?: string; transcript?: string };
+        if (!body.audio) { res.status(400).json({ error: 'audio (base64) is required' }); return; }
+        const audioBuffer = Buffer.from(body.audio, 'base64');
+        const name = body.name?.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50) || safeName;
+        fs.writeFileSync(join(voicesDir, `${name}.wav`), audioBuffer);
+        if (body.transcript || transcript) {
+          fs.writeFileSync(join(voicesDir, `${name}.txt`), body.transcript || transcript);
+        }
+        res.json({ ok: true, voice: name, path: join(voicesDir, `${name}.wav`) });
+      } else {
+        // Raw binary upload
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          const audioBuffer = Buffer.concat(chunks);
+          fs.writeFileSync(join(voicesDir, `${safeName}.wav`), audioBuffer);
+          if (transcript) {
+            fs.writeFileSync(join(voicesDir, `${safeName}.txt`), transcript);
+          }
+          res.json({ ok: true, voice: safeName, path: join(voicesDir, `${safeName}.wav`) });
+        });
+      }
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // List available cloned voices
+  app.get('/api/voice/clone/voices', (_req, res) => {
+    const voicesDir = join(homedir(), '.titan', 'voices');
+    try {
+      if (!fs.existsSync(voicesDir)) { res.json({ voices: [] }); return; }
+      const voices = fs.readdirSync(voicesDir)
+        .filter((f: string) => f.endsWith('.wav'))
+        .map((f: string) => {
+          const name = f.replace('.wav', '');
+          const hasTranscript = fs.existsSync(join(voicesDir, `${name}.txt`));
+          const stat = fs.statSync(join(voicesDir, f));
+          return { name, hasTranscript, sizeBytes: stat.size };
+        });
+      res.json({ voices });
+    } catch (e) {
+      res.json({ voices: [], error: (e as Error).message });
+    }
+  });
+
+  // Delete a cloned voice
+  app.delete('/api/voice/clone/:name', (req, res) => {
+    const voicesDir = join(homedir(), '.titan', 'voices');
+    const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    try {
+      const wavPath = join(voicesDir, `${name}.wav`);
+      const txtPath = join(voicesDir, `${name}.txt`);
+      if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
+      if (fs.existsSync(txtPath)) fs.unlinkSync(txtPath);
+      res.json({ ok: true });
+    } catch (e) {
+      res.json({ ok: false, error: (e as Error).message });
     }
   });
 
@@ -4045,6 +4290,16 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         process.kill(pid, 'SIGTERM');
         fs.unlinkSync(orpheusPid);
         logger.info(COMPONENT, 'Stopped Orpheus TTS server');
+      }
+    } catch { /* already stopped */ }
+    // Stop Qwen3-TTS server if we started it
+    try {
+      const qwen3PidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+      if (fs.existsSync(qwen3PidFile)) {
+        const pid = parseInt(fs.readFileSync(qwen3PidFile, 'utf-8').trim());
+        process.kill(pid, 'SIGTERM');
+        fs.unlinkSync(qwen3PidFile);
+        logger.info(COMPONENT, 'Stopped Qwen3-TTS server');
       }
     } catch { /* already stopped */ }
     stopAutopilot();

@@ -506,6 +506,35 @@ export async function stopOrpheus(): Promise<{ ok: boolean }> {
   return request('/api/voice/orpheus/stop', { method: 'POST' });
 }
 
+// ---- Qwen3-TTS Voice Cloning management ----
+
+export async function getQwen3TtsStatus(): Promise<{ installed: boolean; running: boolean; voices: string[]; port: number; model: string }> {
+  return request('/api/voice/qwen3tts/status');
+}
+
+export async function startQwen3Tts(): Promise<{ ok: boolean }> {
+  return request('/api/voice/qwen3tts/start', { method: 'POST' });
+}
+
+export async function stopQwen3Tts(): Promise<{ ok: boolean }> {
+  return request('/api/voice/qwen3tts/stop', { method: 'POST' });
+}
+
+export async function getClonedVoices(): Promise<{ voices: Array<{ name: string; hasTranscript: boolean; sizeBytes: number }> }> {
+  return request('/api/voice/clone/voices');
+}
+
+export async function uploadVoiceReference(name: string, audioBase64: string, transcript?: string): Promise<{ ok: boolean; voice: string }> {
+  return request('/api/voice/clone/upload', {
+    method: 'POST',
+    body: JSON.stringify({ name, audio: audioBase64, transcript }),
+  });
+}
+
+export async function deleteClonedVoice(name: string): Promise<{ ok: boolean }> {
+  return request(`/api/voice/clone/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
+
 // ---- Auth ----
 
 export async function login(password: string): Promise<{ token: string }> {
