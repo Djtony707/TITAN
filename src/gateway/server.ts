@@ -2622,8 +2622,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     let firstChunkSent = false;
     let totalTtsChars = 0;
     const FIRST_CHUNK_MIN = 60; // chars before forcing first flush (low TTFA)
-    const MAX_TTS_SENTENCES = 4; // only TTS first N sentences, display rest as text only
-    const MAX_TTS_CHARS = 500;   // stop TTS after this many chars spoken
+    const MAX_TTS_SENTENCES = 50; // generous limit — let full responses be spoken
+    const MAX_TTS_CHARS = 10000;  // ~5 minutes of speech at 150 WPM
 
     // Sequential TTS queue — processes one sentence at a time to avoid overwhelming Orpheus
     const ttsQueue: Array<{ sentence: string; index: number }> = [];
@@ -2651,16 +2651,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return text
         .replace(/<TOOLCALL>[\s\S]*?(?:<\/TOOLCALL>|$)/g, '') // strip <TOOLCALL> blocks
         .replace(/<TOOLCALL>\[[\s\S]*?\]/g, '')                // strip <TOOLCALL>[...] format
-        .replace(/```[\s\S]*?```/g, '')
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/^#+\s+/gm, '')
-        .replace(/^[-*]\s+/gm, '')
-        .replace(/\n{2,}/g, ' ')
+        .replace(/```[\s\S]*?```/g, '')                        // strip code blocks
+        .replace(/`[^`]+`/g, (m) => m.slice(1, -1))           // unwrap inline code (keep text)
+        .replace(/\*\*(.*?)\*\*/g, '$1')                       // bold → plain
+        .replace(/\*(.*?)\*/g, '$1')                           // italic → plain
+        .replace(/^#+\s+/gm, '')                               // headings → plain
+        .replace(/^\d+\.\s+/gm, '')                            // numbered lists → plain
+        .replace(/^[-*]\s+/gm, '')                             // bullet points → plain
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')               // [links](url) → link text
+        .replace(/https?:\/\/\S+/g, '')                        // strip bare URLs
+        .replace(/\n{2,}/g, '. ')                              // paragraph breaks → sentence break
+        .replace(/\n/g, ' ')                                   // single newlines → space
         .replace(/<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp|smile)>/gi, '')
         .replace(/(?:Let me |I'll |I will |I'm going to )(?:use|call|check|run|invoke|execute|try)(?: the)? \w[\w_]*(?: tool)?(?:\s+(?:to|for|and)\b[^.!?]*)?[.!]?\s*/gi, '')
         .replace(/\b(?:Using|Calling|Running|Checking|Invoking|Executing) (?:the )?\w[\w_]*(?: tool)?(?:\s+(?:to|for)\b[^.!?]*)?[.!]?\s*/gi, '')
-        .replace(/\b\w[\w_]*(?:_\w+)+\b/g, '')
         .replace(/\s{2,}/g, ' ')
         .trim();
     };
@@ -2684,7 +2688,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: clean, voice: voiceId, response_format: 'wav' }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(30000),
         });
         if (ttsRes.ok && !clientDisconnected) {
           const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
@@ -2726,20 +2730,56 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             }
           }
 
-          // Detect sentence boundaries: .!? followed by space or end
-          // Negative lookbehind avoids splitting on decimals like "PM2.5" or "8.8kW"
-          const match = tokenBuffer.match(/^(.*?(?<!\d)[.!?])(\s|$)/s);
-          if (match) {
+          // Split on newlines first — paragraph/list boundaries are natural sentence breaks
+          if (tokenBuffer.includes('\n')) {
+            const lines = tokenBuffer.split('\n');
+            // Keep last fragment in buffer (may be incomplete)
+            tokenBuffer = lines.pop() || '';
+            for (const line of lines) {
+              if (line.trim().length >= 3) {
+                flushSentence(line);
+                firstChunkSent = true;
+              }
+            }
+            return;
+          }
+
+          // Detect sentence boundaries: .!?:; followed by space or end
+          // Negative lookbehind avoids splitting on decimals like "PM2.5", "8.8kW", "Dr.", "vs."
+          // Loop to drain ALL complete sentences from buffer
+          let match: RegExpMatchArray | null;
+          while ((match = tokenBuffer.match(/^(.*?(?<!\d)(?<!\b(?:Dr|Mr|Mrs|Ms|vs|etc|e\.g|i\.e))[.!?])(\s+|$)/s)) !== null) {
             flushSentence(match[1]);
             tokenBuffer = tokenBuffer.slice(match[0].length);
             firstChunkSent = true;
-          } else if (tokenBuffer.length > 150) {
-            // Force flush long runs without punctuation (bullet lists, etc.)
-            const lastSpace = tokenBuffer.lastIndexOf(' ', 150);
-            if (lastSpace > 50) {
-              flushSentence(tokenBuffer.slice(0, lastSpace));
-              tokenBuffer = tokenBuffer.slice(lastSpace + 1);
+          }
+
+          // Also split on colons/semicolons when buffer is getting long (natural pauses)
+          if (tokenBuffer.length > 80) {
+            const colonMatch = tokenBuffer.match(/^(.*?[:;])\s+/s);
+            if (colonMatch && colonMatch[1].length > 20) {
+              flushSentence(colonMatch[1]);
+              tokenBuffer = tokenBuffer.slice(colonMatch[0].length);
               firstChunkSent = true;
+              return;
+            }
+          }
+
+          // Force flush long runs without punctuation (bullet lists, etc.)
+          if (tokenBuffer.length > 200) {
+            // Try comma as a natural break point
+            const commaPos = tokenBuffer.lastIndexOf(', ', 180);
+            if (commaPos > 40) {
+              flushSentence(tokenBuffer.slice(0, commaPos + 1));
+              tokenBuffer = tokenBuffer.slice(commaPos + 2);
+              firstChunkSent = true;
+            } else {
+              const lastSpace = tokenBuffer.lastIndexOf(' ', 180);
+              if (lastSpace > 50) {
+                flushSentence(tokenBuffer.slice(0, lastSpace));
+                tokenBuffer = tokenBuffer.slice(lastSpace + 1);
+                firstChunkSent = true;
+              }
             }
           }
         },
