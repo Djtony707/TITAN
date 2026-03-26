@@ -2471,7 +2471,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'pcm' }),
+          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'pcm' }),
           signal: AbortSignal.timeout(5000),
         });
       }
@@ -2604,8 +2604,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const probe = await fetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: '.', voice: voiceId, response_format: 'wav' }),
-          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: voiceId, response_format: 'wav' }),
+          signal: AbortSignal.timeout(30000),
         });
         if (!probe.ok) effectiveTtsEngine = 'browser';
       } catch {
@@ -2822,7 +2822,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'wav' }),
+        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'wav' }),
         signal: AbortSignal.timeout(3000),
       });
       running = probe.ok;
@@ -2884,7 +2884,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             const probe = await fetch('http://localhost:5005/v1/audio/speech', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ input: 'test', voice: 'tara', response_format: 'wav' }),
+              body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
               signal: AbortSignal.timeout(10000),
             });
             if (probe.ok) { ready = true; break; }
@@ -2914,7 +2914,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             const probe = await fetch('http://localhost:5005/v1/audio/speech', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ input: 'test', voice: 'tara', response_format: 'wav' }),
+              body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
               signal: AbortSignal.timeout(10000),
             });
             if (probe.ok) { ready = true; break; }
@@ -2964,7 +2964,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'wav' }),
+        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'wav' }),
         signal: AbortSignal.timeout(3000),
       });
       if (probe.ok) {
@@ -3957,7 +3957,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       const resp = await fetch(`${ttsBaseUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'orpheus', input: 'test', voice: 'tara', response_format: 'wav' }),
+        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
         signal: AbortSignal.timeout(5000),
       });
       healthState.ttsHealthy = resp.ok;
