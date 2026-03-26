@@ -4,6 +4,17 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.54] — 2026-03-25
+
+### Added
+- **Orpheus TTS auto-installer** — one-click setup from Settings → Voice; creates Python venv, installs `mlx-audio[server]` (macOS) or `orpheus-speech` (Linux), downloads model (~1.9GB), starts server on port 5005
+- **Orpheus management endpoints** — `GET /api/voice/orpheus/status`, `POST /api/voice/orpheus/install` (SSE progress), `POST /api/voice/orpheus/start`, `POST /api/voice/orpheus/stop`
+- **Orpheus UI in Settings** — 4-state display (not installed → installing with progress → running → stopped) with setup/start/stop buttons
+- **Logout button** — "Sign Out" in sidebar footer, visible only when authenticated with a token
+- **Graceful shutdown** — Orpheus TTS server auto-stopped when TITAN shuts down (PID management)
+
+---
+
 ## [2026.10.53] — 2026-03-25
 
 ### Added

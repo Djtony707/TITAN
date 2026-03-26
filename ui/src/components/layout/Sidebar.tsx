@@ -31,8 +31,10 @@ import {
   Cable,
   Cpu,
   FolderOpen,
+  LogOut,
   type LucideIcon,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -118,6 +120,8 @@ type UpdateStatus = 'idle' | 'updating' | 'restarting' | 'success' | 'error';
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
+  const { logout } = useAuth();
+  const hasToken = Boolean(localStorage.getItem('titan-token'));
   const [versionInfo, setVersionInfo] = useState<VersionInfo>({
     current: '',
     latest: null,
@@ -373,8 +377,26 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       )}
 
-      {/* Version + collapse */}
+      {/* Version + logout + collapse */}
       <div className="flex-shrink-0 px-2 pb-2 pt-1 border-t border-[var(--border)]">
+        {!collapsed && hasToken && (
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors w-full"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
+        )}
+        {collapsed && hasToken && (
+          <button
+            onClick={logout}
+            title="Sign Out"
+            className="flex items-center justify-center w-full py-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)] transition-colors"
+          >
+            <LogOut size={16} />
+          </button>
+        )}
         {!collapsed && versionInfo.current && (
           <div className="flex items-center justify-between px-3 py-1.5 mb-1">
             <span className="text-[10px] text-[var(--text-muted)]">

@@ -486,6 +486,20 @@ export async function readFile(path: string): Promise<import('./types').FileCont
   return request(`/api/files/read?path=${encodeURIComponent(path)}`);
 }
 
+// ---- Orpheus TTS management ----
+
+export async function getOrpheusStatus(): Promise<{ installed: boolean; running: boolean; venvPath: string }> {
+  return request('/api/voice/orpheus/status');
+}
+
+export async function startOrpheus(): Promise<{ ok: boolean }> {
+  return request('/api/voice/orpheus/start', { method: 'POST' });
+}
+
+export async function stopOrpheus(): Promise<{ ok: boolean }> {
+  return request('/api/voice/orpheus/stop', { method: 'POST' });
+}
+
 // ---- Auth ----
 
 export async function login(password: string): Promise<{ token: string }> {

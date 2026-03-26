@@ -10,7 +10,7 @@ import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir, hostname as osHostname, cpus, loadavg } from 'os';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { exec, spawn } from 'child_process';
+import { exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
@@ -2812,6 +2812,191 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Orpheus TTS Auto-Installer ─────────────────────────────
+  app.get('/api/voice/orpheus/status', async (_req, res) => {
+    const cfg = loadConfig();
+    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
+    const installed = fs.existsSync(join(venvPath, 'bin', 'python'));
+    let running = false;
+    try {
+      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'wav' }),
+        signal: AbortSignal.timeout(3000),
+      });
+      running = probe.ok;
+    } catch { /* not running */ }
+    res.json({ installed, running, venvPath });
+  });
+
+  app.post('/api/voice/orpheus/install', async (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders();
+
+    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => {
+      res.write(`data: ${JSON.stringify({ step, status, detail })}\n\n`);
+    };
+
+    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
+    const isMac = process.platform === 'darwin';
+
+    try {
+      // Step 1: Create venv
+      send('venv', 'running', 'Creating Python virtual environment...');
+      if (!fs.existsSync(join(venvPath, 'bin', 'python'))) {
+        execSync(`python3 -m venv "${venvPath}"`, { timeout: 60000 });
+      }
+      send('venv', 'done');
+
+      // Step 2: Install dependencies
+      const pip = join(venvPath, 'bin', 'pip');
+      if (isMac) {
+        send('install', 'running', 'Installing mlx-audio (this may take 2-3 minutes)...');
+        execSync(`"${pip}" install "mlx-audio[server]"`, { timeout: 600000 });
+      } else {
+        send('install', 'running', 'Installing orpheus-speech + dependencies...');
+        execSync(`"${pip}" install orpheus-speech fastapi uvicorn`, { timeout: 600000 });
+      }
+      send('install', 'done');
+
+      // Step 3: Start the server
+      send('start', 'running', 'Starting Orpheus TTS server on port 5005...');
+      const python = join(venvPath, 'bin', 'python');
+      const pidFile = join(homedir(), '.titan', 'orpheus.pid');
+
+      if (isMac) {
+        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005', '--model', 'mlx-community/orpheus-3b-0.1-ft-4bit'], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+        });
+        child.unref();
+        fs.writeFileSync(pidFile, String(child.pid));
+
+        // Wait for server to come up (model download + load can take a while)
+        send('model', 'running', 'Downloading Orpheus model (~1.9GB, first time only)...');
+        let ready = false;
+        for (let i = 0; i < 120; i++) { // up to 4 minutes
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const probe = await fetch('http://localhost:5005/v1/audio/speech', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ input: 'test', voice: 'tara', response_format: 'wav' }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (probe.ok) { ready = true; break; }
+          } catch { /* still loading */ }
+        }
+        if (ready) {
+          send('model', 'done');
+          send('complete', 'done', 'Orpheus TTS is ready!');
+        } else {
+          send('model', 'error', 'Server started but model loading timed out. It may still be downloading — try again in a few minutes.');
+        }
+      } else {
+        // Linux: orpheus-speech server
+        const child = spawn(python, ['-m', 'uvicorn', 'orpheus_speech.server:app', '--host', '127.0.0.1', '--port', '5005'], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+        });
+        child.unref();
+        fs.writeFileSync(pidFile, String(child.pid));
+
+        send('model', 'running', 'Waiting for Orpheus server to start...');
+        let ready = false;
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const probe = await fetch('http://localhost:5005/v1/audio/speech', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ input: 'test', voice: 'tara', response_format: 'wav' }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (probe.ok) { ready = true; break; }
+          } catch { /* still loading */ }
+        }
+        if (ready) {
+          send('model', 'done');
+          send('complete', 'done', 'Orpheus TTS is ready!');
+        } else {
+          send('model', 'error', 'Server started but timed out waiting for readiness. Check logs.');
+        }
+      }
+    } catch (e) {
+      send('error', 'error', (e as Error).message);
+    }
+    res.end();
+  });
+
+  app.post('/api/voice/orpheus/stop', (_req, res) => {
+    const pidFile = join(homedir(), '.titan', 'orpheus.pid');
+    try {
+      if (fs.existsSync(pidFile)) {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
+        process.kill(pid, 'SIGTERM');
+        fs.unlinkSync(pidFile);
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      res.json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  app.post('/api/voice/orpheus/start', async (_req, res) => {
+    const cfg = loadConfig();
+    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
+    const python = join(venvPath, 'bin', 'python');
+    const pidFile = join(homedir(), '.titan', 'orpheus.pid');
+    const isMac = process.platform === 'darwin';
+
+    if (!fs.existsSync(python)) {
+      res.status(400).json({ ok: false, error: 'Orpheus not installed. Use POST /api/voice/orpheus/install first.' });
+      return;
+    }
+
+    // Check if already running
+    try {
+      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: '.', voice: 'tara', response_format: 'wav' }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (probe.ok) {
+        res.json({ ok: true, message: 'Orpheus is already running' });
+        return;
+      }
+    } catch { /* not running, start it */ }
+
+    try {
+      if (isMac) {
+        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005', '--model', 'mlx-community/orpheus-3b-0.1-ft-4bit'], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+        });
+        child.unref();
+        fs.writeFileSync(pidFile, String(child.pid));
+      } else {
+        const child = spawn(python, ['-m', 'uvicorn', 'orpheus_speech.server:app', '--host', '127.0.0.1', '--port', '5005'], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+        });
+        child.unref();
+        fs.writeFileSync(pidFile, String(child.pid));
+      }
+      res.json({ ok: true, message: 'Orpheus server starting — model loading may take a minute.' });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
   // ── Tunnel ─────────────────────────────────────────────────
   app.get('/api/tunnel/status', (_req, res) => {
     res.json(getTunnelStatus());
@@ -3812,6 +3997,16 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // ── Graceful Shutdown ───────────────────────────────────────────
   const gracefulShutdown = async (signal: string) => {
     logger.info(COMPONENT, `Received ${signal} — shutting down gracefully...`);
+    // Stop Orpheus TTS server if we started it
+    try {
+      const orpheusPid = join(homedir(), '.titan', 'orpheus.pid');
+      if (fs.existsSync(orpheusPid)) {
+        const pid = parseInt(fs.readFileSync(orpheusPid, 'utf-8').trim());
+        process.kill(pid, 'SIGTERM');
+        fs.unlinkSync(orpheusPid);
+        logger.info(COMPONENT, 'Stopped Orpheus TTS server');
+      }
+    } catch { /* already stopped */ }
     stopAutopilot();
     stopDaemon();
     stopTunnel();

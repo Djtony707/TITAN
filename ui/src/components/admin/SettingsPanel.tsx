@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { getConfig, updateConfig, getModels, switchModel } from '@/api/client';
+import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff, Download, Loader2, Square, Play } from 'lucide-react';
+import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus } from '@/api/client';
 import type { ModelInfo } from '@/api/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,6 +164,11 @@ function SettingsPanel() {
   const [ttsUrl, setTtsUrl] = useState('http://localhost:5005');
   const [orpheusVoices, setOrpheusVoices] = useState<string[]>(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
 
+  // Orpheus TTS management state
+  const [orpheusStatus, setOrpheusStatus] = useState<{ installed: boolean; running: boolean } | null>(null);
+  const [orpheusInstalling, setOrpheusInstalling] = useState(false);
+  const [orpheusProgress, setOrpheusProgress] = useState<string>('');
+
   const TTS_ENGINES = [
     { id: 'orpheus', name: 'Orpheus TTS', desc: 'GPU-accelerated emotional speech', defaultUrl: 'http://localhost:5005', defaultVoices: ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'] },
     { id: 'browser', name: 'Browser TTS', desc: 'Built-in, no server needed', defaultUrl: '', defaultVoices: [] },
@@ -236,6 +241,79 @@ function SettingsPanel() {
   useEffect(() => {
     if (!loading) checkVoiceServices();
   }, [loading]);
+
+  // Check Orpheus status when selected
+  useEffect(() => {
+    if (voiceEnabled && ttsEngine === 'orpheus') {
+      getOrpheusStatus().then(setOrpheusStatus).catch(() => {});
+    }
+  }, [voiceEnabled, ttsEngine]);
+
+  const handleOrpheusSetup = async () => {
+    setOrpheusInstalling(true);
+    setOrpheusProgress('Starting setup...');
+
+    const token = localStorage.getItem('titan-token');
+    const res = await fetch('/api/voice/orpheus/install', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    const reader = res.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.detail) setOrpheusProgress(data.detail);
+            if (data.status === 'error') {
+              setOrpheusProgress(`Error: ${data.detail}`);
+              setOrpheusInstalling(false);
+              return;
+            }
+            if (data.step === 'complete') {
+              setOrpheusProgress('Orpheus TTS is ready!');
+              setOrpheusInstalling(false);
+              setOrpheusStatus({ installed: true, running: true });
+              return;
+            }
+          } catch { /* parse error */ }
+        }
+      }
+    }
+    setOrpheusInstalling(false);
+  };
+
+  const handleOrpheusStart = async () => {
+    try {
+      await startOrpheus();
+      setOrpheusStatus({ installed: true, running: true });
+      showToast('success', 'Orpheus TTS started');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to start Orpheus');
+    }
+  };
+
+  const handleOrpheusStop = async () => {
+    try {
+      await stopOrpheus();
+      setOrpheusStatus({ installed: true, running: false });
+      showToast('success', 'Orpheus TTS stopped');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to stop Orpheus');
+    }
+  };
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -435,6 +513,71 @@ function SettingsPanel() {
                 </button>
               ))}
             </div>
+
+            {/* Orpheus TTS Setup/Status */}
+            {ttsEngine === 'orpheus' && (
+              <div className="mt-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+                {orpheusInstalling ? (
+                  /* Installing state */
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 text-[#818cf8] animate-spin" />
+                      <span className="text-sm font-medium text-[#fafafa]">Installing Orpheus TTS...</span>
+                    </div>
+                    <div className="rounded-lg bg-[#09090b] border border-[#27272a] p-3">
+                      <p className="text-xs text-[#a1a1aa] font-mono break-all">{orpheusProgress}</p>
+                    </div>
+                  </div>
+                ) : orpheusStatus?.installed && orpheusStatus?.running ? (
+                  /* Running state */
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
+                      <span className="text-sm text-[#fafafa]">Orpheus TTS Running</span>
+                    </div>
+                    <button
+                      onClick={handleOrpheusStop}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#a1a1aa] border border-[#3f3f46] hover:border-[#ef4444]/50 hover:text-[#ef4444] transition-colors"
+                    >
+                      <Square className="h-3.5 w-3.5" />
+                      Stop
+                    </button>
+                  </div>
+                ) : orpheusStatus?.installed && !orpheusStatus?.running ? (
+                  /* Stopped state */
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#f59e0b] shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
+                      <span className="text-sm text-[#fafafa]">Orpheus TTS Stopped</span>
+                    </div>
+                    <button
+                      onClick={handleOrpheusStart}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#22c55e] border border-[#3f3f46] hover:border-[#22c55e]/50 hover:bg-[#22c55e]/10 transition-colors"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Start
+                    </button>
+                  </div>
+                ) : (
+                  /* Not installed state */
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#fafafa]">Orpheus TTS Not Installed</p>
+                        <p className="text-xs text-[#52525b] mt-0.5">~2GB download, Apple Silicon optimized</p>
+                      </div>
+                      <button
+                        onClick={handleOrpheusSetup}
+                        className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#6366f1]/80"
+                      >
+                        <Download className="h-4 w-4" />
+                        Setup Orpheus TTS
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* LiveKit URL */}
