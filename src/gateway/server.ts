@@ -2545,7 +2545,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: text, voice: voiceId, response_format: 'wav' }),
+        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: text, voice: voiceId, response_format: 'wav' }),
         signal: AbortSignal.timeout(30000),
       });
 
@@ -2683,7 +2683,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: clean, voice: voiceId, response_format: 'wav' }),
+          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: clean, voice: voiceId, response_format: 'wav' }),
           signal: AbortSignal.timeout(15000),
         });
         if (ttsRes.ok && !clientDisconnected) {
@@ -2854,7 +2854,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const pip = join(venvPath, 'bin', 'pip');
       if (isMac) {
         send('install', 'running', 'Installing mlx-audio (this may take 2-3 minutes)...');
-        execSync(`"${pip}" install "mlx-audio[server]"`, { timeout: 600000 });
+        execSync(`"${pip}" install "mlx-audio[server]" "setuptools<81" webrtcvad`, { timeout: 600000 });
       } else {
         send('install', 'running', 'Installing orpheus-speech + dependencies...');
         execSync(`"${pip}" install orpheus-speech fastapi uvicorn`, { timeout: 600000 });
@@ -2867,7 +2867,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const pidFile = join(homedir(), '.titan', 'orpheus.pid');
 
       if (isMac) {
-        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005', '--model', 'mlx-community/orpheus-3b-0.1-ft-4bit'], {
+        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005'], {
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
@@ -2975,7 +2975,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     try {
       if (isMac) {
-        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005', '--model', 'mlx-community/orpheus-3b-0.1-ft-4bit'], {
+        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005'], {
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
