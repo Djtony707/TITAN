@@ -4,7 +4,12 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
-## [2026.10.58] — 2026-03-25
+## [2026.10.59] — 2026-03-25
+
+### Added
+- **Qwen3-TTS Voice Cloning** — new TTS engine option with one-click install from Settings, zero-shot voice cloning from 3-5 second reference audio, voice library management (upload/select/delete), OpenAI-compatible server on port 5006, MLX-native for Apple Silicon
+- **Voice clone endpoints** — `POST /api/voice/clone/upload` (base64 WAV), `GET /api/voice/clone/voices`, `DELETE /api/voice/clone/:name`
+- **Qwen3-TTS management** — `GET /api/voice/qwen3tts/status`, `POST /api/voice/qwen3tts/install` (SSE), `POST /api/voice/qwen3tts/start`, `POST /api/voice/qwen3tts/stop`
 
 ### Fixed
 - **401 Unauthorized in admin panels** — created `apiFetch()` wrapper that auto-injects auth token; replaced raw `fetch()` across 15 UI files (MemoryGraph, Learning, Security, Autopilot, SelfImprove, Integrations, Autoresearch, Settings, Sidebar, VoiceOverlay, VoicePicker, SetupWizard, App, useLiveKit)
