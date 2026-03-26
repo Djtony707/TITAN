@@ -4,9 +4,10 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
-## [2026.10.57] — 2026-03-25
+## [2026.10.58] — 2026-03-25
 
 ### Fixed
+- **401 Unauthorized in admin panels** — created `apiFetch()` wrapper that auto-injects auth token; replaced raw `fetch()` across 15 UI files (MemoryGraph, Learning, Security, Autopilot, SelfImprove, Integrations, Autoresearch, Settings, Sidebar, VoiceOverlay, VoicePicker, SetupWizard, App, useLiveKit)
 - **Voice reads full responses** — sentence splitting overhaul: MAX_TTS_SENTENCES 4→50, MAX_TTS_CHARS 500→10000, loop extracts all complete sentences per token, handles newlines/colons/semicolons/commas as break points
 - **Orpheus TTS model field** — all `/v1/audio/speech` requests now include `model: 'mlx-community/orpheus-3b-0.1-ft-4bit'` (mlx-audio requires this per-request)
 - **Voice stream probe timeout** — increased from 3s to 30s for first-time Orpheus model loads on Apple Silicon
