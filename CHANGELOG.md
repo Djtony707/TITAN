@@ -4,6 +4,14 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.56] — 2026-03-25
+
+### Fixed
+- **Orpheus TTS model field** — all `/v1/audio/speech` requests now include `model: 'mlx-community/orpheus-3b-0.1-ft-4bit'` (mlx-audio requires this per-request)
+- **Voice stream probe timeout** — increased from 3s to 30s for first-time Orpheus model loads on Apple Silicon
+
+---
+
 ## [2026.10.54] — 2026-03-25
 
 ### Added
