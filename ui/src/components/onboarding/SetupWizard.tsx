@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket } from 'lucide-react';
 import { FluidOrb } from '@/components/voice/FluidOrb';
+import { apiFetch } from '@/api/client';
 import type { PersonaMeta } from '@/api/types';
 
 interface SetupWizardProps {
@@ -71,7 +72,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   // Fetch personas for the Profile step
   useEffect(() => {
-    fetch('/api/personas')
+    apiFetch('/api/personas')
       .then(r => r.json())
       .then(d => {
         if (d.personas) setPersonas(d.personas);
@@ -105,13 +106,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     try {
       // Switch persona if not default
       if (persona !== 'default') {
-        await fetch('/api/persona/switch', {
+        await apiFetch('/api/persona/switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ persona }),
         });
       }
-      const res = await fetch('/api/onboarding/complete', {
+      const res = await apiFetch('/api/onboarding/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

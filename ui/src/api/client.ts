@@ -23,10 +23,16 @@ import type {
 
 const BASE = '';
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('titan-token');
   if (token) return { Authorization: `Bearer ${token}` };
   return {};
+}
+
+/** Authenticated fetch — wraps native fetch with auth token injection */
+export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = { ...authHeaders(), ...init?.headers as Record<string, string> };
+  return fetch(input, { ...init, headers });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

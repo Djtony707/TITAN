@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Zap } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 function AutopilotPanel() {
   const [config, setConfig] = useState<{ mode: string; interval?: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/config', { headers: { 'Content-Type': 'application/json' } })
+    apiFetch('/api/config', { headers: { 'Content-Type': 'application/json' } })
       .then(r => r.json())
       .then(d => setConfig({ mode: d.autonomy?.mode || 'supervised', interval: d.autonomy?.autopilotIntervalMs }))
       .catch(() => setConfig({ mode: 'supervised' }))

@@ -3,6 +3,7 @@ import { X, Mic, MicOff, PhoneOff, ChevronDown } from 'lucide-react';
 import { FluidOrb } from './FluidOrb';
 import { TranscriptView } from './TranscriptView';
 import { VoicePicker, getVoiceInfo } from './VoicePicker';
+import { apiFetch } from '@/api/client';
 
 interface VoiceOverlayProps {
   onClose: () => void;
@@ -410,12 +411,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       const timeoutId = setTimeout(() => controller.abort(), 60000);
       const voice = selectedVoiceRef.current || 'tara';
 
-      const token = localStorage.getItem('titan-token');
-      const res = await fetch('/api/voice/stream', {
+      const res = await apiFetch('/api/voice/stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           content: text,
@@ -588,12 +587,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     if (!controller) return;
 
     try {
-      const legacyToken = localStorage.getItem('titan-token');
-      const res = await fetch('/api/message', {
+      const res = await apiFetch('/api/message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
         },
         body: JSON.stringify({ content: text, channel: 'voice', sessionId: sessionIdRef.current }),
         signal: controller.signal,
@@ -612,7 +609,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       const ttsText = displayText.length > 500 ? displayText.slice(0, 497) + '...' : displayText;
 
       try {
-        const ttsRes = await fetch('/api/voice/preview', {
+        const ttsRes = await apiFetch('/api/voice/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ voice, text: ttsText }),
@@ -687,7 +684,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
     // Update voice config on server
     try {
-      await fetch('/api/config', {
+      await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ voice: { ttsVoice: voiceId } }),
@@ -706,7 +703,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     localStorage.setItem('titan-voice', voiceId);
     setShowVoiceMenu(false);
     // Update server config
-    fetch('/api/config', {
+    apiFetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ voice: { ttsVoice: voiceId } }),
@@ -716,7 +713,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   // Preview voice
   const handlePreview = useCallback(async (voiceId: string) => {
     try {
-      const res = await fetch('/api/voice/preview', {
+      const res = await apiFetch('/api/voice/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ voice: voiceId, text: 'Hey! I\'m TITAN, your AI assistant.' }),

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff, Download, Loader2, Square, Play } from 'lucide-react';
-import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus } from '@/api/client';
+import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus, apiFetch } from '@/api/client';
 import type { ModelInfo } from '@/api/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -209,7 +209,7 @@ function SettingsPanel() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/voice/voices');
+        const res = await apiFetch('/api/voice/voices');
         if (res.ok) {
           const data = await res.json();
           if (data.voices?.length) setOrpheusVoices(data.voices);
@@ -223,8 +223,8 @@ function SettingsPanel() {
     setCheckingVoice(true);
     try {
       const [healthRes, statusRes] = await Promise.allSettled([
-        fetch('/api/voice/health').then((r) => r.json()),
-        fetch('/api/voice/status').then((r) => r.json()),
+        apiFetch('/api/voice/health').then((r) => r.json()),
+        apiFetch('/api/voice/status').then((r) => r.json()),
       ]);
       if (healthRes.status === 'fulfilled') setVoiceHealth(healthRes.value);
       if (statusRes.status === 'fulfilled') {
@@ -254,7 +254,7 @@ function SettingsPanel() {
     setOrpheusProgress('Starting setup...');
 
     const token = localStorage.getItem('titan-token');
-    const res = await fetch('/api/voice/orpheus/install', {
+    const res = await apiFetch('/api/voice/orpheus/install', {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, RefreshCw, BookOpen, Wrench, AlertTriangle, Lightbulb, Database, TrendingUp } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 interface LearningData {
   knowledgeEntries: number;
@@ -65,9 +66,9 @@ function LearningPanel() {
   const fetchAll = () => {
     setLoading(true);
     Promise.all([
-      fetch('/api/learning').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/stats').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/graphiti').then(r => r.ok ? r.json() : null).catch(() => null),
+      apiFetch('/api/learning').then(r => r.ok ? r.json() : null).catch(() => null),
+      apiFetch('/api/stats').then(r => r.ok ? r.json() : null).catch(() => null),
+      apiFetch('/api/graphiti').then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([l, s, g]) => {
       setLearning(l);
       setStats(s);

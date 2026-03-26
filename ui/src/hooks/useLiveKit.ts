@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { getLiveKitToken } from '@/api/client';
+import { getLiveKitToken, apiFetch } from '@/api/client';
 import type { LiveKitTokenResponse } from '@/api/types';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -14,7 +14,7 @@ export function useLiveKit() {
     setError(null);
     try {
       // Pre-check voice services before connecting
-      const healthRes = await fetch('/api/voice/health');
+      const healthRes = await apiFetch('/api/voice/health');
       if (healthRes.ok) {
         const health = await healthRes.json();
         if (!health.overall) {

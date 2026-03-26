@@ -5,6 +5,7 @@ import { ConfigProvider } from '@/hooks/useConfig';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
+import { apiFetch } from '@/api/client';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
 const ActivityPanel = lazy(() => import('@/components/admin/ActivityPanel'));
@@ -53,7 +54,7 @@ function AuthenticatedApp() {
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('/api/onboarding/status')
+    apiFetch('/api/onboarding/status')
       .then(r => r.json())
       .then(d => setOnboarded(d.onboarded !== false))
       .catch(() => setOnboarded(true));

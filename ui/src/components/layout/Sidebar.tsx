@@ -35,6 +35,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { apiFetch } from '@/api/client';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -172,7 +173,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     setUpdateStatus('updating');
     setUpdateError('');
     try {
-      const res = await fetch('/api/update', {
+      const res = await apiFetch('/api/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restart: true }),
@@ -187,7 +188,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         setUpdateStatus('restarting');
         const poll = setInterval(async () => {
           try {
-            const h = await fetch('/api/health');
+            const h = await apiFetch('/api/health');
             if (h.ok) {
               clearInterval(poll);
               setUpdateStatus('success');
@@ -209,7 +210,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/health');
+        const res = await apiFetch('/api/health');
         const health = await res.json();
         const current = health.version || '';
         setVersionInfo((prev) => ({ ...prev, current }));

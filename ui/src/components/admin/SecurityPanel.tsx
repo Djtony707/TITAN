@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Shield } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 function SecurityPanel() {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/config', { headers: { 'Content-Type': 'application/json' } })
+    apiFetch('/api/config', { headers: { 'Content-Type': 'application/json' } })
       .then(r => r.json())
       .then(d => setConfig(d.security || {}))
       .catch(() => setConfig({}))

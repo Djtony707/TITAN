@@ -9,7 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { getConfig, updateConfig } from '@/api/client';
+import { getConfig, updateConfig, apiFetch } from '@/api/client';
 
 interface ProviderStatus {
   configured: boolean;
@@ -162,7 +162,7 @@ function IntegrationsPanel() {
           const status = cfg.oauth.google as OAuthStatus;
           // Also check live connection status
           try {
-            const res = await fetch('/api/auth/google/status');
+            const res = await apiFetch('/api/auth/google/status');
             const gs = await res.json() as { connected: boolean; email?: string };
             status.connected = gs.connected;
             status.email = gs.email;
@@ -184,7 +184,7 @@ function IntegrationsPanel() {
 
   const handleGoogleDisconnect = async () => {
     try {
-      await fetch('/api/auth/google/disconnect', { method: 'POST' });
+      await apiFetch('/api/auth/google/disconnect', { method: 'POST' });
       setOAuth((prev) => ({ ...prev, connected: false, email: undefined }));
       showToast('success', 'Google account disconnected');
     } catch {

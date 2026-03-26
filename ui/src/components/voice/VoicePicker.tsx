@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Volume2 } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 export interface VoiceOption {
   id: string;
@@ -75,7 +76,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/voice/voices');
+        const res = await apiFetch('/api/voice/voices');
         if (res.ok) {
           const data = await res.json();
           if (data.voices?.length) {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Network, Trash2, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 interface GraphNode {
   id: string;
@@ -297,7 +298,7 @@ function MemoryGraphPanel() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/graphiti', { headers: { 'Content-Type': 'application/json' } });
+      const res = await apiFetch('/api/graphiti', { headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
       const d = await res.json();
       if (d.nodes?.length) {
@@ -318,7 +319,7 @@ function MemoryGraphPanel() {
   const handleClear = async () => {
     if (!confirm('Clear the entire memory graph? This cannot be undone.')) return;
     try {
-      await fetch('/api/graphiti', { method: 'DELETE' });
+      await apiFetch('/api/graphiti', { method: 'DELETE' });
       fetchData();
       setSelectedNode(null);
     } catch { /* ignore */ }

@@ -21,7 +21,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { getConfig, updateConfig } from '@/api/client';
+import { getConfig, updateConfig, apiFetch } from '@/api/client';
 
 interface ImprovementSession {
   id: string;
@@ -206,7 +206,7 @@ function SelfImprovePanel() {
 
       // Fetch self-improvement history via API
       try {
-        const histRes = await fetch('/api/self-improve/history');
+        const histRes = await apiFetch('/api/self-improve/history');
         if (histRes.ok) {
           const histData = await histRes.json();
           setHistory(histData.sessions || []);
@@ -215,7 +215,7 @@ function SelfImprovePanel() {
 
       // Fetch training runs
       try {
-        const trainRes = await fetch('/api/training/runs');
+        const trainRes = await apiFetch('/api/training/runs');
         if (trainRes.ok) {
           const trainData = await trainRes.json();
           setTrainingRuns(trainData.runs || []);
@@ -225,8 +225,8 @@ function SelfImprovePanel() {
       // Fetch autoresearch results & performance
       try {
         const [arRes, arPerfRes] = await Promise.all([
-          fetch('/api/autoresearch/results'),
-          fetch('/api/autoresearch/performance'),
+          apiFetch('/api/autoresearch/results'),
+          apiFetch('/api/autoresearch/performance'),
         ]);
         if (arRes.ok) {
           const arData = await arRes.json();
@@ -241,8 +241,8 @@ function SelfImprovePanel() {
       // Fetch agent autoresearch results & performance
       try {
         const [agentRes, agentPerfRes] = await Promise.all([
-          fetch('/api/autoresearch/results?type=agent'),
-          fetch('/api/autoresearch/performance?type=agent'),
+          apiFetch('/api/autoresearch/results?type=agent'),
+          apiFetch('/api/autoresearch/performance?type=agent'),
         ]);
         if (agentRes.ok) {
           const data = await agentRes.json();
@@ -312,7 +312,7 @@ function SelfImprovePanel() {
 
   const clearLiveFeed = useCallback(async () => {
     try {
-      await fetch('/api/training/progress', { method: 'DELETE' });
+      await apiFetch('/api/training/progress', { method: 'DELETE' });
       setLiveFeed([]);
     } catch { /* ignore */ }
   }, []);
@@ -341,7 +341,7 @@ function SelfImprovePanel() {
   const handleStartRun = async (area: string) => {
     setRunning(area);
     try {
-      const res = await fetch('/api/message', {
+      const res = await apiFetch('/api/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -371,7 +371,7 @@ function SelfImprovePanel() {
   const handleGenerateData = async () => {
     setGeneratingData(true);
     try {
-      const res = await fetch('/api/autoresearch/generate-data', {
+      const res = await apiFetch('/api/autoresearch/generate-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: trainingType }),
@@ -388,7 +388,7 @@ function SelfImprovePanel() {
   const handleStartTraining = async () => {
     setTrainingModel(true);
     try {
-      const res = await fetch('/api/autoresearch/trigger', {
+      const res = await apiFetch('/api/autoresearch/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: trainingType, config: trainConfig }),
@@ -405,7 +405,7 @@ function SelfImprovePanel() {
   const handleDeployModel = async () => {
     setDeployingModel(true);
     try {
-      const res = await fetch('/api/autoresearch/deploy', {
+      const res = await apiFetch('/api/autoresearch/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: trainingType }),

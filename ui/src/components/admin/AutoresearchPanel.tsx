@@ -3,6 +3,7 @@ import {
   FlaskConical, Trophy, TrendingUp, Clock, Play, Rocket,
   ChevronDown, ChevronRight, Settings2, Pause, RefreshCw,
 } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 interface AutoresearchRun {
   timestamp: string;
@@ -175,7 +176,7 @@ export default function AutoresearchPanel() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/autoresearch/results');
+      const res = await apiFetch('/api/autoresearch/results');
       if (res.ok) {
         const data = await res.json();
         setRuns(data.runs || []);
@@ -206,7 +207,7 @@ export default function AutoresearchPanel() {
   const triggerRun = async () => {
     setTriggering(true);
     try {
-      const res = await fetch('/api/autoresearch/trigger', { method: 'POST' });
+      const res = await apiFetch('/api/autoresearch/trigger', { method: 'POST' });
       if (res.ok) {
         showToast('success', 'Autoresearch experiment started');
       } else {
@@ -221,7 +222,7 @@ export default function AutoresearchPanel() {
 
   const deployBest = async () => {
     try {
-      const res = await fetch('/api/message', {
+      const res = await apiFetch('/api/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
