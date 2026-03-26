@@ -2597,6 +2597,25 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const abortController = new AbortController();
     if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
 
+    // Auto-detect TTS availability — probe Orpheus once at stream start
+    let effectiveTtsEngine = ttsEngine;
+    if (ttsEngine === 'orpheus') {
+      try {
+        const probe = await fetch(`${ttsUrl}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: '.', voice: voiceId, response_format: 'wav' }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!probe.ok) effectiveTtsEngine = 'browser';
+      } catch {
+        effectiveTtsEngine = 'browser';
+        logger.warn(COMPONENT, `Orpheus TTS unreachable at ${ttsUrl} — falling back to browser TTS`);
+      }
+    }
+    // Tell the client which TTS engine is active
+    safeWrite(`event: tts_mode\ndata: ${JSON.stringify({ engine: effectiveTtsEngine })}\n\n`);
+
     // Sentence buffer and sequential TTS queue
     let tokenBuffer = '';
     let sentenceIndex = 0;
@@ -2656,7 +2675,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       // Skip audio if we've exceeded TTS limits (still display text)
       if (index >= MAX_TTS_SENTENCES || totalTtsChars >= MAX_TTS_CHARS) return;
-      if (ttsEngine === 'browser') return;
+      if (effectiveTtsEngine === 'browser') return;
 
       totalTtsChars += clean.length;
 

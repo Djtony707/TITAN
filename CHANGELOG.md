@@ -4,6 +4,20 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.53] — 2026-03-25
+
+### Added
+- **Login page** — Mission Control React SPA now has a proper login page with auth gate when password auth is enabled (dark theme, gradient glow, glassmorphism card)
+- **Auth context** — `useAuth` hook + `AuthProvider` wrapping the app; auto-detects whether auth is required
+- **Voice auth headers** — VoiceOverlay now includes auth token in voice/stream and legacy fallback API calls
+
+### Fixed
+- **Voice: Orpheus TTS auto-fallback** — Voice stream endpoint now probes Orpheus at start; if unreachable, automatically falls back to browser TTS instead of silently failing with no audio
+- **Voice: TTS mode indicator** — VoiceOverlay shows "Orpheus TTS unavailable — using browser voice" when Orpheus is down
+- **Voice: SSE `tts_mode` event** — Server sends TTS engine status to client at stream start so UI can display accurate state
+
+---
+
 ## [2026.10.52] — 2026-03-25
 
 ### Fixed

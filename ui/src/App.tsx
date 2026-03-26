@@ -2,6 +2,8 @@ import { lazy, Suspense, useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router';
 import { Layout } from '@/components/layout/Layout';
 import { ConfigProvider } from '@/hooks/useConfig';
+import { AuthProvider, useAuth } from '@/hooks/useAuth';
+import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
@@ -46,7 +48,7 @@ function AdminPage({ children }: { children: React.ReactNode }) {
   return <div className="p-6 h-full overflow-auto">{children}</div>;
 }
 
-export default function App() {
+function AuthenticatedApp() {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
@@ -110,5 +112,31 @@ export default function App() {
         </Suspense>
       )}
     </ConfigProvider>
+  );
+}
+
+function AuthGate() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#09090b]">
+        <div className="text-[#71717a] text-sm">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }

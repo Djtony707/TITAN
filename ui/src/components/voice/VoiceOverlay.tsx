@@ -83,6 +83,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+  const [ttsMode, setTtsMode] = useState<'orpheus' | 'browser' | null>(null);
 
   const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'];
 
@@ -409,9 +410,13 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       const timeoutId = setTimeout(() => controller.abort(), 60000);
       const voice = selectedVoiceRef.current || 'tara';
 
+      const token = localStorage.getItem('titan-token');
       const res = await fetch('/api/voice/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           content: text,
           sessionId: sessionIdRef.current,
@@ -474,7 +479,9 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
               const evt = currentEvent;
               currentEvent = '';
 
-              if (evt === 'sentence') {
+              if (evt === 'tts_mode') {
+                setTtsMode(data.engine === 'orpheus' ? 'orpheus' : 'browser');
+              } else if (evt === 'sentence') {
                 sentences.push(data.text);
                 displayText = sentences.join(' ');
                 if (!assistantMsgId) {
@@ -581,9 +588,13 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     if (!controller) return;
 
     try {
+      const legacyToken = localStorage.getItem('titan-token');
       const res = await fetch('/api/message', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(legacyToken ? { Authorization: `Bearer ${legacyToken}` } : {}),
+        },
         body: JSON.stringify({ content: text, channel: 'voice', sessionId: sessionIdRef.current }),
         signal: controller.signal,
       });
@@ -817,6 +828,14 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
             >
               {statusText}
             </div>
+            {ttsMode === 'browser' && (
+              <div
+                className="text-xs font-medium mt-1"
+                style={{ color: '#f59e0b' }}
+              >
+                Orpheus TTS unavailable — using browser voice
+              </div>
+            )}
             {errorMsg && (
               <div
                 className="text-xs font-medium mt-1 animate-pulse"
