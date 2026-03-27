@@ -535,6 +535,20 @@ export async function deleteClonedVoice(name: string): Promise<{ ok: boolean }> 
   return request(`/api/voice/clone/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
 
+export async function previewVoice(name: string, text?: string): Promise<ArrayBuffer> {
+  const body = JSON.stringify({
+    text: text || 'Hello, how can I help you today?',
+    voice: name,
+  });
+  const res = await fetch(`${BASE}/api/voice/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body,
+  });
+  if (!res.ok) throw new Error(`Preview failed: ${res.statusText}`);
+  return res.arrayBuffer();
+}
+
 // ---- Auth ----
 
 export async function login(password: string): Promise<{ token: string }> {

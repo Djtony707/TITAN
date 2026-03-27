@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff, Download, Loader2, Square, Play } from 'lucide-react';
-import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus, getQwen3TtsStatus, startQwen3Tts, stopQwen3Tts, getClonedVoices, uploadVoiceReference, deleteClonedVoice, apiFetch } from '@/api/client';
+import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus, getQwen3TtsStatus, startQwen3Tts, stopQwen3Tts, getClonedVoices, uploadVoiceReference, deleteClonedVoice, previewVoice, apiFetch } from '@/api/client';
 import type { ModelInfo } from '@/api/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -171,7 +171,7 @@ function SettingsPanel() {
 
   const TTS_ENGINES = [
     { id: 'orpheus', name: 'Orpheus TTS', desc: 'GPU-accelerated emotional speech', defaultUrl: 'http://localhost:5005', defaultVoices: ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'] },
-    { id: 'qwen3-tts', name: 'Qwen3-TTS', desc: 'Voice cloning, 3s reference audio', defaultUrl: 'http://localhost:5006', defaultVoices: ['default'] },
+    { id: 'qwen3-tts', name: 'Voice Clone', desc: 'Clone any voice from 5s audio (F5-TTS)', defaultUrl: 'http://localhost:5006', defaultVoices: ['default'] },
     { id: 'browser', name: 'Browser TTS', desc: 'Built-in, no server needed', defaultUrl: '', defaultVoices: [] },
   ];
 
@@ -367,7 +367,7 @@ function SettingsPanel() {
               return;
             }
             if (data.step === 'complete') {
-              setQwen3Progress('Qwen3-TTS voice cloning is ready!');
+              setQwen3Progress('Voice cloning is ready! (F5-TTS TTS)');
               setQwen3Installing(false);
               setQwen3Status({ installed: true, running: true, voices: [] });
               return;
@@ -383,9 +383,9 @@ function SettingsPanel() {
     try {
       await startQwen3Tts();
       setQwen3Status(s => s ? { ...s, running: true } : { installed: true, running: true, voices: [] });
-      showToast('success', 'Qwen3-TTS started');
+      showToast('success', 'Voice cloning started');
     } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to start Qwen3-TTS');
+      showToast('error', e instanceof Error ? e.message : 'Failed to start voice cloning');
     }
   };
 
@@ -393,9 +393,9 @@ function SettingsPanel() {
     try {
       await stopQwen3Tts();
       setQwen3Status(s => s ? { ...s, running: false } : { installed: true, running: false, voices: [] });
-      showToast('success', 'Qwen3-TTS stopped');
+      showToast('success', 'Voice cloning stopped');
     } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to stop Qwen3-TTS');
+      showToast('error', e instanceof Error ? e.message : 'Failed to stop voice cloning');
     }
   };
 
@@ -416,8 +416,9 @@ function SettingsPanel() {
       try {
         const arrayBuf = await file.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
-        await uploadVoiceReference(voiceName, base64, transcript);
-        showToast('success', `Voice "${voiceName}" uploaded! Select it from the voice list.`);
+        const result = await uploadVoiceReference(voiceName, base64, transcript);
+        const duration = (result as any)?.duration ? ` Duration: ${(result as any).duration}s,` : '';
+        showToast('success', `Voice "${voiceName}" uploaded!${duration} preprocessed and normalized.`);
         // Refresh voices
         const updated = await getClonedVoices();
         setClonedVoices(updated.voices || []);
@@ -430,6 +431,26 @@ function SettingsPanel() {
       }
     };
     input.click();
+  };
+
+  const handlePreviewVoice = async (name: string) => {
+    try {
+      showToast('success', `Generating preview for "${name}"...`);
+      const testSentences = [
+        'Hello, how can I help you today?',
+        'I am ready to assist you with anything you need.',
+        'Good morning. It is a pleasure to be of service.',
+      ];
+      const text = testSentences[Math.floor(Math.random() * testSentences.length)];
+      const res = await previewVoice(name, text);
+      const blob = new Blob([res], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to preview voice');
+    }
   };
 
   const handleDeleteVoice = async (name: string) => {
@@ -710,7 +731,7 @@ function SettingsPanel() {
               </div>
             )}
 
-            {/* Qwen3-TTS Voice Cloning Setup/Status */}
+            {/* Voice Cloning (F5-TTS TTS) Setup/Status */}
             {ttsEngine === 'qwen3-tts' && (
               <div className="mt-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 space-y-4">
                 {qwen3Installing ? (
@@ -718,7 +739,7 @@ function SettingsPanel() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 text-[#a855f7] animate-spin" />
-                      <span className="text-sm font-medium text-[#fafafa]">Installing Qwen3-TTS...</span>
+                      <span className="text-sm font-medium text-[#fafafa]">Installing Voice Cloning...</span>
                     </div>
                     <div className="rounded-lg bg-[#09090b] border border-[#27272a] p-3">
                       <p className="text-xs text-[#a1a1aa] font-mono break-all">{qwen3Progress}</p>
@@ -730,7 +751,7 @@ function SettingsPanel() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
-                        <span className="text-sm text-[#fafafa]">Qwen3-TTS Voice Cloning Running</span>
+                        <span className="text-sm text-[#fafafa]">Voice Cloning Running (F5-TTS)</span>
                       </div>
                       <button
                         onClick={handleQwen3Stop}
@@ -754,6 +775,7 @@ function SettingsPanel() {
                           Upload Voice
                         </button>
                       </div>
+                      <p className="text-[10px] text-[#52525b] leading-relaxed">Upload 5-10 seconds of clear speech. No background noise or music. Adding a transcript significantly improves quality.</p>
                       {clonedVoices.length > 0 ? (
                         <div className="space-y-1.5">
                           {clonedVoices.map(v => (
@@ -764,13 +786,22 @@ function SettingsPanel() {
                                 <span className="text-[9px] text-[#52525b]">{(v.sizeBytes / 1024).toFixed(0)}KB</span>
                                 {v.hasTranscript && <span className="rounded bg-[#22c55e]/15 px-1 py-0.5 text-[8px] text-[#22c55e]">transcript</span>}
                               </div>
-                              <button
-                                onClick={() => handleDeleteVoice(v.name)}
-                                className="text-[#52525b] hover:text-[#ef4444] transition-colors"
-                                title="Delete voice"
-                              >
-                                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handlePreviewVoice(v.name)}
+                                  className="text-[#52525b] hover:text-[#a855f7] transition-colors"
+                                  title="Preview voice"
+                                >
+                                  <Play className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteVoice(v.name)}
+                                  className="text-[#52525b] hover:text-[#ef4444] transition-colors"
+                                  title="Delete voice"
+                                >
+                                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -781,26 +812,76 @@ function SettingsPanel() {
                   </div>
                 ) : qwen3Status?.installed && !qwen3Status?.running ? (
                   /* Stopped state */
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-[#f59e0b] shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
-                      <span className="text-sm text-[#fafafa]">Qwen3-TTS Stopped</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-[#f59e0b] shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
+                        <span className="text-sm text-[#fafafa]">Voice Cloning Stopped</span>
+                      </div>
+                      <button
+                        onClick={handleQwen3Start}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#22c55e] border border-[#3f3f46] hover:border-[#22c55e]/50 hover:bg-[#22c55e]/10 transition-colors"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        Start
+                      </button>
                     </div>
-                    <button
-                      onClick={handleQwen3Start}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#22c55e] border border-[#3f3f46] hover:border-[#22c55e]/50 hover:bg-[#22c55e]/10 transition-colors"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      Start
-                    </button>
+
+                    {/* Voice Library (visible even when stopped) */}
+                    <div className="rounded-lg border border-[#27272a] bg-[#09090b] p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-[#a1a1aa]">Cloned Voices</p>
+                        <button
+                          onClick={handleVoiceUpload}
+                          disabled={uploadingVoice}
+                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#a855f7] border border-[#3f3f46] hover:border-[#a855f7]/50 hover:bg-[#a855f7]/10 transition-colors disabled:opacity-50"
+                        >
+                          {uploadingVoice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 rotate-180" />}
+                          Upload Voice
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-[#52525b] leading-relaxed">Upload 5-10 seconds of clear speech. No background noise or music. Adding a transcript significantly improves quality.</p>
+                      {clonedVoices.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {clonedVoices.map(v => (
+                            <div key={v.name} className="flex items-center justify-between rounded-lg border border-[#27272a] px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <Mic className="h-3.5 w-3.5 text-[#a855f7]" />
+                                <span className="text-sm text-[#fafafa] capitalize">{v.name}</span>
+                                <span className="text-[9px] text-[#52525b]">{(v.sizeBytes / 1024).toFixed(0)}KB</span>
+                                {v.hasTranscript && <span className="rounded bg-[#22c55e]/15 px-1 py-0.5 text-[8px] text-[#22c55e]">transcript</span>}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handlePreviewVoice(v.name)}
+                                  className="text-[#52525b] hover:text-[#a855f7] transition-colors"
+                                  title="Preview voice"
+                                >
+                                  <Play className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteVoice(v.name)}
+                                  className="text-[#52525b] hover:text-[#ef4444] transition-colors"
+                                  title="Delete voice"
+                                >
+                                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[#52525b]">No cloned voices yet. Upload a 5-10 second WAV reference to clone any voice.</p>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   /* Not installed state */
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-[#fafafa]">Qwen3-TTS Voice Cloning</p>
-                        <p className="text-xs text-[#52525b] mt-0.5">~1.2GB download, Apple Silicon optimized, clone any voice from 3s audio</p>
+                        <p className="text-sm font-medium text-[#fafafa]">Voice Cloning (F5-TTS TTS)</p>
+                        <p className="text-xs text-[#52525b] mt-0.5">~300MB download, Apple Silicon native via MLX, clone any voice from 5-10s audio</p>
                       </div>
                       <button
                         onClick={handleQwen3Setup}

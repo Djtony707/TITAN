@@ -4,6 +4,31 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.60] — 2026-03-26
+
+### Added
+- **F5-TTS Voice Cloning** — replaced Qwen3-TTS with F5-TTS (MLX native), dramatically better voice quality with zero-shot cloning, auto-preprocessing on upload (normalize to -23 LUFS, de-ess, trim silence), voice preview button in Settings
+- **File Upload System** — `POST /api/files/upload` (50MB limit), `GET /api/files/uploads`, `DELETE /api/files/uploads/:name`, session-scoped upload directories, 2 new agent tools (`list_uploads`, `read_upload`)
+- **Conversation Search** — `GET /api/sessions/search?q=keyword` full-text search across all sessions
+- **Conversation Export** — `GET /api/sessions/:id/export?format=json|markdown` download as file
+- **Usage Tracking** — `GET /api/usage?hours=24` per-model token counts, estimated costs (supports 9 model families), avg latency
+- **API Documentation** — updated OpenAPI spec and /docs page with all new endpoints
+
+### Security
+- **WebSocket session isolation** — messages only broadcast to same user's connections, not all clients
+- **Auth bypass fix** — token mode with no token configured now denies requests instead of allowing all
+- **Session ownership tracking** — infrastructure for per-user session access control
+- **Filesystem path allowlist** — blocks access to /etc, /root, .ssh, .env, system directories
+- **Shell command validation** — blocks dangerous patterns (rm -rf /, fork bombs, format commands)
+- **Log sanitization** — `/api/logs` strips Authorization headers, API keys, passwords, secrets
+- **WebSocket message size limit** — rejects messages > 10MB to prevent OOM
+
+### Fixed
+- **Health monitor crash** — async setInterval wrapped in try/catch to prevent unhandled rejections
+- **Abort controller TTL** — orphaned controllers cleaned up after 5 minutes instead of only on abort
+
+---
+
 ## [2026.10.59] — 2026-03-25
 
 ### Added

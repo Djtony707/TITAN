@@ -4,7 +4,34 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
+import { homedir } from 'os';
 import { registerSkill } from '../registry.js';
+
+/** S4: Block access to sensitive system paths */
+const BLOCKED_PATHS = ['/etc', '/root', '/sys', '/proc', '/dev', '/boot', '/var/log', '/var/run'];
+const BLOCKED_PATTERNS = ['.ssh', '.gnupg', '.aws', '.env', 'id_rsa', 'id_ed25519', '.netrc', '.npmrc'];
+
+function validatePath(filePath: string): string | null {
+    const resolved = resolve(filePath);
+    const home = homedir();
+    // Allow access within home directory and /tmp only
+    if (!resolved.startsWith(home) && !resolved.startsWith('/tmp')) {
+        return `Access denied: path must be within home directory or /tmp`;
+    }
+    // Block sensitive paths even within home
+    for (const pattern of BLOCKED_PATTERNS) {
+        if (resolved.includes(pattern)) {
+            return `Access denied: cannot access ${pattern} files`;
+        }
+    }
+    // Block system directories
+    for (const blocked of BLOCKED_PATHS) {
+        if (resolved.startsWith(blocked)) {
+            return `Access denied: cannot access system directory ${blocked}`;
+        }
+    }
+    return null; // valid
+}
 
 export function registerFilesystemSkill(): void {
     // Read File
@@ -24,6 +51,8 @@ export function registerFilesystemSkill(): void {
             },
             execute: async (args) => {
                 const filePath = resolve(args.path as string);
+                const pathErr = validatePath(filePath);
+                if (pathErr) return pathErr;
                 if (!existsSync(filePath)) return `Error: File not found: ${filePath}`;
                 try {
                     const content = readFileSync(filePath, 'utf-8');
@@ -53,6 +82,8 @@ export function registerFilesystemSkill(): void {
             },
             execute: async (args) => {
                 const filePath = resolve(args.path as string);
+                const pathErr = validatePath(filePath);
+                if (pathErr) return pathErr;
                 try {
                     const dir = join(filePath, '..');
                     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -80,6 +111,8 @@ export function registerFilesystemSkill(): void {
             },
             execute: async (args) => {
                 const filePath = resolve(args.path as string);
+                const pathErr2 = validatePath(filePath);
+                if (pathErr2) return pathErr2;
                 if (!existsSync(filePath)) return `Error: File not found: ${filePath}`;
                 try {
                     let content = readFileSync(filePath, 'utf-8');
@@ -109,6 +142,8 @@ export function registerFilesystemSkill(): void {
             },
             execute: async (args) => {
                 const dirPath = resolve(args.path as string);
+                const dirErr = validatePath(dirPath);
+                if (dirErr) return dirErr;
                 if (!existsSync(dirPath)) return `Error: Directory not found: ${dirPath}`;
                 try {
                     const entries = readdirSync(dirPath, { withFileTypes: true });
@@ -123,6 +158,76 @@ export function registerFilesystemSkill(): void {
                     });
                     return `Directory: ${dirPath}\n${lines.join('\n')}`;
                 } catch (e) { return `Error listing directory: ${(e as Error).message}`; }
+            },
+        },
+    );
+
+    // List Uploaded Files
+    registerSkill(
+        { name: 'list_uploads', description: 'List uploaded files for a session', version: '1.0.0', source: 'bundled', enabled: true },
+        {
+            name: 'list_uploads',
+            description: 'List files uploaded by the user in the current session.\n\nUSE THIS WHEN user mentions "my file", "the file I uploaded", "uploaded document", or wants to work with an attachment.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    session: { type: 'string', description: 'Session ID (defaults to "default")' },
+                },
+            },
+            execute: async (args) => {
+                const uploadsDir = join(homedir(), '.titan', 'uploads', (args.session as string) || 'default');
+                if (!existsSync(uploadsDir)) return 'No files uploaded yet in this session.';
+                try {
+                    const entries = readdirSync(uploadsDir);
+                    if (entries.length === 0) return 'No files uploaded yet in this session.';
+                    const lines = entries.map(name => {
+                        const stat = statSync(join(uploadsDir, name));
+                        const size = stat.size < 1024 ? `${stat.size}B` : `${(stat.size / 1024).toFixed(1)}KB`;
+                        return `📎 ${name} (${size})`;
+                    });
+                    return `Uploaded files:\n${lines.join('\n')}`;
+                } catch (e) { return `Error: ${(e as Error).message}`; }
+            },
+        },
+    );
+
+    // Read Uploaded File
+    registerSkill(
+        { name: 'read_upload', description: 'Read an uploaded file', version: '1.0.0', source: 'bundled', enabled: true },
+        {
+            name: 'read_upload',
+            description: 'Read the contents of a file uploaded by the user.\n\nUSE THIS WHEN user asks about the contents of a file they uploaded, or says "read my file", "what does the file say", "analyze this document".\n\nSupports: text, CSV, JSON, and other text-based formats. For binary files (PDF, images), returns metadata.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filename: { type: 'string', description: 'Name of the uploaded file' },
+                    session: { type: 'string', description: 'Session ID (defaults to "default")' },
+                },
+                required: ['filename'],
+            },
+            execute: async (args) => {
+                const uploadsDir = join(homedir(), '.titan', 'uploads', (args.session as string) || 'default');
+                const filePath = join(uploadsDir, (args.filename as string).replace(/[^a-zA-Z0-9._-]/g, '_'));
+
+                if (!filePath.startsWith(uploadsDir)) return 'Access denied';
+                if (!existsSync(filePath)) return `File not found: ${args.filename}`;
+
+                const stat = statSync(filePath);
+                const ext = (args.filename as string).split('.').pop()?.toLowerCase() || '';
+                const textExts = ['txt', 'md', 'csv', 'json', 'xml', 'html', 'js', 'ts', 'py', 'yaml', 'yml', 'toml', 'ini', 'log', 'sql', 'sh', 'env'];
+
+                if (textExts.includes(ext) || stat.size < 100000) {
+                    try {
+                        const content = readFileSync(filePath, 'utf-8');
+                        if (content.length > 50000) {
+                            return `File: ${args.filename} (${(stat.size / 1024).toFixed(1)}KB)\n---\n${content.slice(0, 50000)}\n\n... [truncated, ${content.length} chars total]`;
+                        }
+                        return `File: ${args.filename} (${(stat.size / 1024).toFixed(1)}KB)\n---\n${content}`;
+                    } catch {
+                        return `Binary file: ${args.filename} (${(stat.size / 1024).toFixed(1)}KB, .${ext}). Cannot display as text.`;
+                    }
+                }
+                return `Binary file: ${args.filename} (${(stat.size / 1024).toFixed(1)}KB, .${ext}). Use a specialized tool to process this file type.`;
             },
         },
     );

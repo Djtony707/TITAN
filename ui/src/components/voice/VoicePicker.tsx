@@ -63,18 +63,18 @@ interface VoicePickerProps {
 }
 
 export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerProps) {
-  const [voices, setVoices] = useState<VoiceOption[]>(() =>
-    buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'])
-  );
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const startX = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch voices from API
+  // Fetch voices from API based on current TTS engine
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const res = await apiFetch('/api/voice/voices');
         if (res.ok) {
@@ -87,9 +87,18 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
               const idx = opts.findIndex(v => v.id === currentVoice);
               if (idx >= 0) setActiveIdx(idx);
             }
+          } else {
+            // Fallback to Orpheus defaults
+            setVoices(buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']));
           }
+        } else {
+          setVoices(buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']));
         }
-      } catch { /* voice server offline — keep defaults */ }
+      } catch {
+        setVoices(buildVoiceOptions(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']));
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -132,6 +141,15 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
     else if (dragOffset < -60) next();
     setDragOffset(0);
   };
+
+  if (loading || voices.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full select-none">
+        <div className="w-8 h-8 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm text-[#71717a]">Loading voices...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-full select-none">

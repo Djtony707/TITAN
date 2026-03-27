@@ -84,9 +84,8 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
-  const [ttsMode, setTtsMode] = useState<'orpheus' | 'browser' | null>(null);
-
-  const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'];
+  const [ttsMode, setTtsMode] = useState<'orpheus' | 'qwen3-tts' | 'browser' | null>(null);
+  const [availableVoices, setAvailableVoices] = useState<string[]>([]);
 
   const recognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -110,6 +109,33 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  // Fetch available voices from API (respects current TTS engine)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/api/voice/voices');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.voices?.length) {
+            setAvailableVoices(data.voices);
+            setTtsMode(data.engine || 'orpheus');
+            // If saved voice isn't in the new list, switch to first available
+            if (savedVoice && !data.voices.includes(savedVoice)) {
+              const newVoice = data.voices[0];
+              setSelectedVoice(newVoice);
+              selectedVoiceRef.current = newVoice;
+              localStorage.setItem('titan-voice', newVoice);
+            }
+          } else {
+            setAvailableVoices(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
+          }
+        }
+      } catch {
+        setAvailableVoices(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate in
   useEffect(() => {
@@ -479,7 +505,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
               currentEvent = '';
 
               if (evt === 'tts_mode') {
-                setTtsMode(data.engine === 'orpheus' ? 'orpheus' : 'browser');
+                setTtsMode(data.engine || 'browser');
               } else if (evt === 'sentence') {
                 sentences.push(data.text);
                 displayText = sentences.join(' ');
@@ -830,7 +856,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
                 className="text-xs font-medium mt-1"
                 style={{ color: '#f59e0b' }}
               >
-                Orpheus TTS unavailable — using browser voice
+                TTS server unavailable — using browser voice
               </div>
             )}
             {errorMsg && (
@@ -861,7 +887,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
                   className="absolute left-1/2 -translate-x-1/2 mt-1 rounded-xl border border-[#27272a] bg-[#18181b]/95 backdrop-blur-sm p-1.5 shadow-xl z-30"
                   style={{ minWidth: 180 }}
                 >
-                  {ORPHEUS_VOICES.map(v => {
+                  {availableVoices.map(v => {
                     const info = getVoiceInfo(v);
                     const isActive = v === (selectedVoice || 'tara');
                     return (

@@ -26,3 +26,7 @@ benchmarks/runs/
 
 # Personal skills — private, never committed
 src/skills/personal/
+
+# Voice clone references — user-specific, never committed
+**/voices/*.wav
+**/voices/*.txt

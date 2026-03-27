@@ -249,8 +249,8 @@ export const VoiceConfigSchema = z.object({
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */
     ttsVoice: z.string().default('tara'),
-    /** TTS engine: orpheus | browser */
-    ttsEngine: z.enum(['orpheus', 'browser']).default('orpheus'),
+    /** TTS engine: orpheus | qwen3-tts | fish-speech | browser */
+    ttsEngine: z.enum(['orpheus', 'qwen3-tts', 'fish-speech', 'browser']).default('orpheus'),
     /** TTS server URL (Orpheus: 5005) */
     ttsUrl: z.string().default('http://localhost:5005'),
     /** STT engine: faster-whisper | nemotron-asr | openai */

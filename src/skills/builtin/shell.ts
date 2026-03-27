@@ -8,8 +8,37 @@ import logger from '../../utils/logger.js';
 
 const COMPONENT = 'Shell';
 
+/** S5: Dangerous command patterns that should be blocked */
+const BLOCKED_COMMANDS = [
+    /\brm\s+(-[rfRF]+\s+)?\/(?!\w)/,  // rm -rf / (but allow rm -rf /tmp/foo)
+    /\bdd\b.*\bof\s*=\s*\/dev/,        // dd to devices
+    /\bmkfs\b/,                         // format filesystems
+    /\bformat\b.*\/dev/,               // format devices
+    /\bshutdown\b/,                    // system shutdown
+    /\breboot\b/,                      // system reboot
+    /\bchmod\s+777\s+\//,             // chmod 777 on root
+    /\bchown\s+.*\s+\//,              // chown on root
+    /:\(\)\{.*:\|:.*\}/,              // fork bomb
+];
+
+function validateCommand(command: string): string | null {
+    for (const pattern of BLOCKED_COMMANDS) {
+        if (pattern.test(command)) {
+            logger.warn(COMPONENT, `Blocked dangerous command: ${command.slice(0, 100)}`);
+            return `Command blocked: this pattern is not allowed for security reasons`;
+        }
+    }
+    return null;
+}
+
 /** Execute a shell command and return output */
 function executeCommand(command: string, cwd?: string, timeout: number = 30000): Promise<string> {
+    // S5: Validate command before execution
+    const cmdErr = validateCommand(command);
+    if (cmdErr) return Promise.resolve(cmdErr);
+
+    logger.info(COMPONENT, `Executing: ${command.slice(0, 200)}`);
+
     return new Promise((resolve, reject) => {
         exec(command, {
             cwd: cwd || process.cwd(),

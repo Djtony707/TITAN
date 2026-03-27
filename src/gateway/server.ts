@@ -116,16 +116,90 @@ export function stopGateway(): Promise<void> {
     });
 }
 
+/** Usage tracking — per-request cost/token tracking */
+interface UsageEntry {
+  timestamp: string;
+  model: string;
+  provider: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  durationMs: number;
+  sessionId: string;
+}
+const usageLog: UsageEntry[] = [];
+const MAX_USAGE_LOG = 10000; // Keep last 10K entries in memory
+
+// Approximate cost per 1M tokens (input/output) for common models
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  'claude-sonnet': { input: 3, output: 15 },
+  'claude-haiku': { input: 0.25, output: 1.25 },
+  'claude-opus': { input: 15, output: 75 },
+  'gpt-4o': { input: 2.5, output: 10 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'gpt-4-turbo': { input: 10, output: 30 },
+  'ollama': { input: 0, output: 0 }, // local = free
+  'groq': { input: 0.05, output: 0.08 },
+  'deepseek': { input: 0.14, output: 0.28 },
+};
+
+function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
+  const key = Object.keys(MODEL_COSTS).find(k => model.toLowerCase().includes(k));
+  if (!key) return 0;
+  const rates = MODEL_COSTS[key];
+  return (promptTokens * rates.input + completionTokens * rates.output) / 1_000_000;
+}
+
+function trackUsage(model: string, tokenUsage: { prompt?: number; completion?: number } | undefined, durationMs: number, sessionId: string): void {
+  if (!tokenUsage) return;
+  const prompt = tokenUsage.prompt || 0;
+  const completion = tokenUsage.completion || 0;
+  const provider = model.includes('/') ? model.split('/')[0] : 'unknown';
+  const entry: UsageEntry = {
+    timestamp: new Date().toISOString(),
+    model,
+    provider,
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens: prompt + completion,
+    estimatedCostUsd: estimateCost(model, prompt, completion),
+    durationMs,
+    sessionId,
+  };
+  usageLog.push(entry);
+  if (usageLog.length > MAX_USAGE_LOG) usageLog.splice(0, usageLog.length - MAX_USAGE_LOG);
+}
+
 /** Active session tokens (in-memory, cleared on restart) */
-const authTokens = new Map<string, { createdAt: number }>();
+const authTokens = new Map<string, { createdAt: number; userId: string }>();
+
+/** S3: Get userId from request auth token */
+function getUserIdFromReq(req: { headers: { authorization?: string } }): string {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) {
+    const entry = authTokens.get(token);
+    if (entry) return entry.userId;
+  }
+  return 'default-user';
+}
 
 // Active session abort controllers — keyed by sessionId
 const sessionAborts = new Map<string, AbortController>();
+// R8: Track abort controller creation time for TTL-based cleanup
+const sessionAbortTimes = new Map<string, number>();
 
-// Periodic cleanup of orphaned abort controllers
+// S3: Track session ownership — sessionId → userId
+const sessionOwners = new Map<string, string>();
+
+// R8: Periodic cleanup of orphaned abort controllers (TTL 5 min)
 setInterval(() => {
+    const now = Date.now();
     for (const [id, controller] of sessionAborts) {
-        if (controller.signal.aborted) sessionAborts.delete(id);
+        if (controller.signal.aborted || (now - (sessionAbortTimes.get(id) || 0)) > 300_000) {
+            sessionAborts.delete(id);
+            sessionAbortTimes.delete(id);
+        }
     }
 }, 60_000).unref();
 
@@ -150,8 +224,14 @@ function isValidToken(token: string | undefined, config: ReturnType<typeof loadC
   const auth = config.gateway.auth;
   if (!auth || auth.mode === 'none') return true;
   if (!token) return false;
-  // No token configured = auth not set up yet, allow access
-  if (auth.mode === 'token') return auth.token ? safeCompare(token, auth.token) : true;
+  // S2: If token mode but no token configured, log warning and deny (don't silently allow)
+  if (auth.mode === 'token') {
+    if (!auth.token) {
+      logger.warn(COMPONENT, 'Auth mode is "token" but no token configured — denying request. Set gateway.auth.token or switch to mode "password".');
+      return false;
+    }
+    return safeCompare(token, auth.token);
+  }
   if (auth.mode === 'password') {
     const entry = authTokens.get(token);
     if (!entry) return false;
@@ -230,16 +310,23 @@ document.getElementById('pw').focus();
 const channels: Map<string, ChannelAdapter> = new Map();
 
 /** All connected WebSocket clients */
-const wsClients: Set<WebSocket> = new Set();
+interface TaggedWebSocket extends WebSocket {
+  titanSessionId?: string;
+  titanUserId?: string;
+}
+const wsClients: Set<TaggedWebSocket> = new Set();
+const WS_MAX_MESSAGE_BYTES = 10 * 1024 * 1024; // 10MB max WS message
 
 /** The WebChat channel instance */
 let webChatChannel: WebChatChannel | null = null;
 
-/** Broadcast a message to all WebSocket clients */
-function broadcast(data: Record<string, unknown>): void {
+/** Broadcast a message to WebSocket clients. If userId is specified, only sends to that user's connections. */
+function broadcast(data: Record<string, unknown>, userId?: string): void {
   const json = JSON.stringify(data);
   for (const client of wsClients) {
     if (client.readyState === WebSocket.OPEN) {
+      // Session isolation: if userId specified, only send to matching clients
+      if (userId && (client as TaggedWebSocket).titanUserId && (client as TaggedWebSocket).titanUserId !== userId) continue;
       try {
         client.send(json);
       } catch (err) {
@@ -493,7 +580,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (auth.mode === 'token' && auth.token && password && safeCompare(password, auth.token)) valid = true;
     if (!valid) { res.status(401).json({ error: 'Invalid password' }); return; }
     const token = randomBytes(32).toString('hex');
-    authTokens.set(token, { createdAt: Date.now() });
+    authTokens.set(token, { createdAt: Date.now(), userId: `user-${token.slice(0, 8)}` });
     res.json({ token });
   });
 
@@ -564,6 +651,67 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.get('/api/sessions', (_req, res) => {
     const sessions = listSessions();
     res.json(sessions);
+  });
+
+  // Conversation search — full-text search across all sessions
+  app.get('/api/sessions/search', (req, res) => {
+    const query = (req.query.q as string || '').toLowerCase().trim();
+    if (!query || query.length < 2) { res.status(400).json({ error: 'Query must be at least 2 characters' }); return; }
+    try {
+      const sessions = listSessions();
+      const results: Array<{ sessionId: string; sessionName: string; role: string; content: string; timestamp: string }> = [];
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      for (const session of sessions) {
+        const history = getHistory(session.id, 1000);
+        for (const msg of history) {
+          if (msg.content.toLowerCase().includes(query)) {
+            results.push({
+              sessionId: session.id,
+              sessionName: session.name || session.id.slice(0, 8),
+              role: msg.role,
+              content: msg.content.slice(0, 200),
+              timestamp: msg.timestamp || '',
+            });
+            if (results.length >= limit) break;
+          }
+        }
+        if (results.length >= limit) break;
+      }
+      res.json({ query, results, total: results.length });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Conversation export — download session as JSON or markdown
+  app.get('/api/sessions/:id/export', (req, res) => {
+    const sessionId = req.params.id;
+    const format = (req.query.format as string) || 'json';
+    try {
+      const history = getHistory(sessionId, 10000);
+      if (!history || history.length === 0) { res.status(404).json({ error: 'Session not found or empty' }); return; }
+
+      if (format === 'markdown' || format === 'md') {
+        const sessions = listSessions();
+        const session = sessions.find(s => s.id === sessionId);
+        const title = session?.name || sessionId.slice(0, 8);
+        let md = `# ${title}\n\nExported: ${new Date().toISOString()}\n\n---\n\n`;
+        for (const msg of history) {
+          const role = msg.role === 'user' ? '**You**' : '**TITAN**';
+          md += `${role} (${msg.timestamp || ''}):\n\n${msg.content}\n\n---\n\n`;
+        }
+        res.setHeader('Content-Type', 'text/markdown');
+        res.setHeader('Content-Disposition', `attachment; filename="titan-${sessionId.slice(0, 8)}.md"`);
+        res.send(md);
+      } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="titan-${sessionId.slice(0, 8)}.json"`);
+        res.json({ sessionId, exportedAt: new Date().toISOString(), messages: history });
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   app.get('/api/sessions/:id', (req, res) => {
@@ -967,7 +1115,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Set up abort controller for this request
     const abortController = new AbortController();
-    if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
+    if (requestedSessionId) {
+      sessionAborts.set(requestedSessionId, abortController);
+      sessionAbortTimes.set(requestedSessionId, Date.now());
+      // S3: Track session ownership
+      if (!sessionOwners.has(requestedSessionId)) {
+        sessionOwners.set(requestedSessionId, getUserIdFromReq(req));
+      }
+    }
 
     // Check slash commands first (same as handleInboundMessage)
     try {
@@ -1069,6 +1224,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           if (response.tokenUsage.completion) titanTokensTotal.increment({ type: 'completion' }, response.tokenUsage.completion);
         }
         if (response.model) titanModelRequestsTotal.increment({ model: response.model, provider: 'default' });
+        trackUsage(response.model || 'unknown', response.tokenUsage, response.durationMs || 0, response.sessionId || '');
         if (!clientDisconnected) {
           safeWrite(`event: done\ndata: ${JSON.stringify({ content: response.content, sessionId: response.sessionId, durationMs: response.durationMs, model: response.model, toolsUsed: response.toolsUsed })}\n\n`);
           try { res.end(); } catch { /* client gone */ }
@@ -1084,6 +1240,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           if (response.tokenUsage.completion) titanTokensTotal.increment({ type: 'completion' }, response.tokenUsage.completion);
         }
         if (response.model) titanModelRequestsTotal.increment({ model: response.model, provider: 'default' });
+        trackUsage(response.model || 'unknown', response.tokenUsage, response.durationMs || 0, response.sessionId || '');
         res.json(response);
       }
     } catch (error) {
@@ -1146,6 +1303,43 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Cost optimizer endpoint for Mission Control
   app.get('/api/costs', (_req, res) => {
     res.json(getCostStatus());
+  });
+
+  // Usage tracking — per-model cost breakdown
+  app.get('/api/usage', (req, res) => {
+    const hours = parseInt(req.query.hours as string) || 24;
+    const cutoff = new Date(Date.now() - hours * 3600_000).toISOString();
+    const recent = usageLog.filter(e => e.timestamp >= cutoff);
+
+    // Aggregate by model
+    const byModel: Record<string, { requests: number; promptTokens: number; completionTokens: number; totalTokens: number; estimatedCostUsd: number; avgDurationMs: number }> = {};
+    for (const e of recent) {
+      if (!byModel[e.model]) byModel[e.model] = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCostUsd: 0, avgDurationMs: 0 };
+      const m = byModel[e.model];
+      m.requests++;
+      m.promptTokens += e.promptTokens;
+      m.completionTokens += e.completionTokens;
+      m.totalTokens += e.totalTokens;
+      m.estimatedCostUsd += e.estimatedCostUsd;
+      m.avgDurationMs = (m.avgDurationMs * (m.requests - 1) + e.durationMs) / m.requests;
+    }
+
+    // Round costs
+    for (const m of Object.values(byModel)) {
+      m.estimatedCostUsd = Math.round(m.estimatedCostUsd * 10000) / 10000;
+      m.avgDurationMs = Math.round(m.avgDurationMs);
+    }
+
+    const totalCost = Object.values(byModel).reduce((sum, m) => sum + m.estimatedCostUsd, 0);
+
+    res.json({
+      period: `${hours}h`,
+      totalRequests: recent.length,
+      totalTokens: recent.reduce((sum, e) => sum + e.totalTokens, 0),
+      estimatedCostUsd: Math.round(totalCost * 10000) / 10000,
+      byModel,
+      recentEntries: recent.slice(-20), // Last 20 for detail view
+    });
   });
 
   // Update System endpoints
@@ -1514,7 +1708,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // If we started mid-line, drop the first partial line
       const lines = stats.size > readSize ? all.slice(1) : all;
       const tail = lines.slice(-Math.max(1, lineCount));
-      res.json({ lines: tail });
+      // S6: Sanitize logs — strip potential secrets before returning
+      const sanitized = tail.map(line =>
+        line
+          .replace(/Authorization:\s*Bearer\s+\S+/gi, 'Authorization: Bearer [REDACTED]')
+          .replace(/token[=:]\s*["']?\w{20,}["']?/gi, 'token=[REDACTED]')
+          .replace(/api[_-]?key[=:]\s*["']?\w{10,}["']?/gi, 'api_key=[REDACTED]')
+          .replace(/password[=:]\s*["']?[^\s"',]+["']?/gi, 'password=[REDACTED]')
+          .replace(/secret[=:]\s*["']?\w{10,}["']?/gi, 'secret=[REDACTED]')
+      );
+      res.json({ lines: sanitized });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -2032,6 +2235,68 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── File Upload API ─────────────────────────────────────
+  const UPLOADS_DIR = join(homedir(), '.titan', 'uploads');
+
+  app.post('/api/files/upload', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+    try {
+      const fileName = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
+      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+      const sessionId = (req.headers['x-session-id'] as string) || 'default';
+
+      // Create session-specific upload dir
+      const sessionDir = join(UPLOADS_DIR, sessionId);
+      if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+
+      const filePath = join(sessionDir, safeName);
+      fs.writeFileSync(filePath, req.body as Buffer);
+
+      const stat = fs.statSync(filePath);
+      logger.info(COMPONENT, `File uploaded: ${safeName} (${(stat.size / 1024).toFixed(0)}KB) → session ${sessionId}`);
+
+      res.json({
+        ok: true,
+        file: {
+          name: safeName,
+          path: filePath,
+          size: stat.size,
+          session: sessionId,
+          uploadedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/files/uploads', (req, res) => {
+    try {
+      const sessionId = (req.query.session as string) || 'default';
+      const sessionDir = join(UPLOADS_DIR, sessionId);
+      if (!fs.existsSync(sessionDir)) { res.json({ files: [] }); return; }
+
+      const files = fs.readdirSync(sessionDir).map(name => {
+        const stat = fs.statSync(join(sessionDir, name));
+        return { name, size: stat.size, modified: stat.mtime.toISOString() };
+      });
+      res.json({ files, session: sessionId });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/files/uploads/:name', (req, res) => {
+    try {
+      const sessionId = (req.query.session as string) || 'default';
+      const filePath = join(UPLOADS_DIR, sessionId, req.params.name.replace(/[^a-zA-Z0-9._-]/g, '_'));
+      if (!filePath.startsWith(UPLOADS_DIR)) { res.status(403).json({ error: 'Access denied' }); return; }
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── Audit API ────────────────────────────────────────────
 
   app.get('/api/audit', (req, res) => {
@@ -2463,17 +2728,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         results[key] = resp.ok || resp.status < 500;
       } catch { results[key] = false; }
     }));
-    // TTS health check — try /health first, then /v1/audio/speech probe (Orpheus)
+    // TTS health check — /health endpoint (F5-TTS, etc.) or speech probe (Orpheus fallback)
     try {
-      let resp = await fetch(`${ttsUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      const healthUrl = ttsEngine === 'qwen3-tts' ? `http://localhost:5006/health` : `${ttsUrl}/health`;
+      let resp = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
       if (!resp || resp.status >= 500) {
-        // Orpheus doesn't have /health — try a lightweight probe
-        resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'pcm' }),
-          signal: AbortSignal.timeout(5000),
-        });
+        // Orpheus doesn't have /health — try a lightweight speech probe (skip for F5-TTS)
+        if (ttsEngine !== 'qwen3-tts') {
+          resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'pcm' }),
+            signal: AbortSignal.timeout(5000),
+          });
+        }
       }
       results.tts = resp ? resp.status < 500 : false;
     } catch { results.tts = false; }
@@ -2543,14 +2811,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Resolve TTS URL and model based on engine
     const previewTtsUrl = engine === 'qwen3-tts' ? `http://localhost:${5006}` : ttsUrl;
-    const previewTtsModel = engine === 'qwen3-tts' ? 'mlx-community/Qwen3-TTS-0.6B-bf16' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+    const previewTtsModel = engine === 'qwen3-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
 
     try {
       const ttsRes = await fetch(`${previewTtsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: previewTtsModel, input: text, voice: voiceId, response_format: 'wav' }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(60000),
       });
 
       if (!ttsRes.ok) {
@@ -2608,13 +2876,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     if (ttsEngine === 'qwen3-tts') {
       effectiveTtsUrl = `http://localhost:${5006}`;
-      effectiveTtsModel = 'mlx-community/Qwen3-TTS-0.6B-bf16';
+      effectiveTtsModel = 'f5-tts-mlx';
       try {
         const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
         if (!probe.ok) effectiveTtsEngine = 'browser';
       } catch {
         effectiveTtsEngine = 'browser';
-        logger.warn(COMPONENT, `Qwen3-TTS unreachable at ${effectiveTtsUrl} — falling back to browser TTS`);
+        logger.warn(COMPONENT, `Voice clone TTS unreachable at ${effectiveTtsUrl} — falling back to browser TTS`);
       }
     } else if (ttsEngine === 'orpheus') {
       try {
@@ -2622,7 +2890,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: effectiveTtsModel, input: '.', voice: voiceId, response_format: 'wav' }),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(60000),
         });
         if (!probe.ok) effectiveTtsEngine = 'browser';
       } catch {
@@ -2683,6 +2951,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         .replace(/(?:Let me |I'll |I will |I'm going to )(?:use|call|check|run|invoke|execute|try)(?: the)? \w[\w_]*(?: tool)?(?:\s+(?:to|for|and)\b[^.!?]*)?[.!]?\s*/gi, '')
         .replace(/\b(?:Using|Calling|Running|Checking|Invoking|Executing) (?:the )?\w[\w_]*(?: tool)?(?:\s+(?:to|for)\b[^.!?]*)?[.!]?\s*/gi, '')
         .replace(/\s{2,}/g, ' ')
+        // TTS cadence fixes — natural breathing pauses for voice
+        .replace(/(\w)\s*—\s*(\w)/g, '$1, $2')                 // em dashes between words → comma pause
+        .replace(/(\w)\s*–\s*(\w)/g, '$1, $2')                 // en dashes between words → comma pause
+        .replace(/;\s*/g, '. ')                                 // semicolons → sentence break
+        .replace(/\(([^)]+)\)/g, ', $1,')                      // parentheses → comma-wrapped
+        // Break long clauses at major conjunctions (but not inside short lists)
+        .replace(/([a-z]{4,}),\s*(but|yet|so|however|although)\s+/gi, '$1. $2 ')  // clause-level breaks
+        .replace(/\.\s*\./g, '.')                               // clean up double periods
+        .replace(/,\s*\./g, '.')                                // clean up comma-period
+        .replace(/\s{2,}/g, ' ')
         .trim();
     };
 
@@ -2691,8 +2969,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const clean = cleanForVoice(sentence);
       if (!clean || clean.length < 3) return;
 
-      // Always send text event so client can display it
-      safeWrite(`event: sentence\ndata: ${JSON.stringify({ text: clean, index })}\n\n`);
+      // Send text event so client can display it (skip for F5-TTS — already sent during buffering)
+      if (!isF5TTS) {
+        safeWrite(`event: sentence\ndata: ${JSON.stringify({ text: clean, index })}\n\n`);
+      }
 
       // Skip audio if we've exceeded TTS limits (still display text)
       if (index >= MAX_TTS_SENTENCES || totalTtsChars >= MAX_TTS_CHARS) return;
@@ -2705,7 +2985,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: effectiveTtsModel, input: clean, voice: voiceId, response_format: 'wav' }),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(60000),
         });
         if (ttsRes.ok && !clientDisconnected) {
           const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
@@ -2717,10 +2997,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     };
 
+    // For F5-TTS (qwen3-tts engine): batch ALL sentences into one TTS call after LLM finishes.
+    // But cap at ~120 chars per call to avoid quality degradation on long text.
+    const isF5TTS = effectiveTtsEngine === 'qwen3-tts';
+    const f5Sentences: string[] = []; // accumulate clean sentences for post-LLM TTS
+
     // Flush accumulated buffer as a sentence — adds to sequential queue
     const flushSentence = (text: string) => {
       const trimmed = text.trim();
       if (trimmed.length < 3) return;
+
+      if (isF5TTS) {
+        // Send text event immediately so client can display in real-time
+        const clean = cleanForVoice(trimmed);
+        if (clean && clean.length >= 3) {
+          safeWrite(`event: sentence\ndata: ${JSON.stringify({ text: clean, index: sentenceIndex++ })}\n\n`);
+          f5Sentences.push(clean);
+        }
+        return;
+      }
+
       const idx = sentenceIndex++;
       ttsQueue.push({ sentence: trimmed, index: idx });
       processTtsQueue(); // kick off processing if not already running
@@ -2812,12 +3108,52 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         tokenBuffer = '';
       }
 
-      // Signal no more sentences coming, wait for TTS queue to drain
+      // F5-TTS: generate audio in chunks of ~120 chars after LLM finishes.
+      // Short enough for quality, long enough for voice consistency.
+      if (isF5TTS && f5Sentences.length > 0 && effectiveTtsEngine !== 'browser') {
+        const F5_MAX_CHUNK_CHARS = 600; // voice prompt limits to ~50 words; send as single chunk to avoid voice inconsistency
+        const chunks: string[] = [];
+        let current = '';
+        for (const s of f5Sentences) {
+          if (current && (current.length + s.length + 1) > F5_MAX_CHUNK_CHARS) {
+            chunks.push(current);
+            current = s;
+          } else {
+            current += (current ? ' ' : '') + s;
+          }
+        }
+        if (current) chunks.push(current);
+
+        let audioIdx = 0;
+        for (const chunk of chunks) {
+          if (clientDisconnected || totalTtsChars >= MAX_TTS_CHARS) break;
+          totalTtsChars += chunk.length;
+          try {
+            const ttsRes = await fetch(`${effectiveTtsUrl}/v1/audio/speech`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: effectiveTtsModel, input: chunk, voice: voiceId, response_format: 'wav' }),
+              signal: AbortSignal.timeout(120000),
+            });
+            if (ttsRes.ok && !clientDisconnected) {
+              const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+              const audioBase64 = audioBuffer.toString('base64');
+              safeWrite(`event: audio\ndata: ${JSON.stringify({ index: audioIdx++, audio: audioBase64, format: 'wav' })}\n\n`);
+            }
+          } catch (e) {
+            logger.debug('Gateway', `F5-TTS chunk ${audioIdx} failed: ${(e as Error).message}`);
+          }
+        }
+      }
+
+      // Signal no more sentences coming, wait for TTS queue to drain (non-F5 engines)
       ttsFinished = true;
       if (!ttsRunning && ttsQueue.length === 0) {
         ttsResolve();
       }
-      await ttsAllDone;
+      if (!isF5TTS) {
+        await ttsAllDone;
+      }
 
       // Send done event with metadata
       if (!clientDisconnected) {
@@ -2858,6 +3194,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return;
     }
 
+    if (engine === 'qwen3-tts') {
+      // Return cloned voices from ~/.titan/voices/
+      const voicesDir = join(homedir(), '.titan', 'voices');
+      try {
+        const files = fs.existsSync(voicesDir) ? fs.readdirSync(voicesDir).filter((f: string) => f.endsWith('.wav')) : [];
+        const voiceNames = files.map((f: string) => f.replace('.wav', ''));
+        // Always include 'default' as fallback
+        const voices = voiceNames.length ? voiceNames : ['default'];
+        res.json({ voices, engine: 'qwen3-tts' });
+      } catch {
+        res.json({ voices: ['default'], engine: 'qwen3-tts' });
+      }
+      return;
+    }
+
     // Orpheus (default)
     try {
       const ttsRes = await fetch(`${ttsUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(3000) });
@@ -2876,10 +3227,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const installed = fs.existsSync(join(venvPath, 'bin', 'python'));
     let running = false;
     try {
-      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'wav' }),
+      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/health`, {
         signal: AbortSignal.timeout(3000),
       });
       running = probe.ok;
@@ -3018,10 +3366,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Check if already running
     try {
-      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/v1/audio/speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'wav' }),
+      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/health`, {
         signal: AbortSignal.timeout(3000),
       });
       if (probe.ok) {
@@ -3054,9 +3399,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // ── Qwen3-TTS Voice Cloning Auto-Installer ──────────────────
+  // ── Voice Cloning Auto-Installer (F5-TTS via MLX) ──────────────────
   const QWEN3_PORT = 5006;
-  const QWEN3_MODEL = 'mlx-community/Qwen3-TTS-0.6B-bf16';
+  const QWEN3_MODEL = 'f5-tts-mlx';
   let qwen3Pid: number | null = null;
 
   app.get('/api/voice/qwen3tts/status', async (_req, res) => {
@@ -3102,8 +3447,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       // Step 2: Install mlx-audio
       const pip = join(venvPath, 'bin', 'pip');
-      send('install', 'running', 'Installing mlx-audio + Qwen3-TTS dependencies (this may take 2-3 minutes)...');
-      execSync(`"${pip}" install "mlx-audio[server]" "setuptools<81" numpy`, { timeout: 600000 });
+      send('install', 'running', 'Installing F5-TTS + MLX dependencies (this may take 2-3 minutes)...');
+      execSync(`"${pip}" install f5-tts-mlx "mlx-audio[server]" "setuptools<81" numpy`, { timeout: 600000 });
       send('install', 'done');
 
       // Step 3: Create voices directory
@@ -3112,7 +3457,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
 
       // Step 4: Start the server
-      send('start', 'running', 'Starting Qwen3-TTS voice cloning server on port 5006...');
+      send('start', 'running', 'Starting voice cloning server on port 5006...');
       const python = join(venvPath, 'bin', 'python');
       const serverScript = join(__dirname, '..', 'scripts', 'qwen3-tts-server.py');
       // Fall back to source path if dist path doesn't exist
@@ -3120,7 +3465,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         ? serverScript
         : join(__dirname, '..', '..', 'scripts', 'qwen3-tts-server.py');
 
-      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT), '--preload'], {
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
@@ -3131,7 +3476,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
 
       // Wait for server to come up (model download + load)
-      send('model', 'running', 'Downloading Qwen3-TTS model (~1.2GB, first time only)...');
+      send('model', 'running', 'Downloading F5-TTS model (~500MB, first time only)...');
       let ready = false;
       for (let i = 0; i < 120; i++) { // up to 4 minutes
         await new Promise(r => setTimeout(r, 2000));
@@ -3142,7 +3487,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       if (ready) {
         send('model', 'done');
-        send('complete', 'done', 'Qwen3-TTS voice cloning server is ready!');
+        send('complete', 'done', 'Voice cloning server is ready! (F5-TTS)');
       } else {
         send('model', 'error', 'Server started but model loading timed out. It may still be downloading — try again in a few minutes.');
       }
@@ -3716,6 +4061,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         '/api/teams/join':         { post: { summary: 'Join team via invite code',                tags: ['Teams'] } },
         '/api/teams/{teamId}/permissions/{userId}': { get: { summary: 'Get user permissions',     tags: ['Teams'] } },
         '/api/teams/{teamId}/roles/{role}/permissions': { put: { summary: 'Set role permissions', tags: ['Teams'] } },
+        '/api/sessions/search':    { get:  { summary: 'Search conversations',                   tags: ['Sessions'], parameters: [{ name: 'q', in: 'query', schema: { type: 'string' } }, { name: 'limit', in: 'query', schema: { type: 'integer' } }] } },
+        '/api/sessions/{id}/export': { get: { summary: 'Export session (JSON or Markdown)',      tags: ['Sessions'], parameters: [{ name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'markdown'] } }] } },
+        '/api/files/upload':       { post: { summary: 'Upload file (raw body, X-Filename header)', tags: ['Files'] } },
+        '/api/files/uploads':      { get:  { summary: 'List uploaded files',                     tags: ['Files'], parameters: [{ name: 'session', in: 'query', schema: { type: 'string' } }] } },
+        '/api/files/uploads/{name}': { delete: { summary: 'Delete uploaded file',                tags: ['Files'] } },
+        '/api/usage':              { get:  { summary: 'Usage tracking per model (tokens, costs)', tags: ['System'], parameters: [{ name: 'hours', in: 'query', schema: { type: 'integer' } }] } },
         '/api/logs':               { get:  { summary: 'Read log file',                          tags: ['Logs'], parameters: [{ name: 'lines', in: 'query', schema: { type: 'integer' } }] } },
         '/api/voice/status':       { get:  { summary: 'Voice server status and availability',    tags: ['Voice'] } },
         '/api/voice/config':       { get:  { summary: 'Voice configuration',                    tags: ['Voice'] } },
@@ -3749,7 +4100,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       { cat: 'Sessions', routes: [
         { method: 'GET',  path: '/api/sessions',         desc: 'List active sessions' },
         { method: 'GET',  path: '/api/sessions/:id',     desc: 'Get session history by ID' },
+        { method: 'GET',  path: '/api/sessions/search',  desc: 'Search conversations (query: q, limit)' },
+        { method: 'GET',  path: '/api/sessions/:id/export', desc: 'Export session (query: format=json|markdown)' },
         { method: 'POST', path: '/api/sessions/:id/close', desc: 'Close/drop a session' },
+      ]},
+      { cat: 'Files',    routes: [
+        { method: 'GET',  path: '/api/files',             desc: 'Browse TITAN home directory' },
+        { method: 'GET',  path: '/api/files/read',        desc: 'Read file contents (query: path)' },
+        { method: 'POST', path: '/api/files/upload',      desc: 'Upload file (raw body, X-Filename header)' },
+        { method: 'GET',  path: '/api/files/uploads',     desc: 'List uploaded files (query: session)' },
+        { method: 'DELETE', path: '/api/files/uploads/:name', desc: 'Delete uploaded file' },
+      ]},
+      { cat: 'Usage',    routes: [
+        { method: 'GET',  path: '/api/usage',             desc: 'Usage tracking per model (query: hours)' },
+        { method: 'GET',  path: '/api/costs',             desc: 'Cost optimizer status' },
       ]},
       { cat: 'Agents',   routes: [
         { method: 'GET',  path: '/api/agents',           desc: 'List agents + capacity' },
@@ -3953,13 +4317,26 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       }
     }
 
-    wsClients.add(ws);
-    logger.info(COMPONENT, `WebSocket client connected (${wsClients.size} total)`);
+    // Tag connection with userId from query params (for session isolation)
+    const taggedWs = ws as TaggedWebSocket;
+    taggedWs.titanUserId = url.searchParams.get('userId') || 'webchat-user';
+    wsClients.add(taggedWs);
+    logger.info(COMPONENT, `WebSocket client connected (${wsClients.size} total, user=${taggedWs.titanUserId})`);
 
     ws.on('message', async (rawData, isBinary) => {
       try {
         // Ignore binary frames (legacy voice pipeline removed — use LiveKit WebRTC)
         if (isBinary) return;
+
+        // R9: Reject oversized messages to prevent OOM
+        const msgBytes = typeof rawData === 'string' ? Buffer.byteLength(rawData) : (rawData as Buffer).length;
+        if (msgBytes > WS_MAX_MESSAGE_BYTES) {
+          logger.warn(COMPONENT, `WebSocket message too large (${(msgBytes / 1024 / 1024).toFixed(1)}MB) — rejected`);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Message too large (max 10MB)' }));
+          }
+          return;
+        }
 
         let data;
         try {
@@ -4001,9 +4378,10 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'done', content: response.content, model: response.model, durationMs: response.durationMs, tokenUsage: response.tokenUsage }));
               }
-              // Broadcast final message to all other clients (non-streaming)
+              // Broadcast final message to same user's other tabs only (session isolation)
               for (const client of wsClients) {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                const tagged = client as TaggedWebSocket;
+                if (client !== ws && client.readyState === WebSocket.OPEN && tagged.titanUserId === chatUserId) {
                   client.send(JSON.stringify({
                     type: 'message', direction: 'outbound', channel: 'webchat',
                     userId: chatUserId, content: response.content,
@@ -4222,7 +4600,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   const ollamaBaseUrl = config.providers?.ollama?.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
   const ttsBaseUrl = config.voice?.ttsUrl || 'http://localhost:5005';
 
-  healthMonitorInterval = setInterval(async () => {  // eslint-disable-line @typescript-eslint/no-misused-promises
+  healthMonitorInterval = setInterval(() => {  // R1: avoid async in setInterval to prevent unhandled rejections
+    void (async () => {
+    try {
     const now = Date.now();
     healthState.lastCheck = new Date().toISOString();
 
@@ -4269,6 +4649,10 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     if (heapMB > 1500) {
       logger.warn(COMPONENT, `Health monitor: High heap usage — ${heapMB}MB`);
     }
+    } catch (err) {
+      logger.error(COMPONENT, `Health monitor error: ${(err as Error).message}`);
+    }
+    })();
   }, 60_000);
   healthMonitorInterval.unref();
 
