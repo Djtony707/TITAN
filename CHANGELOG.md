@@ -4,6 +4,20 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.61] — 2026-03-26
+
+### Fixed
+- **Voice memory recall** — voice mode now gets all 7 memory systems injected (graph, learning, strategy, hindsight, teaching, personal, preferences). Previously had zero cross-session memory.
+- **Memory placed before persona** — memory context now prepended to voice prompt so model sees it first (attention bias fix)
+- **Episode truncation** — expanded from 150 → 300 chars, preventing joke punchlines and answer content from being cut off
+- **Graph search stop words** — filtered common words ("a", "the", "you", "do", "remember") to prevent noise flooding entity/episode search results
+- **Entity-bridged search** — vague queries like "the joke" now find related entities by name/facts and pull their associated episodes
+- **Self-healing memory** — graph auto-purges poisoned episodes (TITAN's "I don't recall" responses) on startup + every 24 hours
+- **Ingestion guard** — negative recall responses ("I do not remember", "was not retained") are no longer stored as episodes
+- **Search context filtering** — getGraphContext filters out TITAN's failure responses and bare user re-asks, surfacing only informative content
+
+---
+
 ## [2026.10.60] — 2026-03-26
 
 ### Added

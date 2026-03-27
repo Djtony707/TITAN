@@ -510,7 +510,7 @@ RESPONSE LENGTH:
 FORMAT RULES:
 - NO markdown, lists, code blocks, emojis, bold, italics, headers
 - NO tool narration. Just give the answer.
-- Answer directly. If you do not know, say so briefly.
+- Answer directly. If you do not know from your own training, CHECK the Memory and Known Entities sections below — they contain things you have learned from past conversations. Use them to answer.
 - After using tools, summarize results with specific facts. Never say "I completed the operations."
 - You ARE speaking right now. Never say "I cannot speak."
 
@@ -713,8 +713,37 @@ export async function processMessage(
     // Build context — voice gets a compact prompt (~500 tokens vs ~3000+)
     let systemPrompt: string;
     if (voiceFastPath) {
-        systemPrompt = buildVoiceSystemPrompt(config);
+        // Build memory context FIRST — prepend to prompt so model sees it before rules
+        const voiceGraphCtx = message ? getGraphContext(message) : '';
+        const voiceLearningCtx = getLearningContext();
+        const voiceStrategyHint = message ? getStrategyHints(message) : null;
+        const voiceTeachingCtx = getTeachingContext();
+        const voicePersonalCtx = buildPersonalContext();
+        const voiceMemories = await searchMemories('preference');
+        const voiceMemCtx = voiceMemories.length > 0
+            ? voiceMemories.map((m: { key: string; value: string }) => `- ${m.key}: ${m.value}`).join('\n')
+            : '';
+        let hindsightCtx: string | null = null;
+        if (!voiceStrategyHint && message) {
+            try { hindsightCtx = await getHindsightHints(message); } catch { /* unavailable */ }
+        }
+
+        // Memory goes BEFORE persona — models attend to the beginning of prompts
+        let memoryBlock = '';
+        if (voiceGraphCtx || voiceLearningCtx || voicePersonalCtx) {
+            memoryBlock += `## IMPORTANT — Your Memories\nThe following are things you remember from past conversations. Treat them as your own memories. When asked about past topics, reference these directly. Do NOT say "I do not recall" if the answer is in your memories below.\n\n`;
+            if (voiceGraphCtx) memoryBlock += `${voiceGraphCtx}\n\n`;
+            if (voiceLearningCtx) memoryBlock += `Learned facts:\n${voiceLearningCtx}\n\n`;
+            if (voiceStrategyHint) memoryBlock += `Strategy: ${voiceStrategyHint}\n\n`;
+            if (hindsightCtx) memoryBlock += `Cross-session: ${hindsightCtx}\n\n`;
+            if (voiceTeachingCtx) memoryBlock += `Teaching: ${voiceTeachingCtx}\n\n`;
+            if (voicePersonalCtx) memoryBlock += `Personal: ${voicePersonalCtx}\n\n`;
+            if (voiceMemCtx) memoryBlock += `Preferences:\n${voiceMemCtx}\n\n`;
+        }
+
+        systemPrompt = memoryBlock + buildVoiceSystemPrompt(config);
         if (preRoutedContext) systemPrompt += preRoutedContext;
+        logger.info('Agent', `Voice prompt: ${systemPrompt.length} chars, memory: ${memoryBlock.length} chars, graph: ${voiceGraphCtx.length} chars`);
     } else {
         systemPrompt = await buildSystemPrompt(config, message);
         if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;

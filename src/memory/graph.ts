@@ -133,7 +133,36 @@ export function initGraph(): void {
     if (initialized) return;
     loadGraph();
     initialized = true;
+
+    // Self-healing: purge poisoned episodes on startup
+    const beforeCount = graph.episodes.length;
+    graph.episodes = graph.episodes.filter(ep => {
+        const c = ep.content.toLowerCase();
+        if (c.includes('[titan') && POISON_PHRASES.some(p => c.includes(p))) return false;
+        return true;
+    });
+    const purged = beforeCount - graph.episodes.length;
+    if (purged > 0) {
+        logger.info(COMPONENT, `Self-heal: purged ${purged} poisoned episodes (negative recall responses)`);
+        saveGraph();
+    }
+
     logger.info(COMPONENT, `Graph loaded: ${graph.episodes.length} episodes, ${graph.entities.length} entities`);
+
+    // Schedule periodic self-healing every 24 hours
+    setInterval(() => {
+        const before = graph.episodes.length;
+        graph.episodes = graph.episodes.filter(ep => {
+            const c = ep.content.toLowerCase();
+            if (c.includes('[titan') && POISON_PHRASES.some(p => c.includes(p))) return false;
+            return true;
+        });
+        const cleaned = before - graph.episodes.length;
+        if (cleaned > 0) {
+            logger.info(COMPONENT, `Self-heal (periodic): purged ${cleaned} poisoned episodes`);
+            saveGraph();
+        }
+    }, 24 * 60 * 60 * 1000).unref();
 }
 
 // ── Entity extraction via any configured LLM ────────────────────
@@ -287,8 +316,22 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
 }
 
 // ── Add Episode ──────────────────────────────────────────────────
+// Phrases that indicate a failed/negative response — don't store these as memories
+const POISON_PHRASES = [
+    'i do not recall', 'i do not remember', 'i am not able to find',
+    'i am not certain', 'was not retained', 'not stored', 'i did not retain',
+    'my memory does not contain', 'i do not know that specific',
+    'could not find it through search', 'does not appear in my knowledge',
+];
+
 export async function addEpisode(content: string, source: string): Promise<Episode> {
     if (!initialized) initGraph();
+
+    // Guard: don't store TITAN's "I don't know" responses — they poison future recall
+    const contentLower = content.toLowerCase();
+    if (contentLower.includes('[titan') && POISON_PHRASES.some(p => contentLower.includes(p))) {
+        return { id: '', content, source, createdAt: new Date().toISOString(), entities: [] };
+    }
 
     const episode: Episode = {
         id: uuid(),
@@ -368,7 +411,8 @@ export function searchMemory(query: string, limit = 20): Episode[] {
     if (!initialized) initGraph();
     if (!query) return getRecentEpisodes(limit);
 
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'at', 'to', 'of', 'do', 'you', 'we', 'i', 'me', 'my', 'that', 'this', 'was', 'are', 'be', 'been', 'have', 'has', 'had', 'and', 'or', 'but', 'if', 'so', 'not', 'no', 'yes', 'can', 'how', 'what', 'about', 'from', 'with', 'for', 'up', 'out', 'its', 'our', 'your', 'they', 'them', 'he', 'she', 'his', 'her', 'will', 'would', 'could', 'should', 'did', 'does', 'just', 'now', 'some', 'any', 'all', 'very', 'too', 'also', 'than', 'then', 'when', 'where', 'who', 'which', 'there', 'here', 'again', 'today', 'earlier', 'remember']);
+    const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
     const scored = new Map<string, { ep: Episode; score: number }>();
 
     // Keyword search (BM25-style scoring)
@@ -384,6 +428,36 @@ export function searchMemory(query: string, limit = 20): Episode[] {
         }
         if (score > 0) {
             scored.set(ep.id, { ep, score });
+        }
+    }
+
+    // Bridge vague queries to specific memories via entity matching
+    // When user says "the joke" → find entity "two cannibals eating the Clown" → find episodes mentioning it
+    for (const entity of graph.entities) {
+        const entityText = `${entity.name} ${entity.summary || ''} ${entity.facts.join(' ')}`.toLowerCase();
+        let entityMatch = false;
+        for (const term of terms) {
+            if (entityText.includes(term)) { entityMatch = true; break; }
+        }
+        if (entityMatch) {
+            // Search episodes for this entity's name (since episodeIds aren't populated)
+            const entityNameLower = entity.name.toLowerCase();
+            for (const ep of graph.episodes) {
+                if (!scored.has(ep.id) && ep.content.toLowerCase().includes(entityNameLower)) {
+                    scored.set(ep.id, { ep, score: 0.8 });
+                }
+            }
+            // Also search for key terms from entity facts in episodes
+            const factTerms = entity.facts.slice(0, 3).join(' ').toLowerCase().split(/\s+/).filter(t => t.length > 4);
+            for (const ep of graph.episodes) {
+                if (!scored.has(ep.id)) {
+                    let factScore = 0;
+                    for (const ft of factTerms) {
+                        if (ep.content.toLowerCase().includes(ft)) factScore += 0.3;
+                    }
+                    if (factScore > 0.5) scored.set(ep.id, { ep, score: factScore });
+                }
+            }
         }
     }
 
@@ -490,28 +564,67 @@ export function getGraphContext(query: string): string {
 
     const parts: string[] = [];
 
-    // Search for relevant episodes
+    // Search for relevant episodes — prioritize TITAN's informative responses over user questions and "I don't know" responses
     if (query) {
-        const relevant = searchMemory(query, 5);
-        if (relevant.length > 0) {
-            parts.push('Relevant memories from knowledge graph:');
-            for (const ep of relevant) {
-                parts.push(`- [${ep.source}, ${ep.createdAt.slice(0, 10)}]: ${ep.content.slice(0, 150)}`);
+        const relevant = searchMemory(query, 15);
+        // Filter: remove TITAN's "I don't recall/remember/know" responses — they poison the context
+        // Also remove bare user questions (they don't contain useful info)
+        // Keep: TITAN responses with actual content (answers, facts, jokes, etc.)
+        const filtered = relevant.filter(ep => {
+            const c = ep.content.toLowerCase();
+            // Skip "I don't know" responses
+            if (c.includes('i do not recall') || c.includes('i do not remember') || c.includes('i am not able to find') || c.includes('i am not certain') || c.includes('was not retained') || c.includes('not stored')) return false;
+            // Skip bare user questions that are just the same query repeated
+            if (c.startsWith('[voice/voice-user]') && c.includes('remember') && c.length < 100) return false;
+            return true;
+        }).slice(0, 5);
+
+        if (filtered.length > 0) {
+            parts.push('Relevant memories from past conversations:');
+            for (const ep of filtered) {
+                parts.push(`- [${ep.source}, ${ep.createdAt.slice(0, 10)}]: ${ep.content.slice(0, 300)}`);
             }
         }
     }
 
-    // Include recently active entities (top 5)
+    // Search entities by name, summary, and facts (not just recent ones)
+    const STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'at', 'to', 'of', 'do', 'you', 'we', 'i', 'me', 'my', 'that', 'this', 'was', 'are', 'be', 'been', 'have', 'has', 'had', 'and', 'or', 'but', 'if', 'so', 'not', 'no', 'yes', 'can', 'how', 'what', 'about', 'from', 'with', 'for', 'up', 'out', 'its', 'our', 'your', 'they', 'them', 'he', 'she', 'his', 'her', 'will', 'would', 'could', 'should', 'did', 'does', 'just', 'now', 'some', 'any', 'all', 'very', 'too', 'also', 'than', 'then', 'when', 'where', 'who', 'which', 'there', 'here', 'again', 'today', 'earlier', 'remember']);
+    const queryTerms = query ? query.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t)) : [];
+    const matchedEntities: Array<{ entity: typeof graph.entities[0]; score: number }> = [];
+
+    for (const e of graph.entities) {
+        let score = 0;
+        const searchText = `${e.name} ${e.summary || ''} ${e.facts.join(' ')}`.toLowerCase();
+        for (const term of queryTerms) {
+            if (searchText.includes(term)) score += 1;
+            if (e.name.toLowerCase().includes(term)) score += 2; // Boost name matches
+        }
+        if (score > 0) matchedEntities.push({ entity: e, score });
+    }
+
+    // Sort by score, then include top matched + recent
+    matchedEntities.sort((a, b) => b.score - a.score);
+    const topMatched = matchedEntities.slice(0, 5).map(m => m.entity);
+
+    // Also include recently active entities (top 3) that weren't already matched
+    const matchedIds = new Set(topMatched.map(e => e.name));
     const recentEntities = graph.entities
         .slice()
         .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
-        .slice(0, 5);
+        .filter(e => !matchedIds.has(e.name))
+        .slice(0, 3);
 
-    if (recentEntities.length > 0) {
-        parts.push('Known entities:');
-        for (const e of recentEntities) {
-            const factsStr = e.facts.length > 0 ? ` (${e.facts.slice(0, 2).join('; ')})` : '';
-            parts.push(`- ${e.name} [${e.type}]${factsStr}`);
+    const allEntities = [...topMatched, ...recentEntities];
+
+    if (allEntities.length > 0) {
+        parts.push('Known entities and facts:');
+        for (const e of allEntities) {
+            // Show more facts for query-matched entities (they're relevant)
+            const isMatched = matchedIds.has(e.name);
+            const maxFacts = isMatched ? 5 : 2;
+            const factsStr = e.facts.length > 0 ? `\n    Facts: ${e.facts.slice(0, maxFacts).join('; ')}` : '';
+            const summaryStr = e.summary ? ` — ${e.summary}` : '';
+            parts.push(`- ${e.name} [${e.type}]${summaryStr}${factsStr}`);
         }
     }
 
