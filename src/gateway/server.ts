@@ -509,7 +509,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Create Express app
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
+
+  // Handle JSON parse errors and payload too large
+  app.use((err: Error & { type?: string; status?: number }, req: Request, res: Response, next: NextFunction) => {
+    if (err.type === 'entity.too.large') {
+      res.status(413).json({ error: 'Payload too large (max 1MB)' });
+      return;
+    }
+    if (err.type === 'entity.parse.failed') {
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+    next(err);
+  });
 
   // Security headers + CSP
   app.use((req, res, next) => {
@@ -2238,18 +2251,25 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── File Upload API ─────────────────────────────────────
   const UPLOADS_DIR = join(homedir(), '.titan', 'uploads');
 
-  app.post('/api/files/upload', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+  app.post('/api/files/upload', express.raw({ type: ['application/octet-stream', 'multipart/form-data', 'image/*', 'audio/*', 'video/*', 'application/pdf', 'application/zip'], limit: '50mb' }), (req, res) => {
     try {
       const fileName = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
       const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
       const sessionId = (req.headers['x-session-id'] as string) || 'default';
+
+      // Handle both raw Buffer and JSON-parsed body
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+      if (!body || body.length === 0) {
+        res.status(400).json({ error: 'Empty upload body' });
+        return;
+      }
 
       // Create session-specific upload dir
       const sessionDir = join(UPLOADS_DIR, sessionId);
       if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
       const filePath = join(sessionDir, safeName);
-      fs.writeFileSync(filePath, req.body as Buffer);
+      fs.writeFileSync(filePath, body);
 
       const stat = fs.statSync(filePath);
       logger.info(COMPONENT, `File uploaded: ${safeName} (${(stat.size / 1024).toFixed(0)}KB) → session ${sessionId}`);
