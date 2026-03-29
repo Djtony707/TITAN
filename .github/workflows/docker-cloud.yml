@@ -32,7 +32,7 @@ jobs:
 
       - name: Build UI
         working-directory: ui
-        run: npm ci && npm run build
+        run: npm ci && npx vite build
 
       - uses: docker/setup-buildx-action@v3
 
