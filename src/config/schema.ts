@@ -1,5 +1,5 @@
 /**
- * TITAN Configuration Schema — Zod-based validation with full type inference
+ * TITAN Configuration Schema â Zod-based validation with full type inference
  */
 import { z } from 'zod';
 import {
@@ -43,7 +43,7 @@ export const SecurityConfigSchema = z.object({
     deniedTools: z.array(z.string()).default([]),
     maxConcurrentTasks: z.number().default(5),
     commandTimeout: z.number().default(30000),
-    /** Per-tool timeout overrides (ms) — keys are tool names */
+    /** Per-tool timeout overrides (ms) â keys are tool names */
     toolTimeouts: z.record(z.string(), z.number()).default({
         browser_auto_nav: 60000,
         browser_navigate: 60000,
@@ -53,11 +53,11 @@ export const SecurityConfigSchema = z.object({
         smart_form_fill: 60000,
         shell: 60000,
         code_exec: 120000,
-        self_improve_start: 1800000,     // 30 minutes — runs full experiment loop
+        self_improve_start: 1800000,     // 30 minutes â runs full experiment loop
         self_improve_apply: 60000,
-        train_prepare: 300000,           // 5 minutes — scans session history
-        train_start: 7200000,            // 2 hours — GPU fine-tuning
-        train_deploy: 600000,            // 10 minutes — GGUF conversion + Ollama import
+        train_prepare: 300000,           // 5 minutes â scans session history
+        train_start: 7200000,            // 2 hours â GPU fine-tuning
+        train_deploy: 600000,            // 10 minutes â GGUF conversion + Ollama import
     }),
     /** Automatic retry for transient tool failures */
     toolRetry: z.object({
@@ -105,7 +105,7 @@ export const AgentConfigSchema = z.object({
     persona: z.string().default('default'),
     workspace: z.string().optional(),
     thinkingMode: z.enum(['off', 'low', 'medium', 'high']).default('medium'),
-    /** Model aliases — e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
+    /** Model aliases â e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
     modelAliases: z.record(z.string(), z.string()).default({
         fast: 'openai/gpt-4o-mini',
         smart: 'anthropic/claude-sonnet-4-20250514',
@@ -137,7 +137,7 @@ export const AgentConfigSchema = z.object({
     selfHealEnabled: z.boolean().default(true),
     /** Number of consecutive tool call failures before auto-switching models (2-10) */
     selfHealThreshold: z.number().min(2).max(10).default(3),
-    /** Models known to reliably support tool calling — used as self-heal fallbacks */
+    /** Models known to reliably support tool calling â used as self-heal fallbacks */
     toolCapableModels: z.array(z.string()).default([]),
     /** Force API-level tool_choice on round 0 for task-enforcement scenarios (file writes, research, shell).
      *  Adds a hard guarantee on top of prompt-level tool instructions. Default: true. */
@@ -226,7 +226,7 @@ export const BrainConfigSchema = z.object({
 export const DeliberationConfigSchema = z.object({
     /** Enable deliberative reasoning for complex requests */
     enabled: z.boolean().default(true),
-    /** Auto-detect ambitious requests that need deliberation (default: false — use /plan explicitly) */
+    /** Auto-detect ambitious requests that need deliberation (default: false â use /plan explicitly) */
     autoDetect: z.boolean().default(false),
     /** Model override for reasoning phase (falls back to agent.modelAliases.reasoning) */
     reasoningModel: z.string().optional(),
@@ -249,8 +249,8 @@ export const VoiceConfigSchema = z.object({
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */
     ttsVoice: z.string().default('tara'),
-    /** TTS engine: orpheus | qwen3-tts | fish-speech | browser */
-    ttsEngine: z.enum(['orpheus', 'qwen3-tts', 'fish-speech', 'browser']).default('orpheus'),
+    /** TTS engine: orpheus | qwen3-tts | fish-speech | edge | browser */
+    ttsEngine: z.enum(['orpheus', 'qwen3-tts', 'fish-speech', 'edge', 'browser']).default('orpheus'),
     /** TTS server URL (Orpheus: 5005) */
     ttsUrl: z.string().default('http://localhost:5005'),
     /** STT engine: faster-whisper | nemotron-asr | openai */
@@ -358,7 +358,7 @@ export const CapsolverConfigSchema = z.object({
     apiKey: z.string().optional(),
     /** Timeout for solving in milliseconds */
     timeoutMs: z.number().default(120_000),
-    /** Preferred reCAPTCHA v3 minimum score (0.1–0.9) */
+    /** Preferred reCAPTCHA v3 minimum score (0.1â0.9) */
     minScore: z.number().min(0.1).max(0.9).default(0.7),
 });
 
@@ -536,7 +536,7 @@ export const TitanConfigSchema = z.object({
         token: z.string().default(''),
     }).default({}),
     mcp: z.object({
-        /** MCP server mode — expose TITAN's tools to other agents */
+        /** MCP server mode â expose TITAN's tools to other agents */
         server: z.object({
             /** Enable MCP server (HTTP transport on gateway port) */
             enabled: z.boolean().default(false),
@@ -583,7 +583,7 @@ export const TitanConfigSchema = z.object({
     daemon: z.object({
         /** Enable persistent agent daemon (always-on awareness loop) */
         enabled: z.boolean().default(false),
-        /** Watcher configurations — pluggable checker functions on intervals */
+        /** Watcher configurations â pluggable checker functions on intervals */
         watchers: z.array(z.object({
             name: z.string(),
             enabled: z.boolean().default(true),
@@ -596,7 +596,7 @@ export const TitanConfigSchema = z.object({
     vram: z.object({
         /** Master switch for VRAM orchestrator */
         enabled: z.boolean().default(true),
-        /** GPU vendor override — auto-detects by default. Set to force a specific vendor. */
+        /** GPU vendor override â auto-detects by default. Set to force a specific vendor. */
         gpuVendor: z.enum(['auto', 'nvidia', 'amd', 'apple', 'none']).default('auto'),
         /** GPU polling interval in milliseconds (0 = disabled) */
         pollIntervalMs: z.number().default(10000),
@@ -621,7 +621,7 @@ export const TitanConfigSchema = z.object({
         }),
     }).default({}),
     nvidia: z.object({
-        /** Master switch — enables all NVIDIA integrations (also triggered by TITAN_NVIDIA=1 env) */
+        /** Master switch â enables all NVIDIA integrations (also triggered by TITAN_NVIDIA=1 env) */
         enabled: z.boolean().default(false),
         /** NVIDIA NIM API key (build.nvidia.com) */
         apiKey: z.string().optional(),
