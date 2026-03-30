@@ -2790,7 +2790,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }));
     // TTS health check — /health endpoint (F5-TTS, etc.) or speech probe (Orpheus fallback)
     try {
-      const healthUrl = ttsEngine === 'qwen3-tts' ? `http://localhost:5006/health` : `${ttsUrl}/health`;
+      const healthUrl = ttsEngine === 'edge' ? `http://localhost:5007/health`
+        : ttsEngine === 'qwen3-tts' ? `http://localhost:5006/health` : `${ttsUrl}/health`;
       let resp = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
       if (!resp || resp.status >= 500) {
         // Orpheus doesn't have /health — try a lightweight speech probe (skip for F5-TTS)
@@ -2870,8 +2871,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
 
     // Resolve TTS URL and model based on engine
-    const previewTtsUrl = engine === 'qwen3-tts' ? `http://localhost:${5006}` : ttsUrl;
-    const previewTtsModel = engine === 'qwen3-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+    const previewTtsUrl = engine === 'edge' ? `http://localhost:5007`
+      : engine === 'qwen3-tts' ? `http://localhost:${5006}` : ttsUrl;
+    const previewTtsModel = engine === 'edge' ? 'edge-tts'
+      : engine === 'qwen3-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
 
     try {
       const ttsRes = await fetch(`${previewTtsUrl}/v1/audio/speech`, {
