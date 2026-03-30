@@ -74,7 +74,7 @@ def _get_model():
     if _tts_model is None:
         from f5_tts.api import F5TTS
         print("[VoiceClone] Loading F5-TTS model (one-time)...")
-        _tts_model = F5TTS(model_type="F5-TTS", ode_method="euler")
+        _tts_model = F5TTS(model="F5TTS_v1_Base", ode_method="euler")
         print("[VoiceClone] Model cached on GPU")
     return _tts_model
 
