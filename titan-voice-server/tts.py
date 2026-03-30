@@ -88,7 +88,7 @@ class TadaTTS(TTSEngine):
 
         output = self._model.generate(prompt=prompt, text=text)
 
-        # Extract audio tensor → numpy float32
+        # Extract audio tensor -> numpy float32
         audio_tensor = output.audio if hasattr(output, 'audio') else output
         if hasattr(audio_tensor, 'cpu'):
             audio = audio_tensor.cpu().numpy().astype(np.float32)
@@ -113,6 +113,92 @@ class TadaTTS(TTSEngine):
         yield audio
 
 
+class EdgeTTS(TTSEngine):
+    """Edge TTS — Free Microsoft TTS via edge-tts package. No API key needed."""
+
+    # Popular Edge TTS voices (natural-sounding neural voices)
+    VOICES = {
+        "aria":     "en-US-AriaNeural",
+        "guy":      "en-US-GuyNeural",
+        "jenny":    "en-US-JennyNeural",
+        "davis":    "en-US-DavisNeural",
+        "amber":    "en-US-AmberNeural",
+        "ana":      "en-US-AnaNeural",
+        "andrew":   "en-US-AndrewNeural",
+        "emma":     "en-US-EmmaNeural",
+        "brian":    "en-US-BrianNeural",
+        "steffan":  "en-US-SteffanNeural",
+        "sonia":    "en-GB-SoniaNeural",
+        "ryan":     "en-GB-RyanNeural",
+    }
+
+    def __init__(self):
+        import asyncio
+        self._default_voice = cfg.TTS_VOICE or "aria"
+        self._loop = None
+
+    def _get_loop(self):
+        """Get or create an event loop for running async edge-tts."""
+        try:
+            self._loop = asyncio.get_event_loop()
+            if self._loop.is_closed():
+                raise RuntimeError
+        except RuntimeError:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def _resolve_voice(self, voice: str | None) -> str:
+        """Map short name to full Edge TTS voice name."""
+        v = (voice or self._default_voice).lower()
+        return self.VOICES.get(v, v)
+
+    def available_voices(self) -> list[str]:
+        return list(self.VOICES.keys())
+
+    def synthesize(self, text: str, voice: str | None = None) -> np.ndarray:
+        import edge_tts
+        import io
+        import wave
+        import asyncio
+
+        full_voice = self._resolve_voice(voice)
+
+        async def _generate():
+            communicate = edge_tts.Communicate(text, full_voice)
+            audio_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data += chunk["data"]
+            return audio_data
+
+        loop = self._get_loop()
+        mp3_bytes = loop.run_until_complete(_generate())
+
+        # Edge TTS returns MP3 — decode to PCM using ffmpeg (available in container)
+        import subprocess
+        proc = subprocess.run(
+            ["ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ar", str(cfg.TTS_SAMPLE_RATE),
+             "-ac", "1", "-acodec", "pcm_s16le", "pipe:1"],
+            input=mp3_bytes, capture_output=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg decode failed: {proc.stderr[:200]}")
+
+        pcm16 = np.frombuffer(proc.stdout, dtype=np.int16)
+        audio = pcm16.astype(np.float32) / 32767.0
+        return audio
+
+    def stream(self, text: str, voice: str | None = None):
+        """Edge TTS generates full audio then yields as single chunk."""
+        audio = self.synthesize(text, voice)
+        yield audio
+
+
 def create_tts_engine() -> TTSEngine:
-    """Factory: create the TADA TTS engine."""
+    """Factory: create TTS engine based on config."""
+    engine = cfg.TTS_ENGINE.lower()
+    if engine == "edge":
+        return EdgeTTS()
+    # Default: TADA (Hume AI)
     return TadaTTS()
