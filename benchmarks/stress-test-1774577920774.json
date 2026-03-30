@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-03-27T02:18:40.766Z",
+  "gateway": "http://127.0.0.1:48420",
+  "passed": 107,
+  "failed": 4,
+  "total": 111,
+  "passRate": "96.4%",
+  "durationSeconds": 560.1,
+  "failures": [
+    {
+      "suite": "Stress",
+      "test": "[code] \"What is a closure in JavaScript?...\"",
+      "error": "The operation was aborted due to timeout"
+    },
+    {
+      "suite": "Adversarial",
+      "test": "Huge payload",
+      "error": "Unexpected status 500"
+    },
+    {
+      "suite": "Simulation",
+      "test": "Follow-up",
+      "error": "status=429"
+    },
+    {
+      "suite": "Simulation",
+      "test": "File upload",
+      "error": "status=500"
+    }
+  ]
+}
