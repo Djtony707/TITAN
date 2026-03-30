@@ -1086,7 +1086,7 @@ export async function processMessage(
             tools: activeTools.length > 0 ? activeTools : undefined,
             maxTokens: voiceFastPath ? Math.min(config.agent.maxTokens, 300) : config.agent.maxTokens,
             temperature: config.agent.temperature,
-            thinking: thinkingMode !== 'off',
+            thinking: isVoice ? false : thinkingMode !== 'off',  // Disable thinking for voice — models like qwen3.5 put all tokens in thinking field, leaving content empty
             thinkingLevel: thinkingMode,
             // Force a tool call on round 0 when task enforcement is active and tools are available.
             // This adds API-level guarantees on top of prompt-level instructions.
