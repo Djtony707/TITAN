@@ -12,8 +12,13 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 
-# Install minimal runtime tools
-RUN apk add --no-cache curl bash git wget
+# Install runtime tools + Python3 for voice (TTS/STT engines)
+RUN apk add --no-cache \
+    curl bash git wget \
+    python3 py3-pip python3-dev \
+    build-base linux-headers \
+    ffmpeg sox libsndfile-dev \
+    && ln -sf python3 /usr/bin/python
 
 # Install only production dependencies
 COPY package*.json ./
@@ -26,12 +31,17 @@ COPY assets ./assets
 COPY ui/dist ./ui/dist
 COPY .env.example ./.env.example
 
+# Copy voice server and agent
+COPY titan-voice-server ./titan-voice-server
+COPY titan-voice-agent ./titan-voice-agent
+COPY scripts/qwen3-tts-server.py ./scripts/qwen3-tts-server.py
+
 # Create non-root titan user
 RUN addgroup -g 1001 titan && adduser -u 1001 -G titan -D titan
-USER titan
+# Give titan user permission to install Python packages
+RUN mkdir -p /home/titan/.titan && chown -R titan:titan /home/titan
 
-# Create TITAN home directory
-RUN mkdir -p /home/titan/.titan
+USER titan
 
 ENV NODE_ENV=production
 ENV TITAN_HOME=/home/titan/.titan
