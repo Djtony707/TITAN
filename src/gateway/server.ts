@@ -962,10 +962,50 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Cloud mode config endpoint ──────────────────────────────
+  app.get('/api/cloud/config', (_req, res) => {
+    const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
+    if (!isCloud) {
+      return res.json({ cloud: false });
+    }
+    res.json({
+      cloud: true,
+      apiUrl: process.env.TITAN_CLOUD_API || '',
+      userId: process.env.TITAN_USER_ID || '',
+      userEmail: process.env.TITAN_USER_EMAIL || '',
+    });
+  });
+
   // ── Onboarding API ──────────────────────────────────────────
   app.get('/api/onboarding/status', (_req, res) => {
     const cfg = loadConfig();
-    res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION });
+    // In cloud mode, auto-onboard if not already done
+    const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
+    if (isCloud && !cfg.onboarded) {
+      try {
+        // Auto-configure for cloud: use openrouter provider pointed at SaaS gateway
+        const cloudApi = process.env.TITAN_CLOUD_API || 'https://titan-api.djtony707.workers.dev';
+        const openrouterKey = process.env.OPENROUTER_API_KEY || '';
+        updateConfig({
+          onboarded: true,
+          agent: { model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free' },
+          providers: {
+            ...cfg.providers,
+            openrouter: {
+              ...(cfg.providers as Record<string, Record<string, unknown>>)?.openrouter,
+              apiKey: openrouterKey,
+              baseUrl: cloudApi + '/api/v1',
+            }
+          }
+        });
+        broadcast({ type: 'config_updated' });
+        logger.info('gateway', 'Cloud mode: auto-onboarded with SaaS API');
+      } catch (e) {
+        logger.error('gateway', `Cloud auto-onboard failed: ${(e as Error).message}`);
+      }
+      return res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
+    }
+    res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: isCloud });
   });
 
   app.post('/api/onboarding/complete', (req, res) => {
