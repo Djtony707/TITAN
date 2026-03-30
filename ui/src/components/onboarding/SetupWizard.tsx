@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket, Cloud } from 'lucide-react';
 import { FluidOrb } from '@/components/voice/FluidOrb';
 import { apiFetch } from '@/api/client';
 import type { PersonaMeta } from '@/api/types';
@@ -28,6 +28,24 @@ const DEFAULT_MODELS: Record<string, string[]> = {
   openrouter: ['openrouter/anthropic/claude-sonnet-4-20250514', 'openrouter/openai/gpt-4o'],
   deepseek: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner'],
   xai: ['xai/grok-3', 'xai/grok-3-mini'],
+};
+
+// Cloud SaaS models — available via TITAN Cloud subscription
+const CLOUD_MODELS = {
+  free: [
+    { id: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super', desc: 'Free — 120B MoE', badge: 'free' },
+    { id: 'openrouter/nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron 3 Nano', desc: 'Free — fast 30B', badge: 'free' },
+    { id: 'openrouter/z-ai/glm-4.5-air:free', name: 'GLM-4.5 Air', desc: 'Free — versatile', badge: 'free' },
+  ],
+  paid: [
+    { id: 'openrouter/qwen/qwen3.5-397b-a17b', name: 'Qwen 3.5 397B', desc: 'Flagship MoE — best quality', badge: 'flagship' },
+    { id: 'openrouter/openai/gpt-5.4', name: 'GPT-5.4', desc: 'OpenAI premium', badge: 'premium' },
+    { id: 'openrouter/anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', desc: 'Anthropic premium', badge: 'premium' },
+    { id: 'openrouter/google/gemini-3.1-pro', name: 'Gemini 3.1 Pro', desc: 'Google premium', badge: 'premium' },
+    { id: 'openrouter/moonshotai/kimi-k2.5', name: 'Kimi K2.5', desc: 'Strong reasoning', badge: 'midrange' },
+    { id: 'openrouter/deepseek/deepseek-v3.2', name: 'DeepSeek V3.2', desc: 'Cost-effective', badge: 'midrange' },
+    { id: 'openrouter/z-ai/glm-4.7-flash', name: 'GLM-4.7 Flash', desc: 'Fast agent model', badge: 'agent' },
+  ],
 };
 
 const FEATURE_PILLS = ['Web Search', 'Code Execution', 'Smart Home', 'Email', 'Research', 'Voice'];
@@ -65,10 +83,29 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [pillsVisible, setPillsVisible] = useState(false);
+  const [cloudMode, setCloudMode] = useState(false);
+  const [cloudEmail, setCloudEmail] = useState('');
 
   const selectedProvider = PROVIDERS.find(p => p.id === provider);
   const needsKey = selectedProvider && !('noKey' in selectedProvider && selectedProvider.noKey);
   const models = DEFAULT_MODELS[provider] || [];
+  const allCloudModels = [...CLOUD_MODELS.free, ...CLOUD_MODELS.paid];
+
+  // Check if running in TITAN Cloud (SaaS) mode
+  useEffect(() => {
+    apiFetch('/api/cloud/config')
+      .then(r => r.json())
+      .then(d => {
+        if (d.cloud) {
+          setCloudMode(true);
+          setCloudEmail(d.userEmail || '');
+          setProvider('openrouter');  // Cloud uses OpenRouter via SaaS gateway
+          // Default to first free model
+          setModel(CLOUD_MODELS.free[0]?.id || '');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Fetch personas for the Profile step
   useEffect(() => {
@@ -91,6 +128,15 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   }, [step]);
 
   const canAdvance = () => {
+    if (cloudMode) {
+      // Cloud mode steps: 0=Welcome, 1=Model, 2=Profile, 3=Launch
+      switch (step) {
+        case 0: return true;
+        case 1: return !!model;
+        case 2: return !!agentName;
+        default: return true;
+      }
+    }
     switch (step) {
       case 0: return true;
       case 1: return !!provider && (!needsKey || apiKey.length > 5);
@@ -116,8 +162,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider,
-          apiKey: needsKey ? apiKey : undefined,
+          provider: cloudMode ? 'openrouter' : provider,
+          apiKey: cloudMode ? undefined : (needsKey ? apiKey : undefined),
           model,
           agentName,
           persona,
@@ -171,7 +217,71 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       </div>
     </div>,
 
-    // ── Step 1: Provider ──
+    // ── Step 1: Provider (local) / Cloud Model Picker (SaaS) ──
+    cloudMode ? (
+    <div key="cloud-model" className="w-full max-w-lg mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <Cloud className="w-6 h-6 text-[#6366f1]" />
+        <div>
+          <h2 className="text-xl font-semibold text-white">Choose Your Model</h2>
+          <p className="text-sm text-[#71717a]">Included with your TITAN Cloud subscription. Switch anytime.</p>
+        </div>
+      </div>
+      {cloudEmail && (
+        <div className="mb-4 p-3 rounded-xl border border-[#6366f1]/30 bg-[#6366f1]/5">
+          <p className="text-xs text-[#a1a1aa]">Signed in as <span className="text-white font-medium">{cloudEmail}</span></p>
+        </div>
+      )}
+      <p className="text-xs text-[#71717a] mb-2 font-medium uppercase tracking-wide">Free Models</p>
+      <div className="space-y-2 mb-4">
+        {CLOUD_MODELS.free.map(m => (
+          <button
+            key={m.id}
+            onClick={() => setModel(m.id)}
+            className={`w-full text-left p-4 rounded-xl border transition-all ${
+              model === m.id
+                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
+                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-white text-sm">{m.name}</p>
+                <p className="text-xs text-[#71717a] mt-0.5">{m.desc}</p>
+              </div>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[#22c55e]/20 text-[#4ade80] uppercase">free</span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-[#71717a] mb-2 font-medium uppercase tracking-wide">Premium Models <span className="text-[#52525b]">— uses credits</span></p>
+      <div className="space-y-2">
+        {CLOUD_MODELS.paid.map(m => (
+          <button
+            key={m.id}
+            onClick={() => setModel(m.id)}
+            className={`w-full text-left p-4 rounded-xl border transition-all ${
+              model === m.id
+                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
+                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-white text-sm">{m.name}</p>
+                <p className="text-xs text-[#71717a] mt-0.5">{m.desc}</p>
+              </div>
+              <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase ${
+                m.badge === 'premium' ? 'bg-[#f59e0b]/20 text-[#fbbf24]' :
+                m.badge === 'flagship' ? 'bg-[#6366f1]/20 text-[#818cf8]' :
+                'bg-[#3f3f46]/50 text-[#a1a1aa]'
+              }`}>{m.badge}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+    ) : (
     <div key="provider" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Key className="w-6 h-6 text-[#6366f1]" />
@@ -215,9 +325,11 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           <p className="text-xs text-[#71717a] mt-1">Make sure Ollama is running on this machine or your network. TITAN will auto-detect available models.</p>
         </div>
       )}
-    </div>,
+    </div>
+    ),
 
-    // ── Step 2: Model ──
+    // ── Step 2: Model (local only — cloud mode skips this) ──
+    ...(!cloudMode ? [
     <div key="model" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Cpu className="w-6 h-6 text-[#6366f1]" />
@@ -251,7 +363,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           className="w-full mt-2 px-4 py-3 rounded-xl border border-[#3f3f46] bg-[#18181b] text-white placeholder-[#52525b] focus:outline-none focus:border-[#6366f1] font-mono text-sm"
         />
       </div>
-    </div>,
+    </div>
+    ] : []),
 
     // ── Step 3: Profile ── with Persona selection from API
     <div key="profile" className="w-full max-w-lg mx-auto">
@@ -317,8 +430,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         MISSION CONTROL READY
       </h2>
       <p className="text-[#a1a1aa] mb-6 max-w-md">
-        {agentName} is ready with <span className="text-white font-medium">{model}</span> via{' '}
-        <span className="text-white font-medium">{selectedProvider?.name || provider}</span>.
+        {agentName} is ready with <span className="text-white font-medium">{cloudMode ? (allCloudModels.find(m => m.id === model)?.name || model) : model}</span>{' '}
+        {cloudMode ? (
+          <>via <span className="text-white font-medium">TITAN Cloud</span>.</>
+        ) : (
+          <>via <span className="text-white font-medium">{selectedProvider?.name || provider}</span>.</>
+        )}
       </p>
       <div className="grid grid-cols-3 gap-4 text-center max-w-md w-full mb-8">
         <div className="p-4 rounded-xl bg-[#18181b] border border-[#3f3f46]">
@@ -348,7 +465,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     </div>,
   ];
 
-  const stepLabels = ['Welcome', 'Provider', 'Model', 'Profile', 'Launch'];
+  const stepLabels = cloudMode ? ['Welcome', 'Model', 'Profile', 'Launch'] : ['Welcome', 'Provider', 'Model', 'Profile', 'Launch'];
   const isLast = step === steps.length - 1;
 
   return (
