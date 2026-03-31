@@ -24,13 +24,33 @@ export interface SendMessageResponse {
 
 // ---- SSE streaming ----
 export interface StreamEvent {
-  type: 'token' | 'tool_start' | 'tool_end' | 'done' | 'error';
+  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'round' | 'done' | 'error';
   data: string;
   toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResult?: string;
+  toolSuccess?: boolean;
+  toolDurationMs?: number;
+  round?: number;
+  maxRounds?: number;
   sessionId?: string;
   model?: string;
   durationMs?: number;
   toolsUsed?: string[];
+}
+
+// ---- Agent Watcher ----
+export interface AgentEvent {
+  id: string;
+  type: 'tool_start' | 'tool_end' | 'thinking' | 'token' | 'round' | 'done';
+  toolName?: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  durationMs?: number;
+  status?: 'running' | 'success' | 'error';
+  round?: number;
+  maxRounds?: number;
+  timestamp: number;
 }
 
 // ---- Sessions ----

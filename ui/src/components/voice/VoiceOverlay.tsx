@@ -166,9 +166,14 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     return () => { clearTimeout(id); document.removeEventListener('click', handler); };
   }, [showVoiceMenu]);
 
-  // Mic level monitoring
+  // Mic level monitoring — mobile-safe (AudioContext must be created/resumed after user gesture)
   const startMicMonitor = useCallback(async () => {
     try {
+      // On mobile browsers, getUserMedia requires a secure context and user gesture
+      if (!navigator.mediaDevices?.getUserMedia) {
+        console.warn('[Voice] getUserMedia not available — may need HTTPS on mobile');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -177,7 +182,15 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
         },
       });
       micStreamRef.current = stream;
-      const ctx = new AudioContext();
+      // Reuse existing AudioContext if available, create new one otherwise
+      // On iOS Safari, AudioContext must be resumed after user gesture
+      let ctx = audioContextRef.current;
+      if (!ctx || ctx.state === 'closed') {
+        ctx = new (window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext as typeof AudioContext)();
+      }
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
       audioContextRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();

@@ -542,6 +542,9 @@ ${isAndrew ? '' : 'Orpheus TTS emotion tags (use sparingly): <laugh>, <chuckle>,
 export interface StreamCallbacks {
     onToken?: (token: string) => void;
     onToolCall?: (name: string, args: Record<string, unknown>) => void;
+    onToolResult?: (name: string, result: string, durationMs: number, success: boolean) => void;
+    onThinking?: () => void;
+    onRound?: (round: number, maxRounds: number) => void;
 }
 
 /** Process a user message through the agent loop */
@@ -954,6 +957,10 @@ export async function processMessage(
 
     // Agent loop with tool calling
     for (let round = 0; round < effectiveMaxRounds; round++) {
+        // Emit round info to watcher
+        if (round > 0) streamCallbacks?.onThinking?.();
+        streamCallbacks?.onRound?.(round + 1, effectiveMaxRounds);
+
         // Check if the user aborted this session
         if (signal?.aborted) {
             logger.info(COMPONENT, `Session aborted by user at round ${round + 1}`);
@@ -1252,6 +1259,16 @@ export async function processMessage(
             logger.error(COMPONENT, `Tool execution error: ${(err as Error).message}`);
             finalContent = 'An error occurred while executing tools. Please try again.';
             break;
+        }
+
+        // Emit tool results to watcher
+        for (const result of toolResults) {
+            streamCallbacks?.onToolResult?.(
+                result.name,
+                result.content.slice(0, 500),
+                result.durationMs || 0,
+                !result.content.toLowerCase().includes('error')
+            );
         }
 
         // Add tool results to messages and record for learning

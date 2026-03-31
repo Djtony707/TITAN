@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X } from 'lucide-react';
+import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X, Eye, EyeOff } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
 import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession } from '@/api/client';
 import type { ChatMessage, Session, AgentInfo } from '@/api/types';
@@ -8,6 +8,7 @@ import { MessageBubble } from './MessageBubble';
 import { StreamingMessage } from './StreamingMessage';
 import { ChatInput } from './ChatInput';
 import { QuickActions } from './QuickActions';
+import { AgentWatcher } from '../agent-watcher/AgentWatcher';
 
 interface ChatViewProps {
   onVoiceOpen?: () => void;
@@ -24,7 +25,8 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { isStreaming, streamingContent, activeTools, send, cancel } = useSSE();
+  const [watcherOpen, setWatcherOpen] = useState(false);
+  const { isStreaming, streamingContent, activeTools, agentEvents, send, cancel } = useSSE();
   const { voiceAvailable } = useConfig();
 
   useEffect(() => {
@@ -296,8 +298,10 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         </div>
       )}
 
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main content — split view when watcher is open */}
+      <div className="flex-1 flex min-w-0">
+        {/* Chat area */}
+        <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? '60%' : '100%', transition: 'width 300ms ease' }}>
         {/* Top bar — minimal */}
         <div className="flex items-center gap-2 px-3 py-2 shrink-0">
           <button
@@ -309,6 +313,19 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
               <PanelLeftClose className="w-5 h-5" />
             ) : (
               <PanelLeft className="w-5 h-5" />
+            )}
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={() => setWatcherOpen((prev) => !prev)}
+            className="p-2 text-[#52525b] hover:text-[#a1a1aa] rounded-lg hover:bg-[#18181b] transition-colors"
+            aria-label="Toggle agent watcher"
+            title={watcherOpen ? 'Hide Agent Watcher' : 'Show Agent Watcher'}
+          >
+            {watcherOpen ? (
+              <EyeOff className="w-5 h-5" />
+            ) : (
+              <Eye className="w-5 h-5" />
             )}
           </button>
         </div>
@@ -391,7 +408,15 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
           voiceAvailable={voiceAvailable}
           onVoiceClick={handleVoiceClick}
         />
-      </div>
+      </div>{/* end chat column */}
+
+      {/* Agent Watcher panel */}
+      {watcherOpen && (
+        <div className="border-l border-[#3f3f46]" style={{ width: '40%', minWidth: 280, transition: 'width 300ms ease' }}>
+          <AgentWatcher events={agentEvents} onClose={() => setWatcherOpen(false)} />
+        </div>
+      )}
+      </div>{/* end split view */}
     </div>
   );
 }

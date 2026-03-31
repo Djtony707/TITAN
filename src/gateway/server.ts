@@ -1265,7 +1265,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             safeWrite(`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`);
           },
           onToolCall: (name, args) => {
-            safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args })}\n\n`);
+            safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args, timestamp: Date.now() })}\n\n`);
+          },
+          onToolResult: (name, result, durationMs, success) => {
+            safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, timestamp: Date.now() })}\n\n`);
+          },
+          onThinking: () => {
+            safeWrite(`event: thinking\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
+          },
+          onRound: (round, maxRounds) => {
+            safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
           },
         }, agentId, abortController.signal);
         titanRequestsTotal.increment({ channel, status: 'ok' });

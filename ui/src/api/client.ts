@@ -130,9 +130,13 @@ export function streamMessage(
                   if (eventType === 'token') {
                     onEvent?.({ type: 'token', data: parsed.text ?? parsed.data ?? '' });
                   } else if (eventType === 'tool_call') {
-                    onEvent?.({ type: 'tool_start', data: '', toolName: parsed.name });
+                    onEvent?.({ type: 'tool_start', data: '', toolName: parsed.name, toolArgs: parsed.args });
                   } else if (eventType === 'tool_end') {
-                    onEvent?.({ type: 'tool_end', data: '', toolName: parsed.name });
+                    onEvent?.({ type: 'tool_end', data: '', toolName: parsed.name, toolResult: parsed.result, toolDurationMs: parsed.durationMs, toolSuccess: parsed.success });
+                  } else if (eventType === 'thinking') {
+                    onEvent?.({ type: 'thinking', data: '' });
+                  } else if (eventType === 'round') {
+                    onEvent?.({ type: 'round', data: '', round: parsed.round, maxRounds: parsed.maxRounds });
                   } else if (eventType === 'done') {
                     onEvent?.({
                       type: 'done',
