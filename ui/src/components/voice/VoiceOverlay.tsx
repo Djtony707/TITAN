@@ -96,12 +96,49 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const levelAnimRef = useRef<number>(0);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Persistent reusable Audio element for iOS Safari compatibility
-  // iOS blocks new Audio().play() except the first one created during a user gesture
+  // Persistent reusable Audio element for desktop browsers
   const reusableAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Web Audio API context for iOS — once resumed during user gesture, stays unlocked
+  const playbackCtxRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const interruptCheckRef = useRef<number>(0);
   const processingRef = useRef(false); // guard against overlapping handleUserMessage calls
+  const isIOSRef = useRef(typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent));
+
+  /** Play audio data via Web Audio API (iOS-safe) or HTMLAudioElement (desktop) */
+  const playAudioData = useCallback((blobUrl: string): Promise<void> => {
+    return new Promise(async (resolve) => {
+      // iOS path: use Web Audio API (AudioContext stays unlocked after user gesture)
+      if (isIOSRef.current && playbackCtxRef.current) {
+        try {
+          const response = await fetch(blobUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await playbackCtxRef.current.decodeAudioData(arrayBuffer);
+          // Stop any currently playing source
+          try { currentSourceRef.current?.stop(); } catch { /* ok */ }
+          const source = playbackCtxRef.current.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(playbackCtxRef.current.destination);
+          currentSourceRef.current = source;
+          source.onended = () => { URL.revokeObjectURL(blobUrl); resolve(); };
+          source.start(0);
+          try { recognitionRef.current?.stop(); } catch { /* ok */ }
+          return;
+        } catch (e) {
+          console.warn('[Voice] Web Audio playback failed, falling back to Audio element:', e);
+        }
+      }
+      // Desktop path: use Audio element
+      const audio = reusableAudioRef.current || new Audio();
+      currentAudioRef.current = audio;
+      audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
+      audio.onended = () => { URL.revokeObjectURL(blobUrl); resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(); };
+      audio.src = blobUrl;
+      audio.play().catch(() => { URL.revokeObjectURL(blobUrl); resolve(); });
+    });
+  }, []);
 
   // Refs to avoid stale closures in recognition callbacks
   const isMutedRef = useRef(false);
@@ -326,6 +363,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
   // Stop any currently playing audio (enables interruption)
   const stopCurrentAudio = useCallback(() => {
+    // Stop Web Audio API source (iOS)
+    try { currentSourceRef.current?.stop(); } catch { /* ok */ }
+    currentSourceRef.current = null;
+    // Stop HTML Audio element (desktop)
     const audio = currentAudioRef.current;
     if (audio) {
       audio.pause();
@@ -353,8 +394,8 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
   /**
    * Reactive audio queue player — pulls from a shared array as new items arrive.
-   * Uses a SINGLE reusable Audio element for iOS Safari compatibility.
-   * iOS blocks new Audio().play() except during user gestures — reusing one element works.
+   * Uses Web Audio API on iOS (AudioContext unlocked during user gesture).
+   * Uses HTMLAudioElement on desktop.
    */
   const createAudioPlayer = useCallback(() => {
     const urls: string[] = [];
@@ -363,11 +404,6 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     let streamDone = false;
     let onDone: (() => void) | null = null;
     let waitingForMore: (() => void) | null = null;
-
-    // Reuse the persistent Audio element created during user gesture — iOS requires this
-    const audio = reusableAudioRef.current || new Audio();
-    audio.preload = 'auto';
-    currentAudioRef.current = audio;
 
     const levelInterval = setInterval(() => {
       if (!cancelled) setAudioLevel(0.3 + Math.random() * 0.4);
@@ -383,11 +419,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
       if (idx < urls.length) {
         const dataUrl = urls[idx++];
-        audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
-        audio.onended = () => { URL.revokeObjectURL(dataUrl); playNext(); };
-        audio.onerror = () => { URL.revokeObjectURL(dataUrl); playNext(); };
-        audio.src = dataUrl;
-        audio.play().catch(() => { URL.revokeObjectURL(dataUrl); playNext(); });
+        playAudioData(dataUrl).then(() => playNext()).catch(() => playNext());
       } else if (streamDone) {
         cleanup();
         if (onDone) onDone();
@@ -738,22 +770,31 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
     setPhase('active');
 
-    // iOS Safari: create and prime the reusable Audio element during this user gesture.
-    // iOS only allows audio playback from elements created/played during a user tap.
-    // We create one here and reuse it for ALL subsequent TTS playback.
-    if (!reusableAudioRef.current) {
-      const el = new Audio();
-      el.preload = 'auto';
-      reusableAudioRef.current = el;
+    // iOS Safari audio unlock: create AudioContext + resume() during this user gesture.
+    // Once resumed during a tap, the AudioContext stays unlocked for ALL future playback.
+    // This is the most reliable iOS audio pattern (confirmed by mediasoup, MDN, Apple docs).
+    if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
+      const Ctx = window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext as typeof AudioContext;
+      playbackCtxRef.current = new Ctx();
     }
-    // Prime it with a silent WAV to fully unlock playback on iOS
+    if (playbackCtxRef.current.state === 'suspended') {
+      playbackCtxRef.current.resume().catch(() => {});
+    }
+    // Also play a silent buffer to fully prime the context
     try {
-      reusableAudioRef.current.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-      reusableAudioRef.current.play().then(() => {
-        reusableAudioRef.current!.pause();
-        reusableAudioRef.current!.src = '';
-      }).catch(() => {});
-    } catch { /* desktop doesn't need this */ }
+      const ctx = playbackCtxRef.current;
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch { /* ok */ }
+
+    // Desktop fallback: reusable Audio element
+    if (!reusableAudioRef.current) {
+      reusableAudioRef.current = new Audio();
+      reusableAudioRef.current.preload = 'auto';
+    }
 
     startMicMonitor();
     startRecognition();
