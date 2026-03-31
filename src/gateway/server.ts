@@ -2972,7 +2972,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     }
     // Tell the client which TTS engine is active
-    logger.info(COMPONENT, `Voice TTS: engine=${effectiveTtsEngine}, url=${effectiveTtsUrl}, voice=${voiceId}`);
     safeWrite(`event: tts_mode\ndata: ${JSON.stringify({ engine: effectiveTtsEngine })}\n\n`);
 
     // Sentence buffer and sequential TTS queue
