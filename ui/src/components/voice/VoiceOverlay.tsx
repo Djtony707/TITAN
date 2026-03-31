@@ -106,37 +106,49 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const processingRef = useRef(false); // guard against overlapping handleUserMessage calls
   const isIOSRef = useRef(typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent));
 
-  /** Play audio data via Web Audio API (iOS-safe) or HTMLAudioElement (desktop) */
+  /** Play audio data — tries Web Audio API first (most reliable on iOS), then Audio element */
   const playAudioData = useCallback((blobUrl: string): Promise<void> => {
     return new Promise(async (resolve) => {
-      // iOS path: use Web Audio API (AudioContext stays unlocked after user gesture)
-      if (isIOSRef.current && playbackCtxRef.current) {
+      // Path 1: Web Audio API — works on iOS once AudioContext is resumed during user gesture
+      const ctx = playbackCtxRef.current;
+      if (ctx && ctx.state !== 'closed') {
         try {
+          if (ctx.state === 'suspended') await ctx.resume();
           const response = await fetch(blobUrl);
           const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await playbackCtxRef.current.decodeAudioData(arrayBuffer);
-          // Stop any currently playing source
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
           try { currentSourceRef.current?.stop(); } catch { /* ok */ }
-          const source = playbackCtxRef.current.createBufferSource();
+          const source = ctx.createBufferSource();
           source.buffer = audioBuffer;
-          source.connect(playbackCtxRef.current.destination);
+          source.connect(ctx.destination);
           currentSourceRef.current = source;
           source.onended = () => { URL.revokeObjectURL(blobUrl); resolve(); };
           source.start(0);
           try { recognitionRef.current?.stop(); } catch { /* ok */ }
+          console.log('[Voice] Playing via Web Audio API');
           return;
         } catch (e) {
-          console.warn('[Voice] Web Audio playback failed, falling back to Audio element:', e);
+          console.warn('[Voice] Web Audio failed:', e);
         }
       }
-      // Desktop path: use Audio element
-      const audio = reusableAudioRef.current || new Audio();
-      currentAudioRef.current = audio;
-      audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
-      audio.onended = () => { URL.revokeObjectURL(blobUrl); resolve(); };
-      audio.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(); };
-      audio.src = blobUrl;
-      audio.play().catch(() => { URL.revokeObjectURL(blobUrl); resolve(); });
+
+      // Path 2: HTML Audio element (desktop fallback)
+      try {
+        const audio = reusableAudioRef.current || new Audio();
+        audio.setAttribute('playsinline', '');
+        audio.setAttribute('autoplay', '');
+        currentAudioRef.current = audio;
+        audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
+        audio.onended = () => { URL.revokeObjectURL(blobUrl); resolve(); };
+        audio.onerror = (e) => { console.warn('[Voice] Audio element error:', e); URL.revokeObjectURL(blobUrl); resolve(); };
+        audio.src = blobUrl;
+        await audio.play();
+        console.log('[Voice] Playing via Audio element');
+      } catch (e) {
+        console.warn('[Voice] Audio element play failed:', e);
+        URL.revokeObjectURL(blobUrl);
+        resolve();
+      }
     });
   }, []);
 
