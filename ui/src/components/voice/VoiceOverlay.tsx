@@ -96,6 +96,9 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const levelAnimRef = useRef<number>(0);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Persistent reusable Audio element for iOS Safari compatibility
+  // iOS blocks new Audio().play() except the first one created during a user gesture
+  const reusableAudioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const interruptCheckRef = useRef<number>(0);
   const processingRef = useRef(false); // guard against overlapping handleUserMessage calls
@@ -350,8 +353,8 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
   /**
    * Reactive audio queue player — pulls from a shared array as new items arrive.
-   * Unlike a static snapshot, this checks for new entries after each track finishes.
-   * Call `queue.finish()` when the stream is done so it knows when to stop waiting.
+   * Uses a SINGLE reusable Audio element for iOS Safari compatibility.
+   * iOS blocks new Audio().play() except during user gestures — reusing one element works.
    */
   const createAudioPlayer = useCallback(() => {
     const urls: string[] = [];
@@ -360,6 +363,11 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     let streamDone = false;
     let onDone: (() => void) | null = null;
     let waitingForMore: (() => void) | null = null;
+
+    // Reuse the persistent Audio element created during user gesture — iOS requires this
+    const audio = reusableAudioRef.current || new Audio();
+    audio.preload = 'auto';
+    currentAudioRef.current = audio;
 
     const levelInterval = setInterval(() => {
       if (!cancelled) setAudioLevel(0.3 + Math.random() * 0.4);
@@ -374,53 +382,45 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       if (cancelled) { cleanup(); return; }
 
       if (idx < urls.length) {
-        // There's audio to play
         const dataUrl = urls[idx++];
-        const audio = new Audio(dataUrl);
-        currentAudioRef.current = audio;
         audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
         audio.onended = () => { URL.revokeObjectURL(dataUrl); playNext(); };
         audio.onerror = () => { URL.revokeObjectURL(dataUrl); playNext(); };
+        audio.src = dataUrl;
         audio.play().catch(() => { URL.revokeObjectURL(dataUrl); playNext(); });
       } else if (streamDone) {
-        // Stream finished and no more audio — we're done
         cleanup();
         if (onDone) onDone();
       } else {
-        // Waiting for more audio from the stream
         waitingForMore = playNext;
       }
     };
 
     return {
-      /** Add a new audio URL to the queue */
       push(url: string) {
         urls.push(url);
-        // If the player was waiting for more audio, wake it up
         if (waitingForMore) {
           const resume = waitingForMore;
           waitingForMore = null;
           resume();
         }
       },
-      /** Signal that no more audio will arrive */
       finish() {
         streamDone = true;
-        // If waiting, trigger final check
         if (waitingForMore) {
           const resume = waitingForMore;
           waitingForMore = null;
           resume();
         }
       },
-      /** Start playing */
       start(done: () => void) {
         onDone = done;
         playNext();
       },
-      /** Cancel playback */
       cancel() {
         cancelled = true;
+        audio.pause();
+        audio.src = '';
         cleanup();
       },
       get length() { return urls.length; },
@@ -662,7 +662,8 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
         if (ttsRes.ok) {
           const blob = await ttsRes.blob();
           const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
+          // Reuse persistent Audio element for iOS compatibility
+          const audio = reusableAudioRef.current || new Audio();
           currentAudioRef.current = audio;
           audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
           const cleanup = () => {
@@ -737,20 +738,22 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
     setPhase('active');
 
-    // iOS Safari: unlock audio playback during this user gesture
-    // Without this, subsequent new Audio().play() calls are silently blocked
+    // iOS Safari: create and prime the reusable Audio element during this user gesture.
+    // iOS only allows audio playback from elements created/played during a user tap.
+    // We create one here and reuse it for ALL subsequent TTS playback.
+    if (!reusableAudioRef.current) {
+      const el = new Audio();
+      el.preload = 'auto';
+      reusableAudioRef.current = el;
+    }
+    // Prime it with a silent WAV to fully unlock playback on iOS
     try {
-      const silentCtx = new (window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext as typeof AudioContext)();
-      const buffer = silentCtx.createBuffer(1, 1, 22050);
-      const source = silentCtx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(silentCtx.destination);
-      source.start(0);
-      // Also prime an Audio element
-      const silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
-      silentAudio.play().catch(() => {});
-      setTimeout(() => silentCtx.close().catch(() => {}), 100);
-    } catch { /* non-critical — desktop doesn't need this */ }
+      reusableAudioRef.current.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      reusableAudioRef.current.play().then(() => {
+        reusableAudioRef.current!.pause();
+        reusableAudioRef.current!.src = '';
+      }).catch(() => {});
+    } catch { /* desktop doesn't need this */ }
 
     startMicMonitor();
     startRecognition();
@@ -781,7 +784,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       if (!res.ok) return;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      const audio = reusableAudioRef.current || new Audio();
       const cleanup = () => {
         URL.revokeObjectURL(url);
         audio.src = '';
