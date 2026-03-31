@@ -338,6 +338,11 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   // Auto-start mic when resuming a saved voice (skipping picker)
   useEffect(() => {
     if (savedVoice && phase === 'active') {
+      // iOS audio unlock on auto-start too
+      try {
+        const sa = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+        sa.play().catch(() => {});
+      } catch { /* ok */ }
       startMicMonitor();
       startRecognition();
     }
@@ -731,6 +736,22 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     } catch { /* non-critical */ }
 
     setPhase('active');
+
+    // iOS Safari: unlock audio playback during this user gesture
+    // Without this, subsequent new Audio().play() calls are silently blocked
+    try {
+      const silentCtx = new (window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext as typeof AudioContext)();
+      const buffer = silentCtx.createBuffer(1, 1, 22050);
+      const source = silentCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(silentCtx.destination);
+      source.start(0);
+      // Also prime an Audio element
+      const silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+      silentAudio.play().catch(() => {});
+      setTimeout(() => silentCtx.close().catch(() => {}), 100);
+    } catch { /* non-critical — desktop doesn't need this */ }
+
     startMicMonitor();
     startRecognition();
   }, [startMicMonitor, startRecognition]);
