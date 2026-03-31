@@ -156,26 +156,54 @@ def generate_speech(text, voice="default"):
 
         tts = _get_model()
 
-        ref_file = None
-        ref_text = ""
-        if voice and voice != "default":
-            ref_file = _find_ref_audio(voice)
-            ref_text = _find_ref_text(voice) or ""
-            if ref_file:
-                print(f"[VoiceClone] Cloning from: {ref_file}")
+        ref_file = _find_ref_audio(voice) if voice and voice != "default" else None
+        ref_text = _find_ref_text(voice) if voice and voice != "default" else ""
 
-        # Merge sentences to prevent voice drift between separate generations
+        if not ref_file:
+            # No reference audio — generate without cloning
+            # F5-TTS requires ref_file, so use built-in default
+            print(f"[VoiceClone] No ref audio for '{voice}', using default voice")
+            ref_file = None
+            ref_text = ""
+        else:
+            print(f"[VoiceClone] Cloning from: {ref_file}")
+
         gen_text = text.strip()
-        gen_text = re.sub(r'([.!?])\s+(?=\S)', ', ', gen_text)
 
-        wav, sr, _ = tts.infer(
-            ref_file=ref_file or "",
-            ref_text=ref_text,
-            gen_text=gen_text,
-            speed=SPEED,
-            seed=SEED,
-            nfe_step=STEPS,
-        )
+        # F5-TTS PyTorch handles sentence batching internally — don't merge
+        try:
+            if ref_file:
+                wav, sr, _ = tts.infer(
+                    ref_file=ref_file,
+                    ref_text=ref_text or "",
+                    gen_text=gen_text,
+                    speed=SPEED,
+                    seed=SEED,
+                    nfe_step=STEPS,
+                )
+            else:
+                # No ref file — use basic generation (no cloning)
+                wav, sr, _ = tts.infer(
+                    gen_text=gen_text,
+                    speed=SPEED,
+                    seed=SEED,
+                    nfe_step=STEPS,
+                )
+        except RuntimeError as e:
+            if "Sizes of tensors must match" in str(e):
+                # Text too long for ref audio — truncate and retry
+                print(f"[VoiceClone] Text too long for ref ({len(gen_text)} chars), truncating to 200 chars")
+                gen_text = gen_text[:200].rsplit(' ', 1)[0] + '.'
+                wav, sr, _ = tts.infer(
+                    ref_file=ref_file,
+                    ref_text=ref_text or "",
+                    gen_text=gen_text,
+                    speed=SPEED,
+                    seed=SEED,
+                    nfe_step=STEPS,
+                )
+            else:
+                raise
 
         # Normalize volume — target peak at -10dB
         peak = np.max(np.abs(wav))
@@ -342,11 +370,12 @@ def main():
     print(f"  GET  /v1/audio/voices  — List voices")
     print(f"  GET  /health           — Health check")
 
-    # Warm up model
+    # Warm up model — use andrew if available for realistic warmup
     print(f"[VoiceClone] Warming up F5-TTS model...")
+    warmup_voice = "andrew" if _find_ref_audio("andrew") else "default"
     try:
-        generate_speech("Warming up.", voice="default")
-        print(f"[VoiceClone] Model warm and ready")
+        generate_speech("Good morning Sir.", voice=warmup_voice)
+        print(f"[VoiceClone] Model warm and ready (voice={warmup_voice})")
     except Exception as e:
         print(f"[VoiceClone] Warmup note: {e}")
 
