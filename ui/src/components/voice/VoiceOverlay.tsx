@@ -451,8 +451,11 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       },
       cancel() {
         cancelled = true;
-        audio.pause();
-        audio.src = '';
+        try { currentSourceRef.current?.stop(); } catch { /* ok */ }
+        if (currentAudioRef.current) {
+          currentAudioRef.current.pause();
+          currentAudioRef.current.src = '';
+        }
         cleanup();
       },
       get length() { return urls.length; },
