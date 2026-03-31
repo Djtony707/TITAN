@@ -500,6 +500,21 @@ export class OllamaProvider extends LLMProvider {
                     if (!line.trim()) continue;
                     try {
                         const chunk = JSON.parse(line);
+                        // Debug: log first chunk to diagnose 0-token voice issue
+                        if (!buffer && chunk.message) {
+                            const keys = Object.keys(chunk.message);
+                            if (!chunk.message.content && keys.length > 1) {
+                                logger.debug(COMPONENT, `[Stream] First chunk keys: ${keys.join(',')}, content="${chunk.message.content}", thinking="${chunk.message.thinking?.slice(0,50) || ''}"`);
+                            }
+                        }
+                        // Handle thinking field for models that put content there
+                        if (!chunk.message?.content && chunk.message?.thinking) {
+                            // Model is using thinking field — check if think was supposed to be off
+                            if (body.think === false) {
+                                // thinking should be off but model is using it anyway — treat thinking as content
+                                chunk.message.content = chunk.message.thinking;
+                            }
+                        }
                         if (chunk.message?.content) {
                             let text = chunk.message.content;
                             // Strip leaked <think>...</think> blocks from Qwen/DeepSeek
