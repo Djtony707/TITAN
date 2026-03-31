@@ -905,6 +905,15 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const statusColor = isSpeaking ? '#a78bfa' : isThinking ? '#f59e0b' : isListening ? '#22d3ee' : '#71717a';
 
   return (
+    <>
+    {/* Hidden DOM audio element for iOS Safari — more reliable than JS-created Audio() */}
+    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+    <audio
+      ref={(el) => { if (el && !reusableAudioRef.current) reusableAudioRef.current = el; }}
+      autoPlay
+      playsInline
+      style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
+    />
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center backdrop-blur-sm transition-all duration-200"
       style={{
@@ -1050,5 +1059,6 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
         </>
       )}
     </div>
+    </>
   );
 }
