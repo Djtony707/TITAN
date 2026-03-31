@@ -415,6 +415,8 @@ export class OllamaProvider extends LLMProvider {
             options: { num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384), num_ctx: getModelCtx(model), temperature: options.temperature ?? 0.7 },
         };
 
+        logger.info(COMPONENT, `[Stream] model=${model}, cloud=${isCloudModel}, think=${body.think}, maxTokens=${(body.options as Record<string, unknown>).num_predict}, messages=${(body.messages as unknown[]).length}`);
+
         // Explicit thinking mode — disable for cloud models with tools
         if (options.thinking === false || (isCloudModel && hasTools)) {
             body.think = false;
@@ -486,6 +488,8 @@ export class OllamaProvider extends LLMProvider {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let yieldedTokens = 0;
+            let rawChunks = 0;
             let insideThink = false;
 
             while (true) {
@@ -500,13 +504,7 @@ export class OllamaProvider extends LLMProvider {
                     if (!line.trim()) continue;
                     try {
                         const chunk = JSON.parse(line);
-                        // Debug: log first chunk to diagnose 0-token voice issue
-                        if (!buffer && chunk.message) {
-                            const keys = Object.keys(chunk.message);
-                            if (!chunk.message.content && keys.length > 1) {
-                                logger.debug(COMPONENT, `[Stream] First chunk keys: ${keys.join(',')}, content="${chunk.message.content}", thinking="${chunk.message.thinking?.slice(0,50) || ''}"`);
-                            }
-                        }
+                        rawChunks++;
                         // Handle thinking field for models that put content there
                         if (!chunk.message?.content && chunk.message?.thinking) {
                             // Model is using thinking field — check if think was supposed to be off
@@ -527,7 +525,7 @@ export class OllamaProvider extends LLMProvider {
                                     continue; // suppress thinking content
                                 }
                             }
-                            if (text) yield { type: 'text', content: text };
+                            if (text) { yieldedTokens++; yield { type: 'text', content: text }; }
                         }
                         if (chunk.message?.tool_calls) {
                             for (const tc of chunk.message.tool_calls) {
@@ -542,8 +540,10 @@ export class OllamaProvider extends LLMProvider {
                     } catch { /* skip malformed NDJSON lines */ }
                 }
             }
+            logger.info(COMPONENT, `[Stream] Done: ${yieldedTokens} yielded, ${rawChunks} raw chunks, insideThink=${insideThink}`);
             yield { type: 'done' };
         } catch (error) {
+            logger.error(COMPONENT, `[Stream] Error after ${yieldedTokens} yielded, ${rawChunks} raw: ${(error as Error).message}`);
             yield { type: 'error', error: (error as Error).message };
         }
     }
