@@ -17,6 +17,25 @@ const COMPONENT = 'Graph';
 const TITAN_HOME = join(homedir(), '.titan');
 const GRAPH_PATH = join(TITAN_HOME, 'graph.json');
 
+// ── Memory Bounds (Hermes-inspired) ──────────────────────────────
+const MAX_ENTITIES = 500;          // Prune oldest when exceeded
+const MAX_FACTS_PER_ENTITY = 50;   // Cap facts per entity
+const MAX_EPISODES = 5000;         // Prune oldest episodes
+const MAX_FACT_CHARS = 500;        // Max chars per fact entry
+
+// ── Injection Protection ─────────────────────────────────────────
+const INJECTION_PATTERNS = [
+    /ignore\s+(all\s+)?previous\s+instructions/i,
+    /you\s+are\s+now\s+a/i,
+    /forget\s+(all\s+)?your\s+(instructions|rules)/i,
+    /system\s*:\s*you\s+are/i,
+    /\[INST\]/i,
+    /<<SYS>>/i,
+    /\bACT\s+AS\b/i,
+    /new\s+instructions?\s*:/i,
+    /override\s+(the\s+)?system/i,
+];
+
 // ── Data Model ────────────────────────────────────────────────────
 
 export interface Episode {
@@ -315,6 +334,38 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
     return entity;
 }
 
+// ── Memory Bounds Enforcement ────────────────────────────────────
+
+function enforceMemoryBounds(): void {
+    // Prune episodes if over limit (keep newest)
+    if (graph.episodes.length > MAX_EPISODES) {
+        const excess = graph.episodes.length - MAX_EPISODES;
+        graph.episodes.splice(0, excess);
+        logger.info(COMPONENT, `Pruned ${excess} oldest episodes (limit: ${MAX_EPISODES})`);
+    }
+    // Prune entities if over limit (keep most recently seen)
+    if (graph.entities.length > MAX_ENTITIES) {
+        graph.entities.sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
+        const excess = graph.entities.length - MAX_ENTITIES;
+        const removed = graph.entities.splice(MAX_ENTITIES, excess);
+        const removedIds = new Set(removed.map(e => e.id));
+        graph.edges = graph.edges.filter(e => !removedIds.has(e.from) && !removedIds.has(e.to));
+        logger.info(COMPONENT, `Pruned ${excess} oldest entities (limit: ${MAX_ENTITIES})`);
+    }
+    // Cap facts per entity
+    for (const entity of graph.entities) {
+        if (entity.facts.length > MAX_FACTS_PER_ENTITY) {
+            entity.facts = entity.facts.slice(-MAX_FACTS_PER_ENTITY);
+        }
+        // Truncate individual facts
+        entity.facts = entity.facts.map(f => f.length > MAX_FACT_CHARS ? f.slice(0, MAX_FACT_CHARS) + '…' : f);
+    }
+}
+
+function containsInjection(text: string): boolean {
+    return INJECTION_PATTERNS.some(p => p.test(text));
+}
+
 // ── Add Episode ──────────────────────────────────────────────────
 // Phrases that indicate a failed/negative response — don't store these as memories
 const POISON_PHRASES = [
@@ -326,6 +377,12 @@ const POISON_PHRASES = [
 
 export async function addEpisode(content: string, source: string): Promise<Episode> {
     if (!initialized) initGraph();
+
+    // Guard: don't store injection attempts
+    if (containsInjection(content)) {
+        logger.warn(COMPONENT, `Blocked injection attempt in episode from ${source}`);
+        return { id: '', content, source, createdAt: new Date().toISOString(), entities: [] };
+    }
 
     // Guard: don't store TITAN's "I don't know" responses — they poison future recall
     const contentLower = content.toLowerCase();
@@ -341,6 +398,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
         entities: [],
     };
     graph.episodes.push(episode);
+    enforceMemoryBounds();
     saveGraph();
 
     // Index to vector store for semantic search (fire-and-forget)

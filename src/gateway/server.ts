@@ -532,7 +532,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       res.setHeader('Content-Security-Policy', [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "script-src 'self' 'unsafe-inline'",
           "style-src 'self' 'unsafe-inline'",
           "connect-src 'self' ws: wss: https: http:",
           "media-src 'self' blob: mediastream:",
@@ -2962,7 +2962,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     }
     // Tell the client which TTS engine is active
-    logger.info(COMPONENT, `Voice stream: ttsEngine=${ttsEngine}, effectiveTtsEngine=${effectiveTtsEngine}, url=${effectiveTtsUrl}, voice=${voiceId}`);
     safeWrite(`event: tts_mode\ndata: ${JSON.stringify({ engine: effectiveTtsEngine })}\n\n`);
 
     // Sentence buffer and sequential TTS queue

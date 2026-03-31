@@ -153,8 +153,13 @@ export function addMessage(
         const snippet = content.slice(0, 60) + (content.length > 60 ? '…' : '');
         const meta: { name?: string; last_message?: string } = { last_message: snippet };
         if (!session.name) {
-            session.name = snippet;
-            meta.name = snippet;
+            // Clean up voice prefixes and generate a readable title
+            let title = content.replace(/^\[voice\/voice-user\]\s*/i, '').replace(/^\[api\/api-user\]\s*/i, '');
+            // Capitalize first letter, limit to 50 chars
+            title = title.charAt(0).toUpperCase() + title.slice(1);
+            if (title.length > 50) title = title.slice(0, 47) + '…';
+            session.name = title;
+            meta.name = title;
         }
         session.lastMessage = snippet;
         updateSessionMeta(session.id, meta);

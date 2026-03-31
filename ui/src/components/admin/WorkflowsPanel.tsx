@@ -237,6 +237,8 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
       {showForm && (
         <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: '#18181b', border: '1px solid #27272a' }}>
           <input
+            id="workflow-goal-title"
+            name="workflow-goal-title"
             type="text"
             placeholder="Goal title..."
             value={formTitle}
@@ -245,6 +247,8 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
             style={{ backgroundColor: '#09090b', border: '1px solid #27272a', color: '#fafafa' }}
           />
           <textarea
+            id="workflow-goal-description"
+            name="workflow-goal-description"
             placeholder="Description (optional)..."
             value={formDesc}
             onChange={e => setFormDesc(e.target.value)}
@@ -405,6 +409,8 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
         <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: '#18181b', border: '1px solid #27272a' }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
             <input
+              id="workflow-cron-name"
+              name="workflow-cron-name"
               type="text"
               placeholder="Job name..."
               value={name}
@@ -413,6 +419,8 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
               style={{ backgroundColor: '#09090b', border: '1px solid #27272a', color: '#fafafa' }}
             />
             <input
+              id="workflow-cron-schedule"
+              name="workflow-cron-schedule"
               type="text"
               placeholder="Schedule (e.g. */5 * * * *)"
               value={schedule}
@@ -422,6 +430,8 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
             />
           </div>
           <input
+            id="workflow-cron-command"
+            name="workflow-cron-command"
             type="text"
             placeholder="Command to execute..."
             value={command}

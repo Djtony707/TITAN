@@ -802,6 +802,11 @@ export async function processMessage(
     }
     } // end !voiceFastPath
 
+    // Memory nudge — every 20 messages, remind agent to review and update its knowledge
+    if (session.messageCount > 0 && session.messageCount % 20 === 0 && !voiceFastPath) {
+        systemPrompt += '\n\n[MEMORY NUDGE] You have had 20+ messages in this session. If the user has shared preferences, facts, or important details, use the memory tool to save them for future sessions. Review your existing memories for accuracy.';
+    }
+
     // Voice mode prompt is handled above via buildVoiceSystemPrompt() — no append needed
     // Voice sessions: limit context to last 6 messages (3 turns) to prevent
     // multi-turn degradation with local models. Long contexts cause Qwen to

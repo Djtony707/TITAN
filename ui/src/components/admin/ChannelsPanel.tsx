@@ -154,6 +154,8 @@ function ChannelCard({
               </label>
               <div className="relative">
                 <input
+                  id={`channel-${def.id}-token`}
+                  name={`channel-${def.id}-token`}
                   type={showToken ? 'text' : 'password'}
                   value={localToken}
                   onChange={(e) => { setLocalToken(e.target.value); setDirty(true); }}
@@ -182,6 +184,8 @@ function ChannelCard({
               </label>
               <div className="relative">
                 <input
+                  id={`channel-${def.id}-api-key`}
+                  name={`channel-${def.id}-api-key`}
                   type={showApiKey ? 'text' : 'password'}
                   value={localApiKey}
                   onChange={(e) => { setLocalApiKey(e.target.value); setDirty(true); }}

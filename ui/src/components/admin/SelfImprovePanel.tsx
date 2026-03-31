@@ -594,6 +594,8 @@ function SelfImprovePanel() {
             <div>
               <label className="mb-1 block text-xs text-[#71717a]">Base Model</label>
               <select
+                id="train-base-model"
+                name="train-base-model"
                 value={trainConfig.baseModel}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, baseModel: e.target.value }))}
                 className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none"
@@ -611,6 +613,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{trainConfig.loraRank}</span>
               </label>
               <input
+                id="train-lora-rank"
+                name="train-lora-rank"
                 type="range"
                 min={4}
                 max={64}
@@ -631,6 +635,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa] font-mono">{trainConfig.learningRate.toExponential(0)}</span>
               </label>
               <input
+                id="train-learning-rate"
+                name="train-learning-rate"
                 type="range"
                 min={-5}
                 max={-3}
@@ -651,6 +657,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{trainConfig.epochs}</span>
               </label>
               <input
+                id="train-epochs"
+                name="train-epochs"
                 type="range"
                 min={1}
                 max={10}
@@ -670,6 +678,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{trainConfig.timeBudgetMin} min</span>
               </label>
               <input
+                id="train-time-budget"
+                name="train-time-budget"
                 type="range"
                 min={5}
                 max={120}
@@ -690,6 +700,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{trainConfig.maxSeqLength}</span>
               </label>
               <input
+                id="train-max-seq-length"
+                name="train-max-seq-length"
                 type="range"
                 min={512}
                 max={4096}
@@ -916,6 +928,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{runsPerDay}</span>
               </label>
               <input
+                id="schedule-runs-per-day"
+                name="schedule-runs-per-day"
                 type="range"
                 min={1}
                 max={12}
@@ -932,6 +946,8 @@ function SelfImprovePanel() {
             <div>
               <label className="mb-1 block text-xs text-[#71717a]">Schedule</label>
               <select
+                id="schedule-preset"
+                name="schedule-preset"
                 value={schedulePreset}
                 onChange={(e) => setSchedulePreset(Number(e.target.value))}
                 className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none"
@@ -949,6 +965,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{budgetMinutes} min</span>
               </label>
               <input
+                id="schedule-budget-minutes"
+                name="schedule-budget-minutes"
                 type="range"
                 min={5}
                 max={120}
@@ -969,6 +987,8 @@ function SelfImprovePanel() {
                 <span className="text-sm font-medium text-[#fafafa]">{maxDailyBudget} min</span>
               </label>
               <input
+                id="schedule-max-daily-budget"
+                name="schedule-max-daily-budget"
                 type="range"
                 min={30}
                 max={480}

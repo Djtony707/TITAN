@@ -154,25 +154,25 @@ function McpPanel() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-[var(--text-muted)]">ID</label>
-              <input value={newServer.id} onChange={e => setNewServer({ ...newServer, id: e.target.value })}
+              <input id="mcp-server-id" name="mcp-server-id" value={newServer.id} onChange={e => setNewServer({ ...newServer, id: e.target.value })}
                 className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                 placeholder="my-server" />
             </div>
             <div>
               <label className="text-xs text-[var(--text-muted)]">Name</label>
-              <input value={newServer.name} onChange={e => setNewServer({ ...newServer, name: e.target.value })}
+              <input id="mcp-server-name" name="mcp-server-name" value={newServer.name} onChange={e => setNewServer({ ...newServer, name: e.target.value })}
                 className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                 placeholder="My MCP Server" />
             </div>
             <div className="md:col-span-2">
               <label className="text-xs text-[var(--text-muted)]">Description</label>
-              <input value={newServer.description} onChange={e => setNewServer({ ...newServer, description: e.target.value })}
+              <input id="mcp-server-description" name="mcp-server-description" value={newServer.description} onChange={e => setNewServer({ ...newServer, description: e.target.value })}
                 className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                 placeholder="What does this server do?" />
             </div>
             <div>
               <label className="text-xs text-[var(--text-muted)]">Type</label>
-              <select value={newServer.type} onChange={e => setNewServer({ ...newServer, type: e.target.value as 'stdio' | 'http' })}
+              <select id="mcp-server-type" name="mcp-server-type" value={newServer.type} onChange={e => setNewServer({ ...newServer, type: e.target.value as 'stdio' | 'http' })}
                 className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]">
                 <option value="stdio">stdio (local process)</option>
                 <option value="http">HTTP (remote server)</option>
@@ -182,13 +182,13 @@ function McpPanel() {
               <>
                 <div>
                   <label className="text-xs text-[var(--text-muted)]">Command</label>
-                  <input value={newServer.command} onChange={e => setNewServer({ ...newServer, command: e.target.value })}
+                  <input id="mcp-server-command" name="mcp-server-command" value={newServer.command} onChange={e => setNewServer({ ...newServer, command: e.target.value })}
                     className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                     placeholder="npx @modelcontextprotocol/server-xxx" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--text-muted)]">Arguments (space-separated)</label>
-                  <input value={newServer.args} onChange={e => setNewServer({ ...newServer, args: e.target.value })}
+                  <input id="mcp-server-args" name="mcp-server-args" value={newServer.args} onChange={e => setNewServer({ ...newServer, args: e.target.value })}
                     className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                     placeholder="--port 3000" />
                 </div>
@@ -196,7 +196,7 @@ function McpPanel() {
             ) : (
               <div className="md:col-span-2">
                 <label className="text-xs text-[var(--text-muted)]">Server URL</label>
-                <input value={newServer.url} onChange={e => setNewServer({ ...newServer, url: e.target.value })}
+                <input id="mcp-server-url" name="mcp-server-url" value={newServer.url} onChange={e => setNewServer({ ...newServer, url: e.target.value })}
                   className="w-full mt-1 px-3 py-1.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-md text-[var(--text)]"
                   placeholder="http://localhost:3000/mcp" />
               </div>

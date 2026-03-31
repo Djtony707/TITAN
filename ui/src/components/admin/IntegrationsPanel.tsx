@@ -106,6 +106,8 @@ function ProviderCard({
             </label>
             <div className="relative">
               <input
+                id={`integration-${provider.id}`}
+                name={`integration-${provider.id}`}
                 type={isKey && !showSecret ? 'password' : 'text'}
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
@@ -334,6 +336,8 @@ function IntegrationsPanel() {
           <div>
             <label className="mb-1 block text-xs text-[#71717a]">Client ID</label>
             <input
+              id="integration-google-client-id"
+              name="integration-google-client-id"
               type="text"
               value={oauthClientId}
               onChange={(e) => setOauthClientId(e.target.value)}
@@ -346,6 +350,8 @@ function IntegrationsPanel() {
             <label className="mb-1 block text-xs text-[#71717a]">Client Secret</label>
             <div className="relative">
               <input
+                id="integration-google-client-secret"
+                name="integration-google-client-secret"
                 type={showOauthSecret ? 'text' : 'password'}
                 value={oauthSecret}
                 onChange={(e) => setOauthSecret(e.target.value)}

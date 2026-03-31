@@ -102,6 +102,7 @@ function SectionCard({
 }
 
 function InputField({
+  id,
   label,
   value,
   onChange,
@@ -109,6 +110,7 @@ function InputField({
   type = 'text',
   secret = false,
 }: {
+  id?: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -123,6 +125,8 @@ function InputField({
       <label className="mb-1 block text-xs text-[#71717a]">{label}</label>
       <div className="relative">
         <input
+          id={id}
+          name={id}
           type={secret && !show ? 'password' : type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -356,6 +360,7 @@ function NvidiaPanel() {
           </div>
         </div>
         <InputField
+          id="nvidia-api-key"
           label="API Key"
           value={config.apiKey}
           onChange={(v) => setConfig(c => ({ ...c, apiKey: v }))}
@@ -383,6 +388,7 @@ function NvidiaPanel() {
           <StatusDot status={health.cuopt} />
         </div>
         <InputField
+          id="nvidia-cuopt-url"
           label="cuOpt Server URL"
           value={config.cuopt.url}
           onChange={(v) => setConfig(c => ({ ...c, cuopt: { ...c.cuopt, url: v } }))}
@@ -407,12 +413,14 @@ function NvidiaPanel() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <InputField
+            id="nvidia-asr-grpc-url"
             label="gRPC Address"
             value={config.asr.grpcUrl}
             onChange={(v) => setConfig(c => ({ ...c, asr: { ...c.asr, grpcUrl: v } }))}
             placeholder="localhost:50051"
           />
           <InputField
+            id="nvidia-asr-health-url"
             label="Health Check URL"
             value={config.asr.healthUrl}
             onChange={(v) => setConfig(c => ({ ...c, asr: { ...c.asr, healthUrl: v } }))}
@@ -437,12 +445,14 @@ function NvidiaPanel() {
       >
         <div className="grid grid-cols-2 gap-3">
           <InputField
+            id="nvidia-openshell-binary-path"
             label="Binary Path"
             value={config.openshell.binaryPath}
             onChange={(v) => setConfig(c => ({ ...c, openshell: { ...c.openshell, binaryPath: v } }))}
             placeholder="openshell"
           />
           <InputField
+            id="nvidia-openshell-policy-path"
             label="Policy File Path (optional)"
             value={config.openshell.policyPath}
             onChange={(v) => setConfig(c => ({ ...c, openshell: { ...c.openshell, policyPath: v } }))}
