@@ -58,6 +58,18 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
     return () => clearInterval(interval);
   }, []);
 
+  // Refresh sessions periodically (catches voice chat sessions and external changes)
+  useEffect(() => {
+    const refreshSessions = async () => {
+      try {
+        const updated = await getSessions();
+        setSessions(updated);
+      } catch { /* non-critical */ }
+    };
+    const interval = setInterval(refreshSessions, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el) {
