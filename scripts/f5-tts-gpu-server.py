@@ -156,54 +156,76 @@ def generate_speech(text, voice="default"):
 
         tts = _get_model()
 
+        # Always find a ref file — F5-TTS requires one
         ref_file = _find_ref_audio(voice) if voice and voice != "default" else None
-        ref_text = _find_ref_text(voice) if voice and voice != "default" else ""
+        ref_text = _find_ref_text(voice) if voice and voice != "default" else None
 
+        # Fallback: if requested voice has no ref, try andrew, then any available voice
         if not ref_file:
-            # No reference audio — generate without cloning
-            # F5-TTS requires ref_file, so use built-in default
-            print(f"[VoiceClone] No ref audio for '{voice}', using default voice")
-            ref_file = None
-            ref_text = ""
-        else:
-            print(f"[VoiceClone] Cloning from: {ref_file}")
+            ref_file = _find_ref_audio("andrew")
+            ref_text = _find_ref_text("andrew")
+        if not ref_file:
+            # Last resort: find ANY voice reference
+            voices_dir = get_voices_dir()
+            for wav in voices_dir.glob("*.wav"):
+                ref_file = str(wav)
+                txt = voices_dir / f"{wav.stem}.txt"
+                ref_text = txt.read_text().strip() if txt.exists() else ""
+                break
+        if not ref_file:
+            raise RuntimeError("No voice reference audio found. Upload a .wav to ~/.titan/voices/")
+
+        print(f"[VoiceClone] Cloning from: {ref_file}, voice={voice}")
 
         gen_text = text.strip()
 
-        # F5-TTS PyTorch handles sentence batching internally — don't merge
-        try:
-            if ref_file:
+        # F5-TTS has a max text length relative to ref audio.
+        # Split long text into chunks of ~150 chars, generate each, concatenate.
+        MAX_CHUNK = 150
+        if len(gen_text) > MAX_CHUNK:
+            # Split at sentence boundaries
+            sentences = re.split(r'(?<=[.!?])\s+', gen_text)
+            chunks = []
+            current = ""
+            for s in sentences:
+                if current and len(current) + len(s) + 1 > MAX_CHUNK:
+                    chunks.append(current)
+                    current = s
+                else:
+                    current = (current + " " + s).strip() if current else s
+            if current:
+                chunks.append(current)
+
+            print(f"[VoiceClone] Split {len(gen_text)} chars into {len(chunks)} chunks")
+            all_wav = []
+            for i, chunk in enumerate(chunks):
                 wav, sr, _ = tts.infer(
                     ref_file=ref_file,
                     ref_text=ref_text or "",
-                    gen_text=gen_text,
+                    gen_text=chunk,
                     speed=SPEED,
                     seed=SEED,
                     nfe_step=STEPS,
                 )
-            else:
-                # No ref file — use basic generation (no cloning)
-                wav, sr, _ = tts.infer(
-                    gen_text=gen_text,
-                    speed=SPEED,
-                    seed=SEED,
-                    nfe_step=STEPS,
-                )
-        except RuntimeError as e:
-            if "Sizes of tensors must match" in str(e):
-                # Text too long for ref audio — truncate and retry
-                print(f"[VoiceClone] Text too long for ref ({len(gen_text)} chars), truncating to 200 chars")
-                gen_text = gen_text[:200].rsplit(' ', 1)[0] + '.'
-                wav, sr, _ = tts.infer(
-                    ref_file=ref_file,
-                    ref_text=ref_text or "",
-                    gen_text=gen_text,
-                    speed=SPEED,
-                    seed=SEED,
-                    nfe_step=STEPS,
-                )
-            else:
-                raise
+                all_wav.append(wav)
+
+            # Concatenate with small silence gap
+            silence = np.zeros(int(sr * 0.3), dtype=np.float32)
+            combined = []
+            for i, w in enumerate(all_wav):
+                combined.append(w)
+                if i < len(all_wav) - 1:
+                    combined.append(silence)
+            wav = np.concatenate(combined)
+        else:
+            wav, sr, _ = tts.infer(
+                ref_file=ref_file,
+                ref_text=ref_text or "",
+                gen_text=gen_text,
+                speed=SPEED,
+                seed=SEED,
+                nfe_step=STEPS,
+            )
 
         # Normalize volume — target peak at -10dB
         peak = np.max(np.abs(wav))
