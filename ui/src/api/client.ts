@@ -19,6 +19,12 @@ import type {
   StreamEvent,
   ActivityEvent,
   ActivitySummary,
+  CommandPostDashboard,
+  RegisteredAgent,
+  TaskCheckout,
+  BudgetPolicy,
+  CPActivityEntry,
+  GoalTreeNode,
 } from './types';
 
 const BASE = '';
@@ -551,6 +557,58 @@ export async function previewVoice(name: string, text?: string): Promise<ArrayBu
   });
   if (!res.ok) throw new Error(`Preview failed: ${res.statusText}`);
   return res.arrayBuffer();
+}
+
+// ---- Command Post ----
+
+export async function getCommandPostDashboard(): Promise<CommandPostDashboard> {
+  return request('/api/command-post/dashboard');
+}
+
+export async function getCommandPostAgents(): Promise<RegisteredAgent[]> {
+  return request('/api/command-post/agents');
+}
+
+export async function cpCheckoutTask(goalId: string, subtaskId: string, agentId = 'manual'): Promise<TaskCheckout> {
+  return request(`/api/command-post/tasks/${goalId}/${subtaskId}/checkout`, {
+    method: 'POST', body: JSON.stringify({ agentId }),
+  });
+}
+
+export async function cpCheckinTask(subtaskId: string, runId: string): Promise<{ success: boolean }> {
+  return request(`/api/command-post/tasks/${subtaskId}/checkin`, {
+    method: 'POST', body: JSON.stringify({ runId }),
+  });
+}
+
+export async function getCPBudgets(): Promise<BudgetPolicy[]> {
+  return request('/api/command-post/budgets');
+}
+
+export async function createCPBudget(policy: Omit<BudgetPolicy, 'id' | 'currentSpend' | 'periodStart'>): Promise<BudgetPolicy> {
+  return request('/api/command-post/budgets', {
+    method: 'POST', body: JSON.stringify(policy),
+  });
+}
+
+export async function updateCPBudget(id: string, updates: Partial<BudgetPolicy>): Promise<BudgetPolicy> {
+  return request(`/api/command-post/budgets/${id}`, {
+    method: 'PUT', body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteCPBudget(id: string): Promise<{ success: boolean }> {
+  return request(`/api/command-post/budgets/${id}`, { method: 'DELETE' });
+}
+
+export async function getCPActivity(limit = 50, type?: string): Promise<CPActivityEntry[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (type) params.set('type', type);
+  return request(`/api/command-post/activity?${params}`);
+}
+
+export async function getCPGoalTree(): Promise<GoalTreeNode[]> {
+  return request('/api/command-post/goals/tree');
 }
 
 // ---- Auth ----

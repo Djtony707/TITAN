@@ -4,6 +4,27 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.67] — 2026-03-31
+
+### Added
+- **Command Post** — Paperclip-inspired agent governance layer with 5 subsystems:
+  - **Atomic task checkout** — prevents double-work with single-threaded lock + expiry sweep
+  - **Budget policies** — per-agent/goal/global spend limits with auto-pause on exceed
+  - **Goal ancestry chains** — `parentGoalId` enables Mission > Project > Task hierarchy
+  - **Agent registry** — persistent tracking with heartbeat monitoring and stale detection
+  - **Real-time activity feed** — SSE streaming + JSONL persistence
+- **Command Post dashboard** — new admin panel (#25) with agent status cards, task board, budget meters, goal ancestry tree, and live activity feed
+- **13 new API endpoints** under `/api/command-post/` (dashboard, agents, checkouts, budgets, activity, goals/tree, SSE stream)
+- **Autopilot checkout integration** — goal-mode task pickup respects Command Post locks when enabled
+- **Multi-agent event emissions** — `agent:spawned` and `agent:stopped` events for cross-system awareness
+- 24 new tests for Command Post (4,430 total across 140 files)
+
+### Changed
+- Goal interface now supports optional `parentGoalId` for hierarchical goal trees
+- Graceful shutdown now includes Command Post state persistence and listener cleanup
+
+---
+
 ## [2026.10.61] — 2026-03-26
 
 ### Fixed

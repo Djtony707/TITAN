@@ -664,6 +664,20 @@ export const TitanConfigSchema = z.object({
         /** Require human review before posting messages */
         reviewRequired: z.boolean().default(true),
     }).default({}),
+
+    /** Command Post — agent governance layer (Paperclip-inspired) */
+    commandPost: z.object({
+        /** Enable the Command Post governance layer */
+        enabled: z.boolean().default(false),
+        /** Heartbeat monitoring interval in ms */
+        heartbeatIntervalMs: z.number().default(60000),
+        /** Max concurrent managed agents */
+        maxConcurrentAgents: z.number().default(5),
+        /** Task checkout auto-expiry in ms (default 30 min) */
+        checkoutTimeoutMs: z.number().default(1800000),
+        /** Activity feed buffer size */
+        activityBufferSize: z.number().default(500),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;
@@ -680,3 +694,4 @@ export type VoiceConfig = z.infer<typeof VoiceConfigSchema>;
 export type TeachingConfig = z.infer<typeof TeachingConfigSchema>;
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;
 export type NvidiaConfig = TitanConfig['nvidia'];
+export type CommandPostConfig = TitanConfig['commandPost'];

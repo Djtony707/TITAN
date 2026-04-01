@@ -7,6 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { loadConfig } from '../config/config.js';
 import { processMessage, type AgentResponse, type StreamCallbacks } from './agent.js';
 import { checkPromptInjection } from '../security/shield.js';
+import { titanEvents } from './daemon.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'MultiAgent';
@@ -78,6 +79,7 @@ export function spawnAgent(options: {
 
     agents.set(id, agent);
     logger.info(COMPONENT, `Spawned agent "${agent.name}" (${id}) — model: ${agent.model} [${agents.size}/${MAX_AGENTS}]`);
+    titanEvents.emit('agent:spawned', { id, name: agent.name, model: agent.model });
     return { success: true, agent };
 }
 
@@ -93,6 +95,7 @@ export function stopAgent(agentId: string): { success: boolean; error?: string }
     agent.status = 'stopped';
     agents.delete(agentId);
     logger.info(COMPONENT, `Stopped agent "${agent.name}" (${agentId}) [${agents.size}/${MAX_AGENTS}]`);
+    titanEvents.emit('agent:stopped', { id: agentId, name: agent.name });
     return { success: true };
 }
 

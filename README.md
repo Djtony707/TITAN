@@ -1,5 +1,5 @@
 [//]: # (npm-text-start)
-> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, ~155 tools, 35 LLM providers, 15 channels, mesh networking, LiveKit voice, and a React dashboard. It trains itself. `npm i -g titan-agent`
+> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, ~195 tools, 36 LLM providers, 15 channels, mesh networking, LiveKit voice, Command Post agent governance, and a React dashboard with 25 admin panels. It trains itself. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
 # TITAN — The Intelligent Task Automation Network
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, autonomous self-improvement, local model fine-tuning with dual training pipelines, 15 channels, 35 providers, ~155 tools, ~4,329 tests. It trains itself. Pure JavaScript. No native compilation. No, seriously.</strong>
+  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Command Post agent governance, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, autonomous self-improvement, local model fine-tuning, 15 channels, 36 providers, ~195 tools, 4,430 tests. It trains itself. Pure JavaScript. No native compilation. No, seriously.</strong>
 </p>
 
 <p align="center">
@@ -22,10 +22,10 @@
   <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/npm/v/titan-agent?color=blue&label=npm" alt="npm version"/></a>
   <a href="https://github.com/Djtony707/TITAN/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Djtony707/TITAN/ci.yml?label=tests" alt="CI Status"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
-  <a href="#providers"><img src="https://img.shields.io/badge/providers-35-purple" alt="34 Providers"/></a>
-  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-155-orange" alt="155 Tools"/></a>
+  <a href="#providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
+  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-195-orange" alt="195 Tools"/></a>
   <a href="#channels"><img src="https://img.shields.io/badge/channels-15-blue" alt="15 Channels"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C329-brightgreen" alt="4,321 Tests"/></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C430-brightgreen" alt="4,430 Tests"/></a>
   <a href="https://github.com/Djtony707/TITAN/graphs/contributors"><img src="https://img.shields.io/github/contributors/Djtony707/TITAN" alt="Contributors"/></a>
 </p>
 
@@ -68,17 +68,18 @@
 
 ## Why TITAN?
 
-TITAN is the only open-source agent framework that **trains itself on your GPU**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, voice, GUI, 15 channels, mesh networking, and 35 providers in one package.
+TITAN is the only open-source agent framework that **trains itself on your GPU**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, voice, GUI, 15 channels, mesh networking, agent governance, and 36 providers in one package.
 
 | Feature | TITAN | OpenClaw | NemoClaw | Auto-GPT | CrewAI | LangGraph |
 |---------|:-----:|:--------:|:--------:|:--------:|:------:|:---------:|
 | **Language** | TypeScript | TypeScript | Python | Python | Python | Python |
 | **Self-improving** | LoRA + auto-eval | Foundry/Trace | TBD | Limited | — | — |
 | **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | — |
-| **Built-in GUI** | React SPA, 17 panels | Web + mobile | TBD | Limited | Partial | — |
+| **Built-in GUI** | React SPA, 25 panels | Web + mobile | TBD | Limited | Partial | — |
+| **Agent governance** | Command Post | — | — | — | — | — |
 | **Voice** | LiveKit WebRTC | ElevenLabs | TBD | Limited | — | — |
 | **Channel adapters** | 15 | 24+ | TBD | 0 | 0 | 0 |
-| **LLM providers** | 34 | Model-agnostic | NIM + others | ~5 | ~10 | ~20 |
+| **LLM providers** | 36 | Model-agnostic | NIM + others | ~5 | ~10 | ~20 |
 | **Mesh networking** | Multi-machine | — | — | — | — | — |
 | **Sandbox execution** | Docker + NVIDIA OpenShell | — | TBD | Docker | — | — |
 | **GPU VRAM management** | Auto-swap orchestrator | — | — | — | — | — |
@@ -95,11 +96,11 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 
 ---
 
-> **What's New in v2026.10.43 — VRAM Orchestrator + NVIDIA GPU Skills**
+> **What's New in v2026.10.66 — Command Post + Agent Watcher**
 >
-> TITAN now manages your GPU memory automatically. The new **VRAM Orchestrator** monitors GPU state via `nvidia-smi`, tracks Ollama model loads, and auto-swaps models when services like cuOpt or TTS need VRAM. Time-bounded leases prevent services from hogging GPU memory. Emergency OOM protection unloads models if VRAM drops critically low. All through 3 agent tools (`vram_status`, `vram_acquire`, `vram_release`) and 4 API endpoints.
+> **Command Post** — A Paperclip-inspired agent governance layer. Atomic task checkout prevents double-work, budget policies auto-pause agents that exceed spend limits, goal ancestry chains let agents always know *why* they're doing something, and a real-time activity feed tracks everything. Full dashboard panel with agent status cards, budget meters, task board, and goal hierarchy tree. All opt-in via `commandPost.enabled`.
 >
-> Also new: **NVIDIA cuOpt** GPU-accelerated optimization (vehicle routing solved in 74ms), **AI-Q** deep research via Nemotron Super NIM, and **OpenShell** K3s-based secure sandboxing. All gated behind `TITAN_NVIDIA=1`.
+> Also shipped: **Agent Watcher** split-view visualizer (ActivityCards + PixelOffice), rich SSE events (tool_start/end with args/results), iOS Safari voice fixes, auto-HTTPS via mkcert, bounded memory (500 entities, 5000 episodes), injection protection, Orpheus TTS auto-installer, and login page. 4,430 tests across 140 files.
 >
 > **— Tony**
 
@@ -422,6 +423,13 @@ Or let autopilot handle it — set `autopilot.mode: "self-improve"` and TITAN ru
 | **Self-Improve** | Autonomous improvement sessions, dual training pipelines (Tool Router / Main Agent), customizable hyperparameters, training data generation, model deployment, schedule config |
 | **Personas** | Create and switch between agent personality profiles |
 | **Telemetry** | Prometheus metrics — request counts, latency, token usage |
+| **Daemon** | Persistent agent awareness loop — health monitoring, event-driven subtask triggers |
+| **Command Post** | Agent governance — atomic task checkout, budget enforcement, goal ancestry tree, agent registry with heartbeats, real-time activity feed |
+| **Audit** | Security audit log viewer with HMAC-chain integrity verification |
+| **MCP** | MCP Server management — expose TITAN tools to other agents via JSON-RPC |
+| **NVIDIA** | GPU skills — cuOpt, AI-Q, VRAM orchestrator, OpenShell sandbox |
+| **Files** | Workspace file browser for `~/.titan/` directory |
+| **Autoresearch** | Autonomous model fine-tuning research pipeline |
 
 The legacy dashboard is still available at `/legacy`.
 
@@ -701,7 +709,7 @@ print(f"Found {len(results)} results")
 
 ## Built-in Tools
 
-100+ loaded skills exposing ~155 tools. All individually toggleable from Mission Control.
+100+ loaded skills exposing ~195 tools. All individually toggleable from Mission Control.
 
 | Category | Tools |
 |----------|-------|
@@ -983,6 +991,10 @@ Thanks to everyone who has contributed to TITAN:
 ### Architectural Inspiration
 
 - **[OpenClaw](https://github.com/openclaw/openclaw)** by [Peter Steinberger](https://github.com/steipete) — TITAN's architecture, CLI surface, tool signatures, workspace layout (AGENTS.md, SOUL.md, TOOLS.md), and DM pairing system are inspired by OpenClaw. Licensed under MIT.
+
+### Agent Governance
+
+- **[Paperclip](https://github.com/paperclipai/paperclip)** by [Paperclip AI](https://github.com/paperclipai) — Command Post's atomic task checkout, budget enforcement, goal ancestry chains, agent registry, and activity feed patterns are inspired by Paperclip's control plane architecture. Licensed under MIT.
 
 ### Temporal Knowledge Graph
 

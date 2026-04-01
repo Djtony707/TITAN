@@ -73,6 +73,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Autopilot', icon: Zap, path: '/autopilot' },
       { label: 'Daemon', icon: Eye, path: '/daemon' },
+      { label: 'Command Post', icon: Shield, path: '/command-post' },
       { label: 'Workflows', icon: GitBranch, path: '/workflows' },
       { label: 'Personas', icon: UserCircle, path: '/personas' },
       { label: 'Self-Improve', icon: Brain, path: '/self-improve' },

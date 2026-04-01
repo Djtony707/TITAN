@@ -57,6 +57,8 @@ export interface Goal {
     updatedAt: string;
     completedAt?: string;
     tags?: string[];
+    /** Parent goal ID for ancestry chain (Command Post) */
+    parentGoalId?: string;
 }
 
 interface GoalsStore {
@@ -111,6 +113,7 @@ export function createGoal(options: {
     schedule?: string;
     budgetLimit?: number;
     tags?: string[];
+    parentGoalId?: string;
     subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
 }): Goal {
     const goals = loadGoals();
@@ -165,6 +168,7 @@ export function createGoal(options: {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         tags: options.tags,
+        parentGoalId: options.parentGoalId,
     };
 
     goals.push(goal);

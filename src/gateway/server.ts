@@ -64,6 +64,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain } from '../agent/commandPost.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
@@ -2200,6 +2201,127 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Store per-client listener references so we only remove THIS client's listeners on disconnect
     const listeners = new Map<string, (data: unknown) => void>();
     for (const evt of events) {
+      const handler = (data: unknown) => onEvent(evt, data);
+      listeners.set(evt, handler);
+      titanEvents.on(evt, handler);
+    }
+
+    const keepalive = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch { /* client gone */ }
+    }, 15_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      for (const [evt, handler] of listeners) {
+        titanEvents.removeListener(evt, handler);
+      }
+    });
+  });
+
+  // ── Command Post API (Agent Governance) ───────────────────
+
+  app.get('/api/command-post/dashboard', (_req, res) => {
+    res.json(getCPDashboard());
+  });
+
+  app.get('/api/command-post/agents', (_req, res) => {
+    res.json(getRegisteredAgents());
+  });
+
+  app.post('/api/command-post/agents/:id/heartbeat', (req, res) => {
+    const ok = reportHeartbeat(req.params.id);
+    res.json({ success: ok });
+  });
+
+  app.post('/api/command-post/tasks/:goalId/:subtaskId/checkout', (req, res) => {
+    const agentId = (req.body as { agentId?: string }).agentId || 'manual';
+    const lock = checkoutTask(req.params.goalId, req.params.subtaskId, agentId);
+    if (!lock) { res.status(409).json({ error: 'Task already checked out by another agent' }); return; }
+    res.json(lock);
+  });
+
+  app.post('/api/command-post/tasks/:goalId/:subtaskId/checkin', (req, res) => {
+    const runId = (req.body as { runId?: string }).runId || '';
+    const ok = checkinTask(req.params.subtaskId, runId);
+    if (!ok) { res.status(404).json({ error: 'No matching checkout found' }); return; }
+    res.json({ success: true });
+  });
+
+  app.get('/api/command-post/checkouts', (_req, res) => {
+    res.json(getActiveCheckouts());
+  });
+
+  app.get('/api/command-post/budgets', (_req, res) => {
+    res.json(getBudgetPolicies());
+  });
+
+  app.post('/api/command-post/budgets', (req, res) => {
+    try {
+      const body = req.body as { name: string; scope: { type: 'agent' | 'goal' | 'global'; targetId?: string }; period: 'daily' | 'weekly' | 'monthly'; limitUsd: number; warningThresholdPercent?: number; action?: 'warn' | 'pause' | 'stop'; enabled?: boolean };
+      const policy = createBudgetPolicy({
+        name: body.name,
+        scope: body.scope,
+        period: body.period,
+        limitUsd: body.limitUsd,
+        warningThresholdPercent: body.warningThresholdPercent ?? 80,
+        action: body.action ?? 'pause',
+        enabled: body.enabled ?? true,
+      });
+      res.status(201).json(policy);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.put('/api/command-post/budgets/:id', (req, res) => {
+    const updated = updateBudgetPolicy(req.params.id, req.body as Record<string, unknown>);
+    if (!updated) { res.status(404).json({ error: 'Budget policy not found' }); return; }
+    res.json(updated);
+  });
+
+  app.delete('/api/command-post/budgets/:id', (req, res) => {
+    const ok = deleteBudgetPolicy(req.params.id);
+    if (!ok) { res.status(404).json({ error: 'Budget policy not found' }); return; }
+    res.json({ success: true });
+  });
+
+  app.get('/api/command-post/activity', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const type = req.query.type as string | undefined;
+    res.json(getActivity({ limit, type }));
+  });
+
+  app.get('/api/command-post/goals/tree', (_req, res) => {
+    res.json(getGoalTree());
+  });
+
+  app.get('/api/command-post/goals/:id/ancestry', (req, res) => {
+    const chain = getAncestryChain(req.params.id);
+    if (chain.length === 0) { res.status(404).json({ error: 'Goal not found' }); return; }
+    res.json(chain);
+  });
+
+  // Command Post SSE stream
+  app.get('/api/command-post/stream', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const onEvent = (event: string, data: unknown) => {
+      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+    };
+
+    const cpEvents = [
+      'commandpost:activity', 'commandpost:task:checkout', 'commandpost:task:checkin',
+      'commandpost:task:expired', 'commandpost:budget:warning', 'commandpost:budget:exceeded',
+      'commandpost:agent:heartbeat', 'commandpost:agent:status',
+    ];
+
+    const listeners = new Map<string, (data: unknown) => void>();
+    for (const evt of cpEvents) {
       const handler = (data: unknown) => onEvent(evt, data);
       listeners.set(evt, handler);
       titanEvents.on(evt, handler);
@@ -4555,6 +4677,12 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     }).catch(() => { /* optional */ });
   }
 
+  // ── Command Post — agent governance layer ────────────────
+  if (config.commandPost?.enabled) {
+    initCommandPost(config.commandPost);
+    logger.info(COMPONENT, 'Command Post governance layer initialized');
+  }
+
   // ── Daemon — persistent agent awareness loop ────────────────
   initDaemon();
 
@@ -4773,6 +4901,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     } catch { /* already stopped */ }
     stopAutopilot();
     stopDaemon();
+    shutdownCommandPost();
     stopTunnel();
     closeMemory();
     flushGraph();

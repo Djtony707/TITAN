@@ -19,6 +19,7 @@ import { AUTOPILOT_MD, AUTOPILOT_RUNS_PATH } from '../utils/constants.js';
 import { getReadyTasks, completeSubtask, failSubtask } from './goals.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { checkInitiative } from './initiative.js';
+import { checkoutTask, checkinTask, isCommandPostEnabled } from './commandPost.js';
 import logger from '../utils/logger.js';
 import type { TitanConfig } from '../config/schema.js';
 
@@ -406,8 +407,39 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
         return { run, delivered: false };
     }
 
-    // Pick the highest-priority ready task
-    const { goal, subtask } = readyTasks[0];
+    // Pick the highest-priority ready task (with Command Post checkout if enabled)
+    let picked: { goal: typeof readyTasks[0]['goal']; subtask: typeof readyTasks[0]['subtask'] } | null = null;
+    let checkoutRunId: string | null = null;
+
+    for (const candidate of readyTasks) {
+        if (isCommandPostEnabled()) {
+            const lock = checkoutTask(candidate.goal.id, candidate.subtask.id, 'autopilot');
+            if (!lock) {
+                logger.info(COMPONENT, `Subtask "${candidate.subtask.title}" locked by another agent, skipping`);
+                continue;
+            }
+            checkoutRunId = lock.runId;
+        }
+        picked = candidate;
+        break;
+    }
+
+    if (!picked) {
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration: 0, tokensUsed: 0, cost: 0,
+            classification: 'ok',
+            summary: 'All ready subtasks are currently checked out by other agents.',
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'all_checked_out',
+        };
+        lastRun = run;
+        appendRun(run);
+        return { run, delivered: false };
+    }
+
+    const { goal, subtask } = picked;
     logger.info(COMPONENT, `Goal-based autopilot: executing "${subtask.title}" from goal "${goal.title}"`);
 
     try {
@@ -454,6 +486,11 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
             completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
         } else {
             failSubtask(goal.id, subtask.id, result.content.slice(0, 200));
+        }
+
+        // Release Command Post checkout lock
+        if (isCommandPostEnabled() && checkoutRunId) {
+            checkinTask(subtask.id, checkoutRunId);
         }
 
         const duration = Date.now() - startTime;

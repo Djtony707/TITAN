@@ -366,3 +366,68 @@ export interface TrainingConfig {
   timeBudgetMin: number;
   maxSeqLength: number;
 }
+
+// ---- Command Post (Agent Governance) ----
+
+export interface TaskCheckout {
+  subtaskId: string;
+  goalId: string;
+  agentId: string;
+  runId: string;
+  checkedOutAt: string;
+  expiresAt: string;
+  status: 'locked' | 'released' | 'expired';
+}
+
+export interface BudgetPolicy {
+  id: string;
+  name: string;
+  scope: { type: 'agent' | 'goal' | 'global'; targetId?: string };
+  period: 'daily' | 'weekly' | 'monthly';
+  limitUsd: number;
+  warningThresholdPercent: number;
+  action: 'warn' | 'pause' | 'stop';
+  currentSpend: number;
+  periodStart: string;
+  enabled: boolean;
+}
+
+export interface RegisteredAgent {
+  id: string;
+  name: string;
+  model: string;
+  status: 'active' | 'idle' | 'paused' | 'error' | 'stopped';
+  lastHeartbeat: string;
+  currentTaskId?: string;
+  totalTasksCompleted: number;
+  totalCostUsd: number;
+  createdAt: string;
+}
+
+export interface CPActivityEntry {
+  id: string;
+  timestamp: string;
+  type: string;
+  agentId?: string;
+  goalId?: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GoalTreeNode {
+  goal: { id: string; title: string; status: string; progress: number; parentGoalId?: string };
+  children: GoalTreeNode[];
+  depth: number;
+}
+
+export interface CommandPostDashboard {
+  activeAgents: number;
+  totalAgents: number;
+  activeCheckouts: number;
+  budgetUtilization: number;
+  recentActivity: CPActivityEntry[];
+  agents: RegisteredAgent[];
+  checkouts: TaskCheckout[];
+  budgets: BudgetPolicy[];
+  goalTree: GoalTreeNode[];
+}
