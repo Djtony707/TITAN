@@ -1,5 +1,5 @@
 # TITAN Development Handoff — Programming Only
-## March 31, 2026 | v2026.10.68
+## April 1, 2026 | v2026.10.69
 
 This handoff is for coding/development work on TITAN only. For voice cloning, ad recording, or SaaS deployment, see HANDOFF.md.
 
@@ -68,11 +68,24 @@ ui/
 
 ---
 
-## Current Version: v2026.10.68
+## Current Version: v2026.10.69
 
 ### What Was Just Shipped
-- **Full-stack audit & hardening** — 14 bugs fixed across gateway, UI, mesh, and sandbox. Concurrency guard on `/api/message`, model switch validation, Prometheus `/metrics`, mesh TLS support, 6 UI bug fixes (stream error handling, audio leak, SSE cleanup, EventSource guard)
-- **Command Post** — Paperclip-inspired agent governance layer (atomic task checkout, budget policies, goal ancestry, agent registry, real-time activity feed). New dashboard panel at `/command-post`. 13 API endpoints, SSE stream, 24 tests. Opt-in via `commandPost.enabled`.
+- **Full Paperclip integration** — Command Post v2 with 7 tabs: Dashboard (metrics + pixel crew), Org Chart (hierarchical agent tree), Issues (TIT-1 ticket board), Agents (registry + run history), Approvals (hire/budget gates), Costs (budget meters), Console (NL management). 12 new API endpoints, issues/approvals/runs persist to disk.
+- **Cloud model optimization** — Benchmarked all 7 Ollama cloud models. Switched default to `qwen3-coder-next:cloud` (0.3s chat, perfect tool_choice). DeepSeek XML tool call parser. CloudRetry expanded. Voice uses `qwen3.5:397b-cloud`.
+- **14 bugs fixed** — concurrency guard, model switch validation, Prometheus `/metrics`, mesh TLS, gateway shutdown fix, voice poison guard, 6 UI fixes, Overview stats.
+- **124-test smoke suite** — `scripts/smoke-test.ts` covers all 12 subsystems.
+- **README fully updated** — 209 tools, 36 providers, 117 skills, 26 panels, Paperclip Command Post, F5-TTS voice cloning.
+
+### Critical Next Steps (ARCHITECTURE-TODO.md)
+1. **Think/Act phase separation** — Remove tools from LLM after tool execution round. 20-line fix, eliminates cloud model looping.
+2. **Async sub-agents via Command Post** — spawn_agent creates issue instead of blocking inline. Paperclip heartbeat pattern.
+3. **Agent inbox + wakeup** — CEO → Worker delegation via task assignment.
+4. **External agent adapters** — Claude Code, Codex, Cursor integration (Paperclip adapter pattern).
+
+### Reference Repos on Disk
+- `~/Desktop/paperclip-reference/` — Paperclip source (agent orchestration, heartbeats, task checkout)
+- `~/Desktop/openclaw-reference/` — OpenClaw source (tool calling, model fallback, sessions)
 - **Agent Watcher** — split-view real-time tool execution visualizer (ActivityCards + PixelOffice)
 - **Rich SSE events** — tool_start (with args), tool_end (with result/duration), thinking, round
 - **iOS Safari voice** — DOM `<audio autoPlay playsInline>` + Web Audio API AudioContext unlock
