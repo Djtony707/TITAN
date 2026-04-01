@@ -1292,6 +1292,19 @@ export async function processMessage(
             );
         }
 
+        // After sub-agent completes, force the parent to summarize immediately.
+        // Sub-agents return complete results — no need for more tool rounds.
+        const hasSubAgentResult = toolResults.some(r => r.name === 'spawn_agent');
+        if (hasSubAgentResult) {
+            for (const result of toolResults) {
+                toolsUsed.push(result.name);
+                messages.push({ role: 'tool', content: result.content, toolCallId: result.toolCallId, name: result.name });
+            }
+            messages.push({ role: 'user', content: 'The sub-agent has completed its task. Summarize the results above and respond to the user. Do NOT call any more tools.' });
+            logger.info(COMPONENT, `[SubAgent] spawn_agent completed — forcing parent summary`);
+            continue; // One more LLM round to summarize, then the summarization guard will kick in
+        }
+
         // Add tool results to messages and record for learning
         let loopBroken = false;
         for (const result of toolResults) {
