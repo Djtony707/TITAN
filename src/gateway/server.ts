@@ -682,18 +682,30 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // API routes
   app.get('/api/stats', (_req, res) => {
     const usage = getUsageStats();
+    const cfg = loadConfig();
+    const activeModel = cfg.agent.model || '';
+    const mem = process.memoryUsage();
     res.json({
       ...usage,
       version: TITAN_VERSION,
       uptime: process.uptime(),
-      memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      model: activeModel.replace(/^ollama\//, ''),
+      provider: activeModel.split('/')[0] || 'ollama',
+      memoryMB: Math.round(mem.rss / 1024 / 1024),
+      memoryUsage: {
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+        rss: mem.rss,
+        external: mem.external,
+        arrayBuffers: mem.arrayBuffers,
+      },
       health: {
         ollamaHealthy: healthState.ollamaHealthy,
         ttsHealthy: healthState.ttsHealthy,
         lastCheck: healthState.lastCheck,
         stuckDetected: healthState.stuckDetected,
         uptimeSeconds: Math.round(process.uptime()),
-        memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        memoryUsageMB: Math.round(mem.heapUsed / 1024 / 1024),
         activeLlmRequests,
       },
     });
