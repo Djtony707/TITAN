@@ -1,187 +1,395 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router';
 import {
-  Shield, Users, Lock, DollarSign, GitBranch, Activity,
-  ChevronRight, AlertTriangle, CheckCircle2, Clock, Pause,
-  Play, XCircle, BarChart3, Building2, Briefcase,
-  MessageSquare, Send, ChevronUp, ChevronDown as ChevDown, Loader2, StopCircle,
+  Building2, Users, Lock, DollarSign, GitBranch, Activity,
+  ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
+  MessageSquare, Send, StopCircle, Plus, Shield, Eye,
+  BarChart3, Briefcase, Play, Pause, Search,
 } from 'lucide-react';
-import { getCommandPostDashboard, streamMessage } from '@/api/client';
+import {
+  getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
+  updateCPIssue, getCPApprovals, approveCPApproval, rejectCPApproval,
+  getCPRuns, getCPBudgets, createCPBudget, deleteCPBudget, updateCPAgent,
+} from '@/api/client';
 import { apiFetch } from '@/api/client';
-import type { CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy, CPActivityEntry, GoalTreeNode, StreamEvent } from '@/api/types';
+import type {
+  CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy,
+  CPActivityEntry, GoalTreeNode, CPIssue, CPApproval, CPRun, OrgNode, StreamEvent,
+} from '@/api/types';
+import { PixelOfficeCrew } from '../command-post/PixelOfficeCrew';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
 function timeSince(dateStr: string): string {
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
+  const s = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, { bg: string; text: string; dot: string }> = {
-    active:  { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
-    idle:    { bg: 'bg-yellow-500/10', text: 'text-yellow-400', dot: 'bg-yellow-500' },
-    paused:  { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
-    error:   { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-500' },
-    stopped: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', dot: 'bg-zinc-500' },
+  const c: Record<string, string> = {
+    active: 'bg-green-500/10 text-green-400', idle: 'bg-yellow-500/10 text-yellow-400',
+    running: 'bg-cyan-500/10 text-cyan-400', paused: 'bg-blue-500/10 text-blue-400',
+    error: 'bg-red-500/10 text-red-400', stopped: 'bg-zinc-500/10 text-zinc-400',
+    pending: 'bg-amber-500/10 text-amber-400', approved: 'bg-green-500/10 text-green-400',
+    rejected: 'bg-red-500/10 text-red-400', succeeded: 'bg-green-500/10 text-green-400',
+    failed: 'bg-red-500/10 text-red-400',
+    backlog: 'bg-zinc-500/10 text-zinc-400', todo: 'bg-blue-500/10 text-blue-400',
+    in_progress: 'bg-cyan-500/10 text-cyan-400', in_review: 'bg-purple-500/10 text-purple-400',
+    done: 'bg-green-500/10 text-green-400', blocked: 'bg-red-500/10 text-red-400',
+    cancelled: 'bg-zinc-500/10 text-zinc-500',
+    critical: 'bg-red-500/10 text-red-400', high: 'bg-orange-500/10 text-orange-400',
+    medium: 'bg-yellow-500/10 text-yellow-400', low: 'bg-zinc-500/10 text-zinc-400',
   };
-  const s = styles[status] || styles.stopped;
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${s.bg} ${s.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === 'active' ? 'animate-pulse' : ''}`} />
-      {status}
-    </span>
-  );
+  const s = status || 'unknown';
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${c[s] || 'bg-zinc-500/10 text-zinc-400'}`}>{s.replace('_', ' ')}</span>;
 }
 
-// ─── Metric Card ─────────────────────────────────────────────
-
-function MetricCard({ icon: Icon, label, value, sub, color }: {
-  icon: typeof Shield; label: string; value: string | number; sub?: string; color: string;
-}) {
+function SectionHeader({ icon: Icon, title, count, action }: { icon: typeof Shield; title: string; count?: number; action?: React.ReactNode }) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon size={14} className={color} />
-        <span className="text-[11px] text-white/40 uppercase tracking-wider font-medium">{label}</span>
+    <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+      <div className="flex items-center gap-2">
+        <Icon size={14} className="text-indigo-400" />
+        <h2 className="text-sm font-semibold text-white/80">{title}</h2>
+        {count !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400">{count}</span>}
       </div>
-      <div className="text-2xl font-bold text-white/90">{value}</div>
-      {sub && <div className="text-[11px] text-white/30 mt-1">{sub}</div>}
+      {action}
     </div>
   );
 }
 
-// ─── Org Chart Agent Node ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// TAB: DASHBOARD
+// ═══════════════════════════════════════════════════════════════
 
-function AgentNode({ agent }: { agent: RegisteredAgent }) {
+function DashboardTab({ d, activity }: { d: CommandPostDashboard; activity: CPActivityEntry[] }) {
+  // Also show on Org Chart tab
+  const showCrew = d.agents.length > 0;
+  const budgetPct = d.budgetUtilization ?? 0;
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 min-w-[180px]">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[13px] font-semibold text-white/90 truncate">{agent.name}</span>
-        <StatusBadge status={agent.status} />
+    <div className="space-y-4">
+      {/* Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { icon: Users, label: 'Agents', value: d.totalAgents, sub: `${d.activeAgents} active`, color: 'text-blue-400' },
+          { icon: Lock, label: 'Locked', value: d.activeCheckouts, sub: 'tasks', color: 'text-orange-400' },
+          { icon: DollarSign, label: 'Budget', value: `${Math.round(budgetPct)}%`, sub: budgetPct >= 80 ? 'nearing limit' : 'healthy', color: budgetPct >= 80 ? 'text-red-400' : 'text-green-400' },
+          { icon: Briefcase, label: 'Goals', value: d.goalTree?.length ?? 0, sub: 'in hierarchy', color: 'text-purple-400' },
+        ].map(m => (
+          <div key={m.label} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2"><m.icon size={14} className={m.color} /><span className="text-[10px] text-white/40 uppercase tracking-wider">{m.label}</span></div>
+            <div className="text-2xl font-bold text-white/90">{m.value}</div>
+            {m.sub && <div className="text-[11px] text-white/30 mt-1">{m.sub}</div>}
+          </div>
+        ))}
       </div>
-      <div className="space-y-1 text-[11px] text-white/40">
-        <div className="flex justify-between">
-          <span>Model</span>
-          <span className="text-white/60 truncate ml-2 max-w-[100px]">{agent.model.split('/').pop()}</span>
+      {/* Pixel Office Crew */}
+      <PixelOfficeCrew agents={d.agents} activity={activity} />
+
+      {/* Activity */}
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Activity} title="Recent Activity" count={activity.length} />
+        <div className="max-h-64 overflow-y-auto divide-y divide-white/[0.03]">
+          {activity.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-white/25">No activity yet</div>
+          ) : [...activity].reverse().slice(0, 20).map((e, i) => (
+            <div key={`${e.timestamp}-${i}`} className="flex items-start gap-2.5 py-2 px-4">
+              <Activity size={12} className="text-white/20 mt-0.5" />
+              <span className="text-[11px] text-white/60 flex-1">{e.message}</span>
+              <span className="text-[10px] text-white/20">{timeSince(e.timestamp)}</span>
+            </div>
+          ))}
         </div>
-        <div className="flex justify-between">
-          <span>Tasks</span>
-          <span className="text-white/60">{agent.totalTasksCompleted}</span>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: ORG CHART
+// ═══════════════════════════════════════════════════════════════
+
+function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
+  const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
+  useEffect(() => { getCPOrg().then(setOrgTree).catch(() => {}); }, []);
+
+  function renderNode(node: OrgNode, depth = 0): React.ReactNode {
+    return (
+      <div key={node.id} className={depth > 0 ? 'ml-8 border-l border-white/[0.06] pl-4' : ''}>
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-2 max-w-xs">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[13px] font-semibold text-white/90">{node.name}</span>
+            <StatusBadge status={node.status} />
+          </div>
+          <div className="text-[10px] text-white/35 space-y-0.5">
+            {node.title && <div className="text-white/50">{node.title}</div>}
+            <div>Role: <span className="text-white/50 capitalize">{node.role}</span></div>
+            <div>Model: <span className="text-white/50">{node.model.split('/').pop()}</span></div>
+          </div>
         </div>
-        <div className="flex justify-between">
-          <span>Cost</span>
-          <span className="text-white/60">${agent.totalCostUsd.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Heartbeat</span>
-          <span className="text-white/60">{timeSince(agent.lastHeartbeat)}</span>
-        </div>
+        {node.reports.map(r => renderNode(r, depth + 1))}
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-// ─── Task Board Card ─────────────────────────────────────────
-
-function TaskCard({ checkout }: { checkout: TaskCheckout }) {
   return (
-    <div className="bg-white/[0.03] border border-orange-500/20 rounded-lg p-3">
-      <div className="flex items-center gap-2 mb-1.5">
-        <Lock size={12} className="text-orange-400" />
-        <span className="text-[12px] font-medium text-white/80 truncate">{checkout.subtaskId}</span>
-      </div>
-      <div className="text-[10px] text-white/35 space-y-0.5">
-        <div>Agent: <span className="text-white/55">{checkout.agentId}</span></div>
-        <div>Goal: <span className="text-white/55">{checkout.goalId}</span></div>
-        <div>Locked: <span className="text-white/55">{timeSince(checkout.checkedOutAt)}</span></div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Budget Bar ──────────────────────────────────────────────
-
-function BudgetBar({ policy }: { policy: BudgetPolicy }) {
-  const pct = policy.limitUsd > 0 ? Math.min(100, (policy.currentSpend / policy.limitUsd) * 100) : 0;
-  const barColor = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500';
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px] font-medium text-white/80">{policy.name}</span>
-        <span className="text-[10px] text-white/35 capitalize">{policy.scope.type}</span>
-      </div>
-      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
-        <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-      </div>
-      <div className="flex justify-between text-[10px] text-white/35">
-        <span>${policy.currentSpend.toFixed(2)} spent</span>
-        <span>${policy.limitUsd.toFixed(2)} limit</span>
+    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <SectionHeader icon={Building2} title="Organization Chart" count={agents.length} />
+      <div className="p-4">
+        {orgTree.length === 0 ? (
+          <div className="text-center py-8">
+            <Building2 size={24} className="mx-auto mb-2 text-white/10" />
+            <p className="text-[12px] text-white/25">No agents in org chart</p>
+            <p className="text-[10px] text-white/15 mt-1">Spawn agents and set reportsTo to build hierarchy</p>
+          </div>
+        ) : orgTree.map(n => renderNode(n))}
       </div>
     </div>
   );
 }
 
-// ─── Goal Tree ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// TAB: ISSUES
+// ═══════════════════════════════════════════════════════════════
 
-function GoalNode({ node, depth = 0 }: { node: GoalTreeNode; depth?: number }) {
-  const g = node.goal;
-  const statusIcon = g.status === 'completed'
-    ? <CheckCircle2 size={12} className="text-green-400" />
-    : g.status === 'in_progress'
-    ? <Play size={12} className="text-blue-400" />
-    : <Clock size={12} className="text-white/30" />;
-  return (
-    <div>
-      <div className="flex items-center gap-2 py-1.5" style={{ paddingLeft: `${depth * 20}px` }}>
-        {depth > 0 && <span className="text-white/10">{'└'}</span>}
-        {statusIcon}
-        <span className={`text-[12px] ${g.status === 'completed' ? 'text-white/40 line-through' : 'text-white/70'}`}>
-          {g.title}
-        </span>
-      </div>
-      {node.children?.map(child => (
-        <GoalNode key={child.goal.id} node={child} depth={depth + 1} />
-      ))}
-    </div>
-  );
-}
+function IssuesTab() {
+  const [issues, setIssues] = useState<CPIssue[]>([]);
+  const [filter, setFilter] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newPriority, setNewPriority] = useState<string>('medium');
 
-// ─── Activity Feed Item ──────────────────────────────────────
+  const load = useCallback(() => {
+    getCPIssues(filter ? { status: filter } : undefined).then(setIssues).catch(() => {});
+  }, [filter]);
+  useEffect(() => { load(); }, [load]);
 
-function FeedItem({ entry }: { entry: CPActivityEntry }) {
-  const colors: Record<string, string> = {
-    'task:checkout': 'text-orange-400', 'task:checkin': 'text-green-400',
-    'budget:warning': 'text-yellow-400', 'budget:exceeded': 'text-red-400',
-    'agent:spawned': 'text-blue-400', 'agent:stopped': 'text-zinc-400',
+  const handleCreate = async () => {
+    if (!newTitle.trim()) return;
+    await createCPIssue({ title: newTitle, priority: newPriority });
+    setNewTitle('');
+    setShowCreate(false);
+    load();
   };
-  const icons: Record<string, typeof Shield> = {
-    'task:checkout': Lock, 'task:checkin': CheckCircle2,
-    'budget:warning': AlertTriangle, 'budget:exceeded': XCircle,
-    'agent:spawned': Users, 'agent:stopped': Pause,
+
+  const handleStatusChange = async (id: string, status: string) => {
+    await updateCPIssue(id, { status: status as CPIssue['status'] });
+    load();
   };
-  const Icon = icons[entry.type] || Activity;
+
+  const statuses = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'];
+
   return (
-    <div className="flex items-start gap-2.5 py-2 px-3">
-      <Icon size={13} className={`${colors[entry.type] || 'text-white/30'} mt-0.5 flex-shrink-0`} />
-      <div className="flex-1 min-w-0">
-        <span className="text-[11px] text-white/60">{entry.message || entry.type}</span>
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1.5">
+          <button onClick={() => setFilter('')} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${!filter ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>All</button>
+          {statuses.map(s => (
+            <button key={s} onClick={() => setFilter(s)} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>{s.replace('_', ' ')}</button>
+          ))}
+        </div>
+        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1 px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500">
+          <Plus size={12} /> New Issue
+        </button>
       </div>
-      <span className="text-[10px] text-white/20 flex-shrink-0 whitespace-nowrap">{timeSince(entry.timestamp)}</span>
+
+      {/* Create modal */}
+      {showCreate && (
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3">
+          <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Issue title..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+          <div className="flex items-center gap-2">
+            <select value={newPriority} onChange={e => setNewPriority(e.target.value)} className="bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none">
+              <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+            </select>
+            <button onClick={handleCreate} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg">Create</button>
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-[11px] text-white/40 hover:text-white/60">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Issue list */}
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Briefcase} title="Issues" count={issues.length} />
+        <div className="divide-y divide-white/[0.03]">
+          {issues.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-white/25">No issues found</div>
+          ) : issues.map(issue => (
+            <div key={issue.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
+              <span className="text-[10px] text-white/25 font-mono w-14">{issue.identifier}</span>
+              <StatusBadge status={issue.priority || 'medium'} />
+              <span className="text-[12px] text-white/70 flex-1 truncate">{issue.title}</span>
+              {issue.assigneeAgentId && <span className="text-[10px] text-white/30">{issue.assigneeAgentId}</span>}
+              <select value={issue.status} onChange={e => handleStatusChange(issue.id, e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none">
+                {statuses.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                <option value="cancelled">cancelled</option>
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-// ─── Command Post Console ────────────────────────────────────
-// Management console — talk to TITAN about agents, tasks, budgets, governance.
-// Uses the main chat API with Command Post context injected.
+// ═══════════════════════════════════════════════════════════════
+// TAB: AGENTS
+// ═══════════════════════════════════════════════════════════════
 
-interface ConsoleMsg { role: 'user' | 'assistant'; content: string; timestamp: string }
+function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; runs: CPRun[]; onRefresh: () => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Users} title="Agent Registry" count={agents.length} />
+        <div className="divide-y divide-white/[0.03]">
+          {agents.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-white/25">No agents registered</div>
+          ) : agents.map(agent => (
+            <div key={agent.id} className="px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-semibold text-white/90">{agent.name}</span>
+                  <StatusBadge status={agent.status} />
+                  <span className="text-[10px] text-white/25 capitalize">{agent.role}</span>
+                </div>
+                <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
+              </div>
+              <div className="flex items-center gap-4 text-[10px] text-white/35">
+                {agent.title && <span>{agent.title}</span>}
+                <span>Model: {agent.model.split('/').pop()}</span>
+                <span>Tasks: {agent.totalTasksCompleted}</span>
+                <span>Cost: ${agent.totalCostUsd.toFixed(2)}</span>
+                {agent.reportsTo && <span>Reports to: {agent.reportsTo}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-function CommandPostConsole({ dashboard }: { dashboard: CommandPostDashboard }) {
+      {/* Runs */}
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Play} title="Run History" count={runs.length} />
+        <div className="divide-y divide-white/[0.03] max-h-64 overflow-y-auto">
+          {runs.length === 0 ? (
+            <div className="py-6 text-center text-[12px] text-white/25">No runs recorded</div>
+          ) : runs.map(run => (
+            <div key={run.id} className="flex items-center gap-3 px-4 py-2">
+              <StatusBadge status={run.status} />
+              <span className="text-[11px] text-white/50">{run.agentId}</span>
+              <span className="text-[10px] text-white/30">{run.source}</span>
+              {run.durationMs && <span className="text-[10px] text-white/25">{(run.durationMs / 1000).toFixed(1)}s</span>}
+              {run.toolsUsed.length > 0 && <span className="text-[10px] text-white/20">{run.toolsUsed.length} tools</span>}
+              <span className="text-[10px] text-white/20 ml-auto">{timeSince(run.startedAt)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: APPROVALS
+// ═══════════════════════════════════════════════════════════════
+
+function ApprovalsTab() {
+  const [approvals, setApprovals] = useState<CPApproval[]>([]);
+  const [filter, setFilter] = useState('');
+
+  const load = useCallback(() => {
+    getCPApprovals(filter || undefined).then(setApprovals).catch(() => {});
+  }, [filter]);
+  useEffect(() => { load(); }, [load]);
+
+  const handleApprove = async (id: string) => { await approveCPApproval(id, 'board'); load(); };
+  const handleReject = async (id: string) => { await rejectCPApproval(id, 'board'); load(); };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5">
+        {['', 'pending', 'approved', 'rejected'].map(s => (
+          <button key={s} onClick={() => setFilter(s)} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>
+            {s || 'All'}
+          </button>
+        ))}
+      </div>
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Shield} title="Approvals" count={approvals.length} />
+        <div className="divide-y divide-white/[0.03]">
+          {approvals.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-white/25">No approvals</div>
+          ) : approvals.map(a => (
+            <div key={a.id} className="px-4 py-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={a.status} />
+                  <span className="text-[12px] text-white/70 capitalize">{a.type.replace(/_/g, ' ')}</span>
+                  <span className="text-[10px] text-white/25">by {a.requestedBy}</span>
+                </div>
+                <span className="text-[10px] text-white/20">{timeSince(a.createdAt)}</span>
+              </div>
+              {a.status === 'pending' && (
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => handleApprove(a.id)} className="px-3 py-1 text-[10px] bg-green-600 text-white rounded-lg hover:bg-green-500">Approve</button>
+                  <button onClick={() => handleReject(a.id)} className="px-3 py-1 text-[10px] bg-red-600/80 text-white rounded-lg hover:bg-red-500">Reject</button>
+                </div>
+              )}
+              {a.decidedBy && <div className="text-[10px] text-white/25 mt-1">{a.status} by {a.decidedBy}{a.decisionNote ? `: ${a.decisionNote}` : ''}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: COSTS
+// ═══════════════════════════════════════════════════════════════
+
+function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: () => void }) {
+  return (
+    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <SectionHeader icon={DollarSign} title="Budget Policies" count={budgets.length} />
+      <div className="p-4 space-y-3">
+        {budgets.length === 0 ? (
+          <div className="text-center py-6 text-[12px] text-white/25">No budget policies</div>
+        ) : budgets.map(b => {
+          const pct = b.limitUsd > 0 ? Math.min(100, (b.currentSpend / b.limitUsd) * 100) : 0;
+          const color = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500';
+          return (
+            <div key={b.id} className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[12px] font-medium text-white/80">{b.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/30 capitalize">{b.scope.type}</span>
+                  <span className="text-[10px] text-white/20">{b.period}</span>
+                </div>
+              </div>
+              <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
+                <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-white/30">
+                <span>${b.currentSpend.toFixed(2)} spent</span>
+                <span>${b.limitUsd.toFixed(2)} limit ({b.action})</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: CONSOLE (chat)
+// ═══════════════════════════════════════════════════════════════
+
+interface ConsoleMsg { role: 'user' | 'assistant'; content: string }
+
+function ConsoleTab({ dashboard }: { dashboard: CommandPostDashboard }) {
   const [messages, setMessages] = useState<ConsoleMsg[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -189,153 +397,69 @@ function CommandPostConsole({ dashboard }: { dashboard: CommandPostDashboard }) 
   const [sessionId, setSessionId] = useState<string | undefined>();
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const buildContext = useCallback(() => {
     const d = dashboard;
-    const agentList = d.agents.map(a => `${a.name} (${a.status}, model=${a.model.split('/').pop()}, tasks=${a.totalTasksCompleted}, cost=$${a.totalCostUsd.toFixed(2)})`).join('; ') || 'none';
-    const budgetList = d.budgets.map(b => `${b.name}: $${b.currentSpend.toFixed(2)}/$${b.limitUsd.toFixed(2)} (${b.scope.type})`).join('; ') || 'none';
-    const goalList = d.goalTree?.map(g => g.goal.title).join(', ') || 'none';
-    return `[COMMAND POST CONTEXT — You are the Command Post management AI for TITAN. Help the user govern their agent organization.]
-Status: ${d.totalAgents} agents (${d.activeAgents} active), ${d.activeCheckouts} tasks locked, budget ${Math.round(d.budgetUtilization ?? 0)}% used.
-Agents: ${agentList}
-Budgets: ${budgetList}
-Goals: ${goalList}
-Activity: ${d.recentActivity?.length ?? 0} recent events.
-Available actions: spawn agents, set budgets, create goals, checkout tasks, review audit logs.
-Be concise. Use specific numbers from the data above. Format for readability.
-
-`;
+    const agentList = d.agents.map(a => `${a.name} (${a.status}, ${a.role}, cost=$${a.totalCostUsd.toFixed(2)})`).join('; ') || 'none';
+    return `[COMMAND POST] ${d.totalAgents} agents (${d.activeAgents} active), ${d.activeCheckouts} locked tasks, budget ${Math.round(d.budgetUtilization ?? 0)}% used, ${d.goalTree?.length ?? 0} goals. Agents: ${agentList}. You manage this agent organization. Be concise.\n\n`;
   }, [dashboard]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming) return;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }]);
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
     setStreaming(true);
     setStreamContent('');
-
     const controller = new AbortController();
     abortRef.current = controller;
-    let fullContent = '';
-    let newSessionId = sessionId;
-
+    let full = '';
+    let sid = sessionId;
     try {
-      await streamMessage(
-        buildContext() + text,
-        sessionId,
-        (event: StreamEvent) => {
-          switch (event.type) {
-            case 'token':
-              fullContent += event.data;
-              setStreamContent(fullContent);
-              break;
-            case 'done':
-              if (event.sessionId) newSessionId = event.sessionId;
-              break;
-          }
-        },
-        controller.signal,
-      );
-      if (newSessionId) setSessionId(newSessionId);
-      if (fullContent) {
-        setMessages(prev => [...prev, { role: 'assistant', content: fullContent, timestamp: new Date().toISOString() }]);
-      }
+      await streamMessage(buildContext() + text, sessionId, (e: StreamEvent) => {
+        if (e.type === 'token') { full += e.data; setStreamContent(full); }
+        if (e.type === 'done' && e.sessionId) sid = e.sessionId;
+      }, controller.signal);
+      if (sid) setSessionId(sid);
+      if (full) setMessages(prev => [...prev, { role: 'assistant', content: full }]);
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') {
-        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${(e as Error).message}`, timestamp: new Date().toISOString() }]);
-      }
-    } finally {
-      setStreaming(false);
-      setStreamContent('');
-      abortRef.current = null;
-    }
+      if ((e as Error).name !== 'AbortError') setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${(e as Error).message}` }]);
+    } finally { setStreaming(false); setStreamContent(''); abortRef.current = null; }
   }, [input, streaming, sessionId, buildContext]);
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, streamContent]);
+  useEffect(() => { scrollRef.current && (scrollRef.current.scrollTop = scrollRef.current.scrollHeight); }, [messages, streamContent]);
 
   return (
-    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <MessageSquare size={14} className="text-indigo-400" />
-          <h2 className="text-sm font-semibold text-white/80">Console</h2>
-          <span className="text-[10px] text-white/25">Talk to Command Post</span>
-        </div>
-        {streaming && (
-          <button onClick={() => abortRef.current?.abort()} className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1">
-            <StopCircle size={12} /> Stop
-          </button>
-        )}
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} className="h-64 overflow-y-auto px-4 py-3 space-y-2.5">
+    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col" style={{ height: 400 }}>
+      <SectionHeader icon={MessageSquare} title="Console" action={streaming ? <button onClick={() => abortRef.current?.abort()} className="text-[10px] text-red-400 flex items-center gap-1"><StopCircle size={12} />Stop</button> : undefined} />
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {messages.length === 0 && !streaming && (
           <div className="text-center py-6">
-            <p className="text-[11px] text-white/20 mb-3">Manage your agent organization through natural language</p>
+            <p className="text-[11px] text-white/20 mb-3">Manage your organization through natural language</p>
             <div className="flex flex-wrap justify-center gap-1.5">
-              {['Status report', 'Spawn a research agent', 'Set $50/day budget', 'List all goals'].map(q => (
-                <button key={q} onClick={() => setInput(q)}
-                  className="text-[10px] text-white/25 hover:text-white/50 px-2.5 py-1 rounded-full border border-white/[0.06] hover:border-white/[0.12] transition-colors">
-                  {q}
-                </button>
+              {['Status report', 'Create issue: Research competitors', 'Spawn a research agent', 'Set $50/day budget'].map(q => (
+                <button key={q} onClick={() => setInput(q)} className="text-[10px] text-white/25 hover:text-white/50 px-2.5 py-1 rounded-full border border-white/[0.06] hover:border-white/[0.12]">{q}</button>
               ))}
             </div>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap ${
-              msg.role === 'user'
-                ? 'bg-indigo-600/80 text-white rounded-br-sm'
-                : 'bg-white/[0.04] text-white/75 border border-white/[0.06] rounded-bl-sm'
-            }`}>
-              {msg.content}
-            </div>
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-indigo-600/80 text-white rounded-br-sm' : 'bg-white/[0.04] text-white/75 border border-white/[0.06] rounded-bl-sm'}`}>{m.content}</div>
           </div>
         ))}
         {streaming && streamContent && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] px-3 py-2 rounded-xl rounded-bl-sm bg-white/[0.04] text-white/75 border border-white/[0.06] text-[12px] leading-relaxed whitespace-pre-wrap">
-              {streamContent}<span className="inline-block w-1 h-3.5 bg-indigo-400 ml-0.5 animate-pulse" />
-            </div>
-          </div>
+          <div className="flex justify-start"><div className="max-w-[85%] px-3 py-2 rounded-xl rounded-bl-sm bg-white/[0.04] text-white/75 border border-white/[0.06] text-[12px] whitespace-pre-wrap">{streamContent}<span className="inline-block w-1 h-3.5 bg-indigo-400 ml-0.5 animate-pulse" /></div></div>
         )}
         {streaming && !streamContent && (
-          <div className="flex justify-start">
-            <div className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            </div>
-          </div>
+          <div className="flex justify-start"><div className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06]"><div className="flex gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" /><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '150ms' }} /><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '300ms' }} /></div></div></div>
         )}
       </div>
-
-      {/* Input */}
-      <div className="px-4 py-2.5 border-t border-white/[0.06]">
+      <div className="px-3 py-2 border-t border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
-            placeholder="Tell Command Post what to do..."
-            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30 transition-colors"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming}
-            className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-30 transition-colors"
-          >
-            <Send size={14} />
-          </button>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
+            placeholder="Tell Command Post what to do..." className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" />
+          <button onClick={handleSend} disabled={!input.trim() || streaming} className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-30"><Send size={14} /></button>
         </div>
       </div>
     </div>
@@ -343,30 +467,36 @@ Be concise. Use specific numbers from the data above. Format for readability.
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MAIN COMPONENT
+// MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
+const TABS = ['Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Costs', 'Console'] as const;
+type Tab = typeof TABS[number];
+
 export default function CommandPostHub() {
+  const [tab, setTab] = useState<Tab>('Dashboard');
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
+  const [runs, setRuns] = useState<CPRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [liveActivity, setLiveActivity] = useState<CPActivityEntry[]>([]);
+  const [activity, setActivity] = useState<CPActivityEntry[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const data = await getCommandPostDashboard();
-      setDashboard(data);
-      setLiveActivity(data.recentActivity || []);
+      const [cpData, runsData] = await Promise.allSettled([
+        getCommandPostDashboard(),
+        getCPRuns(),
+      ]);
+      if (cpData.status === 'fulfilled') { setDashboard(cpData.value); setActivity(cpData.value.recentActivity || []); }
+      if (runsData.status === 'fulfilled') setRuns(runsData.value);
       setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    } catch (err) { setError((err as Error).message); }
     setLoading(false);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // SSE for live activity
+  // SSE
   useEffect(() => {
     if (!dashboard) return;
     const token = localStorage.getItem('titan-token');
@@ -375,52 +505,24 @@ export default function CommandPostHub() {
     let retries = 0;
     es.addEventListener('commandpost:activity', (e) => {
       retries = 0;
-      try {
-        const entry = JSON.parse(e.data) as CPActivityEntry;
-        setLiveActivity(prev => [...prev.slice(-49), entry]);
-      } catch { /* ignore */ }
+      try { setActivity(prev => [...prev.slice(-49), JSON.parse(e.data)]); } catch {}
     });
     es.onerror = () => { retries++; if (retries > 5) es.close(); };
     return () => es.close();
   }, [dashboard]);
 
-  // Auto-refresh every 30s
-  useEffect(() => {
-    const interval = setInterval(refresh, 30000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  // Auto-refresh
+  useEffect(() => { const i = setInterval(refresh, 30000); return () => clearInterval(i); }, [refresh]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-          <span className="text-sm text-white/40">Loading Command Post...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <AlertTriangle className="mx-auto mb-3 text-yellow-500" size={32} />
-          <p className="text-sm text-white/60 mb-4">{error}</p>
-          <button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70">Retry</button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center h-full"><div className="flex items-center gap-3"><div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /><span className="text-sm text-white/40">Loading Command Post...</span></div></div>;
+  if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-yellow-500" size={32} /><p className="text-sm text-white/60 mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70">Retry</button></div></div>;
 
   const d = dashboard!;
-  const budgetPct = d.budgetUtilization ?? 0;
 
   return (
     <div className="h-full overflow-auto">
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-
-        {/* ─── Header ───────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
@@ -428,167 +530,31 @@ export default function CommandPostHub() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">Command Post</h1>
-              <p className="text-[11px] text-white/35">Agent governance &middot; Task orchestration &middot; Budget enforcement</p>
+              <p className="text-[11px] text-white/35">Paperclip-style agent governance</p>
             </div>
           </div>
-          <button onClick={refresh} className="px-3 py-1.5 text-[11px] text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/[0.08] transition-colors">
-            Refresh
-          </button>
+          <button onClick={refresh} className="px-3 py-1.5 text-[11px] text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/[0.08]">Refresh</button>
         </div>
 
-        {/* ─── Metrics row ──────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <MetricCard icon={Users} label="Agents" value={d.totalAgents} sub={`${d.activeAgents} active`} color="text-blue-400" />
-          <MetricCard icon={Lock} label="Tasks Locked" value={d.activeCheckouts} sub="atomic checkout" color="text-orange-400" />
-          <MetricCard icon={DollarSign} label="Budget" value={`${Math.round(budgetPct)}%`} sub={budgetPct >= 80 ? 'nearing limit' : 'healthy'} color={budgetPct >= 80 ? 'text-red-400' : 'text-green-400'} />
-          <MetricCard icon={Briefcase} label="Goals" value={d.goalTree?.length ?? 0} sub="in hierarchy" color="text-purple-400" />
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-white/[0.06] pb-px">
+          {TABS.map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 text-[12px] font-medium rounded-t-lg transition-colors ${tab === t ? 'bg-white/[0.06] text-white border-b-2 border-indigo-500' : 'text-white/40 hover:text-white/60 hover:bg-white/[0.02]'}`}>
+              {t}
+            </button>
+          ))}
         </div>
 
-        {/* ─── Main grid: Org Chart + Task Board ────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* Org Chart — 2 cols */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Agent Registry */}
-            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <Users size={14} className="text-blue-400" />
-                  <h2 className="text-sm font-semibold text-white/80">Agent Registry</h2>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{d.totalAgents}</span>
-                </div>
-                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
-                  Manage <ChevronRight size={12} />
-                </Link>
-              </div>
-              <div className="p-4">
-                {d.agents.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Users size={24} className="mx-auto mb-2 text-white/10" />
-                    <p className="text-[12px] text-white/25">No agents registered</p>
-                    <p className="text-[10px] text-white/15 mt-1">Agents appear here when spawned via multi-agent or autopilot</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {d.agents.map(agent => <AgentNode key={agent.id} agent={agent} />)}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Task Board */}
-            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <Lock size={14} className="text-orange-400" />
-                  <h2 className="text-sm font-semibold text-white/80">Task Board</h2>
-                  {d.activeCheckouts > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-400">{d.activeCheckouts} locked</span>
-                  )}
-                </div>
-                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
-                  Details <ChevronRight size={12} />
-                </Link>
-              </div>
-              <div className="p-4">
-                {d.checkouts.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Lock size={20} className="mx-auto mb-2 text-white/10" />
-                    <p className="text-[12px] text-white/25">No tasks checked out</p>
-                    <p className="text-[10px] text-white/15 mt-1">Atomic checkout prevents double-work when agents claim tasks</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {d.checkouts.map(co => <TaskCard key={`${co.goalId}-${co.subtaskId}`} checkout={co} />)}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Goal Hierarchy */}
-            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <GitBranch size={14} className="text-purple-400" />
-                  <h2 className="text-sm font-semibold text-white/80">Goal Hierarchy</h2>
-                </div>
-                <Link to="/workflows" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
-                  Manage goals <ChevronRight size={12} />
-                </Link>
-              </div>
-              <div className="p-4">
-                {(!d.goalTree || d.goalTree.length === 0) ? (
-                  <div className="text-center py-6">
-                    <GitBranch size={20} className="mx-auto mb-2 text-white/10" />
-                    <p className="text-[12px] text-white/25">No goals in hierarchy</p>
-                    <p className="text-[10px] text-white/15 mt-1">Goals with parentGoalId form Mission &gt; Project &gt; Task trees</p>
-                  </div>
-                ) : (
-                  <div className="max-h-48 overflow-y-auto">
-                    {d.goalTree.map(node => <GoalNode key={node.goal.id} node={node} />)}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Right column — Budgets + Activity Feed */}
-          <div className="space-y-6">
-            {/* Budget Policies */}
-            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <DollarSign size={14} className="text-green-400" />
-                  <h2 className="text-sm font-semibold text-white/80">Budgets</h2>
-                </div>
-                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
-                  Manage <ChevronRight size={12} />
-                </Link>
-              </div>
-              <div className="p-4 space-y-3">
-                {d.budgets.length === 0 ? (
-                  <div className="text-center py-6">
-                    <DollarSign size={20} className="mx-auto mb-2 text-white/10" />
-                    <p className="text-[12px] text-white/25">No budget policies</p>
-                    <p className="text-[10px] text-white/15 mt-1">Create per-agent or global spend limits</p>
-                  </div>
-                ) : (
-                  d.budgets.map(b => <BudgetBar key={b.id} policy={b} />)
-                )}
-              </div>
-            </div>
-
-            {/* Live Activity Feed */}
-            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <Activity size={14} className="text-indigo-400" />
-                  <h2 className="text-sm font-semibold text-white/80">Activity</h2>
-                  {liveActivity.length > 0 && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                  )}
-                </div>
-              </div>
-              <div className="max-h-80 overflow-y-auto divide-y divide-white/[0.03]">
-                {liveActivity.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Activity size={20} className="mx-auto mb-2 text-white/10" />
-                    <p className="text-[12px] text-white/25">No activity yet</p>
-                  </div>
-                ) : (
-                  [...liveActivity].reverse().slice(0, 30).map((entry, i) => (
-                    <FeedItem key={`${entry.timestamp}-${i}`} entry={entry} />
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
+        {/* Tab content */}
+        {tab === 'Dashboard' && <DashboardTab d={d} activity={activity} />}
+        {tab === 'Org Chart' && <OrgChartTab agents={d.agents} />}
+        {tab === 'Issues' && <IssuesTab />}
+        {tab === 'Agents' && <AgentsTab agents={d.agents} runs={runs} onRefresh={refresh} />}
+        {tab === 'Approvals' && <ApprovalsTab />}
+        {tab === 'Costs' && <CostsTab budgets={d.budgets} onRefresh={refresh} />}
+        {tab === 'Console' && <ConsoleTab dashboard={d} />}
       </div>
-
-        {/* Command Post Console — full width below the grid */}
-        <CommandPostConsole dashboard={d} />
     </div>
   );
 }

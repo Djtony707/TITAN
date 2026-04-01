@@ -57,6 +57,10 @@ export interface RegisteredAgent {
     totalTasksCompleted: number;
     totalCostUsd: number;
     createdAt: string;
+    // Paperclip org chart fields
+    reportsTo?: string;
+    role: 'ceo' | 'manager' | 'engineer' | 'researcher' | 'general';
+    title?: string;
 }
 
 export interface ActivityEntry {
@@ -77,10 +81,89 @@ export interface GoalTreeNode {
     depth: number;
 }
 
+// ─── Paperclip: Issue/Ticket System ──────────────────────────────────────
+
+export interface CPIssue {
+    id: string;
+    title: string;
+    description: string;
+    status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked' | 'cancelled';
+    priority: 'critical' | 'high' | 'medium' | 'low';
+    assigneeAgentId?: string;
+    createdByAgentId?: string;
+    createdByUser?: string;
+    goalId?: string;
+    parentId?: string;
+    checkoutRunId?: string;
+    issueNumber: number;
+    identifier: string;  // e.g. "TIT-42"
+    createdAt: string;
+    updatedAt: string;
+    startedAt?: string;
+    completedAt?: string;
+}
+
+export interface CPComment {
+    id: string;
+    issueId: string;
+    authorAgentId?: string;
+    authorUser?: string;
+    body: string;
+    createdAt: string;
+}
+
+// ─── Paperclip: Approval System ──────────────────────────────────────────
+
+export interface CPApproval {
+    id: string;
+    type: 'hire_agent' | 'budget_override' | 'custom';
+    status: 'pending' | 'approved' | 'rejected';
+    requestedBy: string;
+    payload: Record<string, unknown>;
+    decidedBy?: string;
+    decidedAt?: string;
+    decisionNote?: string;
+    linkedIssueIds: string[];
+    createdAt: string;
+}
+
+// ─── Paperclip: Run Tracking ─────────────────────────────────────────────
+
+export interface CPRun {
+    id: string;
+    agentId: string;
+    source: 'heartbeat' | 'assignment' | 'manual' | 'autopilot';
+    status: 'running' | 'succeeded' | 'failed' | 'error';
+    issueId?: string;
+    startedAt: string;
+    finishedAt?: string;
+    durationMs?: number;
+    toolsUsed: string[];
+    tokenUsage?: { prompt: number; completion: number };
+    error?: string;
+}
+
+// ─── Paperclip: Org Tree Node ────────────────────────────────────────────
+
+export interface OrgNode {
+    id: string;
+    name: string;
+    role: string;
+    title?: string;
+    status: string;
+    model: string;
+    reports: OrgNode[];
+}
+
 interface CommandPostState {
     checkouts: TaskCheckout[];
     budgetPolicies: BudgetPolicy[];
     agents: RegisteredAgent[];
+    issues: CPIssue[];
+    approvals: CPApproval[];
+    runs: CPRun[];
+    comments: CPComment[];
+    issueCounter: number;
     lastSaved: string;
 }
 
@@ -90,6 +173,11 @@ const checkouts = new Map<string, TaskCheckout>();
 let budgetPolicies: BudgetPolicy[] = [];
 const registeredAgents = new Map<string, RegisteredAgent>();
 const activityBuffer: ActivityEntry[] = [];
+const issues = new Map<string, CPIssue>();
+const comments: CPComment[] = [];
+const approvals = new Map<string, CPApproval>();
+const runs: CPRun[] = [];
+let issueCounter = 0;
 let config: CommandPostConfig | null = null;
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -108,8 +196,14 @@ function loadState(): void {
         }
         budgetPolicies = state.budgetPolicies || [];
         for (const a of state.agents || []) {
+            if (!a.role) a.role = 'general'; // backcompat
             registeredAgents.set(a.id, a);
         }
+        for (const i of state.issues || []) issues.set(i.id, i);
+        for (const a of state.approvals || []) approvals.set(a.id, a);
+        runs.push(...(state.runs || []).slice(-200)); // keep last 200 runs
+        comments.push(...(state.comments || []));
+        issueCounter = state.issueCounter || (state.issues?.length || 0);
     } catch (err) {
         logger.warn(COMPONENT, `Failed to load state: ${(err as Error).message}`);
     }
@@ -122,6 +216,11 @@ function saveState(): void {
             checkouts: Array.from(checkouts.values()),
             budgetPolicies,
             agents: Array.from(registeredAgents.values()),
+            issues: Array.from(issues.values()),
+            approvals: Array.from(approvals.values()),
+            runs: runs.slice(-200),
+            comments,
+            issueCounter,
             lastSaved: new Date().toISOString(),
         };
         writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
@@ -387,6 +486,7 @@ export function syncAgentRegistry(): void {
                 totalTasksCompleted: 0,
                 totalCostUsd: 0,
                 createdAt: agent.createdAt,
+                role: 'general',
             });
         } else {
             // Update live status
@@ -463,6 +563,8 @@ export function getDashboard(): {
     budgets: BudgetPolicy[];
     goalTree: GoalTreeNode[];
 } {
+    // Re-sync with live agents on every dashboard fetch
+    syncAgentRegistry();
     const agents = getRegisteredAgents();
     const activeCheckouts = getActiveCheckouts();
     const budgets = getBudgetPolicies();
@@ -518,6 +620,7 @@ export function initCommandPost(cfg: CommandPostConfig): void {
             totalTasksCompleted: 0,
             totalCostUsd: 0,
             createdAt: new Date().toISOString(),
+            role: 'general',
         });
         addActivity({ type: 'agent_status_change', agentId: data.id, message: `Agent "${data.name}" spawned` });
         saveState();
@@ -551,6 +654,233 @@ export function initCommandPost(cfg: CommandPostConfig): void {
     logger.info(COMPONENT, `Command Post initialized — ${registeredAgents.size} agents, ${budgetPolicies.length} budget policies, ${checkouts.size} active checkouts`);
 }
 
+// ─── Paperclip: Issue/Ticket System ──────────────────────────────────────
+
+export function createIssue(opts: {
+    title: string; description?: string; priority?: CPIssue['priority'];
+    assigneeAgentId?: string; createdByAgentId?: string; createdByUser?: string;
+    goalId?: string; parentId?: string;
+}): CPIssue {
+    issueCounter++;
+    const issue: CPIssue = {
+        id: uuid().slice(0, 8),
+        title: opts.title,
+        description: opts.description || '',
+        status: 'backlog',
+        priority: opts.priority || 'medium',
+        assigneeAgentId: opts.assigneeAgentId,
+        createdByAgentId: opts.createdByAgentId,
+        createdByUser: opts.createdByUser || 'board',
+        goalId: opts.goalId,
+        parentId: opts.parentId,
+        issueNumber: issueCounter,
+        identifier: `TIT-${issueCounter}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    };
+    issues.set(issue.id, issue);
+    saveState();
+    addActivity({ type: 'goal_created', message: `Issue ${issue.identifier} created: "${issue.title}"`, metadata: { issueId: issue.id } });
+    return issue;
+}
+
+export function updateIssue(id: string, updates: Partial<Pick<CPIssue, 'title' | 'description' | 'status' | 'priority' | 'assigneeAgentId' | 'goalId'>>): CPIssue | null {
+    const issue = issues.get(id);
+    if (!issue) return null;
+    const prev = issue.status;
+    Object.assign(issue, updates);
+    issue.updatedAt = new Date().toISOString();
+    if (updates.status === 'in_progress' && !issue.startedAt) issue.startedAt = issue.updatedAt;
+    if (updates.status === 'done' && !issue.completedAt) issue.completedAt = issue.updatedAt;
+    saveState();
+    if (updates.status && updates.status !== prev) {
+        addActivity({ type: 'task_checkin', message: `Issue ${issue.identifier} status: ${prev} → ${updates.status}`, metadata: { issueId: id } });
+    }
+    return issue;
+}
+
+export function getIssue(id: string): CPIssue | null {
+    return issues.get(id) || null;
+}
+
+export function listIssues(filters?: { status?: string; assigneeAgentId?: string; goalId?: string }): CPIssue[] {
+    let result = Array.from(issues.values());
+    if (filters?.status) result = result.filter(i => i.status === filters.status);
+    if (filters?.assigneeAgentId) result = result.filter(i => i.assigneeAgentId === filters.assigneeAgentId);
+    if (filters?.goalId) result = result.filter(i => i.goalId === filters.goalId);
+    return result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+export function checkoutIssue(issueId: string, agentId: string): CPIssue | null {
+    const issue = issues.get(issueId);
+    if (!issue) return null;
+    if (issue.status === 'in_progress' && issue.checkoutRunId && issue.assigneeAgentId !== agentId) return null; // 409: locked
+    issue.status = 'in_progress';
+    issue.assigneeAgentId = agentId;
+    issue.checkoutRunId = uuid().slice(0, 8);
+    issue.startedAt = issue.startedAt || new Date().toISOString();
+    issue.updatedAt = new Date().toISOString();
+    saveState();
+    addActivity({ type: 'task_checkout', agentId, message: `Agent "${agentId}" checked out issue ${issue.identifier}`, metadata: { issueId } });
+    return issue;
+}
+
+export function addIssueComment(issueId: string, body: string, author: { agentId?: string; user?: string }): CPComment | null {
+    if (!issues.has(issueId)) return null;
+    const comment: CPComment = {
+        id: uuid().slice(0, 8),
+        issueId,
+        authorAgentId: author.agentId,
+        authorUser: author.user || 'board',
+        body,
+        createdAt: new Date().toISOString(),
+    };
+    comments.push(comment);
+    saveState();
+    return comment;
+}
+
+export function getIssueComments(issueId: string): CPComment[] {
+    return comments.filter(c => c.issueId === issueId);
+}
+
+// ─── Paperclip: Approval System ──────────────────────────────────────────
+
+export function createApproval(opts: {
+    type: CPApproval['type']; requestedBy: string; payload: Record<string, unknown>;
+    linkedIssueIds?: string[];
+}): CPApproval {
+    const approval: CPApproval = {
+        id: uuid().slice(0, 8),
+        type: opts.type,
+        status: 'pending',
+        requestedBy: opts.requestedBy,
+        payload: opts.payload,
+        linkedIssueIds: opts.linkedIssueIds || [],
+        createdAt: new Date().toISOString(),
+    };
+    approvals.set(approval.id, approval);
+    saveState();
+    addActivity({ type: 'goal_created', message: `Approval requested: ${approval.type} by ${approval.requestedBy}`, metadata: { approvalId: approval.id } });
+    return approval;
+}
+
+export function approveApproval(id: string, decidedBy: string, note?: string): CPApproval | null {
+    const approval = approvals.get(id);
+    if (!approval || approval.status !== 'pending') return null;
+    approval.status = 'approved';
+    approval.decidedBy = decidedBy;
+    approval.decidedAt = new Date().toISOString();
+    approval.decisionNote = note;
+    saveState();
+    addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
+
+    // If budget override: resume paused agent
+    if (approval.type === 'budget_override' && approval.payload.agentId) {
+        updateAgentStatus(approval.payload.agentId as string, 'active');
+    }
+    return approval;
+}
+
+export function rejectApproval(id: string, decidedBy: string, note?: string): CPApproval | null {
+    const approval = approvals.get(id);
+    if (!approval || approval.status !== 'pending') return null;
+    approval.status = 'rejected';
+    approval.decidedBy = decidedBy;
+    approval.decidedAt = new Date().toISOString();
+    approval.decisionNote = note;
+    saveState();
+    addActivity({ type: 'error', message: `Approval ${approval.type} rejected by ${decidedBy}`, metadata: { approvalId: id } });
+    return approval;
+}
+
+export function listApprovals(status?: string): CPApproval[] {
+    let result = Array.from(approvals.values());
+    if (status) result = result.filter(a => a.status === status);
+    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function getApproval(id: string): CPApproval | null {
+    return approvals.get(id) || null;
+}
+
+// ─── Paperclip: Run Tracking ─────────────────────────────────────────────
+
+export function startRun(agentId: string, source: CPRun['source'], issueId?: string): CPRun {
+    const run: CPRun = {
+        id: uuid().slice(0, 8),
+        agentId,
+        source,
+        status: 'running',
+        issueId,
+        startedAt: new Date().toISOString(),
+        toolsUsed: [],
+    };
+    runs.push(run);
+    if (runs.length > 500) runs.splice(0, runs.length - 500);
+    saveState();
+    return run;
+}
+
+export function endRun(runId: string, result: { status: 'succeeded' | 'failed' | 'error'; toolsUsed?: string[]; tokenUsage?: CPRun['tokenUsage']; error?: string }): CPRun | null {
+    const run = runs.find(r => r.id === runId);
+    if (!run) return null;
+    run.status = result.status;
+    run.finishedAt = new Date().toISOString();
+    run.durationMs = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
+    if (result.toolsUsed) run.toolsUsed = result.toolsUsed;
+    if (result.tokenUsage) run.tokenUsage = result.tokenUsage;
+    if (result.error) run.error = result.error;
+    saveState();
+    return run;
+}
+
+export function listRuns(agentId?: string, limit = 50): CPRun[] {
+    let result = [...runs];
+    if (agentId) result = result.filter(r => r.agentId === agentId);
+    return result.slice(-limit).reverse();
+}
+
+// ─── Paperclip: Org Chart ────────────────────────────────────────────────
+
+export function getOrgTree(): OrgNode[] {
+    const agents = getRegisteredAgents();
+    const agentsById = new Map(agents.map(a => [a.id, a]));
+    const childrenMap = new Map<string | undefined, RegisteredAgent[]>();
+
+    for (const a of agents) {
+        const parent = a.reportsTo || undefined;
+        if (!childrenMap.has(parent)) childrenMap.set(parent, []);
+        childrenMap.get(parent)!.push(a);
+    }
+
+    function buildTree(parentId: string | undefined): OrgNode[] {
+        const children = childrenMap.get(parentId) || [];
+        return children.map(a => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            title: a.title,
+            status: a.status,
+            model: a.model,
+            reports: buildTree(a.id),
+        }));
+    }
+
+    return buildTree(undefined);
+}
+
+export function updateRegisteredAgent(agentId: string, updates: Partial<Pick<RegisteredAgent, 'reportsTo' | 'role' | 'title' | 'name'>>): RegisteredAgent | null {
+    const agent = registeredAgents.get(agentId);
+    if (!agent) return null;
+    if (updates.reportsTo !== undefined) agent.reportsTo = updates.reportsTo || undefined;
+    if (updates.role) agent.role = updates.role;
+    if (updates.title !== undefined) agent.title = updates.title || undefined;
+    if (updates.name) agent.name = updates.name;
+    saveState();
+    return agent;
+}
+
 export function shutdownCommandPost(): void {
     if (sweepInterval) { clearInterval(sweepInterval); sweepInterval = null; }
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
@@ -565,6 +895,11 @@ export function shutdownCommandPost(): void {
     budgetPolicies = [];
     registeredAgents.clear();
     activityBuffer.length = 0;
+    issues.clear();
+    comments.length = 0;
+    approvals.clear();
+    runs.length = 0;
+    issueCounter = 0;
     config = null;
     initialized = false;
     logger.info(COMPONENT, 'Command Post shut down');
