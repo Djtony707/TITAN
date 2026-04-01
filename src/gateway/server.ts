@@ -111,7 +111,20 @@ export function stopGateway(): Promise<void> {
         if (healthMonitorInterval) { clearInterval(healthMonitorInterval); healthMonitorInterval = null; }
 
         if (httpServer) {
-            httpServer.close(() => { httpServer = null; resolve(); });
+            // Force-close open connections after 3 seconds (SSE/WebSocket keep-alives block shutdown)
+            const forceTimeout = setTimeout(() => {
+                logger.warn('Gateway', 'Shutdown timeout — destroying remaining connections');
+                httpServer?.closeAllConnections?.();
+                httpServer = null;
+                resolve();
+            }, 3000);
+            forceTimeout.unref();
+
+            httpServer.close(() => {
+                clearTimeout(forceTimeout);
+                httpServer = null;
+                resolve();
+            });
         } else {
             resolve();
         }
@@ -3508,6 +3521,24 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       if (!isF5TTS) {
         await ttsAllDone;
+      }
+
+      // ── Voice session poison detection ──────────────────────
+      // If the model returned a canned/useless response, auto-reset the session
+      // to prevent the next voice message from getting the same poisoned context.
+      const POISON_PATTERNS = [
+        /i completed the tool operations/i,
+        /i wasn't able to execute tools/i,
+        /i completed the operations/i,
+        /let me know if you need anything else\.?\s*$/i,
+      ];
+      const responseText = response.content || '';
+      if (POISON_PATTERNS.some(p => p.test(responseText)) || (response.durationMs > 60000 && responseText.length < 50)) {
+        logger.warn(COMPONENT, `[VoicePoisonGuard] Detected canned/stale response — resetting voice session ${response.sessionId}`);
+        try {
+          const { closeSession } = await import('../agent/session.js');
+          closeSession(response.sessionId);
+        } catch { /* session module may not export closeSession */ }
       }
 
       // Send done event with metadata

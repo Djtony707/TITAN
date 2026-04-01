@@ -347,7 +347,7 @@ async function suite_commandPost() {
       name: 'Smoke test budget', scope: { type: 'global' }, period: 'daily',
       limitUsd: 10, warningThresholdPercent: 80, action: 'warn', enabled: true,
     });
-    if (status === 200 || status === 201) ok('CP', 'create budget', ms);
+    if (status === 200 || status === 201) ok('CP', 'create budget');
     else fail('CP', 'create budget', `expected 200/201, got ${status}`);
     budgetId = data.id;
     ok('CP', `budget created: ${data.name}`);

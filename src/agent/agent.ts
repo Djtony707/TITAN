@@ -147,7 +147,7 @@ function extractToolCallFromContent(
 
     const toolNames = activeTools.map(t => t.function.name);
 
-    // Strategy 1: Look for embedded JSON tool calls (any model)
+    // Strategy 1a: Look for embedded JSON tool calls (any model)
     const jsonMatch = content.match(/\{"(?:name|tool_call)":\s*"([^"]+)",\s*"(?:parameters|arguments)":\s*(\{[^}]*(?:\{[^}]*\}[^}]*)?\})\s*\}/);
     if (jsonMatch && toolNames.includes(jsonMatch[1])) {
         return {
@@ -155,6 +155,24 @@ function extractToolCallFromContent(
             type: 'function',
             function: { name: jsonMatch[1], arguments: jsonMatch[2] },
         };
+    }
+
+    // Strategy 1b: DeepSeek XML-style <function_call> format
+    // DeepSeek v3.2 returns: <function_call>{"name":"weather","arguments":{"city":"Tokyo"}}</function_call>
+    const xmlMatch = content.match(/<function_call>\s*(\{[\s\S]*?\})\s*<\/function_call>/);
+    if (xmlMatch) {
+        try {
+            const parsed = JSON.parse(xmlMatch[1]);
+            const name = parsed.name || parsed.function?.name;
+            const args = parsed.arguments || parsed.parameters || parsed.function?.arguments;
+            if (name && toolNames.includes(name)) {
+                return {
+                    id: `rescue_${Date.now()}`,
+                    type: 'function',
+                    function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args || {}) },
+                };
+            }
+        } catch { /* malformed XML tool call */ }
     }
 
     // Strategy 2: Detect tool names + extract arguments from text.
