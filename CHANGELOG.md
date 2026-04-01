@@ -4,6 +4,24 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.68] — 2026-03-31
+
+### Fixed
+- **Concurrency guard** — `/api/message` now limits to 5 concurrent LLM requests (prevents parallel abuse)
+- **Model switch validation** — `/api/model/switch` verifies Ollama model exists before accepting (returns 404 if not found, cloud models skip check)
+- **Config API completeness** — `/api/config` now exposes `mesh` and `commandPost` sections
+- **LiveKit token** — returns 503 with clear message when API key/secret not configured (was 500)
+- **Prometheus /metrics** — added standard `/metrics` endpoint before auth middleware for scraping
+- **Docker sandbox** — quoted volume mount path for shell safety
+- **Mesh TLS support** — discovery probes HTTPS first, falls back to HTTP; WebSocket transport uses wss:// when peer supports TLS
+- **SettingsPanel** — Orpheus/Qwen3 TTS install streams now check response status and catch errors (was failing silently)
+- **VoiceOverlay** — reusable Audio element properly cached in ref (prevents DOM element accumulation)
+- **VoiceOverlay** — browser TTS synthInterval cleaned up on component unmount (prevents leaked intervals)
+- **CommandPostPanel** — EventSource guarded behind successful dashboard load, retries capped at 5 (prevents log flood)
+- **useSSE** — RAF cancelled and events flushed in cancel() (prevents state updates on unmounted components)
+
+---
+
 ## [2026.10.67] — 2026-03-31
 
 ### Added

@@ -1,5 +1,5 @@
 # TITAN Development Handoff — Programming Only
-## March 31, 2026 | v2026.10.67
+## March 31, 2026 | v2026.10.68
 
 This handoff is for coding/development work on TITAN only. For voice cloning, ad recording, or SaaS deployment, see HANDOFF.md.
 
@@ -11,7 +11,7 @@ This handoff is for coding/development work on TITAN only. For voice cloning, ad
 cd ~/Desktop/TitanBot/TITAN-main
 npm run build        # TypeScript → dist/
 npm run build:ui     # React SPA → ui/dist/
-npx vitest run       # 4,430 tests
+npx vitest run       # 4,430 tests across 140 files
 ```
 
 Deploy to Titan PC:
@@ -68,9 +68,10 @@ ui/
 
 ---
 
-## Current Version: v2026.10.67
+## Current Version: v2026.10.68
 
 ### What Was Just Shipped
+- **Full-stack audit & hardening** — 14 bugs fixed across gateway, UI, mesh, and sandbox. Concurrency guard on `/api/message`, model switch validation, Prometheus `/metrics`, mesh TLS support, 6 UI bug fixes (stream error handling, audio leak, SSE cleanup, EventSource guard)
 - **Command Post** — Paperclip-inspired agent governance layer (atomic task checkout, budget policies, goal ancestry, agent registry, real-time activity feed). New dashboard panel at `/command-post`. 13 API endpoints, SSE stream, 24 tests. Opt-in via `commandPost.enabled`.
 - **Agent Watcher** — split-view real-time tool execution visualizer (ActivityCards + PixelOffice)
 - **Rich SSE events** — tool_start (with args), tool_end (with result/duration), thinking, round

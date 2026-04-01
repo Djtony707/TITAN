@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.67
+- **Current version**: v2026.10.68
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 20, pure ESM
@@ -200,6 +200,7 @@ Always publish to npm after pushing to git.
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v2026.10.68**: Full-stack audit & hardening — 14 bugs fixed (concurrency guard, model validation, config exposure, mesh TLS, Prometheus /metrics, 6 UI fixes), AUDIT-REPORT.md
 - **v2026.10.67**: Command Post — Paperclip-inspired agent governance (atomic task checkout, budget enforcement, goal ancestry, agent registry, activity feed), 25 admin panels, 4,430 tests across 140 files
 - **v2026.10.66**: Agent Watcher, rich SSE events, iOS voice fixes, auto-HTTPS, bounded memory, injection protection
 - **v2026.10.55**: Orpheus TTS auto-installer — one-click setup (mlx-audio on Mac, orpheus-speech on Linux), management endpoints, settings UI with progress streaming, logout button
