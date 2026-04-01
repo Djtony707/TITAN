@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router';
 import {
   Shield, Users, Lock, DollarSign, GitBranch, Activity,
   ChevronRight, AlertTriangle, CheckCircle2, Clock, Pause,
   Play, XCircle, BarChart3, Building2, Briefcase,
+  MessageSquare, Send, ChevronUp, ChevronDown as ChevDown, Loader2, StopCircle,
 } from 'lucide-react';
-import { getCommandPostDashboard } from '@/api/client';
+import { getCommandPostDashboard, streamMessage } from '@/api/client';
 import { apiFetch } from '@/api/client';
-import type { CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy, CPActivityEntry, GoalTreeNode } from '@/api/types';
+import type { CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy, CPActivityEntry, GoalTreeNode, StreamEvent } from '@/api/types';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -170,6 +171,173 @@ function FeedItem({ entry }: { entry: CPActivityEntry }) {
         <span className="text-[11px] text-white/60">{entry.message || entry.type}</span>
       </div>
       <span className="text-[10px] text-white/20 flex-shrink-0 whitespace-nowrap">{timeSince(entry.timestamp)}</span>
+    </div>
+  );
+}
+
+// ─── Command Post Console ────────────────────────────────────
+// Management console — talk to TITAN about agents, tasks, budgets, governance.
+// Uses the main chat API with Command Post context injected.
+
+interface ConsoleMsg { role: 'user' | 'assistant'; content: string; timestamp: string }
+
+function CommandPostConsole({ dashboard }: { dashboard: CommandPostDashboard }) {
+  const [messages, setMessages] = useState<ConsoleMsg[]>([]);
+  const [input, setInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [streamContent, setStreamContent] = useState('');
+  const [sessionId, setSessionId] = useState<string | undefined>();
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const buildContext = useCallback(() => {
+    const d = dashboard;
+    const agentList = d.agents.map(a => `${a.name} (${a.status}, model=${a.model.split('/').pop()}, tasks=${a.totalTasksCompleted}, cost=$${a.totalCostUsd.toFixed(2)})`).join('; ') || 'none';
+    const budgetList = d.budgets.map(b => `${b.name}: $${b.currentSpend.toFixed(2)}/$${b.limitUsd.toFixed(2)} (${b.scope.type})`).join('; ') || 'none';
+    const goalList = d.goalTree?.map(g => g.goal.title).join(', ') || 'none';
+    return `[COMMAND POST CONTEXT — You are the Command Post management AI for TITAN. Help the user govern their agent organization.]
+Status: ${d.totalAgents} agents (${d.activeAgents} active), ${d.activeCheckouts} tasks locked, budget ${Math.round(d.budgetUtilization ?? 0)}% used.
+Agents: ${agentList}
+Budgets: ${budgetList}
+Goals: ${goalList}
+Activity: ${d.recentActivity?.length ?? 0} recent events.
+Available actions: spawn agents, set budgets, create goals, checkout tasks, review audit logs.
+Be concise. Use specific numbers from the data above. Format for readability.
+
+`;
+  }, [dashboard]);
+
+  const handleSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: text, timestamp: new Date().toISOString() }]);
+    setStreaming(true);
+    setStreamContent('');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let fullContent = '';
+    let newSessionId = sessionId;
+
+    try {
+      await streamMessage(
+        buildContext() + text,
+        sessionId,
+        (event: StreamEvent) => {
+          switch (event.type) {
+            case 'token':
+              fullContent += event.data;
+              setStreamContent(fullContent);
+              break;
+            case 'done':
+              if (event.sessionId) newSessionId = event.sessionId;
+              break;
+          }
+        },
+        controller.signal,
+      );
+      if (newSessionId) setSessionId(newSessionId);
+      if (fullContent) {
+        setMessages(prev => [...prev, { role: 'assistant', content: fullContent, timestamp: new Date().toISOString() }]);
+      }
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${(e as Error).message}`, timestamp: new Date().toISOString() }]);
+      }
+    } finally {
+      setStreaming(false);
+      setStreamContent('');
+      abortRef.current = null;
+    }
+  }, [input, streaming, sessionId, buildContext]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, streamContent]);
+
+  return (
+    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <MessageSquare size={14} className="text-indigo-400" />
+          <h2 className="text-sm font-semibold text-white/80">Console</h2>
+          <span className="text-[10px] text-white/25">Talk to Command Post</span>
+        </div>
+        {streaming && (
+          <button onClick={() => abortRef.current?.abort()} className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1">
+            <StopCircle size={12} /> Stop
+          </button>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div ref={scrollRef} className="h-64 overflow-y-auto px-4 py-3 space-y-2.5">
+        {messages.length === 0 && !streaming && (
+          <div className="text-center py-6">
+            <p className="text-[11px] text-white/20 mb-3">Manage your agent organization through natural language</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {['Status report', 'Spawn a research agent', 'Set $50/day budget', 'List all goals'].map(q => (
+                <button key={q} onClick={() => setInput(q)}
+                  className="text-[10px] text-white/25 hover:text-white/50 px-2.5 py-1 rounded-full border border-white/[0.06] hover:border-white/[0.12] transition-colors">
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap ${
+              msg.role === 'user'
+                ? 'bg-indigo-600/80 text-white rounded-br-sm'
+                : 'bg-white/[0.04] text-white/75 border border-white/[0.06] rounded-bl-sm'
+            }`}>
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        {streaming && streamContent && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] px-3 py-2 rounded-xl rounded-bl-sm bg-white/[0.04] text-white/75 border border-white/[0.06] text-[12px] leading-relaxed whitespace-pre-wrap">
+              {streamContent}<span className="inline-block w-1 h-3.5 bg-indigo-400 ml-0.5 animate-pulse" />
+            </div>
+          </div>
+        )}
+        {streaming && !streamContent && (
+          <div className="flex justify-start">
+            <div className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="px-4 py-2.5 border-t border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
+            placeholder="Tell Command Post what to do..."
+            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30 transition-colors"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || streaming}
+            className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-30 transition-colors"
+          >
+            <Send size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -418,6 +586,9 @@ export default function CommandPostHub() {
         </div>
 
       </div>
+
+        {/* Command Post Console — full width below the grid */}
+        <CommandPostConsole dashboard={d} />
     </div>
   );
 }
