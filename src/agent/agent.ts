@@ -1187,9 +1187,11 @@ export async function processMessage(
                 logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text — executing`);
                 response.toolCalls = [rescuedToolCall];
                 // Don't break — fall through to the tool execution path below
-            } else if (isCloudRescue && round === 0 && taskEnforcementActive && activeTools.length > 0) {
+            } else if (isCloudRescue && round === 0 && activeTools.length > 0 && !voiceFastPath
+                && (taskEnforcementActive || /\b(use|call|run|check|search|find|get|fetch|read|list|show|what is the|tell me the)\b/i.test(message))) {
                 // Cloud model returned text instead of tool calls on round 0.
-                // Inject a strong tool-forcing nudge and retry once.
+                // Cloud models often ignore tool_choice:required — nudge them explicitly.
+                // Triggers for: task enforcement patterns OR action-oriented language.
                 logger.warn(COMPONENT, `[CloudRetry] Cloud model returned text instead of tool calls — injecting tool-forcing nudge`);
                 messages.push({
                     role: 'assistant',
