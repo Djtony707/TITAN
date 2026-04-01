@@ -1,83 +1,101 @@
-import { Search, Code, Globe, Zap, Wrench, Bot } from 'lucide-react';
+import { Search, Code, Globe, Zap, Wrench, Bot, Shield, Brain, Mic, BarChart3 } from 'lucide-react';
 
 interface QuickAction {
   icon: typeof Search;
   label: string;
   description: string;
   prompt: string;
-  color: string;
+  gradient: string;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    icon: Search,
-    label: 'Research something',
-    description: 'Deep research pipeline on any topic',
+    icon: Brain,
+    label: 'Deep Research',
+    description: 'Multi-agent research pipeline with sources',
     prompt: 'Use the research pipeline to investigate: ',
-    color: 'text-blue-400',
+    gradient: 'from-blue-500/20 to-cyan-500/20 hover:from-blue-500/30 hover:to-cyan-500/30',
   },
   {
     icon: Code,
-    label: 'Write & run code',
-    description: 'Write, execute, and test code',
+    label: 'Write & Run Code',
+    description: 'Sandbox execution with real output',
     prompt: 'Write and run code to: ',
-    color: 'text-green-400',
-  },
-  {
-    icon: Zap,
-    label: 'Automate a task',
-    description: 'Set up goals, cron jobs, or workflows',
-    prompt: 'Help me automate: ',
-    color: 'text-yellow-400',
-  },
-  {
-    icon: Globe,
-    label: 'Browse the web',
-    description: 'Navigate, scrape, or fill forms',
-    prompt: 'Browse to and interact with: ',
-    color: 'text-cyan-400',
-  },
-  {
-    icon: Wrench,
-    label: 'Debug an issue',
-    description: 'Track down and fix a problem',
-    prompt: '/debug ',
-    color: 'text-red-400',
+    gradient: 'from-green-500/20 to-emerald-500/20 hover:from-green-500/30 hover:to-emerald-500/30',
   },
   {
     icon: Bot,
-    label: 'Autonomous mode',
-    description: 'Set a goal and let TITAN run with it',
+    label: 'Autonomous Goal',
+    description: 'Set a goal — TITAN handles the rest',
     prompt: 'Work autonomously toward this goal: ',
-    color: 'text-purple-400',
+    gradient: 'from-purple-500/20 to-violet-500/20 hover:from-purple-500/30 hover:to-violet-500/30',
+  },
+  {
+    icon: Globe,
+    label: 'Browse & Automate',
+    description: 'Navigate, scrape, fill forms, solve CAPTCHAs',
+    prompt: 'Browse to and interact with: ',
+    gradient: 'from-cyan-500/20 to-sky-500/20 hover:from-cyan-500/30 hover:to-sky-500/30',
+  },
+  {
+    icon: Shield,
+    label: 'Command Post',
+    description: 'Agent governance, budgets, task checkout',
+    prompt: 'Show me the Command Post status and active agents',
+    gradient: 'from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30',
+  },
+  {
+    icon: Zap,
+    label: 'Automate',
+    description: 'Goals, cron jobs, recipes, workflows',
+    prompt: 'Help me automate: ',
+    gradient: 'from-yellow-500/20 to-amber-500/20 hover:from-yellow-500/30 hover:to-amber-500/30',
+  },
+  {
+    icon: Mic,
+    label: 'Voice Chat',
+    description: 'Talk naturally with cloned voices',
+    prompt: '__voice__',
+    gradient: 'from-rose-500/20 to-pink-500/20 hover:from-rose-500/30 hover:to-pink-500/30',
+  },
+  {
+    icon: Wrench,
+    label: 'Debug',
+    description: 'Root cause analysis and fixes',
+    prompt: '/debug ',
+    gradient: 'from-red-500/20 to-rose-500/20 hover:from-red-500/30 hover:to-rose-500/30',
   },
 ];
 
 interface QuickActionsProps {
   onSelectAction: (prompt: string) => void;
+  onVoiceOpen?: () => void;
   visible: boolean;
 }
 
-export function QuickActions({ onSelectAction, visible }: QuickActionsProps) {
+export function QuickActions({ onSelectAction, onVoiceOpen, visible }: QuickActionsProps) {
   if (!visible) return null;
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 py-6">
-      <h3 className="text-sm font-medium text-[var(--text-muted)] mb-3 text-center">
-        What would you like to do?
-      </h3>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="w-full max-w-3xl mx-auto px-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {QUICK_ACTIONS.map((action) => (
           <button
             key={action.label}
-            onClick={() => onSelectAction(action.prompt)}
-            className="flex flex-col items-start gap-1.5 p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--accent)] transition-all text-left group"
+            onClick={() => {
+              if (action.prompt === '__voice__' && onVoiceOpen) {
+                onVoiceOpen();
+              } else {
+                onSelectAction(action.prompt);
+              }
+            }}
+            className={`group relative flex flex-col items-start gap-2 p-3.5 rounded-2xl border border-white/[0.06] bg-gradient-to-br ${action.gradient} backdrop-blur-sm transition-all duration-200 hover:border-white/[0.12] hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20 active:scale-[0.98]`}
           >
-            <action.icon size={18} className={`${action.color} group-hover:scale-110 transition-transform`} />
-            <div>
-              <div className="text-sm font-medium text-[var(--text)]">{action.label}</div>
-              <div className="text-xs text-[var(--text-muted)] leading-tight">{action.description}</div>
+            <div className="flex items-center gap-2">
+              <action.icon size={16} className="text-white/70 group-hover:text-white transition-colors" />
+              <span className="text-[13px] font-medium text-white/90 group-hover:text-white">{action.label}</span>
             </div>
+            <span className="text-[11px] text-white/40 leading-snug group-hover:text-white/55 transition-colors">{action.description}</span>
           </button>
         ))}
       </div>

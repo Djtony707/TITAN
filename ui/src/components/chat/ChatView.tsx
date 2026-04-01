@@ -252,36 +252,45 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
   // Empty state — centered prompt with TITAN branding
   const emptyState = (
-    <div className="flex-1 flex flex-col items-center justify-center px-4">
-      <div className="mb-6 relative">
-        <div className="absolute -inset-4 rounded-full bg-[#6366f1]/10 blur-xl" />
+    <div className="flex-1 flex flex-col items-center justify-center px-4 pb-4">
+      {/* Logo with ambient glow */}
+      <div className="mb-8 relative">
+        <div className="absolute -inset-8 rounded-full bg-gradient-to-br from-[#6366f1]/15 via-[#8b5cf6]/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
+        <div className="absolute -inset-3 rounded-full bg-[#6366f1]/5 blur-md" />
         <img
           src="/titan-logo.png"
           alt="TITAN"
-          className="relative w-16 h-16 rounded-2xl ring-1 ring-white/10"
+          className="relative w-20 h-20 rounded-2xl ring-1 ring-white/10 shadow-2xl shadow-black/50"
         />
       </div>
-      <h2 className="text-2xl font-semibold text-[#fafafa] mb-2">What would you like to tackle?</h2>
-      <p className="text-sm text-[#52525b] max-w-md text-center mb-8">
-        I can search the web, write &amp; run code, automate browsers, manage files, execute shell commands, use ~149 tools across 34 providers, and operate autonomously toward goals.
-      </p>
-      <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+
+      {/* Title */}
+      <h2 className="text-3xl font-bold bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent mb-3">
+        TITAN
+      </h2>
+
+      {/* Stats bar */}
+      <div className="flex items-center gap-4 mb-8">
         {[
-          'Research a topic',
-          'Write some code',
-          'Automate a task',
-          'Browse the web',
-        ].map((suggestion) => (
-          <button
-            key={suggestion}
-            onClick={() => handleSend(suggestion)}
-            className="px-4 py-2 text-sm text-[#a1a1aa] border border-[#27272a] rounded-full hover:border-[#6366f1]/50 hover:text-[#fafafa] hover:bg-[#6366f1]/10 transition-all"
-          >
-            {suggestion}
-          </button>
+          { value: '209', label: 'Tools' },
+          { value: '36', label: 'Providers' },
+          { value: '15', label: 'Channels' },
+          { value: '117', label: 'Skills' },
+        ].map(({ value, label }) => (
+          <div key={label} className="flex items-baseline gap-1">
+            <span className="text-sm font-semibold text-white/80">{value}</span>
+            <span className="text-[11px] text-white/30">{label}</span>
+          </div>
         ))}
       </div>
-      <QuickActions onSelectAction={handleSend} visible={true} />
+
+      {/* Quick action grid */}
+      <QuickActions onSelectAction={handleSend} onVoiceOpen={onVoiceOpen} visible={true} />
+
+      {/* Subtle tagline */}
+      <p className="mt-6 text-[11px] text-white/20 max-w-sm text-center">
+        Autonomous AI agent with Command Post governance, self-improvement, mesh networking, and voice cloning
+      </p>
     </div>
   );
 

@@ -64,7 +64,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
@@ -2399,6 +2399,100 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         titanEvents.removeListener(evt, handler);
       }
     });
+  });
+
+  // ── Paperclip: Org Chart ──────────────────────────────────
+  app.get('/api/command-post/org', (_req, res) => {
+    res.json(getOrgTree());
+  });
+
+  // ── Paperclip: Issues/Tickets ────────────────────────────
+  app.get('/api/command-post/issues', (req, res) => {
+    const filters = {
+      status: req.query.status as string | undefined,
+      assigneeAgentId: req.query.assignee as string | undefined,
+      goalId: req.query.goalId as string | undefined,
+    };
+    res.json(listIssues(filters));
+  });
+
+  app.post('/api/command-post/issues', (req, res) => {
+    const { title, description, priority, assigneeAgentId, goalId, parentId } = req.body;
+    if (!title) { res.status(400).json({ error: 'title is required' }); return; }
+    const issue = createIssue({ title, description, priority, assigneeAgentId, goalId, parentId, createdByUser: 'board' });
+    res.status(201).json(issue);
+  });
+
+  app.get('/api/command-post/issues/:id', (req, res) => {
+    const issue = getIssue(req.params.id);
+    if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+    const issueComments = getIssueComments(req.params.id);
+    res.json({ ...issue, comments: issueComments });
+  });
+
+  app.patch('/api/command-post/issues/:id', (req, res) => {
+    const { title, description, status, priority, assigneeAgentId, goalId } = req.body;
+    const updated = updateIssue(req.params.id, { title, description, status, priority, assigneeAgentId, goalId });
+    if (!updated) { res.status(404).json({ error: 'Issue not found' }); return; }
+    res.json(updated);
+  });
+
+  app.post('/api/command-post/issues/:id/checkout', (req, res) => {
+    const { agentId } = req.body;
+    if (!agentId) { res.status(400).json({ error: 'agentId is required' }); return; }
+    const result = checkoutIssue(req.params.id, agentId);
+    if (!result) { res.status(409).json({ error: 'Issue already checked out by another agent' }); return; }
+    res.json(result);
+  });
+
+  app.post('/api/command-post/issues/:id/comments', (req, res) => {
+    const { body: commentBody, agentId } = req.body;
+    if (!commentBody) { res.status(400).json({ error: 'body is required' }); return; }
+    const comment = addIssueComment(req.params.id, commentBody, { agentId, user: agentId ? undefined : 'board' });
+    if (!comment) { res.status(404).json({ error: 'Issue not found' }); return; }
+    res.status(201).json(comment);
+  });
+
+  // ── Paperclip: Approvals ─────────────────────────────────
+  app.get('/api/command-post/approvals', (req, res) => {
+    const status = req.query.status as string | undefined;
+    res.json(listApprovals(status));
+  });
+
+  app.post('/api/command-post/approvals', (req, res) => {
+    const { type, requestedBy, payload, linkedIssueIds } = req.body;
+    if (!type) { res.status(400).json({ error: 'type is required' }); return; }
+    const approval = createApproval({ type, requestedBy: requestedBy || 'board', payload: payload || {}, linkedIssueIds });
+    res.status(201).json(approval);
+  });
+
+  app.post('/api/command-post/approvals/:id/approve', (req, res) => {
+    const { decidedBy, note } = req.body;
+    const result = approveApproval(req.params.id, decidedBy || 'board', note);
+    if (!result) { res.status(404).json({ error: 'Approval not found or already decided' }); return; }
+    res.json(result);
+  });
+
+  app.post('/api/command-post/approvals/:id/reject', (req, res) => {
+    const { decidedBy, note } = req.body;
+    const result = rejectApproval(req.params.id, decidedBy || 'board', note);
+    if (!result) { res.status(404).json({ error: 'Approval not found or already decided' }); return; }
+    res.json(result);
+  });
+
+  // ── Paperclip: Runs ──────────────────────────────────────
+  app.get('/api/command-post/runs', (req, res) => {
+    const agentId = req.query.agentId as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(listRuns(agentId, limit));
+  });
+
+  // ── Paperclip: Agent Updates (org chart fields) ──────────
+  app.patch('/api/command-post/agents/:id', (req, res) => {
+    const { reportsTo, role, title, name } = req.body;
+    const updated = updateRegisteredAgent(req.params.id, { reportsTo, role, title, name });
+    if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
+    res.json(updated);
   });
 
   // ── Files API (Workspace file browser) ────────────────────

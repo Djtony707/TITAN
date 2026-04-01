@@ -402,6 +402,9 @@ export interface RegisteredAgent {
   totalTasksCompleted: number;
   totalCostUsd: number;
   createdAt: string;
+  reportsTo?: string;
+  role: 'ceo' | 'manager' | 'engineer' | 'researcher' | 'general';
+  title?: string;
 }
 
 export interface CPActivityEntry {
@@ -430,4 +433,79 @@ export interface CommandPostDashboard {
   checkouts: TaskCheckout[];
   budgets: BudgetPolicy[];
   goalTree: GoalTreeNode[];
+}
+
+// ---- Paperclip: Issues ----
+
+export interface CPIssue {
+  id: string;
+  title: string;
+  description: string;
+  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked' | 'cancelled';
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  assigneeAgentId?: string;
+  createdByAgentId?: string;
+  createdByUser?: string;
+  goalId?: string;
+  parentId?: string;
+  checkoutRunId?: string;
+  issueNumber: number;
+  identifier: string;
+  comments?: CPComment[];
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface CPComment {
+  id: string;
+  issueId: string;
+  authorAgentId?: string;
+  authorUser?: string;
+  body: string;
+  createdAt: string;
+}
+
+// ---- Paperclip: Approvals ----
+
+export interface CPApproval {
+  id: string;
+  type: 'hire_agent' | 'budget_override' | 'custom';
+  status: 'pending' | 'approved' | 'rejected';
+  requestedBy: string;
+  payload: Record<string, unknown>;
+  decidedBy?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+  linkedIssueIds: string[];
+  createdAt: string;
+}
+
+// ---- Paperclip: Runs ----
+
+export interface CPRun {
+  id: string;
+  agentId: string;
+  source: 'heartbeat' | 'assignment' | 'manual' | 'autopilot';
+  status: 'running' | 'succeeded' | 'failed' | 'error';
+  issueId?: string;
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+  toolsUsed: string[];
+  tokenUsage?: { prompt: number; completion: number };
+  error?: string;
+}
+
+// ---- Paperclip: Org Chart ----
+
+export interface OrgNode {
+  id: string;
+  name: string;
+  role: string;
+  title?: string;
+  status: string;
+  model: string;
+  reports: OrgNode[];
 }

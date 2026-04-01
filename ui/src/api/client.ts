@@ -25,6 +25,11 @@ import type {
   BudgetPolicy,
   CPActivityEntry,
   GoalTreeNode,
+  CPIssue,
+  CPComment,
+  CPApproval,
+  CPRun,
+  OrgNode,
 } from './types';
 
 const BASE = '';
@@ -609,6 +614,92 @@ export async function getCPActivity(limit = 50, type?: string): Promise<CPActivi
 
 export async function getCPGoalTree(): Promise<GoalTreeNode[]> {
   return request('/api/command-post/goals/tree');
+}
+
+// ---- Paperclip: Org Chart ----
+
+export async function getCPOrg(): Promise<OrgNode[]> {
+  return request('/api/command-post/org');
+}
+
+// ---- Paperclip: Issues ----
+
+export async function getCPIssues(filters?: { status?: string; assignee?: string; goalId?: string }): Promise<CPIssue[]> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.assignee) params.set('assignee', filters.assignee);
+  if (filters?.goalId) params.set('goalId', filters.goalId);
+  const qs = params.toString();
+  return request(`/api/command-post/issues${qs ? `?${qs}` : ''}`);
+}
+
+export async function createCPIssue(opts: { title: string; description?: string; priority?: string; assigneeAgentId?: string; goalId?: string }): Promise<CPIssue> {
+  return request('/api/command-post/issues', {
+    method: 'POST', body: JSON.stringify(opts),
+  });
+}
+
+export async function getCPIssue(id: string): Promise<CPIssue> {
+  return request(`/api/command-post/issues/${id}`);
+}
+
+export async function updateCPIssue(id: string, updates: Partial<CPIssue>): Promise<CPIssue> {
+  return request(`/api/command-post/issues/${id}`, {
+    method: 'PATCH', body: JSON.stringify(updates),
+  });
+}
+
+export async function checkoutCPIssue(issueId: string, agentId: string): Promise<CPIssue> {
+  return request(`/api/command-post/issues/${issueId}/checkout`, {
+    method: 'POST', body: JSON.stringify({ agentId }),
+  });
+}
+
+export async function addCPComment(issueId: string, body: string, agentId?: string): Promise<CPComment> {
+  return request(`/api/command-post/issues/${issueId}/comments`, {
+    method: 'POST', body: JSON.stringify({ body, agentId }),
+  });
+}
+
+// ---- Paperclip: Approvals ----
+
+export async function getCPApprovals(status?: string): Promise<CPApproval[]> {
+  const qs = status ? `?status=${status}` : '';
+  return request(`/api/command-post/approvals${qs}`);
+}
+
+export async function createCPApproval(opts: { type: string; requestedBy?: string; payload?: Record<string, unknown>; linkedIssueIds?: string[] }): Promise<CPApproval> {
+  return request('/api/command-post/approvals', {
+    method: 'POST', body: JSON.stringify(opts),
+  });
+}
+
+export async function approveCPApproval(id: string, decidedBy?: string, note?: string): Promise<CPApproval> {
+  return request(`/api/command-post/approvals/${id}/approve`, {
+    method: 'POST', body: JSON.stringify({ decidedBy, note }),
+  });
+}
+
+export async function rejectCPApproval(id: string, decidedBy?: string, note?: string): Promise<CPApproval> {
+  return request(`/api/command-post/approvals/${id}/reject`, {
+    method: 'POST', body: JSON.stringify({ decidedBy, note }),
+  });
+}
+
+// ---- Paperclip: Runs ----
+
+export async function getCPRuns(agentId?: string, limit = 50): Promise<CPRun[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (agentId) params.set('agentId', agentId);
+  return request(`/api/command-post/runs?${params}`);
+}
+
+// ---- Paperclip: Agent Updates ----
+
+export async function updateCPAgent(id: string, updates: { reportsTo?: string; role?: string; title?: string; name?: string }): Promise<RegisteredAgent> {
+  return request(`/api/command-post/agents/${id}`, {
+    method: 'PATCH', body: JSON.stringify(updates),
+  });
 }
 
 // ---- Auth ----
