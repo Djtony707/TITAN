@@ -33,6 +33,7 @@ const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
 const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
 const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
 const CommandPostPanel = lazy(() => import('@/components/admin/CommandPostPanel'));
+const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
@@ -104,6 +105,7 @@ function AuthenticatedApp() {
             <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
             <Route path="/nvidia" element={<AdminPage><NvidiaPanel /></AdminPage>} />
             <Route path="/command-post" element={<AdminPage><CommandPostPanel /></AdminPage>} />
+            <Route path="/paperclip" element={<AdminPage><CommandPostHub /></AdminPage>} />
           </Routes>
         </Suspense>
       </Layout>
