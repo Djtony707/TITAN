@@ -266,20 +266,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           {!collapsed && <span>Chat</span>}
         </Link>
 
-        {/* Paperclip — Command Post hub */}
-        <Link
-          to="/paperclip"
-          title={collapsed ? 'Paperclip' : undefined}
-          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-            isActive('/paperclip')
-              ? 'bg-[var(--accent)] text-white'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
-          } ${collapsed ? 'justify-center' : ''}`}
-        >
-          <Shield size={18} className="flex-shrink-0" />
-          {!collapsed && <span>Paperclip</span>}
-        </Link>
-
         {/* Grouped navigation */}
         {navGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.label);

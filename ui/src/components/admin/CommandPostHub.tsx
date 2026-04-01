@@ -1,150 +1,194 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router';
-import { Shield, Users, Lock, DollarSign, GitBranch, Zap, Brain, Activity, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import {
+  Shield, Users, Lock, DollarSign, GitBranch, Activity,
+  ChevronRight, AlertTriangle, CheckCircle2, Clock, Pause,
+  Play, XCircle, BarChart3, Building2, Briefcase,
+} from 'lucide-react';
 import { getCommandPostDashboard } from '@/api/client';
 import { apiFetch } from '@/api/client';
-import type { CommandPostDashboard, CPActivityEntry } from '@/api/types';
+import type { CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy, CPActivityEntry, GoalTreeNode } from '@/api/types';
 
-// ──��� Stat pill ───────────────────────────────────────────────
-
-function StatPill({ value, label, color }: { value: string | number; label: string; color: string }) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06]">
-      <span className={`text-sm font-bold ${color}`}>{value}</span>
-      <span className="text-[11px] text-white/40">{label}</span>
-    </div>
-  );
-}
-
-// ─── Feature Card ────────────────────────────────────────────
-
-interface FeatureCardProps {
-  icon: typeof Shield;
-  title: string;
-  description: string;
-  stat: string | number;
-  statLabel: string;
-  gradient: string;
-  iconColor: string;
-  link: string;
-  status?: 'active' | 'idle' | 'disabled';
-}
-
-function FeatureCard({ icon: Icon, title, description, stat, statLabel, gradient, iconColor, link, status }: FeatureCardProps) {
-  return (
-    <Link
-      to={link}
-      className={`group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br ${gradient} p-5 transition-all duration-300 hover:border-white/[0.12] hover:scale-[1.01] hover:shadow-xl hover:shadow-black/30`}
-    >
-      {/* Status indicator */}
-      {status && (
-        <div className="absolute top-3 right-3">
-          <span className={`inline-block w-2 h-2 rounded-full ${
-            status === 'active' ? 'bg-green-500 animate-pulse' : status === 'idle' ? 'bg-yellow-500' : 'bg-zinc-600'
-          }`} />
-        </div>
-      )}
-
-      {/* Icon */}
-      <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-black/20 border border-white/[0.06] mb-4`}>
-        <Icon size={20} className={iconColor} />
-      </div>
-
-      {/* Title + description */}
-      <h3 className="text-[15px] font-semibold text-white mb-1">{title}</h3>
-      <p className="text-[12px] text-white/40 leading-relaxed mb-4">{description}</p>
-
-      {/* Stat */}
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-2xl font-bold text-white/90">{stat}</span>
-        <span className="text-[11px] text-white/35">{statLabel}</span>
-      </div>
-
-      {/* Arrow */}
-      <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-        <ChevronRight size={16} className="text-white/30" />
-      </div>
-    </Link>
-  );
-}
-
-// ─── Activity item ───────────────────────────────────────────
-
-function ActivityItem({ entry }: { entry: CPActivityEntry }) {
-  const ago = timeSince(entry.timestamp);
-  const typeColors: Record<string, string> = {
-    'task:checkout': 'text-orange-400',
-    'task:checkin': 'text-green-400',
-    'budget:warning': 'text-yellow-400',
-    'budget:exceeded': 'text-red-400',
-    'agent:spawned': 'text-blue-400',
-    'agent:stopped': 'text-zinc-400',
-    'agent:heartbeat': 'text-emerald-400',
-  };
-
-  const typeIcons: Record<string, typeof Shield> = {
-    'task:checkout': Lock,
-    'task:checkin': CheckCircle2,
-    'budget:warning': AlertTriangle,
-    'budget:exceeded': AlertTriangle,
-    'agent:spawned': Users,
-    'agent:stopped': Users,
-  };
-
-  const TypeIcon = typeIcons[entry.type] || Activity;
-  const color = typeColors[entry.type] || 'text-white/50';
-
-  return (
-    <div className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-white/[0.02] transition-colors">
-      <TypeIcon size={14} className={`${color} mt-0.5 flex-shrink-0`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[12px] text-white/70 truncate">{entry.message || entry.type}</p>
-        {entry.agentId && (
-          <p className="text-[10px] text-white/30 mt-0.5">Agent: {entry.agentId}</p>
-        )}
-      </div>
-      <span className="text-[10px] text-white/25 flex-shrink-0">{ago}</span>
-    </div>
-  );
-}
+// ─── Helpers ─────────────────────────────────────────────────
 
 function timeSince(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-// ─── Main Hub Component ──────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, { bg: string; text: string; dot: string }> = {
+    active:  { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
+    idle:    { bg: 'bg-yellow-500/10', text: 'text-yellow-400', dot: 'bg-yellow-500' },
+    paused:  { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
+    error:   { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-500' },
+    stopped: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', dot: 'bg-zinc-500' },
+  };
+  const s = styles[status] || styles.stopped;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === 'active' ? 'animate-pulse' : ''}`} />
+      {status}
+    </span>
+  );
+}
+
+// ─── Metric Card ─────────────────────────────────────────────
+
+function MetricCard({ icon: Icon, label, value, sub, color }: {
+  icon: typeof Shield; label: string; value: string | number; sub?: string; color: string;
+}) {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon size={14} className={color} />
+        <span className="text-[11px] text-white/40 uppercase tracking-wider font-medium">{label}</span>
+      </div>
+      <div className="text-2xl font-bold text-white/90">{value}</div>
+      {sub && <div className="text-[11px] text-white/30 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+// ─── Org Chart Agent Node ────────────────────────────────────
+
+function AgentNode({ agent }: { agent: RegisteredAgent }) {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 min-w-[180px]">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[13px] font-semibold text-white/90 truncate">{agent.name}</span>
+        <StatusBadge status={agent.status} />
+      </div>
+      <div className="space-y-1 text-[11px] text-white/40">
+        <div className="flex justify-between">
+          <span>Model</span>
+          <span className="text-white/60 truncate ml-2 max-w-[100px]">{agent.model.split('/').pop()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Tasks</span>
+          <span className="text-white/60">{agent.totalTasksCompleted}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Cost</span>
+          <span className="text-white/60">${agent.totalCostUsd.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Heartbeat</span>
+          <span className="text-white/60">{timeSince(agent.lastHeartbeat)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Task Board Card ─────────────────────────────────────────
+
+function TaskCard({ checkout }: { checkout: TaskCheckout }) {
+  return (
+    <div className="bg-white/[0.03] border border-orange-500/20 rounded-lg p-3">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Lock size={12} className="text-orange-400" />
+        <span className="text-[12px] font-medium text-white/80 truncate">{checkout.subtaskId}</span>
+      </div>
+      <div className="text-[10px] text-white/35 space-y-0.5">
+        <div>Agent: <span className="text-white/55">{checkout.agentId}</span></div>
+        <div>Goal: <span className="text-white/55">{checkout.goalId}</span></div>
+        <div>Locked: <span className="text-white/55">{timeSince(checkout.checkedOutAt)}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Budget Bar ──────────────────────────────────────────────
+
+function BudgetBar({ policy }: { policy: BudgetPolicy }) {
+  const pct = policy.limitUsd > 0 ? Math.min(100, (policy.currentSpend / policy.limitUsd) * 100) : 0;
+  const barColor = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500';
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[12px] font-medium text-white/80">{policy.name}</span>
+        <span className="text-[10px] text-white/35 capitalize">{policy.scope.type}</span>
+      </div>
+      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
+        <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex justify-between text-[10px] text-white/35">
+        <span>${policy.currentSpend.toFixed(2)} spent</span>
+        <span>${policy.limitUsd.toFixed(2)} limit</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Goal Tree ───────────────────────────────────────────────
+
+function GoalNode({ node, depth = 0 }: { node: GoalTreeNode; depth?: number }) {
+  const g = node.goal;
+  const statusIcon = g.status === 'completed'
+    ? <CheckCircle2 size={12} className="text-green-400" />
+    : g.status === 'in_progress'
+    ? <Play size={12} className="text-blue-400" />
+    : <Clock size={12} className="text-white/30" />;
+  return (
+    <div>
+      <div className="flex items-center gap-2 py-1.5" style={{ paddingLeft: `${depth * 20}px` }}>
+        {depth > 0 && <span className="text-white/10">{'└'}</span>}
+        {statusIcon}
+        <span className={`text-[12px] ${g.status === 'completed' ? 'text-white/40 line-through' : 'text-white/70'}`}>
+          {g.title}
+        </span>
+      </div>
+      {node.children?.map(child => (
+        <GoalNode key={child.goal.id} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Activity Feed Item ──────────────────────────────────────
+
+function FeedItem({ entry }: { entry: CPActivityEntry }) {
+  const colors: Record<string, string> = {
+    'task:checkout': 'text-orange-400', 'task:checkin': 'text-green-400',
+    'budget:warning': 'text-yellow-400', 'budget:exceeded': 'text-red-400',
+    'agent:spawned': 'text-blue-400', 'agent:stopped': 'text-zinc-400',
+  };
+  const icons: Record<string, typeof Shield> = {
+    'task:checkout': Lock, 'task:checkin': CheckCircle2,
+    'budget:warning': AlertTriangle, 'budget:exceeded': XCircle,
+    'agent:spawned': Users, 'agent:stopped': Pause,
+  };
+  const Icon = icons[entry.type] || Activity;
+  return (
+    <div className="flex items-start gap-2.5 py-2 px-3">
+      <Icon size={13} className={`${colors[entry.type] || 'text-white/30'} mt-0.5 flex-shrink-0`} />
+      <div className="flex-1 min-w-0">
+        <span className="text-[11px] text-white/60">{entry.message || entry.type}</span>
+      </div>
+      <span className="text-[10px] text-white/20 flex-shrink-0 whitespace-nowrap">{timeSince(entry.timestamp)}</span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
 
 export default function CommandPostHub() {
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
-  const [autopilotEnabled, setAutopilotEnabled] = useState(false);
-  const [selfImproveRuns, setSelfImproveRuns] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveActivity, setLiveActivity] = useState<CPActivityEntry[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const [cpData, autopilotRes, siRes] = await Promise.allSettled([
-        getCommandPostDashboard(),
-        apiFetch('/api/autopilot/status').then(r => r.json()),
-        apiFetch('/api/self-improve/history').then(r => r.json()),
-      ]);
-
-      if (cpData.status === 'fulfilled') {
-        setDashboard(cpData.value);
-        setLiveActivity(cpData.value.recentActivity || []);
-      }
-      if (autopilotRes.status === 'fulfilled') {
-        setAutopilotEnabled(autopilotRes.value?.enabled === true);
-      }
-      if (siRes.status === 'fulfilled') {
-        const runs = Array.isArray(siRes.value) ? siRes.value : siRes.value?.runs || siRes.value?.history || [];
-        setSelfImproveRuns(runs.length);
-      }
+      const data = await getCommandPostDashboard();
+      setDashboard(data);
+      setLiveActivity(data.recentActivity || []);
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -165,12 +209,18 @@ export default function CommandPostHub() {
       retries = 0;
       try {
         const entry = JSON.parse(e.data) as CPActivityEntry;
-        setLiveActivity(prev => [...prev.slice(-19), entry]);
+        setLiveActivity(prev => [...prev.slice(-49), entry]);
       } catch { /* ignore */ }
     });
     es.onerror = () => { retries++; if (retries > 5) es.close(); };
     return () => es.close();
   }, [dashboard]);
+
+  // Auto-refresh every 30s
+  useEffect(() => {
+    const interval = setInterval(refresh, 30000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
   if (loading) {
     return (
@@ -188,11 +238,8 @@ export default function CommandPostHub() {
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <AlertTriangle className="mx-auto mb-3 text-yellow-500" size={32} />
-          <p className="text-sm text-white/60 mb-2">Could not load Command Post</p>
-          <p className="text-xs text-white/30 mb-4">{error}</p>
-          <button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70 transition-colors">
-            Retry
-          </button>
+          <p className="text-sm text-white/60 mb-4">{error}</p>
+          <button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70">Retry</button>
         </div>
       </div>
     );
@@ -203,133 +250,170 @@ export default function CommandPostHub() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
 
-        {/* ─── Hero ──────────────────────────────────────────── */}
-        <div className="relative mb-10">
-          {/* Ambient glow */}
-          <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-96 h-48 bg-gradient-to-b from-indigo-500/10 via-purple-500/5 to-transparent blur-3xl pointer-events-none" />
-
-          <div className="relative flex flex-col items-center text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/[0.08] mb-5 shadow-lg shadow-indigo-500/10">
-              <Shield size={28} className="text-indigo-400" />
+        {/* ─── Header ───────────────────────────────────────── */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+              <Building2 size={20} className="text-indigo-400" />
             </div>
-
-            <h1 className="text-3xl font-bold text-white mb-2">Command Post</h1>
-            <p className="text-sm text-white/40 max-w-lg mb-6">
-              Paperclip-inspired agent governance. Atomic task checkout, budget enforcement,
-              goal ancestry, agent registry, and real-time activity monitoring.
-            </p>
-
-            {/* Live stats */}
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <StatPill value={d.totalAgents} label="agents" color="text-blue-400" />
-              <StatPill value={d.activeCheckouts} label="tasks locked" color="text-orange-400" />
-              <StatPill value={`${Math.round(budgetPct)}%`} label="budget used" color={budgetPct >= 80 ? 'text-red-400' : budgetPct >= 50 ? 'text-yellow-400' : 'text-green-400'} />
-              <StatPill value={d.goalTree?.length ?? 0} label="goals" color="text-purple-400" />
+            <div>
+              <h1 className="text-xl font-bold text-white">Command Post</h1>
+              <p className="text-[11px] text-white/35">Agent governance &middot; Task orchestration &middot; Budget enforcement</p>
             </div>
           </div>
+          <button onClick={refresh} className="px-3 py-1.5 text-[11px] text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/[0.08] transition-colors">
+            Refresh
+          </button>
         </div>
 
-        {/* ─── Feature Cards ─────────────────────────────────���─ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
-          <FeatureCard
-            icon={Users}
-            title="Agent Registry"
-            description="Monitor all registered agents with heartbeat tracking, status, and performance metrics"
-            stat={d.totalAgents}
-            statLabel={d.activeAgents === 1 ? 'agent active' : 'agents active'}
-            gradient="from-blue-500/10 to-cyan-500/10"
-            iconColor="text-blue-400"
-            link="/command-post"
-            status={d.activeAgents > 0 ? 'active' : 'idle'}
-          />
-          <FeatureCard
-            icon={Lock}
-            title="Task Checkout"
-            description="Atomic task locking prevents double-work. Single-threaded with expiry sweep"
-            stat={d.activeCheckouts}
-            statLabel={d.activeCheckouts === 1 ? 'task locked' : 'tasks locked'}
-            gradient="from-orange-500/10 to-amber-500/10"
-            iconColor="text-orange-400"
-            link="/command-post"
-            status={d.activeCheckouts > 0 ? 'active' : 'idle'}
-          />
-          <FeatureCard
-            icon={DollarSign}
-            title="Budget Policies"
-            description="Per-agent, per-goal, and global spend limits with auto-pause on exceed"
-            stat={`${Math.round(budgetPct)}%`}
-            statLabel="utilization"
-            gradient="from-green-500/10 to-emerald-500/10"
-            iconColor="text-green-400"
-            link="/command-post"
-            status={budgetPct >= 80 ? 'active' : 'idle'}
-          />
-          <FeatureCard
-            icon={GitBranch}
-            title="Goal Ancestry"
-            description="Mission, Project, Task hierarchy with parentGoalId chains"
-            stat={d.goalTree?.length ?? 0}
-            statLabel={d.goalTree?.length === 1 ? 'root goal' : 'root goals'}
-            gradient="from-purple-500/10 to-violet-500/10"
-            iconColor="text-purple-400"
-            link="/workflows"
-          />
-          <FeatureCard
-            icon={Zap}
-            title="Autopilot"
-            description="Autonomous goal pursuit with Command Post checkout integration"
-            stat={autopilotEnabled ? 'ON' : 'OFF'}
-            statLabel="autopilot"
-            gradient="from-yellow-500/10 to-amber-500/10"
-            iconColor="text-yellow-400"
-            link="/autopilot"
-            status={autopilotEnabled ? 'active' : 'disabled'}
-          />
-          <FeatureCard
-            icon={Brain}
-            title="Self-Improvement"
-            description="LLM-as-judge evaluation, autoresearch experiments, local model fine-tuning"
-            stat={selfImproveRuns}
-            statLabel={selfImproveRuns === 1 ? 'run' : 'runs'}
-            gradient="from-rose-500/10 to-pink-500/10"
-            iconColor="text-rose-400"
-            link="/self-improve"
-          />
+        {/* ─── Metrics row ──────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <MetricCard icon={Users} label="Agents" value={d.totalAgents} sub={`${d.activeAgents} active`} color="text-blue-400" />
+          <MetricCard icon={Lock} label="Tasks Locked" value={d.activeCheckouts} sub="atomic checkout" color="text-orange-400" />
+          <MetricCard icon={DollarSign} label="Budget" value={`${Math.round(budgetPct)}%`} sub={budgetPct >= 80 ? 'nearing limit' : 'healthy'} color={budgetPct >= 80 ? 'text-red-400' : 'text-green-400'} />
+          <MetricCard icon={Briefcase} label="Goals" value={d.goalTree?.length ?? 0} sub="in hierarchy" color="text-purple-400" />
         </div>
 
-        {/* ─── Live Activity Feed ────────────────────────────── */}
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-            <div className="flex items-center gap-2">
-              <Activity size={14} className="text-indigo-400" />
-              <h2 className="text-sm font-semibold text-white/80">Live Activity</h2>
-              {liveActivity.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
-                  {liveActivity.length}
-                </span>
-              )}
+        {/* ─── Main grid: Org Chart + Task Board ────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* Org Chart — 2 cols */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Agent Registry */}
+            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <Users size={14} className="text-blue-400" />
+                  <h2 className="text-sm font-semibold text-white/80">Agent Registry</h2>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{d.totalAgents}</span>
+                </div>
+                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
+                  Manage <ChevronRight size={12} />
+                </Link>
+              </div>
+              <div className="p-4">
+                {d.agents.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users size={24} className="mx-auto mb-2 text-white/10" />
+                    <p className="text-[12px] text-white/25">No agents registered</p>
+                    <p className="text-[10px] text-white/15 mt-1">Agents appear here when spawned via multi-agent or autopilot</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {d.agents.map(agent => <AgentNode key={agent.id} agent={agent} />)}
+                  </div>
+                )}
+              </div>
             </div>
-            <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 transition-colors flex items-center gap-1">
-              Full view <ChevronRight size={12} />
-            </Link>
+
+            {/* Task Board */}
+            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <Lock size={14} className="text-orange-400" />
+                  <h2 className="text-sm font-semibold text-white/80">Task Board</h2>
+                  {d.activeCheckouts > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-400">{d.activeCheckouts} locked</span>
+                  )}
+                </div>
+                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
+                  Details <ChevronRight size={12} />
+                </Link>
+              </div>
+              <div className="p-4">
+                {d.checkouts.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Lock size={20} className="mx-auto mb-2 text-white/10" />
+                    <p className="text-[12px] text-white/25">No tasks checked out</p>
+                    <p className="text-[10px] text-white/15 mt-1">Atomic checkout prevents double-work when agents claim tasks</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {d.checkouts.map(co => <TaskCard key={`${co.goalId}-${co.subtaskId}`} checkout={co} />)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Goal Hierarchy */}
+            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <GitBranch size={14} className="text-purple-400" />
+                  <h2 className="text-sm font-semibold text-white/80">Goal Hierarchy</h2>
+                </div>
+                <Link to="/workflows" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
+                  Manage goals <ChevronRight size={12} />
+                </Link>
+              </div>
+              <div className="p-4">
+                {(!d.goalTree || d.goalTree.length === 0) ? (
+                  <div className="text-center py-6">
+                    <GitBranch size={20} className="mx-auto mb-2 text-white/10" />
+                    <p className="text-[12px] text-white/25">No goals in hierarchy</p>
+                    <p className="text-[10px] text-white/15 mt-1">Goals with parentGoalId form Mission &gt; Project &gt; Task trees</p>
+                  </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto">
+                    {d.goalTree.map(node => <GoalNode key={node.goal.id} node={node} />)}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="max-h-64 overflow-y-auto">
-            {liveActivity.length === 0 ? (
-              <div className="py-8 text-center">
-                <Activity size={20} className="mx-auto mb-2 text-white/15" />
-                <p className="text-[12px] text-white/25">No activity yet</p>
-                <p className="text-[10px] text-white/15 mt-1">Events will appear here as agents work</p>
+          {/* Right column — Budgets + Activity Feed */}
+          <div className="space-y-6">
+            {/* Budget Policies */}
+            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <DollarSign size={14} className="text-green-400" />
+                  <h2 className="text-sm font-semibold text-white/80">Budgets</h2>
+                </div>
+                <Link to="/command-post" className="text-[11px] text-white/30 hover:text-white/50 flex items-center gap-1">
+                  Manage <ChevronRight size={12} />
+                </Link>
               </div>
-            ) : (
-              <div className="divide-y divide-white/[0.03]">
-                {[...liveActivity].reverse().slice(0, 20).map((entry, i) => (
-                  <ActivityItem key={`${entry.timestamp}-${i}`} entry={entry} />
-                ))}
+              <div className="p-4 space-y-3">
+                {d.budgets.length === 0 ? (
+                  <div className="text-center py-6">
+                    <DollarSign size={20} className="mx-auto mb-2 text-white/10" />
+                    <p className="text-[12px] text-white/25">No budget policies</p>
+                    <p className="text-[10px] text-white/15 mt-1">Create per-agent or global spend limits</p>
+                  </div>
+                ) : (
+                  d.budgets.map(b => <BudgetBar key={b.id} policy={b} />)
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Live Activity Feed */}
+            <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <Activity size={14} className="text-indigo-400" />
+                  <h2 className="text-sm font-semibold text-white/80">Activity</h2>
+                  {liveActivity.length > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  )}
+                </div>
+              </div>
+              <div className="max-h-80 overflow-y-auto divide-y divide-white/[0.03]">
+                {liveActivity.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Activity size={20} className="mx-auto mb-2 text-white/10" />
+                    <p className="text-[12px] text-white/25">No activity yet</p>
+                  </div>
+                ) : (
+                  [...liveActivity].reverse().slice(0, 30).map((entry, i) => (
+                    <FeedItem key={`${entry.timestamp}-${i}`} entry={entry} />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
