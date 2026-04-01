@@ -337,7 +337,7 @@ export async function executeInSandbox(
         const cmd = [
             'docker', 'run', '--rm',
             '--name', containerName,
-            '-v', `${workDir}:/workspace:ro`,
+            '-v', `"${workDir}":/workspace:ro`,
             '-e', `TITAN_BRIDGE_URL=http://host.docker.internal:${port}`,
             '-e', `TITAN_SESSION_TOKEN=${token}`,
             '--add-host=host.docker.internal:host-gateway',

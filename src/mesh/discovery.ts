@@ -346,27 +346,42 @@ interface ProbeResult {
 }
 
 async function probePeer(address: string, port: number): Promise<ProbeResult | null> {
-    try {
-        const res = await fetch(`http://${address}:${port}/api/mesh/hello`, {
-            signal: AbortSignal.timeout(PROBE_TIMEOUT),
-        });
-        if (!res.ok) {
-            logger.debug(COMPONENT, `Probe ${address}:${port} returned ${res.status}`);
-            return null;
+    // Try HTTPS first (TITAN auto-HTTPS via mkcert), fall back to HTTP
+    for (const protocol of ['https', 'http'] as const) {
+        try {
+            const res = await fetch(`${protocol}://${address}:${port}/api/mesh/hello`, {
+                signal: AbortSignal.timeout(PROBE_TIMEOUT),
+            });
+            if (!res.ok) {
+                logger.debug(COMPONENT, `Probe ${protocol}://${address}:${port} returned ${res.status}`);
+                continue;
+            }
+            const data = await res.json() as ProbeResult;
+            if (data.titan) {
+                // Record whether this peer uses TLS for WebSocket connections
+                try {
+                    const { setPeerTls } = await import('./transport.js');
+                    setPeerTls(address, port, protocol === 'https');
+                } catch { /* transport not loaded yet */ }
+                return data;
+            }
+        } catch (err) {
+            const msg = (err as Error).message || '';
+            // HTTPS with self-signed cert may fail — try HTTP next
+            if (protocol === 'https') {
+                logger.debug(COMPONENT, `Probe https://${address}:${port} failed, trying HTTP...`);
+                continue;
+            }
+            if (msg.includes('abort') || msg.includes('timeout')) {
+                logger.debug(COMPONENT, `Probe ${address}:${port} timed out`);
+            } else if (msg.includes('ECONNREFUSED')) {
+                logger.debug(COMPONENT, `Probe ${address}:${port} refused — no TITAN gateway running`);
+            } else {
+                logger.debug(COMPONENT, `Probe ${address}:${port} failed: ${msg.slice(0, 80)}`);
+            }
         }
-        const data = await res.json() as ProbeResult;
-        return data.titan ? data : null;
-    } catch (err) {
-        const msg = (err as Error).message || '';
-        if (msg.includes('abort') || msg.includes('timeout')) {
-            logger.debug(COMPONENT, `Probe ${address}:${port} timed out`);
-        } else if (msg.includes('ECONNREFUSED')) {
-            logger.debug(COMPONENT, `Probe ${address}:${port} refused — no TITAN gateway running`);
-        } else {
-            logger.debug(COMPONENT, `Probe ${address}:${port} failed: ${msg.slice(0, 80)}`);
-        }
-        return null;
     }
+    return null;
 }
 
 // ── Manual Peer ──────────────────────────────────────────────

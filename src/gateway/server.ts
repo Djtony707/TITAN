@@ -494,6 +494,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       };
   }
 
+  // ── Concurrent request guard (prevents parallel abuse) ────
+  let activeMessageRequests = 0;
+  const MAX_CONCURRENT_MESSAGES = 5;
+
+  function concurrencyGuard(maxConcurrent: number) {
+      return (_req: Request, res: Response, next: NextFunction) => {
+          if (activeMessageRequests >= maxConcurrent) {
+              res.status(503).json({ error: 'Server busy — too many concurrent requests' });
+              return;
+          }
+          activeMessageRequests++;
+          res.on('finish', () => { activeMessageRequests = Math.max(0, activeMessageRequests - 1); });
+          res.on('close', () => { activeMessageRequests = Math.max(0, activeMessageRequests - 1); });
+          next();
+      };
+  }
+
   // Clean rate limit store every 60 seconds (unref so it doesn't block shutdown)
   rateLimitCleanupInterval = setInterval(() => {
       const now = Date.now();
@@ -597,6 +614,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const token = randomBytes(32).toString('hex');
     authTokens.set(token, { createdAt: Date.now(), userId: `user-${token.slice(0, 8)}` });
     res.json({ token });
+  });
+
+  // ── Prometheus /metrics (no auth — standard scrape path) ────
+  app.get('/metrics', (_req, res) => {
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+    res.send(serializePrometheus());
   });
 
   // ── Auth middleware (API routes only) ────────────────────────
@@ -1156,7 +1179,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
-  app.post('/api/message', rateLimit(60000, 30), async (req, res) => {
+  app.post('/api/message', rateLimit(60000, 30), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
     const { content, channel = 'api', userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
     if (!content || typeof content !== 'string') {
       res.status(400).json({ error: 'content must be a non-empty string' });
@@ -1525,6 +1548,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           openshell: nv.openshell ?? { enabled: false, binaryPath: 'openshell', policyPath: '' },
         };
       })(),
+      mesh: {
+        enabled: Boolean(cfg.mesh?.enabled),
+        mdns: Boolean(cfg.mesh?.mdns),
+        tailscale: Boolean(cfg.mesh?.tailscale),
+        maxPeers: cfg.mesh?.maxPeers ?? 5,
+        autoApprove: Boolean(cfg.mesh?.autoApprove),
+      },
+      commandPost: {
+        enabled: Boolean((cfg as Record<string, any>).commandPost?.enabled),
+        heartbeatIntervalMs: (cfg as Record<string, any>).commandPost?.heartbeatIntervalMs ?? 30000,
+        maxConcurrentAgents: (cfg as Record<string, any>).commandPost?.maxConcurrentAgents ?? 10,
+        checkoutTimeoutMs: (cfg as Record<string, any>).commandPost?.checkoutTimeoutMs ?? 300000,
+      },
     });
   });
 
@@ -1704,7 +1740,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(state || { active: null });
   });
 
-  app.post('/api/model/switch', (req, res) => {
+  app.post('/api/model/switch', async (req, res) => {
     try {
       const { model } = req.body as { model?: string };
       if (!model) { res.status(400).json({ error: 'model is required' }); return; }
@@ -1712,6 +1748,32 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // Resolve aliases
       const aliases = cfg.agent.modelAliases || {};
       const resolved = aliases[model] || model;
+
+      // Validate model exists before switching (for Ollama local models)
+      const [providerName] = resolved.split('/');
+      if (providerName === 'ollama') {
+        const ollamaBase = cfg.providers.ollama?.baseUrl || 'http://localhost:11434';
+        const modelName = resolved.replace('ollama/', '');
+        // Cloud-routed models (suffix :cloud) are always valid — they proxy through Ollama
+        if (!modelName.endsWith(':cloud')) {
+          try {
+            const check = await fetch(`${ollamaBase}/api/show`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: modelName }),
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!check.ok) {
+              res.status(404).json({ error: `Model '${modelName}' not found in Ollama. Pull it first: ollama pull ${modelName}` });
+              return;
+            }
+          } catch {
+            // Ollama unreachable — allow switch anyway (user may be pre-configuring)
+            logger.warn(COMPONENT, `Could not verify model '${modelName}' — Ollama unreachable at ${ollamaBase}`);
+          }
+        }
+      }
+
       updateConfig({ agent: { ...cfg.agent, model: resolved } });
       // Invalidate cached responses for the old model so stale results aren't served
       invalidateCacheForModel(cfg.agent.model);
@@ -2848,11 +2910,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.status(404).json({ error: 'Voice not enabled' });
       return;
     }
+    if (!cfg.voice.livekitApiKey || !cfg.voice.livekitApiSecret) {
+      res.status(503).json({ error: 'LiveKit not configured — set voice.livekitApiKey and voice.livekitApiSecret in titan.json' });
+      return;
+    }
     try {
       const lkModule = 'livekit-server-sdk';
       const livekitSdk: any = await import(lkModule).catch(() => null);
       if (!livekitSdk?.AccessToken) {
-        res.status(500).json({ error: 'livekit-server-sdk not installed. Run: npm install livekit-server-sdk' });
+        res.status(503).json({ error: 'livekit-server-sdk not installed. Run: npm install livekit-server-sdk' });
         return;
       }
       const { AccessToken } = livekitSdk;

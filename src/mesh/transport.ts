@@ -15,6 +15,12 @@ const COMPONENT = 'MeshTransport';
 const peerConnections = new Map<string, WebSocket>();
 const pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timeout: ReturnType<typeof setTimeout>; peerNodeId?: string }>();
 const reconnectState = new Map<string, { attempts: number }>();
+const peerUseTls = new Map<string, boolean>();
+
+/** Mark a peer as using TLS (called by discovery after successful HTTPS probe) */
+export function setPeerTls(address: string, port: number, tls: boolean): void {
+    peerUseTls.set(`${address}:${port}`, tls);
+}
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let activeRemoteTasks = 0;
 
@@ -62,7 +68,10 @@ export async function connectToPeer(
 
     return new Promise((resolve) => {
         const auth = generateMeshAuth(localNodeId, meshSecret);
-        const url = `ws://${address}:${port}?mesh=true&nodeId=${localNodeId}&auth=${auth}`;
+        // Try wss:// first (TITAN auto-HTTPS via mkcert), fall back to ws://
+        const wsUrl = `ws://${address}:${port}?mesh=true&nodeId=${localNodeId}&auth=${auth}`;
+        const wssUrl = `wss://${address}:${port}?mesh=true&nodeId=${localNodeId}&auth=${auth}`;
+        const url = peerUseTls.get(peerKey) ? wssUrl : wsUrl;
 
         const ws = new WebSocket(url, { handshakeTimeout: 5000 });
         let remoteNodeId: string | null = null;

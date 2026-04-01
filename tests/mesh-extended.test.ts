@@ -250,6 +250,7 @@ describe('Mesh Discovery', () => {
 
     describe('addManualPeer', () => {
         it('should add a peer if probe succeeds', async () => {
+            // HTTPS probe succeeds
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 json: async () => ({
@@ -273,6 +274,8 @@ describe('Mesh Discovery', () => {
         });
 
         it('should return false if probe fails', async () => {
+            // Both HTTPS and HTTP probes fail
+            mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
             mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
             const result = await addManualPeer('10.0.0.99', 48420, 'some-id');
@@ -281,6 +284,8 @@ describe('Mesh Discovery', () => {
         });
 
         it('should return false if probe returns non-titan response', async () => {
+            // HTTPS fails, HTTP returns non-titan
+            mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 json: async () => ({ titan: false }),
@@ -292,16 +297,18 @@ describe('Mesh Discovery', () => {
         });
 
         it('should return false if probe returns non-OK HTTP', async () => {
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-            });
+            // HTTPS probe fails, HTTP probe returns non-OK
+            mockFetch.mockResolvedValueOnce({ ok: false });
+            mockFetch.mockResolvedValueOnce({ ok: false });
 
             const result = await addManualPeer('10.0.0.77', 48420, 'some-id');
 
             expect(result).toBe(false);
         });
 
-        it('should fetch the correct probe URL', async () => {
+        it('should fetch the correct probe URL (HTTPS first, HTTP fallback)', async () => {
+            // Probe tries HTTPS first, falls back to HTTP
+            mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED')); // HTTPS fails
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 json: async () => ({
@@ -316,6 +323,10 @@ describe('Mesh Discovery', () => {
 
             await addManualPeer('192.168.1.100', 9999, 'x');
 
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://192.168.1.100:9999/api/mesh/hello',
+                expect.objectContaining({ signal: expect.anything() }),
+            );
             expect(mockFetch).toHaveBeenCalledWith(
                 'http://192.168.1.100:9999/api/mesh/hello',
                 expect.objectContaining({ signal: expect.anything() }),
