@@ -1003,8 +1003,9 @@ export async function processMessage(
                 content: `IMPORTANT: You are approaching the tool execution limit (round ${round + 1}/${effectiveMaxRounds}). Wrap up your current work: summarize progress so far and provide a clear response. If the task is incomplete, describe what remains.`,
             });
             logger.info(COMPONENT, `[Round ${round + 1}] Graceful degradation: injecting wrap-up prompt (${effectiveMaxRounds - round - 1} rounds remaining)`);
-        } else if (!isAutonomous && round >= 5) {
-            // In supervised mode, keep the forced summarization for backward compat
+        } else if (round >= 5 && (!isAutonomous || activeModel.includes(':cloud') || activeModel.includes('-cloud'))) {
+            // In supervised mode or with cloud models: force summarization after 5 rounds.
+            // Cloud models tend to loop excessively — they need explicit stop signals.
             messages.push({
                 role: 'user',
                 content: 'IMPORTANT: You have already used enough tools. Do NOT call any more tools. Summarize the information you have gathered and respond to the user directly with a clear answer NOW.',
