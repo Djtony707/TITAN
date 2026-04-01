@@ -2986,21 +2986,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         results[key] = resp.ok || resp.status < 500;
       } catch { results[key] = false; }
     }));
-    // TTS health check — /health endpoint (F5-TTS, etc.) or speech probe (Orpheus fallback)
+    // TTS health check — /health endpoint or speech probe fallback
     try {
-      const healthUrl = ttsEngine === 'edge' ? `http://localhost:5007/health`
-        : ttsEngine === 'qwen3-tts' ? `http://localhost:5006/health` : `${ttsUrl}/health`;
+      const ttsBase = engine === 'qwen3-tts' ? 'http://localhost:5006' : ttsUrl;
+      const healthUrl = engine === 'edge' ? `http://localhost:5007/health` : `${ttsBase}/health`;
       let resp = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
-      if (!resp || resp.status >= 500) {
-        // Orpheus doesn't have /health — try a lightweight speech probe (skip for F5-TTS)
-        if (ttsEngine !== 'qwen3-tts') {
-          resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: '.', voice: 'tara', response_format: 'pcm' }),
-            signal: AbortSignal.timeout(5000),
-          });
-        }
+      if (!resp || resp.status >= 400) {
+        // No /health endpoint — try a lightweight speech probe
+        const voice = cfg.voice.ttsVoice || 'default';
+        const model = engine === 'qwen3-tts' ? 'f5-tts' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+        resp = await fetch(`${ttsBase}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, input: '.', voice, response_format: 'pcm' }),
+          signal: AbortSignal.timeout(10000),
+        });
       }
       results.tts = resp ? resp.status < 500 : false;
     } catch { results.tts = false; }
