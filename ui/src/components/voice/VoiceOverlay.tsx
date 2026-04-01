@@ -104,6 +104,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const abortRef = useRef<AbortController | null>(null);
   const interruptCheckRef = useRef<number>(0);
   const processingRef = useRef(false); // guard against overlapping handleUserMessage calls
+  const synthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isIOSRef = useRef(typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent));
 
   /** Play audio data — tries Web Audio API first (most reliable on iOS), then Audio element */
@@ -135,6 +136,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       // Path 2: HTML Audio element (desktop fallback)
       try {
         const audio = reusableAudioRef.current || new Audio();
+        reusableAudioRef.current = audio; // Cache for reuse — prevents element accumulation
         audio.setAttribute('playsinline', '');
         audio.setAttribute('autoplay', '');
         currentAudioRef.current = audio;
@@ -204,6 +206,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       audioContextRef.current?.close();
       abortRef.current?.abort();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (synthIntervalRef.current) { clearInterval(synthIntervalRef.current); synthIntervalRef.current = null; }
       cancelAnimationFrame(levelAnimRef.current);
       cancelAnimationFrame(interruptCheckRef.current);
     };
@@ -628,8 +631,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
           const utterance = new SpeechSynthesisUtterance(displayText.slice(0, 500));
           utterance.rate = 1.05;
           const synthInterval = setInterval(() => setAudioLevel(0.3 + Math.random() * 0.3), 100);
+          synthIntervalRef.current = synthInterval;
           utterance.onend = () => {
             clearInterval(synthInterval);
+            synthIntervalRef.current = null;
             setIsSpeaking(false);
             setAudioLevel(0);
             currentTranscriptRef.current = '';

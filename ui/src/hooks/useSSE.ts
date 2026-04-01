@@ -25,6 +25,16 @@ export function useSSE(): UseSSEReturn {
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    // Final flush of buffered events
+    if (eventBufferRef.current.length > 0) {
+      const batch = [...eventBufferRef.current];
+      eventBufferRef.current = [];
+      setAgentEvents((prev) => [...prev, ...batch]);
+    }
     setIsStreaming(false);
   }, []);
 

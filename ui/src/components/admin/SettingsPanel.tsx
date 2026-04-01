@@ -275,14 +275,16 @@ function SettingsPanel() {
     setOrpheusInstalling(true);
     setOrpheusProgress('Starting setup...');
 
-    const token = localStorage.getItem('titan-token');
-    const res = await apiFetch('/api/voice/orpheus/install', {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    try {
+    const res = await apiFetch('/api/voice/orpheus/install', { method: 'POST' });
+    if (!res.ok) {
+      setOrpheusProgress(`Error: ${res.statusText || 'Setup failed'} (${res.status})`);
+      setOrpheusInstalling(false);
+      return;
+    }
 
     const reader = res.body?.getReader();
-    if (!reader) return;
+    if (!reader) { setOrpheusInstalling(false); return; }
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -315,6 +317,10 @@ function SettingsPanel() {
       }
     }
     setOrpheusInstalling(false);
+    } catch (e) {
+      setOrpheusProgress(`Error: ${e instanceof Error ? e.message : 'Setup failed'}`);
+      setOrpheusInstalling(false);
+    }
   };
 
   const handleOrpheusStart = async () => {
@@ -342,9 +348,15 @@ function SettingsPanel() {
     setQwen3Installing(true);
     setQwen3Progress('Starting setup...');
 
+    try {
     const res = await apiFetch('/api/voice/qwen3tts/install', { method: 'POST' });
+    if (!res.ok) {
+      setQwen3Progress(`Error: ${res.statusText || 'Setup failed'} (${res.status})`);
+      setQwen3Installing(false);
+      return;
+    }
     const reader = res.body?.getReader();
-    if (!reader) return;
+    if (!reader) { setQwen3Installing(false); return; }
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -377,6 +389,10 @@ function SettingsPanel() {
       }
     }
     setQwen3Installing(false);
+    } catch (e) {
+      setQwen3Progress(`Error: ${e instanceof Error ? e.message : 'Setup failed'}`);
+      setQwen3Installing(false);
+    }
   };
 
   const handleQwen3Start = async () => {

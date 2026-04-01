@@ -234,18 +234,26 @@ function CommandPostPanel() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // SSE for real-time activity
+  // SSE for real-time activity (only connect if dashboard loaded successfully)
   useEffect(() => {
-    const es = new EventSource(`/api/command-post/stream`);
+    if (error || loading || !dashboard) return;
+    const token = localStorage.getItem('titan-token');
+    const url = token ? `/api/command-post/stream?token=${token}` : '/api/command-post/stream';
+    const es = new EventSource(url);
+    let retries = 0;
     es.addEventListener('commandpost:activity', (e) => {
+      retries = 0; // Reset on successful message
       try {
         const entry = JSON.parse(e.data) as CPActivityEntry;
         setLiveActivity(prev => [...prev.slice(-499), entry]);
       } catch { /* ignore */ }
     });
-    es.onerror = () => { /* reconnects automatically */ };
+    es.onerror = () => {
+      retries++;
+      if (retries > 5) es.close(); // Stop reconnecting after 5 failures
+    };
     return () => es.close();
-  }, []);
+  }, [error, loading, dashboard]);
 
   // Auto-scroll activity feed
   useEffect(() => {
