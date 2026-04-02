@@ -12,6 +12,8 @@ import {
 import { getStats } from '@/api/client';
 import type { SystemStats } from '@/api/types';
 import { StatCard } from '@/components/shared/StatCard';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { SkeletonLoader } from '@/components/shared/SkeletonLoader';
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -53,20 +55,21 @@ function OverviewPanel() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-28 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]"
-          />
-        ))}
+      <div className="space-y-6">
+        <PageHeader
+          title="System Overview"
+          breadcrumbs={[{ label: 'Admin', href: '/overview' }, { label: 'Monitoring' }, { label: 'Overview' }]}
+        />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <SkeletonLoader variant="metric" count={8} />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[#ef4444]/50 bg-[#18181b] p-6 text-center text-[#ef4444]">
+      <div className="rounded-xl border border-error/50 bg-bg-secondary p-6 text-center text-error">
         {error}
       </div>
     );
@@ -76,7 +79,11 @@ function OverviewPanel() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-[#fafafa]">System Overview</h2>
+      <PageHeader
+        title="System Overview"
+        subtitle="Real-time system health and metrics"
+        breadcrumbs={[{ label: 'Admin', href: '/overview' }, { label: 'Monitoring' }, { label: 'Overview' }]}
+      />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           title="Uptime"

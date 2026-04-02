@@ -195,8 +195,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         <FluidOrb audioLevel={0} speaker="idle" size={orbSize} />
       </div>
       <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">Welcome to TITAN</h1>
-      <p className="text-lg text-[#a1a1aa] mb-2">The Intelligent Task Automation Network</p>
-      <p className="text-sm text-[#71717a] max-w-md mb-8 leading-relaxed">
+      <p className="text-lg text-text-secondary mb-2">The Intelligent Task Automation Network</p>
+      <p className="text-sm text-text-muted max-w-md mb-8 leading-relaxed">
         Your autonomous AI agent with 110+ tools, 34 providers, 15 channels, and a very motivated attitude.
         Let's get you set up in under a minute.
       </p>
@@ -204,7 +204,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         {FEATURE_PILLS.map((f, i) => (
           <span
             key={f}
-            className="px-3 py-1.5 text-xs rounded-full border border-[#3f3f46] text-[#a1a1aa] bg-[#18181b]"
+            className="px-3 py-1.5 text-xs rounded-full border border-border text-text-secondary bg-bg-secondary"
             style={{
               opacity: pillsVisible ? 1 : 0,
               transform: pillsVisible ? 'translateY(0)' : 'translateY(8px)',
@@ -221,18 +221,18 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     cloudMode ? (
     <div key="cloud-model" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Cloud className="w-6 h-6 text-[#6366f1]" />
+        <Cloud className="w-6 h-6 text-accent" />
         <div>
           <h2 className="text-xl font-semibold text-white">Choose Your Model</h2>
-          <p className="text-sm text-[#71717a]">Included with your TITAN Cloud subscription. Switch anytime.</p>
+          <p className="text-sm text-text-muted">Included with your TITAN Cloud subscription. Switch anytime.</p>
         </div>
       </div>
       {cloudEmail && (
-        <div className="mb-4 p-3 rounded-xl border border-[#6366f1]/30 bg-[#6366f1]/5">
-          <p className="text-xs text-[#a1a1aa]">Signed in as <span className="text-white font-medium">{cloudEmail}</span></p>
+        <div className="mb-4 p-3 rounded-xl border border-accent/30 bg-accent/5">
+          <p className="text-xs text-text-secondary">Signed in as <span className="text-white font-medium">{cloudEmail}</span></p>
         </div>
       )}
-      <p className="text-xs text-[#71717a] mb-2 font-medium uppercase tracking-wide">Free Models</p>
+      <p className="text-xs text-text-muted mb-2 font-medium uppercase tracking-wide">Free Models</p>
       <div className="space-y-2 mb-4">
         {CLOUD_MODELS.free.map(m => (
           <button
@@ -240,21 +240,21 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             onClick={() => setModel(m.id)}
             className={`w-full text-left p-4 rounded-xl border transition-all ${
               model === m.id
-                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
-                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+                ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+                : 'border-border bg-bg-secondary hover:border-border-light'
             }`}
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium text-white text-sm">{m.name}</p>
-                <p className="text-xs text-[#71717a] mt-0.5">{m.desc}</p>
+                <p className="text-xs text-text-muted mt-0.5">{m.desc}</p>
               </div>
-              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[#22c55e]/20 text-[#4ade80] uppercase">free</span>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-success/20 text-[#4ade80] uppercase">free</span>
             </div>
           </button>
         ))}
       </div>
-      <p className="text-xs text-[#71717a] mb-2 font-medium uppercase tracking-wide">Premium Models <span className="text-[#52525b]">— uses credits</span></p>
+      <p className="text-xs text-text-muted mb-2 font-medium uppercase tracking-wide">Premium Models <span className="text-text-muted">— uses credits</span></p>
       <div className="space-y-2">
         {CLOUD_MODELS.paid.map(m => (
           <button
@@ -262,19 +262,19 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             onClick={() => setModel(m.id)}
             className={`w-full text-left p-4 rounded-xl border transition-all ${
               model === m.id
-                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
-                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+                ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+                : 'border-border bg-bg-secondary hover:border-border-light'
             }`}
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium text-white text-sm">{m.name}</p>
-                <p className="text-xs text-[#71717a] mt-0.5">{m.desc}</p>
+                <p className="text-xs text-text-muted mt-0.5">{m.desc}</p>
               </div>
               <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase ${
-                m.badge === 'premium' ? 'bg-[#f59e0b]/20 text-[#fbbf24]' :
-                m.badge === 'flagship' ? 'bg-[#6366f1]/20 text-[#818cf8]' :
-                'bg-[#3f3f46]/50 text-[#a1a1aa]'
+                m.badge === 'premium' ? 'bg-warning/20 text-[#fbbf24]' :
+                m.badge === 'flagship' ? 'bg-accent/20 text-accent-hover' :
+                'bg-border/50 text-text-secondary'
               }`}>{m.badge}</span>
             </div>
           </button>
@@ -284,10 +284,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     ) : (
     <div key="provider" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Key className="w-6 h-6 text-[#6366f1]" />
+        <Key className="w-6 h-6 text-accent" />
         <div>
           <h2 className="text-xl font-semibold text-white">Choose Your AI Provider</h2>
-          <p className="text-sm text-[#71717a]">Where should TITAN's brain run?</p>
+          <p className="text-sm text-text-muted">Where should TITAN's brain run?</p>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -297,32 +297,32 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             onClick={() => { setProvider(p.id); setModel(''); }}
             className={`text-left p-4 rounded-xl border transition-all ${
               provider === p.id
-                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
-                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+                ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+                : 'border-border bg-bg-secondary hover:border-border-light'
             }`}
           >
             <p className="font-medium text-white text-sm">{p.name}</p>
-            <p className="text-xs text-[#71717a] mt-1">{p.desc}</p>
+            <p className="text-xs text-text-muted mt-1">{p.desc}</p>
           </button>
         ))}
       </div>
       {needsKey && (
         <div className="space-y-2">
-          <label className="text-sm text-[#a1a1aa]">API Key</label>
+          <label className="text-sm text-text-secondary">API Key</label>
           <input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={`Paste your ${selectedProvider?.name} API key`}
-            className="w-full px-4 py-3 rounded-xl border border-[#3f3f46] bg-[#18181b] text-white placeholder-[#52525b] focus:outline-none focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1]/50 transition-colors"
+            className="w-full px-4 py-3 rounded-xl border border-border bg-bg-secondary text-white placeholder-border-light focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-colors"
           />
-          <p className="text-xs text-[#52525b]">Stored locally in ~/.titan/titan.json. Never sent anywhere except to your provider.</p>
+          <p className="text-xs text-text-muted">Stored locally in ~/.titan/titan.json. Never sent anywhere except to your provider.</p>
         </div>
       )}
       {provider === 'ollama' && (
-        <div className="mt-4 p-4 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/5">
-          <p className="text-sm text-[#22c55e] font-medium">No API key needed</p>
-          <p className="text-xs text-[#71717a] mt-1">Make sure Ollama is running on this machine or your network. TITAN will auto-detect available models.</p>
+        <div className="mt-4 p-4 rounded-xl border border-success/30 bg-success/5">
+          <p className="text-sm text-success font-medium">No API key needed</p>
+          <p className="text-xs text-text-muted mt-1">Make sure Ollama is running on this machine or your network. TITAN will auto-detect available models.</p>
         </div>
       )}
     </div>
@@ -332,10 +332,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     ...(!cloudMode ? [
     <div key="model" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Cpu className="w-6 h-6 text-[#6366f1]" />
+        <Cpu className="w-6 h-6 text-accent" />
         <div>
           <h2 className="text-xl font-semibold text-white">Pick a Model</h2>
-          <p className="text-sm text-[#71717a]">You can switch models anytime from Settings.</p>
+          <p className="text-sm text-text-muted">You can switch models anytime from Settings.</p>
         </div>
       </div>
       <div className="space-y-2">
@@ -345,8 +345,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             onClick={() => setModel(m)}
             className={`w-full text-left p-4 rounded-xl border transition-all ${
               model === m
-                ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
-                : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+                ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+                : 'border-border bg-bg-secondary hover:border-border-light'
             }`}
           >
             <p className="font-mono text-sm text-white">{m}</p>
@@ -354,13 +354,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         ))}
       </div>
       <div className="mt-4">
-        <label className="text-sm text-[#71717a]">Or enter a custom model ID:</label>
+        <label className="text-sm text-text-muted">Or enter a custom model ID:</label>
         <input
           type="text"
           value={model}
           onChange={e => setModel(e.target.value)}
           placeholder={`${provider}/model-name`}
-          className="w-full mt-2 px-4 py-3 rounded-xl border border-[#3f3f46] bg-[#18181b] text-white placeholder-[#52525b] focus:outline-none focus:border-[#6366f1] font-mono text-sm"
+          className="w-full mt-2 px-4 py-3 rounded-xl border border-border bg-bg-secondary text-white placeholder-border-light focus:outline-none focus:border-accent font-mono text-sm"
         />
       </div>
     </div>
@@ -369,25 +369,25 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     // ── Step 3: Profile ── with Persona selection from API
     <div key="profile" className="w-full max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <User className="w-6 h-6 text-[#6366f1]" />
+        <User className="w-6 h-6 text-accent" />
         <div>
           <h2 className="text-xl font-semibold text-white">Personalize Your Agent</h2>
-          <p className="text-sm text-[#71717a]">Give TITAN a name and persona.</p>
+          <p className="text-sm text-text-muted">Give TITAN a name and persona.</p>
         </div>
       </div>
       <div className="space-y-5">
         <div>
-          <label className="text-sm text-[#a1a1aa] mb-2 block">Agent Name</label>
+          <label className="text-sm text-text-secondary mb-2 block">Agent Name</label>
           <input
             type="text"
             value={agentName}
             onChange={e => setAgentName(e.target.value)}
             placeholder="TITAN"
-            className="w-full px-4 py-3 rounded-xl border border-[#3f3f46] bg-[#18181b] text-white placeholder-[#52525b] focus:outline-none focus:border-[#6366f1]"
+            className="w-full px-4 py-3 rounded-xl border border-border bg-bg-secondary text-white placeholder-border-light focus:outline-none focus:border-accent"
           />
         </div>
         <div>
-          <label className="text-sm text-[#a1a1aa] mb-3 block">Persona</label>
+          <label className="text-sm text-text-secondary mb-3 block">Persona</label>
           <div className="grid grid-cols-2 gap-3 max-h-[260px] overflow-y-auto pr-1">
             {onboardingPersonas.map(p => (
               <button
@@ -395,17 +395,17 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 onClick={() => setPersona(p.id)}
                 className={`text-left p-4 rounded-xl border transition-all ${
                   persona === p.id
-                    ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/50'
-                    : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b]'
+                    ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+                    : 'border-border bg-bg-secondary hover:border-border-light'
                 }`}
               >
                 <p className="font-medium text-white text-sm">{p.name}</p>
-                <p className="text-xs text-[#71717a] mt-1 line-clamp-2">{p.description}</p>
-                <p className="text-[10px] text-[#52525b] mt-1 capitalize">{p.division}</p>
+                <p className="text-xs text-text-muted mt-1 line-clamp-2">{p.description}</p>
+                <p className="text-[10px] text-text-muted mt-1 capitalize">{p.division}</p>
               </button>
             ))}
             {onboardingPersonas.length === 0 && (
-              <p className="col-span-2 text-sm text-[#52525b] text-center py-4">Loading personas...</p>
+              <p className="col-span-2 text-sm text-text-muted text-center py-4">Loading personas...</p>
             )}
           </div>
         </div>
@@ -429,7 +429,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       >
         MISSION CONTROL READY
       </h2>
-      <p className="text-[#a1a1aa] mb-6 max-w-md">
+      <p className="text-text-secondary mb-6 max-w-md">
         {agentName} is ready with <span className="text-white font-medium">{cloudMode ? (allCloudModels.find(m => m.id === model)?.name || model) : model}</span>{' '}
         {cloudMode ? (
           <>via <span className="text-white font-medium">TITAN Cloud</span>.</>
@@ -438,21 +438,21 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         )}
       </p>
       <div className="grid grid-cols-3 gap-4 text-center max-w-md w-full mb-8">
-        <div className="p-4 rounded-xl bg-[#18181b] border border-[#3f3f46]">
+        <div className="p-4 rounded-xl bg-bg-secondary border border-border">
           <p className="text-2xl font-bold text-white"><AnimCounter target={110} suffix="+" /></p>
-          <p className="text-xs text-[#71717a] mt-1">Tools</p>
+          <p className="text-xs text-text-muted mt-1">Tools</p>
         </div>
-        <div className="p-4 rounded-xl bg-[#18181b] border border-[#3f3f46]">
+        <div className="p-4 rounded-xl bg-bg-secondary border border-border">
           <p className="text-2xl font-bold text-white"><AnimCounter target={34} /></p>
-          <p className="text-xs text-[#71717a] mt-1">Providers</p>
+          <p className="text-xs text-text-muted mt-1">Providers</p>
         </div>
-        <div className="p-4 rounded-xl bg-[#18181b] border border-[#3f3f46]">
+        <div className="p-4 rounded-xl bg-bg-secondary border border-border">
           <p className="text-2xl font-bold text-white"><AnimCounter target={15} /></p>
-          <p className="text-xs text-[#71717a] mt-1">Channels</p>
+          <p className="text-xs text-text-muted mt-1">Channels</p>
         </div>
       </div>
       {error && (
-        <div className="mb-4 p-3 rounded-xl border border-[#ef4444]/50 bg-[#ef4444]/10 text-[#ef4444] text-sm w-full max-w-sm">
+        <div className="mb-4 p-3 rounded-xl border border-error/50 bg-error/10 text-error text-sm w-full max-w-sm">
           {error}
         </div>
       )}
@@ -469,7 +469,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const isLast = step === steps.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#09090b]">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-bg">
       {/* Subtle grid background */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
 
@@ -481,10 +481,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               <div
                 className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-medium transition-all duration-500 ${
                   i < step
-                    ? 'bg-[#6366f1] text-white'
+                    ? 'bg-accent text-white'
                     : i === step
-                      ? 'bg-[#6366f1]/20 text-[#6366f1] ring-2 ring-[#6366f1]'
-                      : 'bg-[#27272a] text-[#52525b]'
+                      ? 'bg-accent/20 text-accent ring-2 ring-accent'
+                      : 'bg-bg-tertiary text-text-muted'
                 }`}
                 style={{ transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
               >
@@ -492,7 +492,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               </div>
               {i < stepLabels.length - 1 && (
                 <div
-                  className={`w-8 h-0.5 transition-colors duration-500 ${i < step ? 'bg-[#6366f1]' : 'bg-[#27272a]'}`}
+                  className={`w-8 h-0.5 transition-colors duration-500 ${i < step ? 'bg-accent' : 'bg-bg-tertiary'}`}
                   style={{ transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
                 />
               )}
@@ -513,7 +513,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           <button
             onClick={() => setStep(s => s - 1)}
             disabled={step === 0}
-            className="flex items-center gap-2 px-5 py-2.5 text-sm text-[#a1a1aa] hover:text-white disabled:opacity-0 transition-all"
+            className="flex items-center gap-2 px-5 py-2.5 text-sm text-text-secondary hover:text-white disabled:opacity-0 transition-all"
           >
             <ChevronLeft size={16} /> Back
           </button>
@@ -522,7 +522,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             <button
               onClick={handleComplete}
               disabled={saving}
-              className="flex items-center gap-2 px-8 py-3 text-sm font-medium text-white bg-[#6366f1] hover:bg-[#5558e6] rounded-xl transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-8 py-3 text-sm font-medium text-white bg-accent hover:bg-[#5558e6] rounded-xl transition-all disabled:opacity-50"
             >
               {saving ? (
                 <>
@@ -538,7 +538,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             <button
               onClick={() => setStep(s => s + 1)}
               disabled={!canAdvance()}
-              className="flex items-center gap-2 px-8 py-3 text-sm font-medium text-white bg-[#6366f1] hover:bg-[#5558e6] rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-8 py-3 text-sm font-medium text-white bg-accent hover:bg-[#5558e6] rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Continue <ChevronRight size={16} />
             </button>

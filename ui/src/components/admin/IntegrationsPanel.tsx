@@ -51,11 +51,11 @@ function StatusBadge({ configured }: { configured: boolean }) {
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
         configured
-          ? 'bg-[#22c55e]/10 text-[#22c55e]'
-          : 'bg-[#52525b]/20 text-[#71717a]'
+          ? 'bg-success/10 text-success'
+          : 'bg-border-light/20 text-text-muted'
       }`}
     >
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${configured ? 'bg-[#22c55e]' : 'bg-[#52525b]'}`} />
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${configured ? 'bg-success' : 'bg-border-light'}`} />
       {configured ? 'Configured' : 'Not configured'}
     </span>
   );
@@ -82,26 +82,26 @@ function ProviderCard({
   const isSaving = saving === provider.id;
 
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b]">
+    <div className="rounded-xl border border-bg-tertiary bg-bg-secondary">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
       >
         <div className="flex items-center gap-3">
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-[#52525b]" />
+            <ChevronDown className="h-4 w-4 text-text-muted" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-[#52525b]" />
+            <ChevronRight className="h-4 w-4 text-text-muted" />
           )}
-          <span className="text-sm font-medium text-[#fafafa]">{provider.label}</span>
+          <span className="text-sm font-medium text-text">{provider.label}</span>
         </div>
         <StatusBadge configured={configured} />
       </button>
 
       {expanded && (
-        <div className="border-t border-[#27272a] px-4 py-4 space-y-3">
+        <div className="border-t border-bg-tertiary px-4 py-4 space-y-3">
           <div>
-            <label className="mb-1 block text-xs text-[#71717a]">
+            <label className="mb-1 block text-xs text-text-muted">
               {isKey ? 'API Key' : 'Base URL'}
             </label>
             <div className="relative">
@@ -112,13 +112,13 @@ function ProviderCard({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder={provider.placeholder}
-                className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 pr-10 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 pr-10 text-sm text-text outline-none focus:border-accent"
               />
               {isKey && (
                 <button
                   type="button"
                   onClick={() => setShowSecret(!showSecret)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa]"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                 >
                   {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -130,7 +130,7 @@ function ProviderCard({
             <button
               onClick={() => onSave(provider.fieldKey, value)}
               disabled={isSaving || !value}
-              className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#6366f1]/80 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
               {isSaving ? 'Saving...' : 'Save'}
@@ -240,7 +240,7 @@ function IntegrationsPanel() {
     return (
       <div className="space-y-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-14 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -250,12 +250,12 @@ function IntegrationsPanel() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#6366f1]/10">
-          <Plug className="h-4 w-4 text-[#818cf8]" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+          <Plug className="h-4 w-4 text-accent-hover" />
         </div>
         <div>
-          <h1 className="text-lg font-semibold text-[#fafafa]">Integrations</h1>
-          <p className="text-xs text-[#52525b]">Configure LLM providers and external service connections</p>
+          <h1 className="text-lg font-semibold text-text">Integrations</h1>
+          <p className="text-xs text-text-muted">Configure LLM providers and external service connections</p>
         </div>
       </div>
 
@@ -264,8 +264,8 @@ function IntegrationsPanel() {
         <div
           className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm ${
             toast.type === 'success'
-              ? 'border-[#22c55e]/50 text-[#22c55e]'
-              : 'border-[#ef4444]/50 text-[#ef4444]'
+              ? 'border-success/50 text-success'
+              : 'border-error/50 text-error'
           }`}
         >
           {toast.type === 'success' ? (
@@ -279,7 +279,7 @@ function IntegrationsPanel() {
 
       {/* LLM Providers */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">LLM Providers</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">LLM Providers</p>
         <div className="space-y-2">
           {llmProviders.map((provider) => {
             const status = providers[provider.id];
@@ -302,12 +302,12 @@ function IntegrationsPanel() {
 
       {/* Google OAuth */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Google Services (OAuth)</p>
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-6 space-y-4">
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Google Services (OAuth)</p>
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium text-[#fafafa]">Google OAuth 2.0</h3>
-              <p className="text-xs text-[#52525b] mt-0.5">
+              <h3 className="text-sm font-medium text-text">Google OAuth 2.0</h3>
+              <p className="text-xs text-text-muted mt-0.5">
                 {oauth.connected && oauth.email ? `Connected as ${oauth.email}` : 'Gmail, Drive, Calendar, Docs, Sheets, Tasks'}
               </p>
             </div>
@@ -316,7 +316,7 @@ function IntegrationsPanel() {
               {oauth.clientIdSet && !oauth.connected && (
                 <button
                   onClick={handleGoogleConnect}
-                  className="flex items-center gap-1.5 rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6366f1]/80 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/80 transition-colors"
                 >
                   <Plug className="h-3.5 w-3.5" />
                   Connect Google
@@ -334,7 +334,7 @@ function IntegrationsPanel() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-[#71717a]">Client ID</label>
+            <label className="mb-1 block text-xs text-text-muted">Client ID</label>
             <input
               id="integration-google-client-id"
               name="integration-google-client-id"
@@ -342,12 +342,12 @@ function IntegrationsPanel() {
               value={oauthClientId}
               onChange={(e) => setOauthClientId(e.target.value)}
               placeholder={oauth.clientIdSet ? '(configured)' : 'your-client-id.apps.googleusercontent.com'}
-              className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-[#71717a]">Client Secret</label>
+            <label className="mb-1 block text-xs text-text-muted">Client Secret</label>
             <div className="relative">
               <input
                 id="integration-google-client-secret"
@@ -356,12 +356,12 @@ function IntegrationsPanel() {
                 value={oauthSecret}
                 onChange={(e) => setOauthSecret(e.target.value)}
                 placeholder={oauth.clientSecretSet ? '(configured)' : 'GOCSPX-...'}
-                className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 pr-10 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 pr-10 text-sm text-text outline-none focus:border-accent"
               />
               <button
                 type="button"
                 onClick={() => setShowOauthSecret(!showOauthSecret)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa]"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
               >
                 {showOauthSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -372,7 +372,7 @@ function IntegrationsPanel() {
             <button
               onClick={handleOAuthSave}
               disabled={saving === 'oauth' || (!oauthClientId && !oauthSecret)}
-              className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#6366f1]/80 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
               {saving === 'oauth' ? 'Saving...' : 'Save OAuth Settings'}

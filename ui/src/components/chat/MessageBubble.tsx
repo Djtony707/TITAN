@@ -74,11 +74,11 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     return (
       <div className="flex justify-end mb-4">
         <div className="max-w-[80%]">
-          <div className="bg-[#6366f1] text-[#fafafa] px-4 py-3 rounded-2xl rounded-br-md whitespace-pre-wrap text-sm leading-relaxed">
+          <div className="bg-accent text-text px-4 py-3 rounded-2xl rounded-br-md whitespace-pre-wrap text-sm leading-relaxed">
             {message.content}
           </div>
           {message.timestamp && (
-            <p className="text-[#71717a] text-[11px] mt-1 text-right">
+            <p className="text-text-muted text-[11px] mt-1 text-right">
               {formatTimestamp(message.timestamp)}
             </p>
           )}
@@ -90,12 +90,12 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   return (
     <div className="flex justify-start mb-4">
       <div className="max-w-full w-full">
-        <div className="bg-[#27272a] text-[#fafafa] px-4 py-3 rounded-2xl rounded-bl-md text-sm leading-relaxed prose prose-invert prose-sm max-w-none [&_pre]:bg-[#18181b] [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-[#818cf8] [&_a]:text-[#818cf8]">
+        <div className="bg-bg-tertiary text-text px-4 py-3 rounded-2xl rounded-bl-md text-sm leading-relaxed prose prose-invert prose-sm max-w-none [&_pre]:bg-bg-secondary [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-accent-hover [&_a]:text-accent-hover">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
             {message.content}
           </ReactMarkdown>
           {isStreaming && (
-            <span className="inline-block w-2 h-4 bg-[#fafafa] ml-0.5 animate-pulse rounded-sm" />
+            <span className="inline-block w-2 h-4 bg-text ml-0.5 animate-pulse rounded-sm" />
           )}
         </div>
 
@@ -104,7 +104,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             {message.toolsUsed.map((tool) => (
               <span
                 key={tool}
-                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3f3f46] text-[#a1a1aa]"
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-border text-text-secondary"
               >
                 {tool}
               </span>
@@ -114,17 +114,17 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
         <div className="flex items-center gap-2 mt-1">
           {message.timestamp && (
-            <span className="text-[#71717a] text-[11px]">
+            <span className="text-text-muted text-[11px]">
               {formatTimestamp(message.timestamp)}
             </span>
           )}
           {message.model && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#3f3f46] text-[#a1a1aa]">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-secondary">
               {friendlyModel(message.model)}
             </span>
           )}
           {message.durationMs != null && message.durationMs > 0 && (
-            <span className="text-[#71717a] text-[11px]">
+            <span className="text-text-muted text-[11px]">
               {formatDuration(message.durationMs)}
             </span>
           )}

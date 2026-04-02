@@ -930,7 +930,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       {/* Close button */}
       <button
         onClick={handleClose}
-        className="absolute right-6 top-6 rounded-full p-2 transition-colors hover:bg-[#27272a] z-20"
+        className="absolute right-6 top-6 rounded-full p-2 transition-colors hover:bg-bg-tertiary z-20"
         style={{ color: '#a1a1aa' }}
       >
         <X className="h-6 w-6" />
@@ -978,7 +978,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
             <div className="relative mt-2">
               <button
                 onClick={() => setShowVoiceMenu(prev => !prev)}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors hover:bg-[#27272a]"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors hover:bg-bg-tertiary"
                 style={{ color: getVoiceInfo(selectedVoice || 'tara').glow }}
               >
                 <span
@@ -991,7 +991,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
 
               {showVoiceMenu && (
                 <div
-                  className="absolute left-1/2 -translate-x-1/2 mt-1 rounded-xl border border-[#27272a] bg-[#18181b]/95 backdrop-blur-sm p-1.5 shadow-xl z-30"
+                  className="absolute left-1/2 -translate-x-1/2 mt-1 rounded-xl border border-bg-tertiary bg-bg-secondary/95 backdrop-blur-sm p-1.5 shadow-xl z-30"
                   style={{ minWidth: 180 }}
                 >
                   {availableVoices.map(v => {
@@ -1001,7 +1001,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
                       <button
                         key={v}
                         onClick={() => switchVoice(v)}
-                        className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[#27272a]"
+                        className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-bg-tertiary"
                         style={{ color: isActive ? info.glow : '#a1a1aa' }}
                       >
                         <span

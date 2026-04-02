@@ -50,11 +50,11 @@ export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceCli
   return (
     <div className="sticky bottom-0 bg-gradient-to-t from-[#09090b] via-[#09090b] to-transparent pt-6 pb-4 px-4">
       <div className="max-w-3xl mx-auto">
-        <div className="relative flex items-end gap-2 rounded-2xl border border-[#3f3f46] bg-[#18181b] px-2 py-2 transition-all focus-within:border-[#52525b] focus-within:shadow-[0_0_0_1px_rgba(99,102,241,0.15)]">
+        <div className="relative flex items-end gap-2 rounded-2xl border border-border bg-bg-secondary px-2 py-2 transition-all focus-within:border-border-light focus-within:shadow-[0_0_0_1px_rgba(99,102,241,0.15)]">
           {/* Attach button */}
           <button
             type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[#71717a] transition-colors hover:bg-[#27272a] hover:text-[#a1a1aa]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-bg-tertiary hover:text-text-secondary"
             aria-label="Attach file"
             title="Attach file"
           >
@@ -70,7 +70,7 @@ export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceCli
             placeholder="Ask anything..."
             disabled={disabled}
             rows={1}
-            className="flex-1 resize-none bg-transparent py-1.5 text-sm leading-6 text-[#fafafa] placeholder-[#52525b] outline-none scrollbar-thin max-h-36"
+            className="flex-1 resize-none bg-transparent py-1.5 text-sm leading-6 text-text placeholder-border-light outline-none scrollbar-thin max-h-36"
           />
 
           {/* Action buttons */}
@@ -89,10 +89,10 @@ export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceCli
               disabled={!canSend && !disabled && !onStop}
               className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all ${
                 disabled
-                  ? 'bg-[#fafafa] text-[#09090b]'
+                  ? 'bg-text text-[#09090b]'
                   : canSend
-                    ? 'bg-[#fafafa] text-[#09090b] hover:bg-[#e4e4e7] scale-100 hover:scale-105'
-                    : 'bg-[#27272a] text-[#52525b] cursor-not-allowed'
+                    ? 'bg-text text-[#09090b] hover:bg-[#e4e4e7] scale-100 hover:scale-105'
+                    : 'bg-bg-tertiary text-text-muted cursor-not-allowed'
               }`}
               aria-label={disabled ? 'Stop' : 'Send'}
             >
@@ -106,7 +106,7 @@ export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceCli
         </div>
 
         {/* Footer hint */}
-        <p className="mt-2 text-center text-[10px] text-[#3f3f46]">
+        <p className="mt-2 text-center text-[10px] text-border">
           TITAN can make mistakes. Verify important information.
         </p>
       </div>

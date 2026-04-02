@@ -170,11 +170,11 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
   // Session sidebar
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-[#111113] border-r border-[#27272a]">
-      <div className="flex items-center justify-between p-3 border-b border-[#27272a]">
+    <div className="flex flex-col h-full bg-bg-secondary border-r border-bg-tertiary">
+      <div className="flex items-center justify-between p-3 border-b border-bg-tertiary">
         <button
           onClick={handleNewChat}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-[#fafafa] bg-[#27272a] hover:bg-[#3f3f46] rounded-lg transition-colors w-full"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-text bg-bg-tertiary hover:bg-border rounded-lg transition-colors w-full"
         >
           <MessageSquarePlus className="w-4 h-4" />
           New chat
@@ -183,7 +183,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         {sessions.length > 0 && (
-          <p className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-[#52525b]">Recent</p>
+          <p className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">Recent</p>
         )}
         {sessions.map((session) => (
           <div
@@ -194,8 +194,8 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
             onKeyDown={(e) => { if (e.key === 'Enter' && renamingId !== session.id) loadSession(session.id); }}
             className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors group flex items-center justify-between gap-2 cursor-pointer ${
               session.id === currentSessionId
-                ? 'bg-[#27272a] text-[#fafafa]'
-                : 'text-[#a1a1aa] hover:bg-[#1c1c1e] hover:text-[#fafafa]'
+                ? 'bg-bg-tertiary text-text'
+                : 'text-text-secondary hover:bg-bg-secondary hover:text-text'
             }`}
           >
             {renamingId === session.id ? (
@@ -208,12 +208,12 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
                     if (e.key === 'Enter') handleConfirmRename(session.id);
                     if (e.key === 'Escape') handleCancelRename();
                   }}
-                  className="flex-1 min-w-0 bg-[#18181b] text-[#fafafa] text-xs px-2 py-1 rounded border border-[#6366f1]/50 outline-none"
+                  className="flex-1 min-w-0 bg-bg-secondary text-text text-xs px-2 py-1 rounded border border-accent/50 outline-none"
                 />
                 <button onClick={() => handleConfirmRename(session.id)} className="p-1 text-green-400 hover:text-green-300 shrink-0">
                   <Check className="w-3 h-3" />
                 </button>
-                <button onClick={handleCancelRename} className="p-1 text-[#71717a] hover:text-[#fafafa] shrink-0">
+                <button onClick={handleCancelRename} className="p-1 text-text-muted hover:text-text shrink-0">
                   <X className="w-3 h-3" />
                 </button>
               </div>
@@ -225,7 +225,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-all">
                   <button
                     onClick={(e) => handleStartRename(e, session)}
-                    className="p-1 hover:text-[#6366f1] transition-colors"
+                    className="p-1 hover:text-accent transition-colors"
                     aria-label="Rename session"
                   >
                     <Pencil className="w-3 h-3" />
@@ -244,7 +244,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         ))}
 
         {sessions.length === 0 && (
-          <p className="text-[#52525b] text-xs text-center mt-8 px-2">No conversations yet</p>
+          <p className="text-text-muted text-xs text-center mt-8 px-2">No conversations yet</p>
         )}
       </div>
     </div>
@@ -255,8 +255,8 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
     <div className="flex-1 flex flex-col items-center justify-center px-4 pb-4">
       {/* Logo with ambient glow */}
       <div className="mb-8 relative">
-        <div className="absolute -inset-8 rounded-full bg-gradient-to-br from-[#6366f1]/15 via-[#8b5cf6]/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute -inset-3 rounded-full bg-[#6366f1]/5 blur-md" />
+        <div className="absolute -inset-8 rounded-full bg-gradient-to-br from-accent/15 via-purple/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
+        <div className="absolute -inset-3 rounded-full bg-accent/5 blur-md" />
         <img
           src="/titan-logo.png"
           alt="TITAN"
@@ -295,7 +295,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
   );
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#09090b]">
+    <div className="flex h-full overflow-hidden bg-bg">
       {/* Session drawer overlay */}
       {(sidebarOpen || mobileSidebarOpen) && (
         <div className="fixed inset-0 z-40">
@@ -315,7 +315,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         <div className="flex items-center gap-2 px-3 py-2 shrink-0">
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
-            className="p-2 text-[#52525b] hover:text-[#a1a1aa] rounded-lg hover:bg-[#18181b] transition-colors"
+            className="p-2 text-text-muted hover:text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors"
             aria-label="Toggle sessions"
           >
             {sidebarOpen ? (
@@ -327,7 +327,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
           <div className="flex-1" />
           <button
             onClick={() => setWatcherOpen((prev) => !prev)}
-            className="p-2 text-[#52525b] hover:text-[#a1a1aa] rounded-lg hover:bg-[#18181b] transition-colors"
+            className="p-2 text-text-muted hover:text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors"
             aria-label="Toggle agent watcher"
             title={watcherOpen ? 'Hide Agent Watcher' : 'Show Agent Watcher'}
           >
@@ -341,12 +341,12 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
         {/* Agent selector */}
         {agents.length > 1 && (
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-[#27272a] shrink-0 overflow-x-auto">
-            <span className="text-xs text-[#71717a] shrink-0">Agent:</span>
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-bg-tertiary shrink-0 overflow-x-auto">
+            <span className="text-xs text-text-muted shrink-0">Agent:</span>
             <button
               onClick={() => setSelectedAgent(null)}
               className={`px-3 py-1 rounded-full text-xs transition-colors shrink-0 ${
-                !selectedAgent ? 'bg-[#6366f1] text-white' : 'bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46]'
+                !selectedAgent ? 'bg-accent text-white' : 'bg-bg-tertiary text-text-secondary hover:bg-border'
               }`}
             >
               Default
@@ -359,8 +359,8 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
                   onClick={() => setSelectedAgent(agent.id)}
                   className={`px-3 py-1 rounded-full text-xs transition-colors shrink-0 ${
                     selectedAgent === agent.id
-                      ? 'bg-[#6366f1] text-white'
-                      : 'bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46]'
+                      ? 'bg-accent text-white'
+                      : 'bg-bg-tertiary text-text-secondary hover:bg-border'
                   }`}
                 >
                   {agent.name}
@@ -388,11 +388,11 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
                   <div key={`${msg.timestamp}-${i}`}>
                     {showSeparator && (
                       <div className="flex items-center gap-3 my-4">
-                        <div className="flex-1 h-px bg-[#27272a]" />
-                        <span className="text-[10px] font-medium text-[#52525b] uppercase tracking-wider whitespace-nowrap">
+                        <div className="flex-1 h-px bg-bg-tertiary" />
+                        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider whitespace-nowrap">
                           {separatorLabel}
                         </span>
-                        <div className="flex-1 h-px bg-[#27272a]" />
+                        <div className="flex-1 h-px bg-bg-tertiary" />
                       </div>
                     )}
                     <MessageBubble message={msg} />
@@ -421,7 +421,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
       {/* Agent Watcher panel */}
       {watcherOpen && (
-        <div className="border-l border-[#3f3f46]" style={{ width: '40%', minWidth: 280, transition: 'width 300ms ease' }}>
+        <div className="border-l border-border" style={{ width: '40%', minWidth: 280, transition: 'width 300ms ease' }}>
           <AgentWatcher events={agentEvents} onClose={() => setWatcherOpen(false)} />
         </div>
       )}

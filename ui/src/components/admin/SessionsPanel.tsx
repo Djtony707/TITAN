@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, Trash2, X } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 import { getSessions, getSessionMessages, deleteSession } from '@/api/client';
 import type { Session, ChatMessage } from '@/api/types';
 import { DataTable, type Column } from '@/components/shared/DataTable';
@@ -83,7 +84,7 @@ function SessionsPanel() {
       key: 'lastMessage',
       header: 'Last Message',
       render: (row) => (
-        <span className="block max-w-xs truncate text-[#a1a1aa]">
+        <span className="block max-w-xs truncate text-text-secondary">
           {row.lastMessage ?? '-'}
         </span>
       ),
@@ -103,7 +104,7 @@ function SessionsPanel() {
             e.stopPropagation();
             handleDelete(row.id);
           }}
-          className="rounded-md p-1.5 text-[#ef4444] transition-colors hover:bg-[#27272a]"
+          className="rounded-md p-1.5 text-error transition-colors hover:bg-bg-tertiary"
           title="Delete session"
         >
           <Trash2 className="h-4 w-4" />
@@ -114,27 +115,27 @@ function SessionsPanel() {
 
   if (loading) {
     return (
-      <div className="h-64 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+      <div className="h-64 animate-pulse rounded-xl border border-border bg-bg-secondary" />
     );
   }
 
   return (
     <div className="flex gap-4">
       <div className={`space-y-4 ${selectedSession ? 'flex-1' : 'w-full'}`}>
-        <h2 className="text-lg font-semibold text-[#fafafa]">Sessions</h2>
+        <PageHeader title="Sessions" breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Monitoring'}, {label:'Sessions'}]} />
 
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#71717a]" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search sessions..."
-            className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] py-2 pl-10 pr-3 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+            className="w-full rounded-lg border border-border bg-bg py-2 pl-10 pr-3 text-sm text-text outline-none focus:border-accent"
           />
         </div>
 
         {error && (
-          <div className="rounded-lg border border-[#ef4444]/50 bg-[#18181b] px-4 py-2 text-sm text-[#ef4444]">
+          <div className="rounded-lg border border-error/50 bg-bg-secondary px-4 py-2 text-sm text-error">
             {error}
           </div>
         )}
@@ -148,15 +149,15 @@ function SessionsPanel() {
       </div>
 
       {selectedSession && (
-        <div className="w-96 shrink-0 rounded-xl border border-[#3f3f46] bg-[#18181b]">
-          <div className="flex items-center justify-between border-b border-[#3f3f46] px-4 py-3">
-            <h3 className="text-sm font-medium text-[#fafafa]">Messages</h3>
+        <div className="w-96 shrink-0 rounded-xl border border-border bg-bg-secondary">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h3 className="text-sm font-medium text-text">Messages</h3>
             <button
               onClick={() => {
                 setSelectedSession(null);
                 setMessages([]);
               }}
-              className="rounded-md p-1 text-[#71717a] hover:text-[#fafafa]"
+              className="rounded-md p-1 text-text-muted hover:text-text"
             >
               <X className="h-4 w-4" />
             </button>
@@ -165,11 +166,11 @@ function SessionsPanel() {
             {messagesLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-12 animate-pulse rounded-lg bg-[#27272a]" />
+                  <div key={i} className="h-12 animate-pulse rounded-lg bg-bg-tertiary" />
                 ))}
               </div>
             ) : messages.length === 0 ? (
-              <p className="text-center text-sm text-[#71717a]">No messages</p>
+              <p className="text-center text-sm text-text-muted">No messages</p>
             ) : (
               <div className="space-y-3">
                 {messages.map((msg, i) => (
@@ -177,13 +178,13 @@ function SessionsPanel() {
                     key={i}
                     className={`rounded-lg p-3 text-sm ${
                       msg.role === 'user'
-                        ? 'bg-[#6366f1]/10 text-[#fafafa]'
+                        ? 'bg-accent/10 text-text'
                         : msg.role === 'assistant'
-                          ? 'bg-[#27272a] text-[#fafafa]'
-                          : 'bg-[#09090b] text-[#a1a1aa]'
+                          ? 'bg-bg-tertiary text-text'
+                          : 'bg-bg text-text-secondary'
                     }`}
                   >
-                    <span className="mb-1 block text-xs font-medium uppercase text-[#71717a]">
+                    <span className="mb-1 block text-xs font-medium uppercase text-text-muted">
                       {msg.role}
                     </span>
                     <p className="whitespace-pre-wrap">{msg.content}</p>

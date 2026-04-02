@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Timer,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -747,19 +748,20 @@ function WorkflowsPanel() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <GitBranch className="w-6 h-6" style={{ color: '#6366f1' }} />
-        <h1 className="text-xl font-bold" style={{ color: '#fafafa' }}>Workflows</h1>
-        <button
-          onClick={() => { setLoading(true); fetchAll(); }}
-          className="ml-auto p-2 rounded-lg transition-colors hover:opacity-80"
-          style={{ backgroundColor: '#27272a' }}
-          title="Refresh"
-        >
-          <RefreshCw className="w-4 h-4" style={{ color: '#a1a1aa' }} />
-        </button>
-      </div>
+      <PageHeader
+        title="Workflows"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Agent'}, {label:'Workflows'}]}
+        actions={
+          <button
+            onClick={() => { setLoading(true); fetchAll(); }}
+            className="p-2 rounded-lg transition-colors hover:opacity-80"
+            style={{ backgroundColor: '#27272a' }}
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" style={{ color: '#a1a1aa' }} />
+          </button>
+        }
+      />
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

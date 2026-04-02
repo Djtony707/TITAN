@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Plus, Square } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 import { getAgents, spawnAgent, stopAgent } from '@/api/client';
 import type { AgentInfo } from '@/api/types';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 
 const statusDot: Record<string, string> = {
-  running: 'bg-[#22c55e]',
-  error: 'bg-[#ef4444]',
-  stopped: 'bg-[#71717a]',
+  running: 'bg-success',
+  error: 'bg-error',
+  stopped: 'bg-text-muted',
 };
 
 function AgentsPanel() {
@@ -67,7 +68,7 @@ function AgentsPanel() {
       header: 'Status',
       render: (row) => (
         <span className="flex items-center gap-2">
-          <span className={`inline-block h-2 w-2 rounded-full ${statusDot[row.status] ?? 'bg-[#71717a]'}`} />
+          <span className={`inline-block h-2 w-2 rounded-full ${statusDot[row.status] ?? 'bg-text-muted'}`} />
           <span className="capitalize">{row.status}</span>
         </span>
       ),
@@ -90,7 +91,7 @@ function AgentsPanel() {
               e.stopPropagation();
               handleStop(row.id);
             }}
-            className="rounded-md p-1.5 text-[#ef4444] transition-colors hover:bg-[#27272a]"
+            className="rounded-md p-1.5 text-error transition-colors hover:bg-bg-tertiary"
             title="Stop agent"
           >
             <Square className="h-4 w-4" />
@@ -101,47 +102,50 @@ function AgentsPanel() {
 
   if (loading) {
     return (
-      <div className="h-64 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+      <div className="h-64 animate-pulse rounded-xl border border-border bg-bg-secondary" />
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#fafafa]">Agents</h2>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#6366f1]/80"
-        >
-          <Plus className="h-4 w-4" />
-          Spawn Agent
-        </button>
-      </div>
+      <PageHeader
+        title="Agents"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Monitoring'}, {label:'Agents'}]}
+        actions={
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+          >
+            <Plus className="h-4 w-4" />
+            Spawn Agent
+          </button>
+        }
+      />
 
       {showForm && (
-        <div className="flex items-end gap-3 rounded-xl border border-[#3f3f46] bg-[#18181b] p-4">
+        <div className="flex items-end gap-3 rounded-xl border border-border bg-bg-secondary p-4">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-[#a1a1aa]">Name</label>
+            <label className="mb-1 block text-xs text-text-secondary">Name</label>
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Agent name"
-              className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
             />
           </div>
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-[#a1a1aa]">Model (optional)</label>
+            <label className="mb-1 block text-xs text-text-secondary">Model (optional)</label>
             <input
               value={newModel}
               onChange={(e) => setNewModel(e.target.value)}
               placeholder="e.g. gpt-4o"
-              className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
             />
           </div>
           <button
             onClick={handleSpawn}
             disabled={spawning || !newName.trim()}
-            className="rounded-lg bg-[#22c55e] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#22c55e]/80 disabled:opacity-50"
+            className="rounded-lg bg-success px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-success/80 disabled:opacity-50"
           >
             {spawning ? 'Spawning...' : 'Create'}
           </button>
@@ -149,7 +153,7 @@ function AgentsPanel() {
       )}
 
       {error && (
-        <div className="rounded-lg border border-[#ef4444]/50 bg-[#18181b] px-4 py-2 text-sm text-[#ef4444]">
+        <div className="rounded-lg border border-error/50 bg-bg-secondary px-4 py-2 text-sm text-error">
           {error}
         </div>
       )}

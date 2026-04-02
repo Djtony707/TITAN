@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getChannels, getChannelConfigs, updateChannelConfig } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 import type { ChannelInfo, ChannelConfig } from '@/api/types';
 
 interface ChannelDef {
@@ -89,34 +90,34 @@ function ChannelCard({
   const apiKeyField = def.fields.find((f) => f.key === 'apiKey');
 
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b]">
+    <div className="rounded-xl border border-bg-tertiary bg-bg-secondary">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
       >
         <div className="flex items-center gap-3">
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-[#52525b]" />
+            <ChevronDown className="h-4 w-4 text-text-muted" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-[#52525b]" />
+            <ChevronRight className="h-4 w-4 text-text-muted" />
           )}
           <div>
-            <span className="text-sm font-medium text-[#fafafa]">{def.label}</span>
-            <span className="ml-2 text-xs text-[#52525b]">{def.description}</span>
+            <span className="text-sm font-medium text-text">{def.label}</span>
+            <span className="ml-2 text-xs text-text-muted">{def.description}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {isConnected && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#22c55e]/10 px-2.5 py-0.5 text-xs font-medium text-[#22c55e]">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#22c55e]" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
               Connected
             </span>
           )}
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
               config.enabled
-                ? 'bg-[#6366f1]/10 text-[#818cf8]'
-                : 'bg-[#52525b]/20 text-[#71717a]'
+                ? 'bg-accent/10 text-accent-hover'
+                : 'bg-border-light/20 text-text-muted'
             }`}
           >
             {config.enabled ? 'Enabled' : 'Disabled'}
@@ -125,14 +126,14 @@ function ChannelCard({
       </button>
 
       {expanded && (
-        <div className="border-t border-[#27272a] px-4 py-4 space-y-4">
+        <div className="border-t border-bg-tertiary px-4 py-4 space-y-4">
           {/* Enable toggle */}
           <div className="flex items-center justify-between">
-            <label className="text-sm text-[#a1a1aa]">Enabled</label>
+            <label className="text-sm text-text-secondary">Enabled</label>
             <button
               onClick={handleToggle}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                localEnabled ? 'bg-[#6366f1]' : 'bg-[#3f3f46]'
+                localEnabled ? 'bg-accent' : 'bg-border'
               }`}
             >
               <span
@@ -146,10 +147,10 @@ function ChannelCard({
           {/* Token field */}
           {tokenField && (
             <div>
-              <label className="mb-1 flex items-center gap-2 text-xs text-[#71717a]">
+              <label className="mb-1 flex items-center gap-2 text-xs text-text-muted">
                 {tokenField.label}
                 {hasToken && (
-                  <span className="rounded bg-[#22c55e]/10 px-1.5 py-0.5 text-[10px] text-[#22c55e]">set</span>
+                  <span className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success">set</span>
                 )}
               </label>
               <div className="relative">
@@ -160,12 +161,12 @@ function ChannelCard({
                   value={localToken}
                   onChange={(e) => { setLocalToken(e.target.value); setDirty(true); }}
                   placeholder={hasToken ? '(configured — enter new value to change)' : tokenField.placeholder}
-                  className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 pr-10 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 pr-10 text-sm text-text outline-none focus:border-accent"
                 />
                 <button
                   type="button"
                   onClick={() => setShowToken(!showToken)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa]"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                 >
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -176,10 +177,10 @@ function ChannelCard({
           {/* API Key field */}
           {apiKeyField && (
             <div>
-              <label className="mb-1 flex items-center gap-2 text-xs text-[#71717a]">
+              <label className="mb-1 flex items-center gap-2 text-xs text-text-muted">
                 {apiKeyField.label}
                 {hasApiKey && (
-                  <span className="rounded bg-[#22c55e]/10 px-1.5 py-0.5 text-[10px] text-[#22c55e]">set</span>
+                  <span className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success">set</span>
                 )}
               </label>
               <div className="relative">
@@ -190,12 +191,12 @@ function ChannelCard({
                   value={localApiKey}
                   onChange={(e) => { setLocalApiKey(e.target.value); setDirty(true); }}
                   placeholder={hasApiKey ? '(configured — enter new value to change)' : apiKeyField.placeholder}
-                  className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 pr-10 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 pr-10 text-sm text-text outline-none focus:border-accent"
                 />
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa]"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -205,7 +206,7 @@ function ChannelCard({
 
           {/* DM Policy */}
           <div>
-            <label className="mb-1 block text-xs text-[#71717a]">DM Policy</label>
+            <label className="mb-1 block text-xs text-text-muted">DM Policy</label>
             <div className="flex gap-2">
               {DM_POLICIES.map((p) => (
                 <button
@@ -213,8 +214,8 @@ function ChannelCard({
                   onClick={() => { setLocalDmPolicy(p.value); setDirty(true); }}
                   className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
                     localDmPolicy === p.value
-                      ? 'border-[#6366f1] bg-[#6366f1]/10 text-[#818cf8]'
-                      : 'border-[#3f3f46] text-[#71717a] hover:border-[#52525b]'
+                      ? 'border-accent bg-accent/10 text-accent-hover'
+                      : 'border-border text-text-muted hover:border-border-light'
                   }`}
                   title={p.desc}
                 >
@@ -229,7 +230,7 @@ function ChannelCard({
             <button
               onClick={handleSave}
               disabled={isSaving || !dirty}
-              className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#6366f1]/80 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
               {isSaving ? 'Saving...' : 'Save'}
@@ -288,7 +289,7 @@ function ChannelsPanel() {
     return (
       <div className="space-y-2">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-14 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-14 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -296,7 +297,7 @@ function ChannelsPanel() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[#ef4444]/50 bg-[#18181b] p-6 text-center text-[#ef4444]">
+      <div className="rounded-xl border border-error/50 bg-bg-secondary p-6 text-center text-error">
         {error}
       </div>
     );
@@ -306,35 +307,28 @@ function ChannelsPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#6366f1]/10">
-            <Radio className="h-4 w-4 text-[#818cf8]" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-[#fafafa]">Channels</h1>
-            <p className="text-xs text-[#52525b]">
-              Configure messaging channels — {channels.filter((c) => c.status === 'connected').length} connected
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => { setLoading(true); load(); }}
-          className="flex items-center gap-1.5 rounded-lg border border-[#3f3f46] px-3 py-1.5 text-xs text-[#a1a1aa] hover:border-[#52525b] hover:text-[#fafafa]"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Channels"
+        subtitle={`Configure messaging channels — ${channels.filter((c) => c.status === 'connected').length} connected`}
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'Channels'}]}
+        actions={
+          <button
+            onClick={() => { setLoading(true); load(); }}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:border-border-light hover:text-text"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Toast */}
       {toast && (
         <div
           className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm ${
             toast.type === 'success'
-              ? 'border-[#22c55e]/50 text-[#22c55e]'
-              : 'border-[#ef4444]/50 text-[#ef4444]'
+              ? 'border-success/50 text-success'
+              : 'border-error/50 text-error'
           }`}
         >
           {toast.type === 'success' ? (
@@ -348,14 +342,14 @@ function ChannelsPanel() {
 
       {/* Webchat (always on) */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Built-in</p>
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] px-4 py-3 flex items-center justify-between">
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Built-in</p>
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-[#fafafa]">WebChat</span>
-            <span className="text-xs text-[#52525b]">HTTP/WebSocket — always enabled</span>
+            <span className="text-sm font-medium text-text">WebChat</span>
+            <span className="text-xs text-text-muted">HTTP/WebSocket — always enabled</span>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#22c55e]/10 px-2.5 py-0.5 text-xs font-medium text-[#22c55e]">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#22c55e]" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
             Connected
           </span>
         </div>
@@ -363,7 +357,7 @@ function ChannelsPanel() {
 
       {/* Configurable channels */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Messaging Channels</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Messaging Channels</p>
         <div className="space-y-2">
           {CHANNEL_DEFS.map((def) => {
             const cfg = configs[def.id] ?? defaultConfig;
@@ -383,7 +377,7 @@ function ChannelsPanel() {
       </div>
 
       {/* Info note */}
-      <p className="text-xs text-[#52525b] text-center">
+      <p className="text-xs text-text-muted text-center">
         Channel changes are saved to config. Restart the gateway to connect/disconnect channels.
       </p>
     </div>

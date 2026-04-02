@@ -26,7 +26,7 @@ export function LoginPage() {
   );
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen bg-[var(--color-bg)] overflow-hidden">
+    <div className="relative flex items-center justify-center min-h-screen bg-bg overflow-hidden">
       {/* Subtle animated background glow */}
       <div
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-[0.07] blur-[120px] pointer-events-none"
@@ -55,10 +55,10 @@ export function LoginPage() {
             </svg>
           </div>
 
-          <h1 className="text-3xl font-bold text-[var(--color-text)] tracking-tight">
+          <h1 className="text-3xl font-bold text-text tracking-tight">
             TITAN
           </h1>
-          <p className="text-base text-[var(--color-text-muted)] mt-2 tracking-wide">
+          <p className="text-base text-text-muted mt-2 tracking-wide">
             Mission Control
           </p>
         </div>
@@ -74,7 +74,7 @@ export function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2"
+                className="block text-sm font-medium text-text-secondary mb-2"
               >
                 Gateway Password
               </label>
@@ -89,7 +89,7 @@ export function LoginPage() {
                   if (error) setError('');
                 }}
                 placeholder="Enter your password"
-                className="w-full px-4 py-3 rounded-xl text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none transition-all text-sm"
+                className="w-full px-4 py-3 rounded-xl text-text placeholder:text-text-muted focus:outline-none transition-all text-sm"
                 style={{
                   background: 'rgba(9,9,11,0.8)',
                   border: error
@@ -110,7 +110,7 @@ export function LoginPage() {
 
             {/* Error message */}
             {error && (
-              <div className="flex items-center gap-2 text-sm text-[var(--color-error)]">
+              <div className="flex items-center gap-2 text-sm text-error">
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
@@ -162,7 +162,7 @@ export function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-[var(--color-text-muted)] mt-8 opacity-60">
+        <p className="text-center text-xs text-text-muted mt-8 opacity-60">
           TITAN Agent Framework
         </p>
       </div>

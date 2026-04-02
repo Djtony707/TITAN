@@ -4,11 +4,11 @@ import { getLogs } from '@/api/client';
 import type { LogEntry } from '@/api/types';
 
 const levelColors: Record<string, string> = {
-  debug: 'bg-[#71717a]/20 text-[#a1a1aa]',
-  info: 'bg-[#3b82f6]/20 text-[#3b82f6]',
-  warn: 'bg-[#f59e0b]/20 text-[#f59e0b]',
-  warning: 'bg-[#f59e0b]/20 text-[#f59e0b]',
-  error: 'bg-[#ef4444]/20 text-[#ef4444]',
+  debug: 'bg-text-muted/20 text-text-secondary',
+  info: 'bg-info/20 text-info',
+  warn: 'bg-warning/20 text-warning',
+  warning: 'bg-warning/20 text-warning',
+  error: 'bg-error/20 text-error',
 };
 
 function LogsPanel() {
@@ -50,20 +50,20 @@ function LogsPanel() {
 
   if (loading) {
     return (
-      <div className="h-96 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+      <div className="h-96 animate-pulse rounded-xl border border-border bg-bg-secondary" />
     );
   }
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-[#fafafa]">Logs</h2>
+      <h2 className="text-lg font-semibold text-text">Logs</h2>
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={level}
           onChange={(e) => setLevel(e.target.value)}
-          className="rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+          className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
         >
           <option value="">All levels</option>
           <option value="debug">Debug</option>
@@ -75,26 +75,26 @@ function LogsPanel() {
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
-          className="rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none focus:border-[#6366f1]"
+          className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
         >
           <option value={50}>50 entries</option>
           <option value={100}>100 entries</option>
           <option value={200}>200 entries</option>
         </select>
 
-        <label className="flex items-center gap-2 text-sm text-[#a1a1aa]">
+        <label className="flex items-center gap-2 text-sm text-text-secondary">
           <input
             type="checkbox"
             checked={autoRefresh}
             onChange={(e) => setAutoRefresh(e.target.checked)}
-            className="h-4 w-4 rounded border-[#3f3f46] accent-[#6366f1]"
+            className="h-4 w-4 rounded border-border accent-accent"
           />
           Auto-refresh (5s)
         </label>
 
         <button
           onClick={fetchLogs}
-          className="ml-auto rounded-lg p-2 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#fafafa]"
+          className="ml-auto rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text"
           title="Refresh"
         >
           <RefreshCw className="h-4 w-4" />
@@ -102,20 +102,20 @@ function LogsPanel() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-[#ef4444]/50 bg-[#18181b] px-4 py-2 text-sm text-[#ef4444]">
+        <div className="rounded-lg border border-error/50 bg-bg-secondary px-4 py-2 text-sm text-error">
           {error}
         </div>
       )}
 
       {/* Log entries */}
-      <div className="max-h-[600px] overflow-y-auto rounded-xl border border-[#3f3f46] bg-[#18181b]">
+      <div className="max-h-[600px] overflow-y-auto rounded-xl border border-border bg-bg-secondary">
         {logs.length === 0 ? (
-          <p className="px-4 py-12 text-center text-[#71717a]">No logs found</p>
+          <p className="px-4 py-12 text-center text-text-muted">No logs found</p>
         ) : (
-          <div className="divide-y divide-[#3f3f46]">
+          <div className="divide-y divide-border">
             {logs.map((entry, i) => (
               <div key={i} className="flex items-start gap-3 px-4 py-2.5">
-                <span className="shrink-0 font-mono text-xs text-[#71717a]">
+                <span className="shrink-0 font-mono text-xs text-text-muted">
                   {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>
                 <span
@@ -125,7 +125,7 @@ function LogsPanel() {
                 >
                   {entry.level}
                 </span>
-                <span className="min-w-0 break-all text-sm text-[#fafafa]">
+                <span className="min-w-0 break-all text-sm text-text">
                   {entry.message}
                 </span>
               </div>

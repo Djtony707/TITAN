@@ -10,9 +10,8 @@ import {
   Wrench,
   BarChart3,
   Network,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
+  ChevronLeft,
   Brain,
   Zap,
   Shield,
@@ -32,14 +31,23 @@ import {
   Cpu,
   FolderOpen,
   LogOut,
+  Plus,
+  Mic,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { apiFetch } from '@/api/client';
+import { SearchInput } from '@/components/shared/SearchInput';
+
+// ── Types ───────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  /** 'chat' = slim sidebar for chat, 'admin' = full sidebar for admin panels */
+  mode: 'chat' | 'admin';
+  onModeChange: (mode: 'chat' | 'admin') => void;
+  onVoiceOpen?: () => void;
 }
 
 interface NavItem {
@@ -54,9 +62,11 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const navGroups: NavGroup[] = [
+// ── Navigation Data ─────────────────────────────────────────────────────
+
+export const navGroups: NavGroup[] = [
   {
-    label: 'Dashboard',
+    label: 'Monitoring',
     icon: Activity,
     items: [
       { label: 'Overview', icon: BarChart3, path: '/overview' },
@@ -112,6 +122,8 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+// ── Version / Update Logic ──────────────────────────────────────────────
+
 interface VersionInfo {
   current: string;
   latest: string | null;
@@ -120,25 +132,20 @@ interface VersionInfo {
 
 type UpdateStatus = 'idle' | 'updating' | 'restarting' | 'success' | 'error';
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+// ── Component ───────────────────────────────────────────────────────────
+
+export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }: SidebarProps) {
   const location = useLocation();
   const { logout } = useAuth();
   const hasToken = Boolean(localStorage.getItem('titan-token'));
-  const [versionInfo, setVersionInfo] = useState<VersionInfo>({
-    current: '',
-    latest: null,
-    updateAvailable: false,
-  });
+  const [versionInfo, setVersionInfo] = useState<VersionInfo>({ current: '', latest: null, updateAvailable: false });
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
   const [updateError, setUpdateError] = useState('');
+  const [search, setSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
-    // Auto-expand the group containing the current path
     const initial = new Set<string>();
     for (const group of navGroups) {
-      if (group.items.some(item => {
-        if (item.path === '/') return location.pathname === '/';
-        return location.pathname.startsWith(item.path);
-      })) {
+      if (group.items.some(item => location.pathname.startsWith(item.path))) {
         initial.add(group.label);
       }
     }
@@ -154,13 +161,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     });
   };
 
-  // Auto-expand when navigating to a new group
+  // Auto-expand group on navigate
   useEffect(() => {
     for (const group of navGroups) {
-      if (group.items.some(item => {
-        if (item.path === '/') return location.pathname === '/';
-        return location.pathname.startsWith(item.path);
-      })) {
+      if (group.items.some(item => location.pathname.startsWith(item.path))) {
         setExpandedGroups(prev => {
           if (prev.has(group.label)) return prev;
           return new Set(prev).add(group.label);
@@ -169,45 +173,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   }, [location.pathname]);
 
-  const triggerUpdate = useCallback(async () => {
-    if (updateStatus === 'updating' || updateStatus === 'restarting') return;
-    setUpdateStatus('updating');
-    setUpdateError('');
-    try {
-      const res = await apiFetch('/api/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restart: true }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        setUpdateStatus('error');
-        setUpdateError(data.error || 'Update failed');
-        return;
-      }
-      if (data.restarting) {
-        setUpdateStatus('restarting');
-        const poll = setInterval(async () => {
-          try {
-            const h = await apiFetch('/api/health');
-            if (h.ok) {
-              clearInterval(poll);
-              setUpdateStatus('success');
-              setTimeout(() => window.location.reload(), 1000);
-            }
-          } catch { /* server still restarting */ }
-        }, 2000);
-        setTimeout(() => clearInterval(poll), 60_000);
-      } else {
-        setUpdateStatus('success');
-        setTimeout(() => window.location.reload(), 2000);
-      }
-    } catch {
-      setUpdateStatus('error');
-      setUpdateError('Network error');
+  // Auto-switch to admin mode when navigating to an admin panel
+  useEffect(() => {
+    const isAdminRoute = navGroups.some(g => g.items.some(item => location.pathname.startsWith(item.path)));
+    if (isAdminRoute && mode === 'chat') {
+      onModeChange('admin');
     }
-  }, [updateStatus]);
+    if (location.pathname === '/' && mode === 'admin') {
+      onModeChange('chat');
+    }
+  }, [location.pathname, mode, onModeChange]);
 
+  // Version check
   useEffect(() => {
     (async () => {
       try {
@@ -219,56 +196,142 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           const npmRes = await fetch('https://registry.npmjs.org/titan-agent/latest');
           const pkg = await npmRes.json();
           const latest = pkg.version || null;
-          if (latest && current && latest !== current) {
-            setVersionInfo({ current, latest, updateAvailable: true });
-          } else {
-            setVersionInfo({ current, latest, updateAvailable: false });
-          }
-        } catch { /* npm check is non-critical */ }
-      } catch { /* health check failed */ }
+          setVersionInfo({ current, latest, updateAvailable: !!(latest && current && latest !== current) });
+        } catch { /* npm check non-critical */ }
+      } catch { /* health failed */ }
     })();
   }, []);
+
+  const triggerUpdate = useCallback(async () => {
+    if (updateStatus === 'updating' || updateStatus === 'restarting') return;
+    setUpdateStatus('updating');
+    setUpdateError('');
+    try {
+      const res = await apiFetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restart: true }) });
+      const data = await res.json();
+      if (!data.ok) { setUpdateStatus('error'); setUpdateError(data.error || 'Update failed'); return; }
+      if (data.restarting) {
+        setUpdateStatus('restarting');
+        const poll = setInterval(async () => { try { const h = await apiFetch('/api/health'); if (h.ok) { clearInterval(poll); setUpdateStatus('success'); setTimeout(() => window.location.reload(), 1000); } } catch { /* still restarting */ } }, 2000);
+        setTimeout(() => clearInterval(poll), 60_000);
+      } else { setUpdateStatus('success'); setTimeout(() => window.location.reload(), 2000); }
+    } catch { setUpdateStatus('error'); setUpdateError('Network error'); }
+  }, [updateStatus]);
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 
-  return (
-    <div className="flex flex-col h-full bg-[var(--bg-secondary)] border-r border-[var(--border)]">
-      {/* Logo header */}
-      <Link to="/" className="flex items-center gap-3 px-4 h-14 flex-shrink-0 hover:opacity-90 transition-opacity">
-        <div className="relative w-9 h-9 flex-shrink-0">
-          <img src="/titan-logo.png" alt="TITAN" className="w-9 h-9 rounded-lg" />
-          <div className="absolute inset-0 rounded-lg ring-1 ring-white/10" />
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col">
-            <span className="text-[var(--text)] font-bold text-base tracking-wider leading-tight">TITAN</span>
-            <span className="text-[var(--text-muted)] text-[10px] leading-tight">Mission Control</span>
-          </div>
-        )}
-      </Link>
+  // Filter groups by search
+  const filteredGroups = search.trim()
+    ? navGroups.map(g => ({
+        ...g,
+        items: g.items.filter(i => i.label.toLowerCase().includes(search.toLowerCase())),
+      })).filter(g => g.items.length > 0)
+    : navGroups;
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        {/* Chat — always top-level */}
-        <Link
-          to="/"
-          title={collapsed ? 'Chat' : undefined}
-          className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-            isActive('/')
-              ? 'bg-[var(--accent)] text-white'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
-          } ${collapsed ? 'justify-center' : ''}`}
-        >
-          <MessageSquare size={18} className="flex-shrink-0" />
-          {!collapsed && <span>Chat</span>}
+  // ════════════════════════════════════════════════════════════════════
+  // CHAT MODE — Slim sidebar for everyday use
+  // ════════════════════════════════════════════════════════════════════
+  if (mode === 'chat') {
+    return (
+      <div className="flex flex-col h-full w-[60px] bg-bg-secondary border-r border-border">
+        {/* Logo */}
+        <Link to="/" className="flex items-center justify-center h-14 flex-shrink-0 hover:opacity-90 transition-opacity">
+          <div className="relative w-8 h-8">
+            <img src="/titan-logo.png" alt="TITAN" className="w-8 h-8 rounded-lg" />
+            <div className="absolute inset-0 rounded-lg ring-1 ring-white/10" />
+          </div>
         </Link>
 
-        {/* Grouped navigation */}
-        {navGroups.map((group) => {
-          const isExpanded = expandedGroups.has(group.label);
+        {/* Quick actions */}
+        <nav className="flex-1 flex flex-col items-center gap-1 px-2 py-2">
+          {/* New Chat */}
+          <Link
+            to="/"
+            title="New Chat"
+            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${
+              isActive('/') ? 'bg-accent text-white glow-accent' : 'text-text-secondary hover:text-text hover:bg-bg-tertiary'
+            }`}
+          >
+            <Plus size={20} />
+          </Link>
+
+          <div className="w-6 border-t border-border my-1" />
+
+          {/* Shortcuts */}
+          <Link to="/agents" title="Agents" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+            <Users size={18} />
+          </Link>
+          <Link to="/skills" title="Skills" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+            <Wrench size={18} />
+          </Link>
+          {onVoiceOpen && (
+            <button onClick={onVoiceOpen} title="Voice" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+              <Mic size={18} />
+            </button>
+          )}
+        </nav>
+
+        {/* Bottom: Admin + Logout */}
+        <div className="flex flex-col items-center gap-1 px-2 pb-3">
+          {hasToken && (
+            <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+              <LogOut size={16} />
+            </button>
+          )}
+          <button
+            onClick={() => onModeChange('admin')}
+            title="Admin Panel"
+            className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-accent hover:bg-accent/10 transition-all"
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // ADMIN MODE — Full sidebar for power users
+  // ════════════════════════════════════════════════════════════════════
+  return (
+    <div className="flex flex-col h-full bg-bg-secondary border-r border-border">
+      {/* Back to Chat header */}
+      <div className="flex items-center gap-3 px-3 h-14 flex-shrink-0 border-b border-border">
+        <Link
+          to="/"
+          onClick={() => onModeChange('chat')}
+          className="flex items-center gap-2 text-sm text-text-secondary hover:text-text transition-colors"
+        >
+          <ChevronLeft size={16} />
+          <span className="font-medium">Back to Chat</span>
+        </Link>
+        {!collapsed && (
+          <div className="ml-auto flex items-center gap-1">
+            <kbd className="text-[10px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded border border-border">
+              {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+K
+            </kbd>
+          </div>
+        )}
+      </div>
+
+      {/* Search */}
+      {!collapsed && (
+        <div className="px-3 py-2">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search panels..."
+          />
+        </div>
+      )}
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
+        {filteredGroups.map((group) => {
+          const isExpanded = expandedGroups.has(group.label) || search.trim().length > 0;
           const hasActiveChild = group.items.some(item => isActive(item.path));
           const GroupIcon = group.icon;
 
@@ -276,16 +339,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <div key={group.label} className="mt-1">
               {/* Group header */}
               <button
-                onClick={() => collapsed ? undefined : toggleGroup(group.label)}
+                onClick={() => !collapsed && toggleGroup(group.label)}
                 title={collapsed ? group.label : undefined}
-                className={`flex items-center w-full px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
+                className={`flex items-center w-full px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${
                   hasActiveChild && collapsed
-                    ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+                    ? 'text-accent bg-accent/10'
+                    : 'text-text-muted hover:text-text-secondary hover:bg-bg-tertiary'
                 } ${collapsed ? 'justify-center' : 'gap-2'}`}
               >
                 {collapsed ? (
-                  <GroupIcon size={18} className={hasActiveChild ? 'text-[var(--accent)]' : ''} />
+                  <GroupIcon size={18} className={hasActiveChild ? 'text-accent' : ''} />
                 ) : (
                   <>
                     <GroupIcon size={14} className="flex-shrink-0" />
@@ -298,19 +361,19 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 )}
               </button>
 
-              {/* Group items */}
+              {/* Group items — expanded */}
               {!collapsed && isExpanded && (
-                <div className="ml-2 mt-0.5 space-y-0.5 border-l border-[var(--border)] pl-2">
+                <div className="ml-2 mt-0.5 space-y-0.5 border-l border-border pl-2">
                   {group.items.map(({ label, icon: Icon, path }) => {
                     const active = isActive(path);
                     return (
                       <Link
                         key={path}
                         to={path}
-                        className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                        className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-all ${
                           active
-                            ? 'bg-[var(--accent)] text-white'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
+                            ? 'bg-accent/15 text-accent font-medium'
+                            : 'text-text-secondary hover:text-text hover:bg-bg-tertiary'
                         }`}
                       >
                         <Icon size={16} className="flex-shrink-0" />
@@ -321,7 +384,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </div>
               )}
 
-              {/* Collapsed mode — show items as tooltipped icons on click */}
+              {/* Collapsed icons */}
               {collapsed && (
                 <div className="space-y-0.5">
                   {group.items.map(({ label, icon: Icon, path }) => {
@@ -331,10 +394,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         key={path}
                         to={path}
                         title={label}
-                        className={`flex items-center justify-center px-3 py-1.5 rounded-md transition-colors ${
+                        className={`flex items-center justify-center px-3 py-1.5 rounded-lg transition-all ${
                           active
-                            ? 'bg-[var(--accent)] text-white'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)]'
+                            ? 'bg-accent/15 text-accent'
+                            : 'text-text-muted hover:text-text hover:bg-bg-tertiary'
                         }`}
                       >
                         <Icon size={16} />
@@ -353,15 +416,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <button
           onClick={triggerUpdate}
           disabled={updateStatus === 'updating' || updateStatus === 'restarting'}
-          className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-[#6366f1]/15 to-[#818cf8]/10 border border-[#6366f1]/25 hover:from-[#6366f1]/25 hover:to-[#818cf8]/20 transition-all cursor-pointer text-left w-[calc(100%-1rem)] disabled:opacity-70 disabled:cursor-wait"
+          className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-accent/15 to-accent-hover/10 border border-accent/25 hover:from-accent/25 hover:to-accent-hover/20 transition-all cursor-pointer text-left w-[calc(100%-1rem)] disabled:opacity-70 disabled:cursor-wait"
         >
           <div className="flex items-center gap-2 mb-1">
-            {updateStatus === 'idle' && <ArrowUpCircle size={14} className="text-[#818cf8] flex-shrink-0" />}
-            {updateStatus === 'updating' && <Loader2 size={14} className="text-[#818cf8] flex-shrink-0 animate-spin" />}
-            {updateStatus === 'restarting' && <RotateCw size={14} className="text-[#818cf8] flex-shrink-0 animate-spin" />}
-            {updateStatus === 'success' && <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />}
-            {updateStatus === 'error' && <XCircle size={14} className="text-red-400 flex-shrink-0" />}
-            <span className="text-xs font-semibold text-[#818cf8]">
+            {updateStatus === 'idle' && <ArrowUpCircle size={14} className="text-accent-hover flex-shrink-0" />}
+            {updateStatus === 'updating' && <Loader2 size={14} className="text-accent-hover flex-shrink-0 animate-spin" />}
+            {updateStatus === 'restarting' && <RotateCw size={14} className="text-accent-hover flex-shrink-0 animate-spin" />}
+            {updateStatus === 'success' && <CheckCircle2 size={14} className="text-emerald flex-shrink-0" />}
+            {updateStatus === 'error' && <XCircle size={14} className="text-error flex-shrink-0" />}
+            <span className="text-xs font-semibold text-accent-hover">
               {updateStatus === 'idle' && 'Update Available'}
               {updateStatus === 'updating' && 'Updating...'}
               {updateStatus === 'restarting' && 'Restarting...'}
@@ -369,8 +432,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               {updateStatus === 'error' && 'Update Failed'}
             </span>
           </div>
-          <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-            {updateStatus === 'idle' && <>v{versionInfo.latest} is out. <span className="text-[#a5b4fc]">Click to update &amp; restart</span></>}
+          <p className="text-[10px] text-text-muted leading-relaxed">
+            {updateStatus === 'idle' && <>v{versionInfo.latest} is out. <span className="text-accent-light">Click to update &amp; restart</span></>}
             {updateStatus === 'updating' && 'Installing update...'}
             {updateStatus === 'restarting' && 'Server restarting, please wait...'}
             {updateStatus === 'success' && 'Reloading...'}
@@ -379,44 +442,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       )}
 
-      {/* Version + logout + collapse */}
-      <div className="flex-shrink-0 px-2 pb-2 pt-1 border-t border-[var(--border)]">
+      {/* Footer */}
+      <div className="flex-shrink-0 px-2 pb-2 pt-1 border-t border-border">
         {!collapsed && hasToken && (
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors w-full"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text hover:bg-bg-tertiary transition-colors w-full"
           >
             <LogOut className="h-4 w-4" />
             Sign Out
           </button>
         )}
         {collapsed && hasToken && (
-          <button
-            onClick={logout}
-            title="Sign Out"
-            className="flex items-center justify-center w-full py-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)] transition-colors"
-          >
+          <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-full py-2 rounded-lg text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors">
             <LogOut size={16} />
           </button>
         )}
         {!collapsed && versionInfo.current && (
           <div className="flex items-center justify-between px-3 py-1.5 mb-1">
-            <span className="text-[10px] text-[var(--text-muted)]">
-              v{versionInfo.current}
-            </span>
+            <span className="text-[10px] text-text-muted">v{versionInfo.current}</span>
             {versionInfo.updateAvailable ? (
-              <span className="text-[10px] text-[#818cf8] font-medium">New version</span>
+              <span className="text-[10px] text-accent-hover font-medium">New version</span>
             ) : versionInfo.latest ? (
-              <span className="text-[10px] text-[var(--success)]">Up to date</span>
+              <span className="text-[10px] text-success">Up to date</span>
             ) : null}
           </div>
         )}
-        <button
-          onClick={onToggle}
-          className="flex items-center justify-center w-full py-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-tertiary)] transition-colors"
-        >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
       </div>
     </div>
   );

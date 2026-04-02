@@ -254,7 +254,25 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                   <StatusBadge status={agent.status} />
                   <span className="text-[10px] text-white/25 capitalize">{agent.role}</span>
                 </div>
-                <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
+                  {agent.id !== 'default' && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Remove agent "${agent.name}"?`)) return;
+                        try {
+                          await apiFetch(`/api/command-post/agents/${agent.id}`, { method: 'DELETE' });
+                          onRefresh();
+                        } catch { /* ignore */ }
+                      }}
+                      className="text-[10px] text-white/20 hover:text-error transition-colors"
+                      title="Remove agent"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-4 text-[10px] text-white/35">
                 {agent.title && <span>{agent.title}</span>}

@@ -145,8 +145,8 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
   if (loading || voices.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full select-none">
-        <div className="w-8 h-8 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm text-[#71717a]">Loading voices...</p>
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm text-text-muted">Loading voices...</p>
       </div>
     );
   }
@@ -154,8 +154,8 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
   return (
     <div className="flex flex-col items-center justify-center h-full select-none">
       {/* Title */}
-      <h2 className="text-xl font-semibold text-[#fafafa] mb-2">Choose a voice</h2>
-      <p className="text-sm text-[#71717a] mb-10">Swipe or use arrow keys</p>
+      <h2 className="text-xl font-semibold text-text mb-2">Choose a voice</h2>
+      <p className="text-sm text-text-muted mb-10">Swipe or use arrow keys</p>
 
       {/* Orb carousel */}
       <div
@@ -171,7 +171,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
         {activeIdx > 0 && (
           <button
             onClick={prev}
-            className="absolute left-4 z-10 rounded-full p-2 text-[#71717a] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
+            className="absolute left-4 z-10 rounded-full p-2 text-text-muted hover:text-text hover:bg-bg-tertiary transition-colors"
           >
             <ChevronLeft size={28} />
           </button>
@@ -233,7 +233,7 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
         {activeIdx < voices.length - 1 && (
           <button
             onClick={next}
-            className="absolute right-4 z-10 rounded-full p-2 text-[#71717a] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
+            className="absolute right-4 z-10 rounded-full p-2 text-text-muted hover:text-text hover:bg-bg-tertiary transition-colors"
           >
             <ChevronRight size={28} />
           </button>
@@ -242,15 +242,15 @@ export function VoicePicker({ currentVoice, onSelect, onPreview }: VoicePickerPr
 
       {/* Voice name + description */}
       <div className="mt-8 text-center">
-        <h3 className="text-2xl font-bold text-[#fafafa] mb-1">{voice.name}</h3>
-        <p className="text-sm text-[#a1a1aa]">{voice.description}</p>
+        <h3 className="text-2xl font-bold text-text mb-1">{voice.name}</h3>
+        <p className="text-sm text-text-secondary">{voice.description}</p>
       </div>
 
       {/* Preview button */}
       {onPreview && (
         <button
           onClick={() => onPreview(voice.id)}
-          className="mt-4 flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
+          className="mt-4 flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors"
         >
           <Volume2 size={14} />
           Preview

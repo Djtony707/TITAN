@@ -21,14 +21,14 @@ export function DataTable<T>({
   emptyMessage = 'No data available',
 }: DataTableProps<T>) {
   return (
-    <div className="overflow-hidden rounded-xl border border-[#3f3f46] bg-[#18181b]">
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-secondary">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="bg-[#27272a]">
+          <tr className="bg-bg-tertiary">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-4 py-3 text-sm font-medium text-[#a1a1aa] ${col.className ?? ''}`}
+                className={`px-4 py-3 text-sm font-medium text-text-secondary ${col.className ?? ''}`}
               >
                 {col.header}
               </th>
@@ -40,7 +40,7 @@ export function DataTable<T>({
             <tr>
               <td
                 colSpan={columns.length}
-                className="px-4 py-12 text-center text-[#71717a]"
+                className="px-4 py-12 text-center text-text-muted"
               >
                 {emptyMessage}
               </td>
@@ -50,14 +50,14 @@ export function DataTable<T>({
               <tr
                 key={i}
                 onClick={() => onRowClick?.(row)}
-                className={`border-t border-[#3f3f46] transition-colors hover:bg-[#27272a]/50 ${
+                className={`border-t border-border transition-colors hover:bg-bg-tertiary/50 ${
                   onRowClick ? 'cursor-pointer' : ''
                 }`}
               >
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3 text-[#fafafa] ${col.className ?? ''}`}
+                    className={`px-4 py-3 text-text ${col.className ?? ''}`}
                   >
                     {col.render
                       ? col.render(row)

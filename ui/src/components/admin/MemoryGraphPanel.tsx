@@ -708,8 +708,8 @@ function MemoryGraphPanel() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-12 animate-pulse rounded-xl bg-[#18181b]" />
-        <div className="h-[560px] animate-pulse rounded-xl border border-[#3f3f46] bg-[#09090b]" />
+        <div className="h-12 animate-pulse rounded-xl bg-bg-secondary" />
+        <div className="h-[560px] animate-pulse rounded-xl border border-border bg-bg" />
       </div>
     );
   }
@@ -721,12 +721,12 @@ function MemoryGraphPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#6366f1]/10">
-            <Network className="h-4 w-4 text-[#818cf8]" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+            <Network className="h-4 w-4 text-accent-hover" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-[#fafafa]">Memory Graph</h2>
-            <p className="text-xs text-[#52525b]">Temporal knowledge graph powered by entity extraction</p>
+            <h2 className="text-lg font-semibold text-text">Memory Graph</h2>
+            <p className="text-xs text-text-muted">Temporal knowledge graph powered by entity extraction</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -734,37 +734,37 @@ function MemoryGraphPanel() {
             <>
               <button
                 onClick={() => handleZoom(1.2)}
-                className="rounded-lg p-1.5 text-[#71717a] hover:bg-[#27272a] hover:text-[#fafafa] transition-colors"
+                className="rounded-lg p-1.5 text-text-muted hover:bg-bg-tertiary hover:text-text transition-colors"
                 title="Zoom in"
               >
                 <ZoomIn className="h-4 w-4" />
               </button>
               <button
                 onClick={() => handleZoom(0.8)}
-                className="rounded-lg p-1.5 text-[#71717a] hover:bg-[#27272a] hover:text-[#fafafa] transition-colors"
+                className="rounded-lg p-1.5 text-text-muted hover:bg-bg-tertiary hover:text-text transition-colors"
                 title="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
               </button>
               <button
                 onClick={handleFitView}
-                className="rounded-lg p-1.5 text-[#71717a] hover:bg-[#27272a] hover:text-[#fafafa] transition-colors"
+                className="rounded-lg p-1.5 text-text-muted hover:bg-bg-tertiary hover:text-text transition-colors"
                 title="Fit view"
               >
                 <Maximize2 className="h-4 w-4" />
               </button>
-              <div className="mx-1 h-4 w-px bg-[#27272a]" />
+              <div className="mx-1 h-4 w-px bg-bg-tertiary" />
             </>
           )}
           <button
             onClick={fetchData}
-            className="flex items-center gap-1.5 rounded-lg bg-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-[#fafafa] transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-bg-tertiary px-3 py-1.5 text-xs text-text-secondary hover:bg-border hover:text-text transition-colors"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
           <button
             onClick={handleClear}
-            className="flex items-center gap-1.5 rounded-lg bg-[#27272a] px-3 py-1.5 text-xs text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-bg-tertiary px-3 py-1.5 text-xs text-error hover:bg-error/10 transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" /> Clear
           </button>
@@ -772,7 +772,7 @@ function MemoryGraphPanel() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-[#ef4444]/50 bg-[#ef4444]/5 p-4 text-sm text-[#ef4444]">{error}</div>
+        <div className="rounded-xl border border-error/50 bg-error/5 p-4 text-sm text-error">{error}</div>
       )}
 
       {/* Stats */}
@@ -782,8 +782,8 @@ function MemoryGraphPanel() {
           { label: 'Relationships', value: data?.edgeCount ?? 0, color: '#22d3ee' },
           { label: 'Episodes', value: data?.episodeCount ?? 0, color: '#34d399' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl border border-[#3f3f46] bg-[#18181b] px-4 py-3">
-            <p className="text-xs text-[#71717a]">{label}</p>
+          <div key={label} className="rounded-xl border border-border bg-bg-secondary px-4 py-3">
+            <p className="text-xs text-text-muted">{label}</p>
             <div className="flex items-baseline gap-2">
               <p className="text-2xl font-bold" style={{ color }}>{value.toLocaleString()}</p>
               {value > 0 && (
@@ -796,25 +796,25 @@ function MemoryGraphPanel() {
 
       {/* Graph canvas */}
       {hasNodes ? (
-        <div className="relative rounded-xl border border-[#3f3f46] bg-[#09090b] overflow-hidden shadow-2xl shadow-black/50">
+        <div className="relative rounded-xl border border-border bg-bg overflow-hidden shadow-2xl shadow-black/50">
           <canvas
             ref={canvasRef}
             style={{ width: '100%', height: 560, cursor: 'grab' }}
           />
           {/* Zoom indicator */}
-          <div className="absolute bottom-3 right-3 rounded-md bg-[#09090b]/80 px-2 py-1 text-[10px] text-[#52525b] backdrop-blur-sm border border-[#27272a]">
+          <div className="absolute bottom-3 right-3 rounded-md bg-bg/80 px-2 py-1 text-[10px] text-text-muted backdrop-blur-sm border border-bg-tertiary">
             {Math.round(panRef.current.zoom * 100)}%
           </div>
         </div>
       ) : (
-        <div className="relative rounded-xl border border-[#3f3f46] bg-[#09090b] overflow-hidden">
+        <div className="relative rounded-xl border border-border bg-bg overflow-hidden">
           <DemoGraph />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#6366f1]/10 backdrop-blur-sm border border-[#6366f1]/20 mb-4">
-              <Network className="h-7 w-7 text-[#818cf8]" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 backdrop-blur-sm border border-accent/20 mb-4">
+              <Network className="h-7 w-7 text-accent-hover" />
             </div>
-            <p className="text-sm font-medium text-[#a1a1aa]">No entities in the graph yet</p>
-            <p className="mt-1 max-w-sm text-center text-xs text-[#52525b]">
+            <p className="text-sm font-medium text-text-secondary">No entities in the graph yet</p>
+            <p className="mt-1 max-w-sm text-center text-xs text-text-muted">
               Start chatting with TITAN to build the knowledge graph. Entities, relationships, and facts are extracted automatically from conversations.
             </p>
           </div>
@@ -823,21 +823,21 @@ function MemoryGraphPanel() {
 
       {/* Selected node detail */}
       {selectedNode && (
-        <div className="rounded-xl border border-[#3f3f46] bg-[#18181b] overflow-hidden">
-          <div className="flex items-center gap-3 border-b border-[#27272a] px-4 py-3">
+        <div className="rounded-xl border border-border bg-bg-secondary overflow-hidden">
+          <div className="flex items-center gap-3 border-b border-bg-tertiary px-4 py-3">
             <div className="h-3.5 w-3.5 rounded-full shadow-lg" style={{
               backgroundColor: getColor(selectedNode.type),
               boxShadow: `0 0 8px ${getColor(selectedNode.type)}40`,
             }} />
-            <span className="font-semibold text-[#fafafa]">{selectedNode.label}</span>
-            <span className="rounded-md bg-[#27272a] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#a1a1aa]">
+            <span className="font-semibold text-text">{selectedNode.label}</span>
+            <span className="rounded-md bg-bg-tertiary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-text-secondary">
               {selectedNode.type}
             </span>
           </div>
           <div className="space-y-3 p-4">
             {selectedNode.facts.length > 0 && (
               <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#52525b]">Facts</p>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-muted">Facts</p>
                 <div className="space-y-1.5">
                   {selectedNode.facts.map((f, i) => (
                     <p key={i} className="text-xs text-[#d4d4d8] pl-3 border-l-2" style={{ borderColor: getColor(selectedNode.type) + '40' }}>
@@ -853,15 +853,15 @@ function MemoryGraphPanel() {
               const nodeMap = new Map(data.nodes.map((n) => [n.id, n]));
               return (
                 <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#52525b]">Relationships</p>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-muted">Relationships</p>
                   <div className="space-y-1.5">
                     {related.map((e, i) => {
                       const other = nodeMap.get(e.from === selectedNode.id ? e.to : e.from);
                       const otherColor = other ? getColor(other.type) : '#64748b';
                       return (
                         <div key={i} className="flex items-center gap-2 text-xs">
-                          <span className="text-[#a1a1aa]">{e.label}</span>
-                          <span className="text-[#52525b]">&rarr;</span>
+                          <span className="text-text-secondary">{e.label}</span>
+                          <span className="text-text-muted">&rarr;</span>
                           <span className="inline-flex items-center gap-1.5">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: otherColor }} />
                             <span className="text-[#d4d4d8]">{other?.label ?? '?'}</span>

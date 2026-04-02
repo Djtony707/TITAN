@@ -525,6 +525,21 @@ export function updateAgentStatus(agentId: string, status: RegisteredAgent['stat
     return true;
 }
 
+export function removeAgent(agentId: string): boolean {
+    if (agentId === 'default') return false; // Never remove the primary agent
+    const agent = registeredAgents.get(agentId);
+    if (!agent) return false;
+    registeredAgents.delete(agentId);
+    saveState();
+    addActivity({
+        type: 'agent_status_change',
+        agentId,
+        message: `Agent "${agent.name}" removed`,
+    });
+    titanEvents.emit('commandpost:agent:removed', { agentId, name: agent.name });
+    return true;
+}
+
 export function getRegisteredAgents(): RegisteredAgent[] {
     return Array.from(registeredAgents.values());
 }

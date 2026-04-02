@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router';
 import { Layout } from '@/components/layout/Layout';
 import { ConfigProvider } from '@/hooks/useConfig';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
+import { ToastProvider } from '@/components/shared/Toast';
 import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { apiFetch } from '@/api/client';
@@ -63,8 +64,8 @@ function AuthenticatedApp() {
 
   if (onboarded === null) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#09090b]">
-        <div className="text-[#71717a] text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-bg">
+        <div className="text-text-muted text-sm">Loading...</div>
       </div>
     );
   }
@@ -74,6 +75,7 @@ function AuthenticatedApp() {
   }
 
   return (
+    <ToastProvider>
     <ConfigProvider>
       <Layout>
         <Suspense fallback={<LoadingFallback />}>
@@ -115,6 +117,7 @@ function AuthenticatedApp() {
         </Suspense>
       )}
     </ConfigProvider>
+    </ToastProvider>
   );
 }
 
@@ -123,8 +126,8 @@ function AuthGate() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#09090b]">
-        <div className="text-[#71717a] text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-bg">
+        <div className="text-text-muted text-sm">Loading...</div>
       </div>
     );
   }

@@ -121,7 +121,7 @@ export function MiniFluidBubble({ size = 28, disabled = false, onClick }: MiniFl
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-9 w-9 items-center justify-center rounded-xl transition-all hover:bg-[#27272a] focus:outline-none"
+      className="flex h-9 w-9 items-center justify-center rounded-xl transition-all hover:bg-bg-tertiary focus:outline-none"
       aria-label="Voice input"
       title={disabled ? 'Voice not configured' : 'Voice chat'}
       style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}

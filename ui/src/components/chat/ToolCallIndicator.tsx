@@ -12,7 +12,7 @@ export function ToolCallIndicator({ tools }: ToolCallIndicatorProps) {
       {tools.map((tool) => (
         <span
           key={tool}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-[#6366f1]/15 text-[#818cf8] animate-pulse"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent/15 text-accent-hover animate-pulse"
         >
           <Wrench className="w-3 h-3 animate-spin" />
           {tool}

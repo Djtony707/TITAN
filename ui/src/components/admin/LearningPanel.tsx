@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Brain, RefreshCw, BookOpen, Wrench, AlertTriangle, Lightbulb, Database, TrendingUp } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 interface LearningData {
   knowledgeEntries: number;
@@ -44,15 +45,15 @@ function StatCard({ icon: Icon, label, value, color, sub }: {
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+    <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="flex h-6 w-6 items-center justify-center rounded-md" style={{ backgroundColor: color + '15' }}>
           <Icon className="h-3.5 w-3.5" style={{ color }} />
         </div>
-        <p className="text-xs text-[#71717a]">{label}</p>
+        <p className="text-xs text-text-muted">{label}</p>
       </div>
-      <p className="text-2xl font-bold text-[#fafafa]">{value}</p>
-      {sub && <p className="text-[10px] text-[#52525b] mt-1">{sub}</p>}
+      <p className="text-2xl font-bold text-text">{value}</p>
+      {sub && <p className="text-[10px] text-text-muted mt-1">{sub}</p>}
     </div>
   );
 }
@@ -81,10 +82,10 @@ function LearningPanel() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-10 animate-pulse rounded-xl bg-[#18181b]" />
+        <div className="h-10 animate-pulse rounded-xl bg-bg-secondary" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-[#18181b]" />
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-bg-secondary" />
           ))}
         </div>
       </div>
@@ -93,28 +94,23 @@ function LearningPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#6366f1]/10">
-            <Brain className="h-4 w-4 text-[#818cf8]" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-[#fafafa]">Learning &amp; Memory</h1>
-            <p className="text-xs text-[#52525b]">Knowledge base, tool mastery, and memory systems</p>
-          </div>
-        </div>
-        <button
-          onClick={fetchAll}
-          className="flex items-center gap-1.5 rounded-lg bg-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-[#fafafa] transition-colors"
-        >
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Learning"
+        subtitle="Knowledge base, tool mastery, and memory systems"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Memory'}, {label:'Learning'}]}
+        actions={
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-1.5 rounded-lg bg-bg-tertiary px-3 py-1.5 text-xs text-text-secondary hover:bg-border hover:text-text transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        }
+      />
 
       {/* Knowledge Stats */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Knowledge Base</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Knowledge Base</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard
             icon={BookOpen}
@@ -150,7 +146,7 @@ function LearningPanel() {
       {/* Memory Graph Stats */}
       {graph && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Memory Graph</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Memory Graph</p>
           <div className="grid grid-cols-3 gap-3">
             <StatCard
               icon={Database}
@@ -180,23 +176,23 @@ function LearningPanel() {
       {/* System Stats */}
       {stats && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">System</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">System</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <p className="text-xs text-[#71717a]">Tokens Used</p>
-              <p className="text-xl font-bold text-[#fafafa]">{formatTokens(stats.totalTokens)}</p>
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <p className="text-xs text-text-muted">Tokens Used</p>
+              <p className="text-xl font-bold text-text">{formatTokens(stats.totalTokens)}</p>
             </div>
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <p className="text-xs text-[#71717a]">Requests</p>
-              <p className="text-xl font-bold text-[#fafafa]">{stats.totalRequests}</p>
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <p className="text-xs text-text-muted">Requests</p>
+              <p className="text-xl font-bold text-text">{stats.totalRequests}</p>
             </div>
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <p className="text-xs text-[#71717a]">Uptime</p>
-              <p className="text-xl font-bold text-[#fafafa]">{formatUptime(stats.uptime)}</p>
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <p className="text-xs text-text-muted">Uptime</p>
+              <p className="text-xl font-bold text-text">{formatUptime(stats.uptime)}</p>
             </div>
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <p className="text-xs text-[#71717a]">Memory</p>
-              <p className="text-xl font-bold text-[#fafafa]">{stats.memoryMB}MB</p>
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <p className="text-xs text-text-muted">Memory</p>
+              <p className="text-xl font-bold text-text">{stats.memoryMB}MB</p>
             </div>
           </div>
         </div>

@@ -313,12 +313,12 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
       />
       {/* Current tool bar */}
       {currentTool && (
-        <div className="px-3 py-1.5 bg-[#18181b] border-t border-[#3f3f46] flex items-center gap-2">
+        <div className="px-3 py-1.5 bg-bg-secondary border-t border-border flex items-center gap-2">
           <div
             className="w-2 h-2 rounded-full animate-pulse"
             style={{ backgroundColor: STATE_COLORS[agentState] }}
           />
-          <span className="text-xs text-[#a1a1aa] truncate">{statusText}</span>
+          <span className="text-xs text-text-secondary truncate">{statusText}</span>
         </div>
       )}
     </div>

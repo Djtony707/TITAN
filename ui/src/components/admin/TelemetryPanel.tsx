@@ -30,7 +30,7 @@ function TelemetryPanel() {
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-28 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -38,7 +38,7 @@ function TelemetryPanel() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[#ef4444]/50 bg-[#18181b] p-6 text-center text-[#ef4444]">
+      <div className="rounded-xl border border-error/50 bg-bg-secondary p-6 text-center text-error">
         {error}
       </div>
     );
@@ -62,9 +62,9 @@ function TelemetryPanel() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-[#fafafa]">Telemetry</h2>
+      <h2 className="text-lg font-semibold text-text">Telemetry</h2>
       {entries.length === 0 ? (
-        <div className="rounded-xl border border-[#3f3f46] bg-[#18181b] p-12 text-center text-[#71717a]">
+        <div className="rounded-xl border border-border bg-bg-secondary p-12 text-center text-text-muted">
           No metrics available
         </div>
       ) : (

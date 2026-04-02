@@ -52,7 +52,7 @@ function PersonasPanel() {
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-32 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-32 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -60,7 +60,7 @@ function PersonasPanel() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[#ef4444]/50 bg-[#18181b] p-6 text-center text-[#ef4444]">
+      <div className="rounded-xl border border-error/50 bg-bg-secondary p-6 text-center text-error">
         {error}
       </div>
     );
@@ -69,8 +69,8 @@ function PersonasPanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#fafafa]">Personas</h2>
-        <span className="text-sm text-[#71717a]">{personas.length} available</span>
+        <h2 className="text-lg font-semibold text-text">Personas</h2>
+        <span className="text-sm text-text-muted">{personas.length} available</span>
       </div>
 
       {/* Division tabs */}
@@ -81,8 +81,8 @@ function PersonasPanel() {
             onClick={() => setActiveDivision(div)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
               activeDivision === div
-                ? 'bg-[#6366f1] text-white'
-                : 'bg-[#27272a] text-[#a1a1aa] hover:text-[#fafafa]'
+                ? 'bg-accent text-white'
+                : 'bg-bg-tertiary text-text-secondary hover:text-text'
             }`}
           >
             {div}
@@ -102,28 +102,28 @@ function PersonasPanel() {
               disabled={isActive || !!switching}
               className={`rounded-xl border p-4 text-left transition-all ${
                 isActive
-                  ? 'border-[#6366f1] bg-[#6366f1]/10 ring-1 ring-[#6366f1]/30'
-                  : 'border-[#3f3f46] bg-[#18181b] hover:border-[#52525b] hover:bg-[#1f1f23]'
+                  ? 'border-accent bg-accent/10 ring-1 ring-accent/30'
+                  : 'border-border bg-bg-secondary hover:border-border-light hover:bg-bg-secondary'
               } ${isSwitching ? 'opacity-60' : ''} disabled:cursor-default`}
             >
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="font-medium text-[#fafafa]">{persona.name}</h3>
+                <h3 className="font-medium text-text">{persona.name}</h3>
                 {isActive && (
-                  <span className="rounded-full bg-[#6366f1]/20 px-2 py-0.5 text-xs font-medium text-[#818cf8]">
+                  <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent-hover">
                     Active
                   </span>
                 )}
                 {isSwitching && (
-                  <span className="text-xs text-[#a1a1aa]">Switching...</span>
+                  <span className="text-xs text-text-secondary">Switching...</span>
                 )}
               </div>
-              <p className="text-sm text-[#a1a1aa] line-clamp-2">{persona.description}</p>
-              <p className="mt-2 text-xs capitalize text-[#71717a]">{persona.division}</p>
+              <p className="text-sm text-text-secondary line-clamp-2">{persona.description}</p>
+              <p className="mt-2 text-xs capitalize text-text-muted">{persona.division}</p>
             </button>
           );
         })}
         {filtered.length === 0 && (
-          <p className="col-span-full py-12 text-center text-[#71717a]">
+          <p className="col-span-full py-12 text-center text-text-muted">
             No personas in this division
           </p>
         )}

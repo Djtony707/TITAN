@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getActivityRecent, getActivitySummary } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 import type { ActivityEvent, ActivitySummary } from '@/api/types';
 
 const COMPONENT_COLORS: Record<string, string> = {
@@ -95,13 +96,13 @@ function StatCard({
   icon: React.ComponentType<{ size?: number; className?: string }>;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[#27272a] bg-[#18181b] px-4 py-3">
+    <div className="flex items-center gap-3 rounded-lg border border-bg-tertiary bg-bg-secondary px-4 py-3">
       <div className="rounded-md p-2" style={{ backgroundColor: '#6366f115' }}>
-        <Icon size={16} className="text-[#6366f1]" />
+        <Icon size={16} className="text-accent" />
       </div>
       <div>
-        <div className="text-xs text-[#a1a1aa]">{label}</div>
-        <div className="text-sm font-semibold text-[#fafafa]">{value}</div>
+        <div className="text-xs text-text-secondary">{label}</div>
+        <div className="text-sm font-semibold text-text">{value}</div>
       </div>
     </div>
   );
@@ -115,8 +116,8 @@ function EventRow({ event }: { event: ActivityEvent }) {
     : '';
 
   return (
-    <div className="flex items-start gap-3 px-4 py-2.5 border-b border-[#27272a] last:border-b-0 hover:bg-[#27272a30] transition-colors">
-      <span className="shrink-0 font-mono text-[11px] text-[#52525b] pt-0.5 min-w-[68px]">
+    <div className="flex items-start gap-3 px-4 py-2.5 border-b border-bg-tertiary last:border-b-0 hover:bg-[#27272a30] transition-colors">
+      <span className="shrink-0 font-mono text-[11px] text-text-muted pt-0.5 min-w-[68px]">
         {time}
       </span>
       <span
@@ -131,7 +132,7 @@ function EventRow({ event }: { event: ActivityEvent }) {
       >
         {event.type}
       </span>
-      <span className="min-w-0 break-all text-sm text-[#fafafa] leading-snug">
+      <span className="min-w-0 break-all text-sm text-text leading-snug">
         {event.message}
       </span>
     </div>
@@ -183,8 +184,8 @@ function ActivityPanel() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-16 animate-pulse rounded-xl border border-[#27272a] bg-[#18181b]" />
-        <div className="h-96 animate-pulse rounded-xl border border-[#27272a] bg-[#18181b]" />
+        <div className="h-16 animate-pulse rounded-xl border border-bg-tertiary bg-bg-secondary" />
+        <div className="h-96 animate-pulse rounded-xl border border-bg-tertiary bg-bg-secondary" />
       </div>
     );
   }
@@ -197,30 +198,29 @@ function ActivityPanel() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Radio size={20} className="text-[#6366f1]" />
-          <h2 className="text-lg font-semibold text-[#fafafa]">Activity</h2>
-          {summary && <StatusPill status={summary.status} />}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPaused((p) => !p)}
-            className="flex items-center gap-1.5 rounded-lg border border-[#27272a] bg-[#18181b] px-3 py-1.5 text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
-          >
-            {paused ? <Play size={12} /> : <Pause size={12} />}
-            {paused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            onClick={fetchData}
-            className="rounded-lg border border-[#27272a] bg-[#18181b] p-1.5 text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
-            title="Refresh now"
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Activity Feed"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Monitoring'}, {label:'Activity'}]}
+        actions={
+          <div className="flex items-center gap-2">
+            {summary && <StatusPill status={summary.status} />}
+            <button
+              onClick={() => setPaused((p) => !p)}
+              className="flex items-center gap-1.5 rounded-lg border border-bg-tertiary bg-bg-secondary px-3 py-1.5 text-xs text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors"
+            >
+              {paused ? <Play size={12} /> : <Pause size={12} />}
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+            <button
+              onClick={fetchData}
+              className="rounded-lg border border-bg-tertiary bg-bg-secondary p-1.5 text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors"
+              title="Refresh now"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats bar */}
       {summary && (
@@ -238,7 +238,7 @@ function ActivityPanel() {
         <div className="flex-1 min-w-0">
           {/* Filter bar */}
           <div className="flex items-center gap-2 mb-3">
-            <Filter size={14} className="text-[#52525b]" />
+            <Filter size={14} className="text-text-muted" />
             {FILTERS.map((f) => (
               <button
                 key={f}
@@ -257,10 +257,10 @@ function ActivityPanel() {
           {/* Event list */}
           <div
             ref={feedRef}
-            className="max-h-[540px] overflow-y-auto rounded-xl border border-[#27272a] bg-[#18181b]"
+            className="max-h-[540px] overflow-y-auto rounded-xl border border-bg-tertiary bg-bg-secondary"
           >
             {events.length === 0 ? (
-              <p className="px-4 py-12 text-center text-[#52525b]">
+              <p className="px-4 py-12 text-center text-text-muted">
                 No activity events{filter !== 'All' ? ` matching "${filter}"` : ''}
               </p>
             ) : (
@@ -273,8 +273,8 @@ function ActivityPanel() {
         {summary && (
           <div className="hidden lg:block w-64 shrink-0 space-y-3">
             {/* Autonomy mode */}
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <h3 className="text-xs font-semibold text-[#a1a1aa] uppercase tracking-wider mb-2">
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Autonomy
               </h3>
               <span
@@ -290,21 +290,21 @@ function ActivityPanel() {
             </div>
 
             {/* Goals */}
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <h3 className="text-xs font-semibold text-[#a1a1aa] uppercase tracking-wider mb-2">
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Active Goals
               </h3>
               {summary.goals.length === 0 ? (
-                <p className="text-xs text-[#52525b]">No active goals</p>
+                <p className="text-xs text-text-muted">No active goals</p>
               ) : (
                 <div className="space-y-2">
                   {summary.goals.map((g) => (
                     <div key={g.id}>
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-[#fafafa] truncate max-w-[140px]">{g.title}</span>
-                        <span className="text-[#a1a1aa]">{g.progress}%</span>
+                        <span className="text-text truncate max-w-[140px]">{g.title}</span>
+                        <span className="text-text-secondary">{g.progress}%</span>
                       </div>
-                      <div className="h-1 rounded-full bg-[#27272a]">
+                      <div className="h-1 rounded-full bg-bg-tertiary">
                         <div
                           className="h-1 rounded-full transition-all"
                           style={{
@@ -320,13 +320,13 @@ function ActivityPanel() {
             </div>
 
             {/* Autopilot */}
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <h3 className="text-xs font-semibold text-[#a1a1aa] uppercase tracking-wider mb-2">
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Autopilot
               </h3>
               <div className="space-y-1.5 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#52525b]">Status</span>
+                  <span className="text-text-muted">Status</span>
                   <span
                     className="font-medium"
                     style={{ color: summary.autopilotEnabled ? '#34d399' : '#a1a1aa' }}
@@ -335,11 +335,11 @@ function ActivityPanel() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#52525b]">Runs today</span>
-                  <span className="text-[#fafafa]">{summary.autopilotRunsToday}</span>
+                  <span className="text-text-muted">Runs today</span>
+                  <span className="text-text">{summary.autopilotRunsToday}</span>
                 </div>
                 {summary.autopilotNextRun && (
-                  <div className="flex items-center gap-1 text-[#52525b] pt-1">
+                  <div className="flex items-center gap-1 text-text-muted pt-1">
                     <Clock size={10} />
                     <span>
                       Next:{' '}
@@ -354,20 +354,20 @@ function ActivityPanel() {
             </div>
 
             {/* Memory Graph */}
-            <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
-              <h3 className="text-xs font-semibold text-[#a1a1aa] uppercase tracking-wider mb-2">
+            <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Memory Graph
               </h3>
               <div className="flex items-center gap-4 text-xs">
                 <div>
-                  <span className="text-[#52525b]">Entities: </span>
-                  <span className="text-[#fafafa] font-medium">
+                  <span className="text-text-muted">Entities: </span>
+                  <span className="text-text font-medium">
                     {summary.graphStats.entities}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[#52525b]">Edges: </span>
-                  <span className="text-[#fafafa] font-medium">{summary.graphStats.edges}</span>
+                  <span className="text-text-muted">Edges: </span>
+                  <span className="text-text font-medium">{summary.graphStats.edges}</span>
                 </div>
               </div>
             </div>

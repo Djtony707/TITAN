@@ -117,23 +117,23 @@ const SCHEDULE_PRESETS = [
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    running: 'bg-[#3b82f6]/10 text-[#3b82f6]',
-    completed: 'bg-[#22c55e]/10 text-[#22c55e]',
-    failed: 'bg-[#ef4444]/10 text-[#ef4444]',
-    training: 'bg-[#f59e0b]/10 text-[#f59e0b]',
-    deployed: 'bg-[#8b5cf6]/10 text-[#8b5cf6]',
+    running: 'bg-info/10 text-info',
+    completed: 'bg-success/10 text-success',
+    failed: 'bg-error/10 text-error',
+    training: 'bg-warning/10 text-warning',
+    deployed: 'bg-purple/10 text-purple',
   };
   const dotColors: Record<string, string> = {
-    running: 'bg-[#3b82f6]',
-    completed: 'bg-[#22c55e]',
-    failed: 'bg-[#ef4444]',
-    training: 'bg-[#f59e0b]',
-    deployed: 'bg-[#8b5cf6]',
+    running: 'bg-info',
+    completed: 'bg-success',
+    failed: 'bg-error',
+    training: 'bg-warning',
+    deployed: 'bg-purple',
   };
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || 'bg-[#52525b]/20 text-[#71717a]'}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dotColors[status] || 'bg-[#52525b]'}`} />
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || 'bg-border-light/20 text-text-muted'}`}>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dotColors[status] || 'bg-border-light'}`} />
       {status}
     </span>
   );
@@ -423,7 +423,7 @@ function SelfImprovePanel() {
     return (
       <div className="space-y-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-20 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -443,12 +443,12 @@ function SelfImprovePanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#8b5cf6]/10">
-            <Brain className="h-4 w-4 text-[#a78bfa]" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple/10">
+            <Brain className="h-4 w-4 text-purple-light" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-[#fafafa]">Self-Improvement</h1>
-            <p className="text-xs text-[#52525b]">Autonomous optimization of prompts, tool selection, and response quality</p>
+            <h1 className="text-lg font-semibold text-text">Self-Improvement</h1>
+            <p className="text-xs text-text-muted">Autonomous optimization of prompts, tool selection, and response quality</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -456,8 +456,8 @@ function SelfImprovePanel() {
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
               autoRefresh
-                ? 'border-[#22c55e]/30 text-[#22c55e] bg-[#22c55e]/5'
-                : 'border-[#3f3f46] text-[#71717a] hover:bg-[#27272a]'
+                ? 'border-success/30 text-success bg-success/5'
+                : 'border-border text-text-muted hover:bg-bg-tertiary'
             }`}
           >
             <Activity className={`h-3.5 w-3.5 ${autoRefresh ? 'animate-pulse' : ''}`} />
@@ -465,7 +465,7 @@ function SelfImprovePanel() {
           </button>
           <button
             onClick={loadData}
-            className="flex items-center gap-1.5 rounded-lg border border-[#3f3f46] px-3 py-1.5 text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a]"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-tertiary"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
@@ -477,8 +477,8 @@ function SelfImprovePanel() {
       {toast && (
         <div className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm ${
           toast.type === 'success'
-            ? 'border-[#22c55e]/50 text-[#22c55e]'
-            : 'border-[#ef4444]/50 text-[#ef4444]'
+            ? 'border-success/50 text-success'
+            : 'border-error/50 text-error'
         }`}>
           {toast.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
           {toast.message}
@@ -487,47 +487,47 @@ function SelfImprovePanel() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">
-            <Clock className="h-3.5 w-3.5 text-[#52525b]" />
-            <p className="text-xs text-[#52525b]">Total Sessions</p>
+            <Clock className="h-3.5 w-3.5 text-text-muted" />
+            <p className="text-xs text-text-muted">Total Sessions</p>
           </div>
-          <p className="text-2xl font-bold text-[#fafafa]">{totalSessions + (arPerf?.totalRuns || 0)}</p>
+          <p className="text-2xl font-bold text-text">{totalSessions + (arPerf?.totalRuns || 0)}</p>
           {arPerf && arPerf.totalRuns > 0 && (
-            <p className="text-[10px] text-[#52525b] mt-0.5">{totalSessions} self-improve + {arPerf.totalRuns} autoresearch</p>
+            <p className="text-[10px] text-text-muted mt-0.5">{totalSessions} self-improve + {arPerf.totalRuns} autoresearch</p>
           )}
         </div>
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">
-            <Trophy className="h-3.5 w-3.5 text-[#f59e0b]" />
-            <p className="text-xs text-[#52525b]">Best Val Score</p>
+            <Trophy className="h-3.5 w-3.5 text-warning" />
+            <p className="text-xs text-text-muted">Best Val Score</p>
           </div>
-          <p className="text-2xl font-bold text-[#f59e0b]">{arPerf?.bestScore || '—'}</p>
+          <p className="text-2xl font-bold text-warning">{arPerf?.bestScore || '—'}</p>
           {arPerf && arPerf.baseline > 0 && (
-            <p className="text-[10px] text-[#22c55e] mt-0.5">+{(arPerf.bestScore - arPerf.baseline).toFixed(1)} from {arPerf.baseline} baseline</p>
+            <p className="text-[10px] text-success mt-0.5">+{(arPerf.bestScore - arPerf.baseline).toFixed(1)} from {arPerf.baseline} baseline</p>
           )}
         </div>
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">
-            <TrendingUp className="h-3.5 w-3.5 text-[#22c55e]" />
-            <p className="text-xs text-[#52525b]">Success Rate</p>
+            <TrendingUp className="h-3.5 w-3.5 text-success" />
+            <p className="text-xs text-text-muted">Success Rate</p>
           </div>
-          <p className="text-2xl font-bold text-[#3b82f6]">{successRate}%</p>
-          <p className="text-[10px] text-[#52525b] mt-0.5">avg improvement: +{avgImprovement}</p>
+          <p className="text-2xl font-bold text-info">{successRate}%</p>
+          <p className="text-[10px] text-text-muted mt-0.5">avg improvement: +{avgImprovement}</p>
         </div>
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">
-            <Cpu className="h-3.5 w-3.5 text-[#8b5cf6]" />
-            <p className="text-xs text-[#52525b]">Deployed Model</p>
+            <Cpu className="h-3.5 w-3.5 text-purple" />
+            <p className="text-xs text-text-muted">Deployed Model</p>
           </div>
-          <p className="text-lg font-bold text-[#8b5cf6]">titan-qwen</p>
-          <p className="text-[10px] text-[#52525b] mt-0.5">Q4_K_M • 19GB • {config?.enabled !== false ? '🟢 Active' : '⚫ Off'}</p>
+          <p className="text-lg font-bold text-purple">titan-qwen</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Q4_K_M • 19GB • {config?.enabled !== false ? '🟢 Active' : '⚫ Off'}</p>
         </div>
       </div>
 
       {/* Model Training */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Model Training</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Model Training</p>
 
         {/* Training Type Selector — two cards side by side */}
         <div className="grid grid-cols-2 gap-3 mb-4">
@@ -535,53 +535,53 @@ function SelfImprovePanel() {
             onClick={() => setTrainingType('tool_router')}
             className={`rounded-xl border p-4 text-left transition-all ${
               trainingType === 'tool_router'
-                ? 'border-[#8b5cf6] bg-[#8b5cf6]/5 ring-1 ring-[#8b5cf6]/20'
-                : 'border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]'
+                ? 'border-purple bg-purple/5 ring-1 ring-purple/20'
+                : 'border-bg-tertiary bg-bg-secondary hover:border-border'
             }`}
           >
             <div className="flex items-center gap-2 mb-2">
-              <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${trainingType === 'tool_router' ? 'bg-[#8b5cf6]/20' : 'bg-[#27272a]'}`}>
-                <Wrench className={`h-3.5 w-3.5 ${trainingType === 'tool_router' ? 'text-[#a78bfa]' : 'text-[#52525b]'}`} />
+              <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${trainingType === 'tool_router' ? 'bg-purple/20' : 'bg-bg-tertiary'}`}>
+                <Wrench className={`h-3.5 w-3.5 ${trainingType === 'tool_router' ? 'text-purple-light' : 'text-text-muted'}`} />
               </div>
-              <span className={`text-sm font-medium ${trainingType === 'tool_router' ? 'text-[#fafafa]' : 'text-[#a1a1aa]'}`}>Tool Router</span>
+              <span className={`text-sm font-medium ${trainingType === 'tool_router' ? 'text-text' : 'text-text-secondary'}`}>Tool Router</span>
             </div>
-            <p className="text-xs text-[#71717a] mb-1">titan-qwen</p>
+            <p className="text-xs text-text-muted mb-1">titan-qwen</p>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#22c55e] font-medium">Score: {arPerf?.bestScore || '—'}</span>
-              <span className="text-[10px] text-[#52525b]">•</span>
-              <span className="text-[10px] text-[#52525b]">{arResults.length > 0 ? `${arResults[arResults.length - 1]?.num_examples || 0} examples` : 'No data'}</span>
+              <span className="text-xs text-success font-medium">Score: {arPerf?.bestScore || '—'}</span>
+              <span className="text-[10px] text-text-muted">•</span>
+              <span className="text-[10px] text-text-muted">{arResults.length > 0 ? `${arResults[arResults.length - 1]?.num_examples || 0} examples` : 'No data'}</span>
             </div>
-            <p className="text-[10px] text-[#52525b] mt-1">Brain / Tool Selection</p>
+            <p className="text-[10px] text-text-muted mt-1">Brain / Tool Selection</p>
           </button>
 
           <button
             onClick={() => setTrainingType('main_agent')}
             className={`rounded-xl border p-4 text-left transition-all ${
               trainingType === 'main_agent'
-                ? 'border-[#8b5cf6] bg-[#8b5cf6]/5 ring-1 ring-[#8b5cf6]/20'
-                : 'border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]'
+                ? 'border-purple bg-purple/5 ring-1 ring-purple/20'
+                : 'border-bg-tertiary bg-bg-secondary hover:border-border'
             }`}
           >
             <div className="flex items-center gap-2 mb-2">
-              <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${trainingType === 'main_agent' ? 'bg-[#8b5cf6]/20' : 'bg-[#27272a]'}`}>
-                <Bot className={`h-3.5 w-3.5 ${trainingType === 'main_agent' ? 'text-[#a78bfa]' : 'text-[#52525b]'}`} />
+              <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${trainingType === 'main_agent' ? 'bg-purple/20' : 'bg-bg-tertiary'}`}>
+                <Bot className={`h-3.5 w-3.5 ${trainingType === 'main_agent' ? 'text-purple-light' : 'text-text-muted'}`} />
               </div>
-              <span className={`text-sm font-medium ${trainingType === 'main_agent' ? 'text-[#fafafa]' : 'text-[#a1a1aa]'}`}>Main Agent</span>
+              <span className={`text-sm font-medium ${trainingType === 'main_agent' ? 'text-text' : 'text-text-secondary'}`}>Main Agent</span>
             </div>
-            <p className="text-xs text-[#71717a] mb-1">titan-agent</p>
+            <p className="text-xs text-text-muted mb-1">titan-agent</p>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#f59e0b] font-medium">Score: {agentPerf?.bestScore || '—'}</span>
-              <span className="text-[10px] text-[#52525b]">•</span>
-              <span className="text-[10px] text-[#52525b]">{agentResults.length > 0 ? `${agentResults[agentResults.length - 1]?.num_examples || 0} examples` : 'No data'}</span>
+              <span className="text-xs text-warning font-medium">Score: {agentPerf?.bestScore || '—'}</span>
+              <span className="text-[10px] text-text-muted">•</span>
+              <span className="text-[10px] text-text-muted">{agentResults.length > 0 ? `${agentResults[agentResults.length - 1]?.num_examples || 0} examples` : 'No data'}</span>
             </div>
-            <p className="text-[10px] text-[#52525b] mt-1">Primary LLM / Full Agent</p>
+            <p className="text-[10px] text-text-muted mt-1">Primary LLM / Full Agent</p>
           </button>
         </div>
 
         {/* Training Configuration — collapsible */}
         <button
           onClick={() => setTrainConfigOpen(!trainConfigOpen)}
-          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3"
+          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-text-muted mb-3"
         >
           {trainConfigOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <Settings className="h-3.5 w-3.5" />
@@ -589,16 +589,16 @@ function SelfImprovePanel() {
         </button>
 
         {trainConfigOpen && (
-          <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-5 space-y-4 mb-4">
+          <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-5 space-y-4 mb-4">
             {/* Base Model */}
             <div>
-              <label className="mb-1 block text-xs text-[#71717a]">Base Model</label>
+              <label className="mb-1 block text-xs text-text-muted">Base Model</label>
               <select
                 id="train-base-model"
                 name="train-base-model"
                 value={trainConfig.baseModel}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, baseModel: e.target.value }))}
-                className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none"
               >
                 <option value="unsloth/Qwen2.5-32B-bnb-4bit">Qwen 2.5 32B (4-bit)</option>
                 <option value="unsloth/Qwen2.5-14B-bnb-4bit">Qwen 2.5 14B (4-bit)</option>
@@ -609,8 +609,8 @@ function SelfImprovePanel() {
             {/* LoRA Rank */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">LoRA Rank</span>
-                <span className="text-sm font-medium text-[#fafafa]">{trainConfig.loraRank}</span>
+                <span className="text-xs text-text-muted">LoRA Rank</span>
+                <span className="text-sm font-medium text-text">{trainConfig.loraRank}</span>
               </label>
               <input
                 id="train-lora-rank"
@@ -621,9 +621,9 @@ function SelfImprovePanel() {
                 step={4}
                 value={trainConfig.loraRank}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, loraRank: Number(e.target.value) }))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>4</span><span>32</span><span>64</span>
               </div>
             </div>
@@ -631,8 +631,8 @@ function SelfImprovePanel() {
             {/* Learning Rate */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Learning Rate</span>
-                <span className="text-sm font-medium text-[#fafafa] font-mono">{trainConfig.learningRate.toExponential(0)}</span>
+                <span className="text-xs text-text-muted">Learning Rate</span>
+                <span className="text-sm font-medium text-text font-mono">{trainConfig.learningRate.toExponential(0)}</span>
               </label>
               <input
                 id="train-learning-rate"
@@ -643,9 +643,9 @@ function SelfImprovePanel() {
                 step={0.5}
                 value={Math.log10(trainConfig.learningRate)}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, learningRate: Math.pow(10, Number(e.target.value)) }))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>1e-5</span><span>1e-4</span><span>1e-3</span>
               </div>
             </div>
@@ -653,8 +653,8 @@ function SelfImprovePanel() {
             {/* Epochs */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Epochs</span>
-                <span className="text-sm font-medium text-[#fafafa]">{trainConfig.epochs}</span>
+                <span className="text-xs text-text-muted">Epochs</span>
+                <span className="text-sm font-medium text-text">{trainConfig.epochs}</span>
               </label>
               <input
                 id="train-epochs"
@@ -664,9 +664,9 @@ function SelfImprovePanel() {
                 max={10}
                 value={trainConfig.epochs}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, epochs: Number(e.target.value) }))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>1</span><span>5</span><span>10</span>
               </div>
             </div>
@@ -674,8 +674,8 @@ function SelfImprovePanel() {
             {/* Time Budget */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Time Budget</span>
-                <span className="text-sm font-medium text-[#fafafa]">{trainConfig.timeBudgetMin} min</span>
+                <span className="text-xs text-text-muted">Time Budget</span>
+                <span className="text-sm font-medium text-text">{trainConfig.timeBudgetMin} min</span>
               </label>
               <input
                 id="train-time-budget"
@@ -686,9 +686,9 @@ function SelfImprovePanel() {
                 step={5}
                 value={trainConfig.timeBudgetMin}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, timeBudgetMin: Number(e.target.value) }))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>5 min</span><span>60 min</span><span>120 min</span>
               </div>
             </div>
@@ -696,8 +696,8 @@ function SelfImprovePanel() {
             {/* Max Seq Length */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Max Sequence Length</span>
-                <span className="text-sm font-medium text-[#fafafa]">{trainConfig.maxSeqLength}</span>
+                <span className="text-xs text-text-muted">Max Sequence Length</span>
+                <span className="text-sm font-medium text-text">{trainConfig.maxSeqLength}</span>
               </label>
               <input
                 id="train-max-seq-length"
@@ -708,9 +708,9 @@ function SelfImprovePanel() {
                 step={256}
                 value={trainConfig.maxSeqLength}
                 onChange={(e) => setTrainConfig(prev => ({ ...prev, maxSeqLength: Number(e.target.value) }))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>512</span><span>2048</span><span>4096</span>
               </div>
             </div>
@@ -722,15 +722,15 @@ function SelfImprovePanel() {
           <button
             onClick={handleGenerateData}
             disabled={generatingData}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#27272a] bg-[#18181b] px-4 py-3 text-xs font-medium text-[#fafafa] transition-colors hover:border-[#8b5cf6]/50 hover:bg-[#1f1f23] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-bg-tertiary bg-bg-secondary px-4 py-3 text-xs font-medium text-text transition-colors hover:border-purple/50 hover:bg-bg-secondary disabled:opacity-50"
           >
-            {generatingData ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-[#f59e0b]" />}
+            {generatingData ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-warning" />}
             Generate Training Data
           </button>
           <button
             onClick={handleStartTraining}
             disabled={trainingModel}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5cf6] px-4 py-3 text-xs font-medium text-white transition-colors hover:bg-[#8b5cf6]/80 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl bg-purple px-4 py-3 text-xs font-medium text-white transition-colors hover:bg-purple/80 disabled:opacity-50"
           >
             {trainingModel ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             Start Training
@@ -738,17 +738,17 @@ function SelfImprovePanel() {
           <button
             onClick={handleDeployModel}
             disabled={deployingModel}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#27272a] bg-[#18181b] px-4 py-3 text-xs font-medium text-[#fafafa] transition-colors hover:border-[#22c55e]/50 hover:bg-[#1f1f23] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-bg-tertiary bg-bg-secondary px-4 py-3 text-xs font-medium text-text transition-colors hover:border-success/50 hover:bg-bg-secondary disabled:opacity-50"
           >
-            {deployingModel ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5 text-[#22c55e]" />}
+            {deployingModel ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5 text-success" />}
             Deploy Best Model
           </button>
           <button
             onClick={() => handleStartRun(trainingType === 'main_agent' ? 'agent-benchmark' : 'tool-benchmark')}
             disabled={running !== null}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#27272a] bg-[#18181b] px-4 py-3 text-xs font-medium text-[#fafafa] transition-colors hover:border-[#3b82f6]/50 hover:bg-[#1f1f23] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-bg-tertiary bg-bg-secondary px-4 py-3 text-xs font-medium text-text transition-colors hover:border-[#3b82f6]/50 hover:bg-bg-secondary disabled:opacity-50"
           >
-            <TrendingUp className="h-3.5 w-3.5 text-[#3b82f6]" />
+            <TrendingUp className="h-3.5 w-3.5 text-info" />
             Run Benchmark
           </button>
         </div>
@@ -758,23 +758,23 @@ function SelfImprovePanel() {
       <div>
         <button
           onClick={() => setLiveFeedOpen(!liveFeedOpen)}
-          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3"
+          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-text-muted mb-3"
         >
           {liveFeedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <Terminal className="h-3.5 w-3.5" />
           Live Training Activity
           <span className="ml-auto flex items-center gap-1.5">
             {sseConnected ? (
-              <span className="flex items-center gap-1 text-[10px] text-[#22c55e]">
+              <span className="flex items-center gap-1 text-[10px] text-success">
                 <Radio className="h-3 w-3 animate-pulse" /> Connected
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[10px] text-[#ef4444]">
+              <span className="flex items-center gap-1 text-[10px] text-error">
                 <XCircle className="h-3 w-3" /> Disconnected
               </span>
             )}
             {liveFeed.length > 0 && (
-              <span className="rounded-full bg-[#8b5cf6]/20 px-1.5 py-0.5 text-[10px] text-[#a78bfa]">
+              <span className="rounded-full bg-purple/20 px-1.5 py-0.5 text-[10px] text-purple-light">
                 {liveFeed.length}
               </span>
             )}
@@ -782,29 +782,29 @@ function SelfImprovePanel() {
         </button>
 
         {liveFeedOpen && (
-          <div className="rounded-xl border border-[#27272a] bg-[#09090b] overflow-hidden">
+          <div className="rounded-xl border border-bg-tertiary bg-bg overflow-hidden">
             {/* Progress bar (if generating) */}
             {liveFeed.length > 0 && (() => {
               const last = [...liveFeed].reverse().find(e => e.detail?.pct !== undefined);
               if (!last || last.type === 'complete') return null;
               const pct = last.detail?.pct || 0;
               return (
-                <div className="border-b border-[#27272a] px-4 py-3">
+                <div className="border-b border-bg-tertiary px-4 py-3">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs text-[#a1a1aa]">{last.message}</span>
-                    <span className="text-xs font-medium text-[#8b5cf6]">{pct}%</span>
+                    <span className="text-xs text-text-secondary">{last.message}</span>
+                    <span className="text-xs font-medium text-purple">{pct}%</span>
                   </div>
-                  <div className="h-1.5 w-full rounded-full bg-[#27272a] overflow-hidden">
+                  <div className="h-1.5 w-full rounded-full bg-bg-tertiary overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] transition-all duration-500"
+                      className="h-full rounded-full bg-gradient-to-r from-purple to-accent transition-all duration-500"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
                   {last.detail?.current !== undefined && last.detail?.total !== undefined && (
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-[10px] text-[#52525b]">{last.detail.current} / {last.detail.total} examples</span>
+                      <span className="text-[10px] text-text-muted">{last.detail.current} / {last.detail.total} examples</span>
                       {last.detail.category && (
-                        <span className="text-[10px] text-[#52525b]">Category: {last.detail.category}</span>
+                        <span className="text-[10px] text-text-muted">Category: {last.detail.category}</span>
                       )}
                     </div>
                   )}
@@ -815,19 +815,19 @@ function SelfImprovePanel() {
             {/* Feed log */}
             <div className="max-h-64 overflow-y-auto p-3 font-mono text-[11px] leading-5 scrollbar-thin">
               {liveFeed.length === 0 ? (
-                <div className="flex items-center justify-center py-8 text-[#52525b]">
+                <div className="flex items-center justify-center py-8 text-text-muted">
                   <Activity className="h-4 w-4 mr-2" />
                   <span>No training activity yet. Start training to see live progress.</span>
                 </div>
               ) : (
                 liveFeed.map((event, i) => {
                   const colorMap: Record<string, string> = {
-                    info: 'text-[#3b82f6]',
-                    progress: 'text-[#8b5cf6]',
-                    success: 'text-[#22c55e]',
-                    error: 'text-[#ef4444]',
-                    complete: 'text-[#f59e0b]',
-                    connected: 'text-[#22c55e]',
+                    info: 'text-info',
+                    progress: 'text-purple',
+                    success: 'text-success',
+                    error: 'text-error',
+                    complete: 'text-warning',
+                    connected: 'text-success',
                   };
                   const iconMap: Record<string, string> = {
                     info: '●',
@@ -837,20 +837,20 @@ function SelfImprovePanel() {
                     complete: '★',
                     connected: '◉',
                   };
-                  const iconColor = colorMap[event.type] || 'text-[#52525b]';
+                  const iconColor = colorMap[event.type] || 'text-text-muted';
                   const icon = iconMap[event.type] || '·';
                   const time = event.timestamp
                     ? new Date(event.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                     : '';
 
                   return (
-                    <div key={i} className="flex items-start gap-2 hover:bg-[#18181b]/50 rounded px-1">
-                      <span className="text-[#3f3f46] shrink-0 select-none">{time}</span>
+                    <div key={i} className="flex items-start gap-2 hover:bg-bg-secondary/50 rounded px-1">
+                      <span className="text-border shrink-0 select-none">{time}</span>
                       <span className={`shrink-0 ${iconColor}`}>{icon}</span>
-                      <span className={`${event.type === 'error' ? 'text-[#ef4444]' : 'text-[#a1a1aa]'}`}>
+                      <span className={`${event.type === 'error' ? 'text-error' : 'text-text-secondary'}`}>
                         {event.message}
                         {event.detail?.category && event.type === 'progress' && (
-                          <span className="text-[#52525b]"> [{event.detail.category}]</span>
+                          <span className="text-text-muted"> [{event.detail.category}]</span>
                         )}
                       </span>
                     </div>
@@ -862,15 +862,15 @@ function SelfImprovePanel() {
 
             {/* Feed footer */}
             {liveFeed.length > 0 && (
-              <div className="border-t border-[#27272a] px-3 py-2 flex items-center justify-between">
-                <span className="text-[10px] text-[#52525b]">
+              <div className="border-t border-bg-tertiary px-3 py-2 flex items-center justify-between">
+                <span className="text-[10px] text-text-muted">
                   {liveFeed.filter(e => e.type === 'success' || e.type === 'progress').length} successes
                   {' · '}
                   {liveFeed.filter(e => e.type === 'error').length} errors
                 </span>
                 <button
                   onClick={clearLiveFeed}
-                  className="flex items-center gap-1 text-[10px] text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+                  className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary transition-colors"
                 >
                   <Trash2 className="h-3 w-3" />
                   Clear
@@ -883,25 +883,25 @@ function SelfImprovePanel() {
 
       {/* Quick Actions — Run Now */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Run Now</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Run Now</p>
         <div className="grid grid-cols-2 gap-3">
           {Object.entries(AREA_LABELS).map(([id, label]) => (
             <button
               key={id}
               onClick={() => handleStartRun(id)}
               disabled={running !== null}
-              className="flex items-center gap-3 rounded-xl border border-[#27272a] bg-[#18181b] p-4 text-left transition-colors hover:border-[#8b5cf6]/50 hover:bg-[#1f1f23] disabled:opacity-50"
+              className="flex items-center gap-3 rounded-xl border border-bg-tertiary bg-bg-secondary p-4 text-left transition-colors hover:border-purple/50 hover:bg-bg-secondary disabled:opacity-50"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#8b5cf6]/10">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple/10">
                 {running === id ? (
-                  <RefreshCw className="h-4 w-4 text-[#a78bfa] animate-spin" />
+                  <RefreshCw className="h-4 w-4 text-purple-light animate-spin" />
                 ) : (
-                  <Play className="h-4 w-4 text-[#a78bfa]" />
+                  <Play className="h-4 w-4 text-purple-light" />
                 )}
               </div>
               <div>
-                <p className="text-sm font-medium text-[#fafafa]">{label}</p>
-                <p className="text-xs text-[#52525b]">{running === id ? 'Running...' : 'Start experiment'}</p>
+                <p className="text-sm font-medium text-text">{label}</p>
+                <p className="text-xs text-text-muted">{running === id ? 'Running...' : 'Start experiment'}</p>
               </div>
             </button>
           ))}
@@ -912,7 +912,7 @@ function SelfImprovePanel() {
       <div>
         <button
           onClick={() => setSettingsOpen(!settingsOpen)}
-          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3"
+          className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-text-muted mb-3"
         >
           {settingsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <Settings className="h-3.5 w-3.5" />
@@ -920,12 +920,12 @@ function SelfImprovePanel() {
         </button>
 
         {settingsOpen && (
-          <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-6 space-y-5">
+          <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-6 space-y-5">
             {/* Runs per day */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Runs per day</span>
-                <span className="text-sm font-medium text-[#fafafa]">{runsPerDay}</span>
+                <span className="text-xs text-text-muted">Runs per day</span>
+                <span className="text-sm font-medium text-text">{runsPerDay}</span>
               </label>
               <input
                 id="schedule-runs-per-day"
@@ -935,22 +935,22 @@ function SelfImprovePanel() {
                 max={12}
                 value={runsPerDay}
                 onChange={(e) => setRunsPerDay(Number(e.target.value))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>1</span><span>6</span><span>12</span>
               </div>
             </div>
 
             {/* Schedule preset */}
             <div>
-              <label className="mb-1 block text-xs text-[#71717a]">Schedule</label>
+              <label className="mb-1 block text-xs text-text-muted">Schedule</label>
               <select
                 id="schedule-preset"
                 name="schedule-preset"
                 value={schedulePreset}
                 onChange={(e) => setSchedulePreset(Number(e.target.value))}
-                className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 text-sm text-[#fafafa] outline-none"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none"
               >
                 {SCHEDULE_PRESETS.map((preset, i) => (
                   <option key={i} value={i}>{preset.label}</option>
@@ -961,8 +961,8 @@ function SelfImprovePanel() {
             {/* Budget per run */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Budget per run (minutes)</span>
-                <span className="text-sm font-medium text-[#fafafa]">{budgetMinutes} min</span>
+                <span className="text-xs text-text-muted">Budget per run (minutes)</span>
+                <span className="text-sm font-medium text-text">{budgetMinutes} min</span>
               </label>
               <input
                 id="schedule-budget-minutes"
@@ -973,9 +973,9 @@ function SelfImprovePanel() {
                 step={5}
                 value={budgetMinutes}
                 onChange={(e) => setBudgetMinutes(Number(e.target.value))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
-              <div className="flex justify-between text-[10px] text-[#52525b] mt-1">
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
                 <span>5 min</span><span>60 min</span><span>120 min</span>
               </div>
             </div>
@@ -983,8 +983,8 @@ function SelfImprovePanel() {
             {/* Max daily budget */}
             <div>
               <label className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Max daily budget (minutes)</span>
-                <span className="text-sm font-medium text-[#fafafa]">{maxDailyBudget} min</span>
+                <span className="text-xs text-text-muted">Max daily budget (minutes)</span>
+                <span className="text-sm font-medium text-text">{maxDailyBudget} min</span>
               </label>
               <input
                 id="schedule-max-daily-budget"
@@ -995,13 +995,13 @@ function SelfImprovePanel() {
                 step={30}
                 value={maxDailyBudget}
                 onChange={(e) => setMaxDailyBudget(Number(e.target.value))}
-                className="w-full accent-[#8b5cf6]"
+                className="w-full accent-purple"
               />
             </div>
 
             {/* Areas toggle */}
             <div>
-              <label className="mb-2 block text-xs text-[#71717a]">Improvement areas</label>
+              <label className="mb-2 block text-xs text-text-muted">Improvement areas</label>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(AREA_LABELS).map(([id, label]) => (
                   <button
@@ -1009,8 +1009,8 @@ function SelfImprovePanel() {
                     onClick={() => toggleArea(id)}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       selectedAreas.includes(id)
-                        ? 'bg-[#8b5cf6] text-white'
-                        : 'bg-[#27272a] text-[#71717a] hover:text-[#a1a1aa]'
+                        ? 'bg-purple text-white'
+                        : 'bg-bg-tertiary text-text-muted hover:text-text-secondary'
                     }`}
                   >
                     {label}
@@ -1022,19 +1022,19 @@ function SelfImprovePanel() {
             {/* Toggles */}
             <div className="space-y-3">
               <label className="flex items-center justify-between">
-                <span className="text-xs text-[#71717a]">Auto-apply improvements</span>
+                <span className="text-xs text-text-muted">Auto-apply improvements</span>
                 <button
                   onClick={() => setAutoApply(!autoApply)}
-                  className={`relative h-5 w-9 rounded-full transition-colors ${autoApply ? 'bg-[#8b5cf6]' : 'bg-[#3f3f46]'}`}
+                  className={`relative h-5 w-9 rounded-full transition-colors ${autoApply ? 'bg-purple' : 'bg-border'}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${autoApply ? 'translate-x-4' : ''}`} />
                 </button>
               </label>
               <label className="flex items-center justify-between">
-                <span className="text-xs text-[#71717a]">Pause on weekends</span>
+                <span className="text-xs text-text-muted">Pause on weekends</span>
                 <button
                   onClick={() => setPauseOnWeekends(!pauseOnWeekends)}
-                  className={`relative h-5 w-9 rounded-full transition-colors ${pauseOnWeekends ? 'bg-[#8b5cf6]' : 'bg-[#3f3f46]'}`}
+                  className={`relative h-5 w-9 rounded-full transition-colors ${pauseOnWeekends ? 'bg-purple' : 'bg-border'}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${pauseOnWeekends ? 'translate-x-4' : ''}`} />
                 </button>
@@ -1045,7 +1045,7 @@ function SelfImprovePanel() {
             <div className="flex justify-end">
               <button
                 onClick={handleSaveSettings}
-                className="flex items-center gap-2 rounded-lg bg-[#8b5cf6] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[#8b5cf6]/80"
+                className="flex items-center gap-2 rounded-lg bg-purple px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-purple/80"
               >
                 Save Settings
               </button>
@@ -1057,37 +1057,37 @@ function SelfImprovePanel() {
       {/* Session History */}
       {history.length > 0 && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Session History</p>
-          <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Session History</p>
+          <div className="rounded-xl border border-bg-tertiary bg-bg-secondary overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-[#27272a]">
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Date</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Area</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Baseline</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Best</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">+Δ</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">K/D/C</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Status</th>
+                <tr className="border-b border-bg-tertiary">
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Date</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Area</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Baseline</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Best</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">+Δ</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">K/D/C</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {history.slice().reverse().slice(0, 10).map((session) => {
                   const imp = session.bestScore - session.baselineScore;
                   return (
-                    <tr key={session.id} className="border-b border-[#27272a] last:border-0">
-                      <td className="px-4 py-2.5 text-xs text-[#a1a1aa]">
+                    <tr key={session.id} className="border-b border-bg-tertiary last:border-0">
+                      <td className="px-4 py-2.5 text-xs text-text-secondary">
                         {session.startedAt.slice(0, 10)}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-[#fafafa]">
+                      <td className="px-4 py-2.5 text-xs text-text">
                         {AREA_LABELS[session.area] || session.area}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-[#71717a]">{session.baselineScore}</td>
-                      <td className="px-4 py-2.5 text-xs text-[#fafafa] font-medium">{session.bestScore}</td>
-                      <td className={`px-4 py-2.5 text-xs font-medium ${imp > 0 ? 'text-[#22c55e]' : 'text-[#71717a]'}`}>
+                      <td className="px-4 py-2.5 text-xs text-text-muted">{session.baselineScore}</td>
+                      <td className="px-4 py-2.5 text-xs text-text font-medium">{session.bestScore}</td>
+                      <td className={`px-4 py-2.5 text-xs font-medium ${imp > 0 ? 'text-success' : 'text-text-muted'}`}>
                         {imp > 0 ? '+' : ''}{imp}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-[#71717a]">
+                      <td className="px-4 py-2.5 text-xs text-text-muted">
                         {session.keeps}/{session.discards}/{session.crashes}
                       </td>
                       <td className="px-4 py-2.5">
@@ -1105,20 +1105,20 @@ function SelfImprovePanel() {
       {/* Training Runs */}
       {trainingRuns.length > 0 && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Model Training</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Model Training</p>
           <div className="space-y-2">
             {trainingRuns.slice().reverse().slice(0, 5).map((run) => (
-              <div key={run.id} className="flex items-center justify-between rounded-xl border border-[#27272a] bg-[#18181b] px-4 py-3">
+              <div key={run.id} className="flex items-center justify-between rounded-xl border border-bg-tertiary bg-bg-secondary px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <Zap className="h-4 w-4 text-[#f59e0b]" />
+                  <Zap className="h-4 w-4 text-warning" />
                   <div>
-                    <p className="text-sm font-medium text-[#fafafa]">{run.id}</p>
-                    <p className="text-xs text-[#52525b]">{run.baseModel} • {run.dataPoints} samples • {run.method}</p>
+                    <p className="text-sm font-medium text-text">{run.id}</p>
+                    <p className="text-xs text-text-muted">{run.baseModel} • {run.dataPoints} samples • {run.method}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   {run.finalLoss !== undefined && (
-                    <span className="text-xs text-[#71717a]">loss: {run.finalLoss.toFixed(4)}</span>
+                    <span className="text-xs text-text-muted">loss: {run.finalLoss.toFixed(4)}</span>
                   )}
                   <StatusBadge status={run.status} />
                 </div>
@@ -1131,13 +1131,13 @@ function SelfImprovePanel() {
       {/* Autoresearch Experiments (Tool Router) */}
       {arResults.length > 0 && trainingType === 'tool_router' && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Autoresearch Experiments — Tool Router</p>
-          <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Autoresearch Experiments — Tool Router</p>
+          <div className="rounded-xl border border-bg-tertiary bg-bg-secondary overflow-hidden">
             {/* Mini performance chart */}
-            <div className="p-4 border-b border-[#27272a]">
+            <div className="p-4 border-b border-bg-tertiary">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Val Score Over Time</span>
-                <span className="text-xs text-[#22c55e] font-medium">
+                <span className="text-xs text-text-muted">Val Score Over Time</span>
+                <span className="text-xs text-success font-medium">
                   Best: {arPerf?.bestScore || Math.max(...arResults.map(r => r.val_score))}
                 </span>
               </div>
@@ -1162,39 +1162,39 @@ function SelfImprovePanel() {
               </div>
               {/* Baseline line */}
               <div className="relative mt-1">
-                <div className="border-t border-dashed border-[#52525b]/50 absolute w-full" />
-                <span className="text-[9px] text-[#52525b] relative -top-2">baseline: {arPerf?.baseline || 78.0}</span>
+                <div className="border-t border-dashed border-border-light/50 absolute w-full" />
+                <span className="text-[9px] text-text-muted relative -top-2">baseline: {arPerf?.baseline || 78.0}</span>
               </div>
             </div>
 
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-[#27272a]">
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">#</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Date</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Score</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">LR</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Rank</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Epochs</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Examples</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Duration</th>
+                <tr className="border-b border-bg-tertiary">
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">#</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Date</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Score</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">LR</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Rank</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Epochs</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Examples</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Duration</th>
                 </tr>
               </thead>
               <tbody>
                 {arResults.slice().reverse().slice(0, 20).map((r, i) => (
-                  <tr key={i} className="border-b border-[#27272a] last:border-0">
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{arResults.length - i}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#a1a1aa]">
+                  <tr key={i} className="border-b border-bg-tertiary last:border-0">
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{arResults.length - i}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-secondary">
                       {new Date(r.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className={`px-4 py-2.5 text-xs font-bold ${r.val_score >= (arPerf?.baseline || 78) ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                    <td className={`px-4 py-2.5 text-xs font-bold ${r.val_score >= (arPerf?.baseline || 78) ? 'text-success' : 'text-error'}`}>
                       {r.val_score}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a] font-mono">{r.hyperparams.lr}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.hyperparams.rank}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.hyperparams.epochs}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.num_examples}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{Math.round(r.training_time_s / 60)}m {Math.round(r.training_time_s % 60)}s</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted font-mono">{r.hyperparams.lr}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.hyperparams.rank}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.hyperparams.epochs}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.num_examples}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{Math.round(r.training_time_s / 60)}m {Math.round(r.training_time_s % 60)}s</td>
                   </tr>
                 ))}
               </tbody>
@@ -1206,13 +1206,13 @@ function SelfImprovePanel() {
       {/* Autoresearch Experiments (Main Agent) */}
       {agentResults.length > 0 && trainingType === 'main_agent' && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#52525b] mb-3">Autoresearch Experiments — Main Agent</p>
-          <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
+          <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">Autoresearch Experiments — Main Agent</p>
+          <div className="rounded-xl border border-bg-tertiary bg-bg-secondary overflow-hidden">
             {/* Mini performance chart */}
-            <div className="p-4 border-b border-[#27272a]">
+            <div className="p-4 border-b border-bg-tertiary">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#71717a]">Val Score Over Time</span>
-                <span className="text-xs text-[#f59e0b] font-medium">
+                <span className="text-xs text-text-muted">Val Score Over Time</span>
+                <span className="text-xs text-warning font-medium">
                   Best: {agentPerf?.bestScore || Math.max(...agentResults.map(r => r.val_score))}
                 </span>
               </div>
@@ -1237,39 +1237,39 @@ function SelfImprovePanel() {
               </div>
               {/* Baseline line */}
               <div className="relative mt-1">
-                <div className="border-t border-dashed border-[#52525b]/50 absolute w-full" />
-                <span className="text-[9px] text-[#52525b] relative -top-2">baseline: {agentPerf?.baseline || 70.0}</span>
+                <div className="border-t border-dashed border-border-light/50 absolute w-full" />
+                <span className="text-[9px] text-text-muted relative -top-2">baseline: {agentPerf?.baseline || 70.0}</span>
               </div>
             </div>
 
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-[#27272a]">
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">#</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Date</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Score</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">LR</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Rank</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Epochs</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Examples</th>
-                  <th className="px-4 py-2.5 text-xs font-medium text-[#52525b]">Duration</th>
+                <tr className="border-b border-bg-tertiary">
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">#</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Date</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Score</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">LR</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Rank</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Epochs</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Examples</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-text-muted">Duration</th>
                 </tr>
               </thead>
               <tbody>
                 {agentResults.slice().reverse().slice(0, 20).map((r, i) => (
-                  <tr key={i} className="border-b border-[#27272a] last:border-0">
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{agentResults.length - i}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#a1a1aa]">
+                  <tr key={i} className="border-b border-bg-tertiary last:border-0">
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{agentResults.length - i}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-secondary">
                       {new Date(r.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className={`px-4 py-2.5 text-xs font-bold ${r.val_score >= (agentPerf?.baseline || 70) ? 'text-[#f59e0b]' : 'text-[#ef4444]'}`}>
+                    <td className={`px-4 py-2.5 text-xs font-bold ${r.val_score >= (agentPerf?.baseline || 70) ? 'text-warning' : 'text-error'}`}>
                       {r.val_score}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a] font-mono">{r.hyperparams.lr}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.hyperparams.rank}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.hyperparams.epochs}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{r.num_examples}</td>
-                    <td className="px-4 py-2.5 text-xs text-[#71717a]">{Math.round(r.training_time_s / 60)}m {Math.round(r.training_time_s % 60)}s</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted font-mono">{r.hyperparams.lr}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.hyperparams.rank}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.hyperparams.epochs}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{r.num_examples}</td>
+                    <td className="px-4 py-2.5 text-xs text-text-muted">{Math.round(r.training_time_s / 60)}m {Math.round(r.training_time_s % 60)}s</td>
                   </tr>
                 ))}
               </tbody>

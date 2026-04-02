@@ -39,10 +39,10 @@ const DEFAULT_CONFIG: NvidiaConfig = {
 
 function StatusDot({ status }: { status: 'unknown' | 'checking' | 'healthy' | 'unhealthy' }) {
   const colors = {
-    unknown: 'bg-[#52525b]',
+    unknown: 'bg-border-light',
     checking: 'bg-[#eab308] animate-pulse',
-    healthy: 'bg-[#22c55e]',
-    unhealthy: 'bg-[#ef4444]',
+    healthy: 'bg-success',
+    unhealthy: 'bg-error',
   };
   const labels = {
     unknown: 'Not checked',
@@ -51,7 +51,7 @@ function StatusDot({ status }: { status: 'unknown' | 'checking' | 'healthy' | 'u
     unhealthy: 'Unreachable',
   };
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-[#71717a]">
+    <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
       <span className={`inline-block h-2 w-2 rounded-full ${colors[status]}`} />
       {labels[status]}
     </span>
@@ -74,26 +74,26 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`rounded-xl border bg-[#18181b] transition-colors ${enabled ? 'border-[#76b900]/30' : 'border-[#27272a]'}`}>
+    <div className={`rounded-xl border bg-bg-secondary transition-colors ${enabled ? 'border-[#76b900]/30' : 'border-bg-tertiary'}`}>
       <div className="flex items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${enabled ? 'bg-[#76b900]/15' : 'bg-[#27272a]'}`}>
-            <Icon className={`h-4.5 w-4.5 ${enabled ? 'text-[#76b900]' : 'text-[#52525b]'}`} />
+          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${enabled ? 'bg-nvidia/15' : 'bg-bg-tertiary'}`}>
+            <Icon className={`h-4.5 w-4.5 ${enabled ? 'text-nvidia' : 'text-text-muted'}`} />
           </div>
           <div>
-            <h3 className="text-sm font-medium text-[#fafafa]">{title}</h3>
-            <p className="text-xs text-[#52525b] mt-0.5">{description}</p>
+            <h3 className="text-sm font-medium text-text">{title}</h3>
+            <p className="text-xs text-text-muted mt-0.5">{description}</p>
           </div>
         </div>
         <button
           onClick={onToggle}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? 'bg-[#76b900]' : 'bg-[#3f3f46]'}`}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? 'bg-nvidia' : 'bg-border'}`}
         >
           <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
         </button>
       </div>
       {enabled && (
-        <div className="border-t border-[#27272a] px-5 py-4 space-y-3">
+        <div className="border-t border-bg-tertiary px-5 py-4 space-y-3">
           {children}
         </div>
       )}
@@ -122,7 +122,7 @@ function InputField({
 
   return (
     <div>
-      <label className="mb-1 block text-xs text-[#71717a]">{label}</label>
+      <label className="mb-1 block text-xs text-text-muted">{label}</label>
       <div className="relative">
         <input
           id={id}
@@ -131,13 +131,13 @@ function InputField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-lg border border-[#3f3f46] bg-[#09090b] px-3 py-2 pr-10 text-sm text-[#fafafa] outline-none focus:border-[#76b900] transition-colors"
+          className="w-full rounded-lg border border-border bg-bg px-3 py-2 pr-10 text-sm text-text outline-none focus:border-[#76b900] transition-colors"
         />
         {secret && (
           <button
             type="button"
             onClick={() => setShow(!show)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa]"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
           >
             {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -266,7 +266,7 @@ function NvidiaPanel() {
     return (
       <div className="space-y-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-20 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -277,18 +277,18 @@ function NvidiaPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#76b900]/15">
-            <Cpu className="h-5 w-5 text-[#76b900]" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-nvidia/15">
+            <Cpu className="h-5 w-5 text-nvidia" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-[#fafafa]">NVIDIA</h1>
-            <p className="text-xs text-[#52525b]">GPU-accelerated AI services — NIM, cuOpt, Nemotron-ASR, OpenShell</p>
+            <h1 className="text-lg font-semibold text-text">NVIDIA</h1>
+            <p className="text-xs text-text-muted">GPU-accelerated AI services — NIM, cuOpt, Nemotron-ASR, OpenShell</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={checkHealth}
-            className="flex items-center gap-1.5 rounded-lg border border-[#3f3f46] px-3 py-1.5 text-xs text-[#a1a1aa] hover:bg-[#27272a] transition-colors"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Check Health
@@ -296,7 +296,7 @@ function NvidiaPanel() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-[#76b900] px-4 py-1.5 text-xs font-medium text-black transition-colors hover:bg-[#76b900]/80 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-nvidia px-4 py-1.5 text-xs font-medium text-black transition-colors hover:bg-nvidia/80 disabled:opacity-50"
           >
             <Save className="h-3.5 w-3.5" />
             {saving ? 'Saving...' : 'Save'}
@@ -309,8 +309,8 @@ function NvidiaPanel() {
         <div
           className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm ${
             toast.type === 'success'
-              ? 'border-[#22c55e]/50 text-[#22c55e]'
-              : 'border-[#ef4444]/50 text-[#ef4444]'
+              ? 'border-success/50 text-success'
+              : 'border-error/50 text-error'
           }`}
         >
           {toast.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
@@ -319,18 +319,18 @@ function NvidiaPanel() {
       )}
 
       {/* Master toggle */}
-      <div className={`rounded-xl border p-5 transition-colors ${config.enabled ? 'border-[#76b900]/30 bg-[#76b900]/5' : 'border-[#27272a] bg-[#18181b]'}`}>
+      <div className={`rounded-xl border p-5 transition-colors ${config.enabled ? 'border-[#76b900]/30 bg-nvidia/5' : 'border-bg-tertiary bg-bg-secondary'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium text-[#fafafa]">Enable NVIDIA Skills</h2>
-            <p className="text-xs text-[#52525b] mt-0.5">
+            <h2 className="text-sm font-medium text-text">Enable NVIDIA Skills</h2>
+            <p className="text-xs text-text-muted mt-0.5">
               Load NVIDIA GPU-accelerated skills (cuOpt, AI-Q Research, etc.) when TITAN starts.
-              Equivalent to setting <code className="text-[#76b900]/70 bg-[#76b900]/10 px-1 rounded">TITAN_NVIDIA=1</code>
+              Equivalent to setting <code className="text-nvidia/70 bg-nvidia/10 px-1 rounded">TITAN_NVIDIA=1</code>
             </p>
           </div>
           <button
             onClick={() => setConfig(c => ({ ...c, enabled: !c.enabled }))}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.enabled ? 'bg-[#76b900]' : 'bg-[#3f3f46]'}`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.enabled ? 'bg-nvidia' : 'bg-border'}`}
           >
             <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${config.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
           </button>
@@ -338,13 +338,13 @@ function NvidiaPanel() {
       </div>
 
       {/* NIM API Key */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-5 space-y-3">
+      <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Zap className="h-4 w-4 text-[#76b900]" />
+            <Zap className="h-4 w-4 text-nvidia" />
             <div>
-              <h3 className="text-sm font-medium text-[#fafafa]">NVIDIA NIM API</h3>
-              <p className="text-xs text-[#52525b] mt-0.5">
+              <h3 className="text-sm font-medium text-text">NVIDIA NIM API</h3>
+              <p className="text-xs text-text-muted mt-0.5">
                 Cloud inference for Nemotron 3 Super and other NIM models
               </p>
             </div>
@@ -352,8 +352,8 @@ function NvidiaPanel() {
           <div className="flex items-center gap-3">
             <StatusDot status={health.nim} />
             {hasApiKey && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#22c55e]/10 px-2.5 py-0.5 text-xs font-medium text-[#22c55e]">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#22c55e]" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
                 Key configured
               </span>
             )}
@@ -367,9 +367,9 @@ function NvidiaPanel() {
           placeholder={hasApiKey ? '(configured — enter new key to replace)' : 'nvapi-...'}
           secret
         />
-        <p className="text-[10px] text-[#52525b]">
+        <p className="text-[10px] text-text-muted">
           Get your key at{' '}
-          <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer" className="text-[#76b900] hover:underline inline-flex items-center gap-0.5">
+          <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer" className="text-nvidia hover:underline inline-flex items-center gap-0.5">
             build.nvidia.com <ExternalLink className="h-2.5 w-2.5" />
           </a>
         </p>
@@ -384,7 +384,7 @@ function NvidiaPanel() {
         onToggle={() => setConfig(c => ({ ...c, cuopt: { ...c.cuopt, enabled: !c.cuopt.enabled } }))}
       >
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-[#71717a]">Service Status</span>
+          <span className="text-xs text-text-muted">Service Status</span>
           <StatusDot status={health.cuopt} />
         </div>
         <InputField
@@ -394,8 +394,8 @@ function NvidiaPanel() {
           onChange={(v) => setConfig(c => ({ ...c, cuopt: { ...c.cuopt, url: v } }))}
           placeholder="http://localhost:5000"
         />
-        <p className="text-[10px] text-[#52525b]">
-          Start cuOpt: <code className="bg-[#27272a] px-1.5 py-0.5 rounded text-[#a1a1aa]">docker compose -f docker-compose.nvidia.yml --profile cuopt up -d</code>
+        <p className="text-[10px] text-text-muted">
+          Start cuOpt: <code className="bg-bg-tertiary px-1.5 py-0.5 rounded text-text-secondary">docker compose -f docker-compose.nvidia.yml --profile cuopt up -d</code>
         </p>
       </SectionCard>
 
@@ -408,7 +408,7 @@ function NvidiaPanel() {
         onToggle={() => setConfig(c => ({ ...c, asr: { ...c.asr, enabled: !c.asr.enabled } }))}
       >
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-[#71717a]">Service Status</span>
+          <span className="text-xs text-text-muted">Service Status</span>
           <StatusDot status={health.asr} />
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -427,11 +427,11 @@ function NvidiaPanel() {
             placeholder="http://localhost:9000"
           />
         </div>
-        <p className="text-[10px] text-[#52525b]">
-          Start ASR: <code className="bg-[#27272a] px-1.5 py-0.5 rounded text-[#a1a1aa]">docker compose -f docker-compose.nvidia.yml --profile asr up -d</code>
+        <p className="text-[10px] text-text-muted">
+          Start ASR: <code className="bg-bg-tertiary px-1.5 py-0.5 rounded text-text-secondary">docker compose -f docker-compose.nvidia.yml --profile asr up -d</code>
         </p>
-        <p className="text-[10px] text-[#52525b]">
-          VRAM: ~3-4 GB. Set <code className="bg-[#27272a] px-1 rounded text-[#a1a1aa]">STT_ENGINE=nemotron-asr</code> in voice agent env.
+        <p className="text-[10px] text-text-muted">
+          VRAM: ~3-4 GB. Set <code className="bg-bg-tertiary px-1 rounded text-text-secondary">STT_ENGINE=nemotron-asr</code> in voice agent env.
         </p>
       </SectionCard>
 
@@ -459,14 +459,14 @@ function NvidiaPanel() {
             placeholder="Auto-detected"
           />
         </div>
-        <p className="text-[10px] text-[#52525b]">
-          When enabled, code execution uses OpenShell instead of Docker. Set <code className="bg-[#27272a] px-1 rounded text-[#a1a1aa]">sandbox.engine: &quot;openshell&quot;</code> in config.
+        <p className="text-[10px] text-text-muted">
+          When enabled, code execution uses OpenShell instead of Docker. Set <code className="bg-bg-tertiary px-1 rounded text-text-secondary">sandbox.engine: &quot;openshell&quot;</code> in config.
         </p>
       </SectionCard>
 
       {/* VRAM Budget */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-5">
-        <h3 className="text-sm font-medium text-[#fafafa] mb-3">VRAM Budget (RTX 5090, 32 GB)</h3>
+      <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-5">
+        <h3 className="text-sm font-medium text-text mb-3">VRAM Budget (RTX 5090, 32 GB)</h3>
         <div className="space-y-2">
           {[
             { label: 'Nemotron 3 Nano 30B', vram: '~24 GB', note: 'Full local inference' },
@@ -476,14 +476,14 @@ function NvidiaPanel() {
           ].map(({ label, vram, note }) => (
             <div key={label} className="flex items-center justify-between py-1.5">
               <div>
-                <span className="text-xs text-[#fafafa]">{label}</span>
-                <span className="text-[10px] text-[#52525b] ml-2">{note}</span>
+                <span className="text-xs text-text">{label}</span>
+                <span className="text-[10px] text-text-muted ml-2">{note}</span>
               </div>
-              <span className="text-xs font-mono text-[#76b900]">{vram}</span>
+              <span className="text-xs font-mono text-nvidia">{vram}</span>
             </div>
           ))}
-          <div className="border-t border-[#27272a] pt-2 mt-2">
-            <p className="text-[10px] text-[#52525b]">
+          <div className="border-t border-bg-tertiary pt-2 mt-2">
+            <p className="text-[10px] text-text-muted">
               Recommended: Nano 4B + ASR + cuOpt = ~10 GB, leaving room for other models.
               Or use NIM cloud API for LLM inference (0 GB local).
             </p>
@@ -492,18 +492,18 @@ function NvidiaPanel() {
       </div>
 
       {/* Docker Compose hint */}
-      <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-5">
-        <h3 className="text-sm font-medium text-[#fafafa] mb-2">Quick Start</h3>
-        <div className="space-y-2 text-xs text-[#71717a]">
+      <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-5">
+        <h3 className="text-sm font-medium text-text mb-2">Quick Start</h3>
+        <div className="space-y-2 text-xs text-text-muted">
           <p>Start all NVIDIA services:</p>
-          <code className="block bg-[#09090b] border border-[#27272a] rounded-lg px-3 py-2 text-[#a1a1aa] font-mono text-xs">
+          <code className="block bg-bg border border-bg-tertiary rounded-lg px-3 py-2 text-text-secondary font-mono text-xs">
             docker compose -f docker-compose.nvidia.yml --profile all up -d
           </code>
           <p className="mt-2">Or start individual services:</p>
-          <div className="space-y-1 font-mono text-[10px] text-[#52525b]">
-            <p><span className="text-[#76b900]">cuopt:</span> --profile cuopt</p>
-            <p><span className="text-[#76b900]">asr:</span> --profile asr (includes Riva bridge)</p>
-            <p><span className="text-[#76b900]">voice:</span> --profile voice (ASR + bridge)</p>
+          <div className="space-y-1 font-mono text-[10px] text-text-muted">
+            <p><span className="text-nvidia">cuopt:</span> --profile cuopt</p>
+            <p><span className="text-nvidia">asr:</span> --profile asr (includes Riva bridge)</p>
+            <p><span className="text-nvidia">voice:</span> --profile voice (ASR + bridge)</p>
           </div>
         </div>
       </div>

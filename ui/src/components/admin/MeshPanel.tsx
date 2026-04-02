@@ -68,7 +68,7 @@ function MeshPanel() {
       header: 'Status',
       render: (row) => (
         <span className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-[#22c55e]" />
+          <span className="inline-block h-2 w-2 rounded-full bg-success" />
           <span className="capitalize">{row.status}</span>
         </span>
       ),
@@ -80,7 +80,7 @@ function MeshPanel() {
         row.connectedAt ? (
           <span>{new Date(row.connectedAt).toLocaleString()}</span>
         ) : (
-          <span className="text-[#71717a]">-</span>
+          <span className="text-text-muted">-</span>
         ),
     },
     {
@@ -93,7 +93,7 @@ function MeshPanel() {
             e.stopPropagation();
             handleRevoke(row.id);
           }}
-          className="rounded-md p-1.5 text-[#ef4444] transition-colors hover:bg-[#27272a]"
+          className="rounded-md p-1.5 text-error transition-colors hover:bg-bg-tertiary"
           title="Revoke peer"
         >
           <Unplug className="h-4 w-4" />
@@ -105,8 +105,8 @@ function MeshPanel() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-32 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
-        <div className="h-48 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+        <div className="h-32 animate-pulse rounded-xl border border-border bg-bg-secondary" />
+        <div className="h-48 animate-pulse rounded-xl border border-border bg-bg-secondary" />
       </div>
     );
   }
@@ -114,10 +114,10 @@ function MeshPanel() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#fafafa]">Mesh Network</h2>
+        <h2 className="text-lg font-semibold text-text">Mesh Network</h2>
         <button
           onClick={fetchAll}
-          className="rounded-lg p-2 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#fafafa]"
+          className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text"
           title="Refresh"
         >
           <RefreshCw className="h-4 w-4" />
@@ -125,18 +125,18 @@ function MeshPanel() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-[#ef4444]/50 bg-[#18181b] px-4 py-2 text-sm text-[#ef4444]">
+        <div className="rounded-lg border border-error/50 bg-bg-secondary px-4 py-2 text-sm text-error">
           {error}
         </div>
       )}
 
       {/* Pending Requests */}
       <div>
-        <h3 className="mb-3 text-sm font-medium text-[#a1a1aa]">
+        <h3 className="mb-3 text-sm font-medium text-text-secondary">
           Pending Requests ({pending.length})
         </h3>
         {pending.length === 0 ? (
-          <div className="rounded-xl border border-[#3f3f46] bg-[#18181b] p-6 text-center text-[#71717a]">
+          <div className="rounded-xl border border-border bg-bg-secondary p-6 text-center text-text-muted">
             No pending requests
           </div>
         ) : (
@@ -144,24 +144,24 @@ function MeshPanel() {
             {pending.map((peer) => (
               <div
                 key={peer.id}
-                className="rounded-xl border border-[#3f3f46] bg-[#18181b] p-4"
+                className="rounded-xl border border-border bg-bg-secondary p-4"
               >
-                <p className="font-mono text-sm text-[#fafafa]">{peer.nodeId}</p>
-                <p className="mt-1 text-xs text-[#a1a1aa]">{peer.url}</p>
+                <p className="font-mono text-sm text-text">{peer.nodeId}</p>
+                <p className="mt-1 text-xs text-text-secondary">{peer.url}</p>
                 {peer.name && (
-                  <p className="mt-1 text-xs text-[#71717a]">{peer.name}</p>
+                  <p className="mt-1 text-xs text-text-muted">{peer.name}</p>
                 )}
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => handleApprove(peer.id)}
-                    className="flex items-center gap-1.5 rounded-lg bg-[#22c55e] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#22c55e]/80"
+                    className="flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-success/80"
                   >
                     <ShieldCheck className="h-3.5 w-3.5" />
                     Approve
                   </button>
                   <button
                     onClick={() => handleReject(peer.id)}
-                    className="flex items-center gap-1.5 rounded-lg bg-[#ef4444] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#ef4444]/80"
+                    className="flex items-center gap-1.5 rounded-lg bg-error px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-error/80"
                   >
                     <ShieldX className="h-3.5 w-3.5" />
                     Reject
@@ -175,7 +175,7 @@ function MeshPanel() {
 
       {/* Connected Peers */}
       <div>
-        <h3 className="mb-3 text-sm font-medium text-[#a1a1aa]">
+        <h3 className="mb-3 text-sm font-medium text-text-secondary">
           Connected Peers ({peers.length})
         </h3>
         <DataTable columns={peerColumns} data={peers} emptyMessage="No connected peers" />

@@ -64,7 +64,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
@@ -2319,6 +2319,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.post('/api/command-post/agents/:id/heartbeat', (req, res) => {
     const ok = reportHeartbeat(req.params.id);
     res.json({ success: ok });
+  });
+
+  app.delete('/api/command-post/agents/:id', (req, res) => {
+    const ok = removeAgent(req.params.id);
+    if (!ok) { res.status(400).json({ error: 'Cannot remove agent (not found or is the primary agent)' }); return; }
+    res.json({ success: true });
   });
 
   app.post('/api/command-post/tasks/:goalId/:subtaskId/checkout', (req, res) => {
@@ -5109,6 +5115,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     if (heapMB > 1500) {
       logger.warn(COMPONENT, `Health monitor: High heap usage — ${heapMB}MB`);
     }
+
+    // Keep primary agent heartbeat alive for Command Post
+    try { reportHeartbeat('default'); } catch { /* non-critical */ }
     } catch (err) {
       logger.error(COMPONENT, `Health monitor error: ${(err as Error).message}`);
     }

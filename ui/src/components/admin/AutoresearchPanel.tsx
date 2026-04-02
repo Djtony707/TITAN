@@ -45,7 +45,7 @@ function formatDuration(seconds: number): string {
 function PerformanceChart({ runs }: { runs: AutoresearchRun[] }) {
   if (runs.length < 2) {
     return (
-      <div className="flex items-center justify-center h-[200px] rounded-xl border border-[#27272a] bg-[#18181b] text-[#52525b] text-sm">
+      <div className="flex items-center justify-center h-[200px] rounded-xl border border-bg-tertiary bg-bg-secondary text-text-muted text-sm">
         Need at least 2 runs to show chart
       </div>
     );
@@ -69,8 +69,8 @@ function PerformanceChart({ runs }: { runs: AutoresearchRun[] }) {
   const baselineY = y(baseline);
 
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4 overflow-x-auto">
-      <h3 className="text-xs font-medium text-[#a1a1aa] mb-2 uppercase tracking-wide">Val Score Over Time</h3>
+    <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4 overflow-x-auto">
+      <h3 className="text-xs font-medium text-text-secondary mb-2 uppercase tracking-wide">Val Score Over Time</h3>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 400 }}>
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
@@ -139,7 +139,7 @@ function StatCard({
   label,
   value,
   sub,
-  color = 'text-[#fafafa]',
+  color = 'text-text',
 }: {
   icon: React.ReactNode;
   label: string;
@@ -148,13 +148,13 @@ function StatCard({
   color?: string;
 }) {
   return (
-    <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-4">
+    <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-[#52525b]">{icon}</span>
-        <span className="text-[10px] font-medium text-[#52525b] uppercase tracking-wider">{label}</span>
+        <span className="text-text-muted">{icon}</span>
+        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">{label}</span>
       </div>
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      {sub && <div className="text-[10px] text-[#52525b] mt-0.5">{sub}</div>}
+      {sub && <div className="text-[10px] text-text-muted mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -269,7 +269,7 @@ export default function AutoresearchPanel() {
     return (
       <div className="space-y-4">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-20 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-20 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -282,8 +282,8 @@ export default function AutoresearchPanel() {
         <div
           className={`fixed top-4 right-4 z-50 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg ${
             toast.type === 'success'
-              ? 'bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/30'
-              : 'bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30'
+              ? 'bg-success/20 text-success border border-success/30'
+              : 'bg-error/20 text-error border border-error/30'
           }`}
         >
           {toast.message}
@@ -293,25 +293,25 @@ export default function AutoresearchPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-[#fafafa] flex items-center gap-2">
-            <FlaskConical className="h-5 w-5 text-[#8b5cf6]" />
+          <h1 className="text-xl font-bold text-text flex items-center gap-2">
+            <FlaskConical className="h-5 w-5 text-purple" />
             Autoresearch
           </h1>
-          <p className="text-xs text-[#52525b] mt-0.5">
+          <p className="text-xs text-text-muted mt-0.5">
             Autonomous model fine-tuning on RTX 5090 · qwen3.5:35b → titan-qwen
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setPaused(!paused)}
-            className="flex items-center gap-1 rounded-lg border border-[#27272a] px-2.5 py-1.5 text-xs text-[#a1a1aa] hover:bg-[#27272a]"
+            className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
           >
             {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
             {paused ? 'Resume' : 'Pause'}
           </button>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1 rounded-lg border border-[#27272a] px-2.5 py-1.5 text-xs text-[#a1a1aa] hover:bg-[#27272a]"
+            className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
           >
             <RefreshCw className="h-3 w-3" />
           </button>
@@ -330,13 +330,13 @@ export default function AutoresearchPanel() {
           label="Best Val Score"
           value={bestScore > 0 ? bestScore.toFixed(1) : '—'}
           sub={bestScore > baseline ? `+${(bestScore - baseline).toFixed(1)} from baseline` : undefined}
-          color={bestScore > baseline ? 'text-[#22c55e]' : 'text-[#fafafa]'}
+          color={bestScore > baseline ? 'text-success' : 'text-text'}
         />
         <StatCard
           icon={<TrendingUp className="h-4 w-4" />}
           label="Avg Improvement"
           value={runs.length > 0 ? `${avgImprovement >= 0 ? '+' : ''}${avgImprovement.toFixed(1)}` : '—'}
-          color={avgImprovement > 0 ? 'text-[#22c55e]' : avgImprovement < 0 ? 'text-[#ef4444]' : 'text-[#fafafa]'}
+          color={avgImprovement > 0 ? 'text-success' : avgImprovement < 0 ? 'text-error' : 'text-text'}
         />
         <StatCard
           icon={<Clock className="h-4 w-4" />}
@@ -354,7 +354,7 @@ export default function AutoresearchPanel() {
         <button
           onClick={triggerRun}
           disabled={triggering}
-          className="flex items-center gap-2 rounded-lg bg-[#8b5cf6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7c3aed] disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-purple px-4 py-2 text-sm font-medium text-white hover:bg-[#7c3aed] disabled:opacity-50"
         >
           <Play className="h-4 w-4" />
           {triggering ? 'Starting...' : 'Run Experiment'}
@@ -362,13 +362,13 @@ export default function AutoresearchPanel() {
         <button
           onClick={deployBest}
           disabled={runs.length === 0}
-          className="flex items-center gap-2 rounded-lg border border-[#27272a] px-4 py-2 text-sm font-medium text-[#a1a1aa] hover:bg-[#27272a] disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg border border-bg-tertiary px-4 py-2 text-sm font-medium text-text-secondary hover:bg-bg-tertiary disabled:opacity-50"
         >
           <Rocket className="h-4 w-4" />
           Deploy Best Model
         </button>
         {lastRun && (
-          <span className="text-xs text-[#52525b]">
+          <span className="text-xs text-text-muted">
             {lastRun.num_examples} training examples · {formatDuration(lastRun.training_time_s)}
           </span>
         )}
@@ -376,22 +376,22 @@ export default function AutoresearchPanel() {
 
       {/* What Made TITAN Better — Improvements Table */}
       {runs.length > 0 && (
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#27272a]">
-            <h3 className="text-sm font-medium text-[#fafafa]">What Made TITAN Better</h3>
-            <p className="text-[10px] text-[#52525b]">Experiment history — how each change affected val_score</p>
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary overflow-hidden">
+          <div className="px-4 py-3 border-b border-bg-tertiary">
+            <h3 className="text-sm font-medium text-text">What Made TITAN Better</h3>
+            <p className="text-[10px] text-text-muted">Experiment history — how each change affected val_score</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-[#27272a]">
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b]">#</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b]">Date</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b]">Changes</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b] text-right">Score</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b] text-right">Δ</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b] text-right">Duration</th>
-                  <th className="px-4 py-2 text-[10px] font-medium text-[#52525b] text-right">Examples</th>
+                <tr className="border-b border-bg-tertiary">
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted">#</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted">Date</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted">Changes</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted text-right">Score</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted text-right">Δ</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted text-right">Duration</th>
+                  <th className="px-4 py-2 text-[10px] font-medium text-text-muted text-right">Examples</th>
                 </tr>
               </thead>
               <tbody>
@@ -403,26 +403,26 @@ export default function AutoresearchPanel() {
                   const ts = new Date(run.timestamp);
 
                   return (
-                    <tr key={realIdx} className="border-b border-[#27272a] last:border-0 hover:bg-[#27272a30]">
-                      <td className="px-4 py-2 text-[#52525b] font-mono">{realIdx + 1}</td>
-                      <td className="px-4 py-2 text-[#a1a1aa]">
+                    <tr key={realIdx} className="border-b border-bg-tertiary last:border-0 hover:bg-[#27272a30]">
+                      <td className="px-4 py-2 text-text-muted font-mono">{realIdx + 1}</td>
+                      <td className="px-4 py-2 text-text-secondary">
                         {ts.toLocaleDateString()} {ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
-                      <td className="px-4 py-2 text-[#a1a1aa]">
+                      <td className="px-4 py-2 text-text-secondary">
                         {changes.map((c, i) => (
-                          <span key={i} className="inline-block mr-1.5 rounded bg-[#27272a] px-1.5 py-0.5 text-[10px] font-mono">
+                          <span key={i} className="inline-block mr-1.5 rounded bg-bg-tertiary px-1.5 py-0.5 text-[10px] font-mono">
                             {c}
                           </span>
                         ))}
                       </td>
-                      <td className="px-4 py-2 text-right font-mono text-[#fafafa] font-medium">{run.val_score.toFixed(1)}</td>
+                      <td className="px-4 py-2 text-right font-mono text-text font-medium">{run.val_score.toFixed(1)}</td>
                       <td className="px-4 py-2 text-right font-mono">
-                        <span className={delta > 0 ? 'text-[#22c55e]' : delta < 0 ? 'text-[#ef4444]' : 'text-[#52525b]'}>
+                        <span className={delta > 0 ? 'text-success' : delta < 0 ? 'text-error' : 'text-text-muted'}>
                           {delta > 0 ? '+' : ''}{delta.toFixed(1)}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right text-[#52525b]">{formatDuration(run.training_time_s)}</td>
-                      <td className="px-4 py-2 text-right text-[#52525b]">{run.num_examples}</td>
+                      <td className="px-4 py-2 text-right text-text-muted">{formatDuration(run.training_time_s)}</td>
+                      <td className="px-4 py-2 text-right text-text-muted">{run.num_examples}</td>
                     </tr>
                   );
                 })}
@@ -436,7 +436,7 @@ export default function AutoresearchPanel() {
       <div>
         <button
           onClick={() => setParamsOpen(!paramsOpen)}
-          className="flex w-full items-center gap-2 text-xs font-medium text-[#a1a1aa] uppercase tracking-wider hover:text-[#fafafa]"
+          className="flex w-full items-center gap-2 text-xs font-medium text-text-secondary uppercase tracking-wider hover:text-text"
         >
           {paramsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <Settings2 className="h-3.5 w-3.5" />
@@ -455,16 +455,16 @@ export default function AutoresearchPanel() {
               { label: 'Grad Accum', value: latestParams.grad_accum },
               { label: 'Max Seq Len', value: latestParams.max_seq_len },
             ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg border border-[#27272a] bg-[#18181b] px-3 py-2">
-                <div className="text-[10px] text-[#52525b] uppercase tracking-wider">{label}</div>
-                <div className="text-sm font-mono text-[#fafafa] mt-0.5">{value}</div>
+              <div key={label} className="rounded-lg border border-bg-tertiary bg-bg-secondary px-3 py-2">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider">{label}</div>
+                <div className="text-sm font-mono text-text mt-0.5">{value}</div>
               </div>
             ))}
           </div>
         )}
 
         {paramsOpen && !latestParams && (
-          <div className="mt-3 rounded-lg border border-[#27272a] bg-[#18181b] px-4 py-3 text-xs text-[#52525b]">
+          <div className="mt-3 rounded-lg border border-bg-tertiary bg-bg-secondary px-4 py-3 text-xs text-text-muted">
             No runs yet — hyperparameters will appear after the first experiment
           </div>
         )}
@@ -472,10 +472,10 @@ export default function AutoresearchPanel() {
 
       {/* Empty State */}
       {runs.length === 0 && (
-        <div className="rounded-xl border border-[#27272a] bg-[#18181b] p-8 text-center">
-          <FlaskConical className="h-8 w-8 text-[#52525b] mx-auto mb-3" />
-          <p className="text-sm text-[#a1a1aa]">No autoresearch runs yet</p>
-          <p className="text-xs text-[#52525b] mt-1">
+        <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-8 text-center">
+          <FlaskConical className="h-8 w-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm text-text-secondary">No autoresearch runs yet</p>
+          <p className="text-xs text-text-muted mt-1">
             Click "Run Experiment" to start fine-tuning qwen3.5:35b on the RTX 5090
           </p>
         </div>

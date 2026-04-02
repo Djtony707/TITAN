@@ -127,43 +127,43 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-96 max-w-full bg-[#09090b] border-l border-[#27272a] shadow-2xl z-50 flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-96 max-w-full bg-bg border-l border-bg-tertiary shadow-2xl z-50 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#27272a]">
+      <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
         <div className="flex items-center gap-2">
-          <HelpCircle size={20} className="text-[#6366f1]" />
-          <h2 className="text-lg font-semibold text-[#fafafa]">Help</h2>
+          <HelpCircle size={20} className="text-accent" />
+          <h2 className="text-lg font-semibold text-text">Help</h2>
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded-md text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors"
+          className="p-1 rounded-md text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors"
         >
           <X size={18} />
         </button>
       </div>
 
       {/* Search */}
-      <div className="p-3 border-b border-[#27272a]">
+      <div className="p-3 border-b border-bg-tertiary">
         <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525b]" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search help..."
-            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-[#27272a] bg-[#18181b] text-[#fafafa] placeholder:text-[#52525b] focus:outline-none focus:ring-1 focus:ring-[#6366f1]"
+            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-bg-tertiary bg-bg-secondary text-text placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-[#27272a]">
+      <div className="flex border-b border-bg-tertiary">
         <button
           onClick={() => setActiveTab('faq')}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
             activeTab === 'faq'
-              ? 'text-[#6366f1] border-b-2 border-[#6366f1]'
-              : 'text-[#a1a1aa] hover:text-[#fafafa]'
+              ? 'text-accent border-b-2 border-accent'
+              : 'text-text-secondary hover:text-text'
           }`}
         >
           <MessageCircle size={14} className="inline mr-1.5" />
@@ -173,8 +173,8 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
           onClick={() => setActiveTab('glossary')}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
             activeTab === 'glossary'
-              ? 'text-[#6366f1] border-b-2 border-[#6366f1]'
-              : 'text-[#a1a1aa] hover:text-[#fafafa]'
+              ? 'text-accent border-b-2 border-accent'
+              : 'text-text-secondary hover:text-text'
           }`}
         >
           <BookOpen size={14} className="inline mr-1.5" />
@@ -194,8 +194,8 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
                   onClick={() => setActiveCategory(cat)}
                   className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                     activeCategory === cat
-                      ? 'bg-[#6366f1] text-white'
-                      : 'bg-[#18181b] text-[#a1a1aa] hover:bg-[#27272a]'
+                      ? 'bg-accent text-white'
+                      : 'bg-bg-secondary text-text-secondary hover:bg-bg-tertiary'
                   }`}
                 >
                   {cat}
@@ -208,24 +208,24 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
               {filteredFaq.map((faq, i) => (
                 <div
                   key={i}
-                  className="rounded-lg border border-[#27272a] bg-[#18181b] overflow-hidden"
+                  className="rounded-lg border border-bg-tertiary bg-bg-secondary overflow-hidden"
                 >
                   <button
                     onClick={() => setExpandedFaq(expandedFaq === i ? null : i)}
-                    className="w-full px-3 py-2.5 text-left text-sm font-medium text-[#fafafa] hover:bg-[#27272a] transition-colors flex items-start gap-2"
+                    className="w-full px-3 py-2.5 text-left text-sm font-medium text-text hover:bg-bg-tertiary transition-colors flex items-start gap-2"
                   >
-                    <Zap size={14} className="text-[#6366f1] mt-0.5 flex-shrink-0" />
+                    <Zap size={14} className="text-accent mt-0.5 flex-shrink-0" />
                     <span>{faq.question}</span>
                   </button>
                   {expandedFaq === i && (
-                    <div className="px-3 pb-3 text-sm text-[#a1a1aa] leading-relaxed border-t border-[#27272a] pt-2 ml-6">
+                    <div className="px-3 pb-3 text-sm text-text-secondary leading-relaxed border-t border-bg-tertiary pt-2 ml-6">
                       {faq.answer}
                     </div>
                   )}
                 </div>
               ))}
               {filteredFaq.length === 0 && (
-                <p className="text-sm text-[#52525b] text-center py-4">
+                <p className="text-sm text-text-muted text-center py-4">
                   No results found. Try a different search term.
                 </p>
               )}
@@ -235,13 +235,13 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
           /* Glossary */
           <div className="space-y-2">
             {filteredGlossary.map(([term, definition]) => (
-              <div key={term} className="rounded-lg border border-[#27272a] bg-[#18181b] p-3">
-                <div className="text-sm font-semibold text-[#6366f1] mb-1">{term}</div>
-                <div className="text-sm text-[#a1a1aa] leading-relaxed">{definition}</div>
+              <div key={term} className="rounded-lg border border-bg-tertiary bg-bg-secondary p-3">
+                <div className="text-sm font-semibold text-accent mb-1">{term}</div>
+                <div className="text-sm text-text-secondary leading-relaxed">{definition}</div>
               </div>
             ))}
             {filteredGlossary.length === 0 && (
-              <p className="text-sm text-[#52525b] text-center py-4">
+              <p className="text-sm text-text-muted text-center py-4">
                 No matching terms found.
               </p>
             )}
@@ -250,12 +250,12 @@ export function HelpPanel({ open, onClose }: HelpPanelProps) {
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-[#27272a] bg-[#18181b]">
-        <div className="flex items-center gap-2 text-xs text-[#52525b]">
+      <div className="p-3 border-t border-bg-tertiary bg-bg-secondary">
+        <div className="flex items-center gap-2 text-xs text-text-muted">
           <Settings size={12} />
           <span>
             More settings at{' '}
-            <a href="/settings" className="text-[#6366f1] hover:underline">
+            <a href="/settings" className="text-accent hover:underline">
               Settings
             </a>
           </span>

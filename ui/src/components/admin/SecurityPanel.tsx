@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Shield } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 function SecurityPanel() {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
@@ -20,10 +21,7 @@ function SecurityPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Shield className="w-6 h-6 text-[var(--accent)]" />
-        <h1 className="text-xl font-bold text-[var(--text)]">Security</h1>
-      </div>
+      <PageHeader title="Security" breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Settings'}, {label:'Security'}]} />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-sm text-[var(--text-muted)]">Sandbox Mode</p>

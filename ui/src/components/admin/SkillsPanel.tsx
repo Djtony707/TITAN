@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSkills } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 import type { SkillInfo } from '@/api/types';
 
 function SkillsPanel() {
@@ -36,7 +37,7 @@ function SkillsPanel() {
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl border border-[#3f3f46] bg-[#18181b]" />
+          <div key={i} className="h-28 animate-pulse rounded-xl border border-border bg-bg-secondary" />
         ))}
       </div>
     );
@@ -44,7 +45,7 @@ function SkillsPanel() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[#ef4444]/50 bg-[#18181b] p-6 text-center text-[#ef4444]">
+      <div className="rounded-xl border border-error/50 bg-bg-secondary p-6 text-center text-error">
         {error}
       </div>
     );
@@ -52,7 +53,7 @@ function SkillsPanel() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-[#fafafa]">Skills</h2>
+      <PageHeader title="Skills" breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'Skills'}]} />
 
       {/* Category tabs */}
       <div className="flex flex-wrap gap-2">
@@ -62,8 +63,8 @@ function SkillsPanel() {
             onClick={() => setActiveCategory(cat)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
               activeCategory === cat
-                ? 'bg-[#6366f1] text-white'
-                : 'bg-[#27272a] text-[#a1a1aa] hover:text-[#fafafa]'
+                ? 'bg-accent text-white'
+                : 'bg-bg-tertiary text-text-secondary hover:text-text'
             }`}
           >
             {cat}
@@ -76,26 +77,26 @@ function SkillsPanel() {
         {filtered.map((skill) => (
           <div
             key={skill.name}
-            className="rounded-xl border border-[#3f3f46] bg-[#18181b] p-4"
+            className="rounded-xl border border-border bg-bg-secondary p-4"
           >
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="font-medium text-[#fafafa]">{skill.name}</h3>
+              <h3 className="font-medium text-text">{skill.name}</h3>
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                   skill.enabled
-                    ? 'bg-[#22c55e]/10 text-[#22c55e]'
-                    : 'bg-[#71717a]/10 text-[#71717a]'
+                    ? 'bg-success/10 text-success'
+                    : 'bg-text-muted/10 text-text-muted'
                 }`}
               >
                 {skill.enabled ? 'Enabled' : 'Disabled'}
               </span>
             </div>
-            <p className="text-sm text-[#a1a1aa]">{skill.description}</p>
-            <p className="mt-2 text-xs capitalize text-[#71717a]">{skill.category}</p>
+            <p className="text-sm text-text-secondary">{skill.description}</p>
+            <p className="mt-2 text-xs capitalize text-text-muted">{skill.category}</p>
           </div>
         ))}
         {filtered.length === 0 && (
-          <p className="col-span-full py-12 text-center text-[#71717a]">
+          <p className="col-span-full py-12 text-center text-text-muted">
             No skills in this category
           </p>
         )}

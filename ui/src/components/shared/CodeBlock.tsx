@@ -16,20 +16,20 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
   };
 
   return (
-    <div className="relative rounded-lg border border-[#3f3f46] bg-[#09090b]">
+    <div className="relative rounded-lg border border-border bg-bg">
       {language && (
-        <div className="border-b border-[#3f3f46] px-4 py-1.5 text-xs text-[#71717a]">
+        <div className="border-b border-border px-4 py-1.5 text-xs text-text-muted">
           {language}
         </div>
       )}
       <button
         onClick={handleCopy}
-        className="absolute right-2 top-2 rounded-md p-1.5 text-[#71717a] transition-colors hover:bg-[#27272a] hover:text-[#fafafa]"
+        className="absolute right-2 top-2 rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-tertiary hover:text-text"
       >
         {copied ? <Check className="h-4 w-4" /> : <ClipboardCopy className="h-4 w-4" />}
       </button>
       <pre className="overflow-x-auto p-4">
-        <code className="font-mono text-sm text-[#fafafa]">{code}</code>
+        <code className="font-mono text-sm text-text">{code}</code>
       </pre>
     </div>
   );

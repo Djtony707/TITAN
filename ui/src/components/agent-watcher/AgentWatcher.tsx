@@ -10,14 +10,14 @@ export function AgentWatcher({ events, onClose }: { events: AgentEvent[]; onClos
   const [mode, setMode] = useState<ViewMode>('cards');
 
   return (
-    <div className="h-full flex flex-col bg-[#09090b]">
+    <div className="h-full flex flex-col bg-bg">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#3f3f46]">
-        <span className="text-xs font-semibold text-[#a1a1aa] uppercase tracking-wider">Agent Watcher</span>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Agent Watcher</span>
 
         <div className="flex items-center gap-1">
           {/* View toggle */}
-          <div className="flex bg-[#18181b] rounded-lg p-0.5">
+          <div className="flex bg-bg-secondary rounded-lg p-0.5">
             <button
               onClick={() => setMode('cards')}
               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors duration-200"
@@ -45,7 +45,7 @@ export function AgentWatcher({ events, onClose }: { events: AgentEvent[]; onClos
           {/* Close button */}
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-[#27272a] text-[#52525b] hover:text-[#a1a1aa] transition-colors duration-200"
+            className="p-1 rounded-md hover:bg-bg-tertiary text-text-muted hover:text-text-secondary transition-colors duration-200"
           >
             <X className="w-4 h-4" />
           </button>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Zap } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 function AutopilotPanel() {
   const [config, setConfig] = useState<{ mode: string; interval?: number } | null>(null);
@@ -18,10 +19,7 @@ function AutopilotPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Zap className="w-6 h-6 text-[var(--accent)]" />
-        <h1 className="text-xl font-bold text-[var(--text)]">Autopilot</h1>
-      </div>
+      <PageHeader title="Autopilot" breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Agent'}, {label:'Autopilot'}]} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-sm text-[var(--text-muted)]">Mode</p>

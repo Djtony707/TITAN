@@ -14,8 +14,8 @@ export function VoiceButton({ onClick, disabled = false }: VoiceButtonProps) {
       className={`
         relative rounded-full p-2.5 transition-all duration-200
         ${disabled
-          ? 'bg-[#27272a]/50 text-[#71717a] cursor-not-allowed'
-          : 'bg-[#27272a] text-[#a1a1aa] hover:bg-[#6366f1] hover:text-[#fafafa] cursor-pointer'
+          ? 'bg-bg-tertiary/50 text-text-muted cursor-not-allowed'
+          : 'bg-bg-tertiary text-text-secondary hover:bg-accent hover:text-text cursor-pointer'
         }
       `}
     >
