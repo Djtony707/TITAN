@@ -90,12 +90,42 @@ function resolveAlias(modelId: string): string {
     return modelId;
 }
 
+// ── Cloud model → OpenRouter bypass ──────────────────────────────────
+// Ollama's cloud proxy is single-connection (sequential). When multiple agents
+// send requests simultaneously, they queue. Bypass by routing :cloud models
+// directly to OpenRouter for parallel processing.
+const CLOUD_TO_OPENROUTER: Record<string, string> = {
+    'qwen3-coder-next:cloud': 'qwen/qwen3-coder',
+    'qwen3.5:397b-cloud': 'qwen/qwen-3.5-397b',
+    'nemotron-3-super:cloud': 'nvidia/nemotron-3-super',
+    'deepseek-v3.1:671b-cloud': 'deepseek/deepseek-chat-v3-0324',
+    'deepseek-v3.2:671b-cloud': 'deepseek/deepseek-chat-v3-0324',
+    'devstral-2:cloud': 'mistralai/devstral-2',
+    'glm-5:cloud': 'thudm/glm-4-32b',
+    'kimi-k2.5:cloud': 'moonshotai/kimi-k2',
+    'gpt-oss:120b-cloud': 'openai/gpt-4.1',
+    'minimax-m2.7:cloud': 'minimax/minimax-m1-80k',
+};
+
 /** Resolve the provider and model from a model ID like "anthropic/claude-3" or alias like "fast" */
 export function resolveModel(modelId: string): { provider: LLMProvider; model: string } {
     initProviders();
     // First resolve aliases
     const resolved = resolveAlias(modelId);
     const { provider: rawProviderName, model } = LLMProvider.parseModelId(resolved);
+
+    // ── Cloud bypass: route :cloud models to OpenRouter for parallel processing ──
+    if ((model.includes(':cloud') || model.includes('-cloud')) && rawProviderName === 'ollama') {
+        const orProvider = providers.get('openrouter');
+        const orModel = CLOUD_TO_OPENROUTER[model];
+        if (orProvider && orModel) {
+            logger.info(COMPONENT, `[CloudBypass] ${model} → openrouter/${orModel} (parallel-capable)`);
+            return { provider: orProvider, model: orModel };
+        }
+        // Fallback: unknown cloud model, keep on Ollama
+        logger.debug(COMPONENT, `[CloudBypass] No OpenRouter mapping for ${model}, keeping on Ollama`);
+    }
+
     // Normalize provider name (e.g. "grok" → "xai", "local" → "ollama")
     const providerName = normalizeProvider(rawProviderName);
     const provider = providers.get(providerName);
