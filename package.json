@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "2026.10.69",
+  "version": "2026.10.70",
   "description": "TITAN — The Intelligent Task Automation Network. Autonomous AI agent framework with 209 tools, 36 providers, Paperclip-style Command Post governance, F5-TTS voice cloning, self-improvement, mesh networking, and a React dashboard with 26 panels.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
