@@ -68,6 +68,7 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('../src/providers/router.js', () => ({
     chat: mockChat,
+    chatStream: vi.fn(),
 }));
 
 vi.mock('../src/config/config.js', () => ({
@@ -841,7 +842,7 @@ describe('Agent processMessage', () => {
     it('should default to cli channel and default userId', async () => {
         await processMessage('Hello');
 
-        expect(mockGetOrCreateSession).toHaveBeenCalledWith('cli', 'default');
+        expect(mockGetOrCreateSession).toHaveBeenCalledWith('cli', 'default', 'default');
     });
 
     // ── Tool JSON stripping ──────────────────────────────────────────

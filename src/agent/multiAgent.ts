@@ -179,6 +179,7 @@ export async function routeMessage(
     const response = await processMessage(message, channel, userId, {
         model: effectiveModel,
         systemPrompt: agent.systemPrompt,
+        agentId: agent.id,
     }, streamCallbacks, signal);
 
     return {

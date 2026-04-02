@@ -65,6 +65,7 @@ import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
 import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
@@ -2520,6 +2521,48 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(updated);
   });
 
+  // ── Wakeup System (async sub-agent delegation) ────────────
+
+  app.get('/api/command-post/agents/:agentId/inbox', (req, res) => {
+    const items = getAgentInbox(req.params.agentId);
+    res.json({ items, total: items.length });
+  });
+
+  app.post('/api/command-post/wakeup', (req, res) => {
+    const { issueId, agentId, agentName, task, templateName } = req.body;
+    if (!issueId || !agentId || !task) {
+      res.status(400).json({ error: 'issueId, agentId, and task are required' });
+      return;
+    }
+    const wakeup = queueWakeup({
+      issueId,
+      issueIdentifier: issueId,
+      agentId,
+      agentName: agentName || 'Agent',
+      parentSessionId: null,
+      task,
+      templateName: templateName || '',
+    });
+    res.json({ wakeupRequestId: wakeup.id, status: wakeup.status });
+  });
+
+  app.get('/api/command-post/wakeup/:requestId', (req, res) => {
+    const request = getWakeupRequest(req.params.requestId);
+    if (!request) { res.status(404).json({ error: 'Wakeup request not found' }); return; }
+    res.json(request);
+  });
+
+  app.delete('/api/command-post/wakeup/:requestId', (req, res) => {
+    const cancelled = cancelWakeup(req.params.requestId);
+    if (!cancelled) { res.status(409).json({ error: 'Request already running or completed' }); return; }
+    res.json({ cancelled: true });
+  });
+
+  app.get('/api/command-post/sessions/:sessionId/pending-results', (req, res) => {
+    const results = drainPendingResults(req.params.sessionId);
+    res.json({ results, count: results.length });
+  });
+
   // ── Files API (Workspace file browser) ────────────────────
 
   app.get('/api/files', (req, res) => {
@@ -4883,7 +4926,8 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // ── Command Post — agent governance layer ────────────────
   if (config.commandPost?.enabled) {
     initCommandPost(config.commandPost);
-    logger.info(COMPONENT, 'Command Post governance layer initialized');
+    initWakeupSystem();
+    logger.info(COMPONENT, 'Command Post governance layer initialized (wakeup system active)');
   }
 
   // ── Daemon — persistent agent awareness loop ────────────────

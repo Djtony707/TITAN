@@ -3,40 +3,39 @@
  * The main agent: receives messages, builds context, calls LLM, handles tools, responds.
  */
 import { existsSync, readFileSync } from 'fs';
-import { chat, chatStream } from '../providers/router.js';
 import { loadConfig } from '../config/config.js';
 import { getOrCreateSession, addMessage, getContextMessages } from './session.js';
-import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.js';
+import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
-import { recordToolResult, getLearningContext, learnFact, getToolWarnings, recordErrorResolution, classifyTaskType, recordToolPreference, recordStrategy, recordStrategyOutcome, getStrategyHints, getErrorResolution } from '../memory/learning.js';
+import { getLearningContext, learnFact, getToolWarnings, classifyTaskType, recordStrategy, recordStrategyOutcome, getStrategyHints } from '../memory/learning.js';
 import { buildPersonalContext } from '../memory/relationship.js';
 import { retainStrategy, getHindsightHints } from '../memory/hindsightBridge.js';
 import { getTeachingContext, isCorrection } from './teaching.js';
-import { recordToolUsage, recordCorrection } from './userProfile.js';
-import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, clearSession, setStallHandler, setAutonomousMode, checkToolCallCapability, resetToolCallFailures } from './stallDetector.js';
-import { checkForLoop, resetLoopDetection } from './loopDetection.js';
-import { routeModel, maybeCompressContext, recordTokenUsage } from './costOptimizer.js';
-import { getCachedResponse, setCachedResponse } from './responseCache.js';
-import { buildSmartContext, compactContextWithPlugins } from './contextManager.js';
+import { recordCorrection } from './userProfile.js';
+import { heartbeat, clearSession, setStallHandler, setAutonomousMode } from './stallDetector.js';
+import { resetLoopDetection } from './loopDetection.js';
+import { routeModel } from './costOptimizer.js';
 import { getPlugins } from '../plugins/registry.js';
 import { runAfterTurn } from '../plugins/contextEngine.js';
-import { getSwarmRouterTools, runSubAgent, type Domain } from './swarm.js';
+import { getSwarmRouterTools } from './swarm.js';
 import { shouldDeliberate, analyze, generatePlan, executePlan, handleApproval, getDeliberation, cancelDeliberation, formatPlanResults } from './deliberation.js';
-import type { ChatMessage, ChatResponse, ToolCall, ToolDefinition } from '../providers/base.js';
+import type { ChatMessage, ToolDefinition } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
 import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensureLoaded as ensureBrainLoaded } from './brain.js';
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
 import { buildSelfAwarenessContext } from './selfAwareness.js';
-import { shouldReflect, reflect, resetProgress, recordProgress, isProgressStalled } from './reflection.js';
 import { analyzeForDelegation, executeDelegationPlan } from './orchestrator.js';
+import { queueWakeup } from './agentWakeup.js';
+import { createIssue } from './commandPost.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
+import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
+import { runAgentLoop } from './agentLoop.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD } from '../utils/constants.js';
 
 const COMPONENT = 'Agent';
 const MAX_TOOL_ROUNDS = 10;
-const MAX_MODEL_SWITCHES = 2; // Safety: max 2 in-flight model switches per request
 
 /** Estimate the round budget based on task complexity */
 function estimateRoundBudget(message: string, config: import('../config/schema.js').TitanConfig): number {
@@ -65,27 +64,9 @@ function estimateRoundBudget(message: string, config: import('../config/schema.j
     return Math.min(budget, hardCap);
 }
 
-/** Find a fallback model for tool calling when the current model fails */
-function findToolCapableFallback(failedModel: string, failedModels: Set<string>, config: import('../config/schema.js').TitanConfig): string | null {
-    const candidates: string[] = [];
-
-    // 1. Check explicit toolCapableModels config
-    const toolCapable = (config.agent as Record<string, unknown>).toolCapableModels as string[] | undefined;
-    if (toolCapable?.length) candidates.push(...toolCapable);
-
-    // 2. Check fallback chain
-    const chain = (config.agent as Record<string, unknown>).fallbackChain as string[] | undefined;
-    if (chain?.length) candidates.push(...chain);
-
-    // 3. Check model aliases (fast and smart)
-    const aliases = (config.agent as Record<string, unknown>).modelAliases as Record<string, string> | undefined;
-    if (aliases?.fast) candidates.push(aliases.fast);
-    if (aliases?.smart) candidates.push(aliases.smart);
-
-    // Filter out the failed model and any previously failed models
-    const viable = candidates.filter(m => m !== failedModel && !failedModels.has(m));
-    return viable.length > 0 ? viable[0] : null;
-}
+// ── Current session context for spawn_agent async delegation ─────
+let currentSessionId: string | null = null;
+export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
 
 // ── Register spawn_agent tool ────────────────────────────────────
 let spawnAgentRegistered = false;
@@ -107,14 +88,43 @@ function ensureSpawnAgentRegistered(): void {
         },
         execute: async (args) => {
             const template = SUB_AGENT_TEMPLATES[(args.template as string) || ''] || {};
+            const agentName = (args.name as string) || template.name || 'SubAgent';
+            const task = args.task as string;
+            const templateName = (args.template as string) || '';
+
+            // ── Async path: delegate via Command Post ────────────
+            const cpEnabled = loadConfig().commandPost?.enabled ?? false;
+            if (cpEnabled) {
+                const issue = createIssue({
+                    title: `[Agent Task] ${task.slice(0, 80)}`,
+                    description: task,
+                    priority: 'medium',
+                    createdByUser: 'agent',
+                });
+
+                const wakeup = queueWakeup({
+                    issueId: issue.id,
+                    issueIdentifier: issue.identifier,
+                    agentId: issue.id, // Use issue ID as agent ID for simplicity
+                    agentName,
+                    parentSessionId: currentSessionId,
+                    task,
+                    templateName,
+                    model: args.model as string | undefined,
+                });
+
+                return `[Async Delegation] Task ${issue.identifier} created and assigned to ${agentName} agent.\nWakeup: ${wakeup.id} | Status: delegated\nResults will appear when the sub-agent completes.`;
+            }
+
+            // ── Sync path: original blocking execution ───────────
             const result = await spawnSubAgent({
-                name: (args.name as string) || template.name || 'SubAgent',
-                task: args.task as string,
+                name: agentName,
+                task,
                 tools: template.tools,
                 systemPrompt: template.systemPrompt,
                 model: args.model as string | undefined,
                 tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
-                depth: 0, // Top-level spawn from agent
+                depth: 0,
             });
             const validTag = result.validated ? '' : ' [OUTPUT UNVALIDATED]';
             return `[Sub-Agent: ${result.success ? 'SUCCESS' : 'FAILED'}${validTag}] (${result.rounds} rounds, ${result.durationMs}ms)\n${result.content}`;
@@ -122,181 +132,86 @@ function ensureSpawnAgentRegistered(): void {
     });
 }
 
-/** Strip leaked tool-call JSON from LLM responses (common with small local models) */
-function stripToolJson(text: string): string {
-    return text.replace(/\s*\{"(?:name|tool_call)":\s*"[^"]+",\s*"(?:parameters|arguments)":\s*\{[^}]*\}\s*\}\s*/g, '').trim();
-}
+// ── Register delegate_task tool (inter-agent delegation via Command Post) ──
+let delegateTaskRegistered = false;
+function ensureDelegateTaskRegistered(): void {
+    if (delegateTaskRegistered) return;
+    delegateTaskRegistered = true;
+    registerTool({
+        name: 'delegate_task',
+        description: 'Delegate a task to a multi-agent worker OR an external agent (Claude Code, Codex, bash). Creates a Command Post issue and returns immediately. Results are injected into your next response.',
+        parameters: {
+            type: 'object',
+            properties: {
+                agentId: { type: 'string', description: 'Target agent ID (from list_agents). Required unless using an external adapter.' },
+                task: { type: 'string', description: 'Task description for the worker' },
+                priority: { type: 'string', description: 'Priority: low, medium, high, critical (default: medium)' },
+                adapter: { type: 'string', description: 'External adapter: "claude-code", "codex", "bash". When set, task runs via external CLI instead of internal agent.' },
+                cwd: { type: 'string', description: 'Working directory for external adapters (optional)' },
+            },
+            required: ['task'],
+        },
+        execute: async (args) => {
+            const task = args.task as string;
+            const priority = (args.priority as string) || 'medium';
+            const adapterType = args.adapter as string | undefined;
+            const cwd = args.cwd as string | undefined;
 
-/**
- * Tool Call Rescue — extract a tool call from LLM text content.
- * Local models sometimes describe calling a tool in their text response instead of
- * generating a proper tool_calls function call. This detects that pattern and
- * converts it into a synthetic tool call so the tool actually executes.
- *
- * Patterns detected:
- *   - "Call smart_form_fill with url=... data=..."
- *   - "Use the smart_form_fill tool"
- *   - JSON-like tool calls embedded in text: {"name":"smart_form_fill","arguments":{...}}
- */
-function extractToolCallFromContent(
-    content: string,
-    activeTools: ToolDefinition[],
-    isCloudModel = false,
-): ToolCall | null {
-    if (!content || content.length < 10) return null;
+            if (adapterType) {
+                // ── External adapter path ────────────────────────
+                const issue = createIssue({
+                    title: `[External: ${adapterType}] ${task.slice(0, 70)}`,
+                    description: task,
+                    priority: priority as 'low' | 'medium' | 'high' | 'critical',
+                    createdByUser: 'agent',
+                });
 
-    const toolNames = activeTools.map(t => t.function.name);
+                const wakeup = queueWakeup({
+                    issueId: issue.id,
+                    issueIdentifier: issue.identifier,
+                    agentId: `adapter:${adapterType}`,
+                    agentName: adapterType,
+                    parentSessionId: currentSessionId,
+                    task,
+                    templateName: '',
+                    mode: 'external',
+                    adapterType,
+                    cwd,
+                });
 
-    // Strategy 1a: Look for embedded JSON tool calls (any model)
-    const jsonMatch = content.match(/\{"(?:name|tool_call)":\s*"([^"]+)",\s*"(?:parameters|arguments)":\s*(\{[^}]*(?:\{[^}]*\}[^}]*)?\})\s*\}/);
-    if (jsonMatch && toolNames.includes(jsonMatch[1])) {
-        return {
-            id: `rescue_${Date.now()}`,
-            type: 'function',
-            function: { name: jsonMatch[1], arguments: jsonMatch[2] },
-        };
-    }
-
-    // Strategy 1b: DeepSeek XML-style <function_call> format
-    // DeepSeek v3.2 returns: <function_call>{"name":"weather","arguments":{"city":"Tokyo"}}</function_call>
-    const xmlMatch = content.match(/<function_call>\s*(\{[\s\S]*?\})\s*<\/function_call>/);
-    if (xmlMatch) {
-        try {
-            const parsed = JSON.parse(xmlMatch[1]);
-            const name = parsed.name || parsed.function?.name;
-            const args = parsed.arguments || parsed.parameters || parsed.function?.arguments;
-            if (name && toolNames.includes(name)) {
-                return {
-                    id: `rescue_${Date.now()}`,
-                    type: 'function',
-                    function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args || {}) },
-                };
+                return `Task ${issue.identifier} delegated to external adapter "${adapterType}".\nWakeup: ${wakeup.id} | Priority: ${priority}\nThe adapter will process this asynchronously.`;
             }
-        } catch { /* malformed XML tool call */ }
-    }
 
-    // Strategy 2: Detect tool names + extract arguments from text.
-    // Cloud models often describe tool usage in natural language instead of structured calls.
-    // For cloud models, we rescue ALL tools (not just exotic ones).
-    const skipSet = isCloudModel
-        ? new Set<string>() // Cloud models: rescue everything
-        : new Set(['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory', 'web_search', 'web_fetch', 'tool_search']);
+            // ── Multi-agent path ─────────────────────────────
+            const targetId = args.agentId as string;
+            if (!targetId) return 'Error: agentId is required when not using an external adapter.';
 
-    for (const toolName of toolNames) {
-        if (skipSet.has(toolName)) continue;
+            const target = getAgent(targetId);
+            if (!target) return `Error: Agent "${targetId}" not found. Use list_agents to see available agents.`;
+            if (target.status !== 'running') return `Error: Agent "${targetId}" is ${target.status}, not running.`;
 
-        // Broad mention patterns — model says "I'll use shell", "running shell", "calling web_search", etc.
-        const mentionRegex = new RegExp(
-            `(?:call(?:ing)?|us(?:e|ing)|invok(?:e|ing)|execut(?:e|ing)|runn?(?:ing)?|tool\\s+)\\s*(?:the\\s+)?(?:tool\\s+)?(?:named\\s+)?["\`']?${toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`']?`,
-            'i',
-        );
-        if (!mentionRegex.test(content)) continue;
+            const issue = createIssue({
+                title: `[Delegated] ${task.slice(0, 80)}`,
+                description: task,
+                priority: priority as 'low' | 'medium' | 'high' | 'critical',
+                assigneeAgentId: target.id,
+                createdByUser: 'agent',
+            });
 
-        logger.debug(COMPONENT, `[ToolRescue] Detected mention of "${toolName}" in text response`);
+            const wakeup = queueWakeup({
+                issueId: issue.id,
+                issueIdentifier: issue.identifier,
+                agentId: target.id,
+                agentName: target.name,
+                parentSessionId: currentSessionId,
+                task,
+                templateName: '',
+                mode: 'multi-agent',
+            });
 
-        // Try to extract JSON args from nearby content
-        const jsonArgs = content.match(/\{[\s\S]*?\}/);
-        if (jsonArgs) {
-            try {
-                const parsed = JSON.parse(jsonArgs[0]);
-                if (typeof parsed === 'object' && parsed !== null) {
-                    const args: Record<string, string> = {};
-                    for (const [k, v] of Object.entries(parsed)) {
-                        args[k] = typeof v === 'string' ? v : JSON.stringify(v);
-                    }
-                    return {
-                        id: `rescue_${Date.now()}`,
-                        type: 'function',
-                        function: { name: toolName, arguments: JSON.stringify(args) },
-                    };
-                }
-            } catch { /* not valid JSON — try other extraction methods */ }
-        }
-
-        // Tool-specific argument extraction from natural language
-        if (toolName === 'shell') {
-            // Extract shell commands from backticks, quotes, or "run: ..." patterns
-            const cmdMatch = content.match(/(?:`{1,3}(?:bash|sh|shell)?\n?(.*?)`{1,3}|(?:command|run|execute)[=:\s]+["'](.+?)["'])/s);
-            if (cmdMatch) {
-                const cmd = (cmdMatch[1] || cmdMatch[2]).trim();
-                if (cmd.length > 0) {
-                    return {
-                        id: `rescue_${Date.now()}`,
-                        type: 'function',
-                        function: { name: 'shell', arguments: JSON.stringify({ command: cmd }) },
-                    };
-                }
-            }
-        }
-
-        if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') {
-            // Extract file paths from content
-            const pathMatch = content.match(/(?:file|path)[=:\s]+["']?((?:\/|~\/|\.\/)\S+?)["'\s,)]/i)
-                || content.match(/((?:\/|~\/)\S+\.\w{1,10})/);
-            if (pathMatch && toolName === 'read_file') {
-                return {
-                    id: `rescue_${Date.now()}`,
-                    type: 'function',
-                    function: { name: 'read_file', arguments: JSON.stringify({ path: pathMatch[1] }) },
-                };
-            }
-        }
-
-        if (toolName === 'web_search') {
-            // Extract search query from quotes or "query: ..." pattern
-            const queryMatch = content.match(/(?:search(?:ing)?(?:\s+for)?|query)[=:\s]+["'](.+?)["']/i)
-                || content.match(/search(?:ing)?\s+(?:for\s+)?["'](.+?)["']/i);
-            if (queryMatch) {
-                return {
-                    id: `rescue_${Date.now()}`,
-                    type: 'function',
-                    function: { name: 'web_search', arguments: JSON.stringify({ query: queryMatch[1] }) },
-                };
-            }
-        }
-
-        if (toolName === 'smart_form_fill') {
-            const urlMatch = content.match(/url[=:]\s*["']?(https?:\/\/\S+)["']?/i);
-            const dataMatch = content.match(/data[=:]\s*['"]?(\{[\s\S]*?\})['"]?/i);
-            if (urlMatch && dataMatch) {
-                try {
-                    JSON.parse(dataMatch[1]);
-                    return {
-                        id: `rescue_${Date.now()}`,
-                        type: 'function' as const,
-                        function: {
-                            name: toolName,
-                            arguments: JSON.stringify({
-                                url: urlMatch[1],
-                                data: dataMatch[1],
-                                submit: content.toLowerCase().includes('submit=true') ? 'true' : 'false',
-                            }),
-                        },
-                    };
-                } catch { /* skip */ }
-            }
-        }
-    }
-
-    // Strategy 3 (cloud models only): If the model described a shell command anywhere
-    // but didn't mention "shell" tool by name — detect command patterns and rescue.
-    if (isCloudModel && toolNames.includes('shell')) {
-        // Look for code blocks with commands
-        const codeBlockCmd = content.match(/```(?:bash|sh|shell)?\n([\s\S]*?)```/);
-        if (codeBlockCmd) {
-            const cmd = codeBlockCmd[1].trim();
-            if (cmd.length > 0 && cmd.length < 2000) {
-                logger.debug(COMPONENT, `[ToolRescue] Detected shell command in code block`);
-                return {
-                    id: `rescue_${Date.now()}`,
-                    type: 'function',
-                    function: { name: 'shell', arguments: JSON.stringify({ command: cmd }) },
-                };
-            }
-        }
-    }
-
-    return null;
+            return `Task ${issue.identifier} delegated to "${target.name}" (${target.id}).\nWakeup: ${wakeup.id} | Priority: ${priority}\nThe worker will process this asynchronously. Results will be injected into your conversation when ready.`;
+        },
+    });
 }
 
 // Wire the stall detector so silence timeouts are logged rather than silently discarded
@@ -570,13 +485,13 @@ export async function processMessage(
     message: string,
     channel: string = 'cli',
     userId: string = 'default',
-    overrides?: { model?: string; systemPrompt?: string },
+    overrides?: { model?: string; systemPrompt?: string; agentId?: string },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
 ): Promise<AgentResponse> {
     const startTime = Date.now();
     const config = loadConfig();
-    const session = getOrCreateSession(channel, userId);
+    const session = getOrCreateSession(channel, userId, overrides?.agentId || 'default');
 
     logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId})`);
 
@@ -593,6 +508,11 @@ export async function processMessage(
     const subAgentConfig = (config as Record<string, unknown>).subAgents as { enabled?: boolean } | undefined;
     if (subAgentConfig?.enabled !== false) {
         ensureSpawnAgentRegistered();
+    }
+
+    // ── Register delegate_task tool if Command Post enabled ───
+    if ((config.commandPost as Record<string, unknown> | undefined)?.enabled) {
+        ensureDelegateTaskRegistered();
     }
 
     // ── Determine effective limits based on autonomy mode + dynamic budget ─────
@@ -860,14 +780,8 @@ export async function processMessage(
     let finalContent = '';
     let modelUsed = config.agent.model;
 
-    // ── Self-Heal state: track model switching for tool call failures ──
+    // Self-heal config
     const selfHealEnabled = (config.agent as Record<string, unknown>).selfHealEnabled !== false;
-    let modelSwitchCount = 0;
-    let selfHealExhausted = false;
-    const failedModels = new Set<string>();
-
-    // ── Learning: track failed tools for error resolution recording ──
-    let lastFailedTool: { name: string; error: string } | null = null;
 
     // ── Checkpoint: track if budget was exhausted ──
     let budgetExhausted = false;
@@ -946,12 +860,6 @@ export async function processMessage(
     setAutonomousMode(isAutonomous);
     heartbeat(session.id);
 
-    // ── Progress tracking for mid-execution re-planning ──
-    resetProgress();
-    let pivotCount = 0;
-    const MAX_PIVOTS = 1; // Max 1 strategic pivot per request
-    const failedApproaches: string[] = [];
-
     // ── Orchestration: check if task benefits from sub-agent delegation ──
     const autoDelegate = (subAgentConfig as Record<string, unknown> | undefined)?.autoDelegate !== false;
     if (!voiceFastPath && isAutonomous && autoDelegate && message.split(/\s+/).length >= 10) {
@@ -961,7 +869,6 @@ export async function processMessage(
                 logger.info(COMPONENT, `Orchestrator: delegating to ${delegationPlan.tasks.length} sub-agents`);
                 const orchResult = await executeDelegationPlan(delegationPlan);
                 if (orchResult.subResults.length > 0 && orchResult.subResults.some(r => r.success)) {
-                    // Inject sub-agent results as context for the main agent
                     messages.push({
                         role: 'user',
                         content: `[Sub-agent results for your request]\n\n${orchResult.content}\n\nSynthesize these results into a coherent response for the user.`,
@@ -973,447 +880,42 @@ export async function processMessage(
         }
     }
 
-    // Agent loop with tool calling
-    for (let round = 0; round < effectiveMaxRounds; round++) {
-        // Emit round info to watcher
-        if (round > 0) streamCallbacks?.onThinking?.();
-        streamCallbacks?.onRound?.(round + 1, effectiveMaxRounds);
+    // ══════════════════════════════════════════════════════════════
+    // Agent Loop — Phase State Machine (Think/Act/Respond)
+    // Replaces the old monolithic for-loop. See agentLoop.ts.
+    // ══════════════════════════════════════════════════════════════
+    const loopResult = await runAgentLoop({
+        messages,
+        activeTools,
+        allToolsBackup,
+        activeModel,
+        config,
+        sessionId: session.id,
+        channel,
+        message,
+        streamCallbacks,
+        signal,
+        isAutonomous,
+        voiceFastPath,
+        effectiveMaxRounds,
+        taskEnforcementActive,
+        reflectionEnabled,
+        reflectionInterval,
+        toolSearchEnabled,
+        isKimiSwarm,
+        selfHealEnabled,
+        thinkingOverride: session.thinkingOverride,
+    });
 
-        // Check if the user aborted this session
-        if (signal?.aborted) {
-            logger.info(COMPONENT, `Session aborted by user at round ${round + 1}`);
-            clearSession(session.id);
-            resetLoopDetection(session.id);
-            return {
-                content: '[Stopped by user]',
-                sessionId: session.id,
-                toolsUsed,
-                tokenUsage: { prompt: 0, completion: 0, total: 0 },
-                model: modelUsed,
-                durationMs: Date.now() - startTime,
-            };
-        }
+    // Unpack results
+    finalContent = loopResult.content;
+    toolsUsed.push(...loopResult.toolsUsed);
+    orderedToolSequence.push(...loopResult.orderedToolSequence);
+    modelUsed = loopResult.modelUsed;
+    totalPromptTokens += loopResult.promptTokens;
+    totalCompletionTokens += loopResult.completionTokens;
+    budgetExhausted = loopResult.budgetExhausted;
 
-        logger.debug(COMPONENT, `Round ${round + 1}: ${messages.length} messages, ${activeTools.length} tools: [${activeTools.map(t => t.function.name).join(', ')}]`);
-
-        // ── Graceful degradation: wrap-up prompt when approaching round limit ───
-        if (round >= effectiveMaxRounds - 2 && round >= 3) {
-            messages.push({
-                role: 'user',
-                content: `IMPORTANT: You are approaching the tool execution limit (round ${round + 1}/${effectiveMaxRounds}). Wrap up your current work: summarize progress so far and provide a clear response. If the task is incomplete, describe what remains.`,
-            });
-            logger.info(COMPONENT, `[Round ${round + 1}] Graceful degradation: injecting wrap-up prompt (${effectiveMaxRounds - round - 1} rounds remaining)`);
-        } else if (round >= 5 && (!isAutonomous || activeModel.includes(':cloud') || activeModel.includes('-cloud'))) {
-            // In supervised mode or with cloud models: force summarization after 5 rounds.
-            // Cloud models tend to loop excessively — they need explicit stop signals.
-            messages.push({
-                role: 'user',
-                content: 'IMPORTANT: You have already used enough tools. Do NOT call any more tools. Summarize the information you have gathered and respond to the user directly with a clear answer NOW.',
-            });
-            logger.info(COMPONENT, `[Round ${round + 1}] Injecting forced summarization prompt`);
-        } else if (reflectionEnabled && shouldReflect(round, reflectionInterval)) {
-            // Reflection: let the LLM decide whether to continue
-            try {
-                const lastToolResult = messages.filter(m => m.role === 'tool').slice(-1)[0]?.content || '';
-                const failedContext = failedApproaches.length > 0 ? failedApproaches.join('; ') : undefined;
-                const reflectionResult = await reflect(round, toolsUsed, message, lastToolResult, failedContext);
-
-                if (reflectionResult.decision === 'stop') {
-                    logger.info(COMPONENT, `Reflection says stop at round ${round + 1}: ${reflectionResult.reasoning}`);
-                    messages.push({
-                        role: 'user',
-                        content: `You've reflected on your progress and decided you have enough information. Respond to the user now with your findings. Reasoning: ${reflectionResult.reasoning}`,
-                    });
-                } else if (reflectionResult.decision === 'pivot' && pivotCount < MAX_PIVOTS) {
-                    // Strategic pivot: abandon current approach, re-plan from scratch
-                    pivotCount++;
-                    const toolsSummary = [...new Set(toolsUsed)].join(', ');
-                    const approachSummary = `Attempted tools: ${toolsSummary}. Result: ${reflectionResult.reasoning}`;
-                    failedApproaches.push(approachSummary);
-
-                    logger.info(COMPONENT, `🔄 PIVOT at round ${round + 1}: ${reflectionResult.reasoning}`);
-
-                    // Clear accumulated tool results but keep system prompt + original message
-                    const systemMsg = messages.find(m => m.role === 'system');
-                    const userMsg = messages.find(m => m.role === 'user' && !m.content.startsWith('['));
-                    messages.length = 0;
-                    if (systemMsg) messages.push(systemMsg);
-                    if (userMsg) messages.push(userMsg);
-
-                    // Inject pivot context
-                    messages.push({
-                        role: 'user',
-                        content: [
-                            `⚠️ STRATEGIC PIVOT: Your previous approach failed.`,
-                            `What was tried: ${approachSummary}`,
-                            `Why it failed: ${reflectionResult.reasoning}`,
-                            ``,
-                            `Try a COMPLETELY DIFFERENT strategy. Do NOT repeat the same tools or approach.`,
-                        ].join('\n'),
-                    });
-
-                    // Give half the remaining budget for the new approach
-                    const remaining = effectiveMaxRounds - round;
-                    const newBudget = Math.max(5, Math.floor(remaining / 2));
-                    // We don't actually modify effectiveMaxRounds, we just log the intent
-                    logger.info(COMPONENT, `Pivot budget: ${newBudget} rounds remaining of ${remaining}`);
-
-                    // Reset progress tracking for the new approach
-                    resetProgress();
-                    toolsUsed.length = 0;
-                    orderedToolSequence.length = 0;
-                } else if (reflectionResult.decision === 'adjust') {
-                    messages.push({
-                        role: 'user',
-                        content: `Reflection suggests adjusting approach: ${reflectionResult.reasoning}. Try a different strategy.`,
-                    });
-                }
-                // 'continue' → no injection, just keep going
-            } catch (e) {
-                logger.warn(COMPONENT, `Reflection failed, continuing: ${(e as Error).message}`);
-            }
-        }
-
-        // ── Cost optimizer: context compression to save tokens (skip for voice fast-path) ───
-        let smartMessages: ChatMessage[];
-        if (voiceFastPath) {
-            // Voice fast-path: skip compression overhead — voice convos are short
-            smartMessages = messages as ChatMessage[];
-        } else {
-            const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(
-                messages.filter((m) => m.role !== 'tool' || round < 3) // keep recent tool results
-            );
-            if (didCompress) {
-                logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
-                messages.length = 0;
-                messages.push(...compressedMessages);
-            }
-
-            // ── Smart context manager: second compression layer + plugin compact hooks ───
-            const tokenBudget = (config.agent.maxTokens || 4096) * 4; // rough context window estimate
-            const cePlugins = getPlugins() || [];
-            if (cePlugins.length > 0 && cePlugins.some(p => p.compact)) {
-                // Route through plugin compact pipeline (includes SmartCompress, etc.)
-                smartMessages = await compactContextWithPlugins(compressedMessages as ChatMessage[], tokenBudget);
-            } else {
-                smartMessages = didCompress
-                    ? compressedMessages as ChatMessage[]
-                    : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
-            }
-        }
-
-        // ── Response cache: check before calling LLM ───
-        const cachedResponse = getCachedResponse(smartMessages, activeModel);
-        if (cachedResponse) {
-            logger.info(COMPONENT, `Cache hit — skipping LLM call`);
-            finalContent = cachedResponse;
-            break;
-        }
-
-        const thinkingMode = session.thinkingOverride || config.agent.thinkingMode || 'off';
-        const chatOptions = {
-            model: activeModel,
-            messages: smartMessages,
-            tools: activeTools.length > 0 ? activeTools : undefined,
-            maxTokens: voiceFastPath ? Math.min(config.agent.maxTokens, 300) : config.agent.maxTokens,
-            temperature: config.agent.temperature,
-            thinking: isVoice ? false : thinkingMode !== 'off',  // Disable thinking for voice — models like qwen3.5 put all tokens in thinking field, leaving content empty
-            thinkingLevel: thinkingMode,
-            // Force a tool call on round 0 when task enforcement is active and tools are available.
-            // This adds API-level guarantees on top of prompt-level instructions.
-            // Respects config.agent.forceToolUse (default: true).
-            forceToolUse: round === 0 && taskEnforcementActive && activeTools.length > 0
-                && (config.agent as Record<string, unknown>).forceToolUse !== false,
-        };
-
-        let response: ChatResponse;
-        if (streamCallbacks?.onToken) {
-            // Stream tokens in real-time, reassemble into ChatResponse
-            let streamContent = '';
-            const streamToolCalls: ToolCall[] = [];
-            for await (const chunk of chatStream(chatOptions)) {
-                if (chunk.type === 'text' && chunk.content) {
-                    streamContent += chunk.content;
-                    streamCallbacks.onToken(chunk.content);
-                } else if (chunk.type === 'tool_call' && chunk.toolCall) {
-                    streamToolCalls.push(chunk.toolCall);
-                    streamCallbacks.onToolCall?.(chunk.toolCall.function.name, JSON.parse(chunk.toolCall.function.arguments || '{}'));
-                } else if (chunk.type === 'error') {
-                    logger.error(COMPONENT, `Stream error: ${chunk.error}`);
-                }
-            }
-            response = {
-                id: `stream-${Date.now()}`,
-                content: streamContent,
-                toolCalls: streamToolCalls.length > 0 ? streamToolCalls : undefined,
-                usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-                finishReason: streamToolCalls.length > 0 ? 'tool_calls' : 'stop',
-                model: activeModel,
-            };
-        } else {
-            response = await chat(chatOptions);
-        }
-
-        modelUsed = response.model;
-        const promptTokens = response.usage?.promptTokens || 0;
-        const completionTokens = response.usage?.completionTokens || 0;
-        totalPromptTokens += promptTokens;
-        totalCompletionTokens += completionTokens;
-
-        // ── Cost tracking + budget check ─────────────────────
-        const costCheck = recordTokenUsage(session.id, activeModel, promptTokens, completionTokens);
-        if (costCheck.budgetExceeded) {
-            finalContent = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control. You can increase the limit in settings or wait until tomorrow.';
-            break;
-        }
-
-        // ── Stall detector: heartbeat ──────
-        heartbeat(session.id);
-
-        // If no tool calls, we have the final response
-        if (!response.toolCalls || response.toolCalls.length === 0) {
-            // ── Self-Heal: detect tool calling failure and auto-switch model ──
-            if (selfHealEnabled && !selfHealExhausted && activeTools.length > 0) {
-                const toolFailure = checkToolCallCapability(session.id, response.content, activeTools.length > 0);
-                if (toolFailure) {
-                    const fallback = findToolCapableFallback(activeModel, failedModels, config);
-                    if (fallback) {
-                        logger.warn(COMPONENT, `[SelfHeal] ${activeModel} failed tool calling ${toolFailure.nudgeCount}x. Switching to ${fallback}`);
-                        failedModels.add(activeModel);
-                        activeModel = fallback;
-                        modelUsed = fallback;
-                        modelSwitchCount++;
-                        if (modelSwitchCount >= MAX_MODEL_SWITCHES) selfHealExhausted = true;
-                        resetToolCallFailures(session.id);
-                        messages.push({ role: 'user', content: `[System: Model switched to ${fallback} for tool calling capability. Use your tools to complete the task.]` });
-                        continue;
-                    } else if (modelSwitchCount > 0) {
-                        // Already switched once and no more fallbacks — give an honest failure
-                        selfHealExhausted = true;
-                        finalContent = 'I tried switching models but tool calling is still failing. Please check my configuration with the self_doctor tool or switch me to a model that supports tool calling.';
-                        break;
-                    }
-                }
-            }
-
-            // ── Tool Call Rescue: detect tool names in text content and auto-call ──
-            // Local and cloud models sometimes mention a tool by name (even with JSON args) but
-            // fail to generate a proper tool_calls response. Rescue by parsing and executing.
-            // Cloud models get aggressive rescue (all tools) since they often ignore tool_choice.
-            const isCloudRescue = activeModel.includes(':cloud') || activeModel.includes('-cloud');
-            const rescuedToolCall = extractToolCallFromContent(response.content, activeTools, isCloudRescue);
-            if (rescuedToolCall) {
-                logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text — executing`);
-                response.toolCalls = [rescuedToolCall];
-                // Don't break — fall through to the tool execution path below
-            } else if (isCloudRescue && round === 0 && activeTools.length > 0 && !voiceFastPath
-                && (taskEnforcementActive || /\b(use|call|run|check|search|find|get|fetch|read|list|show|what is the|tell me the)\b/i.test(message))) {
-                // Cloud model returned text instead of tool calls on round 0.
-                // Cloud models often ignore tool_choice:required — nudge them explicitly.
-                // Triggers for: task enforcement patterns OR action-oriented language.
-                logger.warn(COMPONENT, `[CloudRetry] Cloud model returned text instead of tool calls — injecting tool-forcing nudge`);
-                messages.push({
-                    role: 'assistant',
-                    content: response.content,
-                });
-                messages.push({
-                    role: 'user',
-                    content: `IMPORTANT: You MUST use one of your available tools to complete this task. Do NOT describe what you would do — actually call a tool right now. Available tools: ${activeTools.map(t => t.function.name).join(', ')}. Make a function call.`,
-                });
-                continue;
-            } else {
-                const stallEvent = checkResponse(session.id, response.content, round, effectiveMaxRounds);
-                if (stallEvent) {
-                    const nudge = getNudgeMessage(stallEvent);
-                    logger.warn(COMPONENT, `Stall [${stallEvent.type}] — injecting nudge`);
-                    messages.push({ role: 'user', content: nudge });
-                    continue;
-                }
-                finalContent = stripToolJson(response.content);
-
-                // ── Response cache: store final text responses ───
-                setCachedResponse(smartMessages, activeModel, finalContent);
-
-                break;
-            }
-        }
-
-        // Handle tool calls
-        const toolCalls = response.toolCalls ?? [];
-        logger.info(COMPONENT, `LLM requested ${toolCalls.length} tool call(s)`);
-
-        // Add assistant message with tool calls to history
-        messages.push({
-            role: 'assistant',
-            content: response.content || '',
-            toolCalls,
-        });
-
-        // Execute tools
-        let toolResults: ToolResult[] = [];
-        try {
-            if (isKimiSwarm) {
-                // Intercept execution and route to Swarm Sub-Agents
-                for (const tc of toolCalls) {
-                    if (tc.function.name.startsWith('delegate_to_')) {
-                        const domainMatch = tc.function.name.match(/delegate_to_(.*)_agent/);
-                        const domain = (domainMatch ? domainMatch[1] : 'file') as Domain;
-                        let args;
-                        try { args = JSON.parse(tc.function.arguments); } catch { args = { instruction: '' }; }
-
-                        const startTime = Date.now();
-                        const resultString = await runSubAgent(domain, args.instruction, activeModel);
-
-                        toolResults.push({
-                            toolCallId: tc.id,
-                            name: tc.function.name,
-                            content: resultString,
-                            success: !resultString.includes('Error'),
-                            durationMs: Date.now() - startTime
-                        });
-                    }
-                }
-            } else {
-                toolResults = await executeTools(toolCalls, channel);
-            }
-        } catch (err) {
-            logger.error(COMPONENT, `Tool execution error: ${(err as Error).message}`);
-            finalContent = 'An error occurred while executing tools. Please try again.';
-            break;
-        }
-
-        // Emit tool results to watcher
-        for (const result of toolResults) {
-            streamCallbacks?.onToolResult?.(
-                result.name,
-                result.content.slice(0, 500),
-                result.durationMs || 0,
-                !result.content.toLowerCase().includes('error')
-            );
-        }
-
-        // After sub-agent completes, force the parent to summarize immediately.
-        // Sub-agents return complete results — no need for more tool rounds.
-        const hasSubAgentResult = toolResults.some(r => r.name === 'spawn_agent');
-        if (hasSubAgentResult) {
-            for (const result of toolResults) {
-                toolsUsed.push(result.name);
-                messages.push({ role: 'tool', content: result.content, toolCallId: result.toolCallId, name: result.name });
-            }
-            messages.push({ role: 'user', content: 'The sub-agent has completed its task. Summarize the results above and respond to the user. Do NOT call any more tools.' });
-            logger.info(COMPONENT, `[SubAgent] spawn_agent completed — forcing parent summary`);
-            continue; // One more LLM round to summarize, then the summarization guard will kick in
-        }
-
-        // Add tool results to messages and record for learning
-        let loopBroken = false;
-        for (const result of toolResults) {
-            toolsUsed.push(result.name);
-            orderedToolSequence.push(result.name);
-            messages.push({
-                role: 'tool',
-                content: result.content,
-                toolCallId: result.toolCallId,
-                name: result.name,
-            });
-
-            // ── Stall detector: check for tool loops ──────────
-            const matchingTc = response.toolCalls!.find(tc => tc.id === result.toolCallId);
-            let tcArgs: Record<string, unknown> = {};
-            try { tcArgs = JSON.parse(matchingTc?.function.arguments || '{}'); } catch { /* use empty */ }
-            const loopEvent = recordToolCall(session.id, result.name, tcArgs);
-            if (loopEvent) {
-                const nudge = getNudgeMessage(loopEvent);
-                logger.warn(COMPONENT, `Tool loop detected for ${result.name} — nudging`);
-                messages.push({ role: 'user', content: nudge });
-            }
-
-            // ── Loop detection: advanced 3-detector analysis ──────────
-            const loopConfig = isAutonomous
-                ? { globalCircuitBreakerThreshold: (config.autonomy as Record<string, unknown>).circuitBreakerOverride as number || 50 }
-                : {};
-            const loopCheck = checkForLoop(session.id, result.name, tcArgs, result.content, loopConfig);
-            if (!loopCheck.allowed) {
-                logger.warn(COMPONENT, `Loop breaker [${loopCheck.level}]: ${loopCheck.reason}`);
-                finalContent = loopCheck.reason || 'Loop detected — stopping to prevent runaway execution.';
-                loopBroken = true;
-                break;
-            }
-
-            // Record tool result for continuous learning + user profile
-            const success = !result.content.toLowerCase().includes('error:');
-            recordToolResult(result.name, success, undefined, success ? undefined : result.content.slice(0, 200));
-            recordToolUsage(result.name);
-
-            // Active Learning: record tool preference by task type
-            const taskType = classifyTaskType(message);
-            recordToolPreference(result.name, taskType, success);
-
-            // Active Learning: auto-inject known error resolutions (skip for voice — adds noise)
-            if (!success && !voiceFastPath) {
-                const resolution = getErrorResolution(result.content);
-                if (resolution) {
-                    logger.info(COMPONENT, `[ActiveLearning] Known fix for error: ${resolution.slice(0, 80)}`);
-                    messages.push({
-                        role: 'user',
-                        content: `[Auto-fix hint] A known resolution for this error: ${resolution}. Try applying it.`,
-                    });
-                }
-            }
-
-            // Track error resolutions: when a previous tool failed and a DIFFERENT tool succeeded
-            // Skip for voice fast-path to avoid recording noisy patterns from short voice sessions
-            if (!voiceFastPath && success && lastFailedTool) {
-                if (result.name !== lastFailedTool.name) {
-                    // Different tool resolved it — that's a meaningful pattern worth recording
-                    recordErrorResolution(lastFailedTool.error, `Resolved by using ${result.name} instead of ${lastFailedTool.name}`);
-                }
-                lastFailedTool = null; // Clear regardless — the error is no longer active
-            } else if (!success) {
-                lastFailedTool = { name: result.name, error: result.content.slice(0, 200) };
-            }
-        }
-
-        // Break outer agent loop if loop detection triggered
-        if (loopBroken) break;
-
-        // ── Progress scoring for re-planning ───────────────────────
-        if (reflectionEnabled && toolResults.length > 0) {
-            const anySucceeded = toolResults.some(r => !r.content.toLowerCase().includes('error:'));
-            const hasNewInfo = toolResults.some(r => r.content.length > 50 && !r.content.toLowerCase().includes('not found'));
-            // closerToGoal is approximated by tool success + new info
-            recordProgress(anySucceeded, hasNewInfo, anySucceeded && hasNewInfo);
-        }
-
-        // ── Tool Search: expand activeTools with discovered tools ───
-        if (toolSearchEnabled && toolResults.some(r => r.name === 'tool_search')) {
-            for (const result of toolResults) {
-                if (result.name !== 'tool_search') continue;
-                // Parse tool names from the search result
-                const matches = result.content.matchAll(/\*\*(\w+)\*\*/g);
-                for (const match of matches) {
-                    const toolName = match[1];
-                    if (!discoveredTools.has(toolName)) {
-                        discoveredTools.add(toolName);
-                        // Add the full tool definition from backup
-                        const fullDef = allToolsBackup.find(t => t.function.name === toolName);
-                        if (fullDef && !activeTools.some(t => t.function.name === toolName)) {
-                            activeTools.push(fullDef);
-                        }
-                    }
-                }
-            }
-            if (discoveredTools.size > 0) {
-                logger.info(COMPONENT, `[ToolSearch] Expanded: +${discoveredTools.size} tools → ${activeTools.length} total`);
-            }
-        }
-
-        // If this is the last round, add a note
-        if (round === effectiveMaxRounds - 1) {
-            finalContent = stripToolJson(response.content || 'I completed the tool operations. Let me know if you need anything else.');
-            budgetExhausted = true;
-        }
-    }
 
     // Clean up stall detector for this session
     clearSession(session.id);

@@ -535,6 +535,7 @@ describe('routeMessage', () => {
             {
                 model: 'anthropic/claude-sonnet-4-20250514',
                 systemPrompt: 'You are TITAN.',
+                agentId: 'default',
             },
             undefined,
             undefined,
