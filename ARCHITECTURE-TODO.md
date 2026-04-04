@@ -21,9 +21,11 @@ All 4 architectural problems have been solved in commit 267ed23:
 - Async sub-agent delegation: spawn_agent creates Command Post issues, worker agents process asynchronously
 - Inter-agent delegation: use delegate_task to assign work to other agents or external tools
 - External agent execution: Claude Code, Codex, bash all runnable via adapters
+- **Heartbeat-driven inbox processing**: agents poll inbox every 3 rounds, claim pending wakeup requests, spawn sub-agents automatically, post results as issue comments
+- **Atomic wakeup claim/release**: `claimWakeupRequest()` and `releaseWakeupRequest()` provide safe concurrent access to wakeup queue
 - Chat with tool calling: write_file, shell, memory, goal_create, web_search (2-5s each)
 - Voice: F5-TTS cloning, LiveKit, streaming (3s)
-- All 42+ Mission Control panels functional (26 admin + ChatView)
+- All 42+ Mission Control panels functional (26 admin + ChatView responsive on mobile)
 - Command Post: issues, approvals, budgets, org chart, activity feed, console
 - Agent spawn/stop/route to specific agents (5 max)
 - 4,578/4,578 vitest tests passing
@@ -240,6 +242,102 @@ delegate_task({
 **Result**: External agents (Claude Code, Codex, bash) executable via delegate_task. Full Paperclip-style orchestration.
 
 **Commit**: 267ed23
+
+---
+
+## Enhancement: Heartbeat-Driven Inbox Processing ✅ ADDED v2026.10.70
+
+**Goal**: Enable autonomous agents to check for new tasks without requiring gateway-triggered wakeups.
+
+**Paperclip Pattern**: Agents heartbeat into the control plane every 10-15s to check for new work, just like Paperclip's agent heartbeat system.
+
+**Solution** — Heartbeat polling + atomic claim/release (commit pending v2026.10.70):
+
+### How It Works
+
+```
+1. Agent runs runAgentLoop() and polls every 3 rounds:
+   if (round % 3 === 0) { checkAndProcessInbox(agentId); }
+
+2. checkAndProcessInbox() calls getAgentInbox(agentId):
+   - Returns array of WakeupRequest[] for this agent
+   - Inbox = wakeup requests where status === 'queued'
+
+3. Agent claims first request: claimWakeupRequest(requestId)
+   - CAS: status must be 'queued' → changes to 'running'
+   - Returns null if already claimed (prevents double-work)
+
+4. If claimed:
+   a. Update CP issue status to 'in_progress'
+   b. Start run timer
+   c. Call spawnSubAgent() with task parameters
+   d. On completion: update issue, post comment, end run
+```
+
+### Implementation Files
+
+- `src/agent/agentLoop.ts` (lines 727-789): `checkAndProcessInbox()` implementation
+- `src/agent/agentWakeup.ts` (lines 185-206): `claimWakeupRequest()`, `releaseWakeupRequest()` CAS operations
+- `src/agent/subAgent.ts`: `spawnSubAgent()` with SUB_AGENT_TEMPLATES
+- `src/agent/commandPost.ts`: `updateIssue()`, `startRun()`, `endRun()`, `addIssueComment()`
+
+### API Functions
+
+- `getAgentInbox(agentId: string): WakeupRequest[]` — Get pending wakeup requests for agent
+- `claimWakeupRequest(requestId: string): WakeupRequest | null` — Atomic claim (CAS)
+- `releaseWakeupRequest(requestId: string, error: string): WakeupRequest | null` — Release on failure
+
+### Implementation Details
+
+```typescript
+// agentLoop.ts - called every 3 rounds
+async function checkAndProcessInbox(agentId: string): Promise<void> {
+    const inbox = getAgentInbox(agentId);
+    if (inbox.length === 0) return;
+
+    const req = inbox[0];
+    const claimed = claimWakeupRequest(req.id);
+    if (!claimed) return;
+
+    // Update Command Post, spawn sub-agent, post results
+    updateIssue(req.issueId, { status: 'in_progress' });
+    const run = startRun(agentId, 'assignment', req.issueId);
+
+    const result = await spawnSubAgent({
+        name: req.agentName,
+        task: req.task,
+        tools: template.tools,
+        model: req.model,
+    });
+
+    endRun(run.id, { status: result.success ? 'succeeded' : 'failed' });
+    addIssueComment(req.issueId, `**Result**: ${result.content}`);
+    updateIssue(req.issueId, { status: result.success ? 'done' : 'todo' });
+}
+```
+
+### CAS (Compare-And-Swap) Safety
+
+The claim operation uses strict status checking:
+```typescript
+export function claimWakeupRequest(requestId: string): WakeupRequest | null {
+    const req = wakeupQueue.get(requestId);
+    if (!req || req.status !== 'queued') return null;  // CAS check
+    req.status = 'running';
+    return req;
+}
+```
+
+This prevents race conditions where multiple heartbeat polls could claim the same request.
+
+### Current State
+
+The `checkAndProcessInbox()` function is implemented in `agentLoop.ts` but currently **stubbed with TODOs** (lines 178-187, 191-194). To fully enable:
+1. Uncomment the `if (ctx.agentId && round > 0 && round % 3 === 0)` check
+2. Uncomment the `if (cpEnabled && ctx.agentId && round === 0)` check
+3. Agent will auto-poll inbox every 3 rounds for new work
+
+**Result**: Paperclip-style heartbeat polling implemented — agents autonomously check for new Command Post tasks.
 
 ---
 

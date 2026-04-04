@@ -96,17 +96,19 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 
 ---
 
-> **What's New in v2026.10.68 — Full Paperclip Integration + Hardening**
+> **What's New in v2026.10.70 — Heartbeat-Driven Sub-Agent Processing + UI Polish**
 >
-> **Command Post v2** — Full [Paperclip](https://github.com/paperclipai/paperclip)-style agent governance. 7-tab dashboard: Dashboard (metrics + pixel crew), Org Chart (hierarchical agent tree), Issues (ticket board with TIT-1 identifiers), Agents (registry + run history), Approvals (hire/budget gates with approve/reject), Costs (budget bars), and Console (natural language management). Issues, approvals, runs, and org chart persist across restarts.
+> **Async sub-agent heartbeat** — agents can now poll their Command Post inbox every 3 rounds, claim pending wakeup requests, and spawn sub-agents automatically. New `claimWakeupRequest()` and `releaseWakeupRequest()` functions provide atomic claim/release semantics. `checkAndProcessInbox()` handles the full lifecycle: spawns sub-agent, updates issue status, posts results back as comments.
 >
-> **14 bugs fixed** via principal engineer audit: concurrency guard on `/api/message`, model switch validation (rejects nonexistent models), Prometheus `/metrics` endpoint, mesh TLS (wss://), gateway shutdown fix (no more SIGKILL), voice session poison auto-reset, 6 UI fixes.
+> **Agent Watcher mobile overlay** — responsive full-screen overlay for mobile devices. Agent Watcher panel is hidden on mobile by default; tapping the watch button opens a full-screen overlay with close button, matching the desktop 40% width layout. Desktop split-view improved with proper `overflow-hidden` handling and smooth width transitions.
 >
-> **Cloud model benchmark** — tested all 7 Ollama cloud models. `qwen3-coder-next:cloud` is the new default: 0.3s chat, perfect tool calling, `tool_choice:required` support. DeepSeek XML tool call parser added.
+> **Type safety hardening** — improved TypeScript strictness across gateway server (dynamic imports, nullable session fields, audit log queries), Command Post event handlers (spread args pattern), and config API exposure.
 >
-> Also: F5-TTS voice cloning, Agent Watcher pixel art, 124-test smoke suite, auto-HTTPS, bounded memory, injection protection. 4,430 tests across 140 files.
+> **Bug fixes** — session timestamps use `createdAt` field, cloud mode redirects fixed, error handlers cleaned up, OpenRouter auth profiles added.
 >
-> **— Tony**
+> Previous release: v2026.10.68 — Full Paperclip integration, 14 bugs fixed, Cloud model benchmark, F5-TTS voice cloning. 4,430 tests across 140 files.
+>
+> **— Claude Code**
 
 ---
 

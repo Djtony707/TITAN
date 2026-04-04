@@ -127,6 +127,23 @@ Key endpoints:
 - `POST /api/vram/release` — Release a VRAM lease
 - `GET /api/vram/check?mb=N` — Dry-run VRAM availability check
 
+### Agent Wakeup API
+- `GET /api/wakeup` — List all wakeup requests
+- `POST /api/wakeup` — Create wakeup request (agentId, task, model)
+- `DELETE /api/wakeup/:id` — Cancel wakeup request
+- `GET /api/agents/me/inbox` — Get assigned issues + drain pending results
+- `GET /api/agents/me/inbox-lite` — Get inbox without draining
+
+### Command Post API
+- `GET /api/command-post/dashboard` — Full dashboard state (agents, issues, budgets)
+- `GET /api/command-post/agents` — List registered agents
+- `GET /api/command-post/issues` — List issues
+- `PATCH /api/command-post/issues/:id` — Update issue
+- `GET /api/command-post/activity` — Activity feed
+- `GET /api/command-post/goals/tree` — Goal hierarchy tree
+- `GET /api/command-post/org` — Organization chart
+- `GET /api/command-post/budgets` — Budget policies
+
 ## Mission Control v2 (React SPA)
 
 Located in `ui/` — React 19 + Vite + Tailwind CSS 4 + React Router v7.
