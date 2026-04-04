@@ -11,11 +11,12 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Copy node_modules from deps stage (includes build tools needed for native deps)
-COPY --from=deps /app/node_modules ./node_modules
+# Install all deps (including devDependencies for tsup + Vite build)
+RUN npm ci
 
 COPY src ./src
-RUN npm run build
+COPY ui ./ui
+RUN npm run build && npm run build:ui
 
 # ─── Stage 3: Production ─────────────────────────────────────
 FROM node:22-alpine
@@ -37,7 +38,7 @@ COPY --from=builder /app/dist ./dist
 
 # Copy static assets and UI build
 COPY assets ./assets
-COPY ui/dist ./ui/dist
+COPY --from=builder /app/ui/dist ./ui/dist
 COPY .env.example ./.env.example
 
 # Copy voice components

@@ -6,7 +6,8 @@ COPY scripts ./scripts
 COPY tsconfig.json ./
 RUN npm ci
 COPY src ./src
-RUN npm run build
+COPY ui ./ui
+RUN npm run build && npm run build:ui
 
 # ─── Stage 2: Production (GPU-enabled) ───────────────────────
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
@@ -41,7 +42,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Copy built application
 COPY --from=builder /app/dist ./dist
 COPY assets ./assets
-COPY ui/dist ./ui/dist
+COPY --from=builder /app/ui/dist ./ui/dist
 COPY .env.example ./.env.example
 
 # Copy voice components
