@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +25,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Build backend
         run: npm run build
 
@@ -33,3 +39,59 @@ jobs:
 
       - name: Run tests
         run: npx vitest run
+
+      - name: Run tests with coverage
+        if: matrix.node-version == 22
+        run: npx vitest run --coverage
+
+      - name: Upload coverage report
+        if: matrix.node-version == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  coverage-check:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Check coverage threshold
+        run: |
+          if [ ! -f coverage/json-summary/coverage-summary.json ]; then
+            echo "::warning::Coverage report not found, skipping check"
+            exit 0
+          fi
+
+          LINE_COV=$(node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage/json-summary/coverage-summary.json', 'utf-8'));
+            console.log(Math.round(data.total.lines.pct * 100) / 100);
+          ")
+
+          echo "Line coverage: ${LINE_COV}%"
+
+          if [ $(echo "$LINE_COV < 80" | bc -l) -eq 1 ]; then
+            echo "::error::Coverage ${LINE_COV}% is below 80% threshold"
+            exit 1
+          fi
+
+          echo "Coverage check passed!"

@@ -1,0 +1,58 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Djtony707"
+    labels:
+      - "dependencies"
+    groups:
+      production-deps:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "@typescript-eslint/*"
+          - "vitest"
+          - "eslint"
+      dev-deps:
+        patterns:
+          - "@types/*"
+          - "@typescript-eslint/*"
+          - "vitest"
+          - "eslint"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Djtony707"
+    labels:
+      - "ci"
+
+  # Docker
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "Djtony707"
+    labels:
+      - "docker"
