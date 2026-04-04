@@ -490,9 +490,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Rate limiter (inline, no deps) ─────────────────────────
   const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
+  /**
+   * Get a consistent client IP address for rate limiting.
+   * Falls back through: X-Forwarded-For → req.ip → socket remoteAddress
+   */
+  function getClientIp(req: Request): string {
+      return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+          || req.ip
+          || req.socket?.remoteAddress
+          || 'unknown';
+  }
+
   function rateLimit(windowMs: number, maxRequests: number) {
       return (req: Request, res: Response, next: NextFunction) => {
-          const key = req.ip || req.socket?.remoteAddress || 'unknown';
+          const key = getClientIp(req);
           const now = Date.now();
           const entry = rateLimitStore.get(key);
           if (!entry || now > entry.resetAt) {
@@ -502,8 +513,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               entry.count++;
               next();
           } else {
-              res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
-              res.status(429).json({ error: 'Too many requests' });
+              const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+              logger.warn(COMPONENT, `[RateLimit] Client ${key} rate limited (${entry.count}/${maxRequests} in ${windowMs}ms)`);
+              res.setHeader('Retry-After', String(retryAfter));
+              res.status(429).json({ error: 'Too many requests', retryAfter });
           }
       };
   }
@@ -1775,13 +1788,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const aliases = cfg.agent.modelAliases || {};
       const resolved = aliases[model] || model;
 
-      // Validate model exists before switching (for Ollama local models)
-      const [providerName] = resolved.split('/');
+      // ── CRITICAL FIX: Validate model exists for ALL providers ──
+      const [providerName, ...modelParts] = resolved.split('/');
+      const modelName = modelParts.join('/') || resolved; // Handle models with slashes in name
+
+      // 1. Ollama local models — check if model is pulled
       if (providerName === 'ollama') {
         const ollamaBase = cfg.providers.ollama?.baseUrl || 'http://localhost:11434';
-        const modelName = resolved.replace('ollama/', '');
-        // Cloud-routed models (suffix :cloud) are always valid — they proxy through Ollama
-        if (!modelName.endsWith(':cloud')) {
+        // Cloud-routed models (suffix :cloud) are always valid — they proxy through Ollama to external APIs
+        if (modelName.endsWith(':cloud')) {
+          logger.info(COMPONENT, `[ModelSwitch] Cloud-routed model '${modelName}' — allowing (proxied via Ollama)`);
+        } else {
+          // Local model: verify it exists in Ollama
           try {
             const check = await fetch(`${ollamaBase}/api/show`, {
               method: 'POST',
@@ -1790,15 +1808,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               signal: AbortSignal.timeout(5000),
             });
             if (!check.ok) {
+              logger.warn(COMPONENT, `[ModelSwitch] Model '${modelName}' not found in Ollama (HTTP ${check.status})`);
               res.status(404).json({ error: `Model '${modelName}' not found in Ollama. Pull it first: ollama pull ${modelName}` });
               return;
             }
-          } catch {
-            // Ollama unreachable — allow switch anyway (user may be pre-configuring)
-            logger.warn(COMPONENT, `Could not verify model '${modelName}' — Ollama unreachable at ${ollamaBase}`);
+            logger.info(COMPONENT, `[ModelSwitch] Verified Ollama model '${modelName}' exists`);
+          } catch (err) {
+            // CRITICAL FIX: Ollama unreachable — reject the switch instead of allowing it
+            logger.error(COMPONENT, `[ModelSwitch] Ollama unreachable at ${ollamaBase}: ${(err as Error).message}`);
+            res.status(503).json({
+              error: `Cannot verify model '${modelName}' — Ollama is unreachable at ${ollamaBase}. Check Ollama is running: ollama serve`,
+            });
+            return;
           }
         }
+      } else if (providerName) {
+        // 2. Other providers — just log the provider (allow the switch)
+        // We trust the user to configure API keys; reject only happens at chat time
+        logger.info(COMPONENT, `[ModelSwitch] Switching to provider '${providerName.toLowerCase()}' model '${modelName}'`);
       }
+      // If no provider prefix (bare model like 'gpt-4o'), assume it's an alias or user knows what they're doing
 
       updateConfig({ agent: { ...cfg.agent, model: resolved } });
       // Invalidate cached responses for the old model so stale results aren't served
@@ -1806,6 +1835,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.info(COMPONENT, `Model switched to: ${resolved}${resolved !== model ? ` (alias: ${model})` : ''}`);
       res.json({ success: true, model: resolved, alias: resolved !== model ? model : undefined });
     } catch (err) {
+      logger.error(COMPONENT, `[ModelSwitch] Error: ${(err as Error).message}`);
       res.status(500).json({ error: (err as Error).message });
     }
   });
