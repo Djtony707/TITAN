@@ -9,6 +9,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 FROM node:22-slim AS builder
 WORKDIR /app
 COPY package*.json ./
+COPY scripts ./scripts
 COPY tsconfig.json ./
 
 # Install all deps (including devDependencies for tsup + Vite build)
