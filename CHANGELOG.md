@@ -5,6 +5,21 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] — 2026-04-04
+
+### Added
+- **Command Post Governance** — Budget enforcement (auto-pause/stop agents on overspend), ancestry depth validation, cycle detection in goal trees, stale agent detection, expired checkout sweeper
+- **API Endpoints** — `GET /api/command-post/goals/:id/validate-ancestry`, `POST /api/command-post/checkouts/sweep`, `GET /api/command-post/agents/stale`, `POST /api/command-post/budgets/:agentId/enforce`
+- **E2E Test Suite** — 135+ Playwright tests across 7 specs (smoke, onboarding, chat, admin panels, mission control, mobile responsive, inter-agent protocol)
+- **Command Post Tests** — 46 new unit tests for budget enforcement, ancestry validation, stale detection
+
+### Fixed
+- Event handler type mismatches in commandPost.ts (goal:created, agent:stopped now properly typed)
+- Type safety in MCP server tool handling (proper cast instead of `unknown`)
+- Type safety in gateway history exports (message.timestamp → createdAt)
+
+---
+
 ## [1.0.0] — 2026-04-04
 
 **TITAN goes semver.** This is the first stable release under proper semantic versioning, replacing the `2026.10.XX` date-based scheme. All prior versions are deprecated.

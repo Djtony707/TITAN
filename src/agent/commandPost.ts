@@ -13,8 +13,8 @@ import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
 import { titanEvents } from './daemon.js';
+import { stopAgent, listAgents, type AgentInstance } from './multiAgent.js';
 import { listGoals, type Goal } from './goals.js';
-import { listAgents, type AgentInstance } from './multiAgent.js';
 import logger from '../utils/logger.js';
 import type { CommandPostConfig } from '../config/schema.js';
 
@@ -182,8 +182,7 @@ let config: CommandPostConfig | null = null;
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const eventListeners: Array<{ event: string; handler: (...args: any[]) => void }> = [];
+const eventListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
 
 // ─── Persistence ──────────────────────────────────────────────────────────
 
@@ -402,9 +401,18 @@ export function recordSpend(agentId: string, goalId: string | undefined, amountU
                 agentId,
                 goalId,
                 message: `Budget "${policy.name}" exceeded: $${policy.currentSpend.toFixed(2)}/$${policy.limitUsd.toFixed(2)}`,
-                metadata: { policyId: policy.id, pct },
+                metadata: { policyId: policy.id, pct, action: policy.action },
             });
-            titanEvents.emit('commandpost:budget:exceeded', { policyId: policy.id, agentId, goalId, pct });
+
+            // Enforce budget — actually stop or pause the agent
+            if (policy.action === 'stop') {
+                stopAgent(agentId);
+                updateAgentStatus(agentId, 'paused'); // Budget pause (not manual pause)
+            } else if (policy.action === 'pause') {
+                updateAgentStatus(agentId, 'paused');
+            }
+
+            titanEvents.emit('commandpost:budget:exceeded', { policyId: policy.id, agentId, goalId, pct, action: policy.action });
         } else if (pct >= policy.warningThresholdPercent) {
             addActivity({
                 type: 'budget_warning',
@@ -450,35 +458,29 @@ export function getAncestryChain(goalId: string): Goal[] {
 }
 
 /**
- * Build a human-readable ancestry context string for a given issue.
- * Includes goal hierarchy and parent issue chain.
+ * Build ancestry context for a goal — returns the full chain plus depth info.
+ * Used by UI to render goal hierarchy breadcrumbs.
  */
-export function buildAncestryContext(issueId: string): string {
-    const issue = issues.get(issueId);
-    if (!issue) return '';
+export function buildAncestryContext(goalId: string): {
+    chain: Goal[];
+    depth: number;
+    rootGoal: Goal | null;
+} {
+    const chain = getAncestryChain(goalId);
+    return {
+        chain,
+        depth: chain.length,
+        rootGoal: chain.length > 0 ? chain[0] : null,
+    };
+}
 
-    const parts: string[] = [];
-
-    // Goal ancestry
-    if (issue.goalId) {
-        const chain = getAncestryChain(issue.goalId);
-        if (chain.length > 0) {
-            parts.push('## Goal Ancestry');
-            parts.push(chain.map(g => `- ${g.title}${g.status === 'completed' ? ' ✓' : ''}`).join('\n'));
-        }
-    }
-
-    // Parent issue context
-    if (issue.parentId) {
-        const parent = issues.get(issue.parentId);
-        if (parent) {
-            parts.push(`## Parent Issue: ${parent.identifier || parent.id}`);
-            parts.push(`Title: ${parent.title}`);
-            if (parent.description) parts.push(parent.description.slice(0, 500));
-        }
-    }
-
-    return parts.join('\n\n');
+/**
+ * Check if setting parentId on a goal would create a cycle in the ancestry tree.
+ */
+export function wouldCreateCycle(goalId: string, parentId: string): boolean {
+    if (goalId === parentId) return true;
+    const chain = getAncestryChain(parentId);
+    return chain.some(g => g.id === goalId);
 }
 
 export function getGoalTree(): GoalTreeNode[] {
@@ -652,7 +654,7 @@ export function initCommandPost(cfg: CommandPostConfig): void {
     heartbeatInterval.unref();
 
     // Subscribe to titanEvents for activity feed (track refs for cleanup)
-    const onGoalCreated = (data: { goalId: string; title: string }) => {
+    const onGoalCreated = (data: { goalId: string; title: string; subtasks?: number }) => {
         addActivity({ type: 'goal_created', goalId: data.goalId, message: `Goal created: "${data.title}"` });
     };
     const onGoalCompleted = (data: { goalId: string; title: string }) => {
@@ -673,7 +675,7 @@ export function initCommandPost(cfg: CommandPostConfig): void {
         addActivity({ type: 'agent_status_change', agentId: data.id, message: `Agent "${data.name}" spawned` });
         saveState();
     };
-    const onAgentStopped = (data: { id: string }) => {
+    const onAgentStopped = (data: { id: string; name?: string }) => {
         const agent = registeredAgents.get(data.id);
         if (agent) {
             agent.status = 'stopped';
@@ -691,11 +693,11 @@ export function initCommandPost(cfg: CommandPostConfig): void {
     titanEvents.on('agent:stopped', onAgentStopped);
     titanEvents.on('daemon:heartbeat', onDaemonHeartbeat);
     eventListeners.push(
-        { event: 'goal:created', handler: onGoalCreated },
-        { event: 'goal:completed', handler: onGoalCompleted },
-        { event: 'agent:spawned', handler: onAgentSpawned },
-        { event: 'agent:stopped', handler: onAgentStopped },
-        { event: 'daemon:heartbeat', handler: onDaemonHeartbeat },
+        { event: 'goal:created', handler: onGoalCreated as unknown as (...args: unknown[]) => void },
+        { event: 'goal:completed', handler: onGoalCompleted as unknown as (...args: unknown[]) => void },
+        { event: 'agent:spawned', handler: onAgentSpawned as unknown as (...args: unknown[]) => void },
+        { event: 'agent:stopped', handler: onAgentStopped as unknown as (...args: unknown[]) => void },
+        { event: 'daemon:heartbeat', handler: onDaemonHeartbeat as unknown as (...args: unknown[]) => void },
     );
 
     initialized = true;
@@ -955,4 +957,257 @@ export function shutdownCommandPost(): void {
 
 export function isCommandPostEnabled(): boolean {
     return initialized;
+}
+
+// ─── Ancestry Validation ───────────────────────────────────────────────
+
+/**
+ * Validate ancestry integrity for a goal — checks for cycles and orphaned
+ * parent references. Returns { valid: true } or { valid: false, errors: [...] }.
+ */
+export function validateGoalAncestry(goalId: string): { valid: boolean; errors?: string[] } {
+    const errors: string[] = [];
+    const goals = listGoals();
+    const goalsById = new Map(goals.map(g => [g.id, g]));
+
+    // Check goal exists
+    const goal = goalsById.get(goalId);
+    if (!goal) {
+        return { valid: false, errors: [`Goal ${goalId} not found`] };
+    }
+
+    // Walk ancestry chain and check for cycles
+    const visited = new Set<string>();
+    let current: Goal | undefined = goal;
+
+    while (current) {
+        if (visited.has(current.id)) {
+            errors.push(`Cycle detected: goal "${current.id}" references itself in ancestry chain`);
+            return { valid: false, errors };
+        }
+        visited.add(current.id);
+
+        if (current.parentGoalId) {
+            const parent = goalsById.get(current.parentGoalId);
+            if (!parent) {
+                errors.push(`Orphaned parent reference: goal "${current.id}" references parent "${current.parentGoalId}" which does not exist`);
+                return { valid: false, errors };
+            }
+            current = parent;
+        } else {
+            break;
+        }
+    }
+
+    // Additional check: goal cannot be its own parent
+    if (goal.parentGoalId === goal.id) {
+        errors.push(`Self-reference: goal "${goal.id}" cannot be its own parent`);
+        return { valid: false, errors };
+    }
+
+    return { valid: true };
+}
+
+/**
+ * Validate that setting parentId on a goal would create a valid tree
+ * (no cycles, no orphaned parents).
+ */
+export function validateGoalParentAssignment(goalId: string, potentialParentId: string | null): { valid: boolean; errors?: string[] } {
+    const errors: string[] = [];
+
+    // Can't be own parent
+    if (potentialParentId === goalId) {
+        errors.push(`Self-reference: goal "${goalId}" cannot be its own parent`);
+        return { valid: false, errors };
+    }
+
+    // If parentId is null, goal becomes root — always valid
+    if (potentialParentId === null) {
+        return { valid: true };
+    }
+
+    const goals = listGoals();
+    const goalsById = new Map(goals.map(g => [g.id, g]));
+
+    // Parent must exist
+    if (!goalsById.has(potentialParentId)) {
+        errors.push(`Orphaned parent: goal "${potentialParentId}" does not exist`);
+        return { valid: false, errors };
+    }
+
+    // Check for cycles: walk from potential parent up to root
+    const visited = new Set<string>();
+    let current: Goal | undefined = goalsById.get(potentialParentId);
+
+    while (current) {
+        if (visited.has(current.id)) {
+            errors.push(`Cycle in parent chain at goal "${current.id}"`);
+            return { valid: false, errors };
+        }
+        visited.add(current.id);
+        if (current.id === goalId) {
+            errors.push(`Cycle detected: setting parent to "${potentialParentId}" would create a cycle`);
+            return { valid: false, errors };
+        }
+        current = current.parentGoalId ? goalsById.get(current.parentGoalId) : undefined;
+    }
+
+    return { valid: true };
+}
+
+// ─── Checkout Sweep ─────────────────────────────────────────────────────
+
+/**
+ * Manually trigger expired checkout sweep. Returns count of expired checkouts
+ * found and details for audit.
+ */
+export function sweepExpiredCheckoutsManual(): { swept: number; details: { subtaskId: string; agentId: string; goalId: string; expiredAt: string }[] } {
+    const details: { subtaskId: string; agentId: string; goalId: string; expiredAt: string }[] = [];
+    const now = Date.now();
+
+    for (const [id, checkout] of checkouts) {
+        if (checkout.status === 'locked' && new Date(checkout.expiresAt).getTime() < now) {
+            details.push({
+                subtaskId: id,
+                agentId: checkout.agentId,
+                goalId: checkout.goalId,
+                expiredAt: checkout.expiresAt,
+            });
+
+            checkout.status = 'expired';
+            checkouts.delete(id);
+
+            addActivity({
+                type: 'task_expired',
+                agentId: checkout.agentId,
+                goalId: checkout.goalId,
+                message: `Checkout expired for subtask ${id} (agent: ${checkout.agentId})`,
+            });
+
+            titanEvents.emit('commandpost:task:expired', { subtaskId: id, agentId: checkout.agentId });
+        }
+    }
+
+    if (details.length > 0) saveState();
+    return { swept: details.length, details };
+}
+
+// ─── Stale Agents ────────────────────────────────────────────────────────
+
+/**
+ * Detect agents with stale heartbeats (no heartbeat in 2x the heartbeat interval).
+ * Returns list of stale agents with their last heartbeat timestamp.
+ */
+export function getStaleAgents(): { id: string; name: string; lastHeartbeat: string; status: string; staleFor: number }[] {
+    const interval = config?.heartbeatIntervalMs ?? 60000;
+    const threshold = interval * 2;
+    const now = Date.now();
+    const staleAgents: { id: string; name: string; lastHeartbeat: string; status: string; staleFor: number }[] = [];
+
+    for (const [id, agent] of registeredAgents) {
+        if (agent.status === 'stopped' || agent.status === 'paused') continue;
+        const lastBeat = new Date(agent.lastHeartbeat).getTime();
+        const staleMs = now - lastBeat;
+        if (staleMs > threshold) {
+            staleAgents.push({
+                id,
+                name: agent.name,
+                lastHeartbeat: agent.lastHeartbeat,
+                status: agent.status,
+                staleFor: Math.floor(staleMs / 1000),
+            });
+        }
+    }
+
+    return staleAgents;
+}
+
+// ─── Budget Enforcement API ─────────────────────────────────────────────
+
+/**
+ * Enforce budget policy on a specific agent — check current spend vs limit
+ * and take action (warn/pause/stop) based on policy config.
+ */
+export function enforceBudgetForAgent(agentId: string): { budgetOk: boolean; policies: { policyId: string; name: string; pct: number; currentSpend: number; limit: number; action: string }[] } {
+    const policiesApplied: { policyId: string; name: string; pct: number; currentSpend: number; limit: number; action: string }[] = [];
+
+    for (const policy of budgetPolicies) {
+        if (!policy.enabled) continue;
+
+        // Check if policy applies to this agent
+        const applies =
+            policy.scope.type === 'global' ||
+            (policy.scope.type === 'agent' && policy.scope.targetId === agentId);
+
+        if (!applies) continue;
+
+        // Reset period if expired
+        if (isPeriodExpired(policy)) {
+            policy.currentSpend = 0;
+            policy.periodStart = new Date().toISOString();
+        }
+
+        const pct = (policy.currentSpend / policy.limitUsd) * 100;
+        policiesApplied.push({
+            policyId: policy.id,
+            name: policy.name,
+            pct,
+            currentSpend: policy.currentSpend,
+            limit: policy.limitUsd,
+            action: policy.action,
+        });
+
+        // Enforce budget
+        if (pct >= 100 && (policy.action === 'pause' || policy.action === 'stop')) {
+            addActivity({
+                type: 'budget_exceeded',
+                agentId,
+                message: `Budget "${policy.name}" exceeded: $${policy.currentSpend.toFixed(2)}/$${policy.limitUsd.toFixed(2)}`,
+                metadata: { policyId: policy.id, pct, action: policy.action },
+            });
+
+            if (policy.action === 'stop') {
+                stopAgent(agentId);
+                updateAgentStatus(agentId, 'paused');
+            } else if (policy.action === 'pause') {
+                updateAgentStatus(agentId, 'paused');
+            }
+
+            titanEvents.emit('commandpost:budget:exceeded', { policyId: policy.id, agentId, pct, action: policy.action });
+        } else if (pct >= policy.warningThresholdPercent) {
+            addActivity({
+                type: 'budget_warning',
+                agentId,
+                message: `Budget "${policy.name}" at ${pct.toFixed(0)}%: $${policy.currentSpend.toFixed(2)}/$${policy.limitUsd.toFixed(2)}`,
+                metadata: { policyId: policy.id, pct },
+            });
+            titanEvents.emit('commandpost:budget:warning', { policyId: policy.id, agentId, pct });
+        }
+    }
+
+    saveState();
+    return {
+        budgetOk: policiesApplied.every(p => p.pct < 100),
+        policies: policiesApplied,
+    };
+}
+
+/**
+ * Get budget policy for a specific agent (enriched with usage stats).
+ */
+export function getBudgetPolicyForAgent(agentId: string): { policies: BudgetPolicy[]; totalSpend: number; totalBudget: number; pctUsed: number } {
+    const applicablePolicies = budgetPolicies.filter(p =>
+        p.enabled && (p.scope.type === 'global' || (p.scope.type === 'agent' && p.scope.targetId === agentId))
+    );
+
+    const totalSpend = applicablePolicies.reduce((sum, p) => sum + p.currentSpend, 0);
+    const totalBudget = applicablePolicies.reduce((sum, p) => sum + p.limitUsd, 0);
+    const pctUsed = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0;
+
+    return {
+        policies: applicablePolicies,
+        totalSpend,
+        totalBudget,
+        pctUsed,
+    };
 }

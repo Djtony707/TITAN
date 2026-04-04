@@ -14,6 +14,7 @@ import { randomBytes, timingSafeEqual } from 'crypto';
 import { exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
+import type { ProviderConfig } from '../config/schema.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
 import { processMessage } from '../agent/agent.js';
 import { initMemory, closeMemory, getUsageStats, getHistory, getDb } from '../memory/memory.js';
@@ -64,7 +65,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
@@ -748,7 +749,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               sessionName: session.name || session.id.slice(0, 8),
               role: msg.role,
               content: msg.content.slice(0, 200),
-              timestamp: msg.createdAt || '',
+              timestamp: (msg as { createdAt?: string }).createdAt || '',
             });
             if (results.length >= limit) break;
           }
@@ -776,7 +777,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         let md = `# ${title}\n\nExported: ${new Date().toISOString()}\n\n---\n\n`;
         for (const msg of history) {
           const role = msg.role === 'user' ? '**You**' : '**TITAN**';
-          md += `${role} (${msg.createdAt || ''}):\n\n${msg.content}\n\n---\n\n`;
+          md += `${role} (${(msg as { createdAt?: string }).createdAt || ''}):\n\n${msg.content}\n\n---\n\n`;
         }
         res.setHeader('Content-Type', 'text/markdown');
         res.setHeader('Content-Disposition', `attachment; filename="titan-${sessionId.slice(0, 8)}.md"`);
@@ -1027,13 +1028,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Cloud mode config endpoint ──────────────────────────────
-  app.get('/api/cloud/config', (_req, res): void => {
+  app.get('/api/cloud/config', (_req, res) => {
     const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
     if (!isCloud) {
-      res.json({ cloud: false });
-      return;
+      return res.json({ cloud: false });
     }
-    res.json({
+    return res.json({
       cloud: true,
       apiUrl: process.env.TITAN_CLOUD_API || '',
       userId: process.env.TITAN_USER_ID || '',
@@ -1042,7 +1042,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Onboarding API ──────────────────────────────────────────
-  app.get('/api/onboarding/status', (_req, res): void => {
+  app.get('/api/onboarding/status', (_req, res) => {
     const cfg = loadConfig();
     // In cloud mode, auto-onboard if not already done
     const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
@@ -1053,25 +1053,27 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const openrouterKey = process.env.OPENROUTER_API_KEY || '';
         updateConfig({
           onboarded: true,
-          agent: { model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free' } as Record<string, unknown>,
+          agent: {
+            ...cfg.agent,
+            model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+          },
           providers: {
             ...cfg.providers,
             openrouter: {
-              ...(cfg.providers as Record<string, Record<string, unknown>>)?.openrouter,
+              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [] }),
               apiKey: openrouterKey,
               baseUrl: cloudApi + '/api/v1',
             }
           }
-        } as Record<string, unknown>);
+        });
         broadcast({ type: 'config_updated' });
         logger.info('gateway', 'Cloud mode: auto-onboarded with SaaS API');
       } catch (e) {
         logger.error('gateway', `Cloud auto-onboard failed: ${(e as Error).message}`);
       }
-      res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
-      return;
+      return res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
     }
-    res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: isCloud });
+    return res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: isCloud });
   });
 
   app.post('/api/onboarding/complete', (req, res) => {
@@ -2506,6 +2508,60 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const chain = getAncestryChain(req.params.id);
     if (chain.length === 0) { res.status(404).json({ error: 'Goal not found' }); return; }
     res.json(chain);
+  });
+
+  // ── Ancestry Validation ───────────────────────────────
+  app.post('/api/command-post/goals/:id/validate', (req, res) => {
+    const { parentGoalId } = req.body as { parentGoalId?: string | null };
+    if (parentGoalId !== undefined) {
+      // Validate potential parent assignment
+      const result = validateGoalParentAssignment(req.params.id, parentGoalId || null);
+      if (!result.valid) {
+        res.status(422).json({ valid: false, errors: result.errors });
+        return;
+      }
+      res.json({ valid: true });
+    } else {
+      // Validate existing ancestry chain
+      const result = validateGoalAncestry(req.params.id);
+      if (!result.valid) {
+        res.status(422).json({ valid: false, errors: result.errors });
+        return;
+      }
+      res.json({ valid: true });
+    }
+  });
+
+  // ── Checkout Sweep ────────────────────────────────────
+  app.post('/api/command-post/checkouts/sweep', (_req, res) => {
+    const result = sweepExpiredCheckoutsManual();
+    res.json(result);
+  });
+
+  app.get('/api/command-post/checkouts/expired', (_req, res) => {
+    const result = sweepExpiredCheckoutsManual();
+    res.json({ expired: result.swept, details: result.details });
+  });
+
+  // ── Stale Agents ──────────────────────────────────────
+  app.get('/api/command-post/agents/stale', (_req, res) => {
+    const stale = getStaleAgents();
+    res.json({ stale, total: stale.length });
+  });
+
+  // ── Budget Enforcement per Agent ──────────────────────
+  app.post('/api/command-post/budgets/:agentId/enforce', (req, res) => {
+    const result = enforceBudgetForAgent(req.params.agentId);
+    if (!result.budgetOk) {
+      res.status(403).json({ budgetOk: false, policies: result.policies, message: 'Budget exceeded — agent paused' });
+      return;
+    }
+    res.json({ budgetOk: true, policies: result.policies });
+  });
+
+  app.get('/api/command-post/budgets/agent/:agentId', (req, res) => {
+    const budgetInfo = getBudgetPolicyForAgent(req.params.agentId);
+    res.json(budgetInfo);
   });
 
   // Command Post SSE stream

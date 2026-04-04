@@ -154,7 +154,7 @@ function handleToolsList(): unknown {
             name: tool.name,
             description: tool.description || 'No description available',
             inputSchema: tool.parameters || { type: 'object', properties: {} },
-            _skillSource: (tool as unknown as Record<string, unknown>)._skillSource || 'core',
+            _skillSource: ((tool as unknown) as { _skillSource?: string })?._skillSource || 'core',
         }));
 
     logger.info(COMPONENT, `Listed ${tools.length} of ${allTools.length} total tools (filtered by security policy)`);
@@ -231,11 +231,14 @@ async function internalToolsCall(params: Record<string, unknown>): Promise<unkno
             isError: false,
         };
     } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorDetails = err instanceof Error ? {
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+        } : { message: String(err), stack: undefined };
 
-        logger.error(COMPONENT, `Tool ${toolName} failed: ${errorMsg}`);
+        logger.error(COMPONENT, `Tool ${toolName} failed: ${errorDetails.message}`);
         return {
-            content: [{ type: 'text', text: `Error: ${errorMsg}` }],
+            content: [{ type: 'text', text: `Error: ${errorDetails.message}` }],
             isError: true,
         };
     }
