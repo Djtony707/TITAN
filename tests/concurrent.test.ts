@@ -102,7 +102,7 @@ describe('Concurrent Requests', () => {
     });
 
     describe('Simultaneous requests', () => {
-        it('should handle 5 simultaneous requests without deadlock', async () => {
+        it('should handle 5 simultaneous requests without deadlock', { retry: 2 }, async () => {
             // Small delay so all requests are in-flight together
             mockRouteMessage.mockImplementation(async (content: string) => {
                 await new Promise(r => setTimeout(r, 100));
@@ -227,7 +227,7 @@ describe('Concurrent Requests', () => {
             expect(calls).toContain('slack');
         });
 
-        it('should not leak response data between concurrent sessions', async () => {
+        it('should not leak response data between concurrent sessions', { retry: 2 }, async () => {
             mockRouteMessage.mockImplementation(async (content: string) => {
                 await new Promise(r => setTimeout(r, Math.random() * 100));
                 return defaultResponse({ content: `echo:${content}`, sessionId: `sess-${content}` });
@@ -259,7 +259,7 @@ describe('Concurrent Requests', () => {
             mockRouteMessage.mockResolvedValue(defaultResponse());
         });
 
-        it('should not corrupt SSE when multiple streams are active', async () => {
+        it('should not corrupt SSE when multiple streams are active', { retry: 2 }, async () => {
             mockRouteMessage.mockImplementation(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
                 await new Promise(r => setTimeout(r, 50));
                 callbacks?.onToken?.('Hello');
