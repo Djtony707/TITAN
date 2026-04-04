@@ -737,19 +737,30 @@ describe('runDoctor --json', () => {
 
 describe('runDoctor - Provider error messages', () => {
     it('should show actionable message for missing API key', async () => {
-        mockConfigExists.mockReturnValue(true);
-        mockLoadConfig.mockReturnValue({
-            agent: { model: 'anthropic/claude-sonnet-4-20250514' },
-            providers: { anthropic: {} },
-            security: { sandboxMode: 'host', deniedTools: [], allowedTools: [], networkAllowlist: ['*'], fileSystemAllowlist: [], commandTimeout: 30000, shield: { enabled: true, mode: 'strict' } },
-            channels: {},
-        });
-        mockHealthCheckAll.mockResolvedValue({ anthropic: false });
-        mockReaddirSync.mockReturnValue([]);
+        // Clear any real API key from environment to test missing key detection
+        const originalKey = process.env.ANTHROPIC_API_KEY;
+        delete process.env.ANTHROPIC_API_KEY;
 
-        await runDoctor();
-        const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n');
-        expect(output).toContain('ANTHROPIC_API_KEY');
+        try {
+            mockConfigExists.mockReturnValue(true);
+            mockLoadConfig.mockReturnValue({
+                agent: { model: 'anthropic/claude-sonnet-4-20250514' },
+                providers: { anthropic: {} },
+                security: { sandboxMode: 'host', deniedTools: [], allowedTools: [], networkAllowlist: ['*'], fileSystemAllowlist: [], commandTimeout: 30000, shield: { enabled: true, mode: 'strict' } },
+                channels: {},
+            });
+            mockHealthCheckAll.mockResolvedValue({ anthropic: false });
+            mockReaddirSync.mockReturnValue([]);
+
+            await runDoctor();
+            const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n');
+            expect(output).toContain('ANTHROPIC_API_KEY');
+        } finally {
+            // Restore original environment
+            if (originalKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = originalKey;
+            }
+        }
     });
 
     it('should show ollama-specific message when ollama is unreachable', async () => {
