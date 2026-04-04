@@ -15,12 +15,16 @@
  */
 import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
-import { drainPendingResults } from './agentWakeup.js';
+import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
 import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, checkToolCallCapability, resetToolCallFailures } from './stallDetector.js';
+import { loadConfig } from '../config/config.js';
 import { checkForLoop } from './loopDetection.js';
+import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
+import { updateIssue, startRun, endRun, addIssueComment } from './commandPost.js';
 import { recordTokenUsage } from './costOptimizer.js';
-import { maybeCompressContext, routeModel } from './costOptimizer.js';
+import { maybeCompressContext } from './costOptimizer.js';
+import type { TitanConfig } from '../config/schema.js';
 import { buildSmartContext } from './contextManager.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress } from './reflection.js';
@@ -51,8 +55,9 @@ export interface LoopContext {
     activeTools: ToolDefinition[];
     allToolsBackup: ToolDefinition[];
     activeModel: string;
-    config: import('../config/schema.js').TitanConfig;
+    config: TitanConfig;
     sessionId: string;
+    agentId?: string;  // For Command Post inbox checking
     channel: string;
     message: string;
     streamCallbacks?: StreamCallbacks;
@@ -170,7 +175,7 @@ function extractToolCallFromContent(
 
 // ── Helper: find a fallback model for tool calling ───────────────────
 
-function findToolCapableFallback(failedModel: string, failedModels: Set<string>, config: import('../config/schema.js').TitanConfig): string | null {
+function findToolCapableFallback(failedModel: string, failedModels: Set<string>, config: TitanConfig): string | null {
     const candidates: string[] = [];
     const toolCapable = (config.agent as Record<string, unknown>).toolCapableModels as string[] | undefined;
     if (toolCapable?.length) candidates.push(...toolCapable);
@@ -238,6 +243,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             ctx.messages.push({ role: 'user', content: injection });
             logger.info(COMPONENT, `[AsyncResults] Injected ${completedAsync.length} completed async result(s) into context`);
         }
+
+        // ── Heartbeat inbox check: claim and process pending sub-agent tasks ──
+        if (ctx.agentId && round > 0 && round % 3 === 0) {
+            // Check inbox every 3 rounds to avoid thrashing
+            await checkAndProcessInbox(ctx.agentId);
+        }
+    }
+
+    // ── Process any pending inbox work before this round ──
+    if (cpEnabled && ctx.agentId && round === 0) {
+        await checkAndProcessInbox(ctx.agentId);
     }
 
     while (phase !== 'done' && round < ctx.effectiveMaxRounds) {
@@ -704,4 +720,67 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     }
 
     return result;
+}
+
+// ── Heartbeat-driven inbox processing ───────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function checkAndProcessInbox(agentId: string): Promise<void> {
+    const inbox = getAgentInbox(agentId);
+    if (inbox.length === 0) return;
+
+    // Take the first queued request
+    const req = inbox[0];
+    const claimed = claimWakeupRequest(req.id);
+    if (!claimed) return;
+
+    // Transition CP issue to in_progress
+    updateIssue(req.issueId, { status: 'in_progress' });
+    const run = startRun(agentId, 'assignment', req.issueId);
+
+    logger.info(COMPONENT, `[Heartbeat] Processing wakeup ${req.id} for agent "${req.agentName}"`);
+
+    try {
+        const template = SUB_AGENT_TEMPLATES[req.templateName] || {};
+        const config = loadConfig();
+        const modelAliases = (config.agent as Record<string, unknown> | undefined)?.modelAliases as Record<string, string> | undefined;
+        const tier = (template as Record<string, unknown>).tier as string | undefined;
+        let model = req.model;
+        if (!model && modelAliases && tier) {
+            model = modelAliases[tier] || modelAliases.fast;
+        }
+
+        const result = await spawnSubAgent({
+            name: req.agentName,
+            task: req.task,
+            tools: template.tools,
+            systemPrompt: template.systemPrompt,
+            model,
+            depth: 0,
+        });
+
+        // Complete the CP run
+        endRun(run.id, {
+            status: result.success ? 'succeeded' : 'failed',
+            toolsUsed: result.toolsUsed,
+        });
+
+        // Post result as CP issue comment
+        const commentBody = [
+            `**Sub-agent result** (${result.rounds} rounds, ${result.durationMs}ms)`,
+            `Status: ${result.success ? 'SUCCESS' : 'FAILED'}${result.validated ? '' : ' [UNVALIDATED]'}`,
+            `Tools: ${result.toolsUsed.join(', ') || 'none'}`,
+            '',
+            result.content,
+        ].join('\n');
+        addIssueComment(req.issueId, commentBody, { agentId });
+        updateIssue(req.issueId, { status: result.success ? 'done' : 'todo' });
+
+        logger.info(COMPONENT, `[Heartbeat] Wakeup ${req.id} completed — ${result.success ? 'SUCCESS' : 'FAILED'}`);
+    } catch (err) {
+        const error = (err as Error).message;
+        endRun(run.id, { status: 'error', error });
+        addIssueComment(req.issueId, `**Sub-agent failed**: ${error}`, { agentId });
+        updateIssue(req.issueId, { status: 'todo' });
+        logger.error(COMPONENT, `[Heartbeat] Wakeup ${req.id} failed: ${error}`);
+    }
 }

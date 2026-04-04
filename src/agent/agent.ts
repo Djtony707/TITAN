@@ -19,7 +19,7 @@ import { getPlugins } from '../plugins/registry.js';
 import { runAfterTurn } from '../plugins/contextEngine.js';
 import { getSwarmRouterTools } from './swarm.js';
 import { shouldDeliberate, analyze, generatePlan, executePlan, handleApproval, getDeliberation, cancelDeliberation, formatPlanResults } from './deliberation.js';
-import type { ChatMessage, ToolDefinition } from '../providers/base.js';
+import type { ChatMessage } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
 import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensureLoaded as ensureBrainLoaded } from './brain.js';
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
@@ -38,7 +38,7 @@ const COMPONENT = 'Agent';
 const MAX_TOOL_ROUNDS = 10;
 
 /** Estimate the round budget based on task complexity */
-function estimateRoundBudget(message: string, config: import('../config/schema.js').TitanConfig): number {
+function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?: boolean; maxToolRoundsHard?: number }; autonomy: { mode: string } } & Record<string, unknown>): number {
     const agentConfig = config.agent as Record<string, unknown>;
     if (agentConfig.dynamicBudget === false) return MAX_TOOL_ROUNDS;
 
@@ -843,7 +843,6 @@ export async function processMessage(
     } | undefined;
     const toolSearchEnabled = toolSearchConfig?.enabled ?? true;
     const allToolsBackup = activeTools;
-    const discoveredTools = new Set<string>();
 
     if (toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12) {
         // Voice gets a minimal tool set for speed (fewer tool schemas = less prompt tokens)
@@ -891,6 +890,7 @@ export async function processMessage(
         activeModel,
         config,
         sessionId: session.id,
+        agentId: overrides?.agentId,
         channel,
         message,
         streamCallbacks,

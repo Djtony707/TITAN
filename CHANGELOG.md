@@ -4,6 +4,37 @@ All notable changes to TITAN are documented in this file.
 
 ---
 
+## [2026.10.70] — 2026-04-04
+
+### Added
+- **Heartbeat-driven sub-agent wakeup** — agent inbox system with `claimWakeupRequest()` and `releaseWakeupRequest()` for async task claim/release pattern
+- **checkAndProcessInbox** — heartbeat handler that polls agent inbox every 3 rounds, claims pending wakeup requests, spawns sub-agents via Command Post, and posts results back as issue comments
+- **Agent Watcher mobile overlay** — responsive full-screen overlay for mobile devices when Agent Watcher is open, with close button
+
+### Enabled
+- **Heartbeat inbox processing** — uncommented TODO stubs in `agentLoop.ts`, `agentId` now passed to `runAgentLoop` from `processMessage()`, agents actively check inbox every 3 rounds for new work
+
+### Changed
+- **Agent Watcher UI** — improved split-view layout with proper `overflow-hidden` handling, responsive breakpoints (hidden on mobile by default), fixed width transitions (40% desktop, 280-480px range)
+- **Gateway type safety** — improved TypeScript strictness across server.ts (dynamic imports, error handlers, nullable session fields, audit log queries)
+- **Command Post type safety** — improved event handler typing with spread args for titanEvents subscriptions, removed unused variables in `getGoalTree()` and `getOrgTree()`
+- **Config API** — explicit typing for `commandPost` section exposure in `/api/config` endpoint
+
+### Fixed
+- **Session history timestamps** — now uses `createdAt` field instead of deprecated `timestamp` for proper chronological ordering
+- **Markdown export** — uses `createdAt` for consistent message timestamp display
+- **Null safety** — session message arrays now properly handle nullable `messages` field
+- **Cloud mode redirects** — added missing `return` statements after `res.json()` to prevent fallthrough
+- **Error handlers** — cleaned up unused error params in catch blocks (TTS, sessions)
+- **OpenRouter auth profiles** — added missing `authProfiles: []` to cloud onboarding config
+- **Audit log queries** — removed unused `auditLog` import, streamlined query API usage
+
+### Technical
+- Event subscriptions now use spread args pattern: `(...args: unknown[]) => args[0]` for type safety
+- Wakeup system exports: `claimWakeupRequest`, `releaseWakeupRequest` for external heartbeat integration
+
+---
+
 ## [2026.10.68] — 2026-03-31
 
 ### Fixed
