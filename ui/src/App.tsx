@@ -48,7 +48,7 @@ function LoadingFallback() {
 
 /** Wrapper that adds padding for admin panels (ChatView manages its own layout) */
 function AdminPage({ children }: { children: React.ReactNode }) {
-  return <div className="p-6 h-full overflow-auto">{children}</div>;
+  return <div className="p-3 md:p-6 h-full overflow-auto">{children}</div>;
 }
 
 function AuthenticatedApp() {

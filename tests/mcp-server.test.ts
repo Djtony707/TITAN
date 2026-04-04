@@ -209,8 +209,10 @@ describe('MCP Server — tools/call', () => {
             params: {},
         });
 
-        const result = response!.result as { isError: boolean };
-        expect(result.isError).toBe(true);
+        expect(response).not.toBeNull();
+        expect(response!.error).toBeDefined();
+        expect(response!.error!.code).toBe(-32602);
+        expect(response!.error!.message).toContain('Tool name');
     });
 });
 

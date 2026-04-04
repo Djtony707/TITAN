@@ -83,11 +83,11 @@ function ModelSelector({
     <div className="space-y-4">
       <div>
         <label className="mb-1.5 block text-xs text-text-muted">Provider</label>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <select
             value={selectedProvider}
             onChange={(e) => handleProviderChange(e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent min-h-[44px]"
           >
             {providers.map((p) => {
               const pLocal = LOCAL_PROVIDERS.includes(p.toLowerCase());
@@ -100,12 +100,12 @@ function ModelSelector({
             })}
           </select>
           {isLocal && (
-            <span className="flex items-center gap-1 whitespace-nowrap rounded bg-success/15 px-2 py-1 text-xs font-medium text-success">
+            <span className="flex items-center gap-1 whitespace-nowrap rounded bg-success/15 px-2 py-1 text-xs font-medium text-success self-start mt-0.5 sm:self-auto sm:mt-0">
               <Monitor className="h-3 w-3" /> Local
             </span>
           )}
           {!isLocal && selectedProvider && (
-            <span className="flex items-center gap-1 whitespace-nowrap rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent-hover">
+            <span className="flex items-center gap-1 whitespace-nowrap rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent-hover self-start mt-0.5 sm:self-auto sm:mt-0">
               <Cloud className="h-3 w-3" /> Cloud
             </span>
           )}
@@ -114,11 +114,11 @@ function ModelSelector({
 
       <div>
         <label className="mb-1.5 block text-xs text-text-muted">Model</label>
-        <div className="flex items-end gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2 md:gap-3">
           <select
             value={selectedModel}
             onChange={(e) => onSelect(e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent min-h-[44px]"
           >
             {providerModels.map((m) => (
               <option key={m.id} value={m.id} disabled={!m.available}>
@@ -132,17 +132,17 @@ function ModelSelector({
           <button
             onClick={onSwitch}
             disabled={!isChanged}
-            className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50 min-h-[44px] w-full sm:w-auto active:scale-[0.98]"
           >
             Switch
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-3 py-2">
-        <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-3 py-2.5">
+        <div className="h-2 w-2 rounded-full bg-success animate-pulse flex-shrink-0" />
         <span className="text-xs text-text-muted">Active:</span>
-        <span className="text-xs text-text-secondary font-mono">{currentModel || 'None'}</span>
+        <span className="text-xs text-text-secondary font-mono overflow-x-auto scrollbar-thin">{currentModel || 'None'}</span>
       </div>
     </div>
   );
@@ -564,12 +564,12 @@ function SettingsPanel() {
   const currentModel = config ? getModel(config) : '';
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-text">Settings</h2>
+    <div className="space-y-4 md:space-y-6">
+      <h2 className="text-base md:text-lg font-semibold text-text">Settings</h2>
 
       {toast && (
         <div
-          className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm ${
+          className={`flex items-center gap-2 rounded-lg border px-3 md:px-4 py-2.5 md:py-2 text-[11px] md:text-sm ${
             toast.type === 'success'
               ? 'border-success/50 text-success'
               : 'border-error/50 text-error'
@@ -585,8 +585,8 @@ function SettingsPanel() {
       )}
 
       {/* Model Section */}
-      <div className="rounded-xl border border-border bg-bg-secondary p-6">
-        <h3 className="mb-4 text-sm font-medium text-text-secondary">Model</h3>
+      <div className="rounded-xl border border-border bg-bg-secondary p-3 md:p-6">
+        <h3 className="mb-3 md:mb-4 text-[11px] md:text-sm font-medium text-text-secondary">Model</h3>
         <ModelSelector
           models={models}
           selectedModel={selectedModel}
@@ -597,8 +597,8 @@ function SettingsPanel() {
       </div>
 
       {/* Voice Section */}
-      <div className="rounded-xl border border-border bg-bg-secondary p-6">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="rounded-xl border border-border bg-bg-secondary p-3 md:p-6">
+        <div className="mb-3 md:mb-4 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Mic className="h-4 w-4 text-accent-hover" />
             <h3 className="text-sm font-medium text-text-secondary">Voice</h3>
@@ -657,10 +657,10 @@ function SettingsPanel() {
             />
             <span className="text-sm text-text">Enable Voice Chat</span>
           </label>
-          {/* TTS Engine Selector */}
+          {/* TTS Engine Selector — responsive for mobile */}
           <div>
             <label className="mb-2 block text-xs text-text-muted">TTS Engine</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {TTS_ENGINES.map((engine) => (
                 <button
                   key={engine.id}
@@ -671,7 +671,7 @@ function SettingsPanel() {
                     setTtsVoice(engine.defaultVoices[0] || 'default');
                     setOrpheusVoices(engine.defaultVoices);
                   }}
-                  className={`rounded-lg border p-2 text-left transition-all ${
+                  className={`rounded-lg border p-3 text-left transition-all min-h-[64px] active:scale-[0.98] sm:min-h-[56px] ${
                     ttsEngine === engine.id
                       ? 'border-accent bg-accent/10'
                       : 'border-border hover:border-border-light'

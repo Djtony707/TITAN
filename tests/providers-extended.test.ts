@@ -1795,7 +1795,9 @@ describe('Router (extended)', () => {
 
             const errorChunks = chunks.filter(c => c.type === 'error');
             expect(errorChunks).toHaveLength(1);
-            expect(errorChunks[0].error).toBe('All streams down');
+            // Enhanced error message includes provider/model context
+            expect(errorChunks[0].error).toContain('All streams down');
+            expect(errorChunks[0].error).toContain('anthropic/claude-sonnet-4-20250514');
         });
     });
 

@@ -16,6 +16,12 @@ vi.mock('../src/config/config.js', () => ({
             fallbackChain: [],
             fallbackMaxRetries: 3,
         },
+        providers: {
+            anthropic: { apiKey: 'test-key', baseUrl: '', authProfiles: [] },
+            openai: { apiKey: 'test-key', baseUrl: '', authProfiles: [] },
+            google: { apiKey: 'test-key', baseUrl: '', authProfiles: [] },
+            ollama: { baseUrl: '', authProfiles: [] },
+        },
         mesh: { enabled: false },
     })),
     getDefaultConfig: vi.fn(),
@@ -31,6 +37,66 @@ vi.mock('../src/mesh/transport.js', () => ({
 }));
 
 vi.mock('../src/mesh/discovery.js', () => ({}));
+
+// Mock provider implementations so they don't make real API calls
+vi.mock('../src/providers/anthropic.js', () => ({
+    AnthropicProvider: class {
+        name = 'anthropic';
+        displayName = 'Anthropic (Test)';
+        chat = vi.fn();
+        chatStream = vi.fn(async function* () {});
+        listModels = vi.fn(async () => ['claude-sonnet-4-20250514']);
+        healthCheck = vi.fn(async () => true);
+    },
+}));
+
+vi.mock('../src/providers/openai.js', () => ({
+    OpenAIProvider: class {
+        name = 'openai';
+        displayName = 'OpenAI (Test)';
+        chat = vi.fn();
+        chatStream = vi.fn(async function* () {});
+        listModels = vi.fn(async () => ['gpt-4o', 'gpt-4']);
+        healthCheck = vi.fn(async () => true);
+    },
+}));
+
+vi.mock('../src/providers/google.js', () => ({
+    GoogleProvider: class {
+        name = 'google';
+        displayName = 'Google (Test)';
+        chat = vi.fn();
+        chatStream = vi.fn(async function* () {});
+        listModels = vi.fn(async () => ['gemini-2.0-flash']);
+        healthCheck = vi.fn(async () => true);
+    },
+}));
+
+vi.mock('../src/providers/ollama.js', () => ({
+    OllamaProvider: class {
+        name = 'ollama';
+        displayName = 'Ollama (Test)';
+        chat = vi.fn();
+        chatStream = vi.fn(async function* () {});
+        listModels = vi.fn(async () => ['llama3.1']);
+        healthCheck = vi.fn(async () => true);
+    },
+}));
+
+vi.mock('../src/providers/openai_compat.js', () => ({
+    OpenAICompatProvider: class {
+        name = 'openrouter';
+        displayName = 'OpenRouter (Test)';
+        chat = vi.fn();
+        chatStream = vi.fn(async function* () {});
+        listModels = vi.fn(async () => ['gpt-4']);
+        healthCheck = vi.fn(async () => true);
+    },
+    PROVIDER_PRESETS: [],
+}));
+
+// Import router to get reset function
+import { __resetCircuitBreakers__ } from '../src/providers/router.js';
 
 describe('Fallback Chain Config Schema', () => {
     it('should default fallbackChain to empty array', () => {
@@ -70,6 +136,7 @@ describe('Fallback Chain Router Logic', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        __resetCircuitBreakers__();
     });
 
     it('should not trigger fallback when primary succeeds', async () => {
@@ -124,10 +191,9 @@ describe('Fallback Chain Router Logic', () => {
         const openai = getProvider('openai');
 
         if (anthropic && openai) {
-            // Primary fails with rate limit
-            vi.spyOn(anthropic, 'chat').mockRejectedValueOnce(
-                Object.assign(new Error('rate limit exceeded'), { status: 429 })
-            );
+            // Primary fails with rate limit on all retry attempts (maxRetries=3, so 4 total calls)
+            const anthropicError = Object.assign(new Error('rate limit exceeded'), { status: 429 });
+            vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             // First fallback succeeds
             vi.spyOn(openai, 'chat').mockResolvedValueOnce({
                 id: 'test-fb-1',
@@ -142,7 +208,8 @@ describe('Fallback Chain Router Logic', () => {
             });
 
             expect(result.content).toBe('Hello from fallback');
-            expect(anthropic.chat).toHaveBeenCalledTimes(1);
+            // Primary is retried 4 times (1 initial + 3 retries) before fallback
+            expect(anthropic.chat).toHaveBeenCalledTimes(4);
             expect(openai.chat).toHaveBeenCalledTimes(1);
         }
     });
@@ -164,9 +231,9 @@ describe('Fallback Chain Router Logic', () => {
         const openai = getProvider('openai');
 
         if (anthropic && openai) {
-            vi.spyOn(anthropic, 'chat').mockRejectedValueOnce(
-                Object.assign(new Error('503 Service Unavailable'), { status: 503 })
-            );
+            // Primary fails on all retries
+            const anthropicError = Object.assign(new Error('503 Service Unavailable'), { status: 503 });
+            vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             vi.spyOn(openai, 'chat').mockResolvedValueOnce({
                 id: 'test-skip-1',
                 content: 'Skipped duplicate, landed on openai',
@@ -201,20 +268,21 @@ describe('Fallback Chain Router Logic', () => {
         const google = getProvider('google');
 
         if (anthropic && openai && google) {
-            vi.spyOn(anthropic, 'chat').mockRejectedValueOnce(
-                Object.assign(new Error('rate limit'), { status: 429 })
-            );
+            // Primary fails with retryable error on all attempts
+            const anthropicError = Object.assign(new Error('rate limit'), { status: 429 });
+            vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             // First fallback also fails
-            vi.spyOn(openai, 'chat').mockRejectedValueOnce(new Error('also down'));
-            // Second fallback would succeed, but maxRetries=1 should stop before reaching it
-            vi.spyOn(google, 'chat').mockResolvedValueOnce({
+            const openaiError = new Error('also down');
+            vi.spyOn(openai, 'chat').mockRejectedValue(openaiError);
+            // Second fallback would succeed but shouldn't be reached
+            vi.spyOn(google, 'chat').mockResolvedValue({
                 id: 'test-limit',
                 content: 'Should not reach here',
                 finishReason: 'stop',
                 model: 'gemini-2.0-flash',
             });
 
-            // Should exhaust chain (1 retry) then fall through to provider failover
+            // Should exhaust chain (1 fallback with maxRetries=1) then fall through to provider failover
             // which may also fail, but the point is google.chat in the chain shouldn't be called
             try {
                 await chat({
@@ -222,11 +290,13 @@ describe('Fallback Chain Router Logic', () => {
                     messages: [{ role: 'user', content: 'test' }],
                 });
             } catch {
-                // Expected — chain exhausted, provider failover may also fail in test
+                // Expected — chain exhausted
             }
 
+            // With new retry logic: primary retried 4 times, then fallback tried 1 time
             expect(openai.chat).toHaveBeenCalledTimes(1);
-            // google.chat may be called by the provider-level failover, but not by the chain
+            // google.chat should NOT be called by the fallback chain (exhausted maxRetries=1)
+            // It may be called by provider failover, so we don't assert on it
         }
     });
 
@@ -247,9 +317,9 @@ describe('Fallback Chain Router Logic', () => {
         const openai = getProvider('openai');
 
         if (anthropic && openai) {
-            vi.spyOn(anthropic, 'chat').mockRejectedValueOnce(
-                Object.assign(new Error('timeout'), { status: 429 })
-            );
+            // Primary fails on all retry attempts
+            const anthropicError = Object.assign(new Error('timeout'), { status: 429 });
+            vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             vi.spyOn(openai, 'chat').mockResolvedValueOnce({
                 id: 'fb-state-1',
                 content: 'fallback response',

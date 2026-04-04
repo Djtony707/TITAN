@@ -55,12 +55,12 @@ function OverviewPanel() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <PageHeader
           title="System Overview"
           breadcrumbs={[{ label: 'Admin', href: '/overview' }, { label: 'Monitoring' }, { label: 'Overview' }]}
         />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <SkeletonLoader variant="metric" count={8} />
         </div>
       </div>
@@ -78,13 +78,13 @@ function OverviewPanel() {
   if (!stats) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <PageHeader
         title="System Overview"
         subtitle="Real-time system health and metrics"
         breadcrumbs={[{ label: 'Admin', href: '/overview' }, { label: 'Monitoring' }, { label: 'Overview' }]}
       />
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           title="Uptime"
           value={formatUptime(stats.uptime)}

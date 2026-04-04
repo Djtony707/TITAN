@@ -1,7 +1,7 @@
 {
   "name": "titan-agent",
   "version": "2026.10.71",
-  "description": "TITAN — The Intelligent Task Automation Network. Autonomous AI agent framework with 209 tools, 36 providers, Paperclip-style Command Post governance, F5-TTS voice cloning, self-improvement, mesh networking, and a React dashboard with 26 panels.",
+  "description": "TITAN — Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 15 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
     "type": "git",
@@ -85,7 +85,30 @@
     "fine-tuning",
     "lora",
     "mission-control",
-    "mesh-networking"
+    "mesh-networking",
+    "agent-orchestration",
+    "ai-agent-framework",
+    "agentic",
+    "self-learning",
+    "gpu-inference",
+    "vram-management",
+    "agent-governance",
+    "command-post",
+    "paperclip",
+    "livekit",
+    "webrtc-voice",
+    "discord-bot",
+    "ai-chatbot",
+    "typescript-agents",
+    "nodejs-agents",
+    "ai-workflows",
+    "tool-calling",
+    "browser-automation",
+    "web-scraping",
+    "research-agent",
+    "ai-gateway",
+    "model-routing",
+    "agent-delegation"
   ],
   "engines": {
     "node": ">=20.0.0"

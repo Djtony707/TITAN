@@ -1982,6 +1982,87 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ revoked });
   });
 
+  // ── Mesh Health / Status Endpoint ─────────────────────────────
+  app.get('/api/mesh/status', async (_req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.mesh.enabled) { res.json({ enabled: false, status: 'disabled' }); return; }
+
+    const { getOrCreateNodeId } = await import('../mesh/identity.js');
+    const { getPeers, getPendingPeers } = await import('../mesh/discovery.js');
+    const { getConnectedPeerCount } = await import('../mesh/transport.js');
+    const { getOrCreateNodeId: localNodeId } = await import('../mesh/identity.js');
+
+    const nodeId = getOrCreateNodeId();
+    const approvedPeers = getPeers();
+    const pendingPeers = getPendingPeers();
+    const connectedCount = getConnectedPeerCount();
+    const connectedPeerIds = new Set<string>();
+
+    // Collect per-peer connection detail from approved list + transport
+    const peerDetails = approvedPeers.map(p => {
+      const isConnected = p.lastSeen > Date.now() - 10_000; // Consider connected if seen in last 10s
+      if (isConnected) connectedPeerIds.add(p.nodeId);
+      return {
+        nodeId: p.nodeId,
+        hostname: p.hostname,
+        address: p.address,
+        port: p.port,
+        discoveredVia: p.discoveredVia,
+        lastSeen: p.lastSeen,
+        models: p.models,
+        agentCount: p.agentCount,
+        load: p.load,
+        isConnected,
+      };
+    });
+
+    // Composite health score
+    const totalApproved = approvedPeers.length;
+    const unreachableCount = totalApproved - connectedCount;
+    const healthScore = totalApproved > 0
+      ? Math.round(((totalApproved - unreachableCount) / totalApproved) * 100) / 100
+      : 1.0;
+
+    // Discovery mode detection
+    const discoveryModes: string[] = [];
+    if (cfg.mesh.mdns) discoveryModes.push('mdns');
+    if (cfg.mesh.tailscale) discoveryModes.push('tailscale');
+    if ((cfg.mesh.staticPeers || []).length > 0) discoveryModes.push('manual');
+
+    const status = unreachableCount === 0 && totalApproved > 0
+      ? 'healthy'
+      : unreachableCount > 0 && connectedCount > 0
+        ? 'degraded'
+        : totalApproved === 0
+          ? 'empty'
+          : 'unreachable';
+
+    res.json({
+      enabled: true,
+      status,
+      nodeId,
+      discoveryModes,
+      peers: {
+        total: totalApproved,
+        connected: connectedCount,
+        unreachable: unreachableCount,
+        pending: pendingPeers.length,
+      },
+      peerDetails,
+      healthScore,
+      maxPeers: cfg.mesh.maxPeers,
+      autoApprove: cfg.mesh.autoApprove,
+    });
+  });
+
+  // ── Mesh Routes Endpoint ───────────────────────────────────────
+  app.get('/api/mesh/routes', async (_req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.mesh.enabled) { res.json({ enabled: false, routes: [] }); return; }
+    const { getRoutingTable } = await import('../mesh/transport.js');
+    res.json({ routes: getRoutingTable() });
+  });
+
   // ── Teams RBAC API ─────────────────────────────────────────────
 
   app.get('/api/teams', (_req, res) => {
@@ -4525,6 +4606,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         '/api/mesh/approve/:nodeId': { post: { summary: 'Approve a discovered peer',            tags: ['Mesh'] } },
         '/api/mesh/reject/:nodeId': { post: { summary: 'Reject a pending peer',                 tags: ['Mesh'] } },
         '/api/mesh/revoke/:nodeId': { post: { summary: 'Disconnect and revoke a peer',          tags: ['Mesh'] } },
+        '/api/mesh/status':        { get:  { summary: 'Mesh health status and connectivity',    tags: ['Mesh'] } },
+        '/api/mesh/routes':        { get:  { summary: 'Mesh routing table (multi-hop routes)',  tags: ['Mesh'] } },
         '/api/teams':              { get:  { summary: 'List all teams',                          tags: ['Teams'] },
                                      post: { summary: 'Create a new team',                        tags: ['Teams'] } },
         '/api/teams/{teamId}':     { get:  { summary: 'Get team details',                        tags: ['Teams'] },
@@ -4625,6 +4708,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         { method: 'POST', path: '/api/mesh/approve/:id', desc: 'Approve a discovered peer' },
         { method: 'POST', path: '/api/mesh/reject/:id',  desc: 'Reject a pending peer' },
         { method: 'POST', path: '/api/mesh/revoke/:id',  desc: 'Disconnect & revoke a peer' },
+        { method: 'GET',  path: '/api/mesh/status',       desc: 'Mesh health status and connectivity' },
+        { method: 'GET',  path: '/api/mesh/routes',       desc: 'Mesh routing table (multi-hop)' },
       ]},
       { cat: 'Teams',    routes: [
         { method: 'GET',  path: '/api/teams',                    desc: 'List all teams' },
@@ -4997,7 +5082,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   if (config.mesh.enabled && config.mesh.secret) {
     const { getOrCreateNodeId } = await import('../mesh/identity.js');
     const { startDiscovery, setOnPeerDiscovered, setConnectApprovedPeer, setMaxPeers } = await import('../mesh/discovery.js');
-    const { connectToPeer, startHeartbeat } = await import('../mesh/transport.js');
+    const { connectToPeer, startHeartbeat, startRouteBroadcast } = await import('../mesh/transport.js');
     const nodeId = getOrCreateNodeId();
 
     // Set max peers limit
@@ -5076,6 +5161,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         load: Math.round(load * 100) / 100,
       };
     }, config.mesh.heartbeatIntervalMs || 60_000);
+
+    // Start distance-vector route broadcasting
+    startRouteBroadcast(30_000);
 
     const mode = config.mesh.autoApprove ? 'auto-approve' : 'approval-required';
     logger.info(COMPONENT, `Mesh active — Node: ${nodeId.slice(0, 8)}... | mDNS: ${config.mesh.mdns} | Tailscale: ${config.mesh.tailscale} | Max peers: ${config.mesh.maxPeers} | Mode: ${mode}`);

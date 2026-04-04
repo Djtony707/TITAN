@@ -70,24 +70,27 @@
 
 TITAN is the only open-source agent framework that **trains itself on your GPU**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, voice, GUI, 15 channels, mesh networking, agent governance, and 36 providers in one package.
 
-| Feature | TITAN | OpenClaw | NemoClaw | Auto-GPT | CrewAI | LangGraph |
-|---------|:-----:|:--------:|:--------:|:--------:|:------:|:---------:|
-| **Language** | TypeScript | TypeScript | Python | Python | Python | Python |
-| **Self-improving** | LoRA + auto-eval | Foundry/Trace | TBD | Limited | — | — |
-| **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | — |
-| **Built-in GUI** | React SPA, 26 panels | Web + mobile | TBD | Limited | Partial | — |
-| **Agent governance** | Command Post (Paperclip) | — | — | — | — | — |
-| **Voice** | LiveKit WebRTC | ElevenLabs | TBD | Limited | — | — |
-| **Channel adapters** | 15 | 24+ | TBD | 0 | 0 | 0 |
-| **LLM providers** | 36 | Model-agnostic | NIM + others | ~5 | ~10 | ~20 |
+| Feature | TITAN | OpenClaw | CrewAI | LangGraph | AutoGen | Forge (MiniMax) |
+|---------|:-----:|:--------:|:------:|:---------:|:-------:|:---------------:|
+| **Language** | TypeScript | TypeScript | Python | Python | Python/.NET | Python |
+| **GitHub Stars** | 5.5k+ | 316k | 48k | 28.4k | 56.7k | Emerging |
+| **Self-improving** | LoRA + auto-eval | Foundry/Trace | — | — | Limited | RL training (CISPO) |
+| **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | Prefix tree merging (40× speedup) |
+| **Built-in GUI** | React SPA, 26 panels | Web + mobile | Partial | — | AutoGen Studio | — |
+| **Agent governance** | Command Post (Paperclip) | — | — | Human-in-the-loop | — | — |
+| **Voice** | LiveKit WebRTC | ElevenLabs | — | — | — | — |
+| **Channel adapters** | 15 | 24+ | 0 | 0 | 0 | — |
+| **LLM providers** | 36 | Model-agnostic | ~10 | ~20 | ~15 | Universal agent support |
 | **Mesh networking** | Multi-machine | — | — | — | — | — |
-| **Sandbox execution** | Docker + NVIDIA OpenShell | — | TBD | Docker | — | — |
+| **Sandbox execution** | Docker + NVIDIA OpenShell | — | — | — | — | — |
 | **GPU VRAM management** | Auto-swap orchestrator | — | — | — | — | — |
-| **MCP server mode** | Expose tools to other agents | Client only | TBD | Client | Client | Client |
-| **Prometheus metrics** | Built-in | — | TBD | — | — | — |
-| **One-line install** | `curl \| bash` | `npx` | — | — | — | — |
+| **MCP server mode** | Expose tools to other agents | Client only | Client | Client | Client | — |
+| **Durable execution** | — | — | — | ✓ | — | Windowed FIFO scheduling |
+| **Training throughput** | — | — | — | — | — | 100k+ agent scaffolds/day |
 
-> **OpenClaw** is a personal assistant you configure. **TITAN** is a developer framework you build with — and it gets smarter on its own GPU.
+> **TITAN vs competitors**: While frameworks like CrewAI (48k⭐) and LangGraph (28.4k⭐) focus on orchestration, TITAN is a complete autonomous platform with self-improvement, voice, mesh networking, and GPU management built in. **OpenClaw** (316k⭐) is a personal assistant you configure. **TITAN** is a developer framework you build with — and it gets smarter on its own GPU.
+
+> **New in Q2 2026**: **Forge by MiniMax** (Feb 2026) — internal RL framework with 40× training speedup via prefix tree merging and massive agent throughput (100k+ scaffolds/day). **LangGraph v1.1.6** (April 2026) adds durable execution and enterprise integrations.
 
 ---
 

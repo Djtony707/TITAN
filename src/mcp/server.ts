@@ -2,7 +2,7 @@
  * TITAN — MCP Server
  * Exposes TITAN's registered tools via the Model Context Protocol (MCP).
  * Other agents (Claude Code, Cursor, Windsurf, etc.) can connect to TITAN
- * as an MCP server and use any of its ~112 tools.
+ * as an MCP server and use any of its ~195 tools.
  *
  * Supports two transport modes:
  * - **HTTP/SSE**: Runs on a configurable port (default 48421), compatible with
@@ -11,6 +11,12 @@
  *   JSON-RPC (standard MCP stdio transport).
  *
  * Protocol: JSON-RPC 2.0 per MCP specification (2025-03-26)
+ *
+ * Features:
+ * - Dynamic tool discovery (exposes all registered TITAN tools)
+ * - Session management for multi-turn conversations
+ * - Proper error responses per JSON-RPC 2.0 spec
+ * - Health check endpoint
  */
 import type { Express } from 'express';
 import { getRegisteredTools } from '../agent/toolRunner.js';
@@ -18,6 +24,20 @@ import { isToolSkillEnabled } from '../skills/registry.js';
 import { loadConfig } from '../config/config.js';
 import { TITAN_VERSION, TITAN_NAME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
+
+// ─── Session Management ──────────────────────────────────────────
+
+interface McpSession {
+    sessionId: string;
+    createdAt: number;
+    lastActivityAt: number;
+    messageCount: number;
+    clientInfo: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+}
+
+const sessions = new Map<string, McpSession>();
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 const COMPONENT = 'MCPServer';
 
@@ -42,21 +62,78 @@ interface JsonRpcResponse {
 let initialized = false;
 let clientCapabilities: Record<string, unknown> = {};
 
+// ─── Session Management Helpers ───────────────────────────────────
+
+function generateSessionId(): string {
+    return `mcp-session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createSession(clientInfo: Record<string, unknown>): McpSession {
+    const sessionId = generateSessionId();
+    const now = Date.now();
+    const session: McpSession = {
+        sessionId,
+        createdAt: now,
+        lastActivityAt: now,
+        messageCount: 0,
+        clientInfo,
+        metadata: {},
+    };
+    sessions.set(sessionId, session);
+
+    // Clean up expired sessions
+    cleanupExpiredSessions();
+
+    logger.info(COMPONENT, `Created session ${sessionId}`);
+    return session;
+}
+
+function updateSessionActivity(sessionId: string): void {
+    const session = sessions.get(sessionId);
+    if (session) {
+        session.lastActivityAt = Date.now();
+        session.messageCount++;
+    }
+}
+
+function cleanupExpiredSessions(): void {
+    const now = Date.now();
+    for (const [id, session] of sessions.entries()) {
+        if (now - session.lastActivityAt > SESSION_TIMEOUT_MS) {
+            sessions.delete(id);
+            logger.debug(COMPONENT, `Expired session: ${id}`);
+        }
+    }
+}
+
+function getSessionCount(): number {
+    return sessions.size;
+}
+
 // ─── MCP Protocol Handlers ───────────────────────────────────────
 
 function handleInitialize(params: Record<string, unknown>): unknown {
+    const clientInfo = (params.clientInfo as Record<string, unknown>) || {};
     clientCapabilities = (params.capabilities as Record<string, unknown>) || {};
     initialized = true;
-    logger.info(COMPONENT, `Client initialized: ${JSON.stringify(params.clientInfo || 'unknown')}`);
+
+    // Create session for this client
+    const session = createSession(clientInfo);
+
+    logger.info(COMPONENT, `Client initialized: ${JSON.stringify(clientInfo)} [session: ${session.sessionId}]`);
+
     return {
         protocolVersion: '2025-03-26',
         capabilities: {
-            tools: { listChanged: false },
+            tools: { listChanged: true },
+            resources: { subscribe: false },
+            prompts: { listChanged: false },
         },
         serverInfo: {
             name: TITAN_NAME,
             version: TITAN_VERSION,
         },
+        sessionId: session.sessionId,
     };
 }
 
@@ -65,7 +142,8 @@ function handleToolsList(): unknown {
     const denied = new Set(config.security.deniedTools);
     const allowed = new Set(config.security.allowedTools);
 
-    const tools = getRegisteredTools()
+    const allTools = getRegisteredTools();
+    const tools = allTools
         .filter((tool) => {
             if (denied.has(tool.name)) return false;
             if (allowed.size > 0 && !allowed.has(tool.name)) return false;
@@ -74,21 +152,27 @@ function handleToolsList(): unknown {
         })
         .map((tool) => ({
             name: tool.name,
-            description: tool.description,
-            inputSchema: tool.parameters,
+            description: tool.description || 'No description available',
+            inputSchema: tool.parameters || { type: 'object', properties: {} },
+            _skillSource: (tool as Record<string, unknown>)._skillSource || 'core',
         }));
 
-    logger.debug(COMPONENT, `Listed ${tools.length} tools`);
+    logger.info(COMPONENT, `Listed ${tools.length} of ${allTools.length} total tools (filtered by security policy)`);
     return { tools };
 }
 
 async function handleToolsCall(params: Record<string, unknown>): Promise<unknown> {
+    return internalToolsCall(params);
+}
+
+async function internalToolsCall(params: Record<string, unknown>): Promise<unknown> {
     const toolName = params.name as string;
     const args = (params.arguments as Record<string, unknown>) || {};
 
-    if (!toolName) {
+    // Validate tool name
+    if (!toolName || typeof toolName !== 'string') {
         return {
-            content: [{ type: 'text', text: 'Error: tool name is required' }],
+            content: [{ type: 'text', text: 'Error: tool name is required and must be a string' }],
             isError: true,
         };
     }
@@ -97,19 +181,23 @@ async function handleToolsCall(params: Record<string, unknown>): Promise<unknown
     const handler = tools.find((t) => t.name === toolName);
 
     if (!handler) {
+        // Provide helpful error with available tools count
+        const totalTools = tools.length;
         return {
-            content: [{ type: 'text', text: `Error: unknown tool "${toolName}"` }],
+            content: [{ type: 'text', text: `Error: unknown tool "${toolName}". ${totalTools} tools are available. Use tools/list to see available tools.` }],
             isError: true,
         };
     }
 
+    // Check if skill is enabled
     if (!isToolSkillEnabled(handler.name)) {
         return {
-            content: [{ type: 'text', text: `Error: tool "${toolName}" is disabled` }],
+            content: [{ type: 'text', text: `Error: tool "${toolName}" is disabled (skill not loaded)` }],
             isError: true,
         };
     }
 
+    // Check security policy
     const config = loadConfig();
     if (config.security.deniedTools.includes(handler.name)) {
         return {
@@ -132,36 +220,71 @@ async function handleToolsCall(params: Record<string, unknown>): Promise<unknown
         const durationMs = Date.now() - startTime;
         logger.info(COMPONENT, `Tool ${toolName} executed in ${durationMs}ms via MCP`);
 
-        const content = result.length > 50000
-            ? result.slice(0, 50000) + '\n\n[Output truncated at 50KB]'
-            : result;
+        // Truncate large output at 100KB for MCP safety
+        const maxOutputSize = 100000;
+        const content = typeof result === 'string' && result.length > maxOutputSize
+            ? result.slice(0, maxOutputSize) + `\n\n[Output truncated at ${maxOutputSize / 1000}KB]`
+            : (typeof result === 'string' ? result : JSON.stringify(result));
 
         return {
             content: [{ type: 'text', text: content }],
             isError: false,
         };
     } catch (err) {
-        logger.error(COMPONENT, `Tool ${toolName} failed: ${(err as Error).message}`);
+        const errorDetails = err instanceof Error ? {
+            message: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+        } : String(err);
+
+        logger.error(COMPONENT, `Tool ${toolName} failed: ${errorDetails.message}`);
         return {
-            content: [{ type: 'text', text: `Error: ${(err as Error).message}` }],
+            content: [{ type: 'text', text: `Error: ${errorDetails.message}` }],
             isError: true,
         };
     }
 }
 
+// ─── JSON-RPC Error Codes ────────────────────────────────────────
+
+const JsonRpcErrorCode = {
+    PARSE_ERROR: -32700,
+    INVALID_REQUEST: -32600,
+    METHOD_NOT_FOUND: -32601,
+    INVALID_PARAMS: -32602,
+    INTERNAL_ERROR: -32603,
+    NOT_INITIALIZED: -32000,
+    TOOL_NOT_FOUND: -32001,
+    TOOL_EXECUTION_ERROR: -32002,
+    SESSION_EXPIRED: -32003,
+} as const;
+
 // ─── JSON-RPC Dispatcher ─────────────────────────────────────────
 
 export async function handleJsonRpcRequest(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
+    // Validate JSON-RPC version first
+    if (!request.jsonrpc || request.jsonrpc !== '2.0') {
+        return {
+            jsonrpc: '2.0',
+            id: request.id ?? null,
+            error: { code: JsonRpcErrorCode.INVALID_REQUEST, message: 'Invalid JSON-RPC version, expected "2.0"' },
+        };
+    }
+
     const { method, params, id } = request;
 
     // Notifications (no id) — don't send a response
-    if (method === 'notifications/initialized') {
-        logger.debug(COMPONENT, 'Client confirmed initialization');
+    if (method?.startsWith('notifications/')) {
+        logger.debug(COMPONENT, `Notification: ${method}`);
         return null;
     }
-    if (method === 'notifications/cancelled') {
-        logger.debug(COMPONENT, `Request cancelled: ${JSON.stringify(params)}`);
-        return null;
+
+    // Validate method exists
+    if (!method || typeof method !== 'string') {
+        return {
+            jsonrpc: '2.0',
+            id: id ?? null,
+            error: { code: JsonRpcErrorCode.METHOD_NOT_FOUND, message: 'Method name is required' },
+        };
     }
 
     // Methods that require a response
@@ -175,22 +298,62 @@ export async function handleJsonRpcRequest(request: JsonRpcRequest): Promise<Jso
 
             case 'tools/list':
                 if (!initialized) {
-                    return { jsonrpc: '2.0', id: id ?? null, error: { code: -32600, message: 'Server not initialized' } };
+                    return {
+                        jsonrpc: '2.0',
+                        id: id ?? null,
+                        error: { code: JsonRpcErrorCode.NOT_INITIALIZED, message: 'Server not initialized. Call initialize first.' },
+                    };
                 }
                 return { jsonrpc: '2.0', id: id ?? null, result: handleToolsList() };
 
             case 'tools/call':
                 if (!initialized) {
-                    return { jsonrpc: '2.0', id: id ?? null, error: { code: -32600, message: 'Server not initialized' } };
+                    return {
+                        jsonrpc: '2.0',
+                        id: id ?? null,
+                        error: { code: JsonRpcErrorCode.NOT_INITIALIZED, message: 'Server not initialized. Call initialize first.' },
+                    };
                 }
-                return { jsonrpc: '2.0', id: id ?? null, result: await handleToolsCall(params || {}) };
+                if (!params || !(params as Record<string, unknown>).name) {
+                    return {
+                        jsonrpc: '2.0',
+                        id: id ?? null,
+                        error: { code: JsonRpcErrorCode.INVALID_PARAMS, message: 'Tool name is required in params' },
+                    };
+                }
+                return { jsonrpc: '2.0', id: id ?? null, result: await internalToolsCall(params || {}) };
+
+            case 'session/info':
+                // New session info endpoint for debugging
+                return {
+                    jsonrpc: '2.0',
+                    id: id ?? null,
+                    result: {
+                        sessionId: null, // Session not tracked via JSON-RPC
+                        activeSessions: getSessionCount(),
+                        serverVersion: TITAN_VERSION,
+                    },
+                };
 
             default:
-                return { jsonrpc: '2.0', id: id ?? null, error: { code: -32601, message: `Method not found: ${method}` } };
+                return {
+                    jsonrpc: '2.0',
+                    id: id ?? null,
+                    error: { code: JsonRpcErrorCode.METHOD_NOT_FOUND, message: `Method not found: ${method}` },
+                };
         }
     } catch (err) {
-        logger.error(COMPONENT, `Handler error for ${method}: ${(err as Error).message}`);
-        return { jsonrpc: '2.0', id: id ?? null, error: { code: -32603, message: (err as Error).message } };
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error(COMPONENT, `Handler error for ${method}: ${error.message}`);
+        return {
+            jsonrpc: '2.0',
+            id: id ?? null,
+            error: {
+                code: JsonRpcErrorCode.INTERNAL_ERROR,
+                message: error.message,
+                data: process.env.NODE_ENV === 'development' ? { stack: error.stack } : undefined,
+            },
+        };
     }
 }
 
@@ -250,6 +413,7 @@ export function startStdioServer(): void {
  * Implements the MCP Streamable HTTP transport (2025-03-26 spec).
  *
  * Endpoints:
+ * - GET  /mcp/health — Health check endpoint
  * - POST /mcp — JSON-RPC request/response
  * - GET  /mcp — SSE stream for server-initiated notifications (future)
  * - DELETE /mcp — Terminate session (future)
@@ -261,16 +425,43 @@ export function mountMcpHttpEndpoints(app: Express): void {
         return;
     }
 
+    // GET /mcp/health — Health check endpoint
+    app.get('/mcp/health', (_req, res) => {
+        const tools = getRegisteredTools();
+        const enabledTools = tools.filter((t) => isToolSkillEnabled(t.name));
+        const status = {
+            status: 'ok',
+            initialized,
+            version: TITAN_VERSION,
+            serverName: TITAN_NAME,
+            toolCount: enabledTools.length,
+            totalToolCount: tools.length,
+            activeSessions: getSessionCount(),
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+        };
+        res.json(status);
+    });
+
     // POST /mcp — main JSON-RPC endpoint
     app.post('/mcp', async (req, res) => {
         try {
             const request = req.body as JsonRpcRequest;
 
-            if (!request.jsonrpc || request.jsonrpc !== '2.0' || !request.method) {
+            if (!request.jsonrpc || request.jsonrpc !== '2.0') {
                 res.status(400).json({
                     jsonrpc: '2.0',
-                    id: null,
-                    error: { code: -32600, message: 'Invalid JSON-RPC request' },
+                    id: request.id ?? null,
+                    error: { code: -32600, message: 'Invalid JSON-RPC version, expected "2.0"' },
+                });
+                return;
+            }
+
+            if (!request.method) {
+                res.status(400).json({
+                    jsonrpc: '2.0',
+                    id: request.id ?? null,
+                    error: { code: -32600, message: 'Method name is required' },
                 });
                 return;
             }
@@ -301,19 +492,38 @@ export function mountMcpHttpEndpoints(app: Express): void {
         // Client can close when done
     });
 
-    logger.info(COMPONENT, 'MCP HTTP endpoints mounted at /mcp');
+    // DELETE /mcp — Session termination (for future session management)
+    app.delete('/mcp', (req, res) => {
+        // For future: support session termination via ?sessionId= query param
+        res.json({
+            message: 'Session management - use session/info to get current session details',
+            activeSessions: getSessionCount(),
+        });
+    });
+
+    logger.info(COMPONENT, 'MCP HTTP endpoints mounted at /mcp and /mcp/health');
 }
 
 /**
  * Get MCP server status for the dashboard/API.
  */
-export function getMcpServerStatus(): { enabled: boolean; initialized: boolean; toolCount: number; clientInfo: unknown } {
+export function getMcpServerStatus(): {
+    enabled: boolean;
+    initialized: boolean;
+    toolCount: number;
+    totalToolCount: number;
+    activeSessions: number;
+    clientInfo: unknown;
+} {
     const config = loadConfig();
-    const tools = getRegisteredTools().filter((t) => isToolSkillEnabled(t.name));
+    const allTools = getRegisteredTools();
+    const enabledTools = allTools.filter((t) => isToolSkillEnabled(t.name));
     return {
         enabled: config.mcp?.server?.enabled ?? false,
         initialized,
-        toolCount: tools.length,
+        toolCount: enabledTools.length,
+        totalToolCount: allTools.length,
+        activeSessions: getSessionCount(),
         clientInfo: clientCapabilities,
     };
 }

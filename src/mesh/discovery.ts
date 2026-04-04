@@ -16,7 +16,9 @@ import logger from '../utils/logger.js';
 import { TITAN_HOME, TITAN_VERSION } from '../utils/constants.js';
 
 const COMPONENT = 'MeshDiscovery';
-const PROBE_TIMEOUT = 2000;
+const PROBE_TIMEOUT_MS = 2000;
+const PROBE_JITTER_MS = 500; // ±500ms jitter to avoid thundering-herd probes
+const MDNS_RESTART_INTERVAL_MS = 300_000; // Restart mDNS every 5 minutes to handle network changes
 const APPROVED_PEERS_PATH = join(TITAN_HOME, 'approved-peers.json');
 
 export interface MeshPeer {
@@ -57,6 +59,12 @@ let bonjourInstance: BonjourInstance | null = null;
 let bonjourBrowser: BonjourBrowser | null = null;
 let tailscaleInterval: ReturnType<typeof setInterval> | null = null;
 let peerPruneInterval: ReturnType<typeof setInterval> | null = null;
+let mdnsRestartInterval: ReturnType<typeof setInterval> | null = null;
+
+// mDNS restart config (for network-change recovery)
+let mdnsNodeId: string | null = null;
+let mdnsPort: number | null = null;
+let mdnsAutoApprove: boolean = false;
 
 /** Callback fired when a new peer is discovered (for dashboard notifications) */
 let onPeerDiscovered: ((peer: MeshPeer) => void) | null = null;
@@ -126,11 +134,25 @@ export function registerPeer(peer: MeshPeer, options?: { skipApproval?: boolean 
     // Already an active approved peer — update with fresh data
     const existing = peers.get(peer.nodeId);
     if (existing) {
+        // Address changed (mDNS/Tailscale rediscovery) — update transport reconnect state
+        if (existing.address !== peer.address || existing.port !== peer.port) {
+            const oldAddr = existing.address;
+            const oldPort = existing.port;
+            existing.address = peer.address;
+            existing.port = peer.port;
+            existing.lastSeen = Date.now();
+            // Notify transport layer so reconnection uses new address
+            (async () => {
+                try {
+                    const { updatePeerAddress } = await import('./transport.js');
+                    updatePeerAddress(oldAddr, oldPort, peer.address, peer.port);
+                } catch { /* transport not loaded */ }
+            })();
+        }
         // Use the new model list if provided, otherwise keep existing
         existing.models = peer.models.length > 0 ? peer.models : existing.models;
         existing.agentCount = peer.agentCount;
         existing.load = peer.load;
-        existing.lastSeen = Date.now();
         existing.version = peer.version;
         return;
     }
@@ -153,6 +175,19 @@ export function registerPeer(peer: MeshPeer, options?: { skipApproval?: boolean 
     } else {
         // Update pending peer info
         const p = pendingPeers.get(peer.nodeId)!;
+        // Same address-change logic for pending peers
+        if (p.address !== peer.address || p.port !== peer.port) {
+            const oldAddr = p.address;
+            const oldPort = p.port;
+            p.address = peer.address;
+            p.port = peer.port;
+            (async () => {
+                try {
+                    const { updatePeerAddress } = await import('./transport.js');
+                    updatePeerAddress(oldAddr, oldPort, peer.address, peer.port);
+                } catch { /* transport not loaded */ }
+            })();
+        }
         p.models = peer.models;
         p.lastSeen = Date.now();
     }
@@ -212,6 +247,13 @@ export function getApprovedPeerCount(): number {
 // ── mDNS / Bonjour ─────────────────────────────────────────────
 
 async function startMdns(nodeId: string, port: number, autoApprove: boolean): Promise<void> {
+    // Stop existing mDNS if running (to avoid duplicates on restart)
+    stopMdnsInternal();
+
+    mdnsNodeId = nodeId;
+    mdnsPort = port;
+    mdnsAutoApprove = autoApprove;
+
     try {
         const { Bonjour } = await import('bonjour-service');
         bonjourInstance = new Bonjour() as unknown as BonjourInstance;
@@ -260,11 +302,17 @@ async function startMdns(nodeId: string, port: number, autoApprove: boolean): Pr
             }
         });
 
-        bonjourBrowser.on('down', (service: BonjourService) => {
+        bonjourBrowser.on('down', async (service: BonjourService) => {
             const peerNodeId = service.txt?.nodeId;
             if (peerNodeId) {
                 removePeer(peerNodeId);
                 pendingPeers.delete(peerNodeId);
+                // Also close the WebSocket connection
+                try {
+                    const { disconnectPeer } = await import('./transport.js');
+                    disconnectPeer(peerNodeId);
+                } catch { /* transport not loaded */ }
+                logger.info(COMPONENT, `mDNS peer went down: ${peerNodeId.slice(0, 8)}...`);
             }
         });
 
@@ -272,6 +320,12 @@ async function startMdns(nodeId: string, port: number, autoApprove: boolean): Pr
     } catch (err) {
         logger.warn(COMPONENT, `mDNS unavailable (install bonjour-service for LAN discovery): ${(err as Error).message}`);
     }
+}
+
+/** Internal mDNS stop — does not clear config (used for restart) */
+function stopMdnsInternal(): void {
+    if (bonjourBrowser) { bonjourBrowser.stop(); bonjourBrowser = null; }
+    if (bonjourInstance) { bonjourInstance.destroy(); bonjourInstance = null; }
 }
 
 // ── Tailscale Discovery ─────────────────────────────────────────
@@ -346,11 +400,13 @@ interface ProbeResult {
 }
 
 async function probePeer(address: string, port: number): Promise<ProbeResult | null> {
+    // Add jitter to probe timeout to avoid synchronized retries across peers
+    const timeout = PROBE_TIMEOUT_MS + Math.round(PROBE_JITTER_MS * (Math.random() * 2 - 1));
     // Try HTTPS first (TITAN auto-HTTPS via mkcert), fall back to HTTP
     for (const protocol of ['https', 'http'] as const) {
         try {
             const res = await fetch(`${protocol}://${address}:${port}/api/mesh/hello`, {
-                signal: AbortSignal.timeout(PROBE_TIMEOUT),
+                signal: AbortSignal.timeout(timeout),
             });
             if (!res.ok) {
                 logger.debug(COMPONENT, `Probe ${protocol}://${address}:${port} returned ${res.status}`);
@@ -424,6 +480,13 @@ export async function startDiscovery(
 
     if (options.mdns !== false) {
         await startMdns(nodeId, port, autoApprove);
+        // Restart mDNS every 5 minutes to handle network interface changes
+        mdnsRestartInterval = setInterval(() => {
+            if (mdnsNodeId && mdnsPort !== null) {
+                logger.info(COMPONENT, 'Restarting mDNS to handle network changes...');
+                startMdns(mdnsNodeId, mdnsPort, mdnsAutoApprove).catch(() => {});
+            }
+        }, MDNS_RESTART_INTERVAL_MS);
     }
 
     if (options.tailscale !== false) {
@@ -460,6 +523,9 @@ export function stopDiscovery(): void {
     if (bonjourInstance) { bonjourInstance.destroy(); bonjourInstance = null; }
     if (tailscaleInterval) { clearInterval(tailscaleInterval); tailscaleInterval = null; }
     if (peerPruneInterval) { clearInterval(peerPruneInterval); peerPruneInterval = null; }
+    if (mdnsRestartInterval) { clearInterval(mdnsRestartInterval); mdnsRestartInterval = null; }
+    mdnsNodeId = null;
+    mdnsPort = null;
     peers.clear();
     pendingPeers.clear();
     logger.info(COMPONENT, 'Discovery stopped');

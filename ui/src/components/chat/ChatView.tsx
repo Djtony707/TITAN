@@ -170,7 +170,7 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
   // Session sidebar
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-bg-secondary border-r border-bg-tertiary">
+    <div className="flex flex-col h-full bg-bg-secondary border-r border-bg-tertiary overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-bg-tertiary">
         <button
           onClick={handleNewChat}
@@ -252,32 +252,32 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
 
   // Empty state — centered prompt with TITAN branding
   const emptyState = (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 pb-4">
+    <div className="flex flex-col items-center justify-center w-full max-w-lg mx-auto">
       {/* Logo with ambient glow */}
-      <div className="mb-8 relative">
-        <div className="absolute -inset-8 rounded-full bg-gradient-to-br from-accent/15 via-purple/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute -inset-3 rounded-full bg-accent/5 blur-md" />
+      <div className="mb-6 md:mb-8 relative">
+        <div className="absolute -inset-6 md:-inset-8 rounded-full bg-gradient-to-br from-accent/15 via-purple/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
+        <div className="absolute -inset-2 md:-inset-3 rounded-full bg-accent/5 blur-md" />
         <img
           src="/titan-logo.png"
           alt="TITAN"
-          className="relative w-20 h-20 rounded-2xl ring-1 ring-white/10 shadow-2xl shadow-black/50"
+          className="relative w-16 h-16 md:w-20 md:h-20 rounded-2xl ring-1 ring-white/10 shadow-2xl shadow-black/50"
         />
       </div>
 
       {/* Title */}
-      <h2 className="text-3xl font-bold bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent mb-3">
+      <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent mb-2 md:mb-3">
         TITAN
       </h2>
 
-      {/* Stats bar */}
-      <div className="flex items-center gap-4 mb-8">
+      {/* Stats bar — responsive: 2 columns on mobile, row on desktop */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-6 md:mb-8 md:flex md:gap-4">
         {[
           { value: '209', label: 'Tools' },
           { value: '36', label: 'Providers' },
           { value: '15', label: 'Channels' },
           { value: '117', label: 'Skills' },
         ].map(({ value, label }) => (
-          <div key={label} className="flex items-baseline gap-1">
+          <div key={label} className="flex items-baseline gap-1 md:inline-flex">
             <span className="text-sm font-semibold text-white/80">{value}</span>
             <span className="text-[11px] text-white/30">{label}</span>
           </div>
@@ -287,8 +287,8 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
       {/* Quick action grid */}
       <QuickActions onSelectAction={handleSend} onVoiceOpen={onVoiceOpen} visible={true} />
 
-      {/* Subtle tagline */}
-      <p className="mt-6 text-[11px] text-white/20 max-w-sm text-center">
+      {/* Subtle tagline — hidden on very small screens */}
+      <p className="mt-4 md:mt-6 text-[10px] md:text-[11px] text-white/20 max-w-sm text-center hidden sm:block">
         Autonomous AI agent with Command Post governance, self-improvement, mesh networking, and voice cloning
       </p>
     </div>
@@ -298,19 +298,19 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
     <div className="flex h-full overflow-hidden bg-bg">
       {/* Session drawer overlay */}
       {(sidebarOpen || mobileSidebarOpen) && (
-        <div className="fixed inset-0 z-40">
+        <div className="fixed inset-0 z-50">
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm md:bg-black/50"
             onClick={() => { setSidebarOpen(false); setMobileSidebarOpen(false); }}
           />
-          <div className="relative w-72 h-full z-50 animate-slide-in">{sidebarContent}</div>
+          <div className="relative w-[280px] md:w-72 h-full z-50 animate-slide-in">{sidebarContent}</div>
         </div>
       )}
 
       {/* Main content — split view when watcher is open */}
-      <div className="flex-1 flex min-w-0">
+      <div className="flex-1 flex min-w-0 flex-col md:flex-row">
         {/* Chat area */}
-        <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? '60%' : '100%', transition: 'width 300ms ease' }}>
+        <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : '60%') : '100%', transition: 'width 300ms ease' }}>
         {/* Top bar — minimal */}
         <div className="flex items-center gap-2 px-3 py-2 shrink-0">
           <button
@@ -372,9 +372,9 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         {/* Messages area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {messages.length === 0 && !isStreaming ? (
-            emptyState
+            <div className="px-4 py-4 md:py-6">{emptyState}</div>
           ) : (
-            <div className="max-w-3xl mx-auto px-4 py-6">
+            <div className="max-w-3xl mx-auto px-3 md:px-4 py-4 md:py-6">
               {messages.map((msg, i) => {
                 const msgDate = msg.timestamp ? new Date(msg.timestamp).toDateString() : null;
                 const prevDate = i > 0 && messages[i - 1].timestamp
@@ -387,9 +387,9 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
                 return (
                   <div key={`${msg.timestamp}-${i}`}>
                     {showSeparator && (
-                      <div className="flex items-center gap-3 my-4">
+                      <div className="flex items-center gap-2 md:gap-3 my-3 md:my-4">
                         <div className="flex-1 h-px bg-bg-tertiary" />
-                        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider whitespace-nowrap">
+                        <span className="text-[9px] md:text-[10px] font-medium text-text-muted uppercase tracking-wider whitespace-nowrap px-1">
                           {separatorLabel}
                         </span>
                         <div className="flex-1 h-px bg-bg-tertiary" />
@@ -419,9 +419,17 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
         />
       </div>{/* end chat column */}
 
-      {/* Agent Watcher panel */}
+      {/* Agent Watcher panel — hidden on mobile by default, full width when open */}
       {watcherOpen && (
-        <div className="border-l border-border" style={{ width: '40%', minWidth: 280, transition: 'width 300ms ease' }}>
+        <div className="border-l border-border md:border-l md:w-[40%]" style={{ width: '100%', minWidth: '100%', transition: 'width 300ms ease' }}>
+          <div className="flex justify-end p-2 md:hidden">
+            <button
+              onClick={() => setWatcherOpen(false)}
+              className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-bg-secondary"
+            >
+              <X size={18} />
+            </button>
+          </div>
           <AgentWatcher events={agentEvents} onClose={() => setWatcherOpen(false)} />
         </div>
       )}

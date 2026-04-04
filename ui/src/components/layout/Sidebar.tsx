@@ -236,7 +236,7 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
   // ════════════════════════════════════════════════════════════════════
   if (mode === 'chat') {
     return (
-      <div className="flex flex-col h-full w-[60px] bg-bg-secondary border-r border-border">
+      <div className="flex flex-col h-full w-[60px] bg-bg-secondary border-r border-border md:w-[64px]">
         {/* Logo */}
         <Link to="/" className="flex items-center justify-center h-14 flex-shrink-0 hover:opacity-90 transition-opacity">
           <div className="relative w-8 h-8">
@@ -245,13 +245,13 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
           </div>
         </Link>
 
-        {/* Quick actions */}
+        {/* Quick actions — larger touch targets on mobile */}
         <nav className="flex-1 flex flex-col items-center gap-1 px-2 py-2">
           {/* New Chat */}
           <Link
             to="/"
             title="New Chat"
-            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${
+            className={`flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl transition-all active:scale-95 md:hover:scale-105 ${
               isActive('/') ? 'bg-accent text-white glow-accent' : 'text-text-secondary hover:text-text hover:bg-bg-tertiary'
             }`}
           >
@@ -261,14 +261,14 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
           <div className="w-6 border-t border-border my-1" />
 
           {/* Shortcuts */}
-          <Link to="/agents" title="Agents" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+          <Link to="/agents" title="Agents" className="flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all active:scale-95">
             <Users size={18} />
           </Link>
-          <Link to="/skills" title="Skills" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+          <Link to="/skills" title="Skills" className="flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all active:scale-95">
             <Wrench size={18} />
           </Link>
           {onVoiceOpen && (
-            <button onClick={onVoiceOpen} title="Voice" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+            <button onClick={onVoiceOpen} title="Voice" className="flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all active:scale-95">
               <Mic size={18} />
             </button>
           )}
@@ -277,14 +277,14 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
         {/* Bottom: Admin + Logout */}
         <div className="flex flex-col items-center gap-1 px-2 pb-3">
           {hasToken && (
-            <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all">
+            <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl text-text-muted hover:text-text hover:bg-bg-tertiary transition-all active:scale-95">
               <LogOut size={16} />
             </button>
           )}
           <button
             onClick={() => onModeChange('admin')}
             title="Admin Panel"
-            className="flex items-center justify-center w-10 h-10 rounded-xl text-text-muted hover:text-accent hover:bg-accent/10 transition-all"
+            className="flex items-center justify-center w-11 h-11 md:w-10 md:h-10 rounded-xl text-text-muted hover:text-accent hover:bg-accent/10 transition-all active:scale-95"
           >
             <Settings size={18} />
           </button>
@@ -298,28 +298,28 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
   // ════════════════════════════════════════════════════════════════════
   return (
     <div className="flex flex-col h-full bg-bg-secondary border-r border-border">
-      {/* Back to Chat header */}
-      <div className="flex items-center gap-3 px-3 h-14 flex-shrink-0 border-b border-border">
+      {/* Back to Chat header — better mobile touch target */}
+      <div className="flex items-center gap-2 md:gap-3 px-2 md:px-3 h-14 flex-shrink-0 border-b border-border">
         <Link
           to="/"
           onClick={() => onModeChange('chat')}
-          className="flex items-center gap-2 text-sm text-text-secondary hover:text-text transition-colors"
+          className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors px-2 py-2 rounded-lg active:bg-bg-tertiary"
         >
-          <ChevronLeft size={16} />
-          <span className="font-medium">Back to Chat</span>
+          <ChevronLeft size={18} />
+          <span className="font-medium hidden sm:inline">Back to Chat</span>
         </Link>
         {!collapsed && (
           <div className="ml-auto flex items-center gap-1">
-            <kbd className="text-[10px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded border border-border">
+            <kbd className="text-[9px] md:text-[10px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded border border-border hidden sm:inline-block">
               {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+K
             </kbd>
           </div>
         )}
       </div>
 
-      {/* Search */}
+      {/* Search — hidden on very small screens */}
       {!collapsed && (
-        <div className="px-3 py-2">
+        <div className="px-2 md:px-3 py-2 hidden sm:block">
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -328,7 +328,7 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
         </div>
       )}
 
-      {/* Navigation */}
+      {/* Navigation — larger touch targets on mobile */}
       <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
         {filteredGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.label) || search.trim().length > 0;
@@ -337,11 +337,11 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
 
           return (
             <div key={group.label} className="mt-1">
-              {/* Group header */}
+              {/* Group header — better mobile touch target */}
               <button
                 onClick={() => !collapsed && toggleGroup(group.label)}
                 title={collapsed ? group.label : undefined}
-                className={`flex items-center w-full px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${
+                className={`flex items-center w-full px-2.5 md:px-3 py-2.5 md:py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors min-h-[44px] ${
                   hasActiveChild && collapsed
                     ? 'text-accent bg-accent/10'
                     : 'text-text-muted hover:text-text-secondary hover:bg-bg-tertiary'
@@ -352,7 +352,7 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
                 ) : (
                   <>
                     <GroupIcon size={14} className="flex-shrink-0" />
-                    <span className="flex-1 text-left">{group.label}</span>
+                    <span className="flex-1 text-left text-[11px] md:text-xs">{group.label}</span>
                     <ChevronDown
                       size={14}
                       className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
@@ -361,7 +361,7 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
                 )}
               </button>
 
-              {/* Group items — expanded */}
+              {/* Group items — expanded with larger touch targets */}
               {!collapsed && isExpanded && (
                 <div className="ml-2 mt-0.5 space-y-0.5 border-l border-border pl-2">
                   {group.items.map(({ label, icon: Icon, path }) => {
@@ -370,21 +370,21 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
                       <Link
                         key={path}
                         to={path}
-                        className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        className={`flex items-center gap-2.5 md:gap-3 px-3 py-2 md:py-1.5 rounded-lg text-sm transition-all min-h-[40px] active:scale-[0.98] ${
                           active
                             ? 'bg-accent/15 text-accent font-medium'
                             : 'text-text-secondary hover:text-text hover:bg-bg-tertiary'
                         }`}
                       >
-                        <Icon size={16} className="flex-shrink-0" />
-                        <span>{label}</span>
+                        <Icon size={15} className="flex-shrink-0" />
+                        <span className="text-[11px] md:text-sm">{label}</span>
                       </Link>
                     );
                   })}
                 </div>
               )}
 
-              {/* Collapsed icons */}
+              {/* Collapsed icons — larger touch targets */}
               {collapsed && (
                 <div className="space-y-0.5">
                   {group.items.map(({ label, icon: Icon, path }) => {
@@ -394,13 +394,13 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
                         key={path}
                         to={path}
                         title={label}
-                        className={`flex items-center justify-center px-3 py-1.5 rounded-lg transition-all ${
+                        className={`flex items-center justify-center px-3 py-2 rounded-lg transition-all min-h-[44px] active:scale-95 ${
                           active
                             ? 'bg-accent/15 text-accent'
                             : 'text-text-muted hover:text-text hover:bg-bg-tertiary'
                         }`}
                       >
-                        <Icon size={16} />
+                        <Icon size={18} />
                       </Link>
                     );
                   })}
@@ -411,12 +411,12 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
         })}
       </nav>
 
-      {/* Update banner */}
+      {/* Update banner — hidden on small screens in collapsed mode */}
       {versionInfo.updateAvailable && !collapsed && (
         <button
           onClick={triggerUpdate}
           disabled={updateStatus === 'updating' || updateStatus === 'restarting'}
-          className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-accent/15 to-accent-hover/10 border border-accent/25 hover:from-accent/25 hover:to-accent-hover/20 transition-all cursor-pointer text-left w-[calc(100%-1rem)] disabled:opacity-70 disabled:cursor-wait"
+          className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-accent/15 to-accent-hover/10 border border-accent/25 hover:from-accent/25 hover:to-accent-hover/20 transition-all cursor-pointer text-left w-[calc(100%-1rem)] disabled:opacity-70 disabled:cursor-wait active:scale-[0.98]"
         >
           <div className="flex items-center gap-2 mb-1">
             {updateStatus === 'idle' && <ArrowUpCircle size={14} className="text-accent-hover flex-shrink-0" />}
@@ -442,19 +442,19 @@ export function Sidebar({ collapsed, onToggle, mode, onModeChange, onVoiceOpen }
         </button>
       )}
 
-      {/* Footer */}
+      {/* Footer — better mobile touch targets */}
       <div className="flex-shrink-0 px-2 pb-2 pt-1 border-t border-border">
         {!collapsed && hasToken && (
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text hover:bg-bg-tertiary transition-colors w-full"
+            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-text-muted hover:text-text hover:bg-bg-tertiary transition-colors w-full min-h-[44px] active:scale-[0.98]"
           >
             <LogOut className="h-4 w-4" />
             Sign Out
           </button>
         )}
         {collapsed && hasToken && (
-          <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-full py-2 rounded-lg text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors">
+          <button onClick={logout} title="Sign Out" className="flex items-center justify-center w-full py-2 rounded-lg text-text-secondary hover:text-text hover:bg-bg-tertiary transition-colors min-h-[44px] active:scale-95">
             <LogOut size={16} />
           </button>
         )}

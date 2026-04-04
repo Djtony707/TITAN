@@ -2,6 +2,12 @@
  * TITAN — Universal Model Router
  * Routes model requests to the correct provider with failover, alias resolution,
  * and live model discovery across all configured providers (including local Ollama).
+ *
+ * Error Recovery Features:
+ * - Exponential backoff retry for transient failures (429, 503, timeouts)
+ * - Circuit breaker pattern to avoid hammering failing providers
+ * - Automatic fallback to next provider in chain on persistent errors
+ * - Detailed error messages including provider name and model
  */
 import { LLMProvider, type ChatOptions, type ChatResponse, type ChatStreamChunk } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
@@ -15,6 +21,7 @@ import { findModelOnMesh } from '../mesh/registry.js';
 import type { MeshPeer } from '../mesh/discovery.js';
 import { routeTaskToNode } from '../mesh/transport.js';
 import { randomBytes } from 'crypto';
+import { sleep } from '../utils/helpers.js';
 
 const COMPONENT = 'Router';
 
@@ -214,6 +221,147 @@ export function getModelAliases(): Record<string, string> {
     return config.agent.modelAliases || {};
 }
 
+// ── Circuit Breaker ─────────────────────────────────────────────
+/** Circuit breaker states for each provider */
+type CircuitState = 'closed' | 'open' | 'half-open';
+
+interface CircuitBreakerState {
+    state: CircuitState;
+    failureCount: number;
+    lastFailureTime: number | null;
+    lastSuccessTime: number | null;
+    openSince: number | null;
+}
+
+/** Circuit breaker configuration */
+const CIRCUIT_BREAKER_CONFIG = {
+    failureThreshold: 5,        // Number of failures before opening circuit
+    resetTimeout: 30000,        // 30s before trying again (half-open)
+    monitoringWindow: 60000,    // 60s window for counting failures
+    successThreshold: 3,        // Successes needed in half-open to close circuit
+};
+
+/** Track circuit breaker state per provider */
+const circuitBreakers = new Map<string, CircuitBreakerState>();
+
+/**
+ * Get or create circuit breaker state for a provider.
+ */
+function getCircuitBreaker(providerName: string): CircuitBreakerState {
+    if (!circuitBreakers.has(providerName)) {
+        circuitBreakers.set(providerName, {
+            state: 'closed',
+            failureCount: 0,
+            lastFailureTime: null,
+            lastSuccessTime: null,
+            openSince: null,
+        });
+    }
+    return circuitBreakers.get(providerName)!;
+}
+
+/**
+ * Record a successful request for a provider.
+ * Resets failure count and updates state appropriately.
+ */
+function recordSuccess(providerName: string): void {
+    const cb = getCircuitBreaker(providerName);
+    cb.lastSuccessTime = Date.now();
+
+    if (cb.state === 'half-open') {
+        // In half-open state, success reduces the counter
+        cb.failureCount = Math.max(0, cb.failureCount - 1);
+        // If we've had enough successes, close the circuit
+        if (cb.failureCount <= 0) {
+            cb.state = 'closed';
+            cb.openSince = null;
+            cb.failureCount = 0;
+            logger.info(COMPONENT, `[CircuitBreaker] ${providerName} circuit CLOSED after successful recovery`);
+        }
+    } else if (cb.state === 'closed') {
+        // In closed state, reset the failure count on success
+        cb.failureCount = 0;
+    }
+}
+
+/**
+ * Record a failed request for a provider.
+ * Opens circuit if failure threshold is exceeded.
+ */
+function recordFailure(providerName: string): void {
+    const cb = getCircuitBreaker(providerName);
+    const now = Date.now();
+    cb.lastFailureTime = now;
+
+    // Only count failures within the monitoring window
+    const windowStart = now - CIRCUIT_BREAKER_CONFIG.monitoringWindow;
+    if (cb.lastFailureTime && cb.lastFailureTime < windowStart) {
+        // Reset if outside monitoring window
+        cb.failureCount = 1;
+    } else {
+        cb.failureCount++;
+    }
+
+    // Check if we should open the circuit
+    if (cb.failureCount >= CIRCUIT_BREAKER_CONFIG.failureThreshold && cb.state === 'closed') {
+        cb.state = 'open';
+        cb.openSince = now;
+        logger.warn(COMPONENT, `[CircuitBreaker] ${providerName} circuit OPENED after ${cb.failureCount} failures`);
+    }
+}
+
+/**
+ * Check if a provider's circuit breaker allows requests.
+ * Returns true if closed or if half-open (time to test).
+ * Returns false if open and still in timeout period.
+ */
+function canRequest(providerName: string): boolean {
+    const cb = getCircuitBreaker(providerName);
+
+    if (cb.state === 'closed') {
+        return true;
+    }
+
+    if (cb.state === 'open') {
+        const now = Date.now();
+        if (cb.openSince && (now - cb.openSince) >= CIRCUIT_BREAKER_CONFIG.resetTimeout) {
+            // Timeout expired, transition to half-open
+            cb.state = 'half-open';
+            cb.failureCount = CIRCUIT_BREAKER_CONFIG.successThreshold; // Need this many successes to close
+            logger.info(COMPONENT, `[CircuitBreaker] ${providerName} circuit transitioned to HALF-OPEN (testing)`);
+            return true;
+        }
+        return false; // Still open, don't try
+    }
+
+    // half-open: allow testing
+    return true;
+}
+
+/**
+ * Get circuit breaker status for all providers (for health dashboards).
+ */
+export function getCircuitBreakerStatus(): Record<string, { state: CircuitState; failureCount: number; openSince?: number }> {
+    const status: Record<string, { state: CircuitState; failureCount: number; openSince?: number }> = {};
+    for (const [providerName, cb] of circuitBreakers) {
+        status[providerName] = {
+            state: cb.state,
+            failureCount: cb.failureCount,
+            ...(cb.openSince !== null ? { openSince: cb.openSince } : {}),
+        };
+    }
+    return status;
+}
+
+/**
+ * Reset all circuit breaker state (for testing).
+ * NOT exported to production API - test use only.
+ */
+export function __resetCircuitBreakers__(): void {
+    circuitBreakers.clear();
+    lastFallbackEvent = null;
+}
+
 // ── Fallback chain state ─────────────────────────────────────────
 /** Tracks the most recent fallback event for dashboard display */
 let lastFallbackEvent: { primary: string; active: string; reason: string; timestamp: number } | null = null;
@@ -227,17 +375,84 @@ export function getFallbackState(): { primary: string; active: string; reason: s
     return lastFallbackEvent;
 }
 
-/** Check if an error is retryable (rate limit, timeout, auth error, 5xx) */
+/** Retry configuration with exponential backoff */
+const RETRY_CONFIG = {
+    maxRetries: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 30000,  // 30 second cap
+    backoffMultiplier: 2,
+    jitter: true,
+};
+
+/**
+ * Calculate delay with exponential backoff and optional jitter.
+ * delay = min(initialDelay * multiplier^attempt, maxDelay)
+ */
+function calculateBackoffDelay(attempt: number): number {
+    const exponentialDelay = RETRY_CONFIG.initialDelayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
+    const cappedDelay = Math.min(exponentialDelay, RETRY_CONFIG.maxDelayMs);
+
+    if (RETRY_CONFIG.jitter) {
+        // Add random jitter (±20%) to prevent thundering herd
+        const jitterRange = cappedDelay * 0.4;
+        const jitter = jitterRange * (Math.random() - 0.5);
+        return Math.max(100, cappedDelay + jitter);
+    }
+
+    return cappedDelay;
+}
+
+/** Parse retry-after header value (seconds or HTTP date) */
+function parseRetryAfter(header: string | null): number | null {
+    if (!header) return null;
+
+    // Try parsing as seconds
+    const seconds = parseInt(header, 10);
+    if (!isNaN(seconds)) {
+        return Math.min(seconds * 1000, RETRY_CONFIG.maxDelayMs); // Cap at max delay
+    }
+
+    // Try parsing as HTTP date
+    const date = new Date(header);
+    if (!isNaN(date.getTime())) {
+        const delay = date.getTime() - Date.now();
+        return Math.max(1000, Math.min(delay, RETRY_CONFIG.maxDelayMs)); // Min 1s, max configured cap
+    }
+
+    return null;
+}
+
+/**
+ * Check if an error is retryable (rate limit, timeout, 5xx, connection errors).
+ * Non-retryable errors: auth failures (401, 403), bad request (400), etc.
+ */
 function isRetryableError(error: unknown): boolean {
     const msg = (error as Error).message?.toLowerCase() || '';
     const status = (error as { status?: number }).status;
-    if (status && status >= 500) return true;
-    if (status === 429) return true;
+
+    // Check HTTP status codes
+    if (status) {
+        // Retryable: 429 (Rate Limit), 5xx (Server Errors)
+        if (status === 429 || status === 503 || status === 502 || status === 500 || status === 524) return true;
+        // Non-retryable: Client errors (4xx) except rate limit
+        if (status >= 400 && status < 500 && status !== 429) return false;
+    }
+
+    // Check error message patterns
     if (msg.includes('rate limit') || msg.includes('rate_limit')) return true;
     if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT')) return true;
-    if (msg.includes('econnrefused') || msg.includes('econnreset')) return true;
-    if (msg.includes('503') || msg.includes('502') || msg.includes('500') || msg.includes('overloaded')) return true;
+    if (msg.includes('econnrefused') || msg.includes('econnreset') || msg.includes('econnaborted')) return true;
+    if (msg.includes('overloaded') || msg.includes('service unavailable')) return true;
+    if (msg.includes('429') || msg.includes('503') || msg.includes('502')) return true;
+
     return false;
+}
+
+/**
+ * Extract HTTP status code from an error object if present.
+ */
+function getErrorStatus(error: unknown): number | undefined {
+    return (error as { status?: number }).status;
 }
 
 /** Try the fallback chain for a chat request. Returns null if chain is empty or exhausted. */
@@ -260,8 +475,21 @@ async function tryFallbackChain(
         attempts++;
         try {
             const { provider: fbProvider, model: fbModel } = resolveModel(fallbackModelId);
+            const fbProviderName = fbProvider.name;
+
+            // Check circuit breaker for fallback provider
+            if (!canRequest(fbProviderName)) {
+                const cb = getCircuitBreaker(fbProviderName);
+                logger.warn(COMPONENT, `Skipping fallback ${fallbackModelId} — circuit breaker OPEN (${cb.failureCount} failures)`);
+                continue;
+            }
+
             logger.warn(COMPONENT, `Model ${primaryModelId} failed (${originalError.message}), falling back to ${fallbackModelId}`);
             const result = await fbProvider.chat({ ...options, model: fbModel });
+
+            // Record success for circuit breaker
+            recordSuccess(fbProviderName);
+
             lastFallbackEvent = {
                 primary: primaryModelId,
                 active: fallbackModelId,
@@ -270,6 +498,13 @@ async function tryFallbackChain(
             };
             return result;
         } catch (chainErr) {
+            // Record failure for circuit breaker
+            try {
+                const { provider: fbProvider } = resolveModel(fallbackModelId);
+                recordFailure(fbProvider.name);
+            } catch {
+                // Ignore if we can't resolve the provider for recording
+            }
             logger.warn(COMPONENT, `Fallback model ${fallbackModelId} also failed: ${(chainErr as Error).message}`);
             continue;
         }
@@ -297,9 +532,22 @@ async function tryFallbackChainStream(
         attempts++;
         try {
             const { provider: fbProvider, model: fbModel } = resolveModel(fallbackModelId);
+            const fbProviderName = fbProvider.name;
+
+            // Check circuit breaker for fallback provider
+            if (!canRequest(fbProviderName)) {
+                const cb = getCircuitBreaker(fbProviderName);
+                logger.warn(COMPONENT, `Skipping stream fallback ${fallbackModelId} — circuit breaker OPEN (${cb.failureCount} failures)`);
+                continue;
+            }
+
             logger.warn(COMPONENT, `Stream model ${primaryModelId} failed (${originalError.message}), falling back to ${fallbackModelId}`);
             // Verify the provider responds by getting the generator (will throw on immediate errors)
             const gen = fbProvider.chatStream({ ...options, model: fbModel });
+
+            // Record success for circuit breaker (optimistically, actual success tracked in chatStream)
+            recordSuccess(fbProviderName);
+
             lastFallbackEvent = {
                 primary: primaryModelId,
                 active: fallbackModelId,
@@ -308,6 +556,13 @@ async function tryFallbackChainStream(
             };
             return gen;
         } catch (chainErr) {
+            // Record failure for circuit breaker
+            try {
+                const { provider: fbProvider } = resolveModel(fallbackModelId);
+                recordFailure(fbProvider.name);
+            } catch {
+                // Ignore if we can't resolve the provider for recording
+            }
             logger.warn(COMPONENT, `Fallback stream model ${fallbackModelId} also failed: ${(chainErr as Error).message}`);
             continue;
         }
@@ -328,158 +583,341 @@ async function meshChat(peer: MeshPeer, modelId: string, message: string): Promi
     return result as unknown as ChatResponse;
 }
 
-/** Send a chat request, automatically routing to the correct provider */
+/**
+ * Enhanced error message with provider and model context.
+ */
+function createEnhancedErrorMessage(error: Error, providerName: string, model: string, attempt: number): string {
+    const status = getErrorStatus(error);
+    const statusInfo = status ? `[HTTP ${status}] ` : '';
+
+    return [
+        `Provider ${providerName}/${model} failed`,
+        statusInfo + error.message,
+        attempt > 0 ? `(attempt ${attempt + 1})` : null,
+    ].filter(Boolean).join(': ');
+}
+
+/**
+ * Send a chat request with exponential backoff retry and circuit breaker protection.
+ * Automatically routes to the correct provider with error recovery and fallback chain.
+ */
 export async function chat(options: ChatOptions): Promise<ChatResponse> {
     const modelId = options.model || 'anthropic/claude-sonnet-4-20250514';
     const { provider, model } = resolveModel(modelId);
+    const providerName = provider.name;
 
     logger.info(COMPONENT, `Routing to ${provider.displayName} (model: ${model})`);
 
-    try {
-        const result = await provider.chat({ ...options, model });
-        lastFallbackEvent = null; // Clear fallback state on primary success
-        return result;
-    } catch (error) {
-        logger.error(COMPONENT, `Provider ${provider.name} failed: ${(error as Error).message}`);
+    // Check circuit breaker before attempting request
+    if (!canRequest(providerName)) {
+        const cb = getCircuitBreaker(providerName);
+        const errorMsg = `Circuit breaker OPEN for ${providerName}/${model} (${cb.failureCount} failures, reset in ${
+            cb.openSince ? Math.round((CIRCUIT_BREAKER_CONFIG.resetTimeout - (Date.now() - cb.openSince)) / 1000) : 'unknown'
+        }s)`;
+        logger.warn(COMPONENT, errorMsg);
+        const enhancedError = new Error(errorMsg);
+        Object.assign(enhancedError, { status: 503, provider: providerName, model });
+        throw enhancedError;
+    }
 
-        // Try configured fallback chain first (model-level fallback)
-        if (isRetryableError(error)) {
-            const chainResult = await tryFallbackChain(options, modelId, error as Error);
-            if (chainResult) return chainResult;
-        }
+    let lastError: Error | null = null;
+    const maxRetries = RETRY_CONFIG.maxRetries;
 
-        // Try mesh peers before local failover
-        const config = loadConfig();
-        if (config.mesh?.enabled) {
-            const peer = findModelOnMesh(modelId);
-            if (peer) {
-                try {
-                    const message = Array.isArray(options.messages)
-                        ? options.messages.map(m => m.content).join('\n')
-                        : (options as unknown as Record<string, unknown>).message as string || '';
-                    return await meshChat(peer, modelId, message);
-                } catch (meshErr) {
-                    logger.warn(COMPONENT, `Mesh routing failed: ${(meshErr as Error).message}`);
-                }
+    // Attempt request with retry logic
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const result = await provider.chat({ ...options, model });
+
+            // Record success for circuit breaker
+            recordSuccess(providerName);
+            lastFallbackEvent = null; // Clear fallback state on primary success
+
+            // Log if this was a retry that succeeded
+            if (attempt > 0) {
+                logger.info(COMPONENT, `${provider.displayName}/${model} recovered after ${attempt} retry attempt(s)`);
             }
-        }
 
-        // Attempt failover to other providers
-        const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
-        for (const fallbackName of failoverOrder) {
-            if (fallbackName === provider.name) continue;
-            const fallback = providers.get(fallbackName);
-            if (!fallback) continue;
+            return result;
+        } catch (error) {
+            lastError = error as Error;
 
-            try {
-                const healthy = await fallback.healthCheck();
-                if (!healthy) continue;
+            // Record failure for circuit breaker
+            recordFailure(providerName);
 
-                const models = await fallback.listModels();
-                if (models.length === 0) continue;
+            // Check if error is retryable
+            const retryable = isRetryableError(error);
+            const status = getErrorStatus(error);
+            const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
 
-                // Prefer a model with a similar name prefix (e.g. claude-* → claude-*)
-                const originalPrefix = model.split('-')[0];
-                const preferred = models.find(m => m.startsWith(originalPrefix)) || models[0];
+            // Check if we should retry
+            if (retryable && attempt < maxRetries) {
+                // Respect Retry-After header for rate limits
+                let retryDelayMs = calculateBackoffDelay(attempt);
 
-                logger.warn(COMPONENT, `Failing over from ${provider.name}/${model} → ${fallback.name}/${preferred}`);
-                return await fallback.chat({ ...options, model: preferred });
-            } catch (fallbackErr) {
-                logger.warn(COMPONENT, `Fallback ${fallbackName} also failed: ${fallbackErr}`);
+                // Check for Retry-After in the error response if available
+                const retryAfter = (error as Response)?.headers?.get?.('Retry-After');
+                if (retryAfter) {
+                    const parsed = parseRetryAfter(retryAfter);
+                    if (parsed !== null) {
+                        retryDelayMs = parsed;
+                        logger.info(COMPONENT, `[RateLimit] Respecting Retry-After: ${Math.round(retryDelayMs / 1000)}s`);
+                    }
+                }
+
+                logger.warn(COMPONENT, `${errorMsg} — retrying in ${Math.round(retryDelayMs)}ms`);
+                await sleep(retryDelayMs);
                 continue;
             }
+
+            // Not retryable or max retries exceeded
+            if (!retryable) {
+                logger.error(COMPONENT, `${errorMsg} — not retryable (${status ? `HTTP ${status}` : 'unknown error'})`);
+            } else {
+                logger.error(COMPONENT, `${errorMsg} — max retries (${maxRetries}) exceeded`);
+            }
+
+            // Try configured fallback chain first (model-level fallback)
+            if (retryable) {
+                const chainResult = await tryFallbackChain(options, modelId, error as Error);
+                if (chainResult) {
+                    logger.info(COMPONENT, `Fallback chain recovered from ${providerName}/${model} failure`);
+                    return chainResult;
+                }
+            }
+
+            // Try mesh peers before local failover
+            const config = loadConfig();
+            if (config.mesh?.enabled) {
+                const peer = findModelOnMesh(modelId);
+                if (peer) {
+                    try {
+                        const message = Array.isArray(options.messages)
+                            ? options.messages.map(m => m.content).join('\n')
+                            : (options as unknown as Record<string, unknown>).message as string || '';
+                        return await meshChat(peer, modelId, message);
+                    } catch (meshErr) {
+                        logger.warn(COMPONENT, `Mesh routing failed: ${(meshErr as Error).message}`);
+                    }
+                }
+            }
+
+            // Attempt failover to other providers (only on first failure, not after retries)
+            if (attempt === 0) {
+                const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
+                for (const fallbackName of failoverOrder) {
+                    if (fallbackName === providerName) continue;
+
+                    // Check circuit breaker for fallback provider
+                    if (!canRequest(fallbackName)) {
+                        logger.debug(COMPONENT, `Skipping fallback ${fallbackName} — circuit breaker OPEN`);
+                        continue;
+                    }
+
+                    const fallback = providers.get(fallbackName);
+                    if (!fallback) continue;
+
+                    try {
+                        const healthy = await fallback.healthCheck();
+                        if (!healthy) continue;
+
+                        const models = await fallback.listModels();
+                        if (models.length === 0) continue;
+
+                        // Prefer a model with a similar name prefix (e.g. claude-* → claude-*)
+                        const originalPrefix = model.split('-')[0];
+                        const preferred = models.find(m => m.startsWith(originalPrefix)) || models[0];
+
+                        logger.warn(COMPONENT, `Failing over from ${providerName}/${model} → ${fallbackName}/${preferred}`);
+                        const result = await fallback.chat({ ...options, model: preferred });
+                        recordSuccess(fallbackName); // Record success for the fallback provider
+                        return result;
+                    } catch (fallbackErr) {
+                        recordFailure(fallbackName); // Record failure for the fallback provider too
+                        logger.warn(COMPONENT, `Fallback ${fallbackName} also failed: ${(fallbackErr as Error).message}`);
+                        continue;
+                    }
+                }
+            }
+
+            // All recovery options exhausted, throw enhanced error
+            const finalError = new Error(`All providers failed: ${errorMsg}`);
+            Object.assign(finalError, {
+                status: getErrorStatus(error),
+                provider: providerName,
+                model,
+                cause: error,
+            });
+            throw finalError;
         }
-        throw error;
     }
+
+    // Should never reach here, but TypeScript requires it
+    throw lastError || new Error(`Provider ${providerName}/${model} failed after all retries`);
 }
 
-/** Send a streaming chat request with failover */
+/**
+ * Send a streaming chat request with exponential backoff retry and circuit breaker protection.
+ */
 export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStreamChunk> {
     const modelId = options.model || 'anthropic/claude-sonnet-4-20250514';
     const { provider, model } = resolveModel(modelId);
+    const providerName = provider.name;
 
     logger.info(COMPONENT, `Streaming via ${provider.displayName} (model: ${model})`);
 
-    try {
-        yield* provider.chatStream({ ...options, model });
-        lastFallbackEvent = null; // Clear fallback state on primary success
-    } catch (error) {
-        logger.error(COMPONENT, `Stream provider ${provider.name} failed: ${(error as Error).message}`);
-
-        // Try configured fallback chain first (model-level fallback)
-        if (isRetryableError(error)) {
-            const chainStream = await tryFallbackChainStream(options, modelId, error as Error);
-            if (chainStream) {
-                yield {
-                    type: 'failover' as const,
-                    originalProvider: provider.name,
-                    originalModel: model,
-                    error: (error as Error).message,
-                };
-                yield* chainStream;
-                return;
-            }
-        }
-
-        // Try mesh peers before local failover (non-streaming — yield as single chunk)
-        const config = loadConfig();
-        if (config.mesh?.enabled) {
-            const peer = findModelOnMesh(modelId);
-            if (peer) {
-                try {
-                    const message = Array.isArray(options.messages)
-                        ? options.messages.map(m => m.content).join('\n')
-                        : (options as unknown as Record<string, unknown>).message as string || '';
-                    const result = await meshChat(peer, modelId, message);
-                    yield { type: 'text' as const, content: result.content };
-                    yield { type: 'done' as const };
-                    return;
-                } catch (meshErr) {
-                    logger.warn(COMPONENT, `Mesh stream routing failed: ${(meshErr as Error).message}`);
-                }
-            }
-        }
-
-        // Notify consumer that a failover is happening
+    // Check circuit breaker before attempting request
+    if (!canRequest(providerName)) {
+        const cb = getCircuitBreaker(providerName);
         yield {
-            type: 'failover' as const,
-            originalProvider: provider.name,
-            originalModel: model,
-            error: (error as Error).message,
+            type: 'error',
+            error: `[CircuitBreaker] Circuit OPEN: ${providerName}/${model} (${cb.failureCount} failures, testing in ${
+                Math.round((CIRCUIT_BREAKER_CONFIG.resetTimeout - (Date.now() - cb.openSince!)) / 1000)
+            }s)`,
         };
+        return;
+    }
 
-        // Attempt failover to other providers
-        const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
-        let failedOver = false;
-        for (const fallbackName of failoverOrder) {
-            if (fallbackName === provider.name) continue;
-            const fallback = providers.get(fallbackName);
-            if (!fallback) continue;
+    let lastError: Error | null = null;
+    const maxRetries = RETRY_CONFIG.maxRetries;
 
-            try {
-                const healthy = await fallback.healthCheck();
-                if (!healthy) continue;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            // Stream from provider
+            for await (const chunk of provider.chatStream({ ...options, model })) {
+                // Record success on first successful chunk
+                if (attempt === 0 && chunk.type !== 'error') {
+                    recordSuccess(providerName);
+                }
+                lastFallbackEvent = null;
+                yield chunk;
+            }
 
-                const models = await fallback.listModels();
-                if (models.length === 0) continue;
+            // Log if this was a retry that succeeded
+            if (attempt > 0) {
+                logger.info(COMPONENT, `${provider.displayName}/${model} stream recovered after ${attempt} retry attempt(s)`);
+            }
+            return;
+        } catch (error) {
+            lastError = error as Error;
+            recordFailure(providerName);
 
-                // Prefer a model with a similar name prefix (e.g. claude-* → claude-*)
-                const originalPrefix = model.split('-')[0];
-                const preferred = models.find(m => m.startsWith(originalPrefix)) || models[0];
+            const retryable = isRetryableError(error);
+            const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
 
-                logger.warn(COMPONENT, `Stream failing over from ${provider.name}/${model} → ${fallback.name}/${preferred}`);
-                yield* fallback.chatStream({ ...options, model: preferred });
-                failedOver = true;
-                break;
-            } catch (fallbackErr) {
-                logger.warn(COMPONENT, `Fallback ${fallbackName} also failed: ${fallbackErr}`);
+            // Check if we should retry
+            if (retryable && attempt < maxRetries) {
+                const retryDelayMs = calculateBackoffDelay(attempt);
+                logger.warn(COMPONENT, `${errorMsg} — streaming retry in ${Math.round(retryDelayMs)}ms`);
+
+                // Notify consumer about the retry
+                yield {
+                    type: 'text',
+                    content: `\n[Retrying request (${attempt + 1}/${maxRetries}) due to ${retryable ? 'transient error' : 'provider issue'}...]\n\n`,
+                };
+
+                await sleep(retryDelayMs);
                 continue;
             }
-        }
-        if (!failedOver) {
-            yield { type: 'error', error: (error as Error).message };
+
+            // Not retryable or max retries exceeded
+            if (!retryable) {
+                logger.error(COMPONENT, `${errorMsg} — streaming not retryable`);
+            } else {
+                logger.error(COMPONENT, `${errorMsg} — streaming max retries exceeded`);
+            }
+
+            // Try configured fallback chain first
+            if (retryable) {
+                const chainStream = await tryFallbackChainStream(options, modelId, error as Error);
+                if (chainStream) {
+                    yield {
+                        type: 'failover' as const,
+                        originalProvider: providerName,
+                        originalModel: model,
+                        error: (error as Error).message,
+                    };
+                    yield* chainStream;
+                    return;
+                }
+            }
+
+            // Try mesh peers (non-streaming fallback for now)
+            const config = loadConfig();
+            if (config.mesh?.enabled) {
+                const peer = findModelOnMesh(modelId);
+                if (peer) {
+                    try {
+                        const message = Array.isArray(options.messages)
+                            ? options.messages.map(m => m.content).join('\n')
+                            : (options as unknown as Record<string, unknown>).message as string || '';
+                        const result = await meshChat(peer, modelId, message);
+                        yield { type: 'text' as const, content: result.content };
+                        yield { type: 'done' as const };
+                        return;
+                    } catch (meshErr) {
+                        logger.warn(COMPONENT, `Mesh stream routing failed: ${(meshErr as Error).message}`);
+                    }
+                }
+            }
+
+            // Attempt provider failover (only on first attempt)
+            if (attempt === 0) {
+                const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
+                let failedOver = false;
+
+                for (const fallbackName of failoverOrder) {
+                    if (fallbackName === providerName) continue;
+
+                    if (!canRequest(fallbackName)) {
+                        logger.debug(COMPONENT, `Skipping stream fallback ${fallbackName} — circuit breaker OPEN`);
+                        continue;
+                    }
+
+                    const fallback = providers.get(fallbackName);
+                    if (!fallback) continue;
+
+                    try {
+                        const healthy = await fallback.healthCheck();
+                        if (!healthy) continue;
+
+                        const models = await fallback.listModels();
+                        if (models.length === 0) continue;
+
+                        const originalPrefix = model.split('-')[0];
+                        const preferred = models.find(m => m.startsWith(originalPrefix)) || models[0];
+
+                        logger.warn(COMPONENT, `Stream failing over from ${providerName}/${model} → ${fallbackName}/${preferred}`);
+
+                        // Notify consumer about failover
+                        yield {
+                            type: 'failover' as const,
+                            originalProvider: providerName,
+                            originalModel: model,
+                            error: errorMsg,
+                        };
+
+                        yield* fallback.chatStream({ ...options, model: preferred });
+                        recordSuccess(fallbackName);
+                        failedOver = true;
+                        break;
+                    } catch (fallbackErr) {
+                        recordFailure(fallbackName);
+                        logger.warn(COMPONENT, `Stream fallback ${fallbackName} also failed: ${(fallbackErr as Error).message}`);
+                        continue;
+                    }
+                }
+
+                if (failedOver) return;
+            }
+
+            // All recovery options exhausted
+            yield { type: 'error', error: `All streaming providers failed: ${errorMsg}` };
+            return;
         }
     }
+
+    // Should never reach here
+    yield { type: 'error', error: lastError?.message || 'Streaming failed after all retries' };
 }
 
 /** Health check all providers */

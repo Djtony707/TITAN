@@ -1876,21 +1876,32 @@ async function loadMeshPanel() {
   const pendingList = document.getElementById('mesh-pending-list');
   const peersList = document.getElementById('mesh-peers-list');
   try {
-    const [peersR, pendingR] = await Promise.all([
+    const [statusR, peersR, pendingR] = await Promise.all([
+      fetch('/api/mesh/status', {headers:authHeaders()}),
       fetch('/api/mesh/peers', {headers:authHeaders()}),
       fetch('/api/mesh/pending', {headers:authHeaders()}),
     ]);
+    const statusData = await statusR.json();
     const peersData = await peersR.json();
     const pendingData = await pendingR.json();
 
-    if (!peersData.enabled) {
-      if (statusBar) statusBar.innerHTML = '⚠️ Mesh not enabled. Run <code>titan mesh --init</code> on this machine.';
+    if (!statusData.enabled || statusData.status === 'disabled') {
+      if (statusBar) statusBar.innerHTML = '\u26a0\ufe0f Mesh not enabled. Run <code>titan mesh --init</code> on this machine.';
       return;
     }
 
     const peers = peersData.peers || [];
     const pending = pendingData.pending || [];
-    if (statusBar) statusBar.innerHTML = '✅ Mesh active — <b>' + peers.length + '</b> connected, <b>' + pending.length + '</b> pending';
+    const statusLabel = statusData.status === 'healthy' ? '\u2705' : statusData.status === 'degraded' ? '\u26a0\ufe0f' : '\u274c';
+    const healthPct = Math.round((statusData.healthScore || 0) * 100);
+    const discoveryLabel = (statusData.discoveryModes || []).join(', ');
+    if (statusBar) {
+      statusBar.innerHTML = statusLabel + ' Mesh ' + statusData.status
+        + ' \u2014 <b>' + statusData.peers.connected + '</b>/' + statusData.peers.total + ' connected'
+        + (statusData.peers.pending > 0 ? ', <b>' + statusData.peers.pending + '</b> pending' : '')
+        + ' \u2014 health: <b>' + healthPct + '%</b>'
+        + (discoveryLabel ? ' \u2014 ' + discoveryLabel : '');
+    }
 
     // Render pending peers
     if (pendingList) {
@@ -1901,7 +1912,7 @@ async function loadMeshPanel() {
           return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:6px;border-left:3px solid #f59e0b">'
             + '<div>'
             + '<div style="font-weight:600;font-size:13px;color:var(--text-bright)">' + p.hostname + '</div>'
-            + '<div style="font-size:11px;color:var(--text-dim)">' + p.address + ':' + p.port + ' — ' + (p.models||[]).length + ' models — via ' + p.discoveredVia + '</div>'
+            + '<div style="font-size:11px;color:var(--text-dim)">' + p.address + ':' + p.port + ' \u2014 ' + (p.models||[]).length + ' models \u2014 via ' + p.discoveredVia + '</div>'
             + '</div>'
             + '<div style="display:flex;gap:6px">'
             + '<button class="btn" style="padding:4px 10px;font-size:11px;background:#22c55e;color:#fff;border:none;border-radius:4px;cursor:pointer" data-node-id="' + p.nodeId + '" onclick="meshApprove(this.dataset.nodeId)">Approve</button>'
@@ -1911,26 +1922,30 @@ async function loadMeshPanel() {
       }
     }
 
-    // Render connected peers
+    // Render connected peers from /api/mesh/status for enriched data
+    const peerDetails = (statusData.peerDetails || peers).map(function(p) {
+      var loadPct = Math.round((p.load||0)*100);
+      var loadColor = loadPct < 50 ? '#22c55e' : loadPct < 80 ? '#f59e0b' : '#ef4444';
+      var connBadge = p.isConnected ? '<span style="color:#22c55e">\u25cf connected</span>' : '<span style="color:#ef4444">\u25cb disconnected</span>';
+      var borderStyle = p.isConnected ? 'border-left:3px solid #22c55e' : 'border-left:3px solid #ef4444';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:6px;' + borderStyle + '">'
+        + '<div>'
+        + '<div style="font-weight:600;font-size:13px;color:var(--text-bright)">' + p.hostname + ' ' + connBadge + '</div>'
+        + '<div style="font-size:11px;color:var(--text-dim)">' + (p.address||'ws') + ':' + (p.port||'') + ' \u2014 ' + (p.models||[]).length + ' models \u2014 load: <span style="color:' + loadColor + '">' + loadPct + '%</span> \u2014 via ' + (p.discoveredVia||'unknown') + '</div>'
+        + '</div>'
+        + (p.isConnected ? '<button class="btn" style="padding:4px 10px;font-size:11px;background:var(--bg2);color:var(--text-dim);border:1px solid var(--border);border-radius:4px;cursor:pointer" data-node-id="' + p.nodeId + '" onclick="meshRevoke(this.dataset.nodeId)">Disconnect</button>' : '')
+        + '</div>';
+    }).join('');
+
     if (peersList) {
-      if (peers.length === 0) {
+      if (peerDetails.length === 0) {
         peersList.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:8px">No connected peers</div>';
       } else {
-        peersList.innerHTML = peers.map(function(p) {
-          var loadPct = Math.round((p.load||0)*100);
-          var loadColor = loadPct < 50 ? '#22c55e' : loadPct < 80 ? '#f59e0b' : '#ef4444';
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:6px;border-left:3px solid #22c55e">'
-            + '<div>'
-            + '<div style="font-weight:600;font-size:13px;color:var(--text-bright)">' + p.hostname + '</div>'
-            + '<div style="font-size:11px;color:var(--text-dim)">' + (p.address||'ws') + ':' + (p.port||'') + ' — ' + (p.models||[]).length + ' models — load: <span style="color:' + loadColor + '">' + loadPct + '%</span></div>'
-            + '</div>'
-            + '<button class="btn" style="padding:4px 10px;font-size:11px;background:var(--bg2);color:var(--text-dim);border:1px solid var(--border);border-radius:4px;cursor:pointer" data-node-id="' + p.nodeId + '" onclick="meshRevoke(this.dataset.nodeId)">Disconnect</button>'
-            + '</div>';
-        }).join('');
+        peersList.innerHTML = peerDetails;
       }
     }
   } catch(e) {
-    if (statusBar) statusBar.innerHTML = '❌ Cannot reach mesh API';
+    if (statusBar) statusBar.innerHTML = '\u274c Cannot reach mesh API';
   }
 }
 
