@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "2026.10.70",
+  "version": "2026.10.71",
   "description": "TITAN — The Intelligent Task Automation Network. Autonomous AI agent framework with 209 tools, 36 providers, Paperclip-style Command Post governance, F5-TTS voice cloning, self-improvement, mesh networking, and a React dashboard with 26 panels.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -47,6 +47,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:debug": "npx playwright test --debug",
+    "test:e2e:report": "npx playwright show-report",
     "benchmark": "tsx scripts/benchmark.ts",
     "benchmark:dry": "tsx scripts/benchmark.ts --dry-run",
     "ci": "npm run typecheck && npm run test",
