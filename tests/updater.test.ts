@@ -29,7 +29,7 @@ describe('Updater utility', () => {
 
         it('returns isNewer=false when current is newer than registry', async () => {
             vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-                new Response(JSON.stringify({ version: '2000.0.0' }), { status: 200 }),
+                new Response(JSON.stringify({ version: '0.9.0' }), { status: 200 }),
             );
             const info = await getUpdateInfo();
             expect(info.isNewer).toBe(false);

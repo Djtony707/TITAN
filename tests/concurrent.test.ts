@@ -94,7 +94,9 @@ describe('Concurrent Requests', () => {
         await stopGateway();
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        // Drain any lingering requests from prior tests so concurrency slots are free
+        await new Promise(r => setTimeout(r, 300));
         mockRouteMessage.mockReset();
         mockRouteMessage.mockResolvedValue(defaultResponse());
     });
@@ -252,7 +254,7 @@ describe('Concurrent Requests', () => {
     describe('Graceful behavior under load', () => {
         beforeEach(async () => {
             // Ensure any lingering requests from previous tests have drained
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 500));
             mockRouteMessage.mockReset();
             mockRouteMessage.mockResolvedValue(defaultResponse());
         });

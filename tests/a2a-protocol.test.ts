@@ -107,7 +107,7 @@ describe('a2a_agent_card', () => {
 
     it('should include correct version from constants', () => {
         const card = generateAgentCard();
-        expect(card.version).toMatch(/^\d{4}\.\d+\.\d+$/);
+        expect(card.version).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
     it('should list supported protocols', () => {
