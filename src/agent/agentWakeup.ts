@@ -190,6 +190,17 @@ export function getWakeupRequest(requestId: string): WakeupRequest | null {
 }
 
 /**
+ * Claim a queued wakeup request (transition to running). Returns false if not queued.
+ */
+export function claimWakeupRequest(requestId: string): boolean {
+    const req = wakeupQueue.get(requestId);
+    if (!req || req.status !== 'queued') return false;
+    req.status = 'running';
+    logger.info(COMPONENT, `Claimed wakeup ${requestId}`);
+    return true;
+}
+
+/**
  * Cancel a queued wakeup request. Returns false if already running/completed.
  */
 export function cancelWakeup(requestId: string): boolean {

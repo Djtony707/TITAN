@@ -41,12 +41,42 @@ export interface AdapterResult {
     toolsUsed: string[];
 }
 
+/** Configuration for persistent adapters */
+export interface AdapterConfig {
+    url?: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    heartbeatIntervalMs?: number;
+    [key: string]: unknown;
+}
+
+/** Status report from an adapter */
+export interface AdapterStatus {
+    connected: boolean;
+    lastHeartbeat: string | null;
+    upSince: string | null;
+    error: string | null;
+}
+
 /** Interface all external adapters must implement */
 export interface ExternalAdapter {
     /** Unique adapter type identifier, e.g. "claude-code", "codex", "bash" */
     readonly type: string;
     /** Human-readable display name */
     readonly displayName: string;
+    /** Whether this adapter maintains a persistent connection */
+    persistent?: boolean;
+    /** Start the adapter with config (persistent adapters) */
+    start?(config: AdapterConfig): Promise<void>;
+    /** Stop the adapter (persistent adapters) */
+    stop?(): Promise<void>;
+    /** Get current connection status */
+    getStatus?(): AdapterStatus;
+    /** Check if the adapter is still healthy */
+    checkHeartbeat?(): Promise<boolean>;
     /** Execute the adapter — spawn process, capture output, return result */
     execute(ctx: AdapterContext): Promise<AdapterResult>;
 }

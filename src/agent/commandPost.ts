@@ -182,7 +182,8 @@ let config: CommandPostConfig | null = null;
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
-const eventListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const eventListeners: Array<{ event: string; handler: (...args: any[]) => void }> = [];
 
 // ─── Persistence ──────────────────────────────────────────────────────────
 
@@ -446,6 +447,38 @@ export function getAncestryChain(goalId: string): Goal[] {
         current = goals.find(g => g.id === current!.parentGoalId);
     }
     return chain;
+}
+
+/**
+ * Build a human-readable ancestry context string for a given issue.
+ * Includes goal hierarchy and parent issue chain.
+ */
+export function buildAncestryContext(issueId: string): string {
+    const issue = issues.get(issueId);
+    if (!issue) return '';
+
+    const parts: string[] = [];
+
+    // Goal ancestry
+    if (issue.goalId) {
+        const chain = getAncestryChain(issue.goalId);
+        if (chain.length > 0) {
+            parts.push('## Goal Ancestry');
+            parts.push(chain.map(g => `- ${g.title}${g.status === 'completed' ? ' ✓' : ''}`).join('\n'));
+        }
+    }
+
+    // Parent issue context
+    if (issue.parentId) {
+        const parent = issues.get(issue.parentId);
+        if (parent) {
+            parts.push(`## Parent Issue: ${parent.identifier || parent.id}`);
+            parts.push(`Title: ${parent.title}`);
+            if (parent.description) parts.push(parent.description.slice(0, 500));
+        }
+    }
+
+    return parts.join('\n\n');
 }
 
 export function getGoalTree(): GoalTreeNode[] {

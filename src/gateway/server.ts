@@ -748,7 +748,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               sessionName: session.name || session.id.slice(0, 8),
               role: msg.role,
               content: msg.content.slice(0, 200),
-              timestamp: msg.timestamp || '',
+              timestamp: msg.createdAt || '',
             });
             if (results.length >= limit) break;
           }
@@ -776,7 +776,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         let md = `# ${title}\n\nExported: ${new Date().toISOString()}\n\n---\n\n`;
         for (const msg of history) {
           const role = msg.role === 'user' ? '**You**' : '**TITAN**';
-          md += `${role} (${msg.timestamp || ''}):\n\n${msg.content}\n\n---\n\n`;
+          md += `${role} (${msg.createdAt || ''}):\n\n${msg.content}\n\n---\n\n`;
         }
         res.setHeader('Content-Type', 'text/markdown');
         res.setHeader('Content-Disposition', `attachment; filename="titan-${sessionId.slice(0, 8)}.md"`);
@@ -1027,10 +1027,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Cloud mode config endpoint ──────────────────────────────
-  app.get('/api/cloud/config', (_req, res) => {
+  app.get('/api/cloud/config', (_req, res): void => {
     const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
     if (!isCloud) {
-      return res.json({ cloud: false });
+      res.json({ cloud: false });
+      return;
     }
     res.json({
       cloud: true,
@@ -1041,7 +1042,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Onboarding API ──────────────────────────────────────────
-  app.get('/api/onboarding/status', (_req, res) => {
+  app.get('/api/onboarding/status', (_req, res): void => {
     const cfg = loadConfig();
     // In cloud mode, auto-onboard if not already done
     const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
@@ -1052,7 +1053,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const openrouterKey = process.env.OPENROUTER_API_KEY || '';
         updateConfig({
           onboarded: true,
-          agent: { model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free' },
+          agent: { model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free' } as Record<string, unknown>,
           providers: {
             ...cfg.providers,
             openrouter: {
@@ -1061,13 +1062,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               baseUrl: cloudApi + '/api/v1',
             }
           }
-        });
+        } as Record<string, unknown>);
         broadcast({ type: 'config_updated' });
         logger.info('gateway', 'Cloud mode: auto-onboarded with SaaS API');
       } catch (e) {
         logger.error('gateway', `Cloud auto-onboard failed: ${(e as Error).message}`);
       }
-      return res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
+      res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
+      return;
     }
     res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: isCloud });
   });
