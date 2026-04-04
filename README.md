@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance with issues and approvals, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 15 channels, 36 providers, 209 tools, 4,430 tests. It trains itself. Pure TypeScript. No native compilation. No, seriously.</strong>
+  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance with issues and approvals, deliberative reasoning, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 15 channels, 36 providers, 209 tools, 4,655 tests. It trains itself. Pure TypeScript. No native compilation. No, seriously.</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   <a href="#providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
   <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-209-orange" alt="209 Tools"/></a>
   <a href="#channels"><img src="https://img.shields.io/badge/channels-15-blue" alt="15 Channels"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C430-brightgreen" alt="4,430 Tests"/></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C655-brightgreen" alt="4,655 Tests"/></a>
   <a href="https://github.com/Djtony707/TITAN/graphs/contributors"><img src="https://img.shields.io/github/contributors/Djtony707/TITAN" alt="Contributors"/></a>
 </p>
 
@@ -109,7 +109,7 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 >
 > **Bug fixes** — session timestamps use `createdAt` field, cloud mode redirects fixed, error handlers cleaned up, OpenRouter auth profiles added.
 >
-> Previous release: v2026.10.68 — Full Paperclip integration, 14 bugs fixed, Cloud model benchmark, F5-TTS voice cloning. 4,430 tests across 140 files.
+> Previous release: v2026.10.68 — Full Paperclip integration, 14 bugs fixed, Cloud model benchmark, F5-TTS voice cloning. 4,655 tests across 154 files.
 >
 > **— Claude Code**
 

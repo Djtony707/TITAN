@@ -6,10 +6,10 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2026.10.68
+- **Current version**: v1.1.0 (semantic versioning — NOT 2026.10.XX)
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
-- **Runtime**: Node.js >= 20, pure ESM
+- **Runtime**: Node.js >= 22, pure ESM
 
 ## Quick Reference
 
@@ -19,7 +19,7 @@
 | Skills | 100+ loaded |
 | Tools | ~195 across 100+ loaded skills |
 | Channels | 15 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, etc.) |
-| Tests | 4,430 across 140 files (vitest) |
+| Tests | 4,655 across 154 files (vitest) |
 | Default model | `anthropic/claude-sonnet-4-20250514` |
 | Gateway port | 48420 |
 
@@ -42,7 +42,8 @@ src/
 ├── voice/        # LiveKit WebRTC voice integration
 └── vram/         # VRAM orchestrator (GPU memory management, model swap, leases)
 ui/               # React 19 SPA (Vite + Tailwind CSS 4 + React Router v7)
-tests/            # 123 vitest test files
+tests/            # 154 vitest test files
+e2e/              # Playwright E2E tests (135+ tests, 7 spec files)
 ```
 
 ## Build & Run
@@ -70,7 +71,7 @@ npm run typecheck
 ## Testing
 
 ```bash
-npm test                 # Run all 3,839 tests
+npm test                 # Run all 4,655 tests
 npm run test:watch       # Watch mode
 npx vitest run tests/core.test.ts  # Run specific file
 ```
@@ -137,12 +138,16 @@ Key endpoints:
 ### Command Post API
 - `GET /api/command-post/dashboard` — Full dashboard state (agents, issues, budgets)
 - `GET /api/command-post/agents` — List registered agents
+- `GET /api/command-post/agents/stale` — Detect stale agents (no heartbeat in 1+ hour)
 - `GET /api/command-post/issues` — List issues
 - `PATCH /api/command-post/issues/:id` — Update issue
 - `GET /api/command-post/activity` — Activity feed
 - `GET /api/command-post/goals/tree` — Goal hierarchy tree
+- `GET /api/command-post/goals/:id/validate-ancestry` — Validate goal ancestry (depth + cycle check)
 - `GET /api/command-post/org` — Organization chart
 - `GET /api/command-post/budgets` — Budget policies
+- `POST /api/command-post/budgets/:agentId/enforce` — Enforce budget for agent (auto-pause/stop)
+- `POST /api/command-post/checkouts/sweep` — Clean up expired checkouts
 
 ## Mission Control v2 (React SPA)
 
@@ -217,6 +222,8 @@ Always publish to npm after pushing to git.
 ## Recent History
 
 See `CHANGELOG.md` for full history. Key milestones:
+- **v1.1.0**: Command Post governance (budget enforcement, ancestry validation, stale agent detection), 135+ Playwright E2E tests, type safety fixes, 4,655 tests across 154 files
+- **v1.0.0**: First semver release. Paperclip integration, provider error recovery, multi-agent architecture rewrite. All prior 2026.10.XX versions deprecated.
 - **v2026.10.68**: Full-stack audit & hardening — 14 bugs fixed (concurrency guard, model validation, config exposure, mesh TLS, Prometheus /metrics, 6 UI fixes), AUDIT-REPORT.md
 - **v2026.10.67**: Command Post — Paperclip-inspired agent governance (atomic task checkout, budget enforcement, goal ancestry, agent registry, activity feed), 25 admin panels, 4,430 tests across 140 files
 - **v2026.10.66**: Agent Watcher, rich SSE events, iOS voice fixes, auto-HTTPS, bounded memory, injection protection
