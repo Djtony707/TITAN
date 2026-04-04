@@ -417,8 +417,22 @@ export interface CPActivityEntry {
   metadata?: Record<string, unknown>;
 }
 
+export interface BudgetReservation {
+  id: string;
+  policyId: string;
+  agentId: string;
+  goalId?: string;
+  amountUsd: number;
+  estimatedUsd: number;
+  actualUsd?: number;
+  status: 'reserved' | 'settled' | 'cancelled';
+  reason: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface GoalTreeNode {
-  goal: { id: string; title: string; status: string; progress: number; parentGoalId?: string };
+  goal: { id: string; title: string; status: string; progress: number; parentGoalId?: string; description?: string; updatedAt?: string; createdAt?: string };
   children: GoalTreeNode[];
   depth: number;
 }

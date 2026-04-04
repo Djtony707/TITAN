@@ -1,6 +1,69 @@
 # Changelog
 
 All notable changes to TITAN are documented in this file.
+Format follows [Semantic Versioning](https://semver.org/).
+
+---
+
+## [1.0.0] — 2026-04-04
+
+**TITAN goes semver.** This is the first stable release under proper semantic versioning, replacing the `2026.10.XX` date-based scheme. All prior versions are deprecated.
+
+### Highlights
+- **Paperclip Integration** — Full agent governance via Paperclip: types, API client, routes, and Command Post UI components
+- **Provider Error Recovery** — Circuit breaker pattern, exponential backoff retry, automatic fallback chain across providers
+- **Multi-Agent Architecture Rewrite** — Async sub-agent execution via Command Post, inter-agent communication with inbox/wakeup system
+- **PostgreSQL Storage** — Full persistence layer with migrations, JSON fallback, and budget/reservation tracking
+- **CI/CD Pipeline** — GitHub Actions with Node 20/22/24 matrix, coverage, Dependabot, Docker GPU builds, auto-publish gating
+- **Zero Vulnerabilities** — All npm audit and Dependabot alerts resolved
+
+### Added
+- **Paperclip integration** — types, API client, gateway routes, and UI components for agent governance
+- **Command Post UI** — 14 React components (CPDashboard, CPAgents, CPIssues, CPGoals, CPOrg, CPApprovals, CPCosts, CPRuns, CPActivity, CPInbox, CPSidebar, CPLayout, CPAgentDetail, CPIssueDetail, PaperclipEmbed)
+- **Provider error recovery** — circuit breaker (closed/open/half-open), exponential backoff, fallback chain
+- **Mesh transport routing** — routing table with next-hop resolution, peer address update, route broadcast, loop detection
+- **Agent wakeup system** — heartbeat-driven inbox with `claimWakeupRequest()`, async task delegation via Command Post
+- **PostgreSQL storage module** — StorageProvider interface, PostgresStorage, JsonStorage fallback, migration runner, pg type declarations
+- **Cost estimator** — agent cost tracking and budget enforcement
+- **Heartbeat scheduler** — periodic agent wakeup with cooldown and concurrency limits
+- **External adapters** — HTTP, lifecycle, and process adapters with AdapterConfig/AdapterStatus interfaces
+- **Paperclip sidecar** — addon for Paperclip-TITAN bridge communication
+- **CI/CD pipeline** — GitHub Actions (Node 20/22/24, lint, typecheck, test, build, Docker GPU, Dependabot)
+- **Docker improvements** — multi-stage build, GPU support, health checks
+- **Developer examples** — 5 standalone example projects for onboarding
+- **Competitive analysis** — research document covering AI agent framework landscape (April 2026)
+- **Smoke test suite** — 124 tests across 12 subsystems
+- **Cloud model bypass** — route `:cloud` models to OpenRouter for parallel processing
+- **Mission Control UI redesign** — consumer-grade dashboard, mobile-responsive layout
+
+### Fixed
+- **38 TypeScript compilation errors** — missing exports (claimWakeupRequest, buildAncestryContext), wrong import paths (config/loader→config/config), type mismatches (timestamp→createdAt, union types in error handling), missing pg type declarations
+- **Cloud model tool looping** — phase separation prevents infinite tool call loops
+- **Gateway shutdown** — proper cleanup of voice, poison guard, SSE connections
+- **DeepSeek XML tool parsing** — correct extraction of tool calls from XML responses
+- **Overview panel** — model, provider, memoryUsage now included in /api/stats
+- **spawn_agent** — forced summary after sub-agent completes, cloud round limits enforced
+- **All npm vulnerabilities** — brace-expansion DoS, path-to-regexp ReDoS, plus 13 Dependabot alerts resolved
+
+### Changed
+- **Versioning** — migrated from date-based `2026.10.XX` to semantic versioning `1.0.0`
+- **Agent governance** — mandatory QA gate: Coder → QA Tester → CEO + Board approval workflow
+- **Command Post type safety** — improved event handler typing, ancestry chain validation
+
+### Security
+- **0 npm audit vulnerabilities** (was 2: brace-expansion, path-to-regexp)
+- **0 Dependabot alerts** (was 17: MCP SDK, dompurify, lodash, picomatch, flatted)
+- **Agent workspace lockdown** — stripped credentials, shell guards, read-only git configs, pre-commit/pre-push hooks
+
+### Contributors
+Built by Tony Elliott with contributions from the Paperclip AI agent team:
+- Backend Engineer, Full Stack Engineer, Founding Engineer 2 (core features)
+- DevOps Engineer (CI/CD, Docker)
+- Frontend Engineer (Mission Control UI)
+- Protocol Engineer (mesh transport, inter-agent comms)
+- QA Engineer (smoke tests, validation)
+- Research & Strategy Analyst (competitive analysis)
+- Documentation Engineer, Developer Relations Manager (docs, examples)
 
 ---
 

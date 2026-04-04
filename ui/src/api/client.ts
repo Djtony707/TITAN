@@ -23,6 +23,7 @@ import type {
   RegisteredAgent,
   TaskCheckout,
   BudgetPolicy,
+  BudgetReservation,
   CPActivityEntry,
   GoalTreeNode,
   CPIssue,
@@ -604,6 +605,14 @@ export async function updateCPBudget(id: string, updates: Partial<BudgetPolicy>)
 
 export async function deleteCPBudget(id: string): Promise<{ success: boolean }> {
   return request(`/api/command-post/budgets/${id}`, { method: 'DELETE' });
+}
+
+export async function getCPReservations(): Promise<BudgetReservation[]> {
+  return request('/api/command-post/budgets/reservations');
+}
+
+export async function getIssueContext(issueId: string): Promise<Record<string, unknown>> {
+  return request(`/api/command-post/issues/${issueId}/context`);
 }
 
 export async function getCPActivity(limit = 50, type?: string): Promise<CPActivityEntry[]> {
