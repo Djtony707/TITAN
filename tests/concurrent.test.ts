@@ -70,6 +70,9 @@ vi.mock('../src/skills/builtin/webhook.js', () => ({ registerWebhookSkill: vi.fn
 vi.mock('../src/skills/registry.js', () => ({ initBuiltinSkills: vi.fn().mockResolvedValue(undefined), getSkills: vi.fn().mockReturnValue([]), getRegisteredTools: vi.fn().mockReturnValue([]) }));
 vi.mock('../src/mcp/registry.js', () => ({ initMcpServers: vi.fn().mockResolvedValue(undefined), getMcpStatus: vi.fn().mockReturnValue([]) }));
 vi.mock('../src/gateway/slashCommands.js', () => ({ initSlashCommands: vi.fn(), handleSlashCommand: vi.fn().mockResolvedValue(null) }));
+// GPU detection: mock as present so CI doesn't auto-tune maxConcurrentTasks to 2
+vi.mock('../src/utils/hardware.js', () => ({ detectGpu: vi.fn().mockReturnValue(true), getGpuVendor: vi.fn().mockReturnValue('nvidia') }));
+vi.mock('../src/agent/stallDetector.js', () => ({ setStallThreshold: vi.fn() }));
 
 // ── Import after mocks ──────────────────────────────────────────────────
 
