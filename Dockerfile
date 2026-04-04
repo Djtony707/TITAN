@@ -3,6 +3,7 @@
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package*.json ./
+COPY scripts ./scripts
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ─── Stage 2: Build ──────────────────────────────────────────
