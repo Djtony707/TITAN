@@ -2,28 +2,47 @@ version: '3.8'
 
 services:
   titan:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: titan-gateway
     ports:
       - "48420:48420"
     volumes:
       - titan-data:/home/titan/.titan
+      # Optional: Mount local config/skills directory
+      # - ./config:/home/titan/.titan/config
+      # - ./skills:/home/titan/.titan/skills
     environment:
       - NODE_ENV=production
       - TITAN_HOME=/home/titan/.titan
-      # Uncomment and set your API keys:
-      # - ANTHROPIC_API_KEY=your-api-key
-      # - OPENAI_API_KEY=your-api-key
-      # - GOOGLE_API_KEY=your-api-key
-      # - DISCORD_TOKEN=your-discord-token
-      # - TELEGRAM_TOKEN=your-telegram-token
+      # Gateway binding (0.0.0.0 for container access)
+      - TITAN_GATEWAY_HOST=0.0.0.0
+      # GPU support (uncomment deploy section below for GPU)
+      # - OLLAMA_HOST=http://host.docker.internal:11434
+      # API Keys (use docker secrets or .env file in production):
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:48420/api/health"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:48420/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    # GPU passthrough (NVIDIA) — uncomment when GPU is available
+    # See docker-compose.nvidia.yml for full GPU-accelerated setup
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # Extra hosts for Ollama on host machine
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
 
 volumes:
   titan-data:
