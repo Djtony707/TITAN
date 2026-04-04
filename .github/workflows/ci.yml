@@ -52,6 +52,83 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  health:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Version consistency check (all 5 files must match)
+        run: |
+          PKG_VER=$(node -e "console.log(require('./package.json').version)")
+          CONST_VER=$(grep -oP "TITAN_VERSION\s*=\s*'(\K[^']+)" src/utils/constants.ts || echo "NOT_FOUND")
+          CORE_TEST_VER=$(grep -oP "toBe\('(\K\d+\.\d+\.\d+)" tests/core.test.ts | head -1 || echo "NOT_FOUND")
+          MC_TEST_COUNT=$(grep -c "$PKG_VER" tests/mission-control.test.ts || echo "0")
+          CHANGELOG_VER=$(grep -oP "^## \[?(\K\d+\.\d+\.\d+)" CHANGELOG.md | head -1 || echo "NOT_FOUND")
+
+          echo "package.json:              $PKG_VER"
+          echo "constants.ts:              $CONST_VER"
+          echo "core.test.ts:              $CORE_TEST_VER"
+          echo "mission-control.test.ts:   $MC_TEST_COUNT occurrences"
+          echo "CHANGELOG.md:              $CHANGELOG_VER"
+
+          FAIL=0
+          if [ "$CONST_VER" != "$PKG_VER" ]; then
+            echo "::error::constants.ts version ($CONST_VER) does not match package.json ($PKG_VER)"
+            FAIL=1
+          fi
+          if [ "$CORE_TEST_VER" != "$PKG_VER" ]; then
+            echo "::error::core.test.ts version ($CORE_TEST_VER) does not match package.json ($PKG_VER)"
+            FAIL=1
+          fi
+          if [ "$MC_TEST_COUNT" -lt 4 ]; then
+            echo "::error::mission-control.test.ts has only $MC_TEST_COUNT occurrences of $PKG_VER (need 4)"
+            FAIL=1
+          fi
+          if [ "$CHANGELOG_VER" != "$PKG_VER" ]; then
+            echo "::error::CHANGELOG.md latest version ($CHANGELOG_VER) does not match package.json ($PKG_VER)"
+            FAIL=1
+          fi
+          if [ "$FAIL" -eq 1 ]; then exit 1; fi
+          echo "All 5 version locations match: $PKG_VER"
+
+      - name: Doc accuracy check
+        run: |
+          PKG_VER=$(node -e "console.log(require('./package.json').version)")
+          TEST_COUNT=$(npx vitest run --reporter=json 2>/dev/null | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+              try { const j=JSON.parse(d); console.log(j.numTotalTests||0); }
+              catch(e) { console.log('UNKNOWN'); }
+            })
+          " || echo "UNKNOWN")
+
+          echo "Actual test count: $TEST_COUNT"
+          echo "Checking CLAUDE.md and README.md for version $PKG_VER..."
+
+          # Check version in CLAUDE.md
+          if ! grep -q "$PKG_VER" CLAUDE.md; then
+            echo "::warning::CLAUDE.md does not contain version $PKG_VER"
+          fi
+          if ! grep -q "$PKG_VER" README.md; then
+            echo "::warning::README.md does not contain version $PKG_VER"
+          fi
+          echo "Doc check complete"
+
+      - name: npm publish dry-run
+        run: npm publish --dry-run 2>&1
+
+      - name: Docker build smoke test
+        run: docker build --target deps -t titan-deps-test . 2>&1 | tail -5
+
   coverage-check:
     needs: test
     runs-on: ubuntu-latest
