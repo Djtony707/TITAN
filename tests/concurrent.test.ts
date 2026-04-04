@@ -87,22 +87,21 @@ function defaultResponse(overrides: Record<string, unknown> = {}) {
 describe('Concurrent Requests', () => {
     beforeAll(async () => {
         mockRouteMessage.mockResolvedValue(defaultResponse());
-        await startGateway({ port: TEST_PORT, host: '127.0.0.1' });
+        // Disable rate limiting for tests — tests fire 35+ requests in <2s from same IP
+        await startGateway({ port: TEST_PORT, host: '127.0.0.1', rateLimitMax: 10000, rateLimitWindowMs: 1000 });
     }, 30000);
 
     afterAll(async () => {
         await stopGateway();
     });
 
-    beforeEach(async () => {
-        // Drain any lingering requests from prior tests so concurrency slots are free
-        await new Promise(r => setTimeout(r, 300));
+    beforeEach(() => {
         mockRouteMessage.mockReset();
         mockRouteMessage.mockResolvedValue(defaultResponse());
     });
 
     describe('Simultaneous requests', () => {
-        it('should handle 5 simultaneous requests without deadlock', { retry: 2 }, async () => {
+        it('should handle 5 simultaneous requests without deadlock', async () => {
             // Small delay so all requests are in-flight together
             mockRouteMessage.mockImplementation(async (content: string) => {
                 await new Promise(r => setTimeout(r, 100));
@@ -227,7 +226,7 @@ describe('Concurrent Requests', () => {
             expect(calls).toContain('slack');
         });
 
-        it('should not leak response data between concurrent sessions', { retry: 2 }, async () => {
+        it('should not leak response data between concurrent sessions', async () => {
             mockRouteMessage.mockImplementation(async (content: string) => {
                 await new Promise(r => setTimeout(r, Math.random() * 100));
                 return defaultResponse({ content: `echo:${content}`, sessionId: `sess-${content}` });
@@ -252,14 +251,12 @@ describe('Concurrent Requests', () => {
     });
 
     describe('Graceful behavior under load', () => {
-        beforeEach(async () => {
-            // Ensure any lingering requests from previous tests have drained
-            await new Promise(r => setTimeout(r, 500));
+        beforeEach(() => {
             mockRouteMessage.mockReset();
             mockRouteMessage.mockResolvedValue(defaultResponse());
         });
 
-        it('should not corrupt SSE when multiple streams are active', { retry: 2 }, async () => {
+        it('should not corrupt SSE when multiple streams are active', async () => {
             mockRouteMessage.mockImplementation(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
                 await new Promise(r => setTimeout(r, 50));
                 callbacks?.onToken?.('Hello');

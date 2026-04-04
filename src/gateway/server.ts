@@ -439,7 +439,7 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 }
 
 /** Start the Gateway server */
-export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean }): Promise<void> {
+export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean; rateLimitMax?: number; rateLimitWindowMs?: number }): Promise<void> {
   const config = loadConfig();
   initFileLogger(TITAN_LOGS_DIR);
   const port = options?.port || config.gateway.port;
@@ -489,6 +489,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   initAgents();
 
   // ── Rate limiter (inline, no deps) ─────────────────────────
+  const defaultRateLimitWindowMs = options?.rateLimitWindowMs ?? 60000;
+  const defaultRateLimitMax = options?.rateLimitMax ?? 30;
   const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
   /**
@@ -1222,7 +1224,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
-  app.post('/api/message', rateLimit(60000, 30), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
+  app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
     const { content, channel = 'api', userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
     if (!content || typeof content !== 'string') {
       res.status(400).json({ error: 'content must be a non-empty string' });
