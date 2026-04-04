@@ -1,0 +1,30 @@
+{
+  "name": "@titan-agent/example-multi-agent-orchestration",
+  "version": "1.0.0",
+  "description": "TITAN example: Multi-agent orchestration with sub-agent spawning, goal hierarchy, and Command Post budgets",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "titan-agent",
+    "example",
+    "multi-agent",
+    "orchestration",
+    "sub-agent",
+    "command-post"
+  ],
+  "author": "Tony Elliott",
+  "license": "MIT",
+  "dependencies": {
+    "titan-agent": "^2026.10.68"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

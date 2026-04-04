@@ -1,0 +1,31 @@
+{
+  "name": "@titan-agent/example-mcp-server",
+  "version": "1.0.0",
+  "description": "TITAN example: MCP Server exposing tools via JSON-RPC 2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "titan-agent",
+    "example",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "cursor"
+  ],
+  "author": "Tony Elliott",
+  "license": "MIT",
+  "dependencies": {
+    "titan-agent": "^2026.10.68",
+    "@modelcontextprotocol/sdk": "^0.5.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

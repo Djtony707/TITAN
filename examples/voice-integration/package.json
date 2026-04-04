@@ -1,0 +1,34 @@
+{
+  "name": "@titan-agent/example-voice-integration",
+  "version": "1.0.0",
+  "description": "TITAN example: LiveKit WebRTC voice agent integration",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "titan-agent",
+    "example",
+    "voice",
+    "livekit",
+    "webrtc",
+    "tts",
+    "speech"
+  ],
+  "author": "Tony Elliott",
+  "license": "MIT",
+  "dependencies": {
+    "titan-agent": "^2026.10.68",
+    "livekit-client": "^2.7.0",
+    "livekit-server-sdk": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

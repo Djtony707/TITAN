@@ -1,0 +1,31 @@
+{
+  "name": "@titan-agent/example-mission-control-extension",
+  "version": "1.0.0",
+  "description": "TITAN example: Custom admin panel for Mission Control v2",
+  "type": "module",
+  "main": "src/panel.tsx",
+  "scripts": {
+    "dev": "tsx watch src/panel.tsx",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "titan-agent",
+    "example",
+    "mission-control",
+    "react",
+    "admin-panel"
+  ],
+  "author": "Tony Elliott",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

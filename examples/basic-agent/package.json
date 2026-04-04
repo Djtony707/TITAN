@@ -1,0 +1,28 @@
+{
+  "name": "@titan-agent/example-basic-agent",
+  "version": "1.0.0",
+  "description": "TITAN example: Basic CLI agent with tool usage",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "titan-agent",
+    "example",
+    "ai-agent",
+    "cli"
+  ],
+  "author": "Tony Elliott",
+  "license": "MIT",
+  "dependencies": {
+    "titan-agent": "^2026.10.68"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
