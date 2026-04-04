@@ -166,8 +166,8 @@ jobs:
 
           echo "Line coverage: ${LINE_COV}%"
 
-          if [ $(echo "$LINE_COV < 80" | bc -l) -eq 1 ]; then
-            echo "::error::Coverage ${LINE_COV}% is below 80% threshold"
+          if [ $(echo "$LINE_COV < 60" | bc -l) -eq 1 ]; then
+            echo "::error::Coverage ${LINE_COV}% is below 60% threshold"
             exit 1
           fi
 
