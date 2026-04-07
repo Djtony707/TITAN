@@ -262,6 +262,13 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerVRAMSkills } = await import('./builtin/vram.js');
     const { registerSecurityScanSkill } = await import('./builtin/security_scan.js');
     const { registerChangelogGenSkill } = await import('./builtin/changelog_gen.js');
+    const { registerJiraLinearSkill } = await import('./builtin/jira_linear.js');
+    const { registerAuditTrailSkill } = await import('./builtin/audit_trail.js');
+    const { registerVisualPlanSkill } = await import('./builtin/visual_plan.js');
+    const { registerScreenRecordSkill } = await import('./builtin/screen_record.js');
+    const { registerSessionTeleportSkill } = await import('./builtin/session_teleport.js');
+    const { registerCrossProviderSkill } = await import('./builtin/cross_provider.js');
+    const { registerSentrySkill } = await import('./builtin/sentry.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -329,6 +336,13 @@ export async function initBuiltinSkills(): Promise<void> {
         ['vram', registerVRAMSkills],
         ['security_scan', registerSecurityScanSkill],
         ['changelog_gen', registerChangelogGenSkill],
+        ['jira_linear', registerJiraLinearSkill],
+        ['audit_trail', registerAuditTrailSkill],
+        ['visual_plan', registerVisualPlanSkill],
+        ['screen_record', registerScreenRecordSkill],
+        ['session_teleport', registerSessionTeleportSkill],
+        ['cross_provider', registerCrossProviderSkill],
+        ['sentry', registerSentrySkill],
     ];
 
     for (const [name, fn] of registrations) {
