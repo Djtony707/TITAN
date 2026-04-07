@@ -423,6 +423,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── No tool calls → check rescue paths or accept response ──
             if (!response.toolCalls || response.toolCalls.length === 0) {
+                logger.warn(COMPONENT, `[NoTools] Model returned text (len=${response.content.length}): ${response.content.slice(0, 200)}`);
+
+                // FabricationGuard: detect model claiming to have completed actions without tool calls
+                // gemma4 says "I've written X to file Y" without actually calling write_file
+                const fabricationMatch = response.content.match(/(?:written|saved|created|wrote)\s+(?:.*?)(?:to|at|in)\s+["\`']?(\/[\w/.-]+\.[a-z]+)["\`']?/i);
+                if (fabricationMatch) {
+                    const filePath = fabricationMatch[1];
+                    // Extract what should have been written
+                    const contentMatch = response.content.match(/(?:written|saved|wrote)\s+["`]([^"`]+)["`]/i);
+                    const fileContent = contentMatch ? contentMatch[1] : 'placeholder';
+                    logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "\${filePath}" without tool call — forcing write_file`);
+                    response.toolCalls = [{
+                        id: `fab-\${Date.now()}`,
+                        type: 'function' as const,
+                        function: { name: 'write_file', arguments: JSON.stringify({ path: filePath, content: fileContent }) },
+                    }];
+                    response.content = '';
+                }
                 // Self-Heal: detect tool calling failure
                 if (ctx.selfHealEnabled && !selfHealExhausted && ctx.activeTools.length > 0) {
                     const toolFailure = checkToolCallCapability(ctx.sessionId, response.content, ctx.activeTools.length > 0);
@@ -488,6 +506,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                                 id: `intent-${Date.now()}`,
                                 type: 'function' as const,
                                 function: { name: 'write_file', arguments: JSON.stringify({ path: pathMatch[1], content: codeBlockMatch[1] }) },
+                            }];
+                            rescued = true;
+                        }
+                    }
+
+                    // Pattern 1b: "I wrote/saved/created file X" → write_file (past-tense fabrication)
+                    if (!rescued) {
+                        const pastWrite = text.match(/(?:wrote|written|saved|created)\s+(?:.*?)(?:to|at|in)\s+["'\`]?(\/[\w/.-]+\.[a-z]+)["'\`]?/i);
+                        if (pastWrite) {
+                            const contentMatch = text.match(/(?:wrote|written|saved)\s+["'\`]([^"'\`]+)["'\`]/i);
+                            logger.info(COMPONENT, `[IntentParser] Past-tense write → write_file("\${pastWrite[1]}")`);
+                            response.toolCalls = [{
+                                id: `intent-\${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'write_file', arguments: JSON.stringify({ path: pastWrite[1], content: contentMatch ? contentMatch[1] : '' }) },
                             }];
                             rescued = true;
                         }
