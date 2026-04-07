@@ -444,7 +444,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
 
             // Emit tool_call events for Agent Watcher
             if (config.streamCallbacks?.onToolCall) {
-                for (const tc of toolCalls) { config.streamCallbacks.onToolCall(tc.function.name, JSON.parse(tc.function.arguments || "{}")); }
+                for (const tc of response.toolCalls!) { config.streamCallbacks.onToolCall(tc.function.name, JSON.parse(tc.function.arguments || "{}")); }
             }
             const toolResults = await executeTools(response.toolCalls);
             // Emit tool_end events for Agent Watcher
