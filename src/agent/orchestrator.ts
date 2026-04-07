@@ -167,7 +167,6 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
                             title: t.task.slice(0, 80),
                             description: t.task,
                             priority: 'medium',
-                            status: 'todo',
                             createdByUser: 'orchestrator',
                         });
                         logger.info(COMPONENT, `[CP] Created issue ${issue.id} for ${agentName}: ${t.task.slice(0, 60)}`);
@@ -178,6 +177,9 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
                             agentName,
                             task: t.task,
                             issueId: issue.id,
+                            issueIdentifier: issue.id,
+                            agentId: agentName,
+                            parentSessionId: null,
                             templateName: t.template,
                         });
                     } catch (e) {

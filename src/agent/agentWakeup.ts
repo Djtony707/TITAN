@@ -328,13 +328,13 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
                 depth: 0,
                 streamCallbacks: {
                     onToolCall: (name, args) => {
-                        emitAgentEvent({ type: 'tool_call', agentName: req.agentName, agentId, timestamp: Date.now(), data: { name, args } });
+                        emitAgentEvent({ type: 'tool_call', agentName: req.agentName, agentId: req.agentName, timestamp: Date.now(), data: { name, args } });
                     },
                     onToolResult: (name, r, durationMs, success) => {
-                        emitAgentEvent({ type: 'tool_end', agentName: req.agentName, agentId, timestamp: Date.now(), data: { name, result: r.slice(0, 500), durationMs, success } });
+                        emitAgentEvent({ type: 'tool_end', agentName: req.agentName, agentId: req.agentName, timestamp: Date.now(), data: { name, result: r.slice(0, 500), durationMs, success } });
                     },
                     onRound: (round, maxRounds) => {
-                        emitAgentEvent({ type: 'round', agentName: req.agentName, agentId, timestamp: Date.now(), data: { round, maxRounds } });
+                        emitAgentEvent({ type: 'round', agentName: req.agentName, agentId: req.agentName, timestamp: Date.now(), data: { round, maxRounds } });
                     },
                 },
             });

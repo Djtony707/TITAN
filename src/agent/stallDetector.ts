@@ -65,6 +65,8 @@ interface SessionState {
     stallCount: number;
     consecutiveToolCallFailures: number;
     timer?: ReturnType<typeof setTimeout>;
+    toolNames?: string[];
+    consecutiveNoTool?: number;
 }
 
 const sessions: Map<string, SessionState> = new Map();
@@ -191,8 +193,8 @@ export function checkResponse(sessionId: string, content: string, round: number,
     // Detect analysis-only pattern: model read files but responds with analysis instead of making changes
     const state = getOrCreate(sessionId);
     if (content && content.length > 500 && round > 0) {
-        const hasReadTools = state.toolNames?.some((t: string) => t === 'read_file' || t === 'shell');
-        const hasWriteTools = state.toolNames?.some((t: string) => t === 'write_file' || t === 'edit_file');
+        const hasReadTools = (state as any).toolNames?.some((t: string) => t === 'read_file' || t === 'shell');
+        const hasWriteTools = (state as any).toolNames?.some((t: string) => t === 'write_file' || t === 'edit_file');
         const looksLikeAnalysis = /\b(implementation|architecture|pattern|approach|improvement|summary|breakdown|here is|let me explain|the code)\b/i.test(content);
         if (hasReadTools && !hasWriteTools && looksLikeAnalysis) {
             state.stallCount++;
@@ -237,10 +239,10 @@ export function checkResponse(sessionId: string, content: string, round: number,
     }
 
     // Track consecutive no-tool responses
-    if (!state.consecutiveNoTool) state.consecutiveNoTool = 0;
-    state.consecutiveNoTool++;
-    if (state.consecutiveNoTool >= 3) {
-        state.consecutiveNoTool = 0;
+    if (!(state as any).consecutiveNoTool) (state as any).consecutiveNoTool = 0;
+    (state as any).consecutiveNoTool++;
+    if ((state as any).consecutiveNoTool >= 3) {
+        (state as any).consecutiveNoTool = 0;
         state.stallCount++;
         return {
             type: 'no_tool_cap' as StallType,
