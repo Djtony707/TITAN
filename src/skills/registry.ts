@@ -260,6 +260,8 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerEvalsSkill } = await import('./builtin/evals.js');
     const { registerApprovalGatesSkill } = await import('./builtin/approval_gates.js');
     const { registerVRAMSkills } = await import('./builtin/vram.js');
+    const { registerSecurityScanSkill } = await import('./builtin/security_scan.js');
+    const { registerChangelogGenSkill } = await import('./builtin/changelog_gen.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -325,6 +327,8 @@ export async function initBuiltinSkills(): Promise<void> {
         ['a2a_protocol', registerA2AProtocolSkill],
         ['approval_gates', registerApprovalGatesSkill],
         ['vram', registerVRAMSkills],
+        ['security_scan', registerSecurityScanSkill],
+        ['changelog_gen', registerChangelogGenSkill],
     ];
 
     for (const [name, fn] of registrations) {
