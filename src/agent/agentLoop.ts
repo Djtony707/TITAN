@@ -439,20 +439,75 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     }
                 }
 
-                // CodeRescue: if model output code blocks as text, auto-convert to write_file
-                const codeBlockMatch = response.content.match(/```(?:html|typescript|javascript|python|css)\n([\s\S]+?)```/);
-                if (codeBlockMatch && codeBlockMatch[1].length > 100) {
-                    // Try to find a file path in the surrounding text
-                    const pathMatch = response.content.match(/(?:save|write|create|update|file|path)[:\s]+[`"']?(\/[\w\/.\-]+\.[a-z]+)[`"']?/i)
-                        || response.content.match(/(\/home\/[\w\/.\-]+\.[a-z]+)/);
-                    if (pathMatch) {
-                        logger.info(COMPONENT, `[CodeRescue] Extracted code block → write_file("${pathMatch[1]}", ${codeBlockMatch[1].length} chars)`);
-                        response.toolCalls = [{
-                            id: `rescue-${Date.now()}`,
-                            type: 'function' as const,
-                            function: { name: 'write_file', arguments: JSON.stringify({ path: pathMatch[1], content: codeBlockMatch[1] }) },
-                        }];
-                        // Fall through to tool_calls handling
+                // IntentParser: aggressively extract tool calls from text content
+                // Models like gemma4 often describe what they WANT to do instead of calling tools.
+                // We parse the intent and generate the tool call for them.
+                if (!response.toolCalls || response.toolCalls.length === 0) {
+                    const text = response.content;
+                    let rescued = false;
+
+                    // Pattern 1: Code blocks → write_file
+                    const codeBlockMatch = text.match(/```(?:html|typescript|javascript|python|css|json)\n([\s\S]+?)```/);
+                    if (codeBlockMatch && codeBlockMatch[1].length > 50) {
+                        const pathMatch = text.match(/(?:save|write|create|update|file|path|to)[:\s]+[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i)
+                            || text.match(/(\/home\/[\w\/.\-]+\.[a-z]+)/)
+                            || text.match(/(\/[\w]+\/[\w\/.\-]+\.[a-z]+)/);
+                        if (pathMatch) {
+                            logger.info(COMPONENT, `[IntentParser] Code block → write_file("${pathMatch[1]}", ${codeBlockMatch[1].length} chars)`);
+                            response.toolCalls = [{
+                                id: `intent-${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'write_file', arguments: JSON.stringify({ path: pathMatch[1], content: codeBlockMatch[1] }) },
+                            }];
+                            rescued = true;
+                        }
+                    }
+
+                    // Pattern 2: "I'll read/open/check file X" → read_file
+                    if (!rescued) {
+                        const readIntent = text.match(/(?:read|open|check|look at|examine|view|inspect)\s+(?:the\s+)?(?:file\s+)?[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i);
+                        if (readIntent) {
+                            logger.info(COMPONENT, `[IntentParser] Read intent → read_file("${readIntent[1]}")`);
+                            response.toolCalls = [{
+                                id: `intent-${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'read_file', arguments: JSON.stringify({ path: readIntent[1] }) },
+                            }];
+                            rescued = true;
+                        }
+                    }
+
+                    // Pattern 3: "I'll run/execute command X" → shell
+                    if (!rescued) {
+                        const shellIntent = text.match(/(?:run|execute|running)\s+(?:the\s+)?(?:command\s+)?[\`]([^\`]+)[\`]/i);
+                        if (shellIntent) {
+                            logger.info(COMPONENT, `[IntentParser] Shell intent → shell("${shellIntent[1].slice(0, 60)}")`);
+                            response.toolCalls = [{
+                                id: `intent-${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'shell', arguments: JSON.stringify({ command: shellIntent[1] }) },
+                            }];
+                            rescued = true;
+                        }
+                    }
+
+                    // Pattern 4: "I'll edit/modify/update X in file Y" → read_file (to prepare for edit)
+                    if (!rescued) {
+                        const editIntent = text.match(/(?:edit|modify|update|change|replace|add to)\s+(?:the\s+)?(?:file\s+)?[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i);
+                        if (editIntent) {
+                            logger.info(COMPONENT, `[IntentParser] Edit intent → read_file("${editIntent[1]}") (prep for edit)`);
+                            response.toolCalls = [{
+                                id: `intent-${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'read_file', arguments: JSON.stringify({ path: editIntent[1] }) },
+                            }];
+                            rescued = true;
+                        }
+                    }
+
+                    if (rescued) {
+                        // Clear the text content so it doesn't confuse the model on next round
+                        response.content = '';
                     }
                 }
 
