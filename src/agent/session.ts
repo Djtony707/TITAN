@@ -8,7 +8,7 @@ import type { ChatMessage } from '../providers/base.js';
 import { MAX_CONTEXT_MESSAGES, SESSION_TIMEOUT_MS } from '../utils/constants.js';
 import { generateKey } from '../security/encryption.js';
 import logger from '../utils/logger.js';
-import { chat } from '../providers/router.js';
+// chat imported dynamically to avoid circular dependency
 
 const COMPONENT = 'Session';
 
@@ -160,13 +160,13 @@ export function addMessage(
             session.name = fallbackTitle;
             meta.name = fallbackTitle;
             // Async LLM title generation — updates session name when ready
-            chat({ model: 'fast', messages: [{ role: 'user', content: `Generate a concise 5-word title for this conversation. Only output the title, nothing else. Message: ${cleaned.slice(0, 200)}` }], maxTokens: 30, temperature: 0.7 }).then(res => {
+            import('../providers/router.js').then(({ chat: chatFn }) => chatFn({ model: 'fast', messages: [{ role: 'user', content: `Generate a concise 5-word title for this conversation. Only output the title, nothing else. Message: ${cleaned.slice(0, 200)}` }], maxTokens: 30, temperature: 0.7 }).then(res => {
                 if (res.content && res.content.length > 0 && res.content.length < 60) {
                     session.name = res.content.trim();
                     updateSessionMeta(session.id, { name: session.name });
                     logger.info('Session', `LLM title for ${session.id.slice(0, 8)}: "${session.name}"`);
                 }
-            }).catch(() => { /* fallback title already set */ });
+            })).catch(() => { /* fallback title already set */ });
         }
         session.lastMessage = snippet;
         updateSessionMeta(session.id, meta);
