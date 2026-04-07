@@ -41,7 +41,7 @@ export function setAutonomousMode(enabled: boolean): void {
 }
 
 // ─── Types ────────────────────────────────────────────────────────
-export type StallType = 'silence' | 'tool_loop' | 'empty_response' | 'max_rounds' | 'tool_call_failure' | 'analysis_only';
+export type StallType = 'silence' | 'tool_loop' | 'empty_response' | 'max_rounds' | 'tool_call_failure' | 'analysis_only' | 'self_talk' | 'code_in_response' | 'no_tool_cap';
 
 export interface StallEvent {
     type: StallType;
@@ -153,6 +153,7 @@ export function recordToolCall(sessionId: string, name: string, args: Record<str
     const state = getOrCreate(sessionId);
     if (!state.toolNames) state.toolNames = [];
     state.toolNames.push(name);
+    state.consecutiveNoTool = 0; // Reset no-tool counter on successful tool call
     const argsHash = hashArgs(args);
 
     // Reset tool call failure counter — model successfully called a tool
@@ -203,6 +204,51 @@ export function checkResponse(sessionId: string, content: string, round: number,
                 nudgeCount: state.nudgeCount,
             };
         }
+    }
+
+    // Detect self-talk loop: repeated phrases like "Actually, I'll just call the tool"
+    if (content && content.length > 200) {
+        const repeated = content.match(/(Actually|Wait|Let me|I'll just|I will now|I'll call|Let's|I should).{0,30}/gi) || [];
+        if (repeated.length >= 8) {
+            state.stallCount++;
+            return {
+                type: 'self_talk' as StallType,
+                sessionId,
+                detectedAt: new Date().toISOString(),
+                detail: `Model stuck in self-talk loop (${repeated.length} repeated phrases)`,
+                nudgeCount: state.nudgeCount,
+            };
+        }
+    }
+
+    // Detect code-in-response: model outputting code blocks instead of using write_file
+    if (content && (content.includes('```html') || content.includes('```typescript') || content.includes('```javascript') || content.includes('```python') || content.includes('```css'))) {
+        const codeMatch = content.match(/```\w+\n([\s\S]{200,})```/);
+        if (codeMatch) {
+            state.stallCount++;
+            return {
+                type: 'code_in_response' as StallType,
+                sessionId,
+                detectedAt: new Date().toISOString(),
+                detail: 'Model output code in response instead of calling write_file',
+                nudgeCount: state.nudgeCount,
+            };
+        }
+    }
+
+    // Track consecutive no-tool responses
+    if (!state.consecutiveNoTool) state.consecutiveNoTool = 0;
+    state.consecutiveNoTool++;
+    if (state.consecutiveNoTool >= 3) {
+        state.consecutiveNoTool = 0;
+        state.stallCount++;
+        return {
+            type: 'no_tool_cap' as StallType,
+            sessionId,
+            detectedAt: new Date().toISOString(),
+            detail: '3 consecutive responses without tool calls — forcing action or stop',
+            nudgeCount: state.nudgeCount,
+        };
     }
 
     if (!content || content.trim().length < 3) {
@@ -265,6 +311,18 @@ export function getNudgeMessage(event: StallEvent): string {
         analysis_only: [
             'STOP analyzing code and START making changes. You read the files — now use write_file to implement the changes. Do NOT describe what to change, MAKE the change by calling write_file NOW.',
             'You are in CODING mode. Reading files is step 1. You MUST now call write_file to save your code changes. Do not respond with text — respond with a write_file tool call.',
+        ],
+        self_talk: [
+            'STOP TALKING TO YOURSELF. You are in a loop. Call a tool RIGHT NOW: use write_file, edit_file, shell, or read_file. Do NOT output any text — your next response MUST be a tool call only.',
+            'CRITICAL: You have been repeating yourself. This is your LAST CHANCE. Call write_file or shell NOW or the task will be terminated.',
+        ],
+        code_in_response: [
+            'ERROR: You output code as text in your response. You MUST call write_file(path, content) instead. NEVER put code in your message — always save it to a file using write_file. Try again NOW with a write_file call.',
+            'CRITICAL: Code must be saved via write_file, NOT output as text. Call write_file with the path and the code content. Do it NOW.',
+        ],
+        no_tool_cap: [
+            'You have responded 3 times without calling any tools. Either call a tool NOW (write_file, edit_file, shell, read_file) or provide your final answer. Do NOT continue planning or analyzing.',
+            'FINAL WARNING: No tools called in 3 rounds. Call a tool NOW or the task ends here. Use write_file to save code, shell to run commands, or provide your final answer.',
         ],
     };
 

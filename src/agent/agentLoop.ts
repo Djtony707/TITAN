@@ -437,6 +437,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     }
                 }
 
+                // CodeRescue: if model output code blocks as text, auto-convert to write_file
+                const codeBlockMatch = response.content.match(/```(?:html|typescript|javascript|python|css)\n([\s\S]+?)```/);
+                if (codeBlockMatch && codeBlockMatch[1].length > 100) {
+                    // Try to find a file path in the surrounding text
+                    const pathMatch = response.content.match(/(?:save|write|create|update|file|path)[:\s]+[`"']?(\/[\w\/.\-]+\.[a-z]+)[`"']?/i)
+                        || response.content.match(/(\/home\/[\w\/.\-]+\.[a-z]+)/);
+                    if (pathMatch) {
+                        logger.info(COMPONENT, `[CodeRescue] Extracted code block → write_file("${pathMatch[1]}", ${codeBlockMatch[1].length} chars)`);
+                        response.toolCalls = [{
+                            id: `rescue-${Date.now()}`,
+                            type: 'function' as const,
+                            function: { name: 'write_file', arguments: JSON.stringify({ path: pathMatch[1], content: codeBlockMatch[1] }) },
+                        }];
+                        // Fall through to tool_calls handling
+                    }
+                }
+
+                if (!response.toolCalls || response.toolCalls.length === 0) {
                 // ToolRescue: extract tool call from text content
                 const isCloudModel = activeModel.includes(':cloud') || activeModel.includes('-cloud');
                 const rescuedToolCall = extractToolCallFromContent(response.content, ctx.activeTools, isCloudModel);
@@ -444,6 +462,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text`);
                     response.toolCalls = [rescuedToolCall];
                     // Fall through to tool_calls handling below
+                }
                 } else {
                     // Stall detection
                     const stallEvent = checkResponse(ctx.sessionId, response.content, round, ctx.effectiveMaxRounds);
