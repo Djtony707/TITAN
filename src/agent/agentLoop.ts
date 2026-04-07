@@ -781,8 +781,18 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 result.budgetExhausted = true;
                 phase = 'done';
             } else if (ctx.isAutonomous) {
-                // Autonomous mode: go back for more tool rounds
-                phase = 'think';
+                // Smart exit: if only 1 tool was called and it succeeded, the task is likely done
+                // Don't loop back for more rounds — go straight to RESPOND
+                const singleToolSuccess = pendingToolCalls.length === 1
+                    && toolResults.every(r => r.success)
+                    && ['write_file', 'append_file', 'shell', 'read_file', 'list_dir', 'web_search', 'memory', 'weather', 'system_info'].includes(pendingToolCalls[0].function.name);
+                if (singleToolSuccess && round >= 1) {
+                    logger.info(COMPONENT, '[SmartExit] Single successful tool call — skipping to respond phase');
+                    phase = 'respond';
+                } else {
+                    // Autonomous mode: go back for more tool rounds
+                    phase = 'think';
+                }
             } else {
                 // Non-autonomous: force text-only response
                 phase = 'respond';
