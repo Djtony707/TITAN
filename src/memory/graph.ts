@@ -55,6 +55,7 @@ export interface Entity {
     firstSeen: string;
     lastSeen: string;
     facts: string[];
+    episodeIds: string[];
 }
 
 export interface Edge {
@@ -329,6 +330,7 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
         firstSeen: new Date().toISOString(),
         lastSeen: new Date().toISOString(),
         facts,
+        episodeIds: [],
     };
     graph.entities.push(entity);
     return entity;
@@ -420,6 +422,11 @@ export async function addEpisode(content: string, source: string): Promise<Episo
             const entity = findOrCreateEntity(e.name, e.type || 'topic', e.facts || []);
             if (!episode.entities.includes(entity.id)) {
                 episode.entities.push(entity.id);
+            }
+            // Reverse link: entity -> episode
+            if (!entity.episodeIds) entity.episodeIds = [];
+            if (!entity.episodeIds.includes(episode.id)) {
+                entity.episodeIds.push(episode.id);
             }
         }
         // Create edges between co-occurring entities in this episode

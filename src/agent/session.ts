@@ -8,6 +8,7 @@ import type { ChatMessage } from '../providers/base.js';
 import { MAX_CONTEXT_MESSAGES, SESSION_TIMEOUT_MS } from '../utils/constants.js';
 import { generateKey } from '../security/encryption.js';
 import logger from '../utils/logger.js';
+import { chat } from '../providers/router.js';
 
 const COMPONENT = 'Session';
 
@@ -153,13 +154,19 @@ export function addMessage(
         const snippet = content.slice(0, 60) + (content.length > 60 ? '…' : '');
         const meta: { name?: string; last_message?: string } = { last_message: snippet };
         if (!session.name) {
-            // Clean up voice prefixes and generate a readable title
-            let title = content.replace(/^\[voice\/voice-user\]\s*/i, '').replace(/^\[api\/api-user\]\s*/i, '');
-            // Capitalize first letter, limit to 50 chars
-            title = title.charAt(0).toUpperCase() + title.slice(1);
-            if (title.length > 50) title = title.slice(0, 47) + '…';
-            session.name = title;
-            meta.name = title;
+            // Generate a concise title via LLM (fire-and-forget, fallback to truncation)
+            const cleaned = content.replace(/^\[voice\/voice-user\]\s*/i, '').replace(/^\[api\/api-user\]\s*/i, '');
+            const fallbackTitle = cleaned.charAt(0).toUpperCase() + cleaned.slice(1, 47) + (cleaned.length > 47 ? '…' : '');
+            session.name = fallbackTitle;
+            meta.name = fallbackTitle;
+            // Async LLM title generation — updates session name when ready
+            chat({ model: 'fast', messages: [{ role: 'user', content: `Generate a concise 5-word title for this conversation. Only output the title, nothing else. Message: ${cleaned.slice(0, 200)}` }], maxTokens: 30, temperature: 0.7 }).then(res => {
+                if (res.content && res.content.length > 0 && res.content.length < 60) {
+                    session.name = res.content.trim();
+                    updateSessionMeta(session.id, { name: session.name });
+                    logger.info('Session', `LLM title for ${session.id.slice(0, 8)}: "${session.name}"`);
+                }
+            }).catch(() => { /* fallback title already set */ });
         }
         session.lastMessage = snippet;
         updateSessionMeta(session.id, meta);
