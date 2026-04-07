@@ -17,6 +17,7 @@ import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
+import { hasActionDirectives, compileActions } from './actionCompiler.js';
 import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, checkToolCallCapability, resetToolCallFailures } from './stallDetector.js';
 import { loadConfig } from '../config/config.js';
 import { checkForLoop } from './loopDetection.js';
@@ -355,6 +356,14 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // ── Call LLM with tools ──────────────────────────────
             const thinkingMode = ctx.thinkingOverride || ctx.config.agent.thinkingMode || 'off';
             const isVoice = ctx.voiceFastPath;
+            // Trim context for tool-calling rounds — keep system + last 6 messages (Claude Code pattern)
+            if (smartMessages.length > 8 && phase !== 'respond') {
+                const system = smartMessages.filter(m => m.role === 'system');
+                const recent = smartMessages.filter(m => m.role !== 'system').slice(-6);
+                smartMessages = [...system, ...recent];
+                logger.info(COMPONENT, `[ContextTrim] Trimmed to ${smartMessages.length} messages for tool round`);
+            }
+
             const chatOptions = {
                 model: activeModel,
                 messages: smartMessages,
@@ -435,6 +444,27 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                             result.content = 'I tried switching models but tool calling is still failing. Please check my configuration with the self_doctor tool or switch me to a model that supports tool calling.';
                             phase = 'done';
                             break;
+                        }
+                    }
+                }
+
+                // ActionCompiler: if model output ACTION: directives, compile them to tool calls
+                if (response.content && hasActionDirectives(response.content)) {
+                    const compiled = compileActions(response.content);
+                    if (compiled.length > 0) {
+                        logger.info(COMPONENT, `[ActionCompiler] Compiled ${compiled.length} actions from text`);
+                        // Execute first action, queue the rest
+                        const first = compiled[0];
+                        response.toolCalls = [{
+                            id: `ac-${Date.now()}`,
+                            type: 'function' as const,
+                            function: { name: first.tool, arguments: JSON.stringify(first.args) },
+                        }];
+                        response.content = '';
+                        // Store remaining actions for subsequent rounds
+                        if (compiled.length > 1) {
+                            const remaining = compiled.slice(1).map((a, i) => `ACTION: ${a.tool} ${a.args.path || a.args.command || ''}`).join('\n');
+                            ctx.messages.push({ role: 'user', content: `[Queued actions]\n${remaining}\nExecute the next ACTION.` });
                         }
                     }
                 }
