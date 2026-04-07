@@ -5,6 +5,25 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] — 2026-04-06
+
+### Added
+- **Gemma 4 model support** — Auto-detects `gemma4` models and applies Google-recommended sampling (temperature=1.0, top_p=0.95, top_k=64) for both chat and tool-calling modes
+- **Coding task enforcement** — Detects coding requests (fix/change/modify/implement) and injects step-by-step read→write→test instructions into the system prompt, forcing models to use tools instead of describing changes
+- **Analysis-only stall detection** — New `analysis_only` stall type catches models that read files but respond with analysis essays instead of making changes, nudging them to call write_file
+- **write_file destructive guard** — Blocks writes that would shrink a file to <40% or expand to >3x its original size, preventing models from accidentally nuking or bloating source files
+- **edit_file fuzzy matching** — Whitespace-normalized matching auto-applies edits when only indentation differs; contextual error messages show nearby code when exact match fails
+- **Ollama updated to v0.20.2** on Titan PC
+
+### Changed
+- Tool-call temperature for non-Gemma models unchanged (0.3); Gemma 4 uses 1.0 per spec
+- edit_file errors now include line numbers and closest matching code region
+- Session tool history tracked per-session for stall detection analysis
+
+### Verified
+- gemma4:31b completes full coding loops: read_file → edit_file → shell → verify
+- 4,495/4,655 tests passing (160 failures are pre-existing gateway TLS test infra issues)
+
 ## [1.1.1] — 2026-04-04
 
 ### Fixed

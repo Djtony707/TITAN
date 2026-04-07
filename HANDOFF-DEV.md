@@ -1,5 +1,5 @@
 # TITAN Development Handoff — Programming Only
-## April 1, 2026 | v2026.10.69
+## April 6, 2026 | v1.2.0
 
 This handoff is for coding/development work on TITAN only. For voice cloning, ad recording, or SaaS deployment, see HANDOFF.md.
 
@@ -70,7 +70,12 @@ ui/
 
 ## Current Version: v2026.10.69
 
-### What Was Just Shipped
+### What Was Just Shipped (v1.2.0)
+- **Agent tool hardening for local models** — Gemma 4 sampling (temp=1.0, top_p=0.95, top_k=64), coding task enforcement, analysis-only stall detection, write_file destructive guard, edit_file fuzzy matching
+- **Ollama v0.20.2** + gemma4:31b pulled on Titan PC
+- **Verified**: gemma4:31b completes full read->edit->shell coding loops
+
+### Previously Shipped
 - **Full Paperclip integration** — Command Post v2 with 7 tabs: Dashboard (metrics + pixel crew), Org Chart (hierarchical agent tree), Issues (TIT-1 ticket board), Agents (registry + run history), Approvals (hire/budget gates), Costs (budget meters), Console (NL management). 12 new API endpoints, issues/approvals/runs persist to disk.
 - **Cloud model optimization** — Benchmarked all 7 Ollama cloud models. Switched default to `qwen3-coder-next:cloud` (0.3s chat, perfect tool_choice). DeepSeek XML tool call parser. CloudRetry expanded. Voice uses `qwen3.5:397b-cloud`.
 - **14 bugs fixed** — concurrency guard, model switch validation, Prometheus `/metrics`, mesh TLS, gateway shutdown fix, voice poison guard, 6 UI fixes, Overview stats.
@@ -219,9 +224,9 @@ npx tsx scripts/stress-test.ts --password=titan2026  # Live stress test (111 tes
 - IP: 192.168.1.11, SSH: `ssh titan`
 - TITAN: `/opt/TITAN/`, systemd: `titan-gateway`
 - TTS: F5-TTS on RTX 5090, systemd: `titan-tts`, port 5006
-- Ollama: port 11434, models: qwen3.5:35b, nemotron-3-super:cloud
+- Ollama: port 11434, v0.20.2, models: gemma4:31b, qwen3.5:35b, nemotron-3-super:cloud
 - Dashboard: `https://192.168.1.11:48420` (HTTPS via mkcert)
-- Config: `~/.titan/titan.json` — model `ollama/qwen3.5:35b`, voice engine `qwen3-tts`, voice `andrew`
+- Config: `~/.titan/titan.json` — model `ollama/gemma4:31b`, voice engine `qwen3-tts`, voice `andrew`
 - HTTPS certs: `~/.titan/certs/titan.pem` + `titan-key.pem`
 
 ### SaaS (Live)
