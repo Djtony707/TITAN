@@ -479,7 +479,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // Pattern 1: Code blocks → write_file
                     const codeBlockMatch = text.match(/```(?:html|typescript|javascript|python|css|json)\n([\s\S]+?)```/);
                     if (codeBlockMatch && codeBlockMatch[1].length > 50) {
-                        const pathMatch = text.match(/(?:save|write|create|update|file|path|to)[:\s]+[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i)
+                        const pathMatch = text.match(/(?:save|write|create|update|file|path|to)[:\s]+["'`]?(\/[\w\/.\-]+\.[a-z]+)["'`]?/i)
                             || text.match(/(\/home\/[\w\/.\-]+\.[a-z]+)/)
                             || text.match(/(\/[\w]+\/[\w\/.\-]+\.[a-z]+)/);
                         if (pathMatch) {
@@ -495,7 +495,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                     // Pattern 2: "I'll read/open/check file X" → read_file
                     if (!rescued) {
-                        const readIntent = text.match(/(?:read|open|check|look at|examine|view|inspect)\s+(?:the\s+)?(?:file\s+)?[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i);
+                        const readIntent = text.match(/(?:read|open|check|look at|examine|view|inspect)\s+(?:the\s+)?(?:file\s+)?["'`]?(\/[\w\/.\-]+\.[a-z]+)["'`]?/i);
                         if (readIntent) {
                             logger.info(COMPONENT, `[IntentParser] Read intent → read_file("${readIntent[1]}")`);
                             response.toolCalls = [{
@@ -509,7 +509,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                     // Pattern 3: "I'll run/execute command X" → shell
                     if (!rescued) {
-                        const shellIntent = text.match(/(?:run|execute|running)\s+(?:the\s+)?(?:command\s+)?[\`]([^\`]+)[\`]/i);
+                        const shellIntent = text.match(/(?:run|execute|running)\s+(?:the\s+)?(?:command\s+)?[\`]([^`]+)[\`]/i);
                         if (shellIntent) {
                             logger.info(COMPONENT, `[IntentParser] Shell intent → shell("${shellIntent[1].slice(0, 60)}")`);
                             response.toolCalls = [{
@@ -523,7 +523,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                     // Pattern 4: "I'll edit/modify/update X in file Y" → read_file (to prepare for edit)
                     if (!rescued) {
-                        const editIntent = text.match(/(?:edit|modify|update|change|replace|add to)\s+(?:the\s+)?(?:file\s+)?[\`"']?(\/[\w\/.\-]+\.[a-z]+)[\`"']?/i);
+                        const editIntent = text.match(/(?:edit|modify|update|change|replace|add to)\s+(?:the\s+)?(?:file\s+)?["'`]?(\/[\w\/.\-]+\.[a-z]+)["'`]?/i);
                         if (editIntent) {
                             logger.info(COMPONENT, `[IntentParser] Edit intent → read_file("${editIntent[1]}") (prep for edit)`);
                             response.toolCalls = [{

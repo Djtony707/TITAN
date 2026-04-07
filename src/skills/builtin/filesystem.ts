@@ -162,7 +162,7 @@ export function registerFilesystemSkill(): void {
                     const target = args.target as string;
                     if (!content.includes(target)) {
                         // Fuzzy matching: try to find the closest matching block
-                        const targetLines = target.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                        const _targetLines = target.split('\n').map((l: string) => l.trim()).filter(Boolean);
                         const contentLines = content.split('\n');
 
                         // Try normalized whitespace match first

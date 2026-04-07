@@ -16,8 +16,8 @@ const sections: NavSection[] = [
   {
     title: 'MAIN',
     items: [
-      { label: 'Chat', icon: MessageSquare, path: '/' },
-      { label: 'Overview', icon: BarChart3, path: '/overview' },
+      { label: 'Overview', icon: BarChart3, path: '/' },
+      { label: 'Chat', icon: MessageSquare, path: '/chat' },
       { label: 'Command Post', icon: Shield, path: '/command-post' },
     ],
   },

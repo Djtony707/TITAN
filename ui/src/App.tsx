@@ -80,9 +80,9 @@ function AuthenticatedApp() {
       <Layout>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
-            <Route path="/" element={<ChatView onVoiceOpen={() => setVoiceOpen(true)} />} />
+            <Route path="/" element={<AdminPage><OverviewPanel /></AdminPage>} />
+            <Route path="/chat" element={<ChatView onVoiceOpen={() => setVoiceOpen(true)} />} />
             <Route path="/activity" element={<AdminPage><ActivityPanel /></AdminPage>} />
-            <Route path="/overview" element={<AdminPage><OverviewPanel /></AdminPage>} />
             <Route path="/agents" element={<AdminPage><AgentsPanel /></AdminPage>} />
             <Route path="/sessions" element={<AdminPage><SessionsPanel /></AdminPage>} />
             <Route path="/settings" element={<AdminPage><SettingsPanel /></AdminPage>} />
