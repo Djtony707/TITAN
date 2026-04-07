@@ -363,7 +363,8 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 temperature: ctx.config.agent.temperature,
                 thinking: isVoice ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
-                forceToolUse: round === 0 && ctx.taskEnforcementActive && ctx.activeTools.length > 0
+                forceToolUse: round === 0 && ctx.activeTools.length > 0
+                    && (ctx.isAutonomous || ctx.taskEnforcementActive)
                     && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false,
             };
 
@@ -467,8 +468,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // Stall detection
                     const stallEvent = checkResponse(ctx.sessionId, response.content, round, ctx.effectiveMaxRounds);
                     if (stallEvent) {
+                        const state = stallEvent as { nudgeCount?: number };
+                        const nudgeCount = state.nudgeCount ?? 0;
+
+                        // Hard kill after 2 nudges (Paperclip pattern: bounded retries)
+                        if (nudgeCount >= 2 || stallEvent.type === 'self_talk') {
+                            logger.error(COMPONENT, `[HardKill] Stall type "${stallEvent.type}" after ${nudgeCount} nudges — terminating`);
+                            result.content = result.content || pendingAssistantContent || 'Task terminated: agent was unable to make progress using tools. Please try rephrasing your request or breaking it into smaller steps.';
+                            phase = 'done';
+                            break;
+                        }
+
                         const nudge = getNudgeMessage(stallEvent);
-                        logger.warn(COMPONENT, `Stall [${stallEvent.type}] — nudging`);
+                        logger.warn(COMPONENT, `Stall [${stallEvent.type}] (nudge ${nudgeCount + 1}/2) — nudging`);
                         ctx.messages.push({ role: 'user', content: nudge });
                         // Stay in think phase — retry
                         continue;

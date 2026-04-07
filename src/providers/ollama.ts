@@ -432,6 +432,11 @@ export class OllamaProvider extends LLMProvider {
                     parameters: isCloudModel ? simplifySchema(t.function.parameters) : t.function.parameters,
                 },
             }));
+            // Force tool_choice when requested (Claude Code pattern)
+            if (options.forceToolUse) {
+                body.tool_choice = 'required';
+            }
+
             // Gemma 4 requires specific sampling: temperature=1.0, top_p=0.95, top_k=64
             const isGemma4 = model.startsWith('gemma4');
             if (isGemma4) {

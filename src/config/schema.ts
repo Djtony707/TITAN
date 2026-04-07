@@ -104,6 +104,12 @@ export const AgentConfigSchema = z.object({
     /** Active persona ID (filename stem from assets/personas/). Default 'default' = no persona override. */
     persona: z.string().default('default'),
     workspace: z.string().optional(),
+    sessionCompaction: z.object({
+        enabled: z.boolean().default(true).describe('Auto-rotate sessions when limits exceeded'),
+        maxSessionRuns: z.number().default(200).describe('Max interactions per session before rotation'),
+        maxInputTokens: z.number().default(2000000).describe('Max input tokens per session'),
+        maxSessionAgeHours: z.number().default(72).describe('Max session age in hours'),
+    }).default({}).describe('Session compaction thresholds (Paperclip pattern)'),
     thinkingMode: z.enum(['off', 'low', 'medium', 'high']).default('medium'),
     /** Model aliases â e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
     modelAliases: z.record(z.string(), z.string()).default({
