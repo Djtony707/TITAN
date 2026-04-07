@@ -741,6 +741,10 @@ export async function processMessage(
         systemPrompt += '\n\n[TASK ENFORCEMENT — SHELL] You MUST call the shell tool to execute this command. Do NOT describe what the command would do — run it and report the actual output.';
         taskEnforcementActive = true;
     }
+    if (/\b(fix|change|modify|update|refactor|implement|add|remove|replace|uncomment|activate|enable|rewrite|patch|upgrade)\b.{0,80}\b(code|function|file|class|method|module|component|logic|bug|feature|session|title|tool|test)\b/i.test(message)) {
+        systemPrompt += '\n\n[TASK ENFORCEMENT — CODING] You MUST follow this exact sequence:\n1. Use read_file to read the relevant source files\n2. Understand the code structure and plan your changes\n3. Use write_file or edit_file to MAKE the actual code changes — do NOT just describe what to change\n4. Use shell to run tests or verify the changes\n5. Report what you changed and the test results\n\nCRITICAL: Do NOT stop after reading files. Do NOT write analysis essays about code. You must call write_file to save your changes.';
+        taskEnforcementActive = true;
+    }
     } // end !voiceFastPath
 
     // Memory nudge — every 20 messages, remind agent to review and update its knowledge

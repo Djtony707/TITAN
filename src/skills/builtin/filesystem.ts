@@ -87,8 +87,22 @@ export function registerFilesystemSkill(): void {
                 try {
                     const dir = join(filePath, '..');
                     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                    writeFileSync(filePath, args.content as string, 'utf-8');
-                    return `Successfully wrote ${(args.content as string).length} bytes to ${filePath}`;
+                    const newContent = args.content as string;
+                    // Guard: prevent destructive overwrites of existing files
+                    if (existsSync(filePath)) {
+                        const existing = readFileSync(filePath, 'utf-8');
+                        const existingLines = existing.split('\n').length;
+                        const newLines = newContent.split('\n').length;
+                        // If file exists and new content is <40% of original size, block it
+                        if (existingLines > 20 && newLines < existingLines * 0.4) {
+                            return `Error: write_file would replace ${existingLines} lines with only ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks destructive. Use edit_file to make surgical changes instead of rewriting the entire file.`;
+                        }
+                        if (existingLines > 20 && newLines > existingLines * 3) {
+                            return `Error: write_file would expand ${existingLines} lines to ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks like accidental file duplication. Use edit_file to make targeted changes instead of rewriting the entire file.`;
+                        }
+                    }
+                    writeFileSync(filePath, newContent, 'utf-8');
+                    return `Successfully wrote ${newContent.length} bytes to ${filePath}`;
                 } catch (e) { return `Error writing file: ${(e as Error).message}`; }
             },
         },
@@ -117,7 +131,49 @@ export function registerFilesystemSkill(): void {
                 try {
                     let content = readFileSync(filePath, 'utf-8');
                     const target = args.target as string;
-                    if (!content.includes(target)) return `Error: Target string not found in ${filePath}`;
+                    if (!content.includes(target)) {
+                        // Fuzzy matching: try to find the closest matching block
+                        const targetLines = target.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                        const contentLines = content.split('\n');
+
+                        // Try normalized whitespace match first
+                        const normalizedTarget = target.replace(/\s+/g, ' ').trim();
+                        const normalizedContent = content.replace(/\s+/g, ' ').trim();
+                        if (normalizedContent.includes(normalizedTarget)) {
+                            // Whitespace-only difference — find and replace with original whitespace context
+                            const targetChunks = target.split('\n');
+                            const firstLine = targetChunks[0].trim();
+                            const lastLine = targetChunks[targetChunks.length - 1].trim();
+                            let startIdx = -1, endIdx = -1;
+                            for (let i = 0; i < contentLines.length; i++) {
+                                if (contentLines[i].trim() === firstLine) { startIdx = i; break; }
+                            }
+                            if (startIdx >= 0) {
+                                for (let i = startIdx; i < contentLines.length; i++) {
+                                    if (contentLines[i].trim() === lastLine) { endIdx = i; break; }
+                                }
+                            }
+                            if (startIdx >= 0 && endIdx >= 0) {
+                                const before = contentLines.slice(0, startIdx).join('\n');
+                                const after = contentLines.slice(endIdx + 1).join('\n');
+                                content = before + (before ? '\n' : '') + (args.replacement as string) + (after ? '\n' : '') + after;
+                                writeFileSync(filePath, content, 'utf-8');
+                                return `Successfully edited ${filePath} (fuzzy whitespace match applied)`;
+                            }
+                        }
+
+                        // Line-by-line similarity: find best matching region
+                        const targetWords = target.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+                        let bestLine = -1, bestScore = 0;
+                        for (let i = 0; i < contentLines.length; i++) {
+                            const score = targetWords.filter((w: string) => contentLines[i].toLowerCase().includes(w)).length;
+                            if (score > bestScore) { bestScore = score; bestLine = i; }
+                        }
+                        const nearby = bestLine >= 0
+                            ? contentLines.slice(Math.max(0, bestLine - 3), bestLine + 4).map((l: string, i: number) => `  ${Math.max(1, bestLine - 2) + i}: ${l}`).join('\n')
+                            : contentLines.slice(0, 10).map((l: string, i: number) => `  ${i + 1}: ${l}`).join('\n');
+                        return `Error: Target string not found in ${filePath}. The target must match EXACTLY (including whitespace/indentation). Closest match area:\n${nearby}\n\nTIP: Use read_file with startLine/endLine to get the exact text, then copy it precisely as the target.`;
+                    }
                     content = content.split(target).join(args.replacement as string);
                     writeFileSync(filePath, content, 'utf-8');
                     return `Successfully edited ${filePath}`;

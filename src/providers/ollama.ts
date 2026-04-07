@@ -412,7 +412,7 @@ export class OllamaProvider extends LLMProvider {
             }),
             stream: true,
             keep_alive: '30m',
-            options: { num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384), num_ctx: getModelCtx(model), temperature: options.temperature ?? 0.7 },
+            options: { num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384), num_ctx: getModelCtx(model), temperature: model.startsWith('gemma4') ? 1.0 : (options.temperature ?? 0.7), ...(model.startsWith('gemma4') ? { top_p: 0.95, top_k: 64 } : {}) },
         };
 
 
@@ -432,8 +432,16 @@ export class OllamaProvider extends LLMProvider {
                     parameters: isCloudModel ? simplifySchema(t.function.parameters) : t.function.parameters,
                 },
             }));
-            // Lower temperature for better tool-calling compliance
-            (body.options as Record<string, unknown>).temperature = options.temperature ?? 0.3;
+            // Gemma 4 requires specific sampling: temperature=1.0, top_p=0.95, top_k=64
+            const isGemma4 = model.startsWith('gemma4');
+            if (isGemma4) {
+                (body.options as Record<string, unknown>).temperature = 1.0;
+                (body.options as Record<string, unknown>).top_p = 0.95;
+                (body.options as Record<string, unknown>).top_k = 64;
+            } else {
+                // Lower temperature for better tool-calling compliance on other models
+                (body.options as Record<string, unknown>).temperature = options.temperature ?? 0.3;
+            }
         }
 
         // Cloud model optimizations: trim history preserving tool pairs + merge system into user message

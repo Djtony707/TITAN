@@ -41,7 +41,7 @@ export function setAutonomousMode(enabled: boolean): void {
 }
 
 // ─── Types ────────────────────────────────────────────────────────
-export type StallType = 'silence' | 'tool_loop' | 'empty_response' | 'max_rounds' | 'tool_call_failure';
+export type StallType = 'silence' | 'tool_loop' | 'empty_response' | 'max_rounds' | 'tool_call_failure' | 'analysis_only';
 
 export interface StallEvent {
     type: StallType;
@@ -151,6 +151,8 @@ export function resetToolCallFailures(sessionId: string): void {
 /** Call this every time a tool is invoked */
 export function recordToolCall(sessionId: string, name: string, args: Record<string, unknown>): StallEvent | null {
     const state = getOrCreate(sessionId);
+    if (!state.toolNames) state.toolNames = [];
+    state.toolNames.push(name);
     const argsHash = hashArgs(args);
 
     // Reset tool call failure counter — model successfully called a tool
@@ -184,6 +186,24 @@ export function recordToolCall(sessionId: string, name: string, args: Record<str
 /** Call this when the LLM returns a response to check for empty/repetitive content */
 export function checkResponse(sessionId: string, content: string, round: number, maxRounds: number): StallEvent | null {
     heartbeat(sessionId);
+
+    // Detect analysis-only pattern: model read files but responds with analysis instead of making changes
+    const state = getOrCreate(sessionId);
+    if (content && content.length > 500 && round > 0) {
+        const hasReadTools = state.toolNames?.some((t: string) => t === 'read_file' || t === 'shell');
+        const hasWriteTools = state.toolNames?.some((t: string) => t === 'write_file' || t === 'edit_file');
+        const looksLikeAnalysis = /\b(implementation|architecture|pattern|approach|improvement|summary|breakdown|here is|let me explain|the code)\b/i.test(content);
+        if (hasReadTools && !hasWriteTools && looksLikeAnalysis) {
+            state.stallCount++;
+            return {
+                type: 'analysis_only',
+                sessionId,
+                detectedAt: new Date().toISOString(),
+                detail: 'Model analyzed code but did not write changes — nudging to use write_file',
+                nudgeCount: state.nudgeCount,
+            };
+        }
+    }
 
     if (!content || content.trim().length < 3) {
         const state = getOrCreate(sessionId);
@@ -241,6 +261,10 @@ export function getNudgeMessage(event: StallEvent): string {
         tool_call_failure: [
             '[Self-Heal] Current model cannot generate tool calls. Switching to a fallback model that supports tool calling.',
             '[Self-Heal] Tool calling still failing after model switch. Returning an honest status to the user.',
+        ],
+        analysis_only: [
+            'STOP analyzing code and START making changes. You read the files — now use write_file to implement the changes. Do NOT describe what to change, MAKE the change by calling write_file NOW.',
+            'You are in CODING mode. Reading files is step 1. You MUST now call write_file to save your code changes. Do not respond with text — respond with a write_file tool call.',
         ],
     };
 
