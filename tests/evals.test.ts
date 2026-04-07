@@ -28,6 +28,7 @@ const TEST_EVALS_DIR = join(tmpdir(), `titan-evals-test-${Date.now()}`);
 const TEST_RESULTS_DIR = join(TEST_EVALS_DIR, 'results');
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: join(tmpdir(), `titan-evals-test-${Date.now()}`),
 }));
 

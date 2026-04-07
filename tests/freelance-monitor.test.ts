@@ -18,6 +18,7 @@ vi.mock('../src/skills/registry.js', () => ({
 vi.mock('../src/utils/constants.js', () => ({
     FREELANCE_LEADS_PATH: '/tmp/titan-test-freelance-leads.jsonl',
     FREELANCE_PROFILE_PATH: '/tmp/titan-test-freelance-profile.json',
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test',
 }));
 

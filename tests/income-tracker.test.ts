@@ -21,6 +21,7 @@ const GOALS_PATH = '/tmp/titan-test-income-ledger-goals.json';
 
 vi.mock('../src/utils/constants.js', () => ({
     INCOME_LEDGER_PATH: '/tmp/titan-test-income-ledger.jsonl',
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test',
 }));
 

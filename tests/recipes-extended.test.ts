@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-recipes',
 }));
 

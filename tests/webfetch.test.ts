@@ -9,6 +9,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-webfetch',
     TITAN_VERSION: '2026.4.33',
 }));
@@ -28,7 +29,8 @@ describe('Web Fetch Skill', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-webfetch',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-webfetch',
             TITAN_VERSION: '2026.4.33',
         }));
         vi.doMock('../src/config/config.js', () => ({

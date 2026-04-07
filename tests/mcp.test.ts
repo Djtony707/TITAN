@@ -33,6 +33,7 @@ vi.mock('../src/utils/logger.js', () => ({
 
 // Mock constants
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-mcp',
     TITAN_VERSION: '2026.5.0',
 }));

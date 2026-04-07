@@ -22,6 +22,7 @@ vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test',
 }));
 vi.mock('../src/agent/daemon.js', () => {
@@ -57,7 +58,8 @@ describe('Goals', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test',
         }));
         vi.doMock('uuid', () => ({ v4: () => 'test-uuid-1234' }));
 

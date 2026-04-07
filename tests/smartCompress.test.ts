@@ -9,6 +9,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-smartcompress',
     TITAN_VERSION: '2026.10.48',
 }));

@@ -17,6 +17,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-briefing',
 }));
 
@@ -136,7 +137,8 @@ describe('Daily Briefing', () => {
                 default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
             }));
             vi.doMock('../src/utils/constants.js', () => ({
-                TITAN_HOME: '/tmp/titan-test-briefing-2',
+                TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-briefing-2',
             }));
             vi.doMock('fs', async (importOriginal) => {
                 const actual = await importOriginal<typeof import('fs')>();
@@ -202,7 +204,8 @@ describe('Daily Briefing — no name', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-briefing-3',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-briefing-3',
         }));
         vi.doMock('fs', async (importOriginal) => {
             const actual = await importOriginal<typeof import('fs')>();

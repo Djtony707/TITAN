@@ -22,7 +22,8 @@ vi.mock('../src/skills/registry.js', () => ({
 vi.mock('../src/utils/constants.js', () => {
     const testDir = join(tmpdir(), `titan-kb-test-${process.pid}`);
     return {
-        TITAN_HOME: testDir,
+        TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: testDir,
         TITAN_VERSION: '0.0.0-test',
         TITAN_NAME: 'TITAN',
         TITAN_FULL_NAME: 'Test',

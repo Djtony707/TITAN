@@ -19,6 +19,7 @@ vi.mock('../src/skills/registry.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test',
 }));
 

@@ -13,6 +13,7 @@ const { testHome } = vi.hoisted(() => {
 });
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: testHome,
     TITAN_VERSION: '2026.9.4',
     TITAN_NAME: 'TITAN',

@@ -13,6 +13,7 @@ const { testHome } = vi.hoisted(() => {
     return { testHome: join(tmpdir(), `titan-test-${Date.now()}`) };
 });
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: testHome,
     TITAN_VERSION: '2026.9.1',
     TITAN_NAME: 'TITAN',

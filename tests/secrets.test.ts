@@ -28,6 +28,7 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/mock/.titan',
 }));
 

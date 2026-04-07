@@ -30,6 +30,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-mesh',
     TITAN_VERSION: '2026.4.33',
 }));
@@ -79,7 +80,8 @@ describe('Mesh Identity', () => {
             };
         });
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-mesh',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-mesh',
             TITAN_VERSION: '2026.4.33',
         }));
         identity = await import('../src/mesh/identity.js');

@@ -32,7 +32,8 @@ vi.mock('../src/utils/constants.js', async (importOriginal) => {
     const actual = await importOriginal() as Record<string, unknown>;
     return {
         ...actual,
-        TITAN_HOME: '/tmp/titan-test-config',
+        TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-config',
         TITAN_CONFIG_PATH: '/tmp/titan-test-config/titan.json',
     };
 });

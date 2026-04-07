@@ -33,7 +33,8 @@ vi.mock('../src/utils/constants.js', async () => {
     const { tmpdir } = await import('os');
     const { join } = await import('path');
     return {
-        TITAN_HOME: join(tmpdir(), 'titan-test-evttrig'),
+        TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: join(tmpdir(), 'titan-test-evttrig'),
     };
 });
 

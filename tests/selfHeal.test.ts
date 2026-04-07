@@ -52,6 +52,7 @@ vi.mock('../src/utils/constants.js', () => ({
     TITAN_CONFIG_PATH: '/tmp/titan-test-heal/titan.json',
     TITAN_LOGS_DIR: '/tmp/titan-test-heal/logs',
     TITAN_SKILLS_DIR: '/tmp/titan-test-heal/workspace/skills',
+    TITAN_MD_FILENAME: 'TITAN.md',
     AGENTS_MD: '/tmp/titan-test-heal/workspace/AGENTS.md',
     SOUL_MD: '/tmp/titan-test-heal/workspace/SOUL.md',
     TOOLS_MD: '/tmp/titan-test-heal/workspace/TOOLS.md',

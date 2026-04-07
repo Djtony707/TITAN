@@ -36,6 +36,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-recipes',
 }));
 
@@ -62,7 +63,8 @@ describe('Recipe Runner', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-recipes',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-recipes',
         }));
         const runner = await import('../src/recipes/runner.js');
         parseSlashCommand = runner.parseSlashCommand;
@@ -134,7 +136,8 @@ describe('Recipe Store', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-recipes',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-recipes',
         }));
         store = await import('../src/recipes/store.js');
     });

@@ -32,6 +32,7 @@ vi.mock('../src/security/encryption.js', () => ({
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_HOME: '/tmp/titan-test-memory',
     TITAN_DB_PATH: '/tmp/titan-test-memory/titan.db',
     TITAN_CONFIG_PATH: '/tmp/titan-test-memory/titan.json',
@@ -88,7 +89,8 @@ describe('Memory Module', () => {
             decrypt: vi.fn().mockReturnValue('decrypted text'),
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-memory',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-memory',
             TITAN_DB_PATH: '/tmp/titan-test-memory/titan.db',
             TITAN_CONFIG_PATH: '/tmp/titan-test-memory/titan.json',
             TITAN_WORKSPACE: '/tmp/titan-test-memory/workspace',
@@ -263,7 +265,8 @@ describe('Learning Engine', () => {
             ensureDir: vi.fn(),
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-learning',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-learning',
         }));
         learning = await import('../src/memory/learning.js');
         learning.initLearning();
@@ -408,7 +411,8 @@ describe('Relationship Memory', () => {
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         }));
         vi.doMock('../src/utils/constants.js', () => ({
-            TITAN_HOME: '/tmp/titan-test-rel',
+            TITAN_MD_FILENAME: 'TITAN.md',
+    TITAN_HOME: '/tmp/titan-test-rel',
         }));
         relationship = await import('../src/memory/relationship.js');
     });

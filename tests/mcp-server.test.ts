@@ -49,6 +49,7 @@ vi.mock('../src/skills/registry.js', () => ({
 
 vi.mock('../src/utils/constants.js', () => ({
     TITAN_VERSION: '2026.9.0',
+    TITAN_MD_FILENAME: 'TITAN.md',
     TITAN_NAME: 'TITAN',
 }));
 

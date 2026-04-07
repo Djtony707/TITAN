@@ -56,6 +56,7 @@ vi.mock('../src/utils/constants.js', () => ({
     TITAN_LOGS_DIR: '/tmp/titan-test-doctor/logs',
     TITAN_SKILLS_DIR: '/tmp/titan-test-doctor/workspace/skills',
     TITAN_VERSION: '2026.5.4',
+    TITAN_MD_FILENAME: 'TITAN.md',
     AGENTS_MD: '/tmp/titan-test-doctor/workspace/AGENTS.md',
     SOUL_MD: '/tmp/titan-test-doctor/workspace/SOUL.md',
     TOOLS_MD: '/tmp/titan-test-doctor/workspace/TOOLS.md',
