@@ -15,6 +15,8 @@ export interface ContextEnginePlugin {
     assemble?(context: ChatMessage[], userMessage: string): Promise<ChatMessage[]>;
     compact?(context: ChatMessage[], maxTokens: number): Promise<ChatMessage[]>;
     afterTurn?(turnResult: { content: string; toolsUsed: string[] }): Promise<void>;
+    preTool?(toolName: string, args: Record<string, unknown>): Promise<{ allow: boolean; reason?: string; modifiedArgs?: Record<string, unknown> }>;
+    postTool?(toolName: string, args: Record<string, unknown>, result: { content: string; success: boolean; durationMs: number }): Promise<{ modifiedContent?: string }>;
 }
 
 /** Run assemble hooks across all plugins in order */
@@ -86,4 +88,54 @@ export async function runIngest(
             }
         }
     }
+}
+
+
+/** Run preTool hooks — any plugin can block execution */
+export async function runPreTool(
+    plugins: ContextEnginePlugin[],
+    toolName: string,
+    args: Record<string, unknown>,
+): Promise<{ allow: boolean; reason?: string; modifiedArgs?: Record<string, unknown> }> {
+    let currentArgs = args;
+    for (const plugin of plugins) {
+        if (plugin.preTool) {
+            try {
+                const result = await plugin.preTool(toolName, currentArgs);
+                if (!result.allow) {
+                    logger.info(COMPONENT, `Plugin "${plugin.name}" blocked tool "${toolName}": ${result.reason || 'no reason'}`);
+                    return result;
+                }
+                if (result.modifiedArgs) currentArgs = result.modifiedArgs;
+            } catch (e) {
+                logger.warn(COMPONENT, `Plugin "${plugin.name}" preTool failed: ${(e as Error).message}`);
+            }
+        }
+    }
+    return { allow: true, modifiedArgs: currentArgs !== args ? currentArgs : undefined };
+}
+
+/** Run postTool hooks — plugins can modify the result */
+export async function runPostTool(
+    plugins: ContextEnginePlugin[],
+    toolName: string,
+    args: Record<string, unknown>,
+    result: { content: string; success: boolean; durationMs: number },
+): Promise<{ modifiedContent?: string }> {
+    let content = result.content;
+    let modified = false;
+    for (const plugin of plugins) {
+        if (plugin.postTool) {
+            try {
+                const hookResult = await plugin.postTool(toolName, args, { ...result, content });
+                if (hookResult.modifiedContent !== undefined) {
+                    content = hookResult.modifiedContent;
+                    modified = true;
+                }
+            } catch (e) {
+                logger.warn(COMPONENT, `Plugin "${plugin.name}" postTool failed: ${(e as Error).message}`);
+            }
+        }
+    }
+    return modified ? { modifiedContent: content } : {};
 }

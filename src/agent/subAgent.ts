@@ -14,6 +14,7 @@ import { executeTools, getToolDefinitions } from './toolRunner.js';
 import { loadConfig } from '../config/config.js';
 import type { ChatMessage, ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
+import { resolveToolsFromCategories, type ToolCategory } from './toolCategories.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -25,6 +26,10 @@ export interface SubAgentConfig {
     task: string;
     /** Whitelist of tool names this sub-agent can use. Empty = all tools */
     tools?: string[];
+    /** Tool categories — resolved to tool names at runtime */
+    toolCategories?: ToolCategory[];
+    /** Create a git worktree for filesystem isolation */
+    useWorktree?: boolean;
     /** Model override (defaults to fast alias) */
     model?: string;
     /** Model tier — resolved via modelAliases (cloud/smart/fast/local) */

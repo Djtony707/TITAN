@@ -522,7 +522,8 @@ export const TitanConfigSchema = z.object({
         /** Default model for sub-agents */
         defaultModel: z.string().default('fast'),
         /** Auto-delegate complex tasks to sub-agents */
-        autoDelegate: z.boolean().default(true),
+        enableWorktrees: z.boolean().default(false).describe('Create git worktrees for coder sub-agents'),
+    autoDelegate: z.boolean().default(true),
         /** Maximum nesting depth for sub-agents (1 = no sub-sub-agents, 2 = one level of nesting) */
         maxDepth: z.number().default(2),
     }).default({}),

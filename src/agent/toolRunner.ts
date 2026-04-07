@@ -4,6 +4,14 @@
  */
 import type { ToolCall, ToolDefinition } from '../providers/base.js';
 import { executeToolsParallel } from './parallelTools.js';
+import { runPreTool, runPostTool } from '../plugins/contextEngine.js';
+import type { ContextEnginePlugin } from '../plugins/contextEngine.js';
+
+/** Tool hook plugins — set during agent initialization */
+let toolHookPlugins: ContextEnginePlugin[] = [];
+export function setToolHookPlugins(plugins: ContextEnginePlugin[]): void {
+    toolHookPlugins = plugins;
+}
 import logger from '../utils/logger.js';
 import { loadConfig } from '../config/config.js';
 import { checkAutonomy } from './autonomy.js';
@@ -151,6 +159,21 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
 
     logger.info(COMPONENT, `Executing tool: ${handler.name}`);
 
+    // Pre-tool hooks — plugins can block or modify args
+    if (toolHookPlugins.length > 0) {
+        const hookResult = await runPreTool(toolHookPlugins, handler.name, args);
+        if (!hookResult.allow) {
+            return {
+                toolCallId: toolCall.id,
+                name: handler.name,
+                content: 'Blocked by hook: ' + (hookResult.reason || 'Plugin denied execution'),
+                success: false,
+                durationMs: Date.now() - startTime,
+            };
+        }
+        if (hookResult.modifiedArgs) args = hookResult.modifiedArgs;
+    }
+
     // Autonomy gate: check if the tool is permitted under current mode
     const autonomyResult = await checkAutonomy(handler.name, args, channel);
     if (!autonomyResult.allowed) {
@@ -195,10 +218,18 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.info(COMPONENT, `Tool ${handler.name} completed in ${durationMs}ms`);
             }
 
+            let finalContent = result.length > 50000 ? result.slice(0, 50000) + '\n\n[Output truncated at 50KB]' : result;
+
+            // Post-tool hooks — plugins can modify result
+            if (toolHookPlugins.length > 0) {
+                const hookResult = await runPostTool(toolHookPlugins, handler.name, args, { content: finalContent, success: true, durationMs });
+                if (hookResult.modifiedContent !== undefined) finalContent = hookResult.modifiedContent;
+            }
+
             return {
                 toolCallId: toolCall.id,
                 name: handler.name,
-                content: result.length > 50000 ? result.slice(0, 50000) + '\n\n[Output truncated at 50KB]' : result,
+                content: finalContent,
                 success: true,
                 durationMs,
                 retryCount: attempt,

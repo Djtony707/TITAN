@@ -32,7 +32,7 @@ import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop } from './agentLoop.js';
 import logger from '../utils/logger.js';
-import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD } from '../utils/constants.js';
+import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
 
 const COMPONENT = 'Agent';
 const MAX_TOOL_ROUNDS = 10;
@@ -277,11 +277,16 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const soulMd = getCachedPromptFile(SOUL_MD);
     const toolsMd = getCachedPromptFile(TOOLS_MD);
 
+    // Project-level instructions (like CLAUDE.md) — loaded from cwd
+    const titanMdPath = process.cwd() + '/' + TITAN_MD_FILENAME;
+    const titanMd = readPromptFile(titanMdPath);  // Always read fresh, not cached
+
     // Active persona content (from assets/personas/)
     const { getActivePersonaContent } = await import('../personas/manager.js');
     const personaContent = getActivePersonaContent(config.agent.persona || 'default');
 
     const workspaceContext = [
+        titanMd ? `\n## Project Instructions (TITAN.md)\n${titanMd}` : '',
         agentsMd ? `\n## Agent Instructions (AGENTS.md)\n${agentsMd}` : '',
         soulMd ? `\n## Personality (SOUL.md)\n${soulMd}` : '',
         personaContent ? `\n## Active Persona\n${personaContent}` : '',
