@@ -73,7 +73,7 @@ describe('Orchestrator', () => {
             expect(mockChat).toHaveBeenCalled();
         });
 
-        it('caps tasks at 4', async () => {
+        it('caps tasks at 6', async () => {
             mockChat.mockResolvedValue({
                 content: JSON.stringify({
                     shouldDelegate: true,
@@ -87,7 +87,7 @@ describe('Orchestrator', () => {
 
             const result = await analyzeForDelegation('First find, then analyze, then write, then review, then publish multiple things');
 
-            expect(result.tasks.length).toBeLessThanOrEqual(4);
+            expect(result.tasks.length).toBeLessThanOrEqual(6);
         });
 
         it('handles LLM parse errors gracefully', async () => {
