@@ -253,89 +253,39 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
   // Empty state — centered prompt with TITAN branding
   const emptyState = (
     <div className="flex flex-col items-center justify-center w-full max-w-lg mx-auto">
-      {/* Logo with ambient glow */}
-      <div className="mb-6 md:mb-8 relative">
-        <div className="absolute -inset-6 md:-inset-8 rounded-full bg-gradient-to-br from-accent/15 via-purple/10 to-[#06b6d4]/15 blur-2xl animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute -inset-2 md:-inset-3 rounded-full bg-accent/5 blur-md" />
-        <img
-          src="/titan-logo.png"
-          alt="TITAN"
-          className="relative w-16 h-16 md:w-20 md:h-20 rounded-2xl ring-1 ring-white/10 shadow-2xl shadow-black/50"
-        />
+      {/* Clean minimal greeting */}
+      <div className="mb-4">
+        <img src="/titan-logo.png" alt="TITAN" className="w-10 h-10 rounded-xl ring-1 ring-white/10 mx-auto mb-3" />
       </div>
-
-      {/* Title */}
-      <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent mb-2 md:mb-3">
-        TITAN
-      </h2>
-
-      {/* Stats bar — responsive: 2 columns on mobile, row on desktop */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-6 md:mb-8 md:flex md:gap-4">
-        {[
-          { value: '209', label: 'Tools' },
-          { value: '36', label: 'Providers' },
-          { value: '15', label: 'Channels' },
-          { value: '117', label: 'Skills' },
-        ].map(({ value, label }) => (
-          <div key={label} className="flex items-baseline gap-1 md:inline-flex">
-            <span className="text-sm font-semibold text-white/80">{value}</span>
-            <span className="text-[11px] text-white/30">{label}</span>
-          </div>
-        ))}
-      </div>
+      <h2 className="text-lg font-semibold text-text mb-1">How can I help?</h2>
+      <p className="text-xs text-text-muted mb-6">209 tools · 36 providers · gemma4:31b</p>
 
       {/* Quick action grid */}
       <QuickActions onSelectAction={handleSend} onVoiceOpen={onVoiceOpen} visible={true} />
 
-      {/* Subtle tagline — hidden on very small screens */}
-      <p className="mt-4 md:mt-6 text-[10px] md:text-[11px] text-white/20 max-w-sm text-center hidden sm:block">
-        Autonomous AI agent with Command Post governance, self-improvement, mesh networking, and voice cloning
-      </p>
+
     </div>
   );
 
   return (
     <div className="flex h-full overflow-hidden bg-bg">
-      {/* Session drawer overlay */}
-      {(sidebarOpen || mobileSidebarOpen) && (
-        <div className="fixed inset-0 z-50">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm md:bg-black/50"
-            onClick={() => { setSidebarOpen(false); setMobileSidebarOpen(false); }}
-          />
-          <div className="relative w-[280px] md:w-72 h-full z-50 animate-slide-in">{sidebarContent}</div>
-        </div>
-      )}
+
 
       {/* Main content — split view when watcher is open */}
       <div className="flex-1 flex min-w-0 flex-col md:flex-row">
         {/* Chat area */}
         <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : '60%') : '100%', transition: 'width 300ms ease' }}>
-        {/* Top bar — minimal */}
-        <div className="flex items-center gap-2 px-3 py-2 shrink-0">
-          <button
-            onClick={() => setSidebarOpen((prev) => !prev)}
-            className="p-2 text-text-muted hover:text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors"
-            aria-label="Toggle sessions"
-          >
-            {sidebarOpen ? (
-              <PanelLeftClose className="w-5 h-5" />
-            ) : (
-              <PanelLeft className="w-5 h-5" />
-            )}
-          </button>
+        {/* Top bar */}
+        <div className="flex items-center gap-2 px-4 py-2 shrink-0 border-b border-border/50">
+          <span className="text-sm font-medium text-text-secondary">Chat</span>
           <div className="flex-1" />
           <button
             onClick={() => setWatcherOpen((prev) => !prev)}
-            className="p-2 text-text-muted hover:text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors"
-            aria-label="Toggle agent watcher"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-muted hover:text-text rounded-lg hover:bg-bg-secondary transition-colors"
             title={watcherOpen ? 'Hide Agent Watcher' : 'Show Agent Watcher'}
           >
-            {watcherOpen ? (
-              <EyeOff className="w-5 h-5" />
-            ) : (
-              <Eye className="w-5 h-5" />
-            )}
+            {watcherOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            <span className="hidden sm:inline">{watcherOpen ? 'Hide' : 'Watcher'}</span>
           </button>
         </div>
 
