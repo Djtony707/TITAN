@@ -19,6 +19,7 @@ import { getAdapter } from './adapters/index.js';
 import { addIssueComment, updateIssue, startRun, endRun } from './commandPost.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
+import { emitAgentEvent } from './agentEvents.js';
 
 const COMPONENT = 'AgentWakeup';
 
@@ -325,6 +326,17 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
                 systemPrompt: template.systemPrompt,
                 model,
                 depth: 0,
+                streamCallbacks: {
+                    onToolCall: (name, args) => {
+                        emitAgentEvent({ type: 'tool_call', agentName: req.agentName, agentId, timestamp: Date.now(), data: { name, args } });
+                    },
+                    onToolResult: (name, r, durationMs, success) => {
+                        emitAgentEvent({ type: 'tool_end', agentName: req.agentName, agentId, timestamp: Date.now(), data: { name, result: r.slice(0, 500), durationMs, success } });
+                    },
+                    onRound: (round, maxRounds) => {
+                        emitAgentEvent({ type: 'round', agentName: req.agentName, agentId, timestamp: Date.now(), data: { round, maxRounds } });
+                    },
+                },
             });
         }
 

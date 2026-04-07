@@ -17,6 +17,7 @@ import { loadConfig, updateConfig } from '../config/config.js';
 import type { ProviderConfig } from '../config/schema.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
 import { processMessage } from '../agent/agent.js';
+import { onAgentEvent } from '../agent/agentEvents.js';
 import { initMemory, closeMemory, getUsageStats, getHistory, getDb } from '../memory/memory.js';
 import { initBuiltinSkills, getSkills, toggleSkill, getSkillTools } from '../skills/registry.js';
 import { listPersonas, getPersona, invalidatePersonaCache } from '../personas/manager.js';
@@ -352,6 +353,12 @@ function broadcast(data: Record<string, unknown>, userId?: string): void {
     }
   }
 }
+
+// Sub-agent event bridge: forward agent bus events to SSE broadcast
+onAgentEvent((event) => {
+    const sseType = event.type === 'tool_call' ? 'tool_call' : event.type === 'tool_end' ? 'tool_end' : event.type;
+    broadcast({ type: sseType, ...event.data, agentName: event.agentName, agentId: event.agentId, isSubAgent: true, timestamp: event.timestamp });
+});
 
 /** Safely send a response through a channel adapter */
 async function safeSend(channelName: string, msg: { channel: string; userId: string; groupId?: string; content: string; replyTo?: string }): Promise<void> {

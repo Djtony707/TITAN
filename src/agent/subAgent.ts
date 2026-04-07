@@ -44,6 +44,13 @@ export interface SubAgentConfig {
     depth?: number;
     /** Progress callback: called each round with progress info */
     onProgress?: (round: number, totalRounds: number, agentName: string) => void;
+    /** Stream callbacks for Agent Watcher — tool_call, tool_end, round events */
+    streamCallbacks?: {
+        onToolCall?: (name: string, args: Record<string, unknown>) => void;
+        onToolResult?: (name: string, result: string, durationMs: number, success: boolean) => void;
+        onThinking?: () => void;
+        onRound?: (round: number, maxRounds: number) => void;
+    };
 }
 
 export interface SubAgentResult {
@@ -433,7 +440,15 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 toolCalls: response.toolCalls,
             });
 
+            // Emit tool_call events for Agent Watcher
+            if (config.streamCallbacks?.onToolCall) {
+                for (const tc of toolCalls) { config.streamCallbacks.onToolCall(tc.function.name, JSON.parse(tc.function.arguments || "{}")); }
+            }
             const toolResults = await executeTools(response.toolCalls);
+            // Emit tool_end events for Agent Watcher
+            if (config.streamCallbacks?.onToolResult) {
+                for (const tr of toolResults) { config.streamCallbacks.onToolResult(tr.name, tr.content, tr.durationMs || 0, tr.success !== false); }
+            }
 
             for (const result of toolResults) {
                 toolsUsed.push(result.name);

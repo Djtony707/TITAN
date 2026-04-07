@@ -4,297 +4,315 @@ import type { AgentEvent } from '@/api/types';
 type AgentState = 'idle' | 'thinking' | 'typing' | 'searching' | 'reading' | 'executing' | 'error' | 'done';
 
 const STATE_COLORS: Record<AgentState, string> = {
-  idle: '#6366f1',
-  thinking: '#f59e0b',
-  typing: '#22d3ee',
-  searching: '#a78bfa',
-  reading: '#34d399',
-  executing: '#22d3ee',
-  error: '#ef4444',
-  done: '#22c55e',
+  idle: '#6366f1', thinking: '#f59e0b', typing: '#22d3ee', searching: '#a78bfa',
+  reading: '#34d399', executing: '#22d3ee', error: '#ef4444', done: '#22c55e',
 };
 
-const STATE_LABELS: Record<AgentState, string> = {
-  idle: 'Ready, Sir.',
-  thinking: 'Analyzing...',
-  typing: 'Writing...',
-  searching: 'Searching...',
-  reading: 'Reading...',
-  executing: 'Executing...',
-  error: 'Error occurred',
-  done: 'Task complete!',
-};
+const AGENT_BODY_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#a78bfa', '#34d399', '#ec4899', '#f97316', '#14b8a6'];
 
 function toolToState(toolName?: string): AgentState {
   if (!toolName) return 'thinking';
-  const name = toolName.toLowerCase();
-  if (name.includes('search') || name.includes('browse') || name.includes('web')) return 'searching';
-  if (name.includes('write') || name.includes('edit') || name.includes('shell')) return 'typing';
-  if (name.includes('read') || name.includes('list')) return 'reading';
-  if (name.includes('code_exec') || name.includes('exec')) return 'executing';
-  if (name.includes('memory') || name.includes('graph')) return 'thinking';
-  return 'typing';
+  const n = toolName.toLowerCase();
+  if (n.includes('search') || n.includes('browse') || n.includes('web')) return 'searching';
+  if (n.includes('write') || n.includes('edit') || n.includes('shell')) return 'typing';
+  if (n.includes('read') || n.includes('list')) return 'reading';
+  if (n.includes('code_exec') || n.includes('exec')) return 'executing';
+  return 'thinking';
 }
+
+interface PixelAgent {
+  name: string;
+  state: AgentState;
+  status: string;
+  bodyColor: string;
+  lastSeen: number;
+  // Position & movement
+  x: number; y: number;
+  targetX: number; targetY: number;
+  deskX: number; deskY: number;
+  walkFrame: number;
+  facingRight: boolean;
+  atDesk: boolean;
+}
+
+// Office furniture positions (relative to canvas)
+const STATIONS = {
+  waterCooler: { x: 0.08, y: 0.55 },
+  whiteboard: { x: 0.5, y: 0.25 },
+  printer: { x: 0.92, y: 0.55 },
+  coffee: { x: 0.15, y: 0.35 },
+  server: { x: 0.85, y: 0.35 },
+};
 
 export function PixelOffice({ events }: { events: AgentEvent[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [agentState, setAgentState] = useState<AgentState>('idle');
-  const [statusText, setStatusText] = useState('Ready, Sir.');
-  const [currentTool, setCurrentTool] = useState('');
+  const agentsRef = useRef<Map<string, PixelAgent>>(new Map());
   const frameRef = useRef(0);
-  const stateRef = useRef<AgentState>('idle');
-  const toolRef = useRef('');
-  const statusRef = useRef('Ready, Sir.');
+  const [agentList, setAgentList] = useState<PixelAgent[]>([]);
+  const sizeRef = useRef({ w: 400, h: 280 });
 
-  // Update state from events
   useEffect(() => {
     const latest = events[events.length - 1];
     if (!latest) return;
+    const agents = agentsRef.current;
+    const agentName = latest.agentName || 'TITAN';
+    const w = sizeRef.current.w;
+    const h = sizeRef.current.h;
 
-    let newState: AgentState = 'idle';
-    let newStatus = STATE_LABELS.idle;
-    let newTool = '';
+    let agent = agents.get(agentName);
+    if (!agent) {
+      const idx = agents.size;
+      const deskSpacing = Math.min(w / (agents.size + 2), 140);
+      const deskX = (w / 2) - ((agents.size) * deskSpacing / 2) + idx * deskSpacing;
+      const deskY = h * 0.55;
+      agent = {
+        name: agentName, state: 'idle', status: 'Ready',
+        bodyColor: AGENT_BODY_COLORS[idx % AGENT_BODY_COLORS.length],
+        lastSeen: Date.now(),
+        x: deskX, y: deskY, targetX: deskX, targetY: deskY,
+        deskX, deskY, walkFrame: 0, facingRight: true, atDesk: true,
+      };
+      agents.set(agentName, agent);
+    }
+    agent.lastSeen = Date.now();
 
+    const prevState = agent.state;
     if (latest.type === 'tool_start') {
-      newState = toolToState(latest.toolName);
-      newTool = latest.toolName || '';
-      newStatus = `${newTool}...`;
+      agent.state = toolToState(latest.toolName);
+      agent.status = `${latest.toolName}...`;
+      // Walk to a station based on tool type
+      if (agent.state === 'searching') {
+        agent.targetX = w * STATIONS.whiteboard.x; agent.targetY = h * STATIONS.whiteboard.y; agent.atDesk = false;
+      } else if (agent.state === 'reading') {
+        agent.targetX = w * STATIONS.server.x; agent.targetY = h * STATIONS.server.y; agent.atDesk = false;
+      } else {
+        agent.targetX = agent.deskX; agent.targetY = agent.deskY; agent.atDesk = true;
+      }
     } else if (latest.type === 'tool_end') {
-      newState = latest.status === 'error' ? 'error' : 'done';
-      newTool = latest.toolName || '';
-      newStatus = latest.status === 'error' ? `${newTool} failed` : `${newTool} done (${latest.durationMs}ms)`;
+      agent.state = latest.status === 'error' ? 'error' : 'done';
+      agent.status = latest.status === 'error' ? `${latest.toolName} failed` : `${latest.toolName} done`;
+      // Walk back to desk
+      agent.targetX = agent.deskX; agent.targetY = agent.deskY; agent.atDesk = true;
     } else if (latest.type === 'thinking') {
-      newState = 'thinking';
-      newStatus = 'Thinking...';
+      agent.state = 'thinking';
+      agent.status = 'Thinking...';
+      // Wander to coffee or whiteboard
+      if (prevState !== 'thinking') {
+        const spot = Math.random() > 0.5 ? STATIONS.coffee : STATIONS.whiteboard;
+        agent.targetX = w * spot.x + (Math.random() - 0.5) * 30;
+        agent.targetY = h * spot.y + (Math.random() - 0.5) * 15;
+        agent.atDesk = false;
+      }
     } else if (latest.type === 'token') {
-      newState = 'typing';
-      newStatus = 'Responding...';
+      agent.state = 'typing'; agent.status = 'Responding...';
+      agent.targetX = agent.deskX; agent.targetY = agent.deskY; agent.atDesk = true;
     } else if (latest.type === 'done') {
-      newState = 'done';
-      newStatus = 'Task complete!';
+      agent.state = 'done'; agent.status = 'Complete!';
+      agent.targetX = agent.deskX; agent.targetY = agent.deskY; agent.atDesk = true;
     }
 
-    setAgentState(newState);
-    setStatusText(newStatus);
-    setCurrentTool(newTool);
-    stateRef.current = newState;
-    toolRef.current = newTool;
-    statusRef.current = newStatus;
+    for (const [, a] of agents) {
+      if (Date.now() - a.lastSeen > 60000) { a.state = 'idle'; a.status = 'Idle'; }
+    }
+    setAgentList([...agents.values()]);
   }, [events]);
 
-  // Canvas rendering loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
+    const w = canvas.clientWidth; const h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
+    sizeRef.current = { w, h };
 
     let animId: number;
 
-    const draw = () => {
-      frameRef.current++;
-      const t = frameRef.current / 15; // 15fps feel
-      const state = stateRef.current;
-      const color = STATE_COLORS[state];
+    const drawFurniture = (t: number) => {
+      // Floor
+      ctx.strokeStyle = '#141418'; ctx.lineWidth = 0.5;
+      for (let i = 0; i < w; i += 24) { ctx.beginPath(); ctx.moveTo(i, h * 0.7); ctx.lineTo(i, h); ctx.stroke(); }
+      for (let j = h * 0.7; j < h; j += 24) { ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(w, j); ctx.stroke(); }
 
-      // Clear
-      ctx.fillStyle = '#09090b';
-      ctx.fillRect(0, 0, w, h);
+      // Whiteboard
+      const wb = STATIONS.whiteboard;
+      ctx.fillStyle = '#27272a'; ctx.fillRect(w * wb.x - 40, h * wb.y - 30, 80, 50);
+      ctx.fillStyle = '#fafafa'; ctx.fillRect(w * wb.x - 36, h * wb.y - 26, 72, 42);
+      ctx.fillStyle = '#6366f140';
+      for (let i = 0; i < 4; i++) ctx.fillRect(w * wb.x - 30 + Math.sin(t * 0.5 + i) * 5, h * wb.y - 20 + i * 10, 20 + Math.sin(i) * 15, 2);
 
-      const cx = w / 2;
-      const cy = h * 0.55;
+      // Water cooler
+      const wc = STATIONS.waterCooler;
+      ctx.fillStyle = '#3f3f46'; ctx.fillRect(w * wc.x - 8, h * wc.y - 15, 16, 30);
+      ctx.fillStyle = '#60a5fa40'; ctx.fillRect(w * wc.x - 6, h * wc.y - 12, 12, 14);
 
-      // Floor grid (subtle)
-      ctx.strokeStyle = '#1a1a1e';
-      ctx.lineWidth = 0.5;
-      for (let i = 0; i < w; i += 20) {
-        ctx.beginPath();
-        ctx.moveTo(i, h * 0.7);
-        ctx.lineTo(i, h);
-        ctx.stroke();
+      // Coffee machine
+      const cf = STATIONS.coffee;
+      ctx.fillStyle = '#44403c'; ctx.fillRect(w * cf.x - 10, h * cf.y - 10, 20, 20);
+      ctx.fillStyle = '#78716c'; ctx.fillRect(w * cf.x - 8, h * cf.y - 8, 16, 12);
+      if (Math.sin(t * 2) > 0.5) { ctx.fillStyle = '#fbbf2440'; ctx.fillRect(w * cf.x - 4, h * cf.y - 16, 8, 6); }
+
+      // Server rack
+      const sr = STATIONS.server;
+      ctx.fillStyle = '#27272a'; ctx.fillRect(w * sr.x - 12, h * sr.y - 20, 24, 40);
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#22c55e40' : '#3b82f640';
+        ctx.fillRect(w * sr.x - 8, h * sr.y - 16 + i * 8, 3, 3);
+        if (Math.sin(t * 3 + i) > 0) { ctx.fillStyle = '#22c55e'; ctx.fillRect(w * sr.x + 4, h * sr.y - 16 + i * 8, 2, 2); }
       }
-      for (let j = h * 0.7; j < h; j += 20) {
-        ctx.beginPath();
-        ctx.moveTo(0, j);
-        ctx.lineTo(w, j);
-        ctx.stroke();
-      }
 
-      // Desk
-      const deskW = 100;
-      const deskH = 16;
-      const deskX = cx - deskW / 2;
-      const deskY = cy + 20;
-      ctx.fillStyle = '#3f3f46';
-      ctx.fillRect(deskX, deskY, deskW, deskH);
-      ctx.fillStyle = '#52525b';
-      ctx.fillRect(deskX + 2, deskY + 2, deskW - 4, deskH - 4);
+      // Printer
+      const pr = STATIONS.printer;
+      ctx.fillStyle = '#3f3f46'; ctx.fillRect(w * pr.x - 14, h * pr.y - 8, 28, 16);
+      ctx.fillStyle = '#52525b'; ctx.fillRect(w * pr.x - 12, h * pr.y - 6, 24, 8);
+    };
 
-      // Desk legs
-      ctx.fillStyle = '#3f3f46';
-      ctx.fillRect(deskX + 5, deskY + deskH, 4, 20);
-      ctx.fillRect(deskX + deskW - 9, deskY + deskH, 4, 20);
+    const drawPixelAgent = (agent: PixelAgent, t: number) => {
+      const { x, y, state, bodyColor, facingRight, walkFrame, atDesk } = agent;
+      const color = state === 'idle' ? bodyColor : STATE_COLORS[state];
+      const bob = atDesk ? Math.sin(t * 0.8) * 1 : 0;
+      const isWalking = Math.abs(agent.x - agent.targetX) > 2 || Math.abs(agent.y - agent.targetY) > 2;
+      const legAnim = isWalking ? Math.sin(walkFrame * 0.4) * 3 : 0;
 
-      // Monitor
-      const monW = 40;
-      const monH = 28;
-      const monX = cx - monW / 2;
-      const monY = deskY - monH;
-      ctx.fillStyle = '#27272a';
-      ctx.fillRect(monX, monY, monW, monH);
-      // Screen glow
-      const screenColor = state === 'error' ? '#ef4444' : state === 'searching' ? '#a78bfa' : state === 'typing' ? '#22d3ee' : '#6366f1';
-      ctx.fillStyle = screenColor + '40';
-      ctx.fillRect(monX + 2, monY + 2, monW - 4, monH - 6);
-      // Screen lines (typing effect)
-      if (state === 'typing' || state === 'executing') {
-        ctx.fillStyle = screenColor + '80';
-        const lineCount = 3 + Math.floor(t % 3);
-        for (let i = 0; i < lineCount; i++) {
-          const lw = 10 + Math.sin(t * 2 + i) * 8;
-          ctx.fillRect(monX + 4, monY + 4 + i * 5, lw, 2);
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(x, y + 16, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Desk (only if at desk)
+      if (atDesk) {
+        ctx.fillStyle = '#3f3f46'; ctx.fillRect(x - 22, y + 8, 44, 6);
+        ctx.fillStyle = '#52525b'; ctx.fillRect(x - 20, y + 9, 40, 4);
+        // Mini monitor
+        ctx.fillStyle = '#27272a'; ctx.fillRect(x - 8, y - 4, 16, 12);
+        const sc = state === 'error' ? '#ef4444' : color;
+        ctx.fillStyle = sc + '50'; ctx.fillRect(x - 6, y - 2, 12, 8);
+        if (state === 'typing') {
+          ctx.fillStyle = sc + '90';
+          for (let i = 0; i < 2; i++) ctx.fillRect(x - 4, y + i * 3, 4 + Math.sin(t * 3 + i) * 3, 1);
         }
       }
-      // Monitor stand
+
+      // Legs
       ctx.fillStyle = '#3f3f46';
-      ctx.fillRect(cx - 3, deskY - 2, 6, 4);
-
-      // Agent body (simple pixel robot)
-      const bodyX = cx;
-      const bodyY = cy - 5;
-      const bobY = Math.sin(t * 0.8) * 1.5; // Gentle breathing
-
-      // Chair
-      ctx.fillStyle = '#27272a';
-      ctx.fillRect(bodyX - 14, bodyY + 15 + bobY, 28, 12);
-      ctx.fillRect(bodyX - 16, bodyY + 0 + bobY, 4, 28);
+      if (isWalking) {
+        ctx.fillRect(x - 3 + (facingRight ? 0 : -1), y + 8 + bob + legAnim, 3, 6);
+        ctx.fillRect(x + (facingRight ? 1 : 0), y + 8 + bob - legAnim, 3, 6);
+      } else {
+        ctx.fillRect(x - 3, y + 8 + bob, 3, 6);
+        ctx.fillRect(x + 1, y + 8 + bob, 3, 6);
+      }
 
       // Body
-      ctx.fillStyle = '#3f3f46';
-      ctx.fillRect(bodyX - 10, bodyY + 2 + bobY, 20, 16);
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(x - 5, y - 2 + bob, 10, 10);
 
       // Head
-      const headBob = state === 'thinking' ? Math.sin(t * 1.5) * 2 : 0;
-      ctx.fillStyle = '#52525b';
-      ctx.fillRect(bodyX - 8, bodyY - 14 + bobY + headBob, 16, 14);
+      const headBob = state === 'thinking' ? Math.sin(t * 1.5) * 1.5 : 0;
+      ctx.fillStyle = '#d4d4d8';
+      ctx.fillRect(x - 4, y - 10 + bob + headBob, 8, 8);
 
       // Eyes
-      const blinkPhase = Math.sin(t * 0.3);
-      const eyeH = blinkPhase > 0.95 ? 1 : 3; // Occasional blink
+      const blink = Math.sin(t * 0.3) > 0.95 ? 0 : 2;
       ctx.fillStyle = color;
-      ctx.fillRect(bodyX - 5, bodyY - 10 + bobY + headBob, 3, eyeH);
-      ctx.fillRect(bodyX + 2, bodyY - 10 + bobY + headBob, 3, eyeH);
+      const eyeDir = facingRight ? 1 : -1;
+      ctx.fillRect(x - 2 + eyeDir, y - 7 + bob + headBob, 2, blink);
+      ctx.fillRect(x + 1 + eyeDir, y - 7 + bob + headBob, 2, blink);
 
-      // Antenna
-      ctx.fillStyle = '#52525b';
-      ctx.fillRect(bodyX - 1, bodyY - 18 + bobY + headBob, 2, 5);
-      // Antenna light
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(bodyX, bodyY - 19 + bobY + headBob, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-      // Antenna glow
-      if (state !== 'idle') {
-        ctx.globalAlpha = 0.3 + Math.sin(t * 3) * 0.2;
-        ctx.beginPath();
-        ctx.arc(bodyX, bodyY - 19 + bobY + headBob, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      // Hair / hat (color-coded)
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(x - 4, y - 11 + bob + headBob, 8, 2);
 
-      // Arms (typing animation)
-      if (state === 'typing' || state === 'executing') {
-        const armL = Math.sin(t * 6) * 3;
-        const armR = Math.sin(t * 6 + Math.PI) * 3;
-        ctx.fillStyle = '#3f3f46';
-        ctx.fillRect(bodyX - 16, bodyY + 6 + bobY + armL, 6, 4);
-        ctx.fillRect(bodyX + 10, bodyY + 6 + bobY + armR, 6, 4);
+      // Arms
+      ctx.fillStyle = bodyColor;
+      if (state === 'typing' && atDesk) {
+        ctx.fillRect(x - 8, y + 1 + bob + Math.sin(t * 5) * 1.5, 3, 3);
+        ctx.fillRect(x + 5, y + 1 + bob + Math.sin(t * 5 + Math.PI) * 1.5, 3, 3);
+      } else if (isWalking) {
+        ctx.fillRect(x - 7, y + bob + Math.sin(walkFrame * 0.4) * 2, 2, 5);
+        ctx.fillRect(x + 5, y + bob - Math.sin(walkFrame * 0.4) * 2, 2, 5);
       } else {
-        ctx.fillStyle = '#3f3f46';
-        ctx.fillRect(bodyX - 14, bodyY + 8 + bobY, 4, 8);
-        ctx.fillRect(bodyX + 10, bodyY + 8 + bobY, 4, 8);
+        ctx.fillRect(x - 7, y + 2 + bob, 2, 5);
+        ctx.fillRect(x + 5, y + 2 + bob, 2, 5);
       }
 
-      // Status particles
+      // Carrying item (when walking to station)
+      if (isWalking && state === 'reading') {
+        ctx.fillStyle = '#fbbf24'; ctx.fillRect(x + (facingRight ? 7 : -9), y + 1 + bob, 4, 5); // clipboard
+      }
+      if (isWalking && state === 'searching') {
+        ctx.fillStyle = '#a78bfa'; ctx.fillRect(x + (facingRight ? 7 : -9), y - 2 + bob, 3, 3); // magnifier
+      }
+
+      // Activity particles
       if (state !== 'idle' && state !== 'done') {
-        const particleCount = state === 'error' ? 5 : 3;
-        for (let i = 0; i < particleCount; i++) {
-          const angle = (t * 1.5 + i * (Math.PI * 2 / particleCount));
-          const radius = 20 + Math.sin(t + i) * 5;
-          const px = bodyX + Math.cos(angle) * radius;
-          const py = bodyY - 5 + Math.sin(angle) * radius * 0.5 + bobY;
-          const alpha = 0.3 + Math.sin(t * 2 + i) * 0.2;
-          ctx.globalAlpha = alpha;
+        for (let i = 0; i < 2; i++) {
+          const angle = t * 2 + i * Math.PI;
+          const r = 12;
+          ctx.globalAlpha = 0.3 + Math.sin(t * 2 + i) * 0.2;
           ctx.fillStyle = color;
           ctx.beginPath();
-          ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+          ctx.arc(x + Math.cos(angle) * r, y - 5 + Math.sin(angle) * r * 0.4 + bob, 1, 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.globalAlpha = 1;
       }
 
-      // Done sparkles
-      if (state === 'done') {
-        for (let i = 0; i < 6; i++) {
-          const angle = t * 0.5 + i * (Math.PI / 3);
-          const radius = 25 + Math.sin(t * 2 + i) * 10;
-          const px = bodyX + Math.cos(angle) * radius;
-          const py = bodyY - 5 + Math.sin(angle) * radius * 0.6;
-          const alpha = Math.max(0, Math.sin(t + i * 0.5));
-          ctx.globalAlpha = alpha * 0.6;
-          ctx.fillStyle = '#22c55e';
-          ctx.fillRect(px - 1, py - 1, 2, 2);
-        }
-        ctx.globalAlpha = 1;
-      }
+      // Name tag
+      ctx.fillStyle = color; ctx.font = 'bold 7px -apple-system, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(agent.name, x, y + 22 + bob);
 
-      // Speech bubble
-      const bubbleText = statusRef.current;
-      if (bubbleText) {
-        const bubbleX = bodyX + 25;
-        const bubbleY = bodyY - 30 + bobY;
-        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-        const textWidth = ctx.measureText(bubbleText).width;
-        const padX = 8;
-        const padY = 4;
-        const bw = textWidth + padX * 2;
-        const bh = 16 + padY;
-
-        // Bubble background
-        ctx.fillStyle = '#18181b';
-        ctx.strokeStyle = '#3f3f46';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(bubbleX, bubbleY, bw, bh, 6);
-        ctx.fill();
-        ctx.stroke();
-
-        // Bubble tail
-        ctx.fillStyle = '#18181b';
-        ctx.beginPath();
-        ctx.moveTo(bubbleX, bubbleY + bh / 2 - 3);
-        ctx.lineTo(bubbleX - 6, bubbleY + bh / 2);
-        ctx.lineTo(bubbleX, bubbleY + bh / 2 + 3);
-        ctx.fill();
-
-        // Text
+      // Status bubble (only when active)
+      if (state !== 'idle') {
+        ctx.font = '7px -apple-system, sans-serif';
+        const tw = ctx.measureText(agent.status).width;
+        ctx.fillStyle = '#18181bee'; ctx.strokeStyle = color + '60'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.roundRect(x - tw / 2 - 3, y - 20 + bob + headBob, tw + 6, 10, 3); ctx.fill(); ctx.stroke();
         ctx.fillStyle = color;
-        ctx.fillText(bubbleText, bubbleX + padX, bubbleY + padY + 10);
+        ctx.fillText(agent.status, x, y - 13 + bob + headBob);
+      }
+      ctx.textAlign = 'start';
+    };
+
+    const draw = () => {
+      frameRef.current++;
+      const t = frameRef.current / 15;
+      const agents = [...agentsRef.current.values()];
+
+      ctx.fillStyle = '#09090b'; ctx.fillRect(0, 0, w, h);
+      drawFurniture(t);
+
+      // Move agents toward targets
+      for (const a of agents) {
+        const dx = a.targetX - a.x;
+        const dy = a.targetY - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 2) {
+          const speed = 1.2;
+          a.x += (dx / dist) * speed;
+          a.y += (dy / dist) * speed;
+          a.facingRight = dx > 0;
+          a.walkFrame++;
+        }
       }
 
-      // TITAN label at bottom
-      ctx.fillStyle = '#27272a';
-      ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('TITAN', cx, h - 8);
+      // Sort by Y for depth
+      const sorted = [...agents].sort((a, b) => a.y - b.y);
+
+      if (sorted.length === 0) {
+        drawPixelAgent({
+          name: 'TITAN', state: 'idle', status: 'Ready, Sir.', bodyColor: AGENT_BODY_COLORS[0],
+          lastSeen: Date.now(), x: w / 2, y: h * 0.5, targetX: w / 2, targetY: h * 0.5,
+          deskX: w / 2, deskY: h * 0.5, walkFrame: 0, facingRight: true, atDesk: true,
+        }, t);
+      } else {
+        for (const a of sorted) drawPixelAgent(a, t + [...agentsRef.current.keys()].indexOf(a.name) * 0.3);
+      }
+
+      // Title
+      ctx.fillStyle = '#27272a'; ctx.font = 'bold 9px -apple-system, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(`TITAN Office — ${agents.length || 1} agent${agents.length !== 1 ? 's' : ''}`, w / 2, h - 6);
       ctx.textAlign = 'start';
 
       animId = requestAnimationFrame(draw);
@@ -306,19 +324,18 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
 
   return (
     <div className="h-full flex flex-col">
-      <canvas
-        ref={canvasRef}
-        className="flex-1 w-full"
-        style={{ imageRendering: 'pixelated' }}
-      />
-      {/* Current tool bar */}
-      {currentTool && (
-        <div className="px-3 py-1.5 bg-bg-secondary border-t border-border flex items-center gap-2">
-          <div
-            className="w-2 h-2 rounded-full animate-pulse"
-            style={{ backgroundColor: STATE_COLORS[agentState] }}
-          />
-          <span className="text-xs text-text-secondary truncate">{statusText}</span>
+      <canvas ref={canvasRef} className="flex-1 w-full" style={{ imageRendering: 'pixelated' }} />
+      {agentList.length > 0 && (
+        <div className="px-3 py-1.5 bg-bg-secondary border-t border-border flex items-center gap-3 overflow-x-auto">
+          {agentList.map((a) => (
+            <div key={a.name} className="flex items-center gap-1.5 shrink-0">
+              <div className="w-2 h-2 rounded-full" style={{
+                backgroundColor: a.state !== 'idle' ? STATE_COLORS[a.state] : a.bodyColor,
+                animation: a.state !== 'idle' && a.state !== 'done' ? 'pulse 1.5s infinite' : 'none'
+              }} />
+              <span className="text-xs text-text-secondary">{a.name}: {a.status}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

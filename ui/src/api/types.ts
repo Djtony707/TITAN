@@ -51,6 +51,8 @@ export interface AgentEvent {
   round?: number;
   maxRounds?: number;
   timestamp: number;
+  agentName?: string;
+  isSubAgent?: boolean;
 }
 
 // ---- Sessions ----
