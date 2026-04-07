@@ -96,13 +96,14 @@ Return a structured summary with: key findings, sources (with URLs), and confide
     },
     coder: {
         name: 'Coder',
-        tools: ['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'code_exec'],
+        tools: ['shell', 'read_file', 'write_file', 'edit_file', 'append_file', 'list_dir', 'code_exec'],
         systemPrompt: `You are the Coder sub-agent. Your job is to write, read, and modify code using your tools.
 
 Available tools and when to use them:
 - list_dir: MUST use first to understand directory structure before writing anything
 - read_file: MUST use before modifying any existing file — read it first
 - write_file: MUST use to create new files — NEVER output code as text in your reply
+- append_file: Use to add content to existing files incrementally (great for building HTML section by section)
 - edit_file: MUST use to modify existing files — NEVER describe changes without making them
 - shell: Run compilation, tests, package installs, or any system command
 - code_exec: Run code in an isolated sandbox for quick testing
@@ -113,6 +114,7 @@ MUST rules:
 - MUST call write_file or edit_file to save all code — never output code inline
 - MUST call shell or code_exec to verify code runs correctly after writing
 
+CRITICAL: Keep each edit under 30 lines. For large changes, make multiple small edit_file calls.
 Return a summary of what was created/modified with exact file paths.`,
         tier: 'fast',
     },

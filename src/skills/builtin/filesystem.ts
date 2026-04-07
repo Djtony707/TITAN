@@ -108,6 +108,35 @@ export function registerFilesystemSkill(): void {
         },
     );
 
+    // Append to File
+    registerSkill(
+        { name: 'append_file', description: 'Append content to end of a file', version: '1.0.0', source: 'bundled', enabled: true },
+        {
+            name: 'append_file',
+            description: 'Append content to the end of an existing file (or create if it does not exist).\n\nUSE THIS WHEN: You need to add content to a file without overwriting it. Perfect for building files incrementally — add sections one at a time instead of writing the entire file at once.\n\nRULES:\n- Use this for large files: write the initial structure with write_file, then append_file for each section\n- Great for HTML: write_file the head/opening tags, then append_file each section, then append_file the closing tags',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to the file' },
+                    content: { type: 'string', description: 'Content to append' },
+                },
+                required: ['path', 'content'],
+            },
+            execute: async (args) => {
+                const filePath = resolve(args.path as string);
+                const pathErr = validatePath(filePath);
+                if (pathErr) return pathErr;
+                try {
+                    const { appendFileSync } = await import('fs');
+                    const dir = join(filePath, '..');
+                    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+                    appendFileSync(filePath, args.content as string, 'utf-8');
+                    return `Successfully appended ${(args.content as string).length} bytes to ${filePath}`;
+                } catch (e) { return `Error appending to file: ${(e as Error).message}`; }
+            },
+        },
+    );
+
     // Edit File
     registerSkill(
         { name: 'edit_file', description: 'Search and replace in a file', version: '1.0.0', source: 'bundled', enabled: true },

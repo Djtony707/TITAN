@@ -7,6 +7,8 @@ import { chat } from '../providers/router.js';
 import { loadConfig } from '../config/config.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult, type ModelTier } from './subAgent.js';
 import logger from '../utils/logger.js';
+import { createIssue, updateIssue } from './commandPost.js';
+import { queueWakeup } from './agentWakeup.js';
 
 const COMPONENT = 'Orchestrator';
 
@@ -59,23 +61,40 @@ export async function analyzeForDelegation(message: string): Promise<DelegationP
             messages: [
                 {
                     role: 'system',
-                    content: `You are a task decomposer. Analyze if this task should be split into parallel sub-tasks.
-Available sub-agent types: explorer (web research), coder (file/code ops), browser (interactive web), analyst (analysis/memory).
+                    content: `You are TITAN's CEO task decomposer. Break complex tasks into small, focused sub-tasks for worker agents.
 
-Respond with ONLY valid JSON (no markdown fences):
+Available workers:
+- coder: reads/writes/edits files, runs shell commands (MAX 30 lines per edit)
+- explorer: web research, searches, fetches URLs
+- browser: interactive web pages, form filling, screenshots
+- analyst: data analysis, memory operations
+
+CRITICAL RULES FOR CODING TASKS:
+- NEVER give a coder agent a task that requires writing >50 lines of code at once
+- Break large file changes into MULTIPLE small coder tasks:
+  Example: "Add network scanner to dashboard" becomes:
+  1. coder: "Read /home/dj/TITAN/dashboard.html and add a new <section> after the machines grid with id='network-scanner' and a heading 'Network Scanner'"
+  2. coder: "Add CSS styles for .scanner-grid and .scanner-card to the <style> block in /home/dj/TITAN/dashboard.html"
+  3. coder: "Add a JavaScript function scanNetwork() that fetches IPs 192.168.1.1-254 and updates the scanner section in /home/dj/TITAN/dashboard.html"
+  4. coder: "Add a call to scanNetwork() in the initialization block and a 60-second interval refresh in /home/dj/TITAN/dashboard.html"
+
+Each coder task should edit ONE section of ONE file. Use edit_file, not write_file for existing files.
+
+Respond with ONLY valid JSON:
 {
   "shouldDelegate": true/false,
   "reason": "brief explanation",
   "tasks": [
-    { "template": "explorer|coder|browser|analyst", "task": "specific instruction" }
+    { "template": "coder|explorer|browser|analyst", "task": "specific focused instruction with exact file path and what to change" }
   ]
 }
 
 Rules:
-- Only delegate if there are 2+ genuinely independent or sequential sub-tasks
-- Each task must be self-contained and actionable
-- Maximum 4 sub-tasks
-- Don't delegate simple single-action requests`,
+- Delegate if 2+ sub-tasks exist
+- Each task: self-contained, actionable, <50 lines of code
+- Max 6 sub-tasks
+- Include exact file paths in task descriptions
+- For file edits: specify WHICH section to change (e.g. "add after the </style> tag")`,
                 },
                 { role: 'user', content: message },
             ],
@@ -96,7 +115,7 @@ Rules:
         }
 
         // Cap at 4 tasks
-        parsed.tasks = parsed.tasks.slice(0, 4);
+        parsed.tasks = parsed.tasks.slice(0, 6);
 
         logger.info(COMPONENT, `Delegation analysis: ${parsed.shouldDelegate ? 'YES' : 'NO'} — ${parsed.reason} (${parsed.tasks.length} tasks)`);
         return parsed;
@@ -131,13 +150,44 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
     const dependent = plan.tasks.map((t, i) => ({ ...t, index: i }))
         .filter(t => t.dependsOn && t.dependsOn.length > 0);
 
-    // Execute independent tasks in parallel
+    // Execute independent tasks via Command Post (Paperclip pattern)
+    const config = loadConfig();
+    const cpEnabled = (config.commandPost as Record<string, unknown> | undefined)?.enabled;
+
     if (independent.length > 0) {
         const parallelResults = await Promise.all(
             independent.map(async (t) => {
                 const template = SUB_AGENT_TEMPLATES[t.template] || SUB_AGENT_TEMPLATES.explorer;
+                const agentName = template.name || t.template;
+
+                // Create Command Post issue for tracking
+                if (cpEnabled) {
+                    try {
+                        const issue = createIssue({
+                            title: t.task.slice(0, 80),
+                            description: t.task,
+                            priority: 'medium',
+                            status: 'todo',
+                            createdByUser: 'orchestrator',
+                        });
+                        logger.info(COMPONENT, `[CP] Created issue ${issue.id} for ${agentName}: ${t.task.slice(0, 60)}`);
+                        updateIssue(issue.id, { status: 'in_progress' });
+
+                        // Queue wakeup for async execution
+                        queueWakeup({
+                            agentName,
+                            task: t.task,
+                            issueId: issue.id,
+                            templateName: t.template,
+                        });
+                    } catch (e) {
+                        logger.warn(COMPONENT, `[CP] Issue creation failed: ${(e as Error).message} — falling back to direct spawn`);
+                    }
+                }
+
+                // Execute (sync for now — wakeup handles async)
                 const result = await spawnSubAgent({
-                    name: template.name || t.template,
+                    name: agentName,
                     task: t.task,
                     tools: template.tools,
                     systemPrompt: template.systemPrompt,
