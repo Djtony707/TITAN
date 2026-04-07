@@ -363,9 +363,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 temperature: ctx.config.agent.temperature,
                 thinking: isVoice ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
-                forceToolUse: round === 0 && ctx.activeTools.length > 0
+                forceToolUse: ctx.activeTools.length > 0
                     && (ctx.isAutonomous || ctx.taskEnforcementActive)
-                    && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false,
+                    && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false
+                    && phase !== 'respond',
             };
 
             let response: ChatResponse;
