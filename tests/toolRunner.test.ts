@@ -186,7 +186,7 @@ describe('ToolRunner', () => {
         const result = await executeTool(makeCall(LONG_OUT));
         expect(result.success).toBe(true);
         expect(result.content.length).toBeLessThanOrEqual(50100); // 50KB + truncation message
-        expect(result.content).toContain('[Output truncated at 50KB]');
+        expect(result.content).toContain('chars omitted');
         unregisterTool(LONG_OUT);
     });
 

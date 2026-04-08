@@ -257,8 +257,8 @@ describe('formatPlanForApproval', () => {
         const state = makeState({ plan: makePlan() });
         const md = formatPlanForApproval(state);
 
-        expect(md).toContain('## Deliberation Plan');
-        expect(md).toContain('**Goal:** Test goal');
+        expect(md).toContain('## Plan');
+        expect(md).toContain('> Test goal');
         expect(md).toContain('Step 1');
         expect(md).toContain('Step 2');
         expect(md).toContain("yes");
@@ -273,7 +273,7 @@ describe('formatPlanForApproval', () => {
         const state = makeState({ plan: makePlan() });
         const md = formatPlanForApproval(state);
 
-        expect(md).toContain('depends on: task-1');
+        expect(md).toContain('after step task-1');
     });
 });
 
