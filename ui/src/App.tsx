@@ -34,6 +34,8 @@ const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
 const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
 const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
 const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
+const HomelabPanel = lazy(() => import('@/components/admin/HomelabPanel'));
+const MemoryWikiPanel = lazy(() => import('@/components/admin/MemoryWikiPanel'));
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
@@ -106,6 +108,8 @@ function AuthenticatedApp() {
             <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
             <Route path="/nvidia" element={<AdminPage><NvidiaPanel /></AdminPage>} />
             <Route path="/command-post" element={<AdminPage><CommandPostHub /></AdminPage>} />
+            <Route path="/homelab" element={<AdminPage><HomelabPanel /></AdminPage>} />
+            <Route path="/memory-wiki" element={<AdminPage><MemoryWikiPanel /></AdminPage>} />
           </Routes>
         </Suspense>
       </Layout>

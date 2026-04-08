@@ -3,12 +3,16 @@
  * When TITAN detects an ambitious/complex request, it thinks deeply,
  * builds a structured plan, presents it for approval, then executes step-by-step.
  */
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { chat } from '../providers/router.js';
 import { classifyComplexity } from './costOptimizer.js';
 import { createPlan, getReadyTasks, startTask, completeTask, failTask, getPlanStatus, checkpointPlan, type Plan } from './planner.js';
 import { processMessage } from './agent.js';
 import type { TitanConfig } from '../config/schema.js';
 import logger from '../utils/logger.js';
+import { titanEvents } from './daemon.js';
 
 const COMPONENT = 'Deliberation';
 
@@ -24,9 +28,63 @@ export interface DeliberationState {
     results: Array<{ taskId: string; result: string; success: boolean }>;
     error?: string;
     createdAt: number;
+    revision: number;  // Incremented on every state mutation
 }
 
 const activeDeliberations: Map<string, DeliberationState> = new Map();
+
+// ── Durable Persistence ──────────────────────────────────────────
+const DELIBERATION_DIR = join(homedir(), '.titan', 'deliberations');
+
+function persistState(state: DeliberationState): void {
+    try {
+        if (!existsSync(DELIBERATION_DIR)) mkdirSync(DELIBERATION_DIR, { recursive: true });
+        state.revision = (state.revision || 0) + 1;
+        const filePath = join(DELIBERATION_DIR, `${state.sessionId.slice(0, 20)}.json`);
+        writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8');
+    } catch (err) {
+        logger.warn(COMPONENT, `Failed to persist deliberation state: ${(err as Error).message}`);
+    }
+}
+
+/** Recover persisted deliberation states on gateway boot */
+export function recoverDeliberations(): number {
+    if (!existsSync(DELIBERATION_DIR)) return 0;
+    let recovered = 0;
+    try {
+        const files = readdirSync(DELIBERATION_DIR).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+            try {
+                const state = JSON.parse(readFileSync(join(DELIBERATION_DIR, file), 'utf-8')) as DeliberationState;
+                if (state.stage === 'executing') {
+                    // Mark as failed with crash-recovery note — don't auto-resume execution
+                    state.stage = 'failed';
+                    state.error = 'Gateway restarted while plan was executing. Re-submit the task to retry.';
+                    persistState(state);
+                    logger.info(COMPONENT, `Recovered deliberation ${state.sessionId}: marked as failed (was executing)`);
+                } else if (state.stage === 'completed' || state.stage === 'failed' || state.stage === 'cancelled') {
+                    // Terminal states — clean up old files (>24h)
+                    const age = Date.now() - state.createdAt;
+                    if (age > 24 * 3600 * 1000) {
+                        try { unlinkSync(join(DELIBERATION_DIR, file)); } catch { /* ignore */ }
+                    }
+                }
+                recovered++;
+            } catch { /* corrupt file, skip */ }
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Deliberation recovery failed: ${(err as Error).message}`);
+    }
+    if (recovered > 0) logger.info(COMPONENT, `Recovered ${recovered} deliberation states`);
+    return recovered;
+}
+
+/** Update deliberation state — persists to disk on every change */
+function updateState(state: DeliberationState, updates: Partial<DeliberationState>): void {
+    Object.assign(state, updates);
+    activeDeliberations.set(state.sessionId, state);
+    persistState(state);
+}
 
 /** Check if deliberation should be triggered for this message */
 export function shouldDeliberate(message: string, config: TitanConfig): boolean {
@@ -62,8 +120,10 @@ export async function analyze(message: string, sessionId: string, config: TitanC
         originalMessage: message,
         results: [],
         createdAt: Date.now(),
+        revision: 0,
     };
     activeDeliberations.set(sessionId, state);
+    persistState(state);
 
     const reasoningModel = getReasoningModel(config);
     logger.info(COMPONENT, `Analyzing request with ${reasoningModel}: "${message.slice(0, 80)}..."`);
@@ -255,9 +315,15 @@ export async function executePlan(
     }
 
     state.stage = 'executing';
+    persistState(state);
     const plan = state.plan;
 
-    onProgress?.({ type: 'deliberation:started', planId: plan.id });
+    const emitPlanEvent = (event: Record<string, unknown>) => {
+        onProgress?.(event as { type: string; taskId?: string; status?: string; result?: string; planId?: string });
+        titanEvents.emit('plan:event', event);
+    };
+
+    emitPlanEvent({ type: 'plan:start', planId: plan.id, goal: plan.goal, taskCount: plan.tasks?.length ?? 0 });
 
     // Collect prior results for context injection
     const priorResults: string[] = [];
@@ -267,7 +333,7 @@ export async function executePlan(
 
         for (const task of ready) {
             startTask(plan.id, task.id);
-            onProgress?.({ type: 'deliberation:progress', taskId: task.id, status: 'running', planId: plan.id });
+            emitPlanEvent({ type: 'plan:step:start', taskId: task.id, title: task.title, planId: plan.id });
 
             const taskPrompt = [
                 `You are executing step ${task.id} of a plan.`,
@@ -286,12 +352,14 @@ export async function executePlan(
                 checkpointPlan(plan.id);
                 state.results.push({ taskId: task.id, result: result.content, success: true });
                 priorResults.push(`[${task.id}: ${task.title}] ${result.content.slice(0, 200)}`);
-                onProgress?.({ type: 'deliberation:progress', taskId: task.id, status: 'done', result: result.content.slice(0, 200), planId: plan.id });
+                persistState(state);
+                emitPlanEvent({ type: 'plan:step:done', taskId: task.id, success: true, result: result.content.slice(0, 200), planId: plan.id });
             } catch (err) {
                 const errMsg = (err as Error).message;
                 failTask(plan.id, task.id, errMsg);
                 state.results.push({ taskId: task.id, result: errMsg, success: false });
-                onProgress?.({ type: 'deliberation:progress', taskId: task.id, status: 'failed', result: errMsg, planId: plan.id });
+                persistState(state);
+                emitPlanEvent({ type: 'plan:step:done', taskId: task.id, success: false, result: errMsg, planId: plan.id });
             }
         }
 
@@ -302,7 +370,8 @@ export async function executePlan(
     }
 
     state.stage = plan.status === 'completed' ? 'completed' : 'failed';
-    onProgress?.({ type: 'deliberation:complete', planId: plan.id, status: state.stage });
+    persistState(state);
+    emitPlanEvent({ type: 'plan:done', planId: plan.id, success: state.stage === 'completed', summary: `${state.results.filter(r => r.success).length}/${state.results.length} tasks succeeded` });
 
     logger.info(COMPONENT, `Plan execution ${state.stage}: ${state.results.filter(r => r.success).length}/${state.results.length} tasks succeeded`);
     return state;

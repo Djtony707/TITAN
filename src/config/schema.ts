@@ -269,6 +269,8 @@ export const VoiceConfigSchema = z.object({
     fastPath: z.boolean().default(true),
     /** Override model for voice chat (faster model for low-latency responses). Falls back to agent.model if unset. */
     model: z.string().optional(),
+    /** Silence timeout in milliseconds — how long to wait after speech ends before auto-sending transcript */
+    silenceTimeoutMs: z.number().default(3000),
 });
 
 export const ContextEnginePluginConfigSchema = z.object({

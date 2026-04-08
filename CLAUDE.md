@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v1.2.0 (semantic versioning — NOT 2026.10.XX)
+- **Current version**: v2.0.0 (semantic versioning — NOT 2026.10.XX)
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 22, pure ESM

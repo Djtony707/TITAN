@@ -45,6 +45,8 @@ const AMBITIOUS_PATTERNS = [
     /\b(figure out|come up with|make money|monetize|strategy|build a system)\b/i,
     /\b(step by step|automate|end.to.end|full pipeline|from scratch)\b/i,
     /\b(business plan|launch|scale|optimize everything|overhaul)\b/i,
+    /\b(rewrite|redesign|rebuild|redo)\b.{0,60}\b(file|page|app|dashboard|component|system|html|script)\b/i,
+    /\b(create|build|write)\b.{0,40}\b(full|complete|entire|new)\b.{0,40}\b(page|app|dashboard|site)\b/i,
     /\b(how (can|do|should) (i|we) .{20,})\b/i,
 ];
 

@@ -50,12 +50,56 @@ export interface Entity {
     id: string;
     name: string;
     aliases: string[];
-    type: string; // 'person' | 'topic' | 'project' | 'place' | 'fact'
+    type: string; // person | project | topic | place | company | technology | event
     summary: string;
     firstSeen: string;
     lastSeen: string;
     facts: string[];
     episodeIds: string[];
+}
+
+// ── Allowed entity types ─────────────────────────────────────────
+const ALLOWED_TYPES = new Set(['person', 'project', 'topic', 'place', 'company', 'technology', 'event']);
+
+const TYPE_COERCION: Record<string, string> = {
+    fact: 'topic',
+    preference: 'topic',
+    feature: 'technology',
+    software: 'technology',
+    system: 'technology',
+    hardware: 'technology',
+    component: 'technology',
+    tool: 'technology',
+    product: 'technology',
+    file: '__skip__',
+    directory: '__skip__',
+    scenario: '__skip__',
+    'person|organization': 'company',
+};
+
+/** Validate and coerce entity type to allowed set */
+function coerceType(raw: string): string | null {
+    const t = raw?.toLowerCase().trim();
+    if (ALLOWED_TYPES.has(t)) return t;
+    const coerced = TYPE_COERCION[t];
+    if (coerced === '__skip__') return null; // filter out
+    return coerced ?? 'topic'; // default fallback
+}
+
+// Well-known tech names that look like filenames but aren't
+const NOT_NOISE = new Set(['node.js', 'vue.js', 'next.js', 'nuxt.js', 'three.js', 'p5.js', 'express.js', 'd3.js', 'socket.io']);
+
+/** Check if a name is noise (file paths, URLs, numbers, tokens) */
+function isNoiseEntity(name: string): boolean {
+    const n = name.trim();
+    if (n.length < 2) return true;
+    if (/^\d+$/.test(n)) return true; // pure numbers
+    if (/^[\/~]/.test(n)) return true; // absolute/home paths
+    if (n.includes('/') && n.includes('.') && !n.includes(' ')) return true; // file paths like src/foo.ts
+    if (/^https?:\/\//i.test(n)) return true; // URLs
+    if (!NOT_NOISE.has(n.toLowerCase()) && /^\w+\.\w{1,4}$/.test(n) && /\.(ts|js|json|md|py|sh|txt|log|html|css|yml|yaml|toml|cfg)$/i.test(n)) return true; // filenames
+    if (/^(api\/|http:|localhost|127\.0\.|192\.168\.)/.test(n.toLowerCase())) return true; // API paths/IPs
+    return false;
 }
 
 export interface Edge {
@@ -199,7 +243,22 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
 
         logger.info(COMPONENT, `Extracting entities from ${content.length} char episode via ${config.agent.model}`);
 
-        const prompt = `Extract entities from this text as a JSON array. Each item: {"name":"...","type":"person|topic|project|place|fact","facts":["fact1","fact2"]}. Return ONLY the JSON array, no other text.\n\nText: ${content.slice(0, 500)}`;
+        const prompt = `Extract named entities and their relationships from this text as JSON.
+
+RULES:
+- Types MUST be one of: person, project, topic, place, company, technology, event
+- SKIP: file paths, URLs, API endpoints, code tokens, config keys, numbers, single words under 3 chars
+- Each entity needs meaningful facts — not just "is a file" or "is mentioned"
+- Include relationships between entities when clear from context
+
+Return format: {"entities":[{"name":"...","type":"...","facts":["..."]}],"relations":[{"from":"name1","to":"name2","relation":"works_on|uses|located_in|created|part_of|related_to"}]}
+
+Example input: "Tony is building TITAN, an AI agent framework in TypeScript deployed on the Titan PC"
+Example output: {"entities":[{"name":"Tony","type":"person","facts":["Building TITAN framework"]},{"name":"TITAN","type":"project","facts":["AI agent framework","Written in TypeScript"]},{"name":"Titan PC","type":"technology","facts":["Deployment target for TITAN"]}],"relations":[{"from":"Tony","to":"TITAN","relation":"created"},{"from":"TITAN","to":"Titan PC","relation":"located_in"}]}
+
+Return ONLY valid JSON, no other text.
+
+Text: ${content.slice(0, 1000)}`;
 
         const response = await routerChat({
             model: config.agent.model,
@@ -221,9 +280,10 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
 
         const text = response.content || '';
         logger.info(COMPONENT, `Extraction response: ${text.length} chars`);
-        const match = text.match(/\[[\s\S]*\]/);
+        // Match JSON — try outer object with entities key first, then array, then any object
+        const match = text.match(/\{"entities"\s*:\s*\[[\s\S]*\}/) ?? text.match(/\[[\s\S]*\]/) ?? text.match(/\{[\s\S]*\}/);
         if (!match) {
-            logger.warn(COMPONENT, `No JSON array found in extraction response: ${text.slice(0, 200)}`);
+            logger.warn(COMPONENT, `No JSON found in extraction response: ${text.slice(0, 200)}`);
             return [];
         }
 
@@ -234,10 +294,9 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
             .replace(/'/g, '"');            // single quotes to double
 
         // Attempt parse, with truncated JSON recovery on failure
-        const tryParse = (str: string): unknown[] | null => {
+        const tryParse = (str: string): unknown => {
             try {
-                const parsed = JSON.parse(str);
-                return Array.isArray(parsed) ? parsed : null;
+                return JSON.parse(str);
             } catch { return null; }
         };
 
@@ -245,14 +304,11 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
 
         // If parse failed, try closing truncated brackets (LLM output cut off mid-JSON)
         if (!parsed) {
-            // Remove any trailing incomplete object (after last complete }, or ,)
             let recovered = jsonStr.replace(/,\s*\{[^}]*$/, '');
-            // Close any unclosed brackets
             const opens = (recovered.match(/\[/g) || []).length;
             const openBraces = (recovered.match(/\{/g) || []).length;
             const closeBraces = (recovered.match(/\}/g) || []).length;
             recovered += '}'.repeat(Math.max(0, openBraces - closeBraces));
-            // Clean trailing commas before closing
             recovered = recovered.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
             recovered += ']'.repeat(Math.max(0, opens - (recovered.match(/\]/g) || []).length));
             parsed = tryParse(recovered);
@@ -265,14 +321,78 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
             logger.warn(COMPONENT, `Entity extraction JSON parse failed, raw: ${jsonStr.slice(0, 200)}`);
             return [];
         }
-        const filtered = parsed.filter((e: unknown): e is { name: string; type: string; facts: string[] } =>
-            e != null && typeof e === 'object' && 'name' in (e as object) && 'type' in (e as object));
-        logger.info(COMPONENT, `Extraction parsed ${parsed.length} items, ${filtered.length} valid entities`);
-        return filtered;
+
+        // Handle new format: {entities: [...], relations: [...]} or legacy array format
+        let rawEntities: unknown[] = [];
+        let rawRelations: Array<{ from: string; to: string; relation: string }> = [];
+
+        if (Array.isArray(parsed)) {
+            // Legacy array format — check if first element has 'entities' key (wrapped in array)
+            if (parsed.length === 1 && parsed[0] && typeof parsed[0] === 'object' && 'entities' in (parsed[0] as object)) {
+                const obj = parsed[0] as { entities?: unknown[]; relations?: unknown[] };
+                rawEntities = Array.isArray(obj.entities) ? obj.entities : [];
+                rawRelations = Array.isArray(obj.relations) ? obj.relations as typeof rawRelations : [];
+            } else {
+                rawEntities = parsed;
+            }
+        } else if (typeof parsed === 'object' && parsed !== null) {
+            // Direct object with entities/relations
+            const obj = parsed as unknown as { entities?: unknown[]; relations?: unknown[] };
+            rawEntities = Array.isArray(obj.entities) ? obj.entities : [];
+            rawRelations = Array.isArray(obj.relations) ? obj.relations as typeof rawRelations : [];
+        }
+
+        // Validate and filter entities
+        const entities = rawEntities
+            .filter((e: unknown): e is { name: string; type: string; facts: string[] } =>
+                e != null && typeof e === 'object' && 'name' in (e as object) && 'type' in (e as object))
+            .filter(e => !isNoiseEntity(e.name))
+            .map(e => {
+                const type = coerceType(e.type);
+                if (!type) return null; // skipped type
+                return { name: e.name, type, facts: Array.isArray(e.facts) ? e.facts : [] };
+            })
+            .filter((e): e is { name: string; type: string; facts: string[] } => e !== null);
+
+        // Store extracted relations for use in addEpisode
+        if (rawRelations.length > 0) {
+            lastExtractedRelations = rawRelations
+                .filter(r => r.from && r.to && r.relation && typeof r.relation === 'string')
+                .map(r => ({ from: r.from, to: r.to, relation: r.relation.toLowerCase().replace(/\s+/g, '_') }));
+        }
+
+        logger.info(COMPONENT, `Extraction: ${rawEntities.length} raw → ${entities.length} valid entities, ${rawRelations.length} relations`);
+        return entities;
     } catch (err) {
         logger.warn(COMPONENT, `Entity extraction failed: ${(err as Error).message}`);
         return [];
     }
+}
+
+// Cache extracted relations for edge creation in addEpisode
+let lastExtractedRelations: Array<{ from: string; to: string; relation: string }> = [];
+
+/** Word-overlap fuzzy matching — requires >60% shared words or one name is a prefix of the other */
+function fuzzyNameMatch(a: string, b: string): boolean {
+    // Exact prefix/suffix match for compound names: "Tony" vs "Tony Elliott"
+    const wordsA = a.split(/[\s\-_]+/).filter(w => w.length > 0);
+    const wordsB = b.split(/[\s\-_]+/).filter(w => w.length > 0);
+
+    // If one is a single word and the other is multi-word, the single word must be a full word in the other
+    if (wordsA.length === 1 && wordsB.length > 1) {
+        return wordsB.some(w => w === wordsA[0]);
+    }
+    if (wordsB.length === 1 && wordsA.length > 1) {
+        return wordsA.some(w => w === wordsB[0]);
+    }
+
+    // Multi-word: require >60% word overlap
+    const setA = new Set(wordsA);
+    const setB = new Set(wordsB);
+    let overlap = 0;
+    for (const w of setA) { if (setB.has(w)) overlap++; }
+    const minLen = Math.min(setA.size, setB.size);
+    return minLen > 0 && overlap / minLen >= 0.6;
 }
 
 // ── Find or create an entity by name ────────────────────────────
@@ -286,18 +406,13 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
         return false;
     });
 
-    // Fuzzy match: if "Tony" and "Tony Elliott" refer to the same entity, merge them
+    // Fuzzy match: word-overlap based (not substring) to avoid false merges
     if (!existing) {
         existing = graph.entities.find((e) => {
-            if (e.type !== type && type !== 'topic') return false; // only merge same-type entities
-            const eLower = e.name.toLowerCase();
-            // Check if one name contains the other (partial name match)
-            if (eLower.includes(nameLower) || nameLower.includes(eLower)) return true;
-            // Check aliases too
-            if (Array.isArray(e.aliases) && e.aliases.some((a) => {
-                const aLower = a.toLowerCase();
-                return aLower.includes(nameLower) || nameLower.includes(aLower);
-            })) return true;
+            if (e.type !== type && type !== 'topic') return false;
+            if (nameLower.length < 4 || e.name.length < 4) return false; // skip short names
+            if (fuzzyNameMatch(nameLower, e.name.toLowerCase())) return true;
+            if (Array.isArray(e.aliases) && e.aliases.some((a) => a.length >= 4 && fuzzyNameMatch(nameLower, a.toLowerCase()))) return true;
             return false;
         });
         if (existing) {
@@ -429,12 +544,50 @@ export async function addEpisode(content: string, source: string): Promise<Episo
                 entity.episodeIds.push(episode.id);
             }
         }
-        // Create edges between co-occurring entities in this episode
-        if (episode.entities.length > 1) {
+        // Create edges — use extracted relations when available, fall back to co_mentioned
+        const entityNameToId = new Map<string, string>();
+        for (const eid of episode.entities) {
+            const ent = graph.entities.find(en => en.id === eid);
+            if (ent) {
+                entityNameToId.set(ent.name.toLowerCase(), eid);
+                for (const alias of ent.aliases) entityNameToId.set(alias.toLowerCase(), eid);
+            }
+        }
+
+        // Apply LLM-extracted semantic relations
+        const usedPairs = new Set<string>();
+        if (lastExtractedRelations.length > 0) {
+            for (const rel of lastExtractedRelations) {
+                const fromId = entityNameToId.get(rel.from.toLowerCase());
+                const toId = entityNameToId.get(rel.to.toLowerCase());
+                if (!fromId || !toId || fromId === toId) continue;
+                const pairKey = [fromId, toId].sort().join(':');
+                if (usedPairs.has(pairKey)) continue;
+                usedPairs.add(pairKey);
+                const exists = graph.edges.some(
+                    (edge) => (edge.from === fromId && edge.to === toId) || (edge.from === toId && edge.to === fromId)
+                );
+                if (!exists) {
+                    graph.edges.push({
+                        id: uuid(),
+                        from: fromId,
+                        to: toId,
+                        relation: rel.relation || 'related_to',
+                        createdAt: new Date().toISOString(),
+                    });
+                }
+            }
+            lastExtractedRelations = []; // consume
+        }
+
+        // Fall back to co_mentioned for remaining entity pairs (limit to avoid edge explosion)
+        if (episode.entities.length > 1 && episode.entities.length <= 8) {
             for (let i = 0; i < episode.entities.length; i++) {
                 for (let j = i + 1; j < episode.entities.length; j++) {
                     const fromId = episode.entities[i];
                     const toId = episode.entities[j];
+                    const pairKey = [fromId, toId].sort().join(':');
+                    if (usedPairs.has(pairKey)) continue;
                     const exists = graph.edges.some(
                         (edge) => (edge.from === fromId && edge.to === toId) || (edge.from === toId && edge.to === fromId)
                     );
@@ -652,44 +805,66 @@ export function getGraphContext(query: string): string {
         }
     }
 
-    // Search entities by name, summary, and facts (not just recent ones)
+    // Search entities with quality scoring
     const STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'at', 'to', 'of', 'do', 'you', 'we', 'i', 'me', 'my', 'that', 'this', 'was', 'are', 'be', 'been', 'have', 'has', 'had', 'and', 'or', 'but', 'if', 'so', 'not', 'no', 'yes', 'can', 'how', 'what', 'about', 'from', 'with', 'for', 'up', 'out', 'its', 'our', 'your', 'they', 'them', 'he', 'she', 'his', 'her', 'will', 'would', 'could', 'should', 'did', 'does', 'just', 'now', 'some', 'any', 'all', 'very', 'too', 'also', 'than', 'then', 'when', 'where', 'who', 'which', 'there', 'here', 'again', 'today', 'earlier', 'remember']);
     const queryTerms = query ? query.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t)) : [];
     const matchedEntities: Array<{ entity: typeof graph.entities[0]; score: number }> = [];
 
+    // Type quality weights — persons and projects are more valuable context than generic topics
+    const TYPE_WEIGHT: Record<string, number> = { person: 1.5, project: 1.3, company: 1.2, technology: 1.1, event: 1.0, place: 0.9, topic: 0.7 };
+
     for (const e of graph.entities) {
+        // Skip noise entities that slipped through
+        if (isNoiseEntity(e.name)) continue;
+        // Skip entities with no facts at all
+        if (e.facts.length === 0) continue;
+
         let score = 0;
         const searchText = `${e.name} ${e.summary || ''} ${e.facts.join(' ')}`.toLowerCase();
         for (const term of queryTerms) {
             if (searchText.includes(term)) score += 1;
-            if (e.name.toLowerCase().includes(term)) score += 2; // Boost name matches
+            if (e.name.toLowerCase().includes(term)) score += 2;
         }
-        if (score > 0) matchedEntities.push({ entity: e, score });
+        if (score > 0) {
+            // Apply type weight
+            score *= (TYPE_WEIGHT[e.type?.toLowerCase()] ?? 0.8);
+            // Boost entities with more facts (richer context)
+            score *= 1 + Math.min(e.facts.length, 10) * 0.05;
+            // Mild recency boost (within last 7 days)
+            const ageMs = Date.now() - new Date(e.lastSeen).getTime();
+            if (ageMs < 7 * 24 * 3600 * 1000) score *= 1.1;
+            matchedEntities.push({ entity: e, score });
+        }
     }
 
-    // Sort by score, then include top matched + recent
     matchedEntities.sort((a, b) => b.score - a.score);
     const topMatched = matchedEntities.slice(0, 5).map(m => m.entity);
 
-    // Also include recently active entities (top 3) that weren't already matched
     const matchedIds = new Set(topMatched.map(e => e.name));
     const recentEntities = graph.entities
         .slice()
         .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
-        .filter(e => !matchedIds.has(e.name))
+        .filter(e => !matchedIds.has(e.name) && !isNoiseEntity(e.name) && e.facts.length > 0)
         .slice(0, 3);
 
     const allEntities = [...topMatched, ...recentEntities];
 
+    // Build output with token budget (~600 tokens ≈ ~2400 chars)
+    const TOKEN_BUDGET = 2400;
+    let charCount = 0;
+
     if (allEntities.length > 0) {
         parts.push('Known entities and facts:');
+        charCount += 30;
         for (const e of allEntities) {
-            // Show more facts for query-matched entities (they're relevant)
+            if (charCount > TOKEN_BUDGET) break;
             const isMatched = matchedIds.has(e.name);
-            const maxFacts = isMatched ? 5 : 2;
+            const maxFacts = isMatched ? 4 : 2;
             const factsStr = e.facts.length > 0 ? `\n    Facts: ${e.facts.slice(0, maxFacts).join('; ')}` : '';
             const summaryStr = e.summary ? ` — ${e.summary}` : '';
-            parts.push(`- ${e.name} [${e.type}]${summaryStr}${factsStr}`);
+            const line = `- ${e.name} [${e.type}]${summaryStr}${factsStr}`;
+            charCount += line.length;
+            parts.push(line);
         }
     }
 
@@ -730,4 +905,53 @@ export function clearGraph(): void {
     graph = { episodes: [], entities: [], edges: [] };
     saveGraph();
     logger.info(COMPONENT, 'Graph cleared');
+}
+
+/** Clean up noisy entities and orphaned edges from the graph */
+export function cleanupGraph(): { removedEntities: number; removedEdges: number; coercedTypes: number } {
+    if (!initialized) initGraph();
+
+    const beforeEntities = graph.entities.length;
+    const beforeEdges = graph.edges.length;
+    let coercedTypes = 0;
+
+    // 1. Remove noise entities (file paths, URLs, numbers, short tokens)
+    const removedIds = new Set<string>();
+    graph.entities = graph.entities.filter(e => {
+        if (isNoiseEntity(e.name)) {
+            removedIds.add(e.id);
+            return false;
+        }
+        return true;
+    });
+
+    // 2. Coerce entity types to allowed set
+    for (const e of graph.entities) {
+        const coerced = coerceType(e.type);
+        if (coerced === null) {
+            removedIds.add(e.id);
+            continue;
+        }
+        if (coerced !== e.type) {
+            e.type = coerced;
+            coercedTypes++;
+        }
+    }
+    graph.entities = graph.entities.filter(e => !removedIds.has(e.id));
+
+    // 3. Remove orphaned edges
+    const validIds = new Set(graph.entities.map(e => e.id));
+    graph.edges = graph.edges.filter(e => validIds.has(e.from) && validIds.has(e.to));
+
+    // 4. Remove entity references from episodes
+    for (const ep of graph.episodes) {
+        ep.entities = ep.entities.filter(id => validIds.has(id));
+    }
+
+    const removedEntities = beforeEntities - graph.entities.length;
+    const removedEdges = beforeEdges - graph.edges.length;
+
+    saveGraph();
+    logger.info(COMPONENT, `Cleanup: removed ${removedEntities} entities, ${removedEdges} edges, coerced ${coercedTypes} types. Now ${graph.entities.length} entities, ${graph.edges.length} edges.`);
+    return { removedEntities, removedEdges, coercedTypes };
 }

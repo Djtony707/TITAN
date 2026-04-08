@@ -63,6 +63,8 @@ interface CronRecord {
   name: string;
   schedule: string;
   command: string;
+  mode?: 'shell' | 'tool';         // Execution mode (default: shell for backward compat)
+  allowedTools?: string[];           // Tool allowlist for tool-mode jobs
   enabled: boolean;
   last_run?: string;
   next_run?: string;

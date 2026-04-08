@@ -138,8 +138,10 @@ export function registerCronSkill(): void {
                         type: 'string',
                         description: 'Cron schedule expression (e.g., "0 9 * * *" for daily at 9 am, "*/5 * * * *" every 5 min)',
                     },
-                    command: { type: 'string', description: 'Shell command to execute when the job runs' },
+                    command: { type: 'string', description: 'Shell command or task description to execute when the job runs' },
                     jobId: { type: 'string', description: 'Job ID (required for delete/enable/disable)' },
+                    mode: { type: 'string', enum: ['shell', 'tool'], description: 'Execution mode: "shell" (default) runs a shell command, "tool" sends the command as a message to TITAN for tool-based execution' },
+                    allowedTools: { type: 'string', description: 'Comma-separated list of allowed tool names for tool-mode jobs (e.g., "web_search,write_file,shell")' },
                 },
                 required: ['action'],
             },
@@ -162,12 +164,18 @@ export function registerCronSkill(): void {
                             return `Error: "${schedule}" is not a valid cron expression. Example: "0 9 * * *" (daily at 9 am)`;
                         }
 
+                        const mode = (args.mode as string) === 'tool' ? 'tool' : 'shell';
+                        const allowedToolsStr = args.allowedTools as string | undefined;
+                        const allowedTools = allowedToolsStr ? allowedToolsStr.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+
                         const id = uuid();
                         store.cronJobs.push({
                             id,
                             name,
                             schedule,
                             command,
+                            mode: mode as 'shell' | 'tool',
+                            allowedTools,
                             enabled: true,
                             created_at: new Date().toISOString(),
                         });
