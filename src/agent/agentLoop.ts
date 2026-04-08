@@ -444,7 +444,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                 // FabricationGuard: detect model claiming to have completed actions without tool calls
                 // gemma4 says "I've written X to file Y" without actually calling write_file
-                const fabricationMatch = response.content.match(/(?:written|saved|created|wrote)\s+(?:.*?)(?:to|at|in)\s+["\`']?(\/[\w/.-]+\.[a-z]+)["\`']?/i);
+                const fabricationMatch = response.content.match(/(?:written|saved|created|wrote)\s+(?:.*?)(?:to|at|in)\s+["'`]?(\/[\w/.-]+\.[a-z]+)["'`]?/i);
                 if (fabricationMatch) {
                     const filePath = fabricationMatch[1];
                     // Extract what should have been written
@@ -530,9 +530,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                     // Pattern 1b: "I wrote/saved/created file X" → write_file (past-tense fabrication)
                     if (!rescued) {
-                        const pastWrite = text.match(/(?:wrote|written|saved|created)\s+(?:.*?)(?:to|at|in)\s+["'\`]?(\/[\w/.-]+\.[a-z]+)["'\`]?/i);
+                        const pastWrite = text.match(/(?:wrote|written|saved|created)\s+(?:.*?)(?:to|at|in)\s+["'`]?(\/[\w/.-]+\.[a-z]+)["'`]?/i);
                         if (pastWrite) {
-                            const contentMatch = text.match(/(?:wrote|written|saved)\s+["'\`]([^"'\`]+)["'\`]/i);
+                            const contentMatch = text.match(/(?:wrote|written|saved)\s+["'`]([^"'`]+)["'`]/i);
                             logger.info(COMPONENT, `[IntentParser] Past-tense write → write_file("\${pastWrite[1]}")`);
                             response.toolCalls = [{
                                 id: `intent-\${Date.now()}`,

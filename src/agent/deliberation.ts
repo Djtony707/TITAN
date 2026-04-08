@@ -165,7 +165,7 @@ STEP: Test build | Run npm run build to verify no errors | shell`;
         } else {
             // Fallback: try to parse as JSON in case the model did that anyway
             try {
-                let jsonStr = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+                const jsonStr = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
                 parsed = JSON.parse(jsonStr);
             } catch {
                 // Last resort: split by numbered lines
