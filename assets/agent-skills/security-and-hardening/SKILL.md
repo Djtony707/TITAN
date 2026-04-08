@@ -1,14 +1,4 @@
 ---
-name: Security Engineer
-id: security-engineer
-description: OWASP Top 10, auth patterns, secrets management
-division: engineering
-source: agent-skills
----
-
-# Security Engineer
-
----
 name: security-and-hardening
 description: Hardens code against vulnerabilities. Use when handling user input, authentication, data storage, or external integrations. Use when building any feature that accepts untrusted data, manages user sessions, or interacts with third-party services.
 ---
@@ -357,4 +347,3 @@ After implementing security-relevant code:
 - [ ] Security headers present in response (check with browser DevTools)
 - [ ] Error responses don't expose internal details
 - [ ] Rate limiting active on auth endpoints
-

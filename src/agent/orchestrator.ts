@@ -63,11 +63,18 @@ export async function analyzeForDelegation(message: string): Promise<DelegationP
                     role: 'system',
                     content: `You are TITAN's CEO task decomposer. Break complex tasks into small, focused sub-tasks for worker agents.
 
-Available workers:
+Available workers (with engineering personas):
 - coder: reads/writes/edits files, runs shell commands (MAX 30 lines per edit)
+  Personas: tdd-engineer, frontend-engineer, incremental-builder, simplifier
 - explorer: web research, searches, fetches URLs
+  Personas: context-engineer, idea-refiner
 - browser: interactive web pages, form filling, screenshots
-- analyst: data analysis, memory operations
+  Personas: browser-tester, perf-optimizer
+- analyst: data analysis, memory, code review
+  Personas: code-reviewer, security-engineer, debugger, spec-writer
+
+When delegating, specify the persona that best fits the subtask.
+Example: { template: coder, task: ..., persona: tdd-engineer }
 
 CRITICAL RULES FOR CODING TASKS:
 - NEVER give a coder agent a task that requires writing >50 lines of code at once
