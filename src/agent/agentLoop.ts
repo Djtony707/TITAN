@@ -72,6 +72,7 @@ export interface LoopContext {
     toolSearchEnabled: boolean;
     isKimiSwarm: boolean;
     selfHealEnabled: boolean;
+    smartExitEnabled?: boolean;
     thinkingOverride?: string;
 }
 
@@ -803,7 +804,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 const singleToolSuccess = pendingToolCalls.length === 1
                     && toolResults.every(r => r.success)
                     && ['write_file', 'append_file', 'shell', 'read_file', 'list_dir', 'web_search', 'memory', 'weather', 'system_info'].includes(pendingToolCalls[0].function.name);
-                if (singleToolSuccess && round >= 1) {
+                if (singleToolSuccess && round >= 1 && ctx.smartExitEnabled !== false) {
                     logger.info(COMPONENT, '[SmartExit] Single successful tool call — skipping to respond phase');
                     phase = 'respond';
                 } else {
