@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Network, Trash2, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Network, Trash2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Search, X } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 
 interface GraphNode {
@@ -29,6 +29,7 @@ interface GraphData {
   edges: GraphEdge[];
 }
 
+// Full color palette for all known entity types
 const TYPE_COLORS: Record<string, string> = {
   person: '#818cf8',
   topic: '#22d3ee',
@@ -37,6 +38,17 @@ const TYPE_COLORS: Record<string, string> = {
   fact: '#f472b6',
   tool: '#fb923c',
   preference: '#a78bfa',
+  software: '#38bdf8',
+  system: '#e879f9',
+  event: '#fb7185',
+  product: '#4ade80',
+  company: '#facc15',
+  file: '#94a3b8',
+  technology: '#2dd4bf',
+  hardware: '#f97316',
+  component: '#c084fc',
+  feature: '#67e8f9',
+  directory: '#a1a1aa',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -47,10 +59,29 @@ const TYPE_LABELS: Record<string, string> = {
   fact: 'Fact',
   tool: 'Tool',
   preference: 'Preference',
+  software: 'Software',
+  system: 'System',
+  event: 'Event',
+  product: 'Product',
+  company: 'Company',
+  file: 'File',
+  technology: 'Technology',
+  hardware: 'Hardware',
+  component: 'Component',
+  feature: 'Feature',
+  directory: 'Directory',
 };
 
+// Fallback colors for types we haven't seen yet — cycle through distinct hues
+const FALLBACK_COLORS = ['#f0abfc', '#86efac', '#fda4af', '#7dd3fc', '#d9f99d', '#fcd34d'];
+
 function getColor(type: string): string {
-  return TYPE_COLORS[type?.toLowerCase()] ?? '#64748b';
+  const key = type?.toLowerCase();
+  if (TYPE_COLORS[key]) return TYPE_COLORS[key];
+  // Deterministic fallback based on type string hash
+  let hash = 0;
+  for (let i = 0; i < (key?.length ?? 0); i++) hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
+  return FALLBACK_COLORS[Math.abs(hash) % FALLBACK_COLORS.length];
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -58,46 +89,85 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
-// Force-directed layout with smoother convergence
+// Scale-adaptive force-directed layout with type clustering
 function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number) {
+  const n = nodes.length;
+  if (n === 0) return;
+
   const cx = width / 2, cy = height / 2;
-  // Distribute in a circle initially for more organic look
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
-    if (n.x === undefined) {
-      const angle = (i / nodes.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
-      const r = Math.min(width, height) * 0.25 + Math.random() * Math.min(width, height) * 0.1;
-      n.x = cx + Math.cos(angle) * r;
-      n.y = cy + Math.sin(angle) * r;
-      n.vx = 0;
-      n.vy = 0;
-    }
+
+  // Group nodes by type for cluster positioning
+  const typeGroups = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const t = nodes[i].type?.toLowerCase() ?? 'unknown';
+    if (!typeGroups.has(t)) typeGroups.set(t, []);
+    typeGroups.get(t)!.push(i);
   }
 
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  const iterations = 120;
-  const repulsion = 4000;
-  const attraction = 0.004;
-  const centerGravity = 0.008;
+  // Assign cluster centers in a circle
+  const typeList = [...typeGroups.keys()];
+  const clusterCenters = new Map<string, { x: number; y: number }>();
+  const clusterRadius = Math.min(width, height) * 0.3;
+  for (let i = 0; i < typeList.length; i++) {
+    const angle = (i / typeList.length) * Math.PI * 2 - Math.PI / 2;
+    clusterCenters.set(typeList[i], {
+      x: cx + Math.cos(angle) * clusterRadius,
+      y: cy + Math.sin(angle) * clusterRadius,
+    });
+  }
+
+  // Initialize positions near cluster centers with jitter
+  for (let i = 0; i < n; i++) {
+    const node = nodes[i];
+    if (node.x !== undefined) continue;
+    const center = clusterCenters.get(node.type?.toLowerCase() ?? 'unknown') ?? { x: cx, y: cy };
+    const jitter = Math.min(width, height) * 0.12;
+    node.x = center.x + (Math.random() - 0.5) * jitter;
+    node.y = center.y + (Math.random() - 0.5) * jitter;
+    node.vx = 0;
+    node.vy = 0;
+  }
+
+  const nodeMap = new Map(nodes.map((nd) => [nd.id, nd]));
+
+  // Scale parameters with graph size
+  const scaleFactor = Math.sqrt(n / 50);
+  const iterations = Math.min(300, Math.max(150, Math.round(80 + n * 0.4)));
+  const repulsion = 4000 * scaleFactor;
+  const attraction = 0.003 / scaleFactor;
+  const centerGravity = 0.003 / scaleFactor;
+  const clusterGravity = 0.015; // Pull toward type cluster center
+
+  // Build adjacency for edge lookup
+  const adjacency = new Map<string, Set<string>>();
+  for (const e of edges) {
+    if (!adjacency.has(e.from)) adjacency.set(e.from, new Set());
+    if (!adjacency.has(e.to)) adjacency.set(e.to, new Set());
+    adjacency.get(e.from)!.add(e.to);
+    adjacency.get(e.to)!.add(e.from);
+  }
 
   for (let iter = 0; iter < iterations; iter++) {
-    const damping = 0.92 - (iter / iterations) * 0.2; // Slow down over time
+    const damping = 0.9 - (iter / iterations) * 0.35;
+    const progress = iter / iterations;
 
-    // Repulsion between all pairs
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
+    // Repulsion between all pairs (Coulomb's law)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
         const a = nodes[i], b = nodes[j];
         let dx = a.x! - b.x!, dy = a.y! - b.y!;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = repulsion / (dist * dist);
-        dx = (dx / dist) * force;
-        dy = (dy / dist) * force;
-        a.vx! += dx; a.vy! += dy;
-        b.vx! -= dx; b.vy! -= dy;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq) || 1;
+        // Stronger repulsion at close range, weaker falloff
+        const force = repulsion / (distSq + 100);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx! += fx; a.vy! += fy;
+        b.vx! -= fx; b.vy! -= fy;
       }
     }
 
-    // Attraction along edges
+    // Attraction along edges (Hooke's law)
     for (const e of edges) {
       const a = nodeMap.get(e.from), b = nodeMap.get(e.to);
       if (!a || !b) continue;
@@ -109,20 +179,31 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
       b.vx! -= fx; b.vy! -= fy;
     }
 
-    // Center gravity
-    for (const n of nodes) {
-      n.vx! += (cx - n.x!) * centerGravity;
-      n.vy! += (cy - n.y!) * centerGravity;
+    // Cluster gravity — pull nodes toward their type's center
+    const clusterStrength = clusterGravity * (1 - progress * 0.5); // Fade over time
+    for (const node of nodes) {
+      const center = clusterCenters.get(node.type?.toLowerCase() ?? 'unknown');
+      if (center) {
+        node.vx! += (center.x - node.x!) * clusterStrength;
+        node.vy! += (center.y - node.y!) * clusterStrength;
+      }
+    }
+
+    // Mild center gravity to keep graph centered
+    for (const node of nodes) {
+      node.vx! += (cx - node.x!) * centerGravity;
+      node.vy! += (cy - node.y!) * centerGravity;
     }
 
     // Apply velocity with damping
-    for (const n of nodes) {
-      n.vx! *= damping;
-      n.vy! *= damping;
-      n.x! += n.vx!;
-      n.y! += n.vy!;
-      n.x = Math.max(60, Math.min(width - 60, n.x!));
-      n.y = Math.max(60, Math.min(height - 60, n.y!));
+    const margin = 40;
+    for (const node of nodes) {
+      node.vx! *= damping;
+      node.vy! *= damping;
+      node.x! += node.vx!;
+      node.y! += node.vy!;
+      node.x = Math.max(margin, Math.min(width - margin, node.x!));
+      node.y = Math.max(margin, Math.min(height - margin, node.y!));
     }
   }
 }
@@ -140,10 +221,9 @@ function getControlPoint(ax: number, ay: number, bx: number, by: number, offset:
 }
 
 // Draw arrowhead along bezier curve
-function drawArrowhead(ctx: CanvasRenderingContext2D, bx: number, by: number, cx: number, cy: number, radius: number, color: string) {
-  const angle = Math.atan2(by - cy, bx - cx);
+function drawArrowhead(ctx: CanvasRenderingContext2D, bx: number, by: number, cx_: number, cy_: number, radius: number, color: string) {
+  const angle = Math.atan2(by - cy_, bx - cx_);
   const arrowLen = 8;
-  const arrowWidth = 4;
   const tipX = bx - Math.cos(angle) * radius;
   const tipY = by - Math.sin(angle) * radius;
 
@@ -185,7 +265,6 @@ function DemoGraph() {
     const W = rect.width, H = rect.height;
     const cx = W / 2, cy = H / 2;
 
-    // Demo nodes
     const demoTypes = ['person', 'topic', 'project', 'tool', 'fact', 'preference'];
     const demoNodes = demoTypes.map((t, i) => {
       const angle = (i / demoTypes.length) * Math.PI * 2 - Math.PI / 2;
@@ -202,7 +281,6 @@ function DemoGraph() {
       frame++;
       ctx.clearRect(0, 0, W, H);
 
-      // Subtle grid
       ctx.fillStyle = 'rgba(255,255,255,0.015)';
       for (let gx = 0; gx < W; gx += 30) {
         for (let gy = 0; gy < H; gy += 30) {
@@ -210,7 +288,6 @@ function DemoGraph() {
         }
       }
 
-      // Floating particle effect
       for (let i = 0; i < 20; i++) {
         const px = ((frame * 0.3 + i * 97) % W);
         const py = ((frame * 0.2 + i * 137) % H);
@@ -221,11 +298,9 @@ function DemoGraph() {
         ctx.fill();
       }
 
-      // Edges with gradient
       for (const [fi, ti] of demoEdges) {
         const a = demoNodes[fi], b = demoNodes[ti];
         const pulse = 0.06 + Math.sin(frame * 0.02 + fi) * 0.03;
-
         const { cx: cpx, cy: cpy } = getControlPoint(a.x, a.y, b.x, b.y, 15);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -235,7 +310,6 @@ function DemoGraph() {
         ctx.stroke();
       }
 
-      // Nodes with breathing glow
       for (let i = 0; i < demoNodes.length; i++) {
         const n = demoNodes[i];
         const color = getColor(n.type);
@@ -243,7 +317,6 @@ function DemoGraph() {
         const breathe = Math.sin(frame * 0.03 + i * 1.2) * 0.12;
         const r = n.baseR + breathe * 4;
 
-        // Outer glow
         const glow = ctx.createRadialGradient(n.x, n.y, r * 0.3, n.x, n.y, r * 3);
         glow.addColorStop(0, `rgba(${cr},${cg},${cb},${0.08 + breathe})`);
         glow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
@@ -252,7 +325,6 @@ function DemoGraph() {
         ctx.arc(n.x, n.y, r * 3, 0, Math.PI * 2);
         ctx.fill();
 
-        // Node body with gradient
         const grad = ctx.createRadialGradient(n.x - r * 0.3, n.y - r * 0.3, 0, n.x, n.y, r);
         grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.35)`);
         grad.addColorStop(1, `rgba(${cr},${cg},${cb},0.12)`);
@@ -261,7 +333,6 @@ function DemoGraph() {
         ctx.fillStyle = grad;
         ctx.fill();
 
-        // Ring
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.5 + breathe})`;
@@ -291,7 +362,10 @@ function MemoryGraphPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoverNode, setHoverNode] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ x: 0, y: 0, zoom: 1, dragging: false, startX: 0, startY: 0 });
   const animFrameRef = useRef(0);
   const timeRef = useRef(0);
@@ -302,7 +376,11 @@ function MemoryGraphPanel() {
       if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
       const d = await res.json();
       if (d.nodes?.length) {
-        layoutNodes(d.nodes, d.edges ?? [], 900, 560);
+        // Use actual container dimensions for layout
+        const container = containerRef.current;
+        const w = container?.clientWidth ?? 1200;
+        const h = 600;
+        layoutNodes(d.nodes, d.edges ?? [], w, h);
       }
       setData(d);
       setError(null);
@@ -316,6 +394,46 @@ function MemoryGraphPanel() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Filtered nodes/edges based on search and type filters
+  const filtered = useMemo(() => {
+    if (!data) return { nodes: [], edges: [] };
+    const query = searchQuery.toLowerCase().trim();
+    let nodes = data.nodes;
+
+    // Filter by hidden types
+    if (hiddenTypes.size > 0) {
+      nodes = nodes.filter((n) => !hiddenTypes.has(n.type?.toLowerCase()));
+    }
+
+    // Filter by search
+    if (query) {
+      const matchIds = new Set<string>();
+      for (const n of nodes) {
+        if (n.label.toLowerCase().includes(query) || n.facts.some((f) => f.toLowerCase().includes(query))) {
+          matchIds.add(n.id);
+        }
+      }
+      // Include neighbors of matches
+      for (const e of data.edges) {
+        if (matchIds.has(e.from)) matchIds.add(e.to);
+        if (matchIds.has(e.to)) matchIds.add(e.from);
+      }
+      nodes = nodes.filter((n) => matchIds.has(n.id));
+    }
+
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const edges = (data.edges ?? []).filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));
+    return { nodes, edges };
+  }, [data, searchQuery, hiddenTypes]);
+
+  // Search match node — auto-focus on first match
+  const searchMatchId = useMemo(() => {
+    if (!searchQuery.trim() || !data) return null;
+    const q = searchQuery.toLowerCase().trim();
+    const match = data.nodes.find((n) => n.label.toLowerCase().includes(q));
+    return match?.id ?? null;
+  }, [searchQuery, data]);
+
   const handleClear = async () => {
     if (!confirm('Clear the entire memory graph? This cannot be undone.')) return;
     try {
@@ -327,8 +445,8 @@ function MemoryGraphPanel() {
 
   const handleZoom = (delta: number) => {
     const pan = panRef.current;
-    pan.zoom = Math.max(0.3, Math.min(3, pan.zoom * delta));
-    setHoverNode((h) => h); // trigger redraw
+    pan.zoom = Math.max(0.2, Math.min(4, pan.zoom * delta));
+    setHoverNode((h) => h);
   };
 
   const handleFitView = () => {
@@ -336,10 +454,19 @@ function MemoryGraphPanel() {
     setHoverNode((h) => h);
   };
 
+  const toggleType = (type: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
   // Animated rendering loop
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !data?.nodes?.length) return;
+    if (!canvas || !filtered.nodes.length) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -351,8 +478,8 @@ function MemoryGraphPanel() {
     ctx.scale(dpr, dpr);
 
     const W = rect.width, H = rect.height;
-    const { nodes, edges } = data;
-    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+    const { nodes, edges } = filtered;
+    const nodeMap = new Map(nodes.map((nd) => [nd.id, nd]));
 
     const draw = () => {
       timeRef.current++;
@@ -361,14 +488,14 @@ function MemoryGraphPanel() {
 
       ctx.clearRect(0, 0, W, H);
 
-      // Dark background with subtle gradient
+      // Dark background
       const bgGrad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.7);
       bgGrad.addColorStop(0, '#0c0c14');
       bgGrad.addColorStop(1, '#09090b');
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, W, H);
 
-      // Subtle grid dots
+      // Grid dots
       ctx.fillStyle = 'rgba(255,255,255,0.02)';
       const grid = 35 * pan.zoom;
       const offX = (pan.x % grid + grid) % grid;
@@ -379,7 +506,7 @@ function MemoryGraphPanel() {
         }
       }
 
-      // Floating particles for atmosphere
+      // Floating particles
       for (let i = 0; i < 15; i++) {
         const px = ((t * 0.15 + i * 127) % W);
         const py = ((t * 0.1 + i * 173) % H);
@@ -390,9 +517,9 @@ function MemoryGraphPanel() {
         ctx.fill();
       }
 
-      // Connected to selected/hovered
+      // Focus set for highlighting
       const highlightSet = new Set<string>();
-      const focusId = selectedNode?.id ?? hoverNode;
+      const focusId = selectedNode?.id ?? hoverNode ?? searchMatchId;
       if (focusId) {
         highlightSet.add(focusId);
         for (const e of edges) {
@@ -401,28 +528,41 @@ function MemoryGraphPanel() {
         }
       }
 
-      // Edges — curved bezier with arrowheads
+      const hasFocus = focusId != null;
+
+      // --- EDGES ---
+      // When no focus: draw all edges very faintly
+      // When focus: only draw edges connected to focus node
       for (const e of edges) {
         const a = nodeMap.get(e.from), b = nodeMap.get(e.to);
         if (!a || !b) continue;
+
+        const isEdgeHighlighted = hasFocus && (e.from === focusId || e.to === focusId);
+        const isDimmed = hasFocus && !isEdgeHighlighted;
+
+        // When focused, skip unrelated edges entirely for clarity
+        if (isDimmed && nodes.length > 100) continue;
+
         const ax = a.x! * pan.zoom + pan.x, ay = a.y! * pan.zoom + pan.y;
         const bx = b.x! * pan.zoom + pan.x, by = b.y! * pan.zoom + pan.y;
 
-        const isEdgeHighlighted = focusId && (e.from === focusId || e.to === focusId);
-        const isDimmed = focusId && !highlightSet.has(e.from) && !highlightSet.has(e.to);
+        // Skip off-screen edges
+        if (ax < -50 && bx < -50) continue;
+        if (ay < -50 && by < -50) continue;
+        if (ax > W + 50 && bx > W + 50) continue;
+        if (ay > H + 50 && by > H + 50) continue;
 
-        // Curve offset — vary per edge to avoid overlap
         const edgeIndex = edges.indexOf(e);
-        const curveOffset = 20 + (edgeIndex % 3) * 8;
+        const curveOffset = 15 + (edgeIndex % 3) * 6;
         const { cx: cpx, cy: cpy } = getControlPoint(ax, ay, bx, by, curveOffset * (edgeIndex % 2 === 0 ? 1 : -1));
 
-        // Edge glow for highlighted
         if (isEdgeHighlighted) {
+          // Glow
           ctx.beginPath();
           ctx.moveTo(ax, ay);
           ctx.quadraticCurveTo(cpx, cpy, bx, by);
-          ctx.strokeStyle = 'rgba(99,102,241,0.15)';
-          ctx.lineWidth = 6;
+          ctx.strokeStyle = 'rgba(99,102,241,0.12)';
+          ctx.lineWidth = 5;
           ctx.stroke();
         }
 
@@ -430,31 +570,26 @@ function MemoryGraphPanel() {
         ctx.moveTo(ax, ay);
         ctx.quadraticCurveTo(cpx, cpy, bx, by);
 
-        if (isDimmed) {
-          ctx.strokeStyle = 'rgba(100,116,139,0.06)';
-          ctx.lineWidth = 0.5;
-        } else if (isEdgeHighlighted) {
+        if (isEdgeHighlighted) {
           const edgeColor = getColor(a.type);
           const [r, g, b_] = hexToRgb(edgeColor);
           ctx.strokeStyle = `rgba(${r},${g},${b_},0.5)`;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 1.8;
         } else {
-          ctx.strokeStyle = 'rgba(100,116,139,0.15)';
-          ctx.lineWidth = 0.8;
+          // Very faint when no focus, slightly visible
+          ctx.strokeStyle = 'rgba(100,116,139,0.04)';
+          ctx.lineWidth = 0.5;
         }
         ctx.stroke();
 
-        // Arrowhead
-        if (!isDimmed) {
-          const bRadius = Math.max(14, Math.min(30, (b.size || 16))) * pan.zoom;
-          const arrowColor = isEdgeHighlighted
-            ? `rgba(148,163,184,0.7)`
-            : `rgba(100,116,139,0.2)`;
-          drawArrowhead(ctx, bx, by, cpx, cpy, bRadius + 4, arrowColor);
+        // Arrowhead only on highlighted edges
+        if (isEdgeHighlighted) {
+          const bRadius = Math.max(10, Math.min(24, (b.size || 14))) * pan.zoom;
+          drawArrowhead(ctx, bx, by, cpx, cpy, bRadius + 3, 'rgba(148,163,184,0.6)');
         }
 
         // Edge label on highlight
-        if (isEdgeHighlighted && e.label) {
+        if (isEdgeHighlighted && e.label && e.label !== 'co_mentioned') {
           const mt = 0.5;
           const mx = (1 - mt) * (1 - mt) * ax + 2 * (1 - mt) * mt * cpx + mt * mt * bx;
           const my = (1 - mt) * (1 - mt) * ay + 2 * (1 - mt) * mt * cpy + mt * mt * by;
@@ -476,25 +611,29 @@ function MemoryGraphPanel() {
         }
       }
 
-      // Nodes
+      // --- NODES ---
       for (const n of nodes) {
         const color = getColor(n.type);
         const [cr, cg, cb] = hexToRgb(color);
-        const baseRadius = Math.max(14, Math.min(30, (n.size || 16)));
-        const breathe = Math.sin(t * 0.025 + n.id.charCodeAt(0) * 0.5) * 1.5;
+        const baseRadius = Math.max(8, Math.min(24, (n.size || 12)));
+        const breathe = Math.sin(t * 0.025 + n.id.charCodeAt(0) * 0.5) * 1;
         const radius = (baseRadius + breathe) * pan.zoom;
         const tx = n.x! * pan.zoom + pan.x;
         const ty = n.y! * pan.zoom + pan.y;
 
+        // Skip off-screen
+        if (tx < -radius * 3 || ty < -radius * 3 || tx > W + radius * 3 || ty > H + radius * 3) continue;
+
         const isHover = hoverNode === n.id;
         const isSelected = selectedNode?.id === n.id;
-        const isFocused = isHover || isSelected;
-        const isDimmed = focusId && !highlightSet.has(n.id);
+        const isSearchMatch = searchMatchId === n.id;
+        const isFocused = isHover || isSelected || isSearchMatch;
+        const isDimmed = hasFocus && !highlightSet.has(n.id);
 
-        // Outer glow (always, subtle breathing)
+        // Outer glow
         if (!isDimmed) {
-          const glowIntensity = isFocused ? 0.2 : 0.06 + Math.sin(t * 0.02 + n.id.charCodeAt(0)) * 0.02;
-          const glowSize = isFocused ? radius * 4 : radius * 2.5;
+          const glowIntensity = isFocused ? 0.2 : 0.05 + Math.sin(t * 0.02 + n.id.charCodeAt(0)) * 0.015;
+          const glowSize = isFocused ? radius * 3.5 : radius * 2;
           const glow = ctx.createRadialGradient(tx, ty, radius * 0.3, tx, ty, glowSize);
           glow.addColorStop(0, `rgba(${cr},${cg},${cb},${glowIntensity})`);
           glow.addColorStop(0.5, `rgba(${cr},${cg},${cb},${glowIntensity * 0.3})`);
@@ -505,17 +644,14 @@ function MemoryGraphPanel() {
           ctx.fill();
         }
 
-        // Node body — gradient fill
-        const bodyGrad = ctx.createRadialGradient(
-          tx - radius * 0.3, ty - radius * 0.35, 0,
-          tx, ty, radius,
-        );
+        // Node body
+        const bodyGrad = ctx.createRadialGradient(tx - radius * 0.3, ty - radius * 0.35, 0, tx, ty, radius);
         if (isDimmed) {
           bodyGrad.addColorStop(0, `rgba(${cr},${cg},${cb},0.06)`);
           bodyGrad.addColorStop(1, `rgba(${cr},${cg},${cb},0.02)`);
         } else {
-          bodyGrad.addColorStop(0, `rgba(${cr},${cg},${cb},${isFocused ? 0.45 : 0.3})`);
-          bodyGrad.addColorStop(1, `rgba(${cr},${cg},${cb},${isFocused ? 0.18 : 0.08})`);
+          bodyGrad.addColorStop(0, `rgba(${cr},${cg},${cb},${isFocused ? 0.45 : 0.25})`);
+          bodyGrad.addColorStop(1, `rgba(${cr},${cg},${cb},${isFocused ? 0.18 : 0.07})`);
         }
         ctx.beginPath();
         ctx.arc(tx, ty, radius, 0, Math.PI * 2);
@@ -526,18 +662,18 @@ function MemoryGraphPanel() {
         ctx.beginPath();
         ctx.arc(tx, ty, radius, 0, Math.PI * 2);
         if (isDimmed) {
-          ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.1)`;
+          ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.08)`;
           ctx.lineWidth = 0.5;
         } else if (isFocused) {
           ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.9)`;
           ctx.lineWidth = 2.5;
         } else {
-          ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.5)`;
-          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.4)`;
+          ctx.lineWidth = 1;
         }
         ctx.stroke();
 
-        // Selection ring (animated dash)
+        // Selection ring
         if (isSelected) {
           ctx.beginPath();
           ctx.arc(tx, ty, radius + 5, 0, Math.PI * 2);
@@ -549,68 +685,40 @@ function MemoryGraphPanel() {
           ctx.setLineDash([]);
         }
 
-        // Label
-        if (!isDimmed) {
-          const maxLen = pan.zoom > 0.8 ? 16 : 10;
+        // --- LABEL LOD ---
+        // Show label if: focused, in highlight set, has many facts (important), or zoomed in enough
+        const isImportant = n.facts.length >= 3;
+        const showLabel = !isDimmed && (
+          isFocused ||
+          (hasFocus && highlightSet.has(n.id)) ||
+          (pan.zoom >= 1.3) ||
+          (pan.zoom >= 0.8 && isImportant)
+        );
+
+        if (showLabel) {
+          const maxLen = pan.zoom > 1 ? 20 : 12;
           const lbl = n.label.length > maxLen ? n.label.slice(0, maxLen - 1) + '\u2026' : n.label;
           const fontSize = Math.max(9, 11 * pan.zoom);
 
-          // Text shadow/background
           ctx.font = `600 ${fontSize}px "Inter", system-ui, sans-serif`;
           const textW = ctx.measureText(lbl).width + 8;
-          ctx.fillStyle = 'rgba(9,9,11,0.7)';
+          ctx.fillStyle = 'rgba(9,9,11,0.75)';
           ctx.beginPath();
           ctx.roundRect(tx - textW / 2, ty - fontSize / 2 - 1, textW, fontSize + 2, 3);
           ctx.fill();
 
-          ctx.fillStyle = isFocused ? '#fafafa' : '#e4e4e7';
+          ctx.fillStyle = isFocused ? '#fafafa' : '#d4d4d8';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(lbl, tx, ty);
 
           // Type label below
-          if (pan.zoom > 0.5) {
+          if (pan.zoom > 0.7) {
             const typeFontSize = Math.max(7, 8 * pan.zoom);
             ctx.font = `500 ${typeFontSize}px "Inter", system-ui, sans-serif`;
-            ctx.fillStyle = `rgba(${cr},${cg},${cb},${isFocused ? 0.9 : 0.6})`;
-            ctx.fillText(n.type, tx, ty + radius + Math.max(10, 12 * pan.zoom));
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},${isFocused ? 0.9 : 0.5})`;
+            ctx.fillText(n.type, tx, ty + radius + Math.max(9, 11 * pan.zoom));
           }
-        }
-      }
-
-      // Legend
-      const types = [...new Set(nodes.map((n) => n.type))];
-      if (types.length > 0) {
-        const legendH = 28;
-        const legendW = types.length * 85 + 16;
-        const legendX = W / 2 - legendW / 2;
-        const legendY = H - legendH - 8;
-
-        ctx.fillStyle = 'rgba(9,9,11,0.8)';
-        ctx.beginPath();
-        ctx.roundRect(legendX, legendY, legendW, legendH, 6);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(63,63,70,0.5)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-
-        let lx = legendX + 12;
-        ctx.font = '10px "Inter", system-ui, sans-serif';
-        ctx.textBaseline = 'middle';
-        for (const tp of types) {
-          const c = getColor(tp);
-          const [r, g, b_] = hexToRgb(c);
-
-          // Colored dot
-          ctx.beginPath();
-          ctx.arc(lx + 4, legendY + legendH / 2, 4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${r},${g},${b_},0.7)`;
-          ctx.fill();
-
-          ctx.fillStyle = '#a1a1aa';
-          ctx.textAlign = 'left';
-          ctx.fillText(TYPE_LABELS[tp] ?? tp, lx + 12, legendY + legendH / 2);
-          lx += 85;
         }
       }
 
@@ -619,24 +727,24 @@ function MemoryGraphPanel() {
 
     animFrameRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [data, hoverNode, selectedNode]);
+  }, [filtered, hoverNode, selectedNode, searchMatchId]);
 
   // Canvas mouse handlers
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !data?.nodes?.length) return;
+    if (!canvas || !filtered.nodes.length) return;
 
     const pan = panRef.current;
 
     const getNodeAt = (clientX: number, clientY: number): GraphNode | null => {
       const rect = canvas.getBoundingClientRect();
       const mx = clientX - rect.left, my = clientY - rect.top;
-      for (const n of [...data.nodes].reverse()) { // Reverse so top-drawn nodes are hit first
-        const radius = Math.max(14, Math.min(30, (n.size || 16))) * pan.zoom;
+      for (const n of [...filtered.nodes].reverse()) {
+        const radius = Math.max(8, Math.min(24, (n.size || 12))) * pan.zoom;
         const tx = n.x! * pan.zoom + pan.x;
         const ty = n.y! * pan.zoom + pan.y;
         const dx = mx - tx, dy = my - ty;
-        if (dx * dx + dy * dy <= (radius + 4) * (radius + 4)) return n;
+        if (dx * dx + dy * dy <= (radius + 6) * (radius + 6)) return n;
       }
       return null;
     };
@@ -649,9 +757,8 @@ function MemoryGraphPanel() {
 
       const oldZoom = pan.zoom;
       const delta = e.deltaY > 0 ? 0.92 : 1.08;
-      pan.zoom = Math.max(0.3, Math.min(3, pan.zoom * delta));
+      pan.zoom = Math.max(0.2, Math.min(4, pan.zoom * delta));
 
-      // Zoom toward mouse position
       pan.x = mx - (mx - pan.x) * (pan.zoom / oldZoom);
       pan.y = my - (my - pan.y) * (pan.zoom / oldZoom);
 
@@ -703,13 +810,24 @@ function MemoryGraphPanel() {
       canvas.removeEventListener('mouseleave', onMouseUp);
       canvas.removeEventListener('click', onClick);
     };
+  }, [filtered]);
+
+  // All unique types in the data
+  const allTypes = useMemo(() => {
+    if (!data) return [];
+    const counts = new Map<string, number>();
+    for (const n of data.nodes) {
+      const t = n.type?.toLowerCase() ?? 'unknown';
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }));
   }, [data]);
 
   if (loading) {
     return (
       <div className="space-y-4">
         <div className="h-12 animate-pulse rounded-xl bg-bg-secondary" />
-        <div className="h-[560px] animate-pulse rounded-xl border border-border bg-bg" />
+        <div className="h-[600px] animate-pulse rounded-xl border border-border bg-bg" />
       </div>
     );
   }
@@ -717,7 +835,7 @@ function MemoryGraphPanel() {
   const hasNodes = data && data.nodes.length > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={containerRef}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -794,17 +912,74 @@ function MemoryGraphPanel() {
         ))}
       </div>
 
+      {/* Search + Type Filters */}
+      {hasNodes && (
+        <div className="space-y-3">
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search entities and facts..."
+              className="w-full rounded-lg border border-border bg-bg-secondary py-2 pl-9 pr-8 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:text-text"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Type filter chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {allTypes.map(({ type, count }) => {
+              const color = getColor(type);
+              const isHidden = hiddenTypes.has(type);
+              return (
+                <button
+                  key={type}
+                  onClick={() => toggleType(type)}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-all ${
+                    isHidden
+                      ? 'bg-bg-tertiary/50 text-text-muted opacity-40'
+                      : 'bg-bg-tertiary text-text-secondary hover:brightness-110'
+                  }`}
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: isHidden ? '#52525b' : color }}
+                  />
+                  {TYPE_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1)}
+                  <span className="text-text-muted">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Graph canvas */}
       {hasNodes ? (
         <div className="relative rounded-xl border border-border bg-bg overflow-hidden shadow-2xl shadow-black/50">
           <canvas
             ref={canvasRef}
-            style={{ width: '100%', height: 560, cursor: 'grab' }}
+            style={{ width: '100%', height: 600, cursor: 'grab' }}
           />
           {/* Zoom indicator */}
           <div className="absolute bottom-3 right-3 rounded-md bg-bg/80 px-2 py-1 text-[10px] text-text-muted backdrop-blur-sm border border-bg-tertiary">
             {Math.round(panRef.current.zoom * 100)}%
           </div>
+          {/* Node count indicator when filtered */}
+          {(searchQuery || hiddenTypes.size > 0) && (
+            <div className="absolute top-3 left-3 rounded-md bg-bg/80 px-2 py-1 text-[10px] text-text-muted backdrop-blur-sm border border-bg-tertiary">
+              Showing {filtered.nodes.length} of {data?.nodes.length ?? 0} entities
+            </div>
+          )}
         </div>
       ) : (
         <div className="relative rounded-xl border border-border bg-bg overflow-hidden">
@@ -850,12 +1025,12 @@ function MemoryGraphPanel() {
             {data && (() => {
               const related = data.edges.filter((e) => e.from === selectedNode.id || e.to === selectedNode.id);
               if (!related.length) return null;
-              const nodeMap = new Map(data.nodes.map((n) => [n.id, n]));
+              const nodeMap = new Map(data.nodes.map((nd) => [nd.id, nd]));
               return (
                 <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-muted">Relationships</p>
-                  <div className="space-y-1.5">
-                    {related.map((e, i) => {
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-muted">Relationships ({related.length})</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {related.slice(0, 30).map((e, i) => {
                       const other = nodeMap.get(e.from === selectedNode.id ? e.to : e.from);
                       const otherColor = other ? getColor(other.type) : '#64748b';
                       return (
@@ -869,6 +1044,9 @@ function MemoryGraphPanel() {
                         </div>
                       );
                     })}
+                    {related.length > 30 && (
+                      <p className="text-[10px] text-text-muted">+ {related.length - 30} more</p>
+                    )}
                   </div>
                 </div>
               );

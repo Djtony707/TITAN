@@ -275,7 +275,7 @@ export class OllamaProvider extends LLMProvider {
                 function: {
                     name: t.function.name,
                     description: t.function.description,
-                    parameters: isCloudModel ? simplifySchema(t.function.parameters) : t.function.parameters,
+                    parameters: simplifySchema(t.function.parameters),
                 },
             }));
             // Lower temperature for better tool-calling compliance
@@ -298,9 +298,9 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // Nemotron and some OSS models ignore standalone system messages for tool calling.
+        // Many models (Nemotron, Gemma, Llama, etc.) ignore standalone system messages for tool calling.
         // Merge system content into the first user message (CrewAI fix pattern).
-        if (isCloudModel && hasTools) {
+        if (hasTools) {
             const msgs = body.messages as Array<Record<string, unknown>>;
             const sysIdx = msgs.findIndex(m => m.role === 'system');
             const firstUserIdx = msgs.findIndex(m => m.role === 'user');
@@ -429,7 +429,7 @@ export class OllamaProvider extends LLMProvider {
                 function: {
                     name: t.function.name,
                     description: t.function.description,
-                    parameters: isCloudModel ? simplifySchema(t.function.parameters) : t.function.parameters,
+                    parameters: simplifySchema(t.function.parameters),
                 },
             }));
             // Force tool_choice when requested (Claude Code pattern)
@@ -449,7 +449,7 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // Cloud model optimizations: trim history preserving tool pairs + merge system into user message
+        // Optimize: trim history preserving tool pairs (cloud models only — local models have smaller contexts)
         if (isCloudModel && hasTools) {
             const msgs = body.messages as Array<Record<string, unknown>>;
             if (msgs.length > 80) {
@@ -457,7 +457,9 @@ export class OllamaProvider extends LLMProvider {
                 logger.info(COMPONENT, `[Stream] Cloud model context trim: ${msgs.length} → ${trimmed.length} messages`);
                 body.messages = trimmed;
             }
-            // Merge system into first user message
+        }
+        // Merge system into first user message for all models with tools
+        if (hasTools) {
             const msgs2 = body.messages as Array<Record<string, unknown>>;
             const sysIdx = msgs2.findIndex(m => m.role === 'system');
             const firstUserIdx = msgs2.findIndex(m => m.role === 'user');

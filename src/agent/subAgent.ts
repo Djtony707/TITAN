@@ -339,7 +339,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     const startTime = Date.now();
     const currentDepth = config.depth ?? 0;
     const subAgentsCfg = (titanConfig as Record<string, unknown>).subAgents as Record<string, unknown> | undefined;
-    const maxDepth = (subAgentsCfg?.maxDepth as number) ?? 2;
+    const maxDepth = (subAgentsCfg?.maxDepth as number) ?? 4; // Increased from 2 → 4 for multi-level task decomposition
 
     // Check depth limit (configurable, default 2)
     if (currentDepth >= maxDepth || config.isNested) {

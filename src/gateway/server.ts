@@ -42,6 +42,7 @@ import { EmailInboundChannel } from '../channels/email_inbound.js';
 import { LineChannel } from '../channels/line.js';
 import { ZulipChannel } from '../channels/zulip.js';
 import { initAgents, routeMessage, listAgents, spawnAgent, stopAgent, getAgentCapacity, getAgent } from '../agent/multiAgent.js';
+import { createOpenAICompatRouter } from '../gateway/openai-compat.js';
 import type { ChannelAdapter, InboundMessage } from '../channels/base.js';
 import logger, { initFileLogger } from '../utils/logger.js';
 import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/constants.js';
@@ -57,7 +58,7 @@ import { seedBuiltinRecipes, listRecipes, getRecipe, saveRecipe, deleteRecipe, g
 import { parseSlashCommand, runRecipe } from '../recipes/runner.js';
 import { getCostStatus } from '../agent/costOptimizer.js';
 import { initLearning, getLearningStats } from '../memory/learning.js';
-import { initGraph, getGraphData, getGraphStats, clearGraph, flushGraph } from '../memory/graph.js';
+import { initGraph, getGraphData, getGraphStats, clearGraph, cleanupGraph, flushGraph, getEntity, listEntities, getEntityEpisodes } from '../memory/graph.js';
 import { getLogFilePath } from '../utils/logger.js';
 import { closeSession, renameSession } from '../agent/session.js';
 import { initCronScheduler } from '../skills/builtin/cron.js';
@@ -485,6 +486,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   initLearning();
   initGraph();
 
+  // Recover persisted deliberation states from previous session
+  import('../agent/deliberation.js').then(({ recoverDeliberations }) => {
+    recoverDeliberations();
+  }).catch(() => {});
+
   // Initialize vector search (Tier 2 memory — non-blocking)
   import('../memory/vectors.js').then(({ initVectors }) => {
     initVectors().then(ok => {
@@ -566,6 +572,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Create Express app
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+
+  // OpenAI API compatibility layer (/v1/models, /v1/chat/completions, /v1/embeddings)
+  app.use('/v1', createOpenAICompatRouter());
 
   // Handle JSON parse errors and payload too large
   app.use((err: Error & { type?: string; status?: number }, req: Request, res: Response, next: NextFunction) => {
@@ -2268,6 +2277,151 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  app.post('/api/graphiti/cleanup', (_req, res) => {
+    try {
+      const result = cleanupGraph();
+      logger.info(COMPONENT, `Graph cleanup: removed ${result.removedEntities} entities, ${result.removedEdges} edges`);
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // Memory Wiki API — browseable knowledge base
+  app.get('/api/wiki/entities', (req, res) => {
+    try {
+      const type = req.query.type as string | undefined;
+      const q = req.query.q as string | undefined;
+      let entities = listEntities(type || undefined);
+      if (q) {
+        const query = q.toLowerCase();
+        entities = entities.filter(e =>
+          e.name.toLowerCase().includes(query) ||
+          e.facts.some(f => f.toLowerCase().includes(query)) ||
+          (e.summary || '').toLowerCase().includes(query)
+        );
+      }
+      res.json(entities.map(e => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        summary: e.summary,
+        factCount: e.facts.length,
+        aliases: e.aliases,
+        firstSeen: e.firstSeen,
+        lastSeen: e.lastSeen,
+      })));
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.get('/api/wiki/entity/:name', (req, res) => {
+    try {
+      const entity = getEntity(decodeURIComponent(req.params.name));
+      if (!entity) { res.status(404).json({ error: 'Entity not found' }); return; }
+      // Get related entities via edges
+      const graphData = getGraphData();
+      const relatedEdges = graphData.edges.filter(e => e.from === entity.id || e.to === entity.id);
+      const relatedIds = new Set(relatedEdges.map(e => e.from === entity.id ? e.to : e.from));
+      const related = graphData.nodes.filter(n => relatedIds.has(n.id)).map(n => ({
+        id: n.id,
+        name: n.label,
+        type: n.type,
+        relation: relatedEdges.find(e => (e.from === entity.id && e.to === n.id) || (e.to === entity.id && e.from === n.id))?.label || 'co_mentioned',
+      }));
+      // Get episodes
+      const episodes = getEntityEpisodes(entity.id, 20).map(ep => ({
+        id: ep.id,
+        content: ep.content.slice(0, 300),
+        source: ep.source,
+        createdAt: ep.createdAt,
+      }));
+      res.json({ ...entity, related, episodes });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  // Agent Templates (marketplace)
+  app.get('/api/agent-templates', async (_req, res) => {
+    try {
+      const { listTemplates, BUILTIN_TEMPLATES } = await import('../skills/agentTemplates.js');
+      const installed = listTemplates();
+      res.json({ builtin: BUILTIN_TEMPLATES, installed });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.post('/api/agent-templates', async (req, res) => {
+    try {
+      const { saveTemplate } = await import('../skills/agentTemplates.js');
+      saveTemplate(req.body);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  // Training data (RL trajectory capture)
+  app.get('/api/training/stats', async (_req, res) => {
+    try {
+      const { getTrainingStats } = await import('../agent/trajectoryCapture.js');
+      res.json(getTrainingStats());
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.get('/api/training/export', async (_req, res) => {
+    try {
+      const { exportTrainingData } = await import('../agent/trajectoryCapture.js');
+      res.setHeader('Content-Type', 'application/jsonl');
+      res.setHeader('Content-Disposition', 'attachment; filename="titan-training-data.jsonl"');
+      res.send(exportTrainingData());
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  // Dreaming memory (sleep-cycle consolidation)
+  app.get('/api/dreaming/status', async (_req, res) => {
+    try {
+      const { getDreamingStatus } = await import('../memory/dreaming.js');
+      res.json(getDreamingStatus());
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.post('/api/dreaming/run', async (_req, res) => {
+    try {
+      const { runConsolidation } = await import('../memory/dreaming.js');
+      const result = await runConsolidation();
+      res.json({ success: true, ...result });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.get('/api/dreaming/history', async (_req, res) => {
+    try {
+      const { getConsolidationHistory } = await import('../memory/dreaming.js');
+      res.json(getConsolidationHistory());
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  // Backup system
+  app.post('/api/backup/create', async (_req, res) => {
+    try {
+      const { createBackup } = await import('../storage/backup.js');
+      const info = await createBackup();
+      res.json({ success: true, ...info });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.get('/api/backup/list', async (_req, res) => {
+    try {
+      const { listBackups } = await import('../storage/backup.js');
+      res.json(listBackups());
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  app.post('/api/backup/verify', async (req, res) => {
+    try {
+      const { verifyBackup, listBackups } = await import('../storage/backup.js');
+      const path = req.body?.path || listBackups()[0]?.path;
+      if (!path) { res.status(400).json({ error: 'No backup path specified and no backups found' }); return; }
+      const result = await verifyBackup(path);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
   // Full data reset (graph + knowledge + titan-data)
   app.delete('/api/data', (_req, res) => {
     try {
@@ -2608,6 +2762,30 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       for (const [evt, handler] of listeners) {
         titanEvents.removeListener(evt, handler);
       }
+    });
+  });
+
+  // ── Deliberation Plan Events (SSE) ──────────────────────────
+  app.get('/api/deliberation/stream', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const handler = (data: unknown) => {
+      try { res.write(`event: plan\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+    };
+    titanEvents.on('plan:event', handler);
+
+    const keepalive = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch { /* client gone */ }
+    }, 15_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      titanEvents.removeListener('plan:event', handler);
     });
   });
 
@@ -4946,6 +5124,31 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         }
       });
       return; // Don't add to wsClients — mesh peers use separate handling
+    }
+
+    // ── WebSocket Origin Validation (CVE-2026-25253 class) ──────
+    // Prevent cross-origin WebSocket hijacking from malicious web pages
+    const origin = req.headers.origin;
+    if (origin) {
+      const allowedOrigins = [
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/\[::1\](:\d+)?$/,
+        /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,      // LAN
+        /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,        // LAN
+        /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/, // LAN
+        /^https?:\/\/.*\.ts\.net(:\d+)?$/,               // Tailscale
+        /^https?:\/\/.*\.trycloudflare\.com$/,           // Cloudflare tunnels
+      ];
+      const wsAllowlist = (cfg.gateway as Record<string, unknown>).wsOriginAllowlist as string[] | undefined;
+      if (wsAllowlist?.length) {
+        for (const o of wsAllowlist) allowedOrigins.push(new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+      }
+      if (!allowedOrigins.some(p => p.test(origin))) {
+        logger.warn(COMPONENT, `WebSocket origin rejected: ${origin} (not in allowlist)`);
+        ws.close(1008, 'Origin not allowed');
+        return;
+      }
     }
 
     // ── Regular dashboard WebSocket connections ──────

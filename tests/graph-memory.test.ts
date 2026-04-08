@@ -325,21 +325,21 @@ describe('Graph Memory — Extended', () => {
     describe('listEntities', () => {
         it('should return all entities sorted by lastSeen', async () => {
             mockRouterChat.mockResolvedValueOnce({
-                content: '[{"name":"A","type":"topic","facts":["a"]}]',
+                content: '[{"name":"Alpha","type":"topic","facts":["first entity"]}]',
             });
-            await addEpisode('A.', 'test');
+            await addEpisode('Alpha is here.', 'test');
             await new Promise(r => setTimeout(r, 100));
 
             mockRouterChat.mockResolvedValueOnce({
-                content: '[{"name":"B","type":"person","facts":["b"]}]',
+                content: '[{"name":"Bravo","type":"person","facts":["second entity"]}]',
             });
-            await addEpisode('B.', 'test');
+            await addEpisode('Bravo is here.', 'test');
             await new Promise(r => setTimeout(r, 100));
 
             const all = listEntities();
             expect(all.length).toBe(2);
-            // B was added later, should be first
-            expect(all[0].name).toBe('B');
+            // Bravo was added later, should be first
+            expect(all[0].name).toBe('Bravo');
         });
 
         it('should filter by type', async () => {

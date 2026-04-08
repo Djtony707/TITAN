@@ -78,6 +78,21 @@ export interface VRAMSnapshot {
     availableMB: number; // free - reserved by leases - config reserve
 }
 
+/** Multi-GPU state — for systems with multiple GPUs */
+export interface MultiGpuState {
+    gpuCount: number;
+    gpus: Array<GpuState & { index: number; busId?: string }>;
+    totalSystemVramMB: number;
+    totalFreeVramMB: number;
+}
+
+/** GPU assignment — which model is pinned to which GPU */
+export interface GpuAssignment {
+    model: string;
+    gpuIndex: number;
+    pinnedAt: string;
+}
+
 /** Events emitted by the orchestrator */
 export type VRAMEvent =
     | { type: 'model_evicted'; model: string; freedMB: number }
