@@ -41,12 +41,9 @@ export function shouldDeliberate(message: string, config: TitanConfig): boolean 
     const autoDetectEffective = isAutonomous || (config.deliberation?.autoDetect === true);
     if (!autoDetectEffective) return false;
     const complexity = classifyComplexity(message);
-    // In autonomous mode with autoDeliberate, trigger on 'moderate' complexity too
-    const autoDelib = autonomy?.autoDeliberate as boolean;
-    if (isAutonomous && autoDelib) {
-        return complexity === 'ambitious' || complexity === 'moderate';
-    }
-    return complexity === 'ambitious';
+    // Plan mode: trigger on moderate AND ambitious complexity
+    // This ensures TITAN plans before acting on any non-trivial task
+    return complexity === 'ambitious' || complexity === 'moderate' || complexity === 'complex';
 }
 
 /** Get the reasoning model to use — always falls back to the agent's configured model */
@@ -110,62 +107,88 @@ export async function generatePlan(state: DeliberationState, config: TitanConfig
 
     logger.info(COMPONENT, `Generating plan with max ${maxSteps} steps`);
 
-    const planPrompt = `Based on the following analysis, create a structured execution plan as JSON.
+    const planPrompt = `Create a step-by-step plan for this task.
 
-ANALYSIS:
-${state.analysis}
+TASK: ${state.originalMessage}
 
-ORIGINAL REQUEST:
-${state.originalMessage}
+ANALYSIS: ${(state.analysis || '').slice(0, 500)}
 
-Return ONLY valid JSON (no markdown fences) in this exact format:
-{
-  "goal": "concise goal statement",
-  "tasks": [
-    {
-      "title": "short task title",
-      "description": "what to do in this step",
-      "dependsOn": []
-    }
-  ]
-}
+Output the plan in this EXACT format (one step per line):
+GOAL: <one sentence describing the goal>
+STEP: <title> | <description> | <tool to use>
+STEP: <title> | <description> | <tool to use>
+STEP: <title> | <description> | <tool to use>
 
 Rules:
-- Maximum ${maxSteps} tasks
-- Tasks can reference earlier task IDs (task-1, task-2, etc.) in dependsOn
-- Each task should be independently executable by an AI agent with tools
-- Be specific and actionable, not vague`;
+- Maximum ${maxSteps} steps
+- Each STEP line has: title | description | tool (read_file, write_file, edit_file, shell, web_search)
+- Be specific: include file paths, commands, what to change
+- One action per step
 
-    let parsed: { goal: string; tasks: Array<{ title: string; description: string; dependsOn?: string[] }> } | null = null;
+Example:
+GOAL: Add dark mode toggle to the settings page
+STEP: Read settings component | Read /src/components/Settings.tsx to understand current structure | read_file
+STEP: Add toggle state | Add isDarkMode state and toggle handler to Settings component | edit_file
+STEP: Add CSS variables | Add dark theme CSS variables to /src/styles/theme.css | edit_file
+STEP: Test build | Run npm run build to verify no errors | shell`;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-            const response = await chat({
-                model: reasoningModel,
-                messages: [
-                    { role: 'system', content: 'You are a precise planner. Return ONLY valid JSON. No markdown, no commentary.' },
-                    { role: 'user', content: planPrompt },
-                ],
-                maxTokens: 2000,
-                temperature: 0.2,
-            });
+    let parsed: { goal: string; tasks: Array<{ title: string; description: string; dependsOn?: string[]; toolHint?: string }> } | null = null;
 
-            // Strip markdown fences if present
-            let jsonStr = response.content.trim();
-            if (jsonStr.startsWith('```')) {
-                jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    try {
+        const response = await chat({
+            model: reasoningModel,
+            messages: [
+                { role: 'system', content: 'You are a planner. Output a plan using GOAL: and STEP: lines. Nothing else.' },
+                { role: 'user', content: planPrompt },
+            ],
+            maxTokens: 1500,
+            temperature: 0.3,
+        });
+
+        const text = response.content.trim();
+        logger.info(COMPONENT, `Plan response (${text.length} chars): ${text.slice(0, 200)}`);
+
+        // Parse GOAL: and STEP: lines
+        const goalMatch = text.match(/GOAL:\s*(.+)/i);
+        const stepMatches = [...text.matchAll(/STEP:\s*([^|]+)\|\s*([^|]+)(?:\|\s*(.+))?/gi)];
+
+        if (goalMatch && stepMatches.length > 0) {
+            parsed = {
+                goal: goalMatch[1].trim(),
+                tasks: stepMatches.slice(0, maxSteps).map((m, i) => ({
+                    title: m[1].trim(),
+                    description: m[2].trim(),
+                    toolHint: m[3]?.trim(),
+                    dependsOn: i > 0 ? [`task-${i}`] : [],
+                })),
+            };
+        } else {
+            // Fallback: try to parse as JSON in case the model did that anyway
+            try {
+                let jsonStr = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+                parsed = JSON.parse(jsonStr);
+            } catch {
+                // Last resort: split by numbered lines
+                const lines = text.split('\n').filter(l => /^\d+[.)\s]/.test(l.trim()));
+                if (lines.length > 0) {
+                    parsed = {
+                        goal: goalMatch?.[1]?.trim() || state.originalMessage.slice(0, 80),
+                        tasks: lines.slice(0, maxSteps).map((l, i) => ({
+                            title: l.replace(/^\d+[.)\s]+/, '').trim().slice(0, 60),
+                            description: l.replace(/^\d+[.)\s]+/, '').trim(),
+                            dependsOn: i > 0 ? [`task-${i}`] : [],
+                        })),
+                    };
+                }
             }
-
-            parsed = JSON.parse(jsonStr);
-            break;
-        } catch (err) {
-            logger.warn(COMPONENT, `Plan JSON parse failed (attempt ${attempt + 1}): ${(err as Error).message}`);
         }
+    } catch (err) {
+        logger.warn(COMPONENT, `Plan generation failed: ${(err as Error).message}`);
     }
 
     if (!parsed || !parsed.tasks || parsed.tasks.length === 0) {
         state.stage = 'failed';
-        state.error = 'Failed to generate a valid plan from the analysis.';
+        state.error = 'Failed to generate a valid plan.';
         return state;
     }
 
@@ -184,25 +207,37 @@ Rules:
     return state;
 }
 
-/** Format the plan as markdown for user approval */
+/** Format the plan as markdown for user approval (Claude Code style) */
 export function formatPlanForApproval(state: DeliberationState): string {
     if (!state.plan) return 'No plan generated.';
 
     const lines: string[] = [
-        `## Deliberation Plan`,
-        `**Goal:** ${state.plan.goal}`,
+        '## Plan',
         '',
-        `### Steps (${state.plan.tasks.length})`,
+        `> ${state.plan.goal}`,
+        '',
+        `**${state.plan.tasks.length} steps** | Estimated scope: ${state.plan.tasks.length <= 2 ? 'small' : state.plan.tasks.length <= 4 ? 'medium' : 'large'}`,
+        '',
     ];
 
-    for (const task of state.plan.tasks) {
-        const deps = task.dependsOn.length > 0 ? ` _(depends on: ${task.dependsOn.join(', ')})_` : '';
-        lines.push(`${task.id}. **${task.title}**${deps}`);
-        lines.push(`   ${task.description}`);
+    for (let i = 0; i < state.plan.tasks.length; i++) {
+        const task = state.plan.tasks[i];
+        const num = i + 1;
+        const deps = task.dependsOn.length > 0 ? ` (after step ${task.dependsOn.join(', ')})` : '';
+        lines.push(`### Step ${num}: ${task.title}${deps}`);
+        lines.push(task.description);
+        if (task.toolHint) lines.push(`Tool: \`${task.toolHint}\``);
+        lines.push('');
     }
 
-    lines.push('');
-    lines.push("Reply **'yes'** to execute, **'no'** to cancel, or suggest changes.");
+    if (state.analysis) {
+        lines.push('---');
+        lines.push('**Analysis:** ' + state.analysis.slice(0, 300));
+        lines.push('');
+    }
+
+    lines.push('---');
+    lines.push("**Do you want me to execute this plan?** Reply **yes** to proceed, **no** to cancel, or describe changes you'd like.");
 
     return lines.join('\n');
 }
