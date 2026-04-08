@@ -7,6 +7,13 @@ export default defineConfig({
         include: ['tests/**/*.test.ts'],
         testTimeout: 30000,
         hookTimeout: 25000,
+        pool: 'forks',
+        poolOptions: {
+            forks: {
+                maxForks: process.env.CI ? 2 : undefined,
+                minForks: 1,
+            },
+        },
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'json-summary'],
