@@ -73,7 +73,7 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 | Feature | TITAN | OpenClaw | CrewAI | LangGraph | AutoGen | Forge (MiniMax) |
 |---------|:-----:|:--------:|:------:|:---------:|:-------:|:---------------:|
 | **Language** | TypeScript | TypeScript | Python | Python | Python/.NET | Python |
-| **GitHub Stars** | 8 | 316k | 48k | 28.4k | 56.7k | Emerging |
+| **GitHub Stars** | 9 | 348k | 48k | 28.4k | 56.7k | Emerging |
 | **Self-improving** | LoRA + auto-eval | Foundry/Trace | — | — | Limited | RL training (CISPO) |
 | **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | Prefix tree merging (40× speedup) |
 | **Built-in GUI** | React SPA, 30+ panels | Web + mobile | Partial | — | AutoGen Studio | — |
@@ -101,19 +101,21 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 
 ---
 
-> **What's New in v1.2.1 — Agent Pipeline Overhaul + Claude Code Patterns**
+> **What's New in v2.0.0 — Model-Agnostic Tool Pipeline + Dreaming Memory + OpenAI API**
 >
-> **Async sub-agent heartbeat** — agents can now poll their Command Post inbox every 3 rounds, claim pending wakeup requests, and spawn sub-agents automatically. New `claimWakeupRequest()` and `releaseWakeupRequest()` functions provide atomic claim/release semantics. `checkAndProcessInbox()` handles the full lifecycle: spawns sub-agent, updates issue status, posts results back as comments.
+> **15-Layer Tool Calling Pipeline** — ContentCapture auto-wraps model text as write_file calls. FabricationGuard catches fabricated completions from ALL models. ToolRescue extracts tool calls from text for ALL tools. execute_code (Hermes-style Python/Node/Bash script execution). Auto-verify catches truncated files. Trajectory compression preserves context over 20+ rounds. Tool result dedup caches read-only calls. Dynamic silence timeout adapts to model speed.
 >
-> **Agent Watcher mobile overlay** — responsive full-screen overlay for mobile devices. Agent Watcher panel is hidden on mobile by default; tapping the watch button opens a full-screen overlay with close button, matching the desktop 40% width layout. Desktop split-view improved with proper `overflow-hidden` handling and smooth width transitions.
+> **3-Phase Dreaming Memory** — Light Sleep (score + deduplicate), REM (cross-reference graph entities, synthesize summaries), Deep Sleep (prune bottom 20%, remove orphans). Daily consolidation inspired by OpenClaw's dreaming system. `POST /api/dreaming/run`.
 >
-> **Type safety hardening** — improved TypeScript strictness across gateway server (dynamic imports, nullable session fields, audit log queries), Command Post event handlers (spread args pattern), and config API exposure.
+> **OpenAI API Compatibility** — `/v1/models`, `/v1/chat/completions`, `/v1/embeddings`. Any OpenAI-compatible client can connect to TITAN.
 >
-> **Bug fixes** — session timestamps use `createdAt` field, cloud mode redirects fixed, error handlers cleaned up, OpenRouter auth profiles added.
+> **Durable Task Flows** — Deliberation plans persist to disk, recover on crash, stream step-by-step progress via SSE. Auto-execute for API callers.
 >
-> Previous release: v2026.10.68 — Full Paperclip integration, 14 bugs fixed, Cloud model benchmark, F5-TTS voice cloning. 4,500+ tests across 154 files.
+> **Memory Wiki** — Browseable knowledge base with entity pages, linked facts, related entities, episode history. Knowledge graph redesign with type clustering, search, and filter chips.
 >
-> **— Claude Code**
+> **Also new**: Agent template marketplace (3 built-in), RL trajectory capture, backup system, video generation (Runway Gen-4), QQ Bot channel, skill marketplace hub UI, cron tool allowlists, WebSocket origin validation, voice silence timeout.
+>
+> Previous: v1.2.3 — 15-layer pipeline, Claude Code patterns, 19 engineering personas, 10 new skills, 73 total skills.
 
 ---
 
@@ -933,10 +935,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 
 ## Roadmap
 
-### Current (v1.2.x)
+### Current (v2.0.0) — April 8, 2026
 
-- **v1.2.1** (April 7, 2026): **Agent Pipeline Overhaul** — 15-layer tool calling defense, Plan Mode, 10 new skills, 40 engineering personas, OpenClaw-style sidebar, multi-agent PixelOffice, Agent Eval Framework. 45 commits.
-- **v1.2.0** (April 6, 2026): **Gemma 4 Support** — Google-spec sampling, coding enforcement, write_file guards, LLM session titles.
+- **v2.0.0**: **Model-Agnostic Tool Pipeline + Dreaming Memory + OpenAI Compat** — 15-layer tool calling pipeline (ContentCapture, FabricationGuard, ToolRescue, execute_code, auto-verify, trajectory compression, tool result dedup). 3-phase Dreaming memory consolidation (Light/REM/Deep Sleep). OpenAI API compatibility (/v1/). Durable task flows with SSE progress. Memory Wiki. Agent template marketplace. RL trajectory capture. Backup system. Video generation (Runway). QQ Bot channel. Skill marketplace hub UI. 28 dashboard panels. 220+ tools.
+
+### Previous (v1.x)
+
+- **v1.2.3** (April 7, 2026): **Agent Pipeline Overhaul** — 15-layer tool calling defense, Plan Mode, 10 new skills, 40 engineering personas, OpenClaw-style sidebar, multi-agent PixelOffice, Agent Eval Framework.
+- **v1.2.0** (April 6, 2026): **Gemma 4 Support** — Google-spec sampling, coding enforcement, write_file guards.
 - **v1.1.0** (April 4, 2026): **Command Post Governance** — Budget enforcement, E2E tests, type safety.
 - **v1.0.0** (April 1, 2026): **Semver Migration** — Multi-agent architecture rewrite.
 
