@@ -73,7 +73,7 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 | Feature | TITAN | OpenClaw | CrewAI | LangGraph | AutoGen | Forge (MiniMax) |
 |---------|:-----:|:--------:|:------:|:---------:|:-------:|:---------------:|
 | **Language** | TypeScript | TypeScript | Python | Python | Python/.NET | Python |
-| **GitHub Stars** | 5.5k+ | 316k | 48k | 28.4k | 56.7k | Emerging |
+| **GitHub Stars** | 8 | 316k | 48k | 28.4k | 56.7k | Emerging |
 | **Self-improving** | LoRA + auto-eval | Foundry/Trace | — | — | Limited | RL training (CISPO) |
 | **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | Prefix tree merging (40× speedup) |
 | **Built-in GUI** | React SPA, 30+ panels | Web + mobile | Partial | — | AutoGen Studio | — |
