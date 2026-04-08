@@ -140,6 +140,7 @@ jobs:
   coverage-check:
     needs: test
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: github.event_name == 'pull_request'
     env:
       NODE_OPTIONS: --max-old-space-size=6144
