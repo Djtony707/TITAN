@@ -38,13 +38,13 @@ jobs:
         run: npm run build:ui
 
       - name: Run tests
-        run: npx vitest run --maxWorkers=2
+        run: npx vitest run
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Run tests with coverage
         if: matrix.node-version == 22
-        run: npx vitest run --coverage --maxWorkers=2
+        run: npx vitest run --coverage
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
