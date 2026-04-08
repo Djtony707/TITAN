@@ -218,7 +218,14 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.info(COMPONENT, `Tool ${handler.name} completed in ${durationMs}ms`);
             }
 
-            let finalContent = result.length > 50000 ? result.slice(0, 50000) + '\n\n[Output truncated at 50KB]' : result;
+            // Smart truncation — keep head + tail for large results (Claude Code pattern)
+            let finalContent = result;
+            if (result.length > 30000) {
+                const head = result.slice(0, 20000);
+                const tail = result.slice(-5000);
+                finalContent = head + '\n\n[... ' + (result.length - 25000) + ' chars omitted ...]\n\n' + tail;
+                logger.info(COMPONENT, `Tool \${handler.name} output truncated: \${result.length} → \${finalContent.length} chars`);
+            }
 
             // Post-tool hooks — plugins can modify result
             if (toolHookPlugins.length > 0) {

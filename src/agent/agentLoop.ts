@@ -356,12 +356,29 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // ── Call LLM with tools ──────────────────────────────
             const thinkingMode = ctx.thinkingOverride || ctx.config.agent.thinkingMode || 'off';
             const isVoice = ctx.voiceFastPath;
-            // Trim context for tool-calling rounds — keep system + last 6 messages (Claude Code pattern)
-            if (smartMessages.length > 8 && phase !== 'respond') {
+            // Claude Code-style context management:
+            // 1. Clear old tool results (keep last 5 in full, truncate older ones)
+            // 2. Trim to recent messages if context is getting large
+            if (smartMessages.length > 6) {
+                let toolResultCount = 0;
+                for (let i = smartMessages.length - 1; i >= 0; i--) {
+                    const msg = smartMessages[i];
+                    if (msg.role === 'tool' || (msg.role === 'assistant' && msg.toolCalls)) {
+                        toolResultCount++;
+                        if (toolResultCount > 5 && msg.content && msg.content.length > 200) {
+                            // Truncate old tool results (Claude Code pattern)
+                            smartMessages[i] = { ...msg, content: '[Earlier tool result cleared — ' + msg.content.slice(0, 80) + '...]' };
+                        }
+                    }
+                }
+            }
+
+            // Hard trim if too many messages
+            if (smartMessages.length > 12 && phase !== 'respond') {
                 const system = smartMessages.filter(m => m.role === 'system');
-                const recent = smartMessages.filter(m => m.role !== 'system').slice(-6);
+                const recent = smartMessages.filter(m => m.role !== 'system').slice(-8);
                 smartMessages = [...system, ...recent];
-                logger.info(COMPONENT, `[ContextTrim] Trimmed to ${smartMessages.length} messages for tool round`);
+                logger.info(COMPONENT, `[ContextTrim] Trimmed to ${smartMessages.length} messages`);
             }
 
             const chatOptions = {
