@@ -10,7 +10,7 @@ export default defineConfig({
         pool: 'forks',
         poolOptions: {
             forks: {
-                maxForks: process.env.CI ? 2 : undefined,
+                maxForks: process.env.CI ? 1 : undefined,
                 minForks: 1,
             },
         },
