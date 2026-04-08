@@ -33,12 +33,12 @@ export function registerVisualPlanSkill(): void {
 
                 const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title}</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></' + 'script>
 <style>body{background:#0f0f0f;color:#e0e0e0;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;padding:2rem}
 h1{font-weight:300;letter-spacing:2px;margin-bottom:2rem}.mermaid{background:#1a1a1a;border-radius:12px;padding:2rem;max-width:90vw;overflow:auto}</style>
 </head><body><h1>${title}</h1><div class="mermaid">
 ${content}
-</div><script>mermaid.initialize({theme:'dark',startOnLoad:true})<\/script></body></html>`;
+</div><script>mermaid.initialize({theme:'dark',startOnLoad:true})</' + 'script></body></html>`;
 
                 try {
                     writeFileSync(outputPath, html, 'utf-8');
