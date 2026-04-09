@@ -121,7 +121,8 @@
     "flatted": "^3.4.2",
     "basic-ftp": "^5.2.1",
     "hono": "^4.12.12",
-    "@hono/node-server": "^1.19.13"
+    "@hono/node-server": "^1.19.13",
+    "axios": "^1.15.0"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
