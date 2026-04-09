@@ -5,6 +5,14 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.3] — 2026-04-09
+
+### Fixed
+- **Security**: vite 6.4.1 → 6.4.2 (medium, path traversal in optimized deps .map handling) — final dependabot alert cleared
+- **Dependencies**: 0 vulnerabilities across all scopes (production + development)
+
+---
+
 ## [2.0.2] — 2026-04-09
 
 ### Fixed
