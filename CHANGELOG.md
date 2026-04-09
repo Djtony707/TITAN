@@ -5,6 +5,57 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.2] — 2026-04-09
+
+### Fixed
+- **Security**: axios 1.13.6 → 1.15.0 (critical NO_PROXY SSRF bypass)
+- **CI**: Lint error in `src/memory/graph.ts` (unnecessary escape in regex char class)
+- **Tests**: Updated deliberation test to use new `plan:start` event name (was `deliberation:started`)
+- **Tests**: Updated subAgent depth test from 2 → 4 to match new max depth default
+
+---
+
+## [2.0.1] — 2026-04-08
+
+### Fixed
+- **Security**: basic-ftp 5.2.0 → 5.2.2 (high, FTP Command Injection via CRLF)
+- **Security**: hono 4.12.8 → 4.12.12 (5 CVEs: cookie bypass, IP matching, path traversal, middleware bypass)
+- **Security**: @hono/node-server 1.19.11 → 1.19.13 (middleware bypass)
+- **Security**: ui/vite 6.4.1 → 6.4.2 (high, path traversal, arbitrary file read)
+
+---
+
+## [2.0.0] — 2026-04-08
+
+### Added
+- **15-Layer Tool Calling Pipeline** — ContentCapture, FabricationGuard, ToolRescue, execute_code, auto-verify, trajectory compression, tool result dedup, dynamic silence timeout
+- **3-Phase Dreaming Memory** — Light Sleep (score + deduplicate), REM (entity cross-reference), Deep Sleep (prune + compact) — inspired by OpenClaw
+- **OpenAI API Compatibility** — `/v1/models`, `/v1/chat/completions`, `/v1/embeddings`
+- **Durable Task Flows** — Deliberation plans persist to disk, recover on crash, stream SSE progress events
+- **Memory Wiki** — Browseable knowledge base with entity pages, facts, related entities, episode history
+- **Agent Template Marketplace** — 3 built-in (Code Architect, Research Analyst, DevOps Engineer)
+- **RL Trajectory Capture** — Auto-captures successful tool runs as JSONL training data
+- **Backup System** — `POST /api/backup/create` creates timestamped tar.gz of persistent data
+- **Video Generation** — Runway Gen-4 provider with `video_generate` and `video_status` tools
+- **Skill Marketplace Hub UI** — Search, categories, install buttons in SkillsPanel
+- **Memory Graph Redesign** — Type clustering, search, filter chips
+- **HomelabPanel** — Machine status, GPU/VRAM, agents, activity feed
+- **MemoryWikiPanel** — Entity pages with linked facts, relations, episodes
+- **QQ Bot Channel** — Scaffold for 900M+ QQ users
+- **execute_code** — Hermes-style Python/Node/Bash script execution
+- **append_file** — Chunked writing for large files
+
+### Changed
+- **Sub-agent max depth**: 2 → 4 (enables deeper multi-level decomposition)
+- **Deliberation auto-execute** for API channels (skips approval gate)
+- **Project-level SOUL.md** overrides global
+
+### Security
+- **WebSocket origin validation** — Blocks cross-origin WS hijacking (CVE-2026-25253 class)
+- **Cron tool allowlists** — Per-job tool restrictions
+
+---
+
 ## [1.2.0] — 2026-04-06
 
 ### Added
