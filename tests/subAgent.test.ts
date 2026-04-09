@@ -137,7 +137,7 @@ describe('SubAgent', () => {
         it('excludes spawn_agent at max depth', async () => {
             mockChat.mockResolvedValue({ content: 'Done', toolCalls: [] });
 
-            await spawnSubAgent({ name: 'Test', task: 'Do something', depth: 1 }); // depth 1, maxDepth 2: can't nest further
+            await spawnSubAgent({ name: 'Test', task: 'Do something', depth: 3 }); // depth 3, maxDepth 4: can't nest further
 
             const callArgs = mockChat.mock.calls[0][0];
             const toolNames = callArgs.tools.map((t: any) => t.function.name);

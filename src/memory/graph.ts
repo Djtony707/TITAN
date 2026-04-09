@@ -94,7 +94,7 @@ function isNoiseEntity(name: string): boolean {
     const n = name.trim();
     if (n.length < 2) return true;
     if (/^\d+$/.test(n)) return true; // pure numbers
-    if (/^[\/~]/.test(n)) return true; // absolute/home paths
+    if (/^[/~]/.test(n)) return true; // absolute/home paths
     if (n.includes('/') && n.includes('.') && !n.includes(' ')) return true; // file paths like src/foo.ts
     if (/^https?:\/\//i.test(n)) return true; // URLs
     if (!NOT_NOISE.has(n.toLowerCase()) && /^\w+\.\w{1,4}$/.test(n) && /\.(ts|js|json|md|py|sh|txt|log|html|css|yml|yaml|toml|cfg)$/i.test(n)) return true; // filenames

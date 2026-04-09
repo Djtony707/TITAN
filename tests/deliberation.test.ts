@@ -307,7 +307,7 @@ describe('executePlan', () => {
         expect(result.results).toHaveLength(2);
         expect(result.results.every(r => r.success)).toBe(true);
         expect(progressEvents.length).toBeGreaterThan(0);
-        expect(progressEvents[0].type).toBe('deliberation:started');
+        expect(progressEvents[0].type).toBe('plan:start');
     });
 
     it('should handle task failure gracefully', async () => {
