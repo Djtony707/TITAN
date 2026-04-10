@@ -336,7 +336,7 @@ function HomelabPanel() {
                 <span className="text-text-secondary capitalize">{vram.state}</span>
               </div>
               {/* Loaded Models */}
-              {vram.models.length > 0 && (
+              {vram.models?.length > 0 && (
                 <div>
                   <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1">Loaded Models</p>
                   {vram.models.map((m) => (
@@ -348,7 +348,7 @@ function HomelabPanel() {
                 </div>
               )}
               {/* Active Leases */}
-              {vram.leases.length > 0 && (
+              {vram.leases?.length > 0 && (
                 <div>
                   <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-1">Active Leases</p>
                   {vram.leases.map((l) => (
@@ -462,9 +462,9 @@ function HomelabPanel() {
               <div key={status} className="rounded-xl border border-border bg-bg-secondary/50 p-3 min-h-[120px]">
                 <div className="flex items-center gap-2 mb-2">
                   <p className={`text-[10px] font-semibold uppercase tracking-wider ${col}`}>{label}</p>
-                  <span className="text-[10px] text-text-muted">({items.length})</span>
+                  <span className="text-[10px] text-text-muted">({items?.length})</span>
                 </div>
-                {items.length > 0 ? (
+                {items?.length > 0 ? (
                   <div className="space-y-1.5">
                     {items.slice(0, 8).map((i) => (
                       <div key={i.id} className="rounded-lg border border-border bg-bg p-2 text-xs">
@@ -477,8 +477,8 @@ function HomelabPanel() {
                         )}
                       </div>
                     ))}
-                    {items.length > 8 && (
-                      <p className="text-[10px] text-text-muted text-center">+{items.length - 8} more</p>
+                    {items?.length > 8 && (
+                      <p className="text-[10px] text-text-muted text-center">+{items?.length - 8} more</p>
                     )}
                   </div>
                 ) : (
