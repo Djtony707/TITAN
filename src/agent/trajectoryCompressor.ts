@@ -49,6 +49,13 @@ export async function compressToolResult(
     // Persist full result to disk (fire-and-forget)
     persistResult(sessionId, toolCallId, toolName, result).catch(() => {});
 
+    // Never compress file content tools — the model needs the full text to
+    // construct accurate edit_file targets. Compressing read_file to head+tail
+    // causes edit_file to fail with "target not found" because the model can't
+    // see the middle of the file. Same for edit_file results (confirmation text).
+    const noCompressTools = new Set(['read_file', 'edit_file', 'write_file', 'append_file', 'apply_patch']);
+    if (noCompressTools.has(toolName)) return result;
+
     if (result.length <= MAX_RESULT_CHARS) return result;
 
     const head = result.slice(0, HEAD_CHARS);
