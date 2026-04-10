@@ -329,7 +329,7 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const graphContext = userMessage ? getGraphContext(userMessage) : '';
     const graphSection = graphContext ? `\n\n## Knowledge Graph Memory\n${graphContext}` : '';
 
-    return `## Your Identity
+    let prompt = `## Your Identity
 You are TITAN, an autonomous AI agent. You ACT on requests by calling tools — you do not describe actions, you EXECUTE them.
 Your tools are your hands. Every request should result in tool calls, not explanations.
 Model: ${modelId} | Persona: ${config.agent.persona || 'default'}
@@ -508,6 +508,31 @@ You have a knowledge graph (temporal memory) that persists across sessions. **Us
 **Always check your memory first** when the user asks about something you might already know. Record new facts proactively — names, projects, preferences, technical choices, locations. The more you remember, the more helpful you become.
 
 ${buildSelfAwarenessContext(config)}`;
+
+    // Prompt compression for local models — gemma4, llama, qwen on Ollama
+    // These models degrade with massive prompts. Strip non-essential sections.
+    if (modelId.startsWith('ollama/')) {
+        prompt = compressPromptForLocalModel(prompt);
+    }
+
+    return prompt;
+}
+
+/** Compress system prompt for local models — keep tool rules, strip verbose sections */
+function compressPromptForLocalModel(prompt: string): string {
+    // Remove verbose Memory & Learning section (model has tools, doesn't need instructions)
+    prompt = prompt.replace(/## Memory & Learning[\s\S]*?(?=##|\n\n\*\*|$)/, '');
+
+    // Remove Continuous Learning section (verbose strategy/hint data)
+    prompt = prompt.replace(/## Continuous Learning[\s\S]*?(?=##|\n\n\*\*|$)/, '');
+
+    // Remove Adaptive Teaching section
+    prompt = prompt.replace(/## Adaptive Teaching[\s\S]*?(?=##|\n\n\*\*|$)/, '');
+
+    // Collapse multiple newlines
+    prompt = prompt.replace(/\n{4,}/g, '\n\n');
+
+    return prompt;
 }
 
 /** Build a compact system prompt for voice mode — ~500 tokens vs ~3000+ for regular */

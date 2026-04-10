@@ -200,6 +200,78 @@ function findToolCapableFallback(failedModel: string, failedModels: Set<string>,
     return candidates.filter(m => m !== failedModel && !failedModels.has(m))[0] || null;
 }
 
+// ── Tool Result Summarization ───────────────────────────────────
+
+/** Extract key data points from large file contents */
+function summarizeToolResult(content: string): string | null {
+    const parts: string[] = [];
+
+    // Extract version numbers
+    const versions = content.match(/["']?version["']?\s*[:=]\s*["']?([\d.]+)["']?/gi);
+    if (versions) parts.push(`Versions found: ${versions.slice(0, 3).join(', ')}`);
+
+    // Extract name/title
+    const names = content.match(/["']?name["']?\s*[:=]\s*["']([^"']+)["']/i);
+    if (names) parts.push(`Name: ${names[1]}`);
+
+    // Extract exports/functions
+    const exports = content.match(/export\s+(?:async\s+)?function\s+(\w+)/g);
+    if (exports) parts.push(`Exports: ${exports.slice(0, 5).map(e => e.replace(/export\s+(async\s+)?function\s+/, '')).join(', ')}`);
+
+    // Extract constants
+    const constants = content.match(/(?:const|export const)\s+([A-Z_]+)\s*=\s*['"]([^'"]+)['"]/g);
+    if (constants) parts.push(`Constants: ${constants.slice(0, 3).join('; ')}`);
+
+    // File line count
+    const lineCount = content.split('\n').length;
+    parts.push(`${lineCount} lines total`);
+
+    return parts.length > 1 ? parts.join(' | ') : null;
+}
+
+// ── Response Validation ─────────────────────────────────────────
+
+/** Detect if the response is missing specific data the user asked for */
+function detectResponseGap(userMessage: string, response: string, messages: ChatMessage[]): string | null {
+    const lower = userMessage.toLowerCase();
+    const respLower = response.toLowerCase();
+
+    // Check: user asked for a number/version/count but response has none
+    if (/\b(version|number|count|how many|what is the|tell me the)\b/.test(lower)) {
+        const hasNumber = /\d+/.test(response);
+        // Check if tool results contain numbers the response missed
+        const toolResults = messages.filter(m => m.role === 'tool').slice(-3);
+        const toolHasNumber = toolResults.some(m => /\d+\.\d+\.\d+|\b\d{1,5}\b/.test(m.content || ''));
+        if (!hasNumber && toolHasNumber) {
+            return 'The user asked for a specific number or version. Your tool results contain this data but your response does not include it.';
+        }
+    }
+
+    // Check: user asked to read a file but response doesn't reference its content
+    if (/\b(read|show|contents? of|what does|what.s in)\b/.test(lower)) {
+        if (respLower.includes('i read') || respLower.includes('i was able to') || respLower.includes('here is')) {
+            // Response claims to have read — probably fine
+            return null;
+        }
+        const toolResults = messages.filter(m => m.role === 'tool').slice(-3);
+        if (toolResults.length > 0 && response.length < 50) {
+            return 'The user asked you to read file contents. Your tool returned data but your response is too short — include the relevant information.';
+        }
+    }
+
+    // Check: user asked for a specific value (e.g., "the TITAN_VERSION value")
+    if (/\b(value|result|output|answer)\b/.test(lower)) {
+        if (response.length < 20 || respLower.includes('error') || respLower.includes('unable')) {
+            const toolResults = messages.filter(m => m.role === 'tool').slice(-3);
+            if (toolResults.some(m => (m.content || '').length > 50)) {
+                return 'The user asked for a specific value. Your tools retrieved data but your response did not include it.';
+            }
+        }
+    }
+
+    return null;
+}
+
 // ── Main Loop ──────────────────────────���───────────────────────────���─
 
 export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
@@ -242,6 +314,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
     // Shell-for-files nudge counter
     let shellForFilesCount = 0;
+
+    // Response validation retry flag (one retry max)
+    let responseValidationRetried = false;
 
     // Pending tool calls from think phase (passed to act phase)
     let pendingToolCalls: ToolCall[] = [];
@@ -775,6 +850,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     success: tcSuccess,
                 });
 
+                // Tool result summarization: for large file reads, add a focused summary
+                // so the model can extract key data without parsing thousands of chars
+                if (tr.name === 'read_file' && tr.content.length > 500) {
+                    const summary = summarizeToolResult(tr.content);
+                    if (summary) {
+                        ctx.messages.push({ role: 'user', content: `[File Summary] ${summary}` });
+                    }
+                }
+
                 // Auto-verify file writes — catch silent truncation, empty files, broken HTML/JSON
                 if (tr.name === 'write_file' || tr.name === 'append_file') {
                     const vr = verifyFileWrite(tr.name, tcArgs, tr.content);
@@ -1019,6 +1103,23 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 result.content = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control.';
             } else {
                 result.content = stripToolJson(response.content);
+            }
+
+            // Response validation: check if the answer actually addresses the question.
+            // If the user asked for specific data (a number, version, name) and the
+            // response doesn't contain it but tool results do, retry once with a nudge.
+            if (!responseValidationRetried && result.content && result.toolsUsed.length > 0) {
+                const gap = detectResponseGap(ctx.message, result.content, ctx.messages);
+                if (gap) {
+                    logger.info(COMPONENT, `[ResponseValidation] Gap detected: ${gap}. Retrying respond phase.`);
+                    ctx.messages.push({
+                        role: 'user',
+                        content: `[IMPORTANT] Your response did not include the specific information the user asked for. ${gap} Look at your tool results above and include the actual data in your answer. Be direct and specific.`,
+                    });
+                    responseValidationRetried = true;
+                    // Stay in respond phase for one more try
+                    break;
+                }
             }
 
             phase = 'done';

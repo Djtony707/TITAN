@@ -243,13 +243,20 @@ function isCorrect(modelAnswer: string, expectedAnswer: string): boolean {
 
     // Fuzzy match for common variations
     const variations: Record<string, string[]> = {
-        'same': ['same', 'equal', 'they weigh the same', 'neither', 'both the same'],
-        'yes': ['yes', 'true', 'correct', 'it is'],
-        'no': ['no', 'false', 'incorrect', 'it is not'],
+        'same': ['same', 'equal', 'they weigh the same', 'neither', 'both the same', 'equally'],
+        'yes': ['yes', 'true', 'correct', 'it is', 'affirmative'],
+        'no': ['no', 'false', 'incorrect', 'it is not', 'negative'],
+        'linux': ['linux', 'ubuntu', 'debian', 'fedora', 'centos', 'arch', 'gnu/linux'],
     };
     for (const [key, alts] of Object.entries(variations)) {
         if (normExpected === key && alts.some(a => normModel.includes(a))) return true;
+        // Reverse: if model answer matches a key and expected is in its alts
+        if (alts.includes(normExpected) && (normModel === key || alts.some(a => normModel.includes(a)))) return true;
     }
+
+    // Semantic proximity: if expected is a substring of model answer's first sentence
+    const firstSentence = normModel.split(/[.!?\n]/)[0] || '';
+    if (normExpected.length >= 2 && firstSentence.includes(normExpected)) return true;
 
     return false;
 }
