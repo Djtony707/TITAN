@@ -31,6 +31,7 @@ import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
 import { saveCheckpoint } from './checkpoint.js';
+import { updateSoulState, emitHeartbeat, getInnerMonologue, recordAttempt } from './soul.js';
 import { recordToolUsage } from './userProfile.js';
 import { runSubAgent, type Domain } from './swarm.js';
 import { compressToolResult, recordStep, getProgressSummary } from './trajectoryCompressor.js';
@@ -762,6 +763,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 let tcArgs: Record<string, unknown> = {};
                 try { tcArgs = JSON.parse(matchingTc?.function.arguments || '{}'); } catch { /* empty */ }
 
+                // Soul: record this tool attempt
+                recordAttempt(ctx.sessionId, `${tr.name}(${Object.keys(tcArgs).join(',')})`);
+
                 // Record structured tool call details for inter-step context in deliberation
                 const tcSuccess = !tr.content.toLowerCase().includes('error:');
                 result.toolCallDetails.push({
@@ -880,6 +884,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── Phase transition decision ────────────────────────
             round++;
+
+            // Soul: update state and emit heartbeat
+            updateSoulState(ctx.sessionId, {
+                round,
+                confidence: result.toolsUsed.length > 0 ? 'medium' : 'low',
+            });
+            emitHeartbeat(ctx.sessionId, phase, 0);
+
+            // Inner monologue injection (every 3 rounds to avoid prompt bloat)
+            if (round > 0 && round % 3 === 0) {
+                const monologue = getInnerMonologue(ctx.sessionId);
+                if (monologue) {
+                    ctx.messages.push({ role: 'user', content: monologue });
+                }
+            }
 
             // Checkpoint after each round for crash recovery
             saveCheckpoint({

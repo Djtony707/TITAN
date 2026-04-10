@@ -32,6 +32,7 @@ import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import { startTrace } from './tracer.js';
+import { initSoulState, updateSoulState, emitHeartbeat, getInnerMonologue, consolidateWisdom, clearSoulState, getWisdomHints } from './soul.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
 
@@ -315,6 +316,9 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     // Learned tool preferences — surface collected preference data for tool routing
     const preferenceHint = userMessage ? getLearnedPreferenceHints(classifyTaskType(userMessage)) : null;
 
+    // Soul wisdom — accumulated patterns from past tasks
+    const wisdomHint = userMessage ? getWisdomHints(classifyTaskType(userMessage)) : null;
+
     // Teaching context — adaptive skill level, corrections, tool suggestions
     const teachingContext = getTeachingContext();
 
@@ -490,7 +494,7 @@ Never say "I cannot access local files" or "I cannot reach private IPs" — you 
 ## Continuous Learning
 You get smarter with every interaction. Below is your accumulated knowledge:
 ${learningContext}
-${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}
+${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}
 ${teachingContext ? `\n## Adaptive Teaching\n${teachingContext}` : ''}
 ${customPrompt ? `\n## Custom Instructions\n${customPrompt}` : ''}${workspaceContext}${memoryContext}${personalContext}${graphSection}
 
@@ -636,8 +640,9 @@ export async function processMessage(
     const config = loadConfig();
     const session = getOrCreateSession(channel, userId, overrides?.agentId || 'default');
     const trace = startTrace(session.id, message);
+    const soulState = initSoulState(session.id, message);
 
-    logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId}) trace=${trace.traceId}`);
+    logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId}) trace=${trace.traceId} strategy=${soulState.strategy}`);
 
     // ── Detect user corrections and learn from them ───
     if (isCorrection(message)) {
@@ -1197,6 +1202,11 @@ export async function processMessage(
             });
         } catch (e) { logger.debug(COMPONENT, `Response serialization failed: ${(e as Error).message}`); }
     }
+
+    // Consolidate soul wisdom from this task
+    const taskSuccess = !finalContent.toLowerCase().includes('error') && !budgetExhausted;
+    consolidateWisdom(session.id, classifyTaskType(message), taskSuccess, loopResult.toolCallDetails.length);
+    clearSoulState(session.id);
 
     // Finalize trace
     trace.setModel(modelUsed);

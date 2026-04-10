@@ -975,6 +975,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch { res.status(500).json({ error: 'Failed to clear checkpoints' }); }
   });
 
+  // ── Soul API ──────────────────────────────────────────────────
+  app.get('/api/soul/wisdom', async (_req, res) => {
+    try {
+      const { getWisdomData } = await import('../agent/soul.js');
+      res.json(getWisdomData());
+    } catch { res.json({ patterns: [], mistakes: [], userPreferences: [], totalTasks: 0 }); }
+  });
+
+  app.get('/api/soul/state/:sessionId', async (req, res) => {
+    try {
+      const { getSoulState } = await import('../agent/soul.js');
+      const state = getSoulState(req.params.sessionId);
+      if (!state) { res.status(404).json({ error: 'No active soul state for session' }); return; }
+      res.json(state);
+    } catch { res.status(500).json({ error: 'Soul unavailable' }); }
+  });
+
   // ── Guardrails API ─────────────────────────────────────────────
   app.get('/api/guardrails/violations', async (_req, res) => {
     try {

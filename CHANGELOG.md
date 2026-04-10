@@ -5,6 +5,22 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.0] — 2026-04-10
+
+### Added — Soul System (ReAct Agent Hardening)
+
+TITAN now has a persistent "soul" — an inner self-model that tracks task understanding, confidence, strategy, and accumulated wisdom across sessions. Inspired by OpenClaw's proactive agent loop and MemGPT's inner monologue.
+
+**Session State:** Each task gets a soul state tracking what TITAN thinks it's doing, how confident it is, what it's tried, and what it's learned. Inner monologue is injected every 3 rounds to keep the agent self-aware.
+
+**Persistent Wisdom:** After each task, TITAN consolidates learnings into `~/.titan/soul/wisdom.json` — which strategies work for which task types, common mistakes to avoid, and success rates. This wisdom is injected into future system prompts.
+
+**Heartbeat:** Per-round heartbeat events (`soul:heartbeat`) emitted via the event bus for real-time Mission Control monitoring. Includes round, phase, confidence, strategy, and task understanding.
+
+**API:** `GET /api/soul/wisdom` (accumulated patterns), `GET /api/soul/state/:sessionId` (live state).
+
+---
+
 ## [2.4.0] — 2026-04-10
 
 ### Added — Execution Checkpointing (Durable Execution)
