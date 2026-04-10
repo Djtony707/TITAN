@@ -5,6 +5,26 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.5] — 2026-04-09
+
+### Fixed (v2.0.4 follow-ups discovered during smoke test)
+
+- **Deliberation auto-execute on API path**: Programmatic `/api/message` callers had no way to "approve" a generated plan, so requests with `tool_choice: required` would return the plan markdown instead of executing it (no files written, no tools called). The agent now auto-promotes `awaiting_approval` → `executing` when `channel === 'api'` since API clients can't reply interactively. Interactive channels (cli, webchat, slack, etc.) keep the approval gate.
+- **`[NoTools]` retry loop spinning forever**: When the model returned text without tool calls and all rescue paths (FabricationGuard, IntentParser, ToolRescue) failed, the agent loop's `case 'think'` block would `break` with `phase` still `'think'` and `round` un-incremented — re-entering THINK at the same round indefinitely. Restructured the if/else so the stall-detection / accept-text branch runs when ALL rescue paths have failed (was previously gated on the wrong branch). Also added a `noToolsRetryCount` bail after 3 consecutive empty rounds, and `round++` on stall nudges so the budget actually advances.
+- **Escaped template literal in `toolRunner.ts:227`**: When a tool result was truncated for being >30KB, the log line emitted literal `${handler.name}` instead of expanding it. Removed the four `\` escapes — one-line fix.
+
+### Added
+
+- **Wire-up coverage tests** (`tests/wireup-coverage.test.ts`, 23 tests): cover `compressToolResult` (under/over/at threshold), `recordStep`/`getProgressSummary` (round gating, success/failure counts), `getCachedToolResult`/`cacheToolResult` (read-only allowlist gating, args independence), and `verifyFileWrite` (missing file, empty, truncated `<html>`/`<body>`/`<script>`, malformed/valid JSON, append_file alias). Closes the "0 tests for v2.0.x wire-ups" gap from the audit.
+
+### Changed
+
+- `src/agent/agent.ts`: Auto-approve plan on `channel === 'api'` after `generatePlan`
+- `src/agent/agentLoop.ts`: Restructured `[NoTools]` rescue/stall flow; added `noToolsRetryCount` bounded retry
+- `src/agent/toolRunner.ts`: Fix escaped template literal in truncation log
+
+---
+
 ## [2.0.4] — 2026-04-09
 
 ### Fixed (Wired the Audit Gaps)

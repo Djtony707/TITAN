@@ -239,7 +239,7 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 const head = result.slice(0, 20000);
                 const tail = result.slice(-5000);
                 finalContent = head + '\n\n[... ' + (result.length - 25000) + ' chars omitted ...]\n\n' + tail;
-                logger.info(COMPONENT, `Tool \${handler.name} output truncated: \${result.length} → \${finalContent.length} chars`);
+                logger.info(COMPONENT, `Tool ${handler.name} output truncated: ${result.length} → ${finalContent.length} chars`);
             }
 
             // Post-tool hooks — plugins can modify result

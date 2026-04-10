@@ -651,7 +651,17 @@ export async function processMessage(
         addMessage(session, 'user', message);
         const state = await analyze(message, session.id, config);
         if (state.stage === 'planning') {
-            const planned = await generatePlan(state, config);
+            let planned = await generatePlan(state, config);
+
+            // API clients are non-interactive — they can't reply "yes" to approve a plan,
+            // so auto-promote awaiting_approval → executing for the 'api' channel.
+            // Interactive channels (cli, webchat, slack, etc.) keep the approval gate.
+            if (planned.stage === 'awaiting_approval' && channel === 'api') {
+                logger.info(COMPONENT, `[Deliberation] api channel — auto-approving plan (no interactive client)`);
+                const approved = handleApproval(session.id, true);
+                if (approved) planned = approved;
+            }
+
             if (planned.stage === 'awaiting_approval' && planned.planMarkdown) {
                 const content = planned.planMarkdown;
                 addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });

@@ -170,6 +170,9 @@ function makeLoopContext(overrides: Partial<LoopContext> = {}): LoopContext {
         toolSearchEnabled: false,
         isKimiSwarm: false,
         selfHealEnabled: false,
+        // Tests opt out of smart-exit by default so multi-round assertions actually
+        // exercise the THINK→ACT→THINK loop. Override per-test to test smart-exit itself.
+        smartExitEnabled: false,
         ...overrides,
     };
 }

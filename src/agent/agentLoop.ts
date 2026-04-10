@@ -212,6 +212,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     let modelSwitchCount = 0;
     let selfHealExhausted = false;
     const failedModels = new Set<string>();
+
+    // Bounded retries for [NoTools] rounds — prevents infinite think-loop when
+    // the model keeps returning prose instead of tool calls
+    let noToolsRetryCount = 0;
     const MAX_MODEL_SWITCHES = 2;
 
     // Reflection state
@@ -594,16 +598,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     }
                 }
 
+                // ToolRescue: final attempt to extract a tool call from text content
                 if (!response.toolCalls || response.toolCalls.length === 0) {
-                // ToolRescue: extract tool call from text content
-                const isCloudModel = activeModel.includes(':cloud') || activeModel.includes('-cloud');
-                const rescuedToolCall = extractToolCallFromContent(response.content, ctx.activeTools, isCloudModel);
-                if (rescuedToolCall) {
-                    logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text`);
-                    response.toolCalls = [rescuedToolCall];
-                    // Fall through to tool_calls handling below
+                    const isCloudModel = activeModel.includes(':cloud') || activeModel.includes('-cloud');
+                    const rescuedToolCall = extractToolCallFromContent(response.content, ctx.activeTools, isCloudModel);
+                    if (rescuedToolCall) {
+                        logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text`);
+                        response.toolCalls = [rescuedToolCall];
+                        // Fall through to tool_calls handling below
+                    }
                 }
-                } else {
+
+                // If ALL rescue paths failed (still no tool calls), run stall detection
+                // and either nudge for retry or accept the text response. Without this
+                // branch, an empty-toolCalls THINK round would fall through with phase
+                // still 'think' and round un-incremented → infinite retry loop.
+                if (!response.toolCalls || response.toolCalls.length === 0) {
+                    noToolsRetryCount++;
+
                     // Stall detection
                     const stallEvent = checkResponse(ctx.sessionId, response.content, round, ctx.effectiveMaxRounds);
                     if (stallEvent) {
@@ -621,8 +633,18 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         const nudge = getNudgeMessage(stallEvent);
                         logger.warn(COMPONENT, `Stall [${stallEvent.type}] (nudge ${nudgeCount + 1}/2) — nudging`);
                         ctx.messages.push({ role: 'user', content: nudge });
+                        round++;
                         // Stay in think phase — retry
                         continue;
+                    }
+
+                    // No stall detected — bail out after 3 [NoTools] rounds in a row
+                    // to prevent the model spinning forever returning text instead of tools
+                    if (noToolsRetryCount >= 3) {
+                        logger.warn(COMPONENT, `[NoTools] Bailing after ${noToolsRetryCount} consecutive no-tool rounds — accepting text response`);
+                        result.content = stripToolJson(response.content || pendingAssistantContent || 'I was unable to make progress using tools.');
+                        phase = 'done';
+                        break;
                     }
 
                     // Model chose to respond directly — accept it
@@ -631,6 +653,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     phase = 'done';
                     break;
                 }
+
+                // Tool calls were rescued — reset the no-tools counter since the model is making progress
+                noToolsRetryCount = 0;
             }
 
             // ── Model returned tool calls → transition to ACT ────
