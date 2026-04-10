@@ -5,6 +5,28 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.4] — 2026-04-09
+
+### Fixed (Wired the Audit Gaps)
+The v2.0.x pipeline overhaul shipped 7 features whose code existed but was never called. v2.0.4 wires every one of them into the actual code path.
+
+- **Trajectory compression**: `compressToolResult()` is now invoked in the agent loop ACT phase. Tool results > 800 chars are head+tail summarized in-message; the full result is persisted to disk for debugging. Sub-agent tool results are compressed too.
+- **Progress summaries**: `getProgressSummary()` is now injected every 4 rounds via `recordStep()` from the ACT phase, so the model gets a running success/failure tally on long-horizon tasks.
+- **Auto-verify**: `verifyFileWrite()` now runs after every `write_file` / `append_file`. Empty files, missing files, truncated HTML, and invalid JSON produce a `[AutoVerify]` user-message nudge with a fix suggestion.
+- **Tool result dedup**: `getCachedToolResult()` / `cacheToolResult()` are now wired into `toolRunner.executeTool()`. Read-only tools (read_file, list_dir, web_search, web_fetch, graph_search, graph_entities, system_info, weather) are cached for 60s — duplicate calls return `[Cache HIT]` instead of re-executing.
+- **Video skill**: `registerVideoSkill()` is now in the builtin skills registration list, so `video_generate` / `video_status` are actually loaded.
+- **Dreaming daemon**: New `dreamingWatcher` runs `runConsolidation()` every 24h via the daemon's watcher loop. Adds the `dreaming:consolidated` event to the bus.
+- **Sidebar nav**: Added `Memory Wiki` (in MEMORY) and `Homelab` (new INFRASTRUCTURE section) links to the Mission Control sidebar — the routes already existed in App.tsx, just had no nav entry.
+
+### Changed
+- `src/agent/agentLoop.ts`: ACT phase tool-result loop now compresses, records, auto-verifies, and emits progress summaries
+- `src/agent/toolRunner.ts`: `executeTool()` checks the read-only cache before dispatch and writes successful results back
+- `src/agent/daemon.ts`: New `dreaming` builtin watcher (24h interval)
+- `src/skills/registry.ts`: Registers `video` skill alongside other builtins
+- `ui/src/components/layout/Sidebar.tsx`: New `BookOpen` (Memory Wiki) + `Server` (Homelab) icons + entries
+
+---
+
 ## [2.0.3] — 2026-04-09
 
 ### Fixed

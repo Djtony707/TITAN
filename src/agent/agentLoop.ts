@@ -32,6 +32,8 @@ import { shouldReflect, reflect, resetProgress, recordProgress } from './reflect
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
 import { recordToolUsage } from './userProfile.js';
 import { runSubAgent, type Domain } from './swarm.js';
+import { compressToolResult, recordStep, getProgressSummary } from './trajectoryCompressor.js';
+import { verifyFileWrite } from './autoVerify.js';
 import type { ChatMessage, ChatResponse, ToolCall, ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
 
@@ -695,7 +697,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (hasSubAgent && !isAsyncDelegation) {
                 for (const tr of toolResults) {
                     result.toolsUsed.push(tr.name);
-                    ctx.messages.push({ role: 'tool', content: tr.content, toolCallId: tr.toolCallId, name: tr.name });
+                    const compressed = await compressToolResult(ctx.sessionId, tr.name, tr.toolCallId, tr.content, round);
+                    const subSuccess = !tr.content.toLowerCase().includes('error:');
+                    recordStep(ctx.sessionId, round, tr.name, subSuccess, tr.content.slice(0, 100));
+                    ctx.messages.push({ role: 'tool', content: compressed, toolCallId: tr.toolCallId, name: tr.name });
                 }
                 ctx.messages.push({ role: 'user', content: 'The sub-agent has completed its task. Summarize the results above and respond to the user. Do NOT call any more tools.' });
                 logger.info(COMPONENT, `[SubAgent] spawn_agent completed (sync) — entering respond phase`);
@@ -709,12 +714,29 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             for (const tr of toolResults) {
                 result.toolsUsed.push(tr.name);
                 result.orderedToolSequence.push(tr.name);
-                ctx.messages.push({ role: 'tool', content: tr.content, toolCallId: tr.toolCallId, name: tr.name });
+
+                // Trajectory compression: shorten long tool results + record progress step
+                const compressed = await compressToolResult(ctx.sessionId, tr.name, tr.toolCallId, tr.content, round);
+                recordStep(ctx.sessionId, round, tr.name, !tr.content.toLowerCase().includes('error:'), tr.content.slice(0, 100));
+                ctx.messages.push({ role: 'tool', content: compressed, toolCallId: tr.toolCallId, name: tr.name });
 
                 // Stall detector
                 const matchingTc = pendingToolCalls.find(tc => tc.id === tr.toolCallId);
                 let tcArgs: Record<string, unknown> = {};
                 try { tcArgs = JSON.parse(matchingTc?.function.arguments || '{}'); } catch { /* empty */ }
+
+                // Auto-verify file writes — catch silent truncation, empty files, broken HTML/JSON
+                if (tr.name === 'write_file' || tr.name === 'append_file') {
+                    const vr = verifyFileWrite(tr.name, tcArgs, tr.content);
+                    if (!vr.passed) {
+                        logger.warn(COMPONENT, `[AutoVerify] ${tr.name}: ${vr.issue}`);
+                        ctx.messages.push({
+                            role: 'user',
+                            content: `[AutoVerify] ${vr.issue}${vr.suggestion ? `\n\nSuggestion: ${vr.suggestion}` : ''}`,
+                        });
+                    }
+                }
+
                 const loopEvent = recordToolCall(ctx.sessionId, tr.name, tcArgs);
                 if (loopEvent) {
                     const nudge = getNudgeMessage(loopEvent);
@@ -792,6 +814,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── Phase transition decision ────────────────────────
             round++;
+
+            // Inject running progress summary every N rounds (helper self-gates)
+            const progressMsg = getProgressSummary(ctx.sessionId, round);
+            if (progressMsg) {
+                logger.info(COMPONENT, `[Progress] Round ${round}`);
+                ctx.messages.push({ role: 'user', content: progressMsg });
+            }
 
             if (round >= ctx.effectiveMaxRounds) {
                 // Budget exhausted

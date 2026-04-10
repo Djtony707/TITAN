@@ -4,7 +4,7 @@ import {
   MessageSquare, Activity, Users, ScrollText, Settings, Radio, Wrench,
   BarChart3, Network, Brain, Zap, Shield, GitBranch, Plug, FlaskConical,
   UserCircle, Bot, Eye, ClipboardList, Cable, Cpu, FolderOpen, LogOut,
-  Mic, type LucideIcon,
+  Mic, BookOpen, Server, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { apiFetch } from '@/api/client';
@@ -59,7 +59,14 @@ const sections: NavSection[] = [
     items: [
       { label: 'Learning', icon: Brain, path: '/learning' },
       { label: 'Knowledge Graph', icon: Network, path: '/memory-graph' },
+      { label: 'Memory Wiki', icon: BookOpen, path: '/memory-wiki' },
       { label: 'Audit Log', icon: ClipboardList, path: '/audit' },
+    ],
+  },
+  {
+    title: 'INFRASTRUCTURE',
+    items: [
+      { label: 'Homelab', icon: Server, path: '/homelab' },
     ],
   },
   {

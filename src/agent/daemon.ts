@@ -189,6 +189,21 @@ async function memoryTriggerWatcher(): Promise<void> {
     titanEvents.emit('daemon:heartbeat', { timestamp: Date.now() });
 }
 
+/** Daily memory consolidation — prune, dedupe, synthesize entity summaries */
+async function dreamingWatcher(): Promise<void> {
+    try {
+        const { runConsolidation } = await import('../memory/dreaming.js');
+        const result = await runConsolidation();
+        const pruned = result?.deepSleep?.entriesPruned ?? 0;
+        logger.info(COMPONENT, `[DreamingWatcher] Consolidation complete: ${pruned} entries pruned`);
+        titanEvents.emit('dreaming:consolidated', { result });
+        recordAction('dreaming', true);
+    } catch (err) {
+        logger.error(COMPONENT, `[DreamingWatcher] Failed: ${(err as Error).message}`);
+        recordAction('dreaming', false);
+    }
+}
+
 // ── Watcher Registry ───────────────────────────────────────────────
 
 const BUILTIN_WATCHERS: Record<string, () => Promise<void>> = {
@@ -196,6 +211,7 @@ const BUILTIN_WATCHERS: Record<string, () => Promise<void>> = {
     cronFailure: cronFailureWatcher,
     health: healthWatcher,
     memoryTrigger: memoryTriggerWatcher,
+    dreaming: dreamingWatcher,
 };
 
 const DEFAULT_WATCHER_CONFIGS: WatcherConfig[] = [
@@ -203,6 +219,7 @@ const DEFAULT_WATCHER_CONFIGS: WatcherConfig[] = [
     { name: 'cronFailure', enabled: true, intervalMs: 600_000 },   // 10 min
     { name: 'health', enabled: true, intervalMs: 120_000 },        // 2 min
     { name: 'memoryTrigger', enabled: true, intervalMs: 300_000 }, // 5 min
+    { name: 'dreaming', enabled: true, intervalMs: 86_400_000 },   // 24 hours
 ];
 
 // ── Core Daemon Functions ──────────────────────────────────────────

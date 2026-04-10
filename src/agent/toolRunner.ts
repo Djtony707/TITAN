@@ -16,6 +16,7 @@ import logger from '../utils/logger.js';
 import { loadConfig } from '../config/config.js';
 import { checkAutonomy } from './autonomy.js';
 import { isToolSkillEnabled } from '../skills/registry.js';
+import { getCachedToolResult, cacheToolResult } from './trajectoryCompressor.js';
 
 const COMPONENT = 'ToolRunner';
 
@@ -157,6 +158,20 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         args = {};
     }
 
+    // Read-only tool result cache (60s TTL, helper self-gates to read-only allowlist)
+    const cacheArgKey = toolCall.function.arguments || '{}';
+    const cachedResult = getCachedToolResult(handler.name, cacheArgKey);
+    if (cachedResult !== null) {
+        logger.info(COMPONENT, `[Cache HIT] ${handler.name}`);
+        return {
+            toolCallId: toolCall.id,
+            name: handler.name,
+            content: cachedResult,
+            success: true,
+            durationMs: Date.now() - startTime,
+        };
+    }
+
     logger.info(COMPONENT, `Executing tool: ${handler.name}`);
 
     // Pre-tool hooks — plugins can block or modify args
@@ -232,6 +247,9 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 const hookResult = await runPostTool(toolHookPlugins, handler.name, args, { content: finalContent, success: true, durationMs });
                 if (hookResult.modifiedContent !== undefined) finalContent = hookResult.modifiedContent;
             }
+
+            // Cache the result for read-only tools (helper self-gates)
+            cacheToolResult(handler.name, cacheArgKey, finalContent);
 
             return {
                 toolCallId: toolCall.id,

@@ -269,6 +269,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerSessionTeleportSkill } = await import('./builtin/session_teleport.js');
     const { registerCrossProviderSkill } = await import('./builtin/cross_provider.js');
     const { registerSentrySkill } = await import('./builtin/sentry.js');
+    const { registerVideoSkill } = await import('./builtin/video.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -343,6 +344,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['session_teleport', registerSessionTeleportSkill],
         ['cross_provider', registerCrossProviderSkill],
         ['sentry', registerSentrySkill],
+        ['video', registerVideoSkill],
     ];
 
     for (const [name, fn] of registrations) {
