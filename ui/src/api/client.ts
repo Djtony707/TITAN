@@ -168,6 +168,7 @@ export function streamMessage(
                         model: parsed.model,
                         durationMs: parsed.durationMs,
                         toolsUsed: parsed.toolsUsed,
+                        pendingApproval: parsed.pendingApproval,
                       });
                     }
                   } else if (eventType === 'error') {

@@ -352,6 +352,25 @@ function ChatView({ onVoiceOpen }: ChatViewProps) {
               {isStreaming && (
                 <StreamingMessage content={streamingContent} activeTools={activeTools} />
               )}
+
+              {/* Plan approval buttons — shown when the last message is a plan waiting for approve/deny */}
+              {!isStreaming && messages.length > 0 && messages[messages.length - 1].pendingApproval && (
+                <div className="flex items-center gap-3 mt-4 mb-2 ml-11">
+                  <button
+                    onClick={() => handleSend('yes')}
+                    className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+                  >
+                    Approve Plan
+                  </button>
+                  <button
+                    onClick={() => handleSend('no')}
+                    className="px-5 py-2 rounded-lg bg-bg-tertiary hover:bg-border text-text-secondary text-sm font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <span className="text-xs text-text-muted">TITAN is waiting for your approval before executing.</span>
+                </div>
+              )}
             </div>
           )}
         </div>

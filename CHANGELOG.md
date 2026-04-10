@@ -5,6 +5,29 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.1] — 2026-04-09
+
+### Added — Interactive Plan Approval in Mission Control
+
+When TITAN generates a plan for a complex request, it now **shows the plan and waits for your approval** instead of auto-executing. You see the plan in the Chat panel with **Approve Plan** and **Cancel** buttons. Only after you click Approve does TITAN execute the steps. This gives you full control over what TITAN does before it does it.
+
+**How it works:**
+1. Send a complex request (e.g. "modify my dashboard to show weather")
+2. TITAN analyzes and generates a multi-step plan
+3. The plan is displayed as markdown in the chat
+4. **Approve Plan** → TITAN executes all steps and reports results
+5. **Cancel** → plan is discarded, no actions taken
+
+**Technical changes:**
+- `/api/message` default channel changed from `'api'` to `'webchat'` for SSE-connected clients (Mission Control). Programmatic callers can pass `channel: 'api'` explicitly to keep auto-approve behavior.
+- `AgentResponse` interface extended with `pendingApproval: boolean` field
+- SSE `done` event now includes `pendingApproval` when the response is a plan
+- `StreamEvent`, `ChatMessage`, `useSSE` hook all propagate `pendingApproval`
+- ChatView renders Approve/Cancel buttons when the last message has `pendingApproval: true`
+- Clicking Approve sends `"yes"` to the same session, which triggers the deliberation approval handler in `agent.ts:627-635`
+
+---
+
 ## [2.2.0] — 2026-04-09
 
 ### Sprint 2: "Don't Lie to Users" — correctness, docs, UX

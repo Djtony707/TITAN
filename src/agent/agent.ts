@@ -232,6 +232,8 @@ export interface AgentResponse {
     exhaustedBudget?: boolean;
     /** Serialized checkpoint for resuming a task that hit the round limit */
     checkpoint?: string;
+    /** True when the response is a plan waiting for user approval (reply "yes"/"no") */
+    pendingApproval?: boolean;
 }
 
 /** Read a workspace prompt file if it exists */
@@ -670,7 +672,16 @@ export async function processMessage(
             if (planned.stage === 'awaiting_approval' && planned.planMarkdown) {
                 const content = planned.planMarkdown;
                 addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });
-                return { content, sessionId: session.id, toolsUsed: ['deliberation'], tokenUsage: { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
+                return {
+                    content,
+                    sessionId: session.id,
+                    toolsUsed: ['deliberation'],
+                    tokenUsage: { prompt: 0, completion: 0, total: 0 },
+                    model: config.agent.model,
+                    durationMs: Date.now() - startTime,
+                    // Signal to UI that this response needs approve/deny before execution
+                    pendingApproval: true,
+                };
             } else if (planned.stage === 'executing') {
                 const executed = await executePlan(planned, config);
                 const content = formatPlanResults(executed);

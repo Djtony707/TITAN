@@ -1455,7 +1455,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
-    const { content, channel = 'api', userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
+    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
+    // Default channel to 'webchat' for browser-based Mission Control clients.
+    // This enables the interactive plan approval flow (show plan → user approves/denies).
+    // Programmatic API callers can explicitly pass channel: 'api' to auto-approve plans.
+    const channel = rawChannel || (req.headers.accept === 'text/event-stream' ? 'webchat' : 'api');
     if (!content || typeof content !== 'string') {
       res.status(400).json({ error: 'content must be a non-empty string' });
       return;
@@ -1588,7 +1592,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (response.model) titanModelRequestsTotal.increment({ model: response.model, provider: 'default' });
         trackUsage(response.model || 'unknown', response.tokenUsage, response.durationMs || 0, response.sessionId || '');
         if (!clientDisconnected) {
-          safeWrite(`event: done\ndata: ${JSON.stringify({ content: response.content, sessionId: response.sessionId, durationMs: response.durationMs, model: response.model, toolsUsed: response.toolsUsed })}\n\n`);
+          safeWrite(`event: done\ndata: ${JSON.stringify({ content: response.content, sessionId: response.sessionId, durationMs: response.durationMs, model: response.model, toolsUsed: response.toolsUsed, pendingApproval: response.pendingApproval })}\n\n`);
           try { res.end(); } catch { /* client gone */ }
         }
       } else {

@@ -6,6 +6,8 @@ export interface ChatMessage {
   toolsUsed?: string[];
   model?: string;
   durationMs?: number;
+  /** True when this message is a plan waiting for user approve/deny */
+  pendingApproval?: boolean;
 }
 
 export interface SendMessageRequest {
@@ -41,6 +43,8 @@ export interface StreamEvent {
   errorCode?: string;
   errorMessage?: string;
   errorAction?: { type: string; target: string; label: string };
+  // Plan approval: true when the response is a plan waiting for user approve/deny
+  pendingApproval?: boolean;
 }
 
 // ---- Agent Watcher ----

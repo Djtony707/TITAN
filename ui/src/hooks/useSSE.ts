@@ -7,6 +7,8 @@ interface UseSSEReturn {
   streamingContent: string;
   activeTools: string[];
   agentEvents: AgentEvent[];
+  /** True when the last response was a plan waiting for approval */
+  pendingApproval: boolean;
   send: (message: string, sessionId?: string, options?: { agentId?: string }) => Promise<ChatMessage | null>;
   cancel: () => void;
 }
@@ -69,6 +71,7 @@ export function useSSE(): UseSSEReturn {
       let toolsUsed: string[] = [];
       let model = '';
       let durationMs = 0;
+      let isPendingApproval = false;
 
       try {
         await streamMessage(
@@ -104,6 +107,7 @@ export function useSSE(): UseSSEReturn {
                 if (event.toolsUsed) toolsUsed = event.toolsUsed;
                 if (event.model) model = event.model;
                 if (event.durationMs) durationMs = event.durationMs;
+                if (event.pendingApproval) isPendingApproval = true;
                 pushEvent({ type: 'done', status: 'success' });
                 break;
               case 'error':
@@ -139,10 +143,11 @@ export function useSSE(): UseSSEReturn {
         model,
         durationMs,
         timestamp: new Date().toISOString(),
+        pendingApproval: isPendingApproval,
       };
     },
     [],
   );
 
-  return { isStreaming, streamingContent, activeTools, agentEvents, send, cancel };
+  return { isStreaming, streamingContent, activeTools, agentEvents, pendingApproval: false, send, cancel };
 }
