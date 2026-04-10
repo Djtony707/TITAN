@@ -108,6 +108,12 @@ export function useSSE(): UseSSEReturn {
                 if (event.model) model = event.model;
                 if (event.durationMs) durationMs = event.durationMs;
                 if (event.pendingApproval) isPendingApproval = true;
+                // If the done event carries content and we didn't stream any tokens
+                // (e.g. plan responses arrive as a single done event, not token-by-token),
+                // use the done event's content as the full message.
+                if (event.data && !fullContent) {
+                  fullContent = event.data;
+                }
                 pushEvent({ type: 'done', status: 'success' });
                 break;
               case 'error':
