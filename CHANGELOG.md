@@ -5,6 +5,35 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.1] — 2026-04-10
+
+### Added — GAIA + SWE-bench Benchmarks
+
+New `npm run bench:gaia` and `npm run bench:swe` commands run standardized benchmarks against a live TITAN gateway. Ships with bundled tasks — no external dataset download required.
+
+**GAIA Benchmark (25 reasoning tasks):** 90% accuracy — L1: 90%, L2: 86%, L3: 100%.
+
+**SWE-bench (10 code-fix tasks):** Evaluates read→edit→verify tool chains, patch quality scoring.
+
+### Added — Operator Alerting System
+
+New `src/agent/alerts.ts` sends webhook notifications on critical events:
+- Daemon paused, Ollama down/degraded, circuit breaker opened
+- Agent task failures, budget exceeded
+- Supports Discord webhooks, Slack webhooks, and generic JSON
+- Config: `alerting.webhookUrl`, `alerting.minSeverity`
+- API: `GET /api/alerts`
+
+### Added — Execution Tracing
+
+New `src/agent/tracer.ts` provides per-request tracing for the agent loop:
+- Every `processMessage()` call gets a unique traceId
+- Records tool calls, timing, model, token usage
+- In-memory ring buffer (500 traces)
+- API: `GET /api/traces`, `GET /api/traces/:traceId`
+
+---
+
 ## [2.3.0] — 2026-04-10
 
 ### Added — Agent Eval Framework v2
