@@ -58,6 +58,7 @@ program
     .option('-p, --port <port>', 'Gateway port', '48420')
     .option('-H, --host <host>', 'Gateway host')
     .option('-v, --verbose', 'Enable verbose logging')
+    .option('--skip-usable-check', 'Skip the first-run provider check (advanced)')
     .action(async (options) => {
         console.log(chalk.cyan(TITAN_ASCII_LOGO));
         if (options.verbose) setLogLevel(LogLevel.DEBUG);
@@ -65,6 +66,7 @@ program
             port: parseInt(options.port, 10),
             host: options.host,
             verbose: options.verbose,
+            skipUsableCheck: options.skipUsableCheck,
         });
     });
 
@@ -78,6 +80,19 @@ program
     .action(async (options) => {
         if (!options.message) {
             console.log(chalk.red('Error: --message is required'));
+            process.exit(1);
+        }
+
+        // First-run guard: bail with a helpful message instead of a generic 500
+        const { hasUsableProvider } = await import('../config/config.js');
+        const usable = await hasUsableProvider();
+        if (!usable.ok) {
+            console.error(chalk.red('\n❌ TITAN is not configured.'));
+            console.error(chalk.gray(`   ${usable.details}\n`));
+            console.error('   Run setup:');
+            console.error(chalk.cyan('     titan onboard\n'));
+            console.error('   Or set an environment variable:');
+            console.error(chalk.cyan('     export ANTHROPIC_API_KEY="sk-ant-..."\n'));
             process.exit(1);
         }
 

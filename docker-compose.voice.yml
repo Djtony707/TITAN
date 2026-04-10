@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.voice.yml up -d
 #
 # Environment variables (set in .env or export):
-#   OLLAMA_HOST       - IP/hostname of the machine running Ollama (default: 192.168.1.11)
+#   OLLAMA_HOST       - IP/hostname of the machine running Ollama (default: host.docker.internal)
 #   OLLAMA_MODEL      - Model to use for voice responses (default: qwen3:0.6b)
 #   TITAN_HOST        - IP/hostname of the TITAN gateway (default: localhost)
 #   TITAN_PORT        - TITAN gateway port (default: 48420)
@@ -74,7 +74,7 @@ services:
       - LIVEKIT_URL=ws://localhost:7880
       - LIVEKIT_API_KEY=devkey
       - LIVEKIT_API_SECRET=secret
-      - OLLAMA_BASE_URL=http://${OLLAMA_HOST:-192.168.1.11}:11434/v1
+      - OLLAMA_BASE_URL=http://${OLLAMA_HOST:-host.docker.internal}:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:0.6b}
       - STT_BASE_URL=http://localhost:8300/v1
       - KOKORO_BASE_URL=http://localhost:8880/v1
@@ -92,22 +92,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy-voice
-    ports:
-      - "3443:3443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/etc/caddy/certs:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - livekit-server
-    restart: unless-stopped
+  # Optional HTTPS reverse proxy — uncomment and provide a Caddyfile to enable.
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: caddy-voice
+  #   ports:
+  #     - "3443:3443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   depends_on:
+  #     - livekit-server
+  #   restart: unless-stopped
 
 volumes:
   model-cache:
   whisper-cache:
-  caddy-data:
-  caddy-config:
+  # caddy-data:
+  # caddy-config:

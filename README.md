@@ -148,6 +148,8 @@ docker run -d -p 48420:48420 --name titan \
   ghcr.io/djtony707/titan:latest
 ```
 
+> **Important:** The `-v titan-data:/home/titan/.titan` volume mount is required. Without it, your config, memory, and sessions are lost when the container restarts.
+
 Or with docker-compose:
 
 ```bash

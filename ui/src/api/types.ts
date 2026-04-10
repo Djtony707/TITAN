@@ -37,6 +37,10 @@ export interface StreamEvent {
   model?: string;
   durationMs?: number;
   toolsUsed?: string[];
+  // Structured error fields from classifyChatError (P0-4)
+  errorCode?: string;
+  errorMessage?: string;
+  errorAction?: { type: string; target: string; label: string };
 }
 
 // ---- Agent Watcher ----

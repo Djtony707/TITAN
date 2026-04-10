@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ToastProvider } from '@/components/shared/Toast';
 import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
+import { FirstRunBanner } from '@/components/FirstRunBanner';
 import { apiFetch } from '@/api/client';
 
 const ChatView = lazy(() => import('@/components/chat/ChatView'));
@@ -80,6 +81,7 @@ function AuthenticatedApp() {
     <ToastProvider>
     <ConfigProvider>
       <Layout>
+        <FirstRunBanner />
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             <Route path="/" element={<AdminPage><OverviewPanel /></AdminPage>} />

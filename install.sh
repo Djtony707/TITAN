@@ -142,20 +142,41 @@ mkdir -p "$TITAN_HOME"
 ok "TITAN home: ${TITAN_HOME}"
 
 # ─── Run onboarding ──────────────────────────────────────────
+ONBOARD_OK=1
 if [ "${TITAN_SKIP_ONBOARD:-}" = "1" ]; then
     log "Skipping onboarding (TITAN_SKIP_ONBOARD=1)"
+    ONBOARD_OK=0
 else
     echo ""
     log "Launching onboarding wizard..."
     echo ""
     if command -v titan &>/dev/null; then
-        titan onboard || true
+        if titan onboard; then
+            ONBOARD_OK=1
+        else
+            ONBOARD_OK=0
+            echo ""
+            echo -e "${YELLOW}${BOLD}  ⚠️  Onboarding didn't complete.${RESET}"
+            echo ""
+            echo "  TITAN is installed, but you need to finish setup before using it:"
+            echo "    titan onboard      — re-run the wizard"
+            echo "    titan doctor       — diagnose what went wrong"
+            echo ""
+        fi
+    else
+        ONBOARD_OK=0
+        echo -e "${YELLOW}  Note: 'titan' command not found in PATH yet.${RESET}"
+        echo "  You may need to open a new terminal, then run: titan onboard"
     fi
 fi
 
 # ─── Done ─────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}  TITAN installed successfully!${RESET}"
+if [ "$ONBOARD_OK" = "1" ]; then
+    echo -e "${GREEN}${BOLD}  TITAN installed successfully!${RESET}"
+else
+    echo -e "${YELLOW}${BOLD}  TITAN installed (setup not yet complete).${RESET}"
+fi
 echo ""
 echo "  Quick start:"
 echo "    titan gateway      — start the gateway server"

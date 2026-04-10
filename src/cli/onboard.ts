@@ -24,6 +24,98 @@ async function fetchOllamaModels(baseUrl: string): Promise<string[]> {
     }
 }
 
+// ─── API key validation ──────────────────────────────────────────
+// Tests a provider key against its real models endpoint.
+// Returns { ok: true } on success or { ok: false, error: string } on failure.
+// Used by the onboarding wizard to catch typo'd / expired / fake keys
+// BEFORE the user finishes setup and hits a generic 500 in the gateway.
+async function validateProviderKey(
+    provider: string,
+    apiKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+    if (!apiKey || apiKey.trim().length === 0) {
+        return { ok: false, error: 'Key is empty' };
+    }
+    const trimmed = apiKey.trim();
+    try {
+        const ctl = AbortSignal.timeout(8000);
+        if (provider === 'anthropic') {
+            const res = await fetch('https://api.anthropic.com/v1/models', {
+                method: 'GET',
+                headers: { 'x-api-key': trimmed, 'anthropic-version': '2023-06-01' },
+                signal: ctl,
+            });
+            if (res.status === 401 || res.status === 403) return { ok: false, error: 'Authentication failed (401/403)' };
+            if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${res.statusText}` };
+            return { ok: true };
+        }
+        if (provider === 'openai') {
+            const res = await fetch('https://api.openai.com/v1/models', {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${trimmed}` },
+                signal: ctl,
+            });
+            if (res.status === 401 || res.status === 403) return { ok: false, error: 'Authentication failed (401/403)' };
+            if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${res.statusText}` };
+            return { ok: true };
+        }
+        if (provider === 'google') {
+            const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(trimmed)}`,
+                { method: 'GET', signal: ctl },
+            );
+            if (res.status === 401 || res.status === 403 || res.status === 400) {
+                return { ok: false, error: `Authentication failed (${res.status})` };
+            }
+            if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${res.statusText}` };
+            return { ok: true };
+        }
+        // Unknown provider — skip validation, accept the key
+        return { ok: true };
+    } catch (err) {
+        const msg = (err as Error).message;
+        if (msg.includes('aborted')) return { ok: false, error: 'Request timed out (network or wrong endpoint)' };
+        return { ok: false, error: msg };
+    }
+}
+
+// Captures and validates an API key with retry. User can also skip.
+// Returns the validated key, or empty string if user chose to skip.
+async function captureAndValidateKey(provider: string): Promise<string> {
+    for (;;) { // retry loop until user provides a valid key, skips, or forces
+        const apiKey = await password({
+            message: `Paste your ${provider} API key here (input is hidden):`,
+            mask: '*',
+        });
+        if (!apiKey || apiKey.trim().length === 0) {
+            const skip = await confirm({
+                message: 'No key entered. Skip validation and continue anyway?',
+                default: false,
+            });
+            if (skip) return '';
+            continue;
+        }
+        process.stdout.write(chalk.gray(`  → Testing key against ${provider}... `));
+        const result = await validateProviderKey(provider, apiKey);
+        if (result.ok) {
+            console.log(chalk.green('✅ valid'));
+            return apiKey.trim();
+        }
+        console.log(chalk.red(`❌ ${result.error}`));
+        const choice = await select({
+            message: 'What would you like to do?',
+            choices: [
+                { name: '🔁 Re-enter the key', value: 'retry' },
+                { name: '⏭️  Skip key validation and use it anyway (advanced)', value: 'force' },
+                { name: '❌ Skip this provider', value: 'skip' },
+            ],
+        });
+        if (choice === 'retry') continue;
+        if (choice === 'force') return apiKey.trim();
+        if (choice === 'skip') return '';
+    }
+}
+
 import { TITAN_VERSION } from '../utils/constants.js';
 
 function printLogo(): void {
@@ -182,10 +274,7 @@ export async function runOnboard(_installDaemon?: boolean): Promise<boolean> {
             console.log(chalk.gray(`     TITAN never sees it. No one else ever sees it.\n`));
         }
 
-        const apiKey = await password({
-            message: `Paste your ${provider} API key here (input is hidden):`,
-            mask: '*',
-        });
+        const apiKey = await captureAndValidateKey(provider);
 
         const modelChoices: Record<string, { name: string; value: string }[]> = {
             anthropic: [
@@ -241,8 +330,14 @@ export async function runOnboard(_installDaemon?: boolean): Promise<boolean> {
             if (fallback === 'ollama') {
                 const ollamaUrl = await input({ message: 'Ollama base URL:', default: 'http://localhost:11434' });
                 config.providers.ollama.baseUrl = ollamaUrl;
+                const ollamaModels = await fetchOllamaModels(ollamaUrl);
+                if (ollamaModels.length === 0) {
+                    console.log(chalk.yellow(`  ⚠️  Ollama at ${ollamaUrl} is unreachable or has no models — fallback may not work.`));
+                } else {
+                    console.log(chalk.green(`  ✅ Ollama fallback ready (${ollamaModels.length} models available)`));
+                }
             } else {
-                const fallbackKey = await password({ message: `Enter your ${fallback} API key:`, mask: '*' });
+                const fallbackKey = await captureAndValidateKey(fallback);
                 if (fallback === 'anthropic') config.providers.anthropic.apiKey = fallbackKey;
                 else if (fallback === 'openai') config.providers.openai.apiKey = fallbackKey;
                 else if (fallback === 'google') config.providers.google.apiKey = fallbackKey;

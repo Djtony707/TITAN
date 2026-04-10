@@ -150,14 +150,26 @@ export function streamMessage(
                   } else if (eventType === 'round') {
                     onEvent?.({ type: 'round', data: '', round: parsed.round, maxRounds: parsed.maxRounds });
                   } else if (eventType === 'done') {
-                    onEvent?.({
-                      type: 'done',
-                      data: parsed.content ?? '',
-                      sessionId: parsed.sessionId,
-                      model: parsed.model,
-                      durationMs: parsed.durationMs,
-                      toolsUsed: parsed.toolsUsed,
-                    });
+                    // If the done event carries a structured error (classifyChatError),
+                    // propagate as an 'error' event so the Chat UI renders a banner
+                    if (parsed.error && !parsed.content) {
+                      onEvent?.({
+                        type: 'error',
+                        data: parsed.message ?? parsed.error ?? 'Unknown error',
+                        errorCode: parsed.error,
+                        errorMessage: parsed.message,
+                        errorAction: parsed.action,
+                      });
+                    } else {
+                      onEvent?.({
+                        type: 'done',
+                        data: parsed.content ?? '',
+                        sessionId: parsed.sessionId,
+                        model: parsed.model,
+                        durationMs: parsed.durationMs,
+                        toolsUsed: parsed.toolsUsed,
+                      });
+                    }
                   } else if (eventType === 'error') {
                     onEvent?.({ type: 'error', data: parsed.error ?? parsed.message ?? '' });
                   } else {

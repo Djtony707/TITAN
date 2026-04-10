@@ -80,6 +80,74 @@ export function configExists(): boolean {
     return existsSync(TITAN_CONFIG_PATH);
 }
 
+/**
+ * Check if at least one usable AI provider is configured.
+ *
+ * "Usable" means one of:
+ *   - Any cloud provider has a non-empty `apiKey` set in config
+ *   - Any *_API_KEY env var is set (Anthropic, OpenAI, Google, Groq, etc.)
+ *   - Ollama is reachable at the configured baseUrl (returns at least one model)
+ *
+ * Used by the gateway boot guard and CLI to refuse to start with empty config
+ * instead of letting the user hit "Internal Server Error" later.
+ *
+ * Note: Ollama check is async and is the slowest part of this function (~3s timeout).
+ * Callers should `await` and only call once at boot.
+ */
+export async function hasUsableProvider(): Promise<{ ok: boolean; details: string }> {
+    const config = loadConfig();
+
+    // 1. Check config-file API keys (cloud providers)
+    const providers = (config.providers as Record<string, unknown> | undefined) || {};
+    const cloudProviderNames = [
+        'anthropic', 'openai', 'google', 'groq', 'mistral', 'openrouter',
+        'fireworks', 'xai', 'together', 'deepseek', 'cerebras', 'cohere',
+        'perplexity', 'venice', 'bedrock', 'litellm', 'azure', 'deepinfra',
+        'sambanova', 'kimi', 'huggingface', 'ai21', 'cohere-v2', 'reka',
+        'zhipu', 'yi', 'inflection', 'novita', 'replicate', 'lepton',
+        'anyscale', 'octo', 'nous', 'minimax', 'nvidia',
+    ];
+    for (const name of cloudProviderNames) {
+        const p = providers[name] as { apiKey?: string } | undefined;
+        if (p?.apiKey && p.apiKey.trim().length > 0) {
+            return { ok: true, details: `${name} has an API key configured` };
+        }
+    }
+
+    // 2. Check env-var API keys (in case config wasn't reloaded after env var change)
+    const envKeys = [
+        'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY',
+        'MISTRAL_API_KEY', 'OPENROUTER_API_KEY', 'FIREWORKS_API_KEY', 'XAI_API_KEY',
+        'TOGETHER_API_KEY', 'DEEPSEEK_API_KEY', 'CEREBRAS_API_KEY', 'COHERE_API_KEY',
+        'PERPLEXITY_API_KEY', 'AZURE_OPENAI_API_KEY',
+    ];
+    for (const key of envKeys) {
+        if (process.env[key] && process.env[key]!.trim().length > 0) {
+            return { ok: true, details: `${key} is set in environment` };
+        }
+    }
+
+    // 3. Check Ollama reachability (last resort — slow)
+    const ollamaUrl = (providers.ollama as { baseUrl?: string } | undefined)?.baseUrl
+        || process.env.OLLAMA_BASE_URL
+        || 'http://localhost:11434';
+    try {
+        const res = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+            const json = await res.json() as { models?: { name: string }[] };
+            const count = (json.models || []).length;
+            if (count > 0) {
+                return { ok: true, details: `Ollama at ${ollamaUrl} is reachable (${count} models)` };
+            }
+            return { ok: false, details: `Ollama at ${ollamaUrl} is reachable but has 0 models — run "ollama pull qwen3.5:4b"` };
+        }
+    } catch {
+        // Ollama unreachable, fall through to "no providers"
+    }
+
+    return { ok: false, details: 'No API keys configured and Ollama is not running' };
+}
+
 /** Apply environment variable overrides to raw config */
 function applyEnvOverrides(config: Record<string, unknown>): void {
     const envMap: Record<string, (val: string) => void> = {

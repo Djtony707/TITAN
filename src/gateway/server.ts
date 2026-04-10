@@ -97,6 +97,160 @@ let healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
 let activeLlmRequests = 0;
 let maxConcurrentOverride: number | null = null;
 
+/**
+ * Classify a chat error into a structured response that the React UI can render
+ * as an actionable banner. Without this, every failure shows up as a generic 500
+ * with a stack trace that means nothing to a non-developer.
+ *
+ * The classifier returns:
+ *   { error: string, message: string, status: number, action?: { type, target } }
+ *
+ * Known error codes (must match what the UI knows how to render):
+ *   - no_provider_configured  → no API keys / Ollama unreachable
+ *   - rate_limited            → 429 from upstream
+ *   - context_too_long        → context window exceeded
+ *   - model_not_found         → invalid model id
+ *   - auth_failed             → 401/403 from upstream
+ *   - upstream_error          → other 4xx/5xx from upstream
+ *   - timeout                 → request timed out
+ *   - unknown                 → fallback for everything else
+ */
+interface ChatErrorResponse {
+  error: string;
+  message: string;
+  detail?: string;
+  status: number;
+  action?: { type: 'open' | 'retry' | 'docs'; target: string; label: string };
+}
+function classifyChatError(err: Error): ChatErrorResponse {
+  const msg = (err.message || String(err)).toLowerCase();
+  const detail = err.message;
+
+  // No provider configured / no valid API key
+  if (
+    msg.includes('no valid provider') ||
+    msg.includes('no api key') ||
+    msg.includes('not configured') ||
+    msg.includes('provider not found')
+  ) {
+    return {
+      error: 'no_provider_configured',
+      message: 'No AI provider is configured. Set up a provider to start chatting.',
+      detail,
+      status: 503,
+      action: { type: 'open', target: '/settings', label: 'Open settings' },
+    };
+  }
+
+  // Rate limited / quota exhausted
+  if (
+    msg.includes('rate limit') ||
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('too many requests')
+  ) {
+    return {
+      error: 'rate_limited',
+      message: "You've hit your provider's rate limit. Wait a moment and try again, or switch providers in Settings.",
+      detail,
+      status: 429,
+      action: { type: 'retry', target: '', label: 'Retry' },
+    };
+  }
+
+  // Context window exceeded
+  if (
+    msg.includes('context length') ||
+    msg.includes('context window') ||
+    msg.includes('maximum context') ||
+    msg.includes('too many tokens') ||
+    msg.includes('context_length_exceeded') ||
+    msg.includes('prompt is too long')
+  ) {
+    return {
+      error: 'context_too_long',
+      message: 'The conversation got too long for the model. Start a new session or compact this one.',
+      detail,
+      status: 413,
+      action: { type: 'open', target: '/sessions', label: 'New session' },
+    };
+  }
+
+  // Model not found / invalid model id
+  if (
+    msg.includes('model not found') ||
+    msg.includes('invalid model') ||
+    msg.includes('unknown model') ||
+    msg.includes('model_not_found') ||
+    msg.includes('does not exist')
+  ) {
+    return {
+      error: 'model_not_found',
+      message: "The selected model doesn't exist or you don't have access to it. Pick a different model in Settings.",
+      detail,
+      status: 404,
+      action: { type: 'open', target: '/settings', label: 'Pick a model' },
+    };
+  }
+
+  // Auth failure (bad key / expired)
+  if (
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('authentication') ||
+    msg.includes('invalid api key') ||
+    msg.includes('invalid_api_key')
+  ) {
+    return {
+      error: 'auth_failed',
+      message: 'Your API key was rejected by the provider. Check it in Settings → Providers.',
+      detail,
+      status: 401,
+      action: { type: 'open', target: '/settings', label: 'Check API key' },
+    };
+  }
+
+  // Timeout
+  if (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('etimedout') ||
+    msg.includes('aborted')
+  ) {
+    return {
+      error: 'timeout',
+      message: 'The model took too long to respond. Try again, or switch to a faster model.',
+      detail,
+      status: 504,
+      action: { type: 'retry', target: '', label: 'Retry' },
+    };
+  }
+
+  // Upstream provider error
+  if (
+    msg.includes('500') || msg.includes('502') || msg.includes('503') ||
+    msg.includes('gateway') || msg.includes('upstream')
+  ) {
+    return {
+      error: 'upstream_error',
+      message: "Your AI provider is having issues right now. Try again, or switch providers.",
+      detail,
+      status: 502,
+      action: { type: 'retry', target: '', label: 'Retry' },
+    };
+  }
+
+  // Fallback
+  return {
+    error: 'unknown',
+    message: detail || 'Something went wrong while processing your message.',
+    detail,
+    status: 500,
+  };
+}
+
 /** Internal health monitor state */
 const healthState = {
   ollamaHealthy: false,
@@ -447,13 +601,45 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 }
 
 /** Start the Gateway server */
-export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean; rateLimitMax?: number; rateLimitWindowMs?: number }): Promise<void> {
+export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean; rateLimitMax?: number; rateLimitWindowMs?: number; skipUsableCheck?: boolean }): Promise<void> {
   const config = loadConfig();
   initFileLogger(TITAN_LOGS_DIR);
   const port = options?.port || config.gateway.port;
   let host = options?.host || config.gateway.host;
 
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
+
+  // ── First-run guard: refuse to start with no usable provider ──
+  // Without this, the gateway boots fine but every chat call fails with a
+  // generic 500. Users have no idea they need to configure a provider.
+  // Bypass with --skip-usable-check (or skipUsableCheck option) for advanced use.
+  if (!options?.skipUsableCheck) {
+    const { hasUsableProvider } = await import('../config/config.js');
+    const usable = await hasUsableProvider();
+    if (!usable.ok) {
+      console.error('');
+      console.error('\x1b[31m\x1b[1m❌ TITAN is not configured.\x1b[0m');
+      console.error('');
+      console.error(`   ${usable.details}`);
+      console.error('');
+      console.error('   Run the setup wizard:');
+      console.error('     \x1b[36mtitan onboard\x1b[0m');
+      console.error('');
+      console.error('   Or set an environment variable:');
+      console.error('     \x1b[36mexport ANTHROPIC_API_KEY="sk-ant-..."\x1b[0m');
+      console.error('     \x1b[36mexport OPENAI_API_KEY="sk-..."\x1b[0m');
+      console.error('     \x1b[36mexport OLLAMA_BASE_URL="http://localhost:11434"\x1b[0m');
+      console.error('');
+      console.error('   Or check what went wrong:');
+      console.error('     \x1b[36mtitan doctor\x1b[0m');
+      console.error('');
+      console.error('   To skip this check (advanced):');
+      console.error('     \x1b[36mtitan gateway --skip-usable-check\x1b[0m');
+      console.error('');
+      process.exit(1);
+    }
+    logger.info(COMPONENT, `Provider check passed: ${usable.details}`);
+  }
 
   // ── Stale session cleanup: mark orphaned active sessions as idle ──
   cleanupStaleSessions();
@@ -975,6 +1161,34 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded });
   });
 
+  // Lightweight first-run readiness check used by Mission Control's banner.
+  // Returns whether the user has at least one usable provider configured,
+  // plus a counts/suggestion that the UI can render directly.
+  app.get('/api/doctor/quick', async (_req, res) => {
+    try {
+      const { hasUsableProvider } = await import('../config/config.js');
+      const usable = await hasUsableProvider();
+      const cfg = loadConfig();
+      const providers = (cfg.providers as Record<string, unknown> | undefined) || {};
+      let configured = 0;
+      for (const p of Object.values(providers)) {
+        const key = (p as { apiKey?: string } | undefined)?.apiKey;
+        if (key && key.trim().length > 0) configured++;
+      }
+      res.json({
+        ready: usable.ok,
+        details: usable.details,
+        providersConfigured: configured,
+        suggestion: usable.ok
+          ? null
+          : 'Run `titan onboard` (terminal) or open Settings → Providers to configure an AI provider.',
+        action: usable.ok ? null : { type: 'open', target: '/settings', label: 'Open settings' },
+      });
+    } catch (e) {
+      res.status(500).json({ ready: false, error: (e as Error).message });
+    }
+  });
+
   // ── VRAM API ────────────────────────────────────────────────
   app.get('/api/vram', async (_req, res) => {
     try {
@@ -1394,10 +1608,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch (error) {
       titanRequestsTotal.increment({ channel, status: 'error' });
       titanErrorsTotal.increment({ type: 'request' });
+      // Classify the error so the UI can render an actionable banner instead of a stack trace
+      const structured = classifyChatError(error as Error);
       if (wantsSSE && !clientDisconnected) {
-        try { res.write(`event: done\ndata: ${JSON.stringify({ error: (error as Error).message })}\n\n`); res.end(); } catch { /* client gone */ }
+        try { res.write(`event: done\ndata: ${JSON.stringify(structured)}\n\n`); res.end(); } catch { /* client gone */ }
       } else if (!wantsSSE) {
-        res.status(500).json({ error: (error as Error).message });
+        res.status(structured.status).json(structured);
       }
     } finally {
       activeLlmRequests--;

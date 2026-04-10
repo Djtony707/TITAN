@@ -5,6 +5,34 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.0] — 2026-04-09
+
+### "First Run That Works" — v2.1.0
+
+Full audit of every README claim against the live system, followed by fixes for every issue that blocks a new user's first 10 minutes. TITAN v2.0.x had a solid pipeline and working Mission Control, but the first-run experience was broken: silent failures, unvalidated keys, generic 500 errors, missing docs. v2.1.0 fixes the perimeter so the existing engine can actually be reached.
+
+### Added
+
+- **API key validation in onboarding** (`src/cli/onboard.ts`): `captureAndValidateKey()` tests cloud provider keys with a real API call (Anthropic `/v1/models`, OpenAI `/v1/models`, Google `/v1beta/models`) before accepting them. Shows inline result, offers retry/skip/force. Fallback provider keys are also validated. Ollama fallback probes `/api/tags` and reports model count.
+- **Gateway boot guard** (`src/config/config.ts`, `src/gateway/server.ts`): New `hasUsableProvider()` helper checks all cloud API keys, env vars, and Ollama reachability. Gateway refuses to start with no usable provider — prints actionable instructions (`titan onboard` / env var / `titan doctor`) instead of silently booting and failing on first chat. Bypass with `titan gateway --skip-usable-check`.
+- **`titan agent -m` boot guard** (`src/cli/index.ts`): Same check before loading skills — catches "not configured" before the user waits 10 seconds for an unhelpful error.
+- **Structured chat error responses** (`src/gateway/server.ts`): New `classifyChatError()` classifier turns 500s into actionable JSON with `error` code, `message`, `status`, and optional `action` (e.g. `{type: "open", target: "/settings"}`). Covers: `no_provider_configured`, `rate_limited`, `context_too_long`, `model_not_found`, `auth_failed`, `timeout`, `upstream_error`.
+- **`/api/doctor/quick` endpoint** (`src/gateway/server.ts`): Lightweight readiness check — returns `{ready, details, providersConfigured, suggestion, action}`. Used by the FirstRunBanner.
+- **FirstRunBanner** (`ui/src/components/FirstRunBanner.tsx`): Persistent top banner in Mission Control when no provider is configured. Polls `/api/doctor/quick` every 60s, dismissable, links to Settings. Shows only when not ready; hides permanently once any provider works.
+- **StreamEvent structured error fields** (`ui/src/api/types.ts`, `ui/src/api/client.ts`): SSE `done` events carrying an `error` code (from `classifyChatError`) are now propagated as `error` type events with `errorCode`, `errorMessage`, and `errorAction` fields so Chat can render actionable banners instead of generic "Error" text.
+
+### Fixed
+
+- **`install.sh:152` swallowed onboard failure** — `titan onboard || true` now checks exit code and prints guidance if onboarding didn't complete. Success/failure distinguished in final banner message.
+- **`docker-compose.voice.yml:77` hardcoded homelab IP** — Changed `OLLAMA_HOST` default from `192.168.1.11` to `host.docker.internal` so it works on any machine.
+- **`docker-compose.voice.yml:95-107` Caddy service references missing Caddyfile** — Commented out Caddy service (it was always optional) so `docker compose up` doesn't fail. Kept as example for users who want HTTPS.
+
+### Changed
+
+- **README.md Docker section**: Added volume mount callout — "the `-v titan-data:...` is required" — so users don't lose config on container restart.
+
+---
+
 ## [2.0.6] — 2026-04-09
 
 ### Fixed
