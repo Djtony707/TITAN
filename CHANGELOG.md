@@ -5,6 +5,14 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.6] — 2026-04-09
+
+### Fixed
+
+- **Deliberation infinite recursion**: v2.0.5's auto-approve fix surfaced a deeper issue — `executePlan` invokes `processMessage(taskPrompt, 'deliberation', 'system')` for each plan task, but the inner `processMessage` would re-trigger deliberation on the task prompt (because it mentions tools), generate a sub-plan, and stop at "Plan created" because channel was `'deliberation'` not `'api'`. The outer plan would mark the task "done" but no actual tools ran. Fix: skip deliberation entirely when `channel === 'deliberation'` so step prompts run straight through the agent loop.
+
+---
+
 ## [2.0.5] — 2026-04-09
 
 ### Fixed (v2.0.4 follow-ups discovered during smoke test)

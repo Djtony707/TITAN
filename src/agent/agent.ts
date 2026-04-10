@@ -647,7 +647,12 @@ export async function processMessage(
     // Don't start a new deliberation if one is already executing
     if (existingDelib?.stage === 'executing') {
         // Fall through to normal processing
-    } else if (!voiceFastPath && shouldDeliberate(message, config)) {
+    } else if (!voiceFastPath && channel !== 'deliberation' && shouldDeliberate(message, config)) {
+        // Skip deliberation when this call is itself a step inside another deliberation —
+        // executePlan() invokes processMessage(taskPrompt, 'deliberation', 'system') for each
+        // task, and we don't want those step-prompts to recurse into yet another planning round.
+        // The task prompts already say "execute this step now using your tools", so they should
+        // go straight to the agent loop and call tools directly.
         addMessage(session, 'user', message);
         const state = await analyze(message, session.id, config);
         if (state.stage === 'planning') {
