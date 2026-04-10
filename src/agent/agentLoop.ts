@@ -853,13 +853,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 result.budgetExhausted = true;
                 phase = 'done';
             } else if (ctx.isAutonomous) {
-                // Smart exit: if only 1 tool was called and it succeeded, the task is likely done
-                // Don't loop back for more rounds — go straight to RESPOND
+                // Smart exit: only skip to respond if a single TERMINAL tool succeeded.
+                // Terminal tools are ones that produce a final artifact (write, append)
+                // or answer a direct question (weather, system_info).
+                // Information-gathering tools (read_file, list_dir, web_search, shell)
+                // are NOT terminal — they almost always need a follow-up action.
+                // The old list included read_file/shell/web_search which caused the model
+                // to bail after one read without ever writing anything.
+                const terminalTools = new Set(['write_file', 'append_file', 'weather', 'system_info', 'memory']);
                 const singleToolSuccess = pendingToolCalls.length === 1
                     && toolResults.every(r => r.success)
-                    && ['write_file', 'append_file', 'shell', 'read_file', 'list_dir', 'web_search', 'memory', 'weather', 'system_info'].includes(pendingToolCalls[0].function.name);
-                if (singleToolSuccess && round >= 1 && ctx.smartExitEnabled !== false) {
-                    logger.info(COMPONENT, '[SmartExit] Single successful tool call — skipping to respond phase');
+                    && terminalTools.has(pendingToolCalls[0].function.name);
+                if (singleToolSuccess && round >= 2 && ctx.smartExitEnabled !== false) {
+                    logger.info(COMPONENT, '[SmartExit] Terminal tool succeeded — skipping to respond phase');
                     phase = 'respond';
                 } else {
                     // Autonomous mode: go back for more tool rounds

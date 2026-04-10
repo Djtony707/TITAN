@@ -695,8 +695,10 @@ export async function processMessage(
     // ── Pre-routing: intercept queries with known data tools ──
     // Some queries (weather, etc.) have dedicated APIs that return accurate data.
     // Pre-fetch this data and inject it so the LLM doesn't hallucinate.
+    // Skip for 'deliberation' channel — task step prompts contain goal text that
+    // matches keywords (e.g. "weather") but aren't actual weather queries.
     let preRoutedContext = '';
-    if (/\b(?:weather|forecast|temperature)\b/i.test(message)) {
+    if (channel !== 'deliberation' && /\b(?:weather|forecast|temperature)\b/i.test(message)) {
         // Split on "and"/"also"/","/"&" FIRST to separate multiple locations
         const segments = message.split(/\b(?:and|also|&)\b|,/i).filter(s => /\b(?:weather|forecast|temperature|\d{5})\b/i.test(s) || /[A-Z][a-z]+/.test(s));
         const locations: string[] = [];

@@ -5,6 +5,15 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.1] — 2026-04-09
+
+### Fixed
+
+- **SmartExit was killing multi-tool deliberation steps** — SmartExit fired after every single tool call because `read_file`, `shell`, `web_search` were all in the "terminal tools" list. This meant deliberation plan steps that needed read→modify→write would exit after the read, never writing anything. Fix: narrowed SmartExit to only fire on genuinely terminal tools (`write_file`, `append_file`, `weather`, `system_info`, `memory`) and raised the minimum round from 1 to 2. Information-gathering tools now always loop back for more rounds.
+- **Weather pre-router hijacking deliberation step prompts** — The regex `/weather|forecast|temperature/` matched the word "weather" inside deliberation task prompts (because the user's *goal* mentioned weather), injecting irrelevant wttr.in data into every step and confusing the model. Fix: skip pre-routing when `channel === 'deliberation'`.
+
+---
+
 ## [2.1.0] — 2026-04-09
 
 ### "First Run That Works" — v2.1.0
