@@ -5,6 +5,22 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.0] — 2026-04-10
+
+### Added — Agent Eval Framework v2
+
+New `npm run eval` command runs 24 automated scenarios against a live TITAN gateway, testing tool correctness, output quality, efficiency, safety, and multi-step workflows. Produces weighted scores per category (40% tool correctness, 30% output quality, 20% efficiency, 10% safety), an overall grade (A-F), and JSON reports with regression detection vs previous runs.
+
+**Baseline results (gemma4:31b):** 89/100 (Grade B) — 96% tool correctness, 100% efficiency, 100% safety.
+
+### Fixed — Deliberation Over-Triggering
+
+The `shouldDeliberate()` function was triggering on `moderate` and `complex` messages, routing simple file reads and shell commands through full plan generation (40-70s overhead). Now only `ambitious` complexity triggers deliberation. Simple tasks go straight to the ReAct loop (5-15s).
+
+**Impact:** Average eval task duration dropped from ~50s to ~15s.
+
+---
+
 ## [2.2.5] — 2026-04-10
 
 ### Added — Deliberation Step Memory & Tool Calling Quality
