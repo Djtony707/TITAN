@@ -30,3 +30,6 @@ src/skills/personal/
 # Voice clone references — user-specific, never committed
 **/voices/*.wav
 **/voices/*.txt
+
+# Handoff documents — local-only, never committed
+HANDOFF*.md
