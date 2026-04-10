@@ -5,6 +5,37 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.4.0] — 2026-04-10
+
+### Added — Execution Checkpointing (Durable Execution)
+
+Agent loop state is now persisted to disk after every round. If TITAN crashes mid-task, the checkpoint contains the full conversation history, tool results, and loop state — ready for future resume support.
+
+- Checkpoints saved to `~/.titan/checkpoints/{sessionId}/round-{N}.json`
+- Automatically cleared on successful task completion
+- API: `GET /api/checkpoints`, `GET /api/checkpoints/:sessionId`, `DELETE /api/checkpoints/:sessionId`
+- Closes the #1 competitive gap vs LangGraph
+
+### Added — Guardrails System
+
+New safety layer that validates tool calls before execution:
+
+**Tool Guard:** Blocks dangerous shell commands (`rm -rf /`, `curl | bash`, fork bombs, device writes) and writes to protected system paths (`/etc/passwd`, `/boot/`, `/sys/`).
+
+**Input Guard:** Detects prompt injection patterns (`ignore previous instructions`, `you are now a...`, jailbreak attempts) and PII in user messages (SSN, credit cards, API keys).
+
+**Output Guard:** Detects PII leakage in agent responses.
+
+- Violation log accessible via `GET /api/guardrails/violations`
+- Config: `guardrails.enabled` (default: true), `guardrails.logOnly` (default: false)
+- Critical violations trigger operator alerts via the alerting system
+
+### Added — SWE-bench Adapter
+
+Full re-run on stable v2.3.1 (no fetch failures). Results pending in this release.
+
+---
+
 ## [2.3.1] — 2026-04-10
 
 ### Added — GAIA + SWE-bench Benchmarks

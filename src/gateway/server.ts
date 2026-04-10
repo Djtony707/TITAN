@@ -949,6 +949,41 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch { res.status(500).json({ error: 'Tracer unavailable' }); }
   });
 
+  // ── Checkpoints API ────────────────────────────────────────────
+  app.get('/api/checkpoints', async (_req, res) => {
+    try {
+      const { listCheckpoints } = await import('../agent/checkpoint.js');
+      res.json({ checkpoints: listCheckpoints() });
+    } catch { res.json({ checkpoints: [] }); }
+  });
+
+  app.get('/api/checkpoints/:sessionId', async (req, res) => {
+    try {
+      const { loadCheckpoint } = await import('../agent/checkpoint.js');
+      const round = req.query.round ? parseInt(req.query.round as string, 10) : undefined;
+      const cp = loadCheckpoint(req.params.sessionId, round);
+      if (!cp) { res.status(404).json({ error: 'Checkpoint not found' }); return; }
+      res.json(cp);
+    } catch { res.status(500).json({ error: 'Checkpoint unavailable' }); }
+  });
+
+  app.delete('/api/checkpoints/:sessionId', async (req, res) => {
+    try {
+      const { clearCheckpoints } = await import('../agent/checkpoint.js');
+      clearCheckpoints(req.params.sessionId);
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: 'Failed to clear checkpoints' }); }
+  });
+
+  // ── Guardrails API ─────────────────────────────────────────────
+  app.get('/api/guardrails/violations', async (_req, res) => {
+    try {
+      const { getViolations } = await import('../agent/guardrails.js');
+      const limit = parseInt(_req.query.limit as string || '50', 10);
+      res.json({ violations: getViolations(limit) });
+    } catch { res.json({ violations: [] }); }
+  });
+
   // ── Alerts API ────────────────────────────────────────────────
   app.get('/api/alerts', async (_req, res) => {
     try {

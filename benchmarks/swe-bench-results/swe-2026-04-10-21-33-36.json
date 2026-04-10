@@ -1,0 +1,177 @@
+{
+  "timestamp": "2026-04-10T21:33:36.466Z",
+  "gateway": "https://192.168.1.11:48420",
+  "model": "default",
+  "version": "2.3.1",
+  "resolution_rate": 60,
+  "avg_fix_quality": 75,
+  "tool_accuracy": 90,
+  "total_tasks": 10,
+  "resolved": 6,
+  "avg_latency_ms": 24184,
+  "total_tokens": 685506,
+  "results": [
+    {
+      "id": "swe-001",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `greet` function always returns \"Hello undefined\" because it ignores the name parameter.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 100,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 15449,
+      "tokens": 53879,
+      "response_snippet": "I have fixed the bug in `/tmp/titan-swe/greet.ts`. The `greet` function now correctly uses the `name` parameter instead of returning \"Hello undefined\"."
+    },
+    {
+      "id": "swe-002",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `isEven` function returns true for odd numbers and false for even numbers (inverted logic).",
+      "used_read": true,
+      "used_edit": false,
+      "fix_quality": 45,
+      "tools_used": [
+        "read_file",
+        "shell"
+      ],
+      "latency_ms": 45345,
+      "tokens": 132799,
+      "response_snippet": "I have attempted to read and analyze `/tmp/titan-swe/isEven.ts` multiple times, but the file currently contains only the text `placeholder`. \n\n**Progress Summary:**\n- I have verified the current conte"
+    },
+    {
+      "id": "swe-003",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `sum` function has an off-by-one error — it starts from index 1 instead of 0, missing the first element.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 60,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 16469,
+      "tokens": 39237,
+      "response_snippet": ""
+    },
+    {
+      "id": "swe-004",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `fibonacci` function has incorrect base cases. fib(0) should return 0, fib(1) should return 1, but it returns 1 for both.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 60,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 16178,
+      "tokens": 38513,
+      "response_snippet": ""
+    },
+    {
+      "id": "swe-005",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `capitalize` function only capitalizes the first letter but does not lowercase the rest, so \"hELLO\" becomes \"HELLO\" instead of \"Hello\".",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 75,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 16197,
+      "tokens": 54186,
+      "response_snippet": "I have fixed the bug in `/tmp/titan-swe/capitalize.ts`. The function now correctly lowercases the remaining characters of the string, ensuring that \"hELLO\" becomes \"Hello\"."
+    },
+    {
+      "id": "swe-006",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `unique` function is supposed to return unique elements but it returns duplicates because it checks the wrong condition.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 60,
+      "tools_used": [
+        "read_file",
+        "shell",
+        "write_file"
+      ],
+      "latency_ms": 38253,
+      "tokens": 116740,
+      "response_snippet": ""
+    },
+    {
+      "id": "swe-007",
+      "category": "bug_fix",
+      "difficulty": "hard",
+      "description": "Bug: The `debounce` function never calls the wrapped function because it clears the timeout but never sets a new one after the first call.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 100,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 17214,
+      "tokens": 54155,
+      "response_snippet": "The bug in `/tmp/titan-swe/debounce.ts` was that the `debounce` function cleared the existing timer but failed to schedule the execution of the wrapped function. I have fixed this by adding the `setTi"
+    },
+    {
+      "id": "swe-008",
+      "category": "bug_fix",
+      "difficulty": "hard",
+      "description": "Bug: The `deepClone` function does not handle arrays — it treats them as regular objects, so arrays become plain objects with numeric keys.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 88,
+      "tools_used": [
+        "read_file",
+        "shell",
+        "write_file"
+      ],
+      "latency_ms": 40670,
+      "tokens": 117413,
+      "response_snippet": "The `deepClone` function in `/tmp/titan-swe/deepClone.ts` was failing to handle arrays, converting them into objects with numeric keys. I have fixed this by adding a check using `Array.isArray()` to e"
+    },
+    {
+      "id": "swe-009",
+      "category": "feature",
+      "difficulty": "medium",
+      "description": "Feature request: Add a `retry` function that retries an async function up to N times with exponential backoff. Currently only the skeleton exists.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 73,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 18313,
+      "tokens": 39211,
+      "response_snippet": "I have implemented the `retry` function in `/tmp/titan-swe/retry.ts` with exponential backoff. The function now attempts to execute the provided async function up to `maxRetries` times, with a delay t"
+    },
+    {
+      "id": "swe-010",
+      "category": "refactor",
+      "difficulty": "hard",
+      "description": "Refactor: The `parseQueryString` function uses a naive split that breaks on values containing \"=\" signs (e.g., \"key=base64==\"). Fix it to handle this edge case.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 92,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 17754,
+      "tokens": 39373,
+      "response_snippet": "I have fixed the bug in `/tmp/titan-swe/parseQueryString.ts`. Instead of using `split('=')`, which incorrectly splits values containing `=` characters, I now use `indexOf('=')` and `substring()` to en"
+    }
+  ]
+}

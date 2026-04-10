@@ -1114,6 +1114,11 @@ export async function processMessage(
     clearSession(session.id);
     resetLoopDetection(session.id);
 
+    // Clear checkpoints on successful completion (no need to resume)
+    if (!budgetExhausted) {
+        import('./checkpoint.js').then(m => m.clearCheckpoints(session.id)).catch(() => {});
+    }
+
     // Active Learning: record strategy for future reference
     if (toolsUsed.length > 0) {
         const success = !finalContent.toLowerCase().includes('error') && !budgetExhausted;

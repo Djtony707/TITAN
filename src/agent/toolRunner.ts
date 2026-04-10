@@ -158,6 +158,22 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         args = {};
     }
 
+    // Guardrails: validate tool call before execution
+    try {
+        const { guardToolCall } = await import('./guardrails.js');
+        const guardResult = guardToolCall(handler.name, args);
+        if (!guardResult.allowed) {
+            logger.warn('ToolRunner', `[Guardrails] Blocked ${handler.name}: ${guardResult.reason}`);
+            return {
+                toolCallId: toolCall.id,
+                name: handler.name,
+                content: `Error: Tool call blocked by guardrails — ${guardResult.reason}`,
+                success: false,
+                durationMs: Date.now() - startTime,
+            };
+        }
+    } catch { /* guardrails unavailable — continue */ }
+
     // Read-only tool result cache (60s TTL, helper self-gates to read-only allowlist)
     const cacheArgKey = toolCall.function.arguments || '{}';
     const cachedResult = getCachedToolResult(handler.name, cacheArgKey);

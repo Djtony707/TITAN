@@ -1,0 +1,169 @@
+{
+  "timestamp": "2026-04-10T21:21:45.366Z",
+  "gateway": "https://192.168.1.11:48420",
+  "model": "default",
+  "version": "2.3.0",
+  "resolution_rate": 20,
+  "avg_fix_quality": 34,
+  "tool_accuracy": 40,
+  "total_tasks": 10,
+  "resolved": 2,
+  "avg_latency_ms": 16934,
+  "total_tokens": 476795,
+  "results": [
+    {
+      "id": "swe-001",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `greet` function always returns \"Hello undefined\" because it ignores the name parameter.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 100,
+      "tools_used": [
+        "read_file",
+        "shell",
+        "write_file"
+      ],
+      "latency_ms": 23026,
+      "tokens": 86135,
+      "response_snippet": "I have fixed the bug in `/tmp/titan-swe/greet.ts`. The `greet` function now correctly uses the `name` parameter to return a personalized greeting."
+    },
+    {
+      "id": "swe-002",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `isEven` function returns true for odd numbers and false for even numbers (inverted logic).",
+      "used_read": true,
+      "used_edit": false,
+      "fix_quality": 45,
+      "tools_used": [
+        "read_file",
+        "shell"
+      ],
+      "latency_ms": 46313,
+      "tokens": 132266,
+      "response_snippet": "I have attempted to diagnose and fix the bug in `/tmp/titan-swe/isEven.ts`. However, the file content consistently returned as `placeholder`, which indicates that the actual logic was not present or t"
+    },
+    {
+      "id": "swe-003",
+      "category": "bug_fix",
+      "difficulty": "easy",
+      "description": "Bug: The `sum` function has an off-by-one error — it starts from index 1 instead of 0, missing the first element.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 60,
+      "tools_used": [
+        "read_file",
+        "write_file"
+      ],
+      "latency_ms": 16688,
+      "tokens": 39469,
+      "response_snippet": ""
+    },
+    {
+      "id": "swe-004",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `fibonacci` function has incorrect base cases. fib(0) should return 0, fib(1) should return 1, but it returns 1 for both.",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 75,
+      "tools_used": [
+        "read_file",
+        "shell",
+        "edit_file",
+        "write_file"
+      ],
+      "latency_ms": 44570,
+      "tokens": 101486,
+      "response_snippet": "I have fixed the bug in `/tmp/titan-swe/fibonacci.ts` by correcting the base cases: `fib(0)` now returns `0` and `fib(1)` returns `1`."
+    },
+    {
+      "id": "swe-005",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `capitalize` function only capitalizes the first letter but does not lowercase the rest, so \"hELLO\" becomes \"HELLO\" instead of \"Hello\".",
+      "used_read": true,
+      "used_edit": true,
+      "fix_quality": 60,
+      "tools_used": [
+        "read_file",
+        "shell",
+        "write_file"
+      ],
+      "latency_ms": 38740,
+      "tokens": 117439,
+      "response_snippet": ""
+    },
+    {
+      "id": "swe-006",
+      "category": "bug_fix",
+      "difficulty": "medium",
+      "description": "Bug: The `unique` function is supposed to return unique elements but it returns duplicates because it checks the wrong condition.",
+      "used_read": false,
+      "used_edit": false,
+      "fix_quality": 0,
+      "tools_used": [],
+      "latency_ms": 0,
+      "tokens": 0,
+      "response_snippet": "",
+      "error": "fetch failed"
+    },
+    {
+      "id": "swe-007",
+      "category": "bug_fix",
+      "difficulty": "hard",
+      "description": "Bug: The `debounce` function never calls the wrapped function because it clears the timeout but never sets a new one after the first call.",
+      "used_read": false,
+      "used_edit": false,
+      "fix_quality": 0,
+      "tools_used": [],
+      "latency_ms": 0,
+      "tokens": 0,
+      "response_snippet": "",
+      "error": "fetch failed"
+    },
+    {
+      "id": "swe-008",
+      "category": "bug_fix",
+      "difficulty": "hard",
+      "description": "Bug: The `deepClone` function does not handle arrays — it treats them as regular objects, so arrays become plain objects with numeric keys.",
+      "used_read": false,
+      "used_edit": false,
+      "fix_quality": 0,
+      "tools_used": [],
+      "latency_ms": 0,
+      "tokens": 0,
+      "response_snippet": "",
+      "error": "fetch failed"
+    },
+    {
+      "id": "swe-009",
+      "category": "feature",
+      "difficulty": "medium",
+      "description": "Feature request: Add a `retry` function that retries an async function up to N times with exponential backoff. Currently only the skeleton exists.",
+      "used_read": false,
+      "used_edit": false,
+      "fix_quality": 0,
+      "tools_used": [],
+      "latency_ms": 0,
+      "tokens": 0,
+      "response_snippet": "",
+      "error": "fetch failed"
+    },
+    {
+      "id": "swe-010",
+      "category": "refactor",
+      "difficulty": "hard",
+      "description": "Refactor: The `parseQueryString` function uses a naive split that breaks on values containing \"=\" signs (e.g., \"key=base64==\"). Fix it to handle this edge case.",
+      "used_read": false,
+      "used_edit": false,
+      "fix_quality": 0,
+      "tools_used": [],
+      "latency_ms": 0,
+      "tokens": 0,
+      "response_snippet": "",
+      "error": "fetch failed"
+    }
+  ]
+}

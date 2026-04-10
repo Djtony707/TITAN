@@ -30,6 +30,7 @@ import { buildSmartContext } from './contextManager.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
+import { saveCheckpoint } from './checkpoint.js';
 import { recordToolUsage } from './userProfile.js';
 import { runSubAgent, type Domain } from './swarm.js';
 import { compressToolResult, recordStep, getProgressSummary } from './trajectoryCompressor.js';
@@ -879,6 +880,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── Phase transition decision ────────────────────────
             round++;
+
+            // Checkpoint after each round for crash recovery
+            saveCheckpoint({
+                sessionId: ctx.sessionId,
+                round,
+                phase,
+                model: activeModel,
+                messages: ctx.messages,
+                toolsUsed: result.toolsUsed,
+                orderedToolSequence: result.orderedToolSequence,
+                timestamp: new Date().toISOString(),
+                message: ctx.message.slice(0, 500),
+                channel: ctx.channel,
+                totalPromptTokens: result.promptTokens,
+                totalCompletionTokens: result.completionTokens,
+            });
 
             // Inject running progress summary every N rounds (helper self-gates)
             const progressMsg = getProgressSummary(ctx.sessionId, round);
