@@ -1,0 +1,326 @@
+{
+  "timestamp": "2026-04-10T21:14:49.430Z",
+  "gateway": "https://192.168.1.11:48420",
+  "model": "default",
+  "version": "2.3.0",
+  "overall_accuracy": 90,
+  "level_accuracy": {
+    "L1": {
+      "correct": 9,
+      "total": 10,
+      "accuracy": 90
+    },
+    "L2": {
+      "correct": 6,
+      "total": 7,
+      "accuracy": 86
+    },
+    "L3": {
+      "correct": 4,
+      "total": 4,
+      "accuracy": 100
+    }
+  },
+  "total_tasks": 25,
+  "correct": 19,
+  "avg_latency_ms": 13383,
+  "total_tokens": 745689,
+  "results": [
+    {
+      "task_id": "gaia-L1-01",
+      "level": 1,
+      "question": "What is 347 * 29?",
+      "expected_answer": "10063",
+      "model_answer": "347 * 29 = 10,063",
+      "is_correct": true,
+      "tools_used": [
+        "shell"
+      ],
+      "latency_ms": 12641,
+      "tokens": 28802
+    },
+    {
+      "task_id": "gaia-L1-02",
+      "level": 1,
+      "question": "If a train leaves at 2:15 PM and the journey takes 3 hours and 45 minutes, what time does it arrive?",
+      "expected_answer": "6:00 PM",
+      "model_answer": "The train arrives at 6:00 PM.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 6915,
+      "tokens": 15233
+    },
+    {
+      "task_id": "gaia-L1-03",
+      "level": 1,
+      "question": "What is the chemical symbol for gold?",
+      "expected_answer": "Au",
+      "model_answer": "The chemical symbol for gold is Au.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 6649,
+      "tokens": 14171
+    },
+    {
+      "task_id": "gaia-L1-04",
+      "level": 1,
+      "question": "A farmer has 17 sheep. All but 9 run away. How many sheep does the farmer have left?",
+      "expected_answer": "9",
+      "model_answer": "The farmer has 9 sheep left.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 7110,
+      "tokens": 15093
+    },
+    {
+      "task_id": "gaia-L1-05",
+      "level": 1,
+      "question": "What operating system is this machine running? Use a tool to check.",
+      "expected_answer": "Linux",
+      "model_answer": "This machine is running Ubuntu 24.04.4 LTS.",
+      "is_correct": false,
+      "tools_used": [
+        "system_info"
+      ],
+      "latency_ms": 7527,
+      "tokens": 30028
+    },
+    {
+      "task_id": "gaia-L1-06",
+      "level": 1,
+      "question": "What is the square root of 144?",
+      "expected_answer": "12",
+      "model_answer": "The square root of 144 is 12.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 6724,
+      "tokens": 14913
+    },
+    {
+      "task_id": "gaia-L1-07",
+      "level": 1,
+      "question": "Which is heavier: a kilogram of steel or a kilogram of feathers?",
+      "expected_answer": "same",
+      "model_answer": "They both weigh the same: exactly one kilogram.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 6678,
+      "tokens": 14652
+    },
+    {
+      "task_id": "gaia-L1-08",
+      "level": 1,
+      "question": "What programming language is TypeScript a superset of?",
+      "expected_answer": "JavaScript",
+      "model_answer": "TypeScript is a superset of JavaScript.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 7775,
+      "tokens": 14609
+    },
+    {
+      "task_id": "gaia-L1-09",
+      "level": 1,
+      "question": "If you have 3 apples and buy 5 more, then give away 2, how many do you have?",
+      "expected_answer": "6",
+      "model_answer": "You have 6 apples.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 6640,
+      "tokens": 14704
+    },
+    {
+      "task_id": "gaia-L1-10",
+      "level": 1,
+      "question": "A bat and a ball cost $1.10 together. The bat costs $1 more than the ball. How much does the ball cost?",
+      "expected_answer": "$0.05",
+      "model_answer": "The ball costs $0.05 (5 cents).",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 7888,
+      "tokens": 14666
+    },
+    {
+      "task_id": "gaia-L2-01",
+      "level": 2,
+      "question": "Read /opt/TITAN/package.json and tell me the name and version of the package. Format: name@version",
+      "expected_answer": "titan-agent@2.3.0",
+      "model_answer": "titan-agent@2.3.0",
+      "is_correct": true,
+      "tools_used": [
+        "read_file",
+        "shell"
+      ],
+      "latency_ms": 29264,
+      "tokens": 73584
+    },
+    {
+      "task_id": "gaia-L2-02",
+      "level": 2,
+      "question": "How many TypeScript files are in /opt/TITAN/src/agent/? Give just the number.",
+      "expected_answer": "",
+      "model_answer": "142",
+      "is_correct": true,
+      "tools_used": [
+        "shell"
+      ],
+      "latency_ms": 28323,
+      "tokens": 73551
+    },
+    {
+      "task_id": "gaia-L2-03",
+      "level": 2,
+      "question": "A store sells shirts for $25 each. If you buy 3 or more, you get 20% off the total. How much do 4 shirts cost?",
+      "expected_answer": "$80",
+      "model_answer": "4 shirts cost $80.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 8159,
+      "tokens": 14725
+    },
+    {
+      "task_id": "gaia-L2-04",
+      "level": 2,
+      "question": "You have a 3-gallon jug and a 5-gallon jug. How do you measure exactly 4 gallons? Describe the final state.",
+      "expected_answer": "4",
+      "model_answer": "1. Fill the 5-gallon jug to the top.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 12163,
+      "tokens": 14867
+    },
+    {
+      "task_id": "gaia-L2-05",
+      "level": 2,
+      "question": "What is the hostname of this machine? Use a command to find out.",
+      "expected_answer": "",
+      "model_answer": "The hostname of this machine is `dj-Z690-Steel-Legend-D5`.",
+      "is_correct": true,
+      "tools_used": [
+        "shell"
+      ],
+      "latency_ms": 14839,
+      "tokens": 29492
+    },
+    {
+      "task_id": "gaia-L2-06",
+      "level": 2,
+      "question": "If today is Wednesday, what day will it be 100 days from now?",
+      "expected_answer": "Friday",
+      "model_answer": "100 days from Wednesday will be **Friday**.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 11073,
+      "tokens": 15040
+    },
+    {
+      "task_id": "gaia-L2-07",
+      "level": 2,
+      "question": "Convert 72 degrees Fahrenheit to Celsius. Round to 1 decimal place.",
+      "expected_answer": "22.2",
+      "model_answer": "72 degrees Fahrenheit is **22.2** degrees Celsius.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 10939,
+      "tokens": 15400
+    },
+    {
+      "task_id": "gaia-L2-08",
+      "level": 2,
+      "question": "Read /opt/TITAN/src/utils/constants.ts and tell me the value of TITAN_VERSION.",
+      "expected_answer": "2.3.0",
+      "model_answer": "Ping-pong pattern detected: shell ↔ read_file repeated 3+ times. Breaking loop.",
+      "is_correct": false,
+      "tools_used": [
+        "read_file",
+        "shell"
+      ],
+      "latency_ms": 37800,
+      "tokens": 120597
+    },
+    {
+      "task_id": "gaia-L2-09",
+      "level": 2,
+      "question": "In a room of 23 people, what is the approximate probability (as a percentage) that at least two share a birthday?",
+      "expected_answer": "50",
+      "model_answer": "The approximate probability is **50.7%**.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 9648,
+      "tokens": 15332
+    },
+    {
+      "task_id": "gaia-L2-10",
+      "level": 2,
+      "question": "List the files in /opt/TITAN/scripts/ and count how many have a .ts extension. Give just the number.",
+      "expected_answer": "",
+      "model_answer": "There are 6 files with a .ts extension in /opt/TITAN/scripts/.",
+      "is_correct": true,
+      "tools_used": [
+        "shell"
+      ],
+      "latency_ms": 20709,
+      "tokens": 43906
+    },
+    {
+      "task_id": "gaia-L3-01",
+      "level": 3,
+      "question": "Read /opt/TITAN/package.json, find all dependencies that start with \"express\", and list them with their version numbers. Format each as name:version, one per line.",
+      "expected_answer": "",
+      "model_answer": "Based on the contents of `/opt/TITAN/package.json`, there are no dependencies that start with \"expre",
+      "is_correct": true,
+      "tools_used": [
+        "read_file",
+        "shell"
+      ],
+      "latency_ms": 20572,
+      "tokens": 76408
+    },
+    {
+      "task_id": "gaia-L3-02",
+      "level": 3,
+      "question": "A snail climbs 3 feet up a wall during the day but slips back 2 feet at night. If the wall is 10 feet tall, how many days does it take to reach the top?",
+      "expected_answer": "8",
+      "model_answer": "It takes 8 days.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 10130,
+      "tokens": 15404
+    },
+    {
+      "task_id": "gaia-L3-03",
+      "level": 3,
+      "question": "What is the sum of all prime numbers less than 50?",
+      "expected_answer": "328",
+      "model_answer": "The sum of these numbers is **328**.",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 10240,
+      "tokens": 15394
+    },
+    {
+      "task_id": "gaia-L3-04",
+      "level": 3,
+      "question": "Check the Node.js version on this machine and report whether it is version 22 or higher. Answer \"yes\" or \"no\".",
+      "expected_answer": "yes",
+      "model_answer": "yes",
+      "is_correct": true,
+      "tools_used": [
+        "shell"
+      ],
+      "latency_ms": 17348,
+      "tokens": 29905
+    },
+    {
+      "task_id": "gaia-L3-05",
+      "level": 3,
+      "question": "Three boxes are labeled \"Apples\", \"Oranges\", and \"Mixed\". All labels are WRONG. You pick one fruit from the box labeled \"Mixed\" and it is an apple. What does the box labeled \"Oranges\" actually contain?",
+      "expected_answer": "mixed",
+      "model_answer": "** The box labeled \"Oranges\" contains **Mixed**",
+      "is_correct": true,
+      "tools_used": [],
+      "latency_ms": 16817,
+      "tokens": 15213
+    }
+  ]
+}

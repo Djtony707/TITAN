@@ -31,6 +31,7 @@ import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
+import { startTrace } from './tracer.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
 
@@ -634,8 +635,9 @@ export async function processMessage(
     const startTime = Date.now();
     const config = loadConfig();
     const session = getOrCreateSession(channel, userId, overrides?.agentId || 'default');
+    const trace = startTrace(session.id, message);
 
-    logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId})`);
+    logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId}) trace=${trace.traceId}`);
 
     // ── Detect user corrections and learn from them ───
     if (isCorrection(message)) {
@@ -1190,6 +1192,15 @@ export async function processMessage(
             });
         } catch (e) { logger.debug(COMPONENT, `Response serialization failed: ${(e as Error).message}`); }
     }
+
+    // Finalize trace
+    trace.setModel(modelUsed);
+    trace.setRounds(loopResult.toolCallDetails.length);
+    trace.setTokens(totalPromptTokens, totalCompletionTokens);
+    for (const tc of loopResult.toolCallDetails) {
+        trace.toolCall(tc.name, tc.args, 0, tc.success, 0);
+    }
+    trace.end(budgetExhausted ? 'failed' : 'completed', budgetExhausted ? 'budget exhausted' : undefined);
 
     return {
         content: finalContent,

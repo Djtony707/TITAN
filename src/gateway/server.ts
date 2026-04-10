@@ -930,6 +930,34 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
   });
 
+  // ── Tracing API ─────────────────────────────────────────────────
+  app.get('/api/traces', async (_req, res) => {
+    try {
+      const { listTraces, getTraceStats } = await import('../agent/tracer.js');
+      const limit = parseInt(_req.query.limit as string || '50', 10);
+      const session = _req.query.session as string | undefined;
+      res.json({ traces: listTraces(limit, session), stats: getTraceStats() });
+    } catch { res.json({ traces: [], stats: {} }); }
+  });
+
+  app.get('/api/traces/:traceId', async (req, res) => {
+    try {
+      const { getTrace } = await import('../agent/tracer.js');
+      const trace = getTrace(req.params.traceId);
+      if (!trace) { res.status(404).json({ error: 'Trace not found' }); return; }
+      res.json(trace);
+    } catch { res.status(500).json({ error: 'Tracer unavailable' }); }
+  });
+
+  // ── Alerts API ────────────────────────────────────────────────
+  app.get('/api/alerts', async (_req, res) => {
+    try {
+      const { getAlertHistory } = await import('../agent/alerts.js');
+      const limit = parseInt(_req.query.limit as string || '50', 10);
+      res.json({ alerts: getAlertHistory(limit) });
+    } catch { res.json({ alerts: [] }); }
+  });
+
   app.get('/api/sessions', (_req, res) => {
     const sessions = listSessions();
     res.json(sessions);
@@ -5564,6 +5592,10 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.info(COMPONENT, `Monitor "${monitor.name}" responded: ${response.content.slice(0, 100)}`);
   });
   initMonitors();
+
+  // ── Operator Alerting ──────────────────────────────────────────
+  const { initAlerts } = await import('../agent/alerts.js');
+  initAlerts();
 
   // ── Mesh Networking ───────────────────────────────────────────
   if (config.mesh.enabled && !config.mesh.secret) {
