@@ -149,9 +149,12 @@ export function shouldDeliberate(message: string, config: TitanConfig): boolean 
     const autoDetectEffective = isAutonomous || (config.deliberation?.autoDetect === true);
     if (!autoDetectEffective) return false;
     const complexity = classifyComplexity(message);
-    // Plan mode: trigger on moderate AND ambitious complexity
-    // This ensures TITAN plans before acting on any non-trivial task
-    return complexity === 'ambitious' || complexity === 'moderate' || complexity === 'complex';
+    // Only deliberate on truly ambitious tasks that need multi-step planning.
+    // Moderate and complex messages go straight to the ReAct loop — they can
+    // use tools directly without the overhead of plan generation + approval.
+    // Previous behavior (moderate + complex + ambitious) caused 40-70s delays
+    // on simple file reads and shell commands.
+    return complexity === 'ambitious';
 }
 
 /** Get the reasoning model to use — always falls back to the agent's configured model */
