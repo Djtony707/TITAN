@@ -494,7 +494,7 @@ function buildVoiceSystemPrompt(config: ReturnType<typeof loadConfig>): string {
     const ttsEngine = voiceConfig.ttsEngine as string || '';
 
     // Andrew persona — speak like the android from Bicentennial Man
-    const isAndrew = ttsVoice === 'andrew' && ttsEngine === 'qwen3-tts';
+    const isAndrew = ttsVoice === 'andrew' && ttsEngine === 'f5-tts';
     const persona = isAndrew
         ? `You are TITAN, a personal AI assistant built by Tony Elliott. Powered by ${modelId}.
 
@@ -793,7 +793,7 @@ export async function processMessage(
         // Reinforce persona at the very end (models weight beginning and end most)
         const ttsVoice2 = ((config.voice as Record<string, unknown>) || {}).ttsVoice as string || '';
         const ttsEngine2 = ((config.voice as Record<string, unknown>) || {}).ttsEngine as string || '';
-        if (ttsVoice2 === 'andrew' && ttsEngine2 === 'qwen3-tts') {
+        if (ttsVoice2 === 'andrew' && ttsEngine2 === 'f5-tts') {
             systemPrompt += '\n\nREMINDER: Your communication style is always formal, measured, and inspired by Andrew Martin. Say "Sir". No contractions. Never say "I am an AI assistant" — you are TITAN.';
         }
         logger.info('Agent', `Voice prompt: ${systemPrompt.length} chars, memory: ${memoryBlock.length} chars, graph: ${voiceGraphCtx.length} chars`);

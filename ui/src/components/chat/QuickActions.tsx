@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Search, Code, Globe, Zap, Wrench, Bot, Shield, Brain, Mic, BarChart3 } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 interface QuickAction {
   icon: typeof Search;
@@ -74,6 +76,15 @@ interface QuickActionsProps {
 }
 
 export function QuickActions({ onSelectAction, onVoiceOpen, visible }: QuickActionsProps) {
+  const [voiceReady, setVoiceReady] = useState(true); // optimistic default
+
+  useEffect(() => {
+    apiFetch('/api/voice/health')
+      .then(r => r.json())
+      .then(d => setVoiceReady(d.overall === true))
+      .catch(() => setVoiceReady(false));
+  }, []);
+
   if (!visible) return null;
 
   return (
@@ -83,13 +94,19 @@ export function QuickActions({ onSelectAction, onVoiceOpen, visible }: QuickActi
           <button
             key={action.label}
             onClick={() => {
-              if (action.prompt === '__voice__' && onVoiceOpen) {
-                onVoiceOpen();
-              } else {
-                onSelectAction(action.prompt);
+              if (action.prompt === '__voice__') {
+                if (voiceReady && onVoiceOpen) onVoiceOpen();
+                return;
               }
+              onSelectAction(action.prompt);
             }}
-            className={`group relative flex flex-col items-center text-center gap-2 p-4 rounded-2xl border border-white/[0.06] bg-gradient-to-br ${action.gradient} backdrop-blur-sm transition-all duration-200 hover:border-white/[0.12] hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20 active:scale-[0.98]`}
+            disabled={action.prompt === '__voice__' && !voiceReady}
+            title={action.prompt === '__voice__' && !voiceReady ? 'Voice not configured — set LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET in your environment or config' : undefined}
+            className={`group relative flex flex-col items-center text-center gap-2 p-4 rounded-2xl border border-white/[0.06] bg-gradient-to-br ${action.gradient} backdrop-blur-sm transition-all duration-200 ${
+              action.prompt === '__voice__' && !voiceReady
+                ? 'opacity-40 cursor-not-allowed'
+                : 'hover:border-white/[0.12] hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20 active:scale-[0.98]'
+            }`}
           >
             <div className="flex items-center justify-center gap-2">
               <action.icon size={16} className="text-white/70 group-hover:text-white transition-colors" />

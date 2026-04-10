@@ -93,11 +93,11 @@ export async function runDoctor(options?: { fix?: boolean; json?: boolean; dryRu
         fixKey: 'config',
     });
 
-    // 4. Database
+    // 4. Database (lazily created — not having one on a fresh install is normal)
     checks.push({
         name: 'Database',
-        status: existsSync(TITAN_DB_PATH) ? 'pass' : 'warn',
-        message: existsSync(TITAN_DB_PATH) ? TITAN_DB_PATH : 'Not initialized (will be created on first use)',
+        status: 'pass',
+        message: existsSync(TITAN_DB_PATH) ? TITAN_DB_PATH : 'Will be created on first use (this is normal)',
     });
 
     // 5. Workspace

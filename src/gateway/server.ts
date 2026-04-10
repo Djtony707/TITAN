@@ -3728,13 +3728,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }));
     // TTS health check — /health endpoint or speech probe fallback
     try {
-      const ttsBase = engine === 'qwen3-tts' ? 'http://localhost:5006' : ttsUrl;
+      const ttsBase = engine === 'f5-tts' ? 'http://localhost:5006' : ttsUrl;
       const healthUrl = engine === 'edge' ? `http://localhost:5007/health` : `${ttsBase}/health`;
       let resp = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
       if (!resp || resp.status >= 400) {
         // No /health endpoint — try a lightweight speech probe
         const voice = cfg.voice.ttsVoice || 'default';
-        const model = engine === 'qwen3-tts' ? 'f5-tts' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+        const model = engine === 'f5-tts' ? 'f5-tts' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
         resp = await fetch(`${ttsBase}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3810,9 +3810,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Resolve TTS URL and model based on engine
     const previewTtsUrl = engine === 'edge' ? `http://localhost:5007`
-      : engine === 'qwen3-tts' ? `http://localhost:${5006}` : ttsUrl;
+      : engine === 'f5-tts' ? `http://localhost:${5006}` : ttsUrl;
     const previewTtsModel = engine === 'edge' ? 'edge-tts'
-      : engine === 'qwen3-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
+      : engine === 'f5-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
 
     try {
       const ttsRes = await fetch(`${previewTtsUrl}/v1/audio/speech`, {
@@ -3875,7 +3875,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     let effectiveTtsUrl = ttsUrl;
     let effectiveTtsModel = 'mlx-community/orpheus-3b-0.1-ft-4bit';
 
-    if (ttsEngine === 'qwen3-tts') {
+    if (ttsEngine === 'f5-tts') {
       effectiveTtsUrl = `http://localhost:${5006}`;
       effectiveTtsModel = 'f5-tts-mlx';
       try {
@@ -3998,9 +3998,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     };
 
-    // For F5-TTS (qwen3-tts engine): batch ALL sentences into one TTS call after LLM finishes.
+    // For F5-TTS (f5-tts engine): batch ALL sentences into one TTS call after LLM finishes.
     // But cap at ~120 chars per call to avoid quality degradation on long text.
-    const isF5TTS = effectiveTtsEngine === 'qwen3-tts';
+    const isF5TTS = effectiveTtsEngine === 'f5-tts';
     const f5Sentences: string[] = []; // accumulate clean sentences for post-LLM TTS
 
     // Flush accumulated buffer as a sentence — adds to sequential queue
@@ -4213,7 +4213,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return;
     }
 
-    if (engine === 'qwen3-tts') {
+    if (engine === 'f5-tts') {
       // Return cloned voices from ~/.titan/voices/
       const voicesDir = join(homedir(), '.titan', 'voices');
       try {
@@ -4221,9 +4221,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const voiceNames = files.map((f: string) => f.replace('.wav', ''));
         // Always include 'default' as fallback
         const voices = voiceNames.length ? voiceNames : ['default'];
-        res.json({ voices, engine: 'qwen3-tts' });
+        res.json({ voices, engine: 'f5-tts' });
       } catch {
-        res.json({ voices: ['default'], engine: 'qwen3-tts' });
+        res.json({ voices: ['default'], engine: 'f5-tts' });
       }
       return;
     }
@@ -4478,11 +4478,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // Step 4: Start the server
       send('start', 'running', 'Starting voice cloning server on port 5006...');
       const python = join(venvPath, 'bin', 'python');
-      const serverScript = join(__dirname, '..', 'scripts', 'qwen3-tts-server.py');
+      const serverScript = join(__dirname, '..', 'scripts', 'f5-tts-server.py');
       // Fall back to source path if dist path doesn't exist
       const scriptPath = fs.existsSync(serverScript)
         ? serverScript
-        : join(__dirname, '..', '..', 'scripts', 'qwen3-tts-server.py');
+        : join(__dirname, '..', '..', 'scripts', 'f5-tts-server.py');
 
       const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
         detached: true,
@@ -4551,10 +4551,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch { /* not running, start it */ }
 
     try {
-      const serverScript = join(__dirname, '..', 'scripts', 'qwen3-tts-server.py');
+      const serverScript = join(__dirname, '..', 'scripts', 'f5-tts-server.py');
       const scriptPath = fs.existsSync(serverScript)
         ? serverScript
-        : join(__dirname, '..', '..', 'scripts', 'qwen3-tts-server.py');
+        : join(__dirname, '..', '..', 'scripts', 'f5-tts-server.py');
 
       const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
         detached: true,

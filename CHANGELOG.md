@@ -5,6 +5,37 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.0] — 2026-04-09
+
+### Sprint 2: "Don't Lie to Users" — correctness, docs, UX
+
+Every README claim that was inaccurate, missing, or misleading — fixed or documented honestly.
+
+### Fixed
+- **Doctor DB warning no longer alarming** — Changed from ⚠️ `Not initialized` to ✅ `Will be created on first use (this is normal)` so new users don't think something is broken.
+- **F5-TTS naming consistency** — Renamed internal `qwen3-tts` engine to `f5-tts` throughout code, config schema, gateway, and agent. Backward compat preserved: `qwen3-tts` is still accepted in config but normalized internally. Script renamed `qwen3-tts-server.py` → `f5-tts-server.py`.
+- **Tailscale docs now accurate** — README Mesh section rewritten to document actual behavior: manual peer add via `titan mesh --add`, no automatic Tailscale peering. Added Security Model subsection documenting shared-secret + approval queue trust model.
+- **LiveKit voice button gated** — Voice Chat quick action in Mission Control is now disabled with tooltip when LiveKit isn't configured, instead of opening the VoiceOverlay to a connection error.
+
+### Added
+- **Channel token validation in onboarding** — `validateChannelToken()` tests Discord (`/users/@me`), Telegram (`/getMe`), and Slack (`auth.test`) tokens inline during the wizard. Shows ✅ or ⚠️ after pasting.
+- **Mesh security model documented** — New section in README: "Peer authentication uses out-of-band secret + manual approval. Treat as trusted network. For untrusted, use Tailscale."
+- **`.env.example` completed** — Added all 11 additional cloud provider API keys (Groq, Mistral, OpenRouter, Fireworks, xAI, Together, DeepSeek, Cerebras, Cohere, Perplexity, Azure) with descriptions. Added recommended-for-new-users header.
+
+### Verified (claims audited and confirmed working)
+- `titan doctor --fix` — already wired (audit incorrectly reported it as a no-op)
+- `titan model --discover` — already implemented (audit incorrectly reported it missing)
+- Doctor `--json` output — already functional
+- WSL2 detection in `install.sh` — already correct (`uname -s` returns `Linux`)
+- Stall detector in doctor — already synchronous and non-blocking
+
+### Deferred to future release
+- **Voice directory extract** (P1-3) — 500+ lines of voice logic live in gateway/server.ts. Correct but architecturally messy. Mechanical refactor, no correctness impact.
+- **WebChat channel cleanup** (P1-6) — WebSocket-based WebChat is actually load-bearing for legacy dashboard. Not a stub to delete.
+- **QQ channel** (P1-7) — 87-line scaffold. Keeping for now since it doesn't affect other channels.
+
+---
+
 ## [2.1.1] — 2026-04-09
 
 ### Fixed

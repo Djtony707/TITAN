@@ -118,6 +118,37 @@ async function captureAndValidateKey(provider: string): Promise<string> {
 
 import { TITAN_VERSION } from '../utils/constants.js';
 
+// ─── Channel token validation ────────────────────────────────────
+// Quick check if a channel bot token is valid by calling the platform's identity endpoint.
+async function validateChannelToken(channel: string, token: string): Promise<boolean> {
+    try {
+        const ctl = AbortSignal.timeout(8000);
+        if (channel === 'discord') {
+            const res = await fetch('https://discord.com/api/v10/users/@me', {
+                headers: { Authorization: `Bot ${token}` }, signal: ctl,
+            });
+            return res.ok;
+        }
+        if (channel === 'telegram') {
+            const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: ctl });
+            return res.ok;
+        }
+        if (channel === 'slack') {
+            const res = await fetch('https://slack.com/api/auth.test', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+                signal: ctl,
+            });
+            if (!res.ok) return false;
+            const data = await res.json() as { ok?: boolean };
+            return data.ok === true;
+        }
+        return true; // unknown channel — skip validation
+    } catch {
+        return false;
+    }
+}
+
 function printLogo(): void {
     const c = chalk;
     const border = c.cyan;
@@ -424,6 +455,16 @@ export async function runOnboard(_installDaemon?: boolean): Promise<boolean> {
                 config.channels.googlechat.token = webhook;
             } else {
                 const token = await password({ message: `  ${channel} bot token:`, mask: '*' });
+                if (token && token.trim().length > 0) {
+                    // Validate token with a quick API call
+                    process.stdout.write(chalk.gray(`  → Testing ${channel} token... `));
+                    const valid = await validateChannelToken(channel, token.trim());
+                    if (valid) {
+                        console.log(chalk.green('✅ valid'));
+                    } else {
+                        console.log(chalk.yellow('⚠️  could not verify (token saved anyway — check it in Mission Control if the channel fails)'));
+                    }
+                }
                 if (channel === 'discord') {
                     config.channels.discord.enabled = true;
                     config.channels.discord.token = token;
