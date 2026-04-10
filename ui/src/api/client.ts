@@ -724,6 +724,46 @@ export async function updateCPAgent(id: string, updates: { reportsTo?: string; r
   });
 }
 
+// ---- Traces ----
+
+export async function getTraces(limit = 50, session?: string): Promise<{ traces: import('./types.js').Trace[]; stats: import('./types.js').TraceStats }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (session) params.set('session', session);
+  return request(`/api/traces?${params}`);
+}
+
+export async function getTraceDetail(traceId: string): Promise<import('./types.js').Trace> {
+  return request(`/api/traces/${traceId}`);
+}
+
+// ---- Alerts ----
+
+export async function getAlerts(limit = 50): Promise<{ alerts: import('./types.js').Alert[] }> {
+  return request(`/api/alerts?limit=${limit}`);
+}
+
+// ---- Soul ----
+
+export async function getSoulWisdom(): Promise<import('./types.js').SoulWisdom> {
+  return request('/api/soul/wisdom');
+}
+
+export async function getSoulState(sessionId: string): Promise<import('./types.js').SoulState> {
+  return request(`/api/soul/state/${sessionId}`);
+}
+
+// ---- Guardrails ----
+
+export async function getGuardrailViolations(limit = 50): Promise<{ violations: import('./types.js').GuardrailViolation[] }> {
+  return request(`/api/guardrails/violations?limit=${limit}`);
+}
+
+// ---- Checkpoints ----
+
+export async function getCheckpoints(): Promise<{ checkpoints: import('./types.js').CheckpointMeta[] }> {
+  return request('/api/checkpoints');
+}
+
 // ---- Auth ----
 
 export async function login(password: string): Promise<{ token: string }> {

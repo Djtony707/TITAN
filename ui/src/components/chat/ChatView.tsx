@@ -12,9 +12,11 @@ import { AgentWatcher } from '../agent-watcher/AgentWatcher';
 
 interface ChatViewProps {
   onVoiceOpen?: () => void;
+  onToggleActivity?: () => void;
+  activityCollapsed?: boolean;
 }
 
-function ChatView({ onVoiceOpen }: ChatViewProps) {
+function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();

@@ -34,6 +34,23 @@
   /* ── Chat ─────────────────────────────────────────────── */
   --color-user-bubble: #6366f1;
   --color-assistant-bubble: #27272a;
+
+  /* ── Mission Control Shell ───────────────────────────── */
+  --color-rail-bg: #0a0a0c;
+  --color-rail-active: #6366f1;
+  --color-rail-hover: #18181b;
+  --color-status-bar-bg: #0a0a0c;
+
+  /* ── Activity panel states ───────────────────────────── */
+  --color-trace-active: #22d3ee;
+  --color-trace-complete: #22c55e;
+  --color-soul-glow: #a855f7;
+  --color-alert-urgent: #ef4444;
+  --color-alert-warning: #f59e0b;
+
+  /* ── Resize handle ───────────────────────────────────── */
+  --color-resize-handle: #27272a;
+  --color-resize-active: #6366f1;
 }
 
 :root {
@@ -48,6 +65,10 @@
   --shadow-glow-accent-strong: 0 0 30px rgba(99, 102, 241, 0.25);
   --shadow-glow-success: 0 0 20px rgba(34, 197, 94, 0.15);
   --shadow-glow-error: 0 0 20px rgba(239, 68, 68, 0.15);
+  --shadow-rail: 2px 0 8px rgba(0, 0, 0, 0.4);
+  --shadow-status-bar: 0 -1px 4px rgba(0, 0, 0, 0.3);
+  --shadow-glow-soul: 0 0 30px rgba(168, 85, 247, 0.2);
+  --shadow-glow-trace: 0 0 20px rgba(34, 211, 238, 0.15);
 
   /* ── Radius ─────────────────────────────────────────── */
   --radius-sm: 0.375rem;

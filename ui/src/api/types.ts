@@ -522,6 +522,104 @@ export interface CPRun {
   error?: string;
 }
 
+// ---- Execution Traces ----
+
+export interface TraceSpan {
+  name: string;
+  startMs: number;
+  durationMs?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface TraceToolCall {
+  tool: string;
+  args: Record<string, unknown>;
+  durationMs: number;
+  success: boolean;
+  round: number;
+}
+
+export interface Trace {
+  traceId: string;
+  sessionId: string;
+  message: string;
+  startedAt: string;
+  endedAt?: string;
+  totalMs?: number;
+  spans: TraceSpan[];
+  toolCalls: TraceToolCall[];
+  rounds: number;
+  model?: string;
+  tokens?: { prompt: number; completion: number };
+  status: 'running' | 'completed' | 'failed';
+  error?: string;
+}
+
+export interface TraceStats {
+  totalTraces: number;
+  running: number;
+  avgDurationMs: number;
+  avgRounds: number;
+  avgToolCalls: number;
+  topTools: Array<{ tool: string; count: number }>;
+}
+
+// ---- Soul ----
+
+export interface SoulState {
+  taskUnderstanding: string;
+  confidence: 'high' | 'medium' | 'low' | 'lost';
+  strategy: 'direct' | 'explore' | 'plan' | 'ask_user' | 'delegate';
+  attempts: string[];
+  insights: string[];
+  round: number;
+  toolsUsed: string[];
+  updatedAt: string;
+}
+
+export interface SoulWisdom {
+  patterns: Array<{ taskType: string; bestStrategy: string; avgRounds: number; successRate: number; learnedAt: string }>;
+  mistakes: Array<{ description: string; avoidance: string; learnedAt: string }>;
+  totalTasks: number;
+  avgConfidence: number;
+  lastUpdated: string;
+}
+
+// ---- Alerts ----
+
+export interface Alert {
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  message: string;
+  source: string;
+  timestamp: string;
+  data?: Record<string, unknown>;
+}
+
+// ---- Guardrails ----
+
+export interface GuardrailViolation {
+  timestamp: string;
+  layer: 'input' | 'tool' | 'output';
+  rule: string;
+  severity: 'info' | 'warning' | 'critical';
+  content: string;
+  blocked: boolean;
+}
+
+// ---- Checkpoints ----
+
+export interface CheckpointMeta {
+  sessionId: string;
+  rounds: number;
+  latestRound: number;
+  model: string;
+  message: string;
+  channel: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ---- Paperclip: Org Chart ----
 
 export interface OrgNode {

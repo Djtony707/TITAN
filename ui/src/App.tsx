@@ -1,6 +1,5 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route } from 'react-router';
-import { Layout } from '@/components/layout/Layout';
+import { Routes, Route, Navigate } from 'react-router';
 import { ConfigProvider } from '@/hooks/useConfig';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ToastProvider } from '@/components/shared/Toast';
@@ -8,10 +7,24 @@ import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { FirstRunBanner } from '@/components/FirstRunBanner';
 import { apiFetch } from '@/api/client';
+import AppShell from '@/components/shell/AppShell';
 
-const ChatView = lazy(() => import('@/components/chat/ChatView'));
-const ActivityPanel = lazy(() => import('@/components/admin/ActivityPanel'));
+// ── Lazy-loaded views ───────────────────────────────────────
+const MissionView = lazy(() => import('@/components/mission/MissionView'));
+const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
+const IntelligenceView = lazy(() => import('@/components/intelligence/IntelligenceView'));
+const ToolsView = lazy(() => import('@/components/tools/ToolsView'));
+const InfraView = lazy(() => import('@/components/infra/InfraView'));
+const SettingsView = lazy(() => import('@/components/settings/SettingsView'));
+
+const VoiceOverlay = lazy(() =>
+  import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
+);
+
+// ── Legacy panel imports for backward-compat redirects ──────
+// These lazy imports support old bookmarks/links to individual panels
 const OverviewPanel = lazy(() => import('@/components/admin/OverviewPanel'));
+const ActivityPanel = lazy(() => import('@/components/admin/ActivityPanel'));
 const AgentsPanel = lazy(() => import('@/components/admin/AgentsPanel'));
 const SessionsPanel = lazy(() => import('@/components/admin/SessionsPanel'));
 const SettingsPanel = lazy(() => import('@/components/admin/SettingsPanel'));
@@ -34,22 +47,18 @@ const DaemonPanel = lazy(() => import('@/components/admin/DaemonPanel'));
 const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
 const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
 const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
-const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
 const HomelabPanel = lazy(() => import('@/components/admin/HomelabPanel'));
 const MemoryWikiPanel = lazy(() => import('@/components/admin/MemoryWikiPanel'));
-const VoiceOverlay = lazy(() =>
-  import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
-);
 
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center h-full">
-      <div className="text-[var(--text-secondary)] text-sm">Loading...</div>
+      <div className="text-text-muted text-sm">Loading...</div>
     </div>
   );
 }
 
-/** Wrapper that adds padding for admin panels (ChatView manages its own layout) */
+/** Wrapper that adds padding for legacy admin panels */
 function AdminPage({ children }: { children: React.ReactNode }) {
   return <div className="p-3 md:p-6 h-full overflow-auto">{children}</div>;
 }
@@ -80,16 +89,27 @@ function AuthenticatedApp() {
   return (
     <ToastProvider>
     <ConfigProvider>
-      <Layout>
-        <FirstRunBanner />
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            <Route path="/" element={<AdminPage><OverviewPanel /></AdminPage>} />
-            <Route path="/chat" element={<ChatView onVoiceOpen={() => setVoiceOpen(true)} />} />
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
+          {/* New shell layout with icon rail + status bar */}
+          <Route element={<AppShell />}>
+            {/* ── Primary views (6 panels) ─────────────────── */}
+            <Route index element={<MissionView onVoiceOpen={() => setVoiceOpen(true)} />} />
+            <Route path="/command-post" element={<AdminPage><CommandPostHub /></AdminPage>} />
+            <Route path="/intelligence" element={<IntelligenceView />} />
+            <Route path="/tools" element={<ToolsView />} />
+            <Route path="/infra" element={<InfraView />} />
+            <Route path="/settings" element={<SettingsView />} />
+
+            {/* ── Legacy routes (redirect to new views) ────── */}
+            <Route path="/chat" element={<Navigate to="/" replace />} />
+            <Route path="/overview" element={<Navigate to="/" replace />} />
+
+            {/* ── Legacy admin panel routes (backward compat) ── */}
+            {/* These still work but are also accessible via consolidated views */}
             <Route path="/activity" element={<AdminPage><ActivityPanel /></AdminPage>} />
             <Route path="/agents" element={<AdminPage><AgentsPanel /></AdminPage>} />
             <Route path="/sessions" element={<AdminPage><SessionsPanel /></AdminPage>} />
-            <Route path="/settings" element={<AdminPage><SettingsPanel /></AdminPage>} />
             <Route path="/channels" element={<AdminPage><ChannelsPanel /></AdminPage>} />
             <Route path="/skills" element={<AdminPage><SkillsPanel /></AdminPage>} />
             <Route path="/telemetry" element={<AdminPage><TelemetryPanel /></AdminPage>} />
@@ -109,14 +129,15 @@ function AuthenticatedApp() {
             <Route path="/audit" element={<AdminPage><AuditPanel /></AdminPage>} />
             <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
             <Route path="/nvidia" element={<AdminPage><NvidiaPanel /></AdminPage>} />
-            <Route path="/command-post" element={<AdminPage><CommandPostHub /></AdminPage>} />
             <Route path="/homelab" element={<AdminPage><HomelabPanel /></AdminPage>} />
             <Route path="/memory-wiki" element={<AdminPage><MemoryWikiPanel /></AdminPage>} />
-          </Routes>
-        </Suspense>
-      </Layout>
+          </Route>
+        </Routes>
+      </Suspense>
 
-      {/* Voice overlay — rendered outside Layout so it covers everything */}
+      <FirstRunBanner />
+
+      {/* Voice overlay — rendered outside shell so it covers everything */}
       {voiceOpen && (
         <Suspense fallback={null}>
           <VoiceOverlay onClose={() => setVoiceOpen(false)} />

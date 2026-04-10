@@ -5,6 +5,43 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.0] — 2026-04-10
+
+### Redesigned — Mission Control v3 (Hybrid Command Center)
+
+Complete redesign of the Mission Control dashboard. 28 admin panels consolidated into 6 views. New hybrid layout with chat on the left and live agent activity on the right.
+
+**Layout Changes:**
+- 220px sidebar replaced with **56px icon rail** (icons only, tooltips on hover)
+- New **status bar** at bottom (model, uptime, connection, version)
+- Default view is now the **Mission View** — chat + activity split with resizable drag handle
+- 6 navigation items: Mission, Command Post, Intelligence, Tools, Infrastructure, Settings
+
+**Mission View (the centerpiece):**
+- Left panel (60%): Full chat interface with sessions
+- Right panel (40%): Live activity with 4 tabs:
+  - **Live Feed** — real-time agent events
+  - **Traces** — execution trace viewer with tool call details
+  - **Soul** — wisdom patterns, confidence, learned strategies
+  - **Alerts** — operator alerts + guardrail violations
+- Panels are resizable via drag handle, right panel is collapsible
+
+**Panel Consolidation (28 → 6):**
+- **Intelligence**: Autopilot + Workflows + Learning + Memory + Self-Improve + Personas
+- **Tools**: Skills + MCP + Integrations + Channels + Mesh
+- **Infrastructure**: Homelab + GPU + Files + Logs + Telemetry
+- **Settings**: General + Security + Audit
+- All legacy routes still work (backward compatible)
+
+**New Components:**
+- `AppShell`, `IconRail`, `StatusBar`, `ResizeHandle` (shell)
+- `MissionView`, `ActivityPanel`, `LiveFeedTab`, `TracesTab`, `SoulTab`, `AlertsTab` (mission)
+- `PanelTabContainer` (shared reusable tab wrapper)
+- `IntelligenceView`, `ToolsView`, `InfraView`, `SettingsView` (consolidated views)
+- `useResizable`, `useSystemStatus` (hooks)
+
+---
+
 ## [2.5.1] — 2026-04-10
 
 ### Improved — Reliability & Task Completion
