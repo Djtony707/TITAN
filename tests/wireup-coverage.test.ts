@@ -40,8 +40,8 @@ describe('trajectoryCompressor — compressToolResult', () => {
     });
 
     it('compresses to head + tail summary when longer than the threshold', async () => {
-        const big = 'A'.repeat(2000);
-        const result = await compressToolResult(sessionId, 'read_file', 'tc2', big, 0);
+        const big = 'A'.repeat(2500);
+        const result = await compressToolResult(sessionId, 'web_fetch', 'tc2', big, 0);
         expect(result.length).toBeLessThan(big.length);
         expect(result).toContain('chars omitted');
         // Head should be the first 400 chars of A's

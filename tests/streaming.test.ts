@@ -70,7 +70,7 @@ describe('Streaming — SSE via /api/message', () => {
     });
 
     it('returns JSON when no Accept: text/event-stream header', async () => {
-        await startGateway({ port: testPort, host: '127.0.0.1' });
+        await startGateway({ port: testPort, host: '127.0.0.1', skipUsableCheck: true });
         try {
             const res = await fetch(`http://127.0.0.1:${testPort}/api/message`, {
                 method: 'POST',
@@ -87,7 +87,7 @@ describe('Streaming — SSE via /api/message', () => {
     }, 15000);
 
     it('returns SSE stream when Accept: text/event-stream', async () => {
-        await startGateway({ port: testPort, host: '127.0.0.1' });
+        await startGateway({ port: testPort, host: '127.0.0.1', skipUsableCheck: true });
         try {
             const res = await fetch(`http://127.0.0.1:${testPort}/api/message`, {
                 method: 'POST',
@@ -119,7 +119,7 @@ describe('Streaming — SSE via /api/message', () => {
     }, 15000);
 
     it('SSE token events contain text data', async () => {
-        await startGateway({ port: testPort, host: '127.0.0.1' });
+        await startGateway({ port: testPort, host: '127.0.0.1', skipUsableCheck: true });
         try {
             const res = await fetch(`http://127.0.0.1:${testPort}/api/message`, {
                 method: 'POST',
@@ -149,7 +149,7 @@ describe('Streaming — SSE via /api/message', () => {
     }, 15000);
 
     it('SSE tool_call events contain name and args', async () => {
-        await startGateway({ port: testPort, host: '127.0.0.1' });
+        await startGateway({ port: testPort, host: '127.0.0.1', skipUsableCheck: true });
         try {
             const res = await fetch(`http://127.0.0.1:${testPort}/api/message`, {
                 method: 'POST',

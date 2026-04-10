@@ -106,6 +106,7 @@ vi.mock('../src/memory/learning.js', () => ({
     recordStrategyOutcome: vi.fn(),
     getStrategyHints: vi.fn().mockReturnValue(null),
     getErrorResolution: vi.fn().mockReturnValue(null),
+    getLearnedPreferenceHints: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../src/plugins/registry.js', () => ({

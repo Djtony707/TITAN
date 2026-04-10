@@ -87,6 +87,13 @@ export interface LoopResult {
     promptTokens: number;
     completionTokens: number;
     budgetExhausted: boolean;
+    /** Structured details from each tool call — used for inter-step context in deliberation */
+    toolCallDetails: Array<{
+        name: string;
+        args: Record<string, unknown>;
+        resultSnippet: string;
+        success: boolean;
+    }>;
 }
 
 // ── Helper: strip leaked tool JSON from LLM responses ────────────────
@@ -202,6 +209,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         promptTokens: 0,
         completionTokens: 0,
         budgetExhausted: false,
+        toolCallDetails: [],
     };
 
     let phase: AgentPhase = 'think';
@@ -229,6 +237,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
     // Tool search state
     const discoveredTools = new Set<string>();
+
+    // Shell-for-files nudge counter
+    let shellForFilesCount = 0;
 
     // Pending tool calls from think phase (passed to act phase)
     let pendingToolCalls: ToolCall[] = [];
@@ -750,6 +761,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 let tcArgs: Record<string, unknown> = {};
                 try { tcArgs = JSON.parse(matchingTc?.function.arguments || '{}'); } catch { /* empty */ }
 
+                // Record structured tool call details for inter-step context in deliberation
+                const tcSuccess = !tr.content.toLowerCase().includes('error:');
+                result.toolCallDetails.push({
+                    name: tr.name,
+                    args: tcArgs,
+                    resultSnippet: tr.content.slice(0, 300),
+                    success: tcSuccess,
+                });
+
                 // Auto-verify file writes — catch silent truncation, empty files, broken HTML/JSON
                 if (tr.name === 'write_file' || tr.name === 'append_file') {
                     const vr = verifyFileWrite(tr.name, tcArgs, tr.content);
@@ -759,6 +779,26 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                             role: 'user',
                             content: `[AutoVerify] ${vr.issue}${vr.suggestion ? `\n\nSuggestion: ${vr.suggestion}` : ''}`,
                         });
+                    }
+                }
+
+                // Shell-for-files nudge: when the model uses shell for file operations,
+                // inject a redirect toward dedicated tools
+                if (tr.name === 'shell') {
+                    const cmd = (tcArgs.command as string || '').trim();
+                    const isFileOp = /^\s*(cat|head|tail|less|more|sed|awk)\s+/.test(cmd)
+                        || /^\s*grep\s+.*\s+\S+\.\w+/.test(cmd)
+                        || /^\s*curl\s+/.test(cmd);
+                    if (isFileOp) {
+                        shellForFilesCount++;
+                        const verb = cmd.split(/\s+/)[0];
+                        const nudgeMsg = shellForFilesCount >= 3
+                            ? `[TOOL GUIDANCE — IMPORTANT] You have used shell for file operations ${shellForFilesCount} times. TITAN has dedicated tools that are MORE RELIABLE:\n` +
+                              `- cat/head/tail → use read_file\n- sed/awk → use edit_file\n- grep → use read_file\n- curl → use web_fetch\n` +
+                              `Switch to these tools NOW.`
+                            : `[TOOL GUIDANCE] For file operations, use dedicated read_file/edit_file tools instead of shell ${verb}. They are more reliable.`;
+                        ctx.messages.push({ role: 'user', content: nudgeMsg });
+                        logger.info(COMPONENT, `[ShellNudge] Shell-for-files detected (count=${shellForFilesCount}): ${cmd.slice(0, 60)}`);
                     }
                 }
 

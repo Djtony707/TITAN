@@ -41,6 +41,7 @@ vi.mock('../src/config/config.js', () => ({
     getDefaultConfig: vi.fn().mockReturnValue({}),
     resetConfigCache: vi.fn(),
     updateConfig: vi.fn(),
+    hasUsableProvider: vi.fn().mockReturnValue({ usable: true, details: 'mock' }),
 }));
 
 const mockRouteMessage = vi.hoisted(() => vi.fn());
@@ -193,7 +194,7 @@ function defaultRouteResponse(overrides: Record<string, unknown> = {}) {
 
 describe('Gateway E2E — /api/message lifecycle', () => {
     beforeAll(async () => {
-        await startGateway({ port: TEST_PORT, host: '127.0.0.1' });
+        await startGateway({ port: TEST_PORT, host: '127.0.0.1', skipUsableCheck: true });
     }, 30000);
 
     afterAll(async () => {
@@ -479,7 +480,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             });
             expect(res.status).toBe(500);
             const body = await res.json() as Record<string, unknown>;
-            expect(body.error).toContain('LLM provider unreachable');
+            // classifyChatError returns structured error — original message is in 'detail'
+            expect(body.detail).toContain('LLM provider unreachable');
         });
 
         it('should return SSE done event with error when routeMessage throws (SSE)', async () => {
@@ -493,7 +495,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             const events = parseSSE(await res.text());
             const done = events.filter(e => e.event === 'done');
             expect(done.length).toBe(1);
-            expect((done[0].data as Record<string, unknown>).error).toContain('Provider timeout');
+            // classifyChatError classifies 'timeout' → error code 'timeout', original in 'detail'
+            expect((done[0].data as Record<string, unknown>).detail).toContain('Provider timeout');
         });
     });
 

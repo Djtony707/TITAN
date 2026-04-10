@@ -40,6 +40,7 @@ vi.mock('../src/config/config.js', () => ({
     getDefaultConfig: vi.fn().mockReturnValue({}),
     resetConfigCache: vi.fn(),
     updateConfig: vi.fn(),
+    hasUsableProvider: vi.fn().mockReturnValue({ usable: true, details: 'mock' }),
 }));
 
 vi.mock('../src/agent/multiAgent.js', async (importOriginal) => {
@@ -180,7 +181,7 @@ const jsonAuth = { ...authHeaders, 'Content-Type': 'application/json' };
 
 describe('Gateway Extended', () => {
     beforeAll(async () => {
-        await startGateway({ port: TEST_PORT, host: '127.0.0.1' });
+        await startGateway({ port: TEST_PORT, host: '127.0.0.1', skipUsableCheck: true });
     }, 30000);
 
     afterAll(async () => {

@@ -35,6 +35,7 @@ vi.mock('../src/config/config.js', () => ({
     getDefaultConfig: vi.fn().mockReturnValue({}),
     resetConfigCache: vi.fn(),
     updateConfig: vi.fn(),
+    hasUsableProvider: vi.fn().mockReturnValue({ usable: true, details: 'mock' }),
 }));
 
 const mockRouteMessage = vi.hoisted(() => vi.fn());
@@ -91,7 +92,7 @@ describe('Concurrent Requests', () => {
     beforeAll(async () => {
         mockRouteMessage.mockResolvedValue(defaultResponse());
         // Disable rate limiting for tests — tests fire 35+ requests in <2s from same IP
-        await startGateway({ port: TEST_PORT, host: '127.0.0.1', rateLimitMax: 10000, rateLimitWindowMs: 1000 });
+        await startGateway({ port: TEST_PORT, host: '127.0.0.1', rateLimitMax: 10000, rateLimitWindowMs: 1000, skipUsableCheck: true });
     }, 30000);
 
     afterAll(async () => {

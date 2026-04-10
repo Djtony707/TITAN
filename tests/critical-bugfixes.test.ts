@@ -32,7 +32,7 @@ const BASE = `http://127.0.0.1:${TEST_PORT}`;
 import { startGateway, stopGateway } from '../src/gateway/server.js';
 
 describe('Critical Bug Fixes', () => {
-    beforeAll(async () => { await startGateway({ port: TEST_PORT, host: '127.0.0.1' }); }, 25000);
+    beforeAll(async () => { await startGateway({ port: TEST_PORT, host: '127.0.0.1', skipUsableCheck: true }); }, 25000);
     afterAll(async () => { await stopGateway(); });
 
     // ── Bug #1: Rate limiting should be enforced on /api/message ──

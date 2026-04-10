@@ -394,6 +394,36 @@ export function getToolPreferences(taskType: string): ToolPreference[] {
         .sort((a, b) => b.successRate - a.successRate);
 }
 
+/** Generate human-readable preference hints from collected tool-preference data */
+export function getLearnedPreferenceHints(taskType: string): string | null {
+    const prefs = getToolPreferences(taskType);
+    if (prefs.length < 2) return null;
+
+    const lines: string[] = [];
+    const FILE_TOOLS = ['read_file', 'write_file', 'edit_file', 'list_dir'];
+    const shellPref = prefs.find(p => p.tool === 'shell');
+
+    // Find cases where shell has lower success than dedicated tools
+    for (const dt of prefs.filter(p => FILE_TOOLS.includes(p.tool))) {
+        if (shellPref && dt.successRate > shellPref.successRate && dt.totalUses >= 3) {
+            lines.push(
+                `prefer ${dt.tool} (${Math.round(dt.successRate * 100)}% success) ` +
+                `over shell (${Math.round(shellPref.successRate * 100)}% success)`,
+            );
+        }
+    }
+
+    // Surface top tools for this task type if no shell comparison available
+    if (lines.length === 0) {
+        const top3 = prefs.slice(0, 3);
+        if (top3.length >= 2) {
+            lines.push(`best tools: ${top3.map(p => `${p.tool} (${Math.round(p.successRate * 100)}%)`).join(', ')}`);
+        }
+    }
+
+    return lines.length > 0 ? `For ${taskType} tasks: ${lines.join('; ')}` : null;
+}
+
 /** Record a successful strategy for future reference */
 export function recordStrategy(
     message: string,

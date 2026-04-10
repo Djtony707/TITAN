@@ -5,6 +5,26 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.5] — 2026-04-10
+
+### Added — Deliberation Step Memory & Tool Calling Quality
+
+**Deliberation Step Memory:** Plan steps now accumulate structured context across execution. When TITAN executes a multi-step plan, file paths discovered in step 1 are automatically available to step 3. Each step's task prompt includes "Files discovered so far" and "Files already modified" sections extracted from tool call artifacts. Prior step result summaries increased from 200 to 500 chars.
+
+**Tool Calling Quality:** Three new layers to improve tool selection for local models (gemma4:31b):
+- **Deliberation task enforcement** — Every plan step gets explicit tool-routing rules (use `read_file` not `cat`, `edit_file` not `sed`, `web_fetch` not `curl`)
+- **Shell-for-files nudge** — When the model uses `shell` for file operations, a corrective message redirects it to dedicated tools. Escalates after 3+ occurrences.
+- **Learned preference injection** — Tool success rates collected by the learning system are now surfaced in the system prompt (e.g., "prefer read_file (95%) over shell (45%)")
+
+### Fixed — 7 Pre-existing Test Failures
+- Added `hasUsableProvider` mock to 3 gateway test files (gateway-extended, gateway-e2e, concurrent)
+- Added `skipUsableCheck: true` to `startGateway()` calls in 5 test files (streaming, gateway, critical-bugfixes, gateway-e2e, gateway-extended, concurrent)
+- Fixed wireup-coverage compression test: used non-exempt tool name (`web_fetch` instead of `read_file`) and increased input size above threshold
+- Fixed gateway-e2e error handling tests: check `detail` field instead of `error` code for original error messages
+- Added `getLearnedPreferenceHints` to agent.test.ts learning mock
+
+---
+
 ## [2.2.1] — 2026-04-09
 
 ### Added — Interactive Plan Approval in Mission Control

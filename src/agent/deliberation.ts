@@ -9,8 +9,58 @@ import { homedir } from 'os';
 import { chat } from '../providers/router.js';
 import { classifyComplexity } from './costOptimizer.js';
 import { createPlan, getReadyTasks, startTask, completeTask, failTask, getPlanStatus, checkpointPlan, type Plan } from './planner.js';
-import { processMessage } from './agent.js';
+import { processMessage, type AgentResponse } from './agent.js';
 import type { TitanConfig } from '../config/schema.js';
+
+/** Structured context accumulated across plan steps */
+interface ExecutionContext {
+    discoveredPaths: string[];
+    modifiedPaths: string[];
+    shellCommands: string[];
+    webUrls: string[];
+}
+
+/** Build a context section string from accumulated execution context */
+function buildContextSection(ctx: ExecutionContext): string {
+    const parts: string[] = [];
+
+    if (ctx.discoveredPaths.length > 0) {
+        const paths = ctx.discoveredPaths.slice(-20); // Cap at 20 most recent
+        parts.push(`\n**Files discovered so far:**\n${paths.map(p => `- ${p}`).join('\n')}`);
+    }
+    if (ctx.modifiedPaths.length > 0) {
+        parts.push(`\n**Files already modified:**\n${ctx.modifiedPaths.map(p => `- ${p}`).join('\n')}`);
+    }
+    if (ctx.webUrls.length > 0) {
+        parts.push(`\n**URLs fetched:**\n${ctx.webUrls.slice(-5).map(u => `- ${u}`).join('\n')}`);
+    }
+
+    return parts.length > 0
+        ? `\n**[Execution Context — accumulated from prior steps]**${parts.join('')}`
+        : '';
+}
+
+/** Populate execution context from an AgentResponse's tool artifacts */
+function updateExecutionContext(ctx: ExecutionContext, result: AgentResponse): void {
+    if (!result.toolArtifacts) return;
+
+    for (const fp of result.toolArtifacts.filePaths) {
+        if (fp.action === 'read' || fp.action === 'list') {
+            if (!ctx.discoveredPaths.includes(fp.path)) ctx.discoveredPaths.push(fp.path);
+        }
+        if (fp.action === 'write' || fp.action === 'edit') {
+            if (!ctx.modifiedPaths.includes(fp.path)) ctx.modifiedPaths.push(fp.path);
+            // Also add to discovered so later steps know this file exists
+            if (!ctx.discoveredPaths.includes(fp.path)) ctx.discoveredPaths.push(fp.path);
+        }
+    }
+    for (const cmd of result.toolArtifacts.shellCommands) {
+        ctx.shellCommands.push(cmd);
+    }
+    for (const url of result.toolArtifacts.webUrls) {
+        if (!ctx.webUrls.includes(url)) ctx.webUrls.push(url);
+    }
+}
 import logger from '../utils/logger.js';
 import { titanEvents } from './daemon.js';
 
@@ -327,6 +377,12 @@ export async function executePlan(
 
     // Collect prior results for context injection
     const priorResults: string[] = [];
+    const executionContext: ExecutionContext = {
+        discoveredPaths: [],
+        modifiedPaths: [],
+        shellCommands: [],
+        webUrls: [],
+    };
 
     let ready = getReadyTasks(plan.id);
     while (ready.length > 0) {
@@ -342,6 +398,7 @@ export async function executePlan(
                 `**This Step:** ${task.title}`,
                 `**Instructions:** ${task.description}`,
                 priorResults.length > 0 ? `\n**Results from previous steps:**\n${priorResults.join('\n')}` : '',
+                buildContextSection(executionContext),
                 ``,
                 `Execute this step now using your available tools. You MUST use tool calls (web_search, web_fetch, shell, read_file, write_file, memory, etc.) to accomplish real work — do NOT hallucinate or fabricate results. If a step requires searching the web, call web_search. If it requires reading a URL, call web_fetch. Be thorough and report your actual results.`,
             ].join('\n');
@@ -351,7 +408,8 @@ export async function executePlan(
                 completeTask(plan.id, task.id, result.content.slice(0, 500));
                 checkpointPlan(plan.id);
                 state.results.push({ taskId: task.id, result: result.content, success: true });
-                priorResults.push(`[${task.id}: ${task.title}] ${result.content.slice(0, 200)}`);
+                priorResults.push(`[${task.id}: ${task.title}] ${result.content.slice(0, 500)}`);
+                updateExecutionContext(executionContext, result);
                 persistState(state);
                 emitPlanEvent({ type: 'plan:step:done', taskId: task.id, success: true, result: result.content.slice(0, 200), planId: plan.id });
             } catch (err) {

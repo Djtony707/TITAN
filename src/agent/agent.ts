@@ -7,7 +7,7 @@ import { loadConfig } from '../config/config.js';
 import { getOrCreateSession, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
-import { getLearningContext, learnFact, getToolWarnings, classifyTaskType, recordStrategy, recordStrategyOutcome, getStrategyHints } from '../memory/learning.js';
+import { getLearningContext, learnFact, getToolWarnings, classifyTaskType, recordStrategy, recordStrategyOutcome, getStrategyHints, getLearnedPreferenceHints } from '../memory/learning.js';
 import { buildPersonalContext } from '../memory/relationship.js';
 import { retainStrategy, getHindsightHints } from '../memory/hindsightBridge.js';
 import { getTeachingContext, isCorrection } from './teaching.js';
@@ -30,7 +30,7 @@ import { createIssue } from './commandPost.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
-import { runAgentLoop } from './agentLoop.js';
+import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
 
@@ -234,6 +234,12 @@ export interface AgentResponse {
     checkpoint?: string;
     /** True when the response is a plan waiting for user approval (reply "yes"/"no") */
     pendingApproval?: boolean;
+    /** Structured artifacts from tool execution — used for inter-step context in deliberation */
+    toolArtifacts?: {
+        filePaths: { path: string; action: 'read' | 'write' | 'edit' | 'list' }[];
+        shellCommands: string[];
+        webUrls: string[];
+    };
 }
 
 /** Read a workspace prompt file if it exists */
@@ -304,6 +310,9 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     if (!strategyHint && userMessage) {
         try { hindsightHint = await getHindsightHints(userMessage); } catch { /* Hindsight unavailable */ }
     }
+
+    // Learned tool preferences — surface collected preference data for tool routing
+    const preferenceHint = userMessage ? getLearnedPreferenceHints(classifyTaskType(userMessage)) : null;
 
     // Teaching context — adaptive skill level, corrections, tool suggestions
     const teachingContext = getTeachingContext();
@@ -480,7 +489,7 @@ Never say "I cannot access local files" or "I cannot reach private IPs" — you 
 ## Continuous Learning
 You get smarter with every interaction. Below is your accumulated knowledge:
 ${learningContext}
-${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}
+${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}
 ${teachingContext ? `\n## Adaptive Teaching\n${teachingContext}` : ''}
 ${customPrompt ? `\n## Custom Instructions\n${customPrompt}` : ''}${workspaceContext}${memoryContext}${personalContext}${graphSection}
 
@@ -571,6 +580,46 @@ export interface StreamCallbacks {
     onToolResult?: (name: string, result: string, durationMs: number, success: boolean) => void;
     onThinking?: () => void;
     onRound?: (round: number, maxRounds: number) => void;
+}
+
+/** Extract structured artifacts from tool call details for inter-step context */
+function extractToolArtifacts(details: LoopResult['toolCallDetails']): AgentResponse['toolArtifacts'] {
+    const filePaths: { path: string; action: 'read' | 'write' | 'edit' | 'list' }[] = [];
+    const shellCommands: string[] = [];
+    const webUrls: string[] = [];
+
+    const ACTION_MAP: Record<string, 'read' | 'write' | 'edit' | 'list'> = {
+        read_file: 'read', write_file: 'write', edit_file: 'edit',
+        append_file: 'write', list_dir: 'list', apply_patch: 'edit',
+    };
+
+    for (const d of details) {
+        const action = ACTION_MAP[d.name];
+        if (action) {
+            const p = (d.args.path || d.args.file_path || d.args.directory) as string;
+            if (p && !filePaths.some(fp => fp.path === p && fp.action === action)) {
+                filePaths.push({ path: p, action });
+            }
+        } else if (d.name === 'shell') {
+            const cmd = (d.args.command as string || '').slice(0, 200);
+            if (cmd) shellCommands.push(cmd);
+        } else if (d.name === 'web_fetch') {
+            const url = d.args.url as string;
+            if (url) webUrls.push(url);
+        }
+
+        // Extract absolute file paths mentioned in results
+        const pathMatches = d.resultSnippet.match(/(?:\/[\w.@-]+){2,}/g);
+        if (pathMatches) {
+            for (const p of pathMatches.slice(0, 5)) {
+                if (!filePaths.some(fp => fp.path === p)) {
+                    filePaths.push({ path: p, action: 'read' });
+                }
+            }
+        }
+    }
+
+    return { filePaths, shellCommands, webUrls };
 }
 
 /** Process a user message through the agent loop */
@@ -864,6 +913,22 @@ export async function processMessage(
         systemPrompt += '\n\n[TASK ENFORCEMENT — CODING] You MUST follow this exact sequence:\n1. Use read_file to read the relevant source files\n2. Understand the code structure and plan your changes\n3. Use write_file or edit_file to MAKE the actual code changes — do NOT just describe what to change\n4. Use shell to run tests or verify the changes\n5. Report what you changed and the test results\n\nCRITICAL: Do NOT stop after reading files. Do NOT write analysis essays about code. You must call write_file to save your changes.';
         taskEnforcementActive = true;
     }
+    // Deliberation step enforcement — task prompts from executePlan() should
+    // always get tool-routing rules because they are synthetic action prompts
+    if (channel === 'deliberation' && !taskEnforcementActive) {
+        systemPrompt += '\n\n[TASK ENFORCEMENT — DELIBERATION STEP] You are executing a step in a structured plan. ' +
+            'You MUST use tool calls to accomplish real work:\n' +
+            '- To read files: use read_file (NOT shell with cat/head/tail)\n' +
+            '- To edit files: use edit_file (NOT shell with sed/awk)\n' +
+            '- To write files: use write_file (NOT shell with echo/printf redirects)\n' +
+            '- To fetch URLs: use web_fetch (NOT shell with curl/wget)\n' +
+            '- To search: use web_search (NOT shell with curl to search engines)\n' +
+            '- Shell is for running builds, tests, and commands that have no dedicated tool.\n' +
+            'Execute this step NOW. Do not describe what you would do — call the tools.';
+        taskEnforcementActive = true;
+        logger.info(COMPONENT, `[TaskEnforcement] Deliberation step enforcement injected`);
+    }
+
     } // end !voiceFastPath
 
     // Memory nudge — every 20 messages, remind agent to review and update its knowledge
@@ -1039,6 +1104,9 @@ export async function processMessage(
     totalCompletionTokens += loopResult.completionTokens;
     budgetExhausted = loopResult.budgetExhausted;
 
+    // Extract structured artifacts for deliberation inter-step context
+    const toolArtifacts = extractToolArtifacts(loopResult.toolCallDetails);
+
 
     // Clean up stall detector for this session
     clearSession(session.id);
@@ -1136,5 +1204,6 @@ export async function processMessage(
         durationMs,
         exhaustedBudget: budgetExhausted || undefined,
         checkpoint,
+        toolArtifacts,
     };
 }
