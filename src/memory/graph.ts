@@ -246,24 +246,21 @@ async function extractEntities(content: string): Promise<Array<{ name: string; t
         const prompt = `Extract named entities and their relationships from this text as JSON.
 
 RULES:
-- Types MUST be one of: person, project, topic, place, company, technology, event
-- SKIP: file paths, URLs, API endpoints, code tokens, config keys, numbers, single words under 3 chars
-- Each entity needs meaningful facts — not just "is a file" or "is mentioned"
-- Include relationships between entities when clear from context
+- Extract MAX 3 entities (most important only)
+- Types MUST be one of: person, project, topic, place, company, technology
+- SKIP: file paths, URLs, API endpoints, code tokens, session IDs, config keys
+- Keep facts short (under 10 words each, max 2 facts per entity)
 
-Return format: {"entities":[{"name":"...","type":"...","facts":["..."]}],"relations":[{"from":"name1","to":"name2","relation":"works_on|uses|located_in|created|part_of|related_to"}]}
+Return format: {"entities":[{"name":"...","type":"...","facts":["..."]}],"relations":[]}
 
-Example input: "Tony is building TITAN, an AI agent framework in TypeScript deployed on the Titan PC"
-Example output: {"entities":[{"name":"Tony","type":"person","facts":["Building TITAN framework"]},{"name":"TITAN","type":"project","facts":["AI agent framework","Written in TypeScript"]},{"name":"Titan PC","type":"technology","facts":["Deployment target for TITAN"]}],"relations":[{"from":"Tony","to":"TITAN","relation":"created"},{"from":"TITAN","to":"Titan PC","relation":"located_in"}]}
+Return ONLY valid JSON, no markdown, no explanation.
 
-Return ONLY valid JSON, no other text.
-
-Text: ${content.slice(0, 1000)}`;
+Text: ${content.slice(0, 500)}`;
 
         const response = await routerChat({
             model: config.agent.model,
             messages: [{ role: 'user', content: prompt }],
-            maxTokens: 1024,
+            maxTokens: 512,
             temperature: 0.1,
             thinking: false,
         });
