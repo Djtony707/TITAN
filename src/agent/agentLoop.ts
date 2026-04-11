@@ -1064,6 +1064,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         // RESPOND PHASE — Call LLM WITHOUT tools (forces text response)
         // ═══════════════════════════════════════════════════════════
         case 'respond': {
+            // Incomplete task guard: if the user asked to edit/fix/write but the
+            // model only read files and never wrote, nudge it back to think phase
+            const askedToWrite = /\b(edit|fix|change|modify|update|add|write|create|improve|rewrite|save)\b/i.test(ctx.message);
+            const didWrite = result.toolsUsed.some(t => ['write_file', 'edit_file', 'append_file'].includes(t));
+            const didRead = result.toolsUsed.includes('read_file') || result.toolsUsed.includes('shell');
+            if (askedToWrite && !didWrite && didRead && round < ctx.effectiveMaxRounds - 1 && !responseValidationRetried) {
+                logger.warn(COMPONENT, `[IncompleteTask] User asked to edit but no write tool called after ${round} rounds — forcing back to think`);
+                ctx.messages.push({
+                    role: 'user',
+                    content: '[INCOMPLETE] You read the file but did NOT make any changes. The user asked you to edit/fix/modify it. You MUST call edit_file or write_file NOW to apply your changes. Do NOT describe what you would change — MAKE the changes.',
+                });
+                responseValidationRetried = true; // Only do this once
+                phase = 'think';
+                break;
+            }
+
             logger.info(COMPONENT, `Respond phase — calling LLM without tools to generate final answer`);
 
             // Context compression for respond phase
