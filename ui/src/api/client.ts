@@ -764,6 +764,12 @@ export async function getCheckpoints(): Promise<{ checkpoints: import('./types.j
   return request('/api/checkpoints');
 }
 
+// ---- Companies ----
+
+export async function deleteCompany(id: string): Promise<{ success: boolean }> {
+  return request(`/api/companies/${id}`, { method: 'DELETE' });
+}
+
 // ---- Session Management ----
 
 export async function createSession(): Promise<{ id: string }> {
