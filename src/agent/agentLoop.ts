@@ -850,14 +850,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     success: tcSuccess,
                 });
 
-                // Tool result summarization: for large file reads, add a focused summary
-                // so the model can extract key data without parsing thousands of chars
-                if (tr.name === 'read_file' && tr.content.length > 500) {
-                    const summary = summarizeToolResult(tr.content);
-                    if (summary) {
-                        ctx.messages.push({ role: 'user', content: `[File Summary] ${summary}` });
-                    }
-                }
+                // Tool result summarization disabled — was confusing models into
+                // treating the summary as the final answer instead of continuing to act.
+                // TODO: Re-enable when models handle injected context better.
 
                 // Auto-verify file writes — catch silent truncation, empty files, broken HTML/JSON
                 if (tr.name === 'write_file' || tr.name === 'append_file') {
