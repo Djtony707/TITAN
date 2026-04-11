@@ -515,6 +515,62 @@ onAgentEvent((event) => {
     broadcast({ type: sseType, ...event.data, agentName: event.agentName, agentId: event.agentId, isSubAgent: true, timestamp: event.timestamp });
 });
 
+// Initiative event bridge: broadcast autonomous task progress to dashboard chat
+titanEvents.on('initiative:start', (data) => {
+    broadcast({
+        type: 'system_message',
+        content: `🤖 **Initiative starting**: ${(data as Record<string, string>).subtaskTitle}\n📋 Goal: ${(data as Record<string, string>).goalTitle}`,
+        source: 'initiative',
+        timestamp: (data as Record<string, string>).timestamp,
+    });
+});
+titanEvents.on('initiative:complete', (data) => {
+    const d = data as Record<string, unknown>;
+    broadcast({
+        type: 'system_message',
+        content: `✅ **Subtask completed**: ${d.subtaskTitle}\n🔧 Tools: ${(d.toolsUsed as string[]).join(', ')}\n📝 ${(d.summary as string || '').slice(0, 200)}`,
+        source: 'initiative',
+        timestamp: d.timestamp as string,
+    });
+});
+titanEvents.on('initiative:no_progress', (data) => {
+    const d = data as Record<string, unknown>;
+    broadcast({
+        type: 'system_message',
+        content: `⚠️ **No progress on**: ${d.subtaskTitle}\n${d.reason}`,
+        source: 'initiative',
+        timestamp: d.timestamp as string,
+    });
+});
+titanEvents.on('initiative:tool_call', (data) => {
+    const d = data as Record<string, unknown>;
+    broadcast({
+        type: 'system_message',
+        content: `🔧 **${d.tool}**: ${d.args || ''}`,
+        source: 'initiative',
+        timestamp: d.timestamp as string,
+    });
+});
+titanEvents.on('initiative:tool_result', (data) => {
+    const d = data as Record<string, unknown>;
+    const icon = d.success ? '✅' : '❌';
+    broadcast({
+        type: 'system_message',
+        content: `${icon} **${d.tool}** ${d.success ? 'completed' : 'failed'} (${d.durationMs}ms)`,
+        source: 'initiative',
+        timestamp: d.timestamp as string,
+    });
+});
+titanEvents.on('initiative:round', (data) => {
+    const d = data as Record<string, unknown>;
+    broadcast({
+        type: 'system_message',
+        content: `🔄 **Round ${d.round}/${d.maxRounds}** — ${d.subtaskTitle}`,
+        source: 'initiative',
+        timestamp: d.timestamp as string,
+    });
+});
+
 /** Safely send a response through a channel adapter */
 async function safeSend(channelName: string, msg: { channel: string; userId: string; groupId?: string; content: string; replyTo?: string }): Promise<void> {
   const channel = channels.get(channelName);
@@ -2958,7 +3014,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     const events = ['daemon:started', 'daemon:stopped', 'daemon:paused', 'daemon:resumed',
                      'daemon:heartbeat', 'goal:subtask:ready', 'health:ollama:down',
-                     'health:ollama:degraded', 'cron:stuck'];
+                     'health:ollama:degraded', 'cron:stuck',
+                     'initiative:start', 'initiative:complete', 'initiative:no_progress',
+                     'initiative:tool_call', 'initiative:tool_result', 'initiative:round'];
 
     // Store per-client listener references so we only remove THIS client's listeners on disconnect
     const listeners = new Map<string, (data: unknown) => void>();

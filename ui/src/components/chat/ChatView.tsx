@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X, Eye, EyeOff } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession, createSession } from '@/api/client';
 import type { ChatMessage, Session, AgentInfo } from '@/api/types';
 import { useConfig } from '@/hooks/useConfig';
@@ -30,6 +31,24 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   const [watcherOpen, setWatcherOpen] = useState(false);
   const { isStreaming, streamingContent, activeTools, agentEvents, send, cancel } = useSSE();
   const { voiceAvailable } = useConfig();
+
+  // Listen for daemon/initiative system messages via WebSocket
+  useWebSocket({
+    onMessage: useCallback((data: unknown) => {
+      const msg = data as Record<string, unknown>;
+      if (msg.type === 'system_message' && msg.content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `sys-${Date.now()}`,
+            role: 'assistant' as const,
+            content: `*[TITAN System]* ${msg.content as string}`,
+            timestamp: (msg.timestamp as string) || new Date().toISOString(),
+          } as ChatMessage,
+        ]);
+      }
+    }, []),
+  });
 
   useEffect(() => {
     getSessions()

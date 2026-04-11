@@ -86,7 +86,9 @@ describe('Initiative', () => {
 
         expect(result.acted).toBe(true);
         expect(result.goalId).toBe('g1');
-        expect(mockProcessMessage).toHaveBeenCalledWith(expect.stringContaining('Create auth'), 'initiative');
+        const callArgs = mockProcessMessage.mock.calls[0];
+        expect(callArgs[0]).toContain('WRITE CODE NOW');
+        expect(callArgs[1]).toBe('initiative');
         expect(mockCompleteSubtask).toHaveBeenCalledWith('g1', 'st-1', expect.any(String));
     });
 

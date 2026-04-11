@@ -10,6 +10,7 @@
  */
 import { getReadyTasks, completeSubtask, failSubtask } from './goals.js';
 import { loadConfig } from '../config/config.js';
+import { titanEvents } from './daemon.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Initiative';
@@ -86,6 +87,15 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     lastInitiativeTime = now;
     logger.info(COMPONENT, `Self-initiating: "${subtask.title}" (goal: ${goal.title})`);
 
+    // Broadcast to dashboard so users can see what's happening
+    titanEvents.emit('initiative:start', {
+        goalId: goal.id,
+        goalTitle: goal.title,
+        subtaskId: subtask.id,
+        subtaskTitle: subtask.title,
+        timestamp: new Date().toISOString(),
+    });
+
     try {
         // Dynamically import processMessage to avoid circular dependency
         const { processMessage } = await import('./agent.js');
@@ -94,7 +104,37 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         const prompt = buildTaskPrompt(goal.title, subtask.title, subtask.description);
 
         // Execute via the PRIMARY agent — full round budget, best model, all tools
-        const result = await processMessage(prompt, 'initiative');
+        // Stream progress to dashboard via titanEvents so users see what's happening
+        const streamCallbacks = {
+            onToolCall: (name: string, args: Record<string, unknown>) => {
+                const argsPreview = Object.entries(args).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(', ');
+                titanEvents.emit('initiative:tool_call', {
+                    subtaskTitle: subtask.title,
+                    tool: name,
+                    args: argsPreview,
+                    timestamp: new Date().toISOString(),
+                });
+            },
+            onToolResult: (name: string, _result: string, durationMs: number, success: boolean) => {
+                titanEvents.emit('initiative:tool_result', {
+                    subtaskTitle: subtask.title,
+                    tool: name,
+                    success,
+                    durationMs,
+                    timestamp: new Date().toISOString(),
+                });
+            },
+            onRound: (round: number, maxRounds: number) => {
+                titanEvents.emit('initiative:round', {
+                    subtaskTitle: subtask.title,
+                    round,
+                    maxRounds,
+                    timestamp: new Date().toISOString(),
+                });
+            },
+        };
+
+        const result = await processMessage(prompt, 'initiative', 'default', undefined, streamCallbacks);
 
         // Validate the result — check if meaningful work was done
         const toolsUsed = result.toolsUsed || [];
@@ -102,20 +142,40 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
             t === 'write_file' || t === 'edit_file' || t === 'append_file' || t === 'apply_patch',
         );
         const ranCommands = toolsUsed.some(t => t === 'shell' || t === 'code_exec');
-        const didWork = wroteFiles || (ranCommands && toolsUsed.length >= 3);
+        // Only count as "did work" if files were actually written or edited
+        // shell alone doesn't count — the agent might just be exploring
+        const didWork = wroteFiles;
 
         if (didWork) {
             completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
             logger.info(COMPONENT, `Subtask completed: "${subtask.title}" (${toolsUsed.length} tools: ${toolsUsed.join(', ')})`);
-            consecutiveFailures = 0; // Reset on success
+            consecutiveFailures = 0;
+            titanEvents.emit('initiative:complete', {
+                goalId: goal.id,
+                subtaskTitle: subtask.title,
+                toolsUsed,
+                summary: result.content.slice(0, 300),
+                timestamp: new Date().toISOString(),
+            });
         } else if (toolsUsed.length === 0) {
-            // Agent returned text without using any tools — don't count as progress
             logger.warn(COMPONENT, `Subtask "${subtask.title}" — agent returned text but used no tools, keeping as pending`);
             consecutiveFailures++;
+            titanEvents.emit('initiative:no_progress', {
+                goalId: goal.id,
+                subtaskTitle: subtask.title,
+                reason: 'No tools used — agent returned text only',
+                timestamp: new Date().toISOString(),
+            });
         } else {
-            // Agent used tools but didn't write files — partial progress, keep as pending
             logger.warn(COMPONENT, `Subtask "${subtask.title}" — used ${toolsUsed.join(', ')} but no files written, keeping as pending`);
             consecutiveFailures++;
+            titanEvents.emit('initiative:no_progress', {
+                goalId: goal.id,
+                subtaskTitle: subtask.title,
+                reason: `Used ${toolsUsed.join(', ')} but no files written`,
+                toolsUsed,
+                timestamp: new Date().toISOString(),
+            });
         }
 
         return {
@@ -141,23 +201,15 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
 }
 
 /**
- * Build an action-oriented prompt for the primary agent.
- * Explicitly tells the agent to use tools, not describe actions.
+ * Build a DIRECT, action-oriented prompt for the primary agent.
+ * Frames the task as a user command, not a goal/subtask structure.
+ * This is critical — models respond better to direct instructions
+ * than to structured goal descriptions.
  */
-function buildTaskPrompt(goalTitle: string, subtaskTitle: string, description: string): string {
-    return [
-        `You are working on goal: "${goalTitle}"`,
-        `Current subtask: ${subtaskTitle}`,
-        '',
-        `Instructions: ${description}`,
-        '',
-        'RULES:',
-        '- Use write_file to create new files with complete, working code',
-        '- Use edit_file to modify existing files',
-        '- Use shell to run commands (npm install, database setup, etc.)',
-        '- Do NOT use web_search or browser tools — you already know how to code',
-        '- Do NOT describe what you would do — actually DO IT with tool calls',
-        '- After creating files, verify with shell or read_file that they exist and are correct',
-        '- Update the goal when the subtask is complete',
-    ].join('\n');
+function buildTaskPrompt(_goalTitle: string, subtaskTitle: string, description: string): string {
+    return `WRITE CODE NOW using write_file. Do NOT research, browse, or describe what you would do. Create the files described below with complete, working code.
+
+${subtaskTitle}: ${description}
+
+IMPORTANT: Your FIRST tool call must be write_file or edit_file. Do NOT start with list_dir, read_file, shell, or web_search. Write the code directly.`;
 }

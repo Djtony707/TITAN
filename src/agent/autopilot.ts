@@ -443,23 +443,16 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
     logger.info(COMPONENT, `Goal-based autopilot: executing "${subtask.title}" from goal "${goal.title}"`);
 
     try {
-        // Infer template from subtask description
-        const lower = (subtask.description || subtask.title || '').toLowerCase();
-        let templateKey = 'explorer';
-        if (/\b(write|create|build|code|implement)\b/.test(lower)) templateKey = 'coder';
-        else if (/\b(browse|navigate|login|click)\b/.test(lower)) templateKey = 'browser';
-        else if (/\b(analyze|report|summarize|compare)\b/.test(lower)) templateKey = 'analyst';
-
         if (dryRun) {
             const duration = Date.now() - startTime;
-            logger.info(COMPONENT, `Dry-run enabled: would execute goal "${goal.title}" subtask "${subtask.title}" using template "${templateKey}"`);
+            logger.info(COMPONENT, `Dry-run enabled: would execute goal "${goal.title}" subtask "${subtask.title}"`);
             const run: AutopilotRun = {
                 timestamp: new Date().toISOString(),
                 duration,
                 tokensUsed: 0,
                 cost: 0,
                 classification: 'ok',
-                summary: `Dry-run: would execute goal "${goal.title}" -> "${subtask.title}" with template "${templateKey}".`,
+                summary: `Dry-run: would execute goal "${goal.title}" -> "${subtask.title}".`,
                 toolsUsed: [],
                 skipped: true,
                 skipReason: 'dry_run',
@@ -470,23 +463,17 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
             return { run, delivered: false };
         }
 
-        const template = SUB_AGENT_TEMPLATES[templateKey] || {};
-        const templateTier = (template as Record<string, unknown>).tier as string | undefined;
-        const result = await spawnSubAgent({
-            name: `Autopilot-${template.name || templateKey}`,
-            task: `Goal: ${goal.title}\n\nSubtask: ${subtask.title}\n\nInstructions: ${subtask.description}`,
-            tools: template.tools,
-            systemPrompt: template.systemPrompt,
-            // Autopilot model is the floor — use cloud tier if template calls for it
-            tier: templateTier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
-            maxRounds: config.autopilot.maxToolRounds,
-        });
+        // Delegate to the initiative system which uses processMessage()
+        // (primary agent, full round budget, all tools, proper validation)
+        const { checkInitiative } = await import('./initiative.js');
+        const initiativeResult = await checkInitiative();
 
-        if (result.success) {
-            completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
-        } else {
-            failSubtask(goal.id, subtask.id, result.content.slice(0, 200));
-        }
+        // Build a compatible result for the autopilot run record
+        const result = {
+            success: initiativeResult.acted,
+            content: initiativeResult.result || initiativeResult.proposed || 'No output',
+            toolsUsed: [] as string[],
+        };
 
         // Release Command Post checkout lock
         if (isCommandPostEnabled() && checkoutRunId) {
