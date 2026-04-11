@@ -40,27 +40,53 @@ const COMPONENT = 'Agent';
 const MAX_TOOL_ROUNDS = 10;
 
 /** Estimate the round budget based on task complexity */
+/**
+ * Estimate how many tool rounds a message needs.
+ * Simple tasks (read a file, run a command) → 3-4 rounds.
+ * Multi-step tasks (read, analyze, write) → 6-10 rounds.
+ * Complex tasks (research, build, deploy) → 12-20 rounds.
+ */
 function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?: boolean; maxToolRoundsHard?: number }; autonomy: { mode: string } } & Record<string, unknown>): number {
     const agentConfig = config.agent as Record<string, unknown>;
     if (agentConfig.dynamicBudget === false) return MAX_TOOL_ROUNDS;
 
     const hardCap = (agentConfig.maxToolRoundsHard as number) || 50;
+    const lower = message.toLowerCase();
     const words = message.split(/\s+/).length;
-    const isMultiStep = /\b(then|after that|next|step \d|finally|first.*then|and also|additionally)\b/i.test(message);
-    const isComplex = /\b(research|analyze|investigate|compare|build|implement|create.*and|deploy|automat)/i.test(message);
+
+    // Count complexity signals
+    const isQuestion = /^(what|who|how|why|where|when|which|is |are |do |does |can |will )/i.test(message.trim());
+    const isSingleAction = /^(read|write|run|list|show|tell|get|check|find)\b/i.test(message.trim());
+    const isMultiStep = /\b(then|after that|next|step \d|finally|first.*then|and also|additionally|and then)\b/i.test(lower);
+    const isComplex = /\b(research|analyze|investigate|compare|build|implement|create.*and|deploy|automat|refactor|rewrite|design)/i.test(lower);
+    const isAmbitious = /\b(step by step|end.to.end|full pipeline|from scratch|entire|complete|comprehensive)\b/i.test(lower);
+
+    // Count tool-intent signals (how many distinct actions are implied)
+    const actionCount = [
+        /\b(read|open|show|display|check)\b/i.test(lower),
+        /\b(write|create|save|generate|make)\b/i.test(lower),
+        /\b(edit|change|modify|update|fix|replace)\b/i.test(lower),
+        /\b(run|execute|install|build|test|deploy)\b/i.test(lower),
+        /\b(search|find|look|research|investigate)\b/i.test(lower),
+        /\b(summarize|analyze|compare|report)\b/i.test(lower),
+    ].filter(Boolean).length;
 
     let budget: number;
-    if (words < 20 && !isMultiStep && !isComplex) {
-        budget = 10;  // Short, simple queries
-    } else if (words < 60 || isMultiStep) {
-        budget = 15;  // Medium complexity
-    } else {
-        budget = 25;  // Complex multi-step tasks
-    }
 
-    // Autonomous mode multiplier
-    if (config.autonomy.mode === 'autonomous') {
-        budget = Math.ceil(budget * 1.5);
+    if (isQuestion && words < 15 && !isMultiStep) {
+        budget = 3;   // "What is X?" "Who is Y?" — quick lookup
+    } else if (isSingleAction && words < 20 && !isMultiStep) {
+        budget = 4;   // "Read package.json" "Run uname" — one tool call
+    } else if (actionCount <= 1 && words < 30 && !isMultiStep) {
+        budget = 5;   // Single-purpose task, short message
+    } else if (actionCount <= 2 && !isComplex) {
+        budget = 8;   // Two-step task (read + write, search + summarize)
+    } else if (isMultiStep || actionCount >= 3) {
+        budget = 12;  // Multi-step explicit pipeline
+    } else if (isComplex || isAmbitious) {
+        budget = 18;  // Research, build, deploy — needs room to work
+    } else {
+        budget = 6;   // Default for unclassified moderate tasks
     }
 
     return Math.min(budget, hardCap);
@@ -692,12 +718,14 @@ export async function processMessage(
     // ── Determine effective limits based on autonomy mode + dynamic budget ─────
     const isAutonomous = config.autonomy.mode === 'autonomous';
     const dynamicBudget = estimateRoundBudget(message, config);
-    const autonomyOverride = isAutonomous
+    const autonomyHardCap = isAutonomous
         ? (config.autonomy as Record<string, unknown>).maxToolRoundsOverride as number || 25
         : MAX_TOOL_ROUNDS;
     const isVoice = channel === 'voice';
     const voiceFastPath = isVoice && ((config.voice as Record<string, unknown>)?.fastPath !== false);
-    let effectiveMaxRounds = Math.max(dynamicBudget, autonomyOverride);
+    // Use the dynamic budget but cap at the autonomy limit (don't override budget upward)
+    let effectiveMaxRounds = Math.min(dynamicBudget, autonomyHardCap);
+    logger.info(COMPONENT, `[RoundBudget] ${dynamicBudget} rounds (cap: ${autonomyHardCap})`);
     const reflectionEnabled = voiceFastPath ? false : (config.agent.reflectionEnabled ?? true);
     const reflectionInterval = config.agent.reflectionInterval ?? 3;
 
