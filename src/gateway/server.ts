@@ -1015,6 +1015,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(sessions);
   });
 
+  // Create a new session explicitly (for "New chat" button)
+  app.post('/api/sessions', async (req, res) => {
+    try {
+      const { createNewSession } = await import('../agent/session.js');
+      const channel = req.body?.channel || 'webchat';
+      const userId = req.body?.userId || 'api-user';
+      const session = createNewSession(channel, userId);
+      res.json({ id: session.id, channel: session.channel, userId: session.userId });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   // Conversation search — full-text search across all sessions
   app.get('/api/sessions/search', (req, res) => {
     const query = (req.query.q as string || '').toLowerCase().trim();
@@ -1660,7 +1673,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           onRound: (round, maxRounds) => {
             safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
           },
-        }, agentId, abortController.signal);
+        }, agentId, abortController.signal, requestedSessionId);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -1676,7 +1689,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal);
+        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });

@@ -322,6 +322,7 @@ describe('Concurrent Requests', () => {
                     undefined,
                     'agent-research',
                     expect.anything(),
+                    undefined,
                 );
             } else {
                 expect(res.status).toBe(429);

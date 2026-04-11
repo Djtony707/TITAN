@@ -251,6 +251,7 @@ describe('Gateway E2E — /api/message lifecycle', () => {
                 undefined, // no callbacks for JSON
                 undefined, // no agentId
                 expect.anything(), // AbortSignal
+                undefined, // sessionId
             );
         });
     });
@@ -416,11 +417,10 @@ describe('Gateway E2E — /api/message lifecycle', () => {
                 headers: jsonHeaders,
                 body: JSON.stringify({ content: 'follow up', sessionId: 'sess-existing' }),
             });
-            // sessionId is passed via the AbortController map, not directly to routeMessage
-            // Verify routeMessage was called with the content
+            // sessionId is now passed directly to routeMessage
             expect(mockRouteMessage).toHaveBeenCalledWith(
                 'follow up', 'api', 'api-user',
-                undefined, undefined, expect.anything(),
+                undefined, undefined, expect.anything(), 'sess-existing',
             );
         });
 

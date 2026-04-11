@@ -139,6 +139,7 @@ export async function routeMessage(
     streamCallbacks?: StreamCallbacks,
     overrideAgentId?: string,
     signal?: AbortSignal,
+    sessionId?: string,
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
     let agent = resolveAgent(channel, userId);
 
@@ -180,6 +181,7 @@ export async function routeMessage(
         model: effectiveModel,
         systemPrompt: agent.systemPrompt,
         agentId: agent.id,
+        sessionId,
     }, streamCallbacks, signal);
 
     return {

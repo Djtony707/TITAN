@@ -764,6 +764,12 @@ export async function getCheckpoints(): Promise<{ checkpoints: import('./types.j
   return request('/api/checkpoints');
 }
 
+// ---- Session Management ----
+
+export async function createSession(): Promise<{ id: string }> {
+  return request('/api/sessions', { method: 'POST', body: JSON.stringify({ channel: 'webchat', userId: 'api-user' }) });
+}
+
 // ---- Auth ----
 
 export async function login(password: string): Promise<{ token: string }> {

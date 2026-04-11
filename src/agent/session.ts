@@ -119,6 +119,70 @@ export function getOrCreateSession(channel: string, userId: string, agentId: str
     return session;
 }
 
+/** Create a new session (always fresh — never reuses existing) */
+export function createNewSession(channel: string, userId: string, agentId: string = 'default'): Session {
+    const session: Session = {
+        id: uuid(),
+        channel,
+        userId,
+        agentId,
+        status: 'active',
+        messageCount: 0,
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+    };
+
+    const store = getDb();
+    store.sessions.push({
+        id: session.id,
+        channel,
+        user_id: userId,
+        agent_id: agentId,
+        status: 'active',
+        message_count: 0,
+        created_at: session.createdAt,
+        last_active: session.lastActive,
+    });
+
+    // Cache by ID so getSessionById can find it
+    activeSessions.set(`id:${session.id}`, session);
+    // Also set as the active session for this channel/user combo
+    activeSessions.set(`${channel}:${userId}:${agentId}`, session);
+
+    logger.info(COMPONENT, `Created new session (explicit): ${session.id} (${channel}/${userId})`);
+    return session;
+}
+
+/** Get a session by its ID (for session switching) */
+export function getSessionById(sessionId: string): Session | null {
+    // Check cache first
+    const cached = activeSessions.get(`id:${sessionId}`);
+    if (cached) return cached;
+
+    // Check data store
+    const store = getDb();
+    const existing = store.sessions.find(s => s.id === sessionId);
+    if (!existing) return null;
+
+    const session: Session = {
+        id: existing.id,
+        channel: existing.channel,
+        userId: existing.user_id,
+        agentId: existing.agent_id,
+        status: existing.status as 'active' | 'idle' | 'closed',
+        messageCount: existing.message_count,
+        createdAt: existing.created_at,
+        lastActive: existing.last_active,
+        name: existing.name,
+        lastMessage: existing.last_message,
+    };
+
+    // Cache for future lookups
+    activeSessions.set(`id:${sessionId}`, session);
+
+    return session;
+}
+
 /** Add a message to a session */
 export function addMessage(
     session: Session,

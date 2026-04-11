@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X, Eye, EyeOff } from 'lucide-react';
 import { useSSE } from '@/hooks/useSSE';
-import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession } from '@/api/client';
+import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession, createSession } from '@/api/client';
 import type { ChatMessage, Session, AgentInfo } from '@/api/types';
 import { useConfig } from '@/hooks/useConfig';
 import { MessageBubble } from './MessageBubble';
@@ -92,10 +92,20 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
     }
   }, []);
 
-  const handleNewChat = useCallback(() => {
-    setCurrentSessionId(undefined);
+  const handleNewChat = useCallback(async () => {
+    try {
+      // Create a new session on the backend so messages go to a fresh session
+      const { id } = await createSession();
+      setCurrentSessionId(id);
+    } catch {
+      // Fallback: clear session and let backend create one
+      setCurrentSessionId(undefined);
+    }
     setMessages([]);
     setMobileSidebarOpen(false);
+    setSidebarOpen(false);
+    // Refresh session list
+    getSessions().then(setSessions).catch(() => {});
   }, []);
 
   const handleDeleteSession = useCallback(

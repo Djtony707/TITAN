@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync } from 'fs';
 import { loadConfig } from '../config/config.js';
-import { getOrCreateSession, addMessage, getContextMessages } from './session.js';
+import { getOrCreateSession, getSessionById, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
 import { getLearningContext, learnFact, getToolWarnings, classifyTaskType, recordStrategy, recordStrategyOutcome, getStrategyHints, getLearnedPreferenceHints } from '../memory/learning.js';
@@ -732,13 +732,16 @@ export async function processMessage(
     message: string,
     channel: string = 'cli',
     userId: string = 'default',
-    overrides?: { model?: string; systemPrompt?: string; agentId?: string },
+    overrides?: { model?: string; systemPrompt?: string; agentId?: string; sessionId?: string },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
 ): Promise<AgentResponse> {
     const startTime = Date.now();
     const config = loadConfig();
-    const session = getOrCreateSession(channel, userId, overrides?.agentId || 'default');
+    // If a specific sessionId is provided, load that session (for session switching)
+    const session = overrides?.sessionId
+        ? (getSessionById(overrides.sessionId) || getOrCreateSession(channel, userId, overrides?.agentId || 'default'))
+        : getOrCreateSession(channel, userId, overrides?.agentId || 'default');
     const trace = startTrace(session.id, message);
     const soulState = initSoulState(session.id, message);
 
