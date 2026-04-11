@@ -277,17 +277,42 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
       <div className="flex-1 flex min-w-0 flex-col md:flex-row">
         {/* Chat area */}
         <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : '60%') : '100%', transition: 'width 300ms ease' }}>
-        {/* Top bar */}
-        <div className="flex items-center gap-2 px-4 py-2 shrink-0 border-b border-border/50">
-          <span className="text-sm font-medium text-text-secondary">Chat</span>
-          <div className="flex-1" />
+        {/* Top bar with session tabs */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 shrink-0 border-b border-border/50 overflow-x-auto">
+          {/* New chat button */}
           <button
-            onClick={() => setWatcherOpen((prev) => !prev)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-muted hover:text-text rounded-lg hover:bg-bg-secondary transition-colors"
-            title={watcherOpen ? 'Hide Agent Watcher' : 'Show Agent Watcher'}
+            onClick={handleNewChat}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted hover:text-text rounded-md hover:bg-bg-secondary transition-colors shrink-0"
+            title="New chat"
           >
-            {watcherOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            <span className="hidden sm:inline">{watcherOpen ? 'Hide' : 'Watcher'}</span>
+            <MessageSquarePlus className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Session pills */}
+          {sessions.slice(0, 8).map((session) => (
+            <button
+              key={session.id}
+              onClick={() => loadSession(session.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors shrink-0 max-w-[140px] ${
+                session.id === currentSessionId
+                  ? 'bg-accent/15 text-accent border border-accent/20'
+                  : 'text-text-muted hover:text-text-secondary hover:bg-white/[0.04]'
+              }`}
+              title={session.name || session.lastMessage || session.id}
+            >
+              <span className="truncate">{session.name || session.lastMessage?.slice(0, 20) || 'Chat'}</span>
+            </button>
+          ))}
+
+          <div className="flex-1" />
+
+          {/* Toggle sidebar for full session list */}
+          <button
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted hover:text-text rounded-md hover:bg-bg-secondary transition-colors shrink-0"
+            title={sidebarOpen ? 'Hide sessions' : 'All sessions'}
+          >
+            {sidebarOpen ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
           </button>
         </div>
 
