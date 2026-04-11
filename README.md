@@ -946,9 +946,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 
 ## Roadmap
 
-### Current (v2.7.0) — April 10, 2026
+### Current (v2.8.0) — April 10, 2026
 
-- **v2.7.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing (fast tier for simple follow-ups, 30-60% cost savings). Credential pool with round-robin/least-used rotation and auto-exhaustion. 5-phase context compression (tool pruning, head/tail protection, structured summary, iterative updates). Task-level trajectory logging with auto-skill generation from repeated patterns. Mixture-of-agents tool (parallel multi-model queries with synthesize/vote/best strategies). Shadow git file checkpoints with automatic pre-write snapshots and point-in-time recovery. 141 skills, 234 tools, 4,791 tests across 160 files.
+- **v2.8.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing (fast tier for simple follow-ups, 30-60% cost savings). Credential pool with round-robin/least-used rotation and auto-exhaustion. 5-phase context compression (tool pruning, head/tail protection, structured summary, iterative updates). Task-level trajectory logging with auto-skill generation from repeated patterns. Mixture-of-agents tool (parallel multi-model queries with synthesize/vote/best strategies). Shadow git file checkpoints with automatic pre-write snapshots and point-in-time recovery. 141 skills, 234 tools, 4,791 tests across 160 files.
 
 ### Previous (v2.0.0)
 
