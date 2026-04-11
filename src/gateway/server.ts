@@ -2982,8 +2982,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Command Post API (Agent Governance) ───────────────────
 
-  app.get('/api/command-post/dashboard', (_req, res) => {
-    res.json(getCPDashboard());
+  app.get('/api/command-post/dashboard', async (_req, res) => {
+    const dashboard = getCPDashboard();
+    // Inject companies into dashboard
+    try {
+      const { listCompanies, getActiveRunners } = await import('../agent/company.js');
+      const companies = listCompanies();
+      const runners = getActiveRunners();
+      (dashboard as Record<string, unknown>).companies = companies.map(c => ({
+        ...c,
+        runnerActive: runners.includes(c.id),
+      }));
+    } catch { (dashboard as Record<string, unknown>).companies = []; }
+    res.json(dashboard);
   });
 
   app.get('/api/command-post/agents', (_req, res) => {
@@ -3186,8 +3197,36 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Paperclip: Org Chart ──────────────────────────────────
-  app.get('/api/command-post/org', (_req, res) => {
-    res.json(getOrgTree());
+  app.get('/api/command-post/org', async (_req, res) => {
+    const org = getOrgTree();
+    // Append company agents to org tree
+    try {
+      const { listCompanies } = await import('../agent/company.js');
+      const companies = listCompanies();
+      const companyNodes = companies.map(c => ({
+        id: c.id,
+        name: c.name,
+        role: 'Company',
+        title: c.description,
+        status: c.status,
+        model: '',
+        reports: c.agents.map(a => ({
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          title: a.template,
+          status: a.status,
+          model: '',
+          reports: [],
+        })),
+      }));
+      if (Array.isArray(org)) {
+        org.push(...companyNodes);
+      } else if (org && typeof org === 'object') {
+        (org as Record<string, unknown>).companies = companyNodes;
+      }
+    } catch { /* non-critical */ }
+    res.json(org);
   });
 
   // ── Paperclip: Issues/Tickets ────────────────────────────
