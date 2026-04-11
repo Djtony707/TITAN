@@ -28,6 +28,8 @@ import { analyzeForDelegation, executeDelegationPlan } from './orchestrator.js';
 import { queueWakeup } from './agentWakeup.js';
 import { createIssue } from './commandPost.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
+import { logTrajectory } from './trajectoryLogger.js';
+import { processTrajectoryForSkills, getSkillGuidance } from './autoSkillGen.js';
 import { getAgent } from './multiAgent.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
@@ -384,6 +386,9 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     // Soul wisdom — accumulated patterns from past tasks
     const wisdomHint = userMessage ? getWisdomHints(classifyTaskType(userMessage)) : null;
 
+    // Auto-skill guidance — proven tool sequences from trajectory analysis
+    const skillGuidance = userMessage ? getSkillGuidance(userMessage) : null;
+
     // Teaching context — adaptive skill level, corrections, tool suggestions
     const teachingContext = getTeachingContext();
 
@@ -569,7 +574,7 @@ Never say "I cannot access local files" or "I cannot reach private IPs" — you 
 ## Continuous Learning
 You get smarter with every interaction. Below is your accumulated knowledge:
 ${learningContext}
-${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}
+${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}${skillGuidance ? `\n**Auto-skill**: ${skillGuidance}` : ''}
 ${teachingContext ? `\n## Adaptive Teaching\n${teachingContext}` : ''}
 ${customPrompt ? `\n## Custom Instructions\n${customPrompt}` : ''}${workspaceContext}${memoryContext}${personalContext}${graphSection}
 
@@ -1370,6 +1375,23 @@ export async function processMessage(
     const taskSuccess = !finalContent.toLowerCase().includes('error') && !budgetExhausted;
     consolidateWisdom(session.id, classifyTaskType(message), taskSuccess, loopResult.toolCallDetails.length);
     clearSoulState(session.id);
+
+    // Log task-level trajectory and check for auto-skill generation
+    const trajectory = {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        task: message.slice(0, 500),
+        taskType: classifyTaskType(message),
+        model: modelUsed,
+        toolSequence: orderedToolSequence,
+        toolDetails: loopResult.toolCallDetails,
+        success: taskSuccess,
+        rounds: loopResult.toolCallDetails.length,
+        durationMs,
+        sessionId: session.id,
+    };
+    logTrajectory(trajectory);
+    processTrajectoryForSkills(trajectory);
 
     // Finalize trace
     trace.setModel(modelUsed);

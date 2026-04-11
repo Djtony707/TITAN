@@ -57,7 +57,7 @@ export class OpenAICompatProvider extends LLMProvider {
     private get apiKey(): string {
         const cfg = loadConfig();
         const providerCfg = (cfg.providers as Record<string, ProviderConfig>)[this.config.configKey];
-        return resolveApiKey(this.config.name, providerCfg?.authProfiles || [], providerCfg?.apiKey || '', this.config.envKey);
+        return resolveApiKey(this.config.name, providerCfg?.authProfiles || [], providerCfg?.apiKey || '', this.config.envKey, providerCfg?.rotationStrategy, providerCfg?.credentialCooldownMs);
     }
 
     private get baseUrl(): string {

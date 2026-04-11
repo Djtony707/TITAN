@@ -22,7 +22,8 @@ export class AnthropicProvider extends LLMProvider {
 
     private get apiKey(): string {
         const config = loadConfig();
-        return resolveApiKey('anthropic', config.providers.anthropic.authProfiles || [], config.providers.anthropic.apiKey || '', 'ANTHROPIC_API_KEY');
+        const p = config.providers.anthropic;
+        return resolveApiKey('anthropic', p.authProfiles || [], p.apiKey || '', 'ANTHROPIC_API_KEY', p.rotationStrategy, p.credentialCooldownMs);
     }
 
     private get baseUrl(): string {

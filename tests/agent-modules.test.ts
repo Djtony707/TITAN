@@ -213,6 +213,63 @@ describe('CostOptimizer', () => {
             expect(result.model).toBe('unknown/model-xyz');
             expect(result.reason).toBe('already on fast tier');
         });
+
+        // ─── Per-turn routing (P7 Hermes integration) ────────
+        it('should always use primary model on round 0', () => {
+            const result = routeModel('hi', 'anthropic/claude-sonnet-4-20250514', undefined, {
+                round: 0, messageLength: 2, hasCode: false, hasUrls: false,
+            });
+            expect(result.model).toBe('anthropic/claude-sonnet-4-20250514');
+            expect(result.reason).toContain('round 0');
+            expect(result.willSaveMoney).toBe(false);
+        });
+
+        it('should route simple follow-ups to fast tier on round > 0', () => {
+            const result = routeModel('ok', 'anthropic/claude-sonnet-4-20250514', undefined, {
+                round: 3, messageLength: 2, hasCode: false, hasUrls: false,
+            });
+            expect(result.model).toBe('anthropic/claude-3-5-haiku-20241022');
+            expect(result.willSaveMoney).toBe(true);
+            expect(result.reason).toContain('follow-up');
+        });
+
+        it('should keep primary model for complex follow-ups', () => {
+            const result = routeModel(
+                'write a function that implements binary search with edge case handling',
+                'anthropic/claude-sonnet-4-20250514',
+                undefined,
+                { round: 3, messageLength: 200, hasCode: true, hasUrls: false },
+            );
+            expect(result.model).toBe('anthropic/claude-sonnet-4-20250514');
+        });
+
+        it('should keep primary when follow-up has code', () => {
+            const result = routeModel('ok', 'anthropic/claude-sonnet-4-20250514', undefined, {
+                round: 2, messageLength: 2, hasCode: true, hasUrls: false,
+            });
+            expect(result.model).toBe('anthropic/claude-sonnet-4-20250514');
+        });
+
+        it('should keep primary when follow-up has URLs', () => {
+            const result = routeModel('ok', 'anthropic/claude-sonnet-4-20250514', undefined, {
+                round: 2, messageLength: 2, hasCode: false, hasUrls: true,
+            });
+            expect(result.model).toBe('anthropic/claude-sonnet-4-20250514');
+        });
+
+        it('should preserve existing behavior when turnContext is undefined', () => {
+            const result = routeModel('hi', 'anthropic/claude-sonnet-4-20250514', undefined, undefined);
+            expect(result.model).toBe('anthropic/claude-3-5-haiku-20241022');
+            expect(result.willSaveMoney).toBe(true);
+        });
+
+        it('should keep primary when message is long even if simple words', () => {
+            const result = routeModel('ok thanks', 'anthropic/claude-sonnet-4-20250514', undefined, {
+                round: 2, messageLength: 150, hasCode: false, hasUrls: false,
+            });
+            // messageLength >= 100 disqualifies it from simple follow-up
+            expect(result.model).toBe('anthropic/claude-sonnet-4-20250514');
+        });
     });
 
     // ─── recordTokenUsage ───────────────────────────────────────────
@@ -597,7 +654,10 @@ describe('ContextManager', () => {
             }
             const result = buildSmartContext(msgs, 5000);
             // Should include a summary message
-            const hasSummary = result.some(m => m.role === 'system' && m.content.includes('Earlier conversation summary'));
+            // 5-phase pipeline uses structured summary format
+            const hasSummary = result.some(m => m.role === 'system' && (
+                m.content.includes('Summary') || m.content.includes('summary')
+            ));
             expect(hasSummary).toBe(true);
         });
 
@@ -660,8 +720,9 @@ describe('ContextManager', () => {
         it('should compact long conversations', () => {
             const msgs: ChatMessage[] = [];
             for (let i = 0; i < 20; i++) {
-                msgs.push({ role: 'user', content: `Question ${i}: ${'q'.repeat(200)}` });
-                msgs.push({ role: 'assistant', content: `Answer ${i}: ${'a'.repeat(200)}` });
+                // Need enough content to exceed the 4K token budget used by forceCompactContext
+                msgs.push({ role: 'user', content: `Question ${i}: ${'q'.repeat(800)}` });
+                msgs.push({ role: 'assistant', content: `Answer ${i}: ${'a'.repeat(800)}` });
             }
             const result = forceCompactContext(msgs);
             expect(result.savedTokens).toBeGreaterThan(0);

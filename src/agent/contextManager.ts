@@ -19,6 +19,7 @@ import { flushMemoryBeforeCompaction } from '../memory/graph.js';
 import { getRagContext } from '../memory/vectors.js';
 import { getPlugins } from '../plugins/registry.js';
 import { runAssemble, runCompact } from '../plugins/contextEngine.js';
+import { compressContext, type StructuredSummary } from './contextCompressor.js';
 
 const COMPONENT = 'Context';
 
@@ -100,86 +101,51 @@ function compressToolResults(messages: ChatMessage[]): ChatMessage[] {
     });
 }
 
-/** Smart context builder — fits messages within token budget */
+/** Persistent structured summary for iterative context compression */
+let currentSummary: StructuredSummary | null = null;
+
+/** Get the current structured summary (for external access) */
+export function getStructuredSummary(): StructuredSummary | null {
+    return currentSummary;
+}
+
+/** Set the structured summary (e.g., from agent loop state) */
+export function setStructuredSummary(summary: StructuredSummary | null): void {
+    currentSummary = summary;
+}
+
+/**
+ * Smart context builder — fits messages within token budget.
+ * Uses the 5-phase compression pipeline (Hermes-inspired):
+ * 1. Tool output pruning (no LLM call)
+ * 2. Head protection (system + first 3 messages)
+ * 3. Tail protection (last N messages, 5% of budget)
+ * 4. Structured middle summary
+ * 5. Iterative summary updates
+ */
 export function buildSmartContext(
     messages: ChatMessage[],
     tokenBudget: number,
 ): ChatMessage[] {
     if (messages.length === 0) return [];
 
-    // Calculate total tokens
-    let totalTokens = 0;
-    const tokenCounts = messages.map((m) => {
-        const tokens = estimateTokens(m.content || '') +
-            (m.toolCalls ? m.toolCalls.length * 100 : 0);
-        totalTokens += tokens;
-        return tokens;
-    });
+    const result = compressContext(messages, tokenBudget, currentSummary);
 
-    // If everything fits, return as-is
-    if (totalTokens <= tokenBudget) return messages;
-
-    logger.debug(COMPONENT, `Context overflow: ${totalTokens} tokens > ${tokenBudget} budget. Compressing.`);
-
-    // Strategy: Keep the most recent messages, summarize the oldest
-    // First: compress verbose tool results in older messages to save tokens
-    const compressedMessages = compressToolResults(messages);
-
-    const result: ChatMessage[] = [];
-    let usedTokens = 0;
-
-    // Always keep the last N messages (most important for context)
-    const recentCount = Math.min(compressedMessages.length, 20);
-    const recentMessages = compressedMessages.slice(-recentCount);
-    const recentTokens = tokenCounts.slice(-recentCount).reduce((a, b) => a + b, 0);
-
-    if (recentTokens > tokenBudget) {
-        // Even recent messages are too big — truncate from the start
-        const fits: ChatMessage[] = [];
-        let used = 0;
-        for (let i = recentMessages.length - 1; i >= 0; i--) {
-            const msgTokens = estimateTokens(recentMessages[i].content || '') + (recentMessages[i].toolCalls ? 100 : 0);
-            if (used + msgTokens > tokenBudget) break;
-            fits.unshift(recentMessages[i]);
-            used += msgTokens;
-        }
-        return fits;
+    // Store summary for iterative updates on next compression
+    if (result.summary) {
+        currentSummary = result.summary;
     }
 
-    // Summarize older messages
-    const olderMessages = compressedMessages.slice(0, -recentCount);
-    if (olderMessages.length > 0) {
-        const summary = summarizeMessages(olderMessages);
-        result.push(summary);
-        usedTokens += estimateTokens(summary.content || '');
+    if (result.savedTokens > 0) {
+        logger.debug(COMPONENT, `Smart context: ${messages.length} → ${result.messages.length} messages, saved ~${result.savedTokens} tokens`);
     }
 
-    // Add recent messages
-    for (const msg of recentMessages) {
-        const msgTokens = estimateTokens(msg.content || '') + (msg.toolCalls ? 100 : 0);
-        if (usedTokens + msgTokens > tokenBudget) {
-            // Truncate this message's content
-            const available = (tokenBudget - usedTokens) * 4;
-            if (available > 100) {
-                result.push({
-                    ...msg,
-                    content: (msg.content || '').slice(0, available) + '\n[truncated]',
-                });
-            }
-            break;
-        }
-        result.push(msg);
-        usedTokens += msgTokens;
-    }
-
-    logger.debug(COMPONENT, `Compressed ${messages.length} messages → ${result.length} (${usedTokens} tokens)`);
-    return result;
+    return result.messages;
 }
 
 /**
  * Force context compaction (used by /compact command).
- * Progressive compaction that preserves tool_call/tool_result pairs
- * and strips sensitive content from summaries.
+ * Uses the 5-phase pipeline with an aggressive budget to maximize compression.
  */
 export function forceCompactContext(
     messages: ChatMessage[],
@@ -188,55 +154,21 @@ export function forceCompactContext(
         return { messages, savedTokens: 0 };
     }
 
-    const beforeTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
-
-    // Keep system messages + last 6 messages, summarize everything else
-    const systemMsgs = messages.filter((m) => m.role === 'system');
-    const nonSystem = messages.filter((m) => m.role !== 'system');
-
-    // Preserve recent messages (including tool_call/tool_result pairs)
-    const keepCount = Math.min(nonSystem.length, 6);
-    const recent = nonSystem.slice(-keepCount);
-    const toSummarize = nonSystem.slice(0, -keepCount);
-
-    if (toSummarize.length === 0) {
-        return { messages, savedTokens: 0 };
-    }
-
     // Flush important context to graph memory before discarding (fire-and-forget)
-    flushMemoryBeforeCompaction(toSummarize).catch((err) =>
+    const toFlush = messages.filter(m => m.role !== 'system');
+    flushMemoryBeforeCompaction(toFlush).catch((err) =>
         logger.warn(COMPONENT, `Memory flush before compaction failed: ${(err as Error).message}`),
     );
 
-    // Build progressive summary — strip sensitive patterns
-    const sensitivePatterns = /(?:api[_-]?key|password|secret|token|bearer)\s*[:=]\s*\S+/gi;
-    const userTopics = toSummarize
-        .filter((m) => m.role === 'user')
-        .map((m) => (m.content || '').replace(sensitivePatterns, '[REDACTED]').slice(0, 100))
-        .join('; ');
+    // Aggressive budget: 4000 tokens forces maximum compression
+    const result = compressContext(messages, 4000, currentSummary);
 
-    const assistantActions = toSummarize
-        .filter((m) => m.role === 'assistant')
-        .map((m) => (m.content || '').replace(sensitivePatterns, '[REDACTED]').slice(0, 80))
-        .slice(-3)
-        .join('; ');
+    if (result.summary) {
+        currentSummary = result.summary;
+    }
 
-    const toolCount = toSummarize.filter((m) => m.role === 'tool').length;
-
-    const summary: ChatMessage = {
-        role: 'system',
-        content: [
-            `[Compacted: ${toSummarize.length} messages, ${toolCount} tool calls]`,
-            userTopics ? `User discussed: ${userTopics}` : '',
-            assistantActions ? `Assistant: ${assistantActions}` : '',
-        ].filter(Boolean).join('\n'),
-    };
-
-    const compacted = [...systemMsgs, summary, ...recent];
-    const afterTokens = compacted.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
-
-    logger.info(COMPONENT, `Force compacted: ${messages.length} → ${compacted.length} messages, saved ~${beforeTokens - afterTokens} tokens`);
-    return { messages: compacted, savedTokens: Math.max(0, beforeTokens - afterTokens) };
+    logger.info(COMPONENT, `Force compacted: ${messages.length} → ${result.messages.length} messages, saved ~${result.savedTokens} tokens`);
+    return { messages: result.messages, savedTokens: result.savedTokens };
 }
 
 /** Get context window stats */

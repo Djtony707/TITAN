@@ -203,6 +203,7 @@ beforeEach(() => {
     mockShouldReflect.mockReturnValue(false);
     mockClassifyTaskType.mockReturnValue('general');
     mockGetErrorResolution.mockReturnValue(null);
+    mockRouteModel.mockReturnValue({ model: 'test-model', reason: 'mock', willSaveMoney: false });
 });
 
 // ═════════════════════════════════════════════════════════════════════════

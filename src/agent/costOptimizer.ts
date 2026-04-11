@@ -69,18 +69,45 @@ export function classifyComplexity(message: string): MessageComplexity {
     return 'moderate';
 }
 
+// ─── Per-turn context for smart routing ────────────────────────────
+export interface TurnContext {
+    /** Current round in the agent loop (0 = first round) */
+    round: number;
+    /** Length of the last user message */
+    messageLength: number;
+    /** Whether the recent messages contain code blocks or code keywords */
+    hasCode: boolean;
+    /** Whether the recent messages contain URLs */
+    hasUrls: boolean;
+}
+
 // ─── Model routing ─────────────────────────────────────────────────
-/** Determine the best model for a given message complexity */
+/**
+ * Determine the best model for a given message complexity.
+ *
+ * When `turnContext` is provided, enables per-turn routing:
+ * - Round 0: always use primary model (first impression matters)
+ * - Subsequent rounds with simple follow-ups: route to fast tier
+ * - Complex follow-ups: stay on primary
+ *
+ * Without turnContext, behaves identically to the original per-session routing.
+ */
 export function routeModel(
     message: string,
     configuredModel: string,
     forceModel?: string,
+    turnContext?: TurnContext,
 ): { model: string; reason: string; willSaveMoney: boolean } {
     if (forceModel) return { model: forceModel, reason: 'user override', willSaveMoney: false };
 
     const config = loadConfig();
     if (!config.agent.costOptimization?.smartRouting) {
         return { model: configuredModel, reason: 'smart routing disabled', willSaveMoney: false };
+    }
+
+    // Per-turn routing: round 0 always uses primary
+    if (turnContext && turnContext.round === 0) {
+        return { model: configuredModel, reason: 'round 0 — primary model', willSaveMoney: false };
     }
 
     const complexity = classifyComplexity(message);
@@ -90,8 +117,29 @@ export function routeModel(
         return { model: configuredModel, reason: 'already on fast tier', willSaveMoney: false };
     }
 
+    // Per-turn routing: simple follow-ups in later rounds → fast tier
+    if (turnContext && turnContext.round > 0) {
+        const isSimpleFollowUp = complexity === 'simple'
+            && turnContext.messageLength < 100
+            && !turnContext.hasCode
+            && !turnContext.hasUrls;
+
+        if (isSimpleFollowUp) {
+            const provider = configuredModel.split('/')[0];
+            const fastModel = Object.entries(MODEL_COSTS).find(
+                ([k, v]) => k.startsWith(provider + '/') && v.tier === 'fast'
+            )?.[0];
+            if (fastModel) {
+                logger.info(COMPONENT, `[PerTurn] Round ${turnContext.round}: routing simple follow-up to ${fastModel}`);
+                return { model: fastModel, reason: `round ${turnContext.round} simple follow-up → fast tier`, willSaveMoney: true };
+            }
+        }
+        // Complex or disqualified follow-ups stay on primary — skip original routing
+        return { model: configuredModel, reason: `round ${turnContext.round} ${complexity} → configured model`, willSaveMoney: false };
+    }
+
+    // Original per-session routing: simple first messages → fast tier
     if (complexity === 'simple') {
-        // Route to the fast version of the same provider
         const provider = configuredModel.split('/')[0];
         const fastModel = Object.entries(MODEL_COSTS).find(
             ([k, v]) => k.startsWith(provider + '/') && v.tier === 'fast'

@@ -1,10 +1,11 @@
 /**
  * TITAN — Auth Profile Resolver
- * Supports multiple API keys per provider with automatic failover.
- * Priority chain: auth profiles (sorted by priority, skip cooled-down) > config apiKey > env var
+ * Supports multiple API keys per provider with automatic failover and rotation.
+ * Priority chain: credential pool (if multi-key + rotation strategy) > auth profiles (priority) > config apiKey > env var
  */
 import logger from '../utils/logger.js';
 import { getSecret, isVaultUnlocked } from '../security/secrets.js';
+import { getPool, type RotationStrategy } from './credentialPool.js';
 
 const COMPONENT = 'AuthResolver';
 
@@ -14,7 +15,7 @@ export interface AuthProfile {
     priority: number;
 }
 
-/** Cooldown tracking — keys that failed recently */
+/** Cooldown tracking — keys that failed recently (legacy, used when no pool) */
 const cooldowns: Map<string, number> = new Map();
 const COOLDOWN_MS = 60_000; // 60 seconds
 
@@ -25,17 +26,36 @@ function cooldownKey(provider: string, profileName: string): string {
 
 /**
  * Resolve the best API key for a provider.
- * Priority: auth profiles (sorted by priority, skip cooled-down) > config apiKey > env var
+ * When rotationStrategy is set and multiple auth profiles exist, uses the credential pool.
+ * Otherwise falls back to priority-sorted profiles > config apiKey > env var.
  */
 export function resolveApiKey(
     providerName: string,
     profiles: AuthProfile[],
     configKey: string,
     envKey: string,
+    rotationStrategy?: RotationStrategy,
+    cooldownMs?: number,
 ): string {
     const now = Date.now();
 
-    // Try auth profiles sorted by priority (lower = higher priority)
+    // Use credential pool for rotation strategies
+    if (profiles.length > 1 && rotationStrategy && rotationStrategy !== 'priority') {
+        const pool = getPool(providerName, profiles, rotationStrategy, cooldownMs);
+        if (pool && pool.hasCredentials) {
+            try {
+                const lease = pool.lease();
+                lease.release(); // Immediate release — stateless for now
+                logger.debug(COMPONENT, `[Pool] Using ${providerName}/${lease.credential.name} (strategy=${rotationStrategy})`);
+                return lease.credential.apiKey;
+            } catch {
+                logger.warn(COMPONENT, `[Pool] All credentials exhausted for ${providerName}, trying fallbacks`);
+                // Fall through to config key / env var
+            }
+        }
+    }
+
+    // Legacy path: auth profiles sorted by priority (lower = higher priority)
     if (profiles.length > 0) {
         const sorted = [...profiles].sort((a, b) => a.priority - b.priority);
         for (const profile of sorted) {

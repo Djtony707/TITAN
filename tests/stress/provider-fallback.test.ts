@@ -26,10 +26,11 @@ const mockCheckForLoop = vi.hoisted(() => vi.fn());
 vi.mock('../../src/agent/loopDetection.js', () => ({ checkForLoop: mockCheckForLoop }));
 const mockMaybeCompressContext = vi.hoisted(() => vi.fn());
 const mockBuildSmartContext = vi.hoisted(() => vi.fn());
+const mockRouteModel = vi.hoisted(() => vi.fn());
 vi.mock('../../src/agent/costOptimizer.js', () => ({
     recordTokenUsage: mockRecordTokenUsage,
     maybeCompressContext: mockMaybeCompressContext,
-    routeModel: vi.fn(),
+    routeModel: mockRouteModel,
 }));
 vi.mock('../../src/agent/contextManager.js', () => ({ buildSmartContext: mockBuildSmartContext }));
 vi.mock('../../src/agent/responseCache.js', () => ({ getCachedResponse: vi.fn().mockReturnValue(null), setCachedResponse: vi.fn() }));
@@ -75,6 +76,7 @@ beforeEach(() => {
     mockBuildSmartContext.mockImplementation((msgs: unknown[]) => msgs);
     mockExecuteTools.mockResolvedValue([{ toolCallId: 'tc1', name: 'shell', content: 'ok', success: true, durationMs: 10 }]);
     mockCheckForLoop.mockReturnValue({ allowed: true });
+    mockRouteModel.mockReturnValue({ model: 'anthropic/claude-sonnet-4-20250514', reason: 'mock', willSaveMoney: false });
 });
 
 describe('Stress — Provider Fallback', () => {

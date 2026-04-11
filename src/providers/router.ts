@@ -22,6 +22,8 @@ import type { MeshPeer } from '../mesh/discovery.js';
 import { routeTaskToNode } from '../mesh/transport.js';
 import { randomBytes } from 'crypto';
 import { sleep } from '../utils/helpers.js';
+import { classifyProviderError, shouldAffectCircuitBreaker, FailoverReason } from './errorTaxonomy.js';
+import { getExistingPool } from './credentialPool.js';
 
 const COMPONENT = 'Router';
 
@@ -423,36 +425,17 @@ function parseRetryAfter(header: string | null): number | null {
 }
 
 /**
- * Check if an error is retryable (rate limit, timeout, 5xx, connection errors).
- * Non-retryable errors: auth failures (401, 403), bad request (400), etc.
+ * Check if an error is retryable using the centralized error taxonomy.
  */
 function isRetryableError(error: unknown): boolean {
-    const msg = (error as Error).message?.toLowerCase() || '';
-    const status = (error as { status?: number }).status;
-
-    // Check HTTP status codes
-    if (status) {
-        // Retryable: 429 (Rate Limit), 5xx (Server Errors)
-        if (status === 429 || status === 503 || status === 502 || status === 500 || status === 524) return true;
-        // Non-retryable: Client errors (4xx) except rate limit
-        if (status >= 400 && status < 500 && status !== 429) return false;
-    }
-
-    // Check error message patterns
-    if (msg.includes('rate limit') || msg.includes('rate_limit')) return true;
-    if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT')) return true;
-    if (msg.includes('econnrefused') || msg.includes('econnreset') || msg.includes('econnaborted')) return true;
-    if (msg.includes('overloaded') || msg.includes('service unavailable')) return true;
-    if (msg.includes('429') || msg.includes('503') || msg.includes('502')) return true;
-
-    return false;
+    return classifyProviderError(error).retryable;
 }
 
 /**
  * Extract HTTP status code from an error object if present.
  */
 function getErrorStatus(error: unknown): number | undefined {
-    return (error as { status?: number }).status;
+    return classifyProviderError(error).httpStatus;
 }
 
 /** Try the fallback chain for a chat request. Returns null if chain is empty or exhausted. */
@@ -641,20 +624,35 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
         } catch (error) {
             lastError = error as Error;
 
-            // Record failure for circuit breaker
-            recordFailure(providerName);
+            // Classify error using centralized taxonomy
+            const classified = classifyProviderError(error);
 
-            // Check if error is retryable
-            const retryable = isRetryableError(error);
-            const status = getErrorStatus(error);
+            // Only affect circuit breaker for genuine provider instability
+            if (shouldAffectCircuitBreaker(classified)) {
+                recordFailure(providerName);
+            }
+
+            // Exhaust credential in pool if rotation is recommended
+            if (classified.shouldRotateCredential) {
+                const pool = getExistingPool(providerName);
+                if (pool) {
+                    // Find which credential was used and exhaust it
+                    const status = pool.status();
+                    const lastUsed = status.find(s => s.available);
+                    if (lastUsed) {
+                        pool.exhaust(lastUsed.name, classified.cooldownMs || 60000);
+                    }
+                }
+            }
+
             const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
 
             // Check if we should retry
-            if (retryable && attempt < maxRetries) {
-                // Respect Retry-After header for rate limits
-                let retryDelayMs = calculateBackoffDelay(attempt);
+            if (classified.retryable && attempt < maxRetries) {
+                // Use taxonomy cooldown or calculate backoff, whichever is larger
+                let retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
 
-                // Check for Retry-After in the error response if available
+                // Respect Retry-After header for rate limits
                 const retryAfter = (error as Response)?.headers?.get?.('Retry-After');
                 if (retryAfter) {
                     const parsed = parseRetryAfter(retryAfter);
@@ -664,23 +662,23 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                     }
                 }
 
-                logger.warn(COMPONENT, `${errorMsg} — retrying in ${Math.round(retryDelayMs)}ms`);
+                logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — retrying in ${Math.round(retryDelayMs)}ms`);
                 await sleep(retryDelayMs);
                 continue;
             }
 
             // Not retryable or max retries exceeded
-            if (!retryable) {
-                logger.error(COMPONENT, `${errorMsg} — not retryable (${status ? `HTTP ${status}` : 'unknown error'})`);
+            if (!classified.retryable) {
+                logger.error(COMPONENT, `${errorMsg} — not retryable [${classified.reason}] (${classified.httpStatus ? `HTTP ${classified.httpStatus}` : 'unknown error'})`);
             } else {
-                logger.error(COMPONENT, `${errorMsg} — max retries (${maxRetries}) exceeded`);
+                logger.error(COMPONENT, `${errorMsg} — max retries (${maxRetries}) exceeded [${classified.reason}]`);
             }
 
             // Try configured fallback chain first (model-level fallback)
-            if (retryable) {
+            if (classified.retryable || classified.shouldFallback) {
                 const chainResult = await tryFallbackChain(options, modelId, error as Error);
                 if (chainResult) {
-                    logger.info(COMPONENT, `Fallback chain recovered from ${providerName}/${model} failure`);
+                    logger.info(COMPONENT, `Fallback chain recovered from ${providerName}/${model} failure [${classified.reason}]`);
                     return chainResult;
                 }
             }
@@ -742,10 +740,11 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
             // All recovery options exhausted, throw enhanced error
             const finalError = new Error(`All providers failed: ${errorMsg}`);
             Object.assign(finalError, {
-                status: getErrorStatus(error),
+                status: classified.httpStatus,
                 provider: providerName,
                 model,
                 cause: error,
+                failoverReason: classified.reason,
             });
             throw finalError;
         }
@@ -799,20 +798,24 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
             return;
         } catch (error) {
             lastError = error as Error;
-            recordFailure(providerName);
 
-            const retryable = isRetryableError(error);
+            // Classify error using centralized taxonomy
+            const classified = classifyProviderError(error);
+            if (shouldAffectCircuitBreaker(classified)) {
+                recordFailure(providerName);
+            }
+
             const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
 
             // Check if we should retry
-            if (retryable && attempt < maxRetries) {
-                const retryDelayMs = calculateBackoffDelay(attempt);
-                logger.warn(COMPONENT, `${errorMsg} — streaming retry in ${Math.round(retryDelayMs)}ms`);
+            if (classified.retryable && attempt < maxRetries) {
+                const retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
+                logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — streaming retry in ${Math.round(retryDelayMs)}ms`);
 
                 // Notify consumer about the retry
                 yield {
                     type: 'text',
-                    content: `\n[Retrying request (${attempt + 1}/${maxRetries}) due to ${retryable ? 'transient error' : 'provider issue'}...]\n\n`,
+                    content: `\n[Retrying request (${attempt + 1}/${maxRetries}) due to ${classified.reason}...]\n\n`,
                 };
 
                 await sleep(retryDelayMs);
@@ -820,14 +823,14 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
             }
 
             // Not retryable or max retries exceeded
-            if (!retryable) {
-                logger.error(COMPONENT, `${errorMsg} — streaming not retryable`);
+            if (!classified.retryable) {
+                logger.error(COMPONENT, `${errorMsg} — streaming not retryable [${classified.reason}]`);
             } else {
-                logger.error(COMPONENT, `${errorMsg} — streaming max retries exceeded`);
+                logger.error(COMPONENT, `${errorMsg} — streaming max retries exceeded [${classified.reason}]`);
             }
 
             // Try configured fallback chain first
-            if (retryable) {
+            if (classified.retryable || classified.shouldFallback) {
                 const chainStream = await tryFallbackChainStream(options, modelId, error as Error);
                 if (chainStream) {
                     yield {

@@ -11,6 +11,7 @@ const mockExecuteTools = vi.hoisted(() => vi.fn());
 const mockMaybeCompressContext = vi.hoisted(() => vi.fn());
 const mockBuildSmartContext = vi.hoisted(() => vi.fn());
 const mockRecordTokenUsage = vi.hoisted(() => vi.fn());
+const mockRouteModel = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -27,7 +28,7 @@ vi.mock('../../src/agent/loopDetection.js', () => ({ checkForLoop: vi.fn().mockR
 vi.mock('../../src/agent/costOptimizer.js', () => ({
     recordTokenUsage: mockRecordTokenUsage,
     maybeCompressContext: mockMaybeCompressContext,
-    routeModel: vi.fn(),
+    routeModel: mockRouteModel,
 }));
 vi.mock('../../src/agent/contextManager.js', () => ({ buildSmartContext: mockBuildSmartContext }));
 vi.mock('../../src/agent/responseCache.js', () => ({ getCachedResponse: vi.fn().mockReturnValue(null), setCachedResponse: vi.fn() }));
@@ -71,6 +72,7 @@ beforeEach(() => {
     mockRecordTokenUsage.mockReturnValue({ budgetExceeded: false });
     mockMaybeCompressContext.mockImplementation((msgs: unknown[]) => ({ messages: msgs, didCompress: false, savedTokens: 0 }));
     mockBuildSmartContext.mockImplementation((msgs: unknown[]) => msgs);
+    mockRouteModel.mockReturnValue({ model: 'test-model', reason: 'mock', willSaveMoney: false });
 });
 
 describe('Stress — Large Context', () => {

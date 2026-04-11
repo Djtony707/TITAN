@@ -27,6 +27,10 @@ export const ProviderConfigSchema = z.object({
     temperature: z.number().min(0).max(2).optional(),
     /** Multiple API keys with automatic failover */
     authProfiles: z.array(AuthProfileSchema).default([]),
+    /** Credential rotation strategy when multiple authProfiles are configured */
+    rotationStrategy: z.enum(['priority', 'round-robin', 'least-used']).default('priority'),
+    /** Cooldown duration in ms when a credential is exhausted (default: 60s) */
+    credentialCooldownMs: z.number().default(60000),
 });
 
 export const ChannelConfigSchema = z.object({

@@ -23,7 +23,7 @@ import { loadConfig } from '../config/config.js';
 import { checkForLoop } from './loopDetection.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { updateIssue, startRun, endRun, addIssueComment } from './commandPost.js';
-import { recordTokenUsage } from './costOptimizer.js';
+import { recordTokenUsage, routeModel, type TurnContext } from './costOptimizer.js';
 import { maybeCompressContext } from './costOptimizer.js';
 import type { TitanConfig } from '../config/schema.js';
 import { buildSmartContext } from './contextManager.js';
@@ -449,6 +449,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 result.content = cachedResponse;
                 phase = 'done';
                 break;
+            }
+
+            // ── Per-turn model routing ───────────────────────────
+            const lastUserContent = ctx.message || '';
+            const recentAssistant = smartMessages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+            const turnCtx: TurnContext = {
+                round,
+                messageLength: lastUserContent.length,
+                hasCode: /```|\bfunction\b|\bclass\b|\bconst\b|\bdef\b/.test(recentAssistant),
+                hasUrls: /https?:\/\//.test(recentAssistant),
+            };
+            const routeResult = routeModel(lastUserContent, activeModel, undefined, turnCtx);
+            if (routeResult.model !== activeModel && routeResult.willSaveMoney) {
+                logger.info(COMPONENT, `[PerTurnRoute] Round ${round}: ${activeModel} → ${routeResult.model} (${routeResult.reason})`);
+                activeModel = routeResult.model;
             }
 
             // ── Call LLM with tools ──────────────────────────────

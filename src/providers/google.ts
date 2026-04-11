@@ -22,7 +22,8 @@ export class GoogleProvider extends LLMProvider {
 
     private get apiKey(): string {
         const config = loadConfig();
-        return resolveApiKey('google', config.providers.google.authProfiles || [], config.providers.google.apiKey || '', 'GOOGLE_API_KEY');
+        const p = config.providers.google;
+        return resolveApiKey('google', p.authProfiles || [], p.apiKey || '', 'GOOGLE_API_KEY', p.rotationStrategy, p.credentialCooldownMs);
     }
 
     async chat(options: ChatOptions): Promise<ChatResponse> {

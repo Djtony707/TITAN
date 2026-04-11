@@ -17,36 +17,33 @@ import { loadConfig } from '../config/config.js';
 import { checkAutonomy } from './autonomy.js';
 import { isToolSkillEnabled } from '../skills/registry.js';
 import { getCachedToolResult, cacheToolResult } from './trajectoryCompressor.js';
+import { classifyProviderError, FailoverReason } from '../providers/errorTaxonomy.js';
+import { snapshotBeforeWrite } from './shadowGit.js';
 
 const COMPONENT = 'ToolRunner';
 
 /** Error classification for retry decisions */
 export type ErrorClass = 'transient' | 'permanent' | 'timeout' | 'rate_limit';
 
-/** Classify an error to determine if retry is appropriate */
+/** Classify an error to determine if retry is appropriate.
+ * Delegates to the centralized error taxonomy, then maps back to ErrorClass
+ * for backward compatibility with tool execution retry logic.
+ */
 export function classifyError(error: Error, _toolName: string): ErrorClass {
-    const msg = error.message.toLowerCase();
-
-    // Timeout errors
-    if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('etimedout')) {
-        return 'timeout';
+    const classified = classifyProviderError(error);
+    switch (classified.reason) {
+        case FailoverReason.TIMEOUT:
+            return 'timeout';
+        case FailoverReason.RATE_LIMIT:
+            return 'rate_limit';
+        case FailoverReason.SERVER_ERROR:
+        case FailoverReason.NETWORK_ERROR:
+        case FailoverReason.OVERLOADED:
+        case FailoverReason.EMPTY_RESPONSE:
+            return 'transient';
+        default:
+            return classified.retryable ? 'transient' : 'permanent';
     }
-
-    // Rate limit errors
-    if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests') || msg.includes('quota exceeded')) {
-        return 'rate_limit';
-    }
-
-    // Transient network/connection errors
-    if (msg.includes('econnrefused') || msg.includes('econnreset') || msg.includes('epipe') ||
-        msg.includes('enotfound') || msg.includes('fetch failed') || msg.includes('network error') ||
-        msg.includes('socket hang up') || msg.includes('connection closed') ||
-        msg.includes('503') || msg.includes('502') || msg.includes('500')) {
-        return 'transient';
-    }
-
-    // Everything else is permanent (bad args, not found, permission denied, etc.)
-    return 'permanent';
 }
 
 /** Tool execution result */
@@ -215,6 +212,17 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             success: false,
             durationMs: Date.now() - startTime,
         };
+    }
+
+    // Shadow git checkpoint — snapshot files before mutation (fire-and-forget)
+    const MUTATING_TOOLS = new Set(['write_file', 'edit_file', 'append_file', 'apply_patch']);
+    if (MUTATING_TOOLS.has(handler.name)) {
+        const filePath = (args.path || args.file_path || args.filePath) as string;
+        if (filePath) {
+            snapshotBeforeWrite(handler.name, filePath).catch(err =>
+                logger.debug(COMPONENT, `Shadow checkpoint skipped: ${(err as Error).message}`),
+            );
+        }
     }
 
     // Per-tool timeout lookup

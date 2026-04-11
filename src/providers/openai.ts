@@ -22,7 +22,8 @@ export class OpenAIProvider extends LLMProvider {
 
     private get apiKey(): string {
         const config = loadConfig();
-        return resolveApiKey('openai', config.providers.openai.authProfiles || [], config.providers.openai.apiKey || '', 'OPENAI_API_KEY');
+        const p = config.providers.openai;
+        return resolveApiKey('openai', p.authProfiles || [], p.apiKey || '', 'OPENAI_API_KEY', p.rotationStrategy, p.credentialCooldownMs);
     }
 
     private get baseUrl(): string {
