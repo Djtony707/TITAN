@@ -210,14 +210,19 @@ async function memoryTriggerWatcher(): Promise<void> {
     titanEvents.emit('daemon:heartbeat', { timestamp: Date.now() });
 }
 
-/** Daily memory consolidation — prune, dedupe, synthesize entity summaries */
+/** Daily memory consolidation — prune, dedupe, synthesize entity summaries + staleness check */
 async function dreamingWatcher(): Promise<void> {
     try {
         const { runConsolidation } = await import('../memory/dreaming.js');
         const result = await runConsolidation();
         const pruned = result?.deepSleep?.entriesPruned ?? 0;
-        logger.info(COMPONENT, `[DreamingWatcher] Consolidation complete: ${pruned} entries pruned`);
-        titanEvents.emit('dreaming:consolidated', { result });
+
+        // Memory staleness verification — decay old strategies, prune stale knowledge
+        const { verifyMemoryStaleness } = await import('../memory/learning.js');
+        const staleness = verifyMemoryStaleness();
+
+        logger.info(COMPONENT, `[DreamingWatcher] Consolidation complete: ${pruned} entries pruned, ${staleness.pruned} stale removed, ${staleness.decayed} strategies decayed`);
+        titanEvents.emit('dreaming:consolidated', { result, staleness });
         recordAction('dreaming', true);
     } catch (err) {
         logger.error(COMPONENT, `[DreamingWatcher] Failed: ${(err as Error).message}`);

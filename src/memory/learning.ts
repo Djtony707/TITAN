@@ -248,6 +248,53 @@ export function getToolRecommendations(): Record<string, number> {
     return recommendations;
 }
 
+/**
+ * TITAN pattern: Memory staleness verification
+ * Before acting on learned knowledge, verify it's still current.
+ * Strategies unvalidated for 30+ days lose 20% successCount.
+ * Knowledge entries older than 60 days get flagged as potentially stale.
+ */
+export function verifyMemoryStaleness(): { pruned: number; decayed: number } {
+    const k = loadKnowledgeBase();
+    const now = Date.now();
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const SIXTY_DAYS = 60 * 24 * 60 * 60 * 1000;
+    let pruned = 0;
+    let decayed = 0;
+
+    // Decay strategies unvalidated for 30+ days
+    for (const strategy of k.strategies) {
+        const lastValidated = strategy.lastValidated ? new Date(strategy.lastValidated).getTime() : new Date(strategy.timestamp).getTime();
+        if (now - lastValidated > THIRTY_DAYS && (strategy.successCount || 0) > 0) {
+            strategy.successCount = Math.floor((strategy.successCount || 0) * 0.8);
+            decayed++;
+        }
+    }
+
+    // Remove knowledge entries older than 60 days with low scores
+    const before = k.entries.length;
+    k.entries = k.entries.filter(e => {
+        const age = now - new Date(e.timestamp).getTime();
+        return age < SIXTY_DAYS || e.score > 0.7;
+    });
+    pruned = before - k.entries.length;
+
+    // Remove error patterns not seen in 30+ days
+    for (const [pattern, info] of Object.entries(k.errorPatterns)) {
+        if (now - new Date(info.lastSeen).getTime() > THIRTY_DAYS) {
+            delete k.errorPatterns[pattern];
+            pruned++;
+        }
+    }
+
+    if (pruned > 0 || decayed > 0) {
+        saveKnowledgeBase(k);
+        logger.info(COMPONENT, `Memory staleness check: ${pruned} pruned, ${decayed} strategies decayed`);
+    }
+
+    return { pruned, decayed };
+}
+
 /** Get learning summary for the system prompt */
 export function getLearningContext(): string {
     const k = loadKnowledgeBase();
