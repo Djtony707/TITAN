@@ -1126,6 +1126,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 result.content = stripToolJson(response.content);
             }
 
+            // Empty response fallback: if the model returned nothing in respond phase,
+            // synthesize from the last tool results instead of showing a blank message
+            if (!result.content || result.content.trim().length === 0) {
+                const lastToolResults = ctx.messages
+                    .filter(m => m.role === 'tool')
+                    .slice(-2)
+                    .map(m => (m.content || '').slice(0, 300))
+                    .join('\n');
+                if (lastToolResults) {
+                    logger.warn(COMPONENT, '[EmptyResponse] Model returned empty — using tool results as fallback');
+                    result.content = lastToolResults;
+                } else {
+                    result.content = 'I completed the task but was unable to generate a summary. Please check the tool results above.';
+                }
+            }
+
             // Response validation: check if the answer actually addresses the question.
             // If the user asked for specific data (a number, version, name) and the
             // response doesn't contain it but tool results do, retry once with a nudge.
