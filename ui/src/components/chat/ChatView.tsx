@@ -377,7 +377,7 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
                 );
               })}
               {isStreaming && (
-                <StreamingMessage content={streamingContent} activeTools={activeTools} />
+                <StreamingMessage content={streamingContent} activeTools={activeTools} agentEvents={agentEvents} />
               )}
 
               {/* Plan approval buttons — shown when the last message is a plan waiting for approve/deny */}
