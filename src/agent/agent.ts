@@ -3,6 +3,7 @@
  * The main agent: receives messages, builds context, calls LLM, handles tools, responds.
  */
 import { existsSync, readFileSync } from 'fs';
+import { randomBytes } from 'crypto';
 import { loadConfig } from '../config/config.js';
 import { getOrCreateSession, getSessionById, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
@@ -1378,7 +1379,7 @@ export async function processMessage(
 
     // Log task-level trajectory and check for auto-skill generation
     const trajectory = {
-        id: crypto.randomUUID(),
+        id: randomBytes(16).toString('hex'),
         timestamp: new Date().toISOString(),
         task: message.slice(0, 500),
         taskType: classifyTaskType(message),

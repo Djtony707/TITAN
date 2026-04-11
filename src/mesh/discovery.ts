@@ -255,8 +255,13 @@ async function startMdns(nodeId: string, port: number, autoApprove: boolean): Pr
     mdnsAutoApprove = autoApprove;
 
     try {
-        const { Bonjour } = await import('bonjour-service');
-        bonjourInstance = new Bonjour() as unknown as BonjourInstance;
+        const bonjourModule = await import('bonjour-service');
+        const BonjourClass = (bonjourModule as Record<string, unknown>).Bonjour
+            ?? (bonjourModule as { default?: unknown }).default;
+        if (!BonjourClass || typeof BonjourClass !== 'function') {
+            throw new Error('bonjour-service module loaded but Bonjour constructor not found');
+        }
+        bonjourInstance = new (BonjourClass as new () => BonjourInstance)();
 
         // Publish this node
         bonjourInstance.publish({
