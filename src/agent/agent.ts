@@ -92,6 +92,45 @@ function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?:
     return Math.min(budget, hardCap);
 }
 
+// ── Ralph Loop Verification ─────────────────────────────────────
+// Checks whether the agent actually completed the requested task.
+// Inspired by vercel-labs/ralph-loop-agent outer verification pattern.
+
+function verifyTaskCompletion(
+    message: string,
+    toolsUsed: string[],
+    response: string,
+): { complete: boolean; reason: string } {
+    const lower = message.toLowerCase();
+
+    // Check: user asked to edit/fix/write/create but no write tool was called
+    const askedToWrite = /\b(edit|fix|change|modify|update|add|write|create|improve|rewrite|save|implement|patch)\b/i.test(lower)
+        && /\b(file|code|page|dashboard|html|css|js|function|component|config)\b/i.test(lower);
+    const didWrite = toolsUsed.some(t => ['write_file', 'edit_file', 'append_file'].includes(t));
+    const didRead = toolsUsed.includes('read_file') || toolsUsed.includes('shell');
+
+    if (askedToWrite && !didWrite && didRead) {
+        return {
+            complete: false,
+            reason: 'You read the file but did not save any changes. You MUST call edit_file or write_file to apply your modifications. Call the tool now.',
+        };
+    }
+
+    // Check: user asked to run/execute something but no shell was called
+    const askedToRun = /\b(run|execute|install|deploy|build|test|restart)\b/i.test(lower)
+        && /\b(command|script|service|server|package|npm|pip)\b/i.test(lower);
+    const didRun = toolsUsed.includes('shell');
+
+    if (askedToRun && !didRun) {
+        return {
+            complete: false,
+            reason: 'You did not execute the requested command. Call the shell tool to run it.',
+        };
+    }
+
+    return { complete: true, reason: '' };
+}
+
 // ── Current session context for spawn_agent async delegation ─────
 let currentSessionId: string | null = null;
 export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
@@ -1177,6 +1216,52 @@ export async function processMessage(
     // Extract structured artifacts for deliberation inter-step context
     const toolArtifacts = extractToolArtifacts(loopResult.toolCallDetails);
 
+    // ── Ralph Loop Verification ─────────────────────────────────
+    // Outer completion check: did the task actually get done?
+    // If the user asked to edit/write but no write tool was called,
+    // re-run the agent loop ONE more time with a forced write instruction.
+    if (isAutonomous && !voiceFastPath && !budgetExhausted && channel !== 'deliberation') {
+        const verification = verifyTaskCompletion(message, toolsUsed, finalContent);
+        if (!verification.complete) {
+            logger.warn(COMPONENT, `[RalphLoop] Task incomplete: ${verification.reason}. Re-running with forced write.`);
+
+            // Add the verification feedback and re-run
+            messages.push({ role: 'assistant', content: finalContent });
+            messages.push({ role: 'user', content: `[TASK INCOMPLETE] ${verification.reason}\n\nYou MUST call the appropriate tool NOW. Do NOT respond with text — call the tool.` });
+
+            const retryResult = await runAgentLoop({
+                messages,
+                activeTools,
+                allToolsBackup,
+                activeModel,
+                config,
+                sessionId: session.id,
+                agentId: overrides?.agentId,
+                channel,
+                message,
+                streamCallbacks,
+                signal,
+                isAutonomous,
+                voiceFastPath,
+                effectiveMaxRounds: 4, // Short budget for the retry
+                taskEnforcementActive: true,
+                reflectionEnabled: false,
+                reflectionInterval: 99,
+                toolSearchEnabled,
+                isKimiSwarm,
+                selfHealEnabled: false,
+                thinkingOverride: session.thinkingOverride,
+            });
+
+            if (retryResult.content) finalContent = retryResult.content;
+            toolsUsed.push(...retryResult.toolsUsed);
+            orderedToolSequence.push(...retryResult.orderedToolSequence);
+            totalPromptTokens += retryResult.promptTokens;
+            totalCompletionTokens += retryResult.completionTokens;
+
+            logger.info(COMPONENT, `[RalphLoop] Retry complete. Tools used: [${retryResult.toolsUsed.join(', ')}]`);
+        }
+    }
 
     // Clean up stall detector for this session
     clearSession(session.id);
