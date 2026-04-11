@@ -120,7 +120,6 @@ function CPOrg() {
       <PageHeader
         title="Organization Chart"
         breadcrumbs={[{ label: 'Command Post' }, { label: 'Org Chart' }]}
-        count={org.length}
       />
 
       {loading && <SkeletonLoader variant="row" count={5} />}
