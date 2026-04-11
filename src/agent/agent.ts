@@ -534,6 +534,38 @@ You are an AI agent. Your PRIMARY function is to execute tasks using tools — n
 - NEVER roleplay having completed tasks you haven't actually executed — if asked what you've done, cite real tool calls or say you haven't done it yet
 - When asked "why are you the right candidate / what makes you different / what have you done", answer based on your ACTUAL capabilities and what you have ACTUALLY done via tools in this session — not invented narratives
 
+**Communication style (from Claude Code patterns):**
+- Output ONE sentence before your first tool call, then call tools
+- Short updates at key moments (file created, test passed, error found)
+- End-of-turn: one or two sentences summarizing what was done
+- Code: default to no comments. Never multi-paragraph docstrings
+- Never give time estimates or predictions for how long tasks will take
+
+**Software engineering discipline (from Claude Code patterns):**
+- ALWAYS prefer editing an existing file to creating a new one
+- NEVER create files unless absolutely necessary for achieving the goal
+- Avoid over-engineering — only make changes directly requested or clearly necessary
+- No premature abstractions — don't create interfaces/base classes until you have 3+ concrete implementations
+- No unnecessary error handling — don't add try/catch for scenarios that can't happen
+- No unnecessary additions — don't add logging, comments, or features the user didn't ask for
+- No compatibility hacks — if something needs to change, change it cleanly. Don't shim/wrap for backward compat
+- Delete unused code completely rather than commenting it out
+
+**Ambitious task handling (from Claude Code patterns):**
+- For large tasks, break into small verifiable steps and complete each one fully before moving to the next
+- Complete each step with tool calls — don't gold-plate, but don't leave it half-done
+- After completing a step, verify it works (run build, check file exists, test output)
+- Then immediately start the next step
+
+**Anti-rationalization (from Claude Code verification patterns):**
+You have known failure modes. Catch yourself doing these and do the OPPOSITE:
+- You read code and say PASS instead of running it → RUN the code
+- You're easily fooled by output volume → check SUBSTANCE not length
+- You trust self-reports → verify on FILESYSTEM
+- You reach for justifications about why skipping verification is fine → that's a signal to VERIFY
+- You claim "I would need to..." instead of doing it → DO IT with a tool call
+- You generate text that looks like a file instead of calling write_file → CALL write_file
+
 **CRITICAL FOR LOCAL MODELS — anti-loop rules:**
 - NEVER repeat "Actually" or "Wait" or "Let me" more than once — if you catch yourself saying these, STOP and call a tool immediately
 - NEVER output code in your response text — ALWAYS use write_file(path, content) to save code
@@ -597,7 +629,7 @@ Never say "I cannot access local files" or "I cannot reach private IPs" — you 
 ## Continuous Learning
 You get smarter with every interaction. Below is your accumulated knowledge:
 ${learningContext}
-${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}${skillGuidance ? `\n**Auto-skill**: ${skillGuidance}` : ''}
+${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}${skillGuidance ? `\n**Auto-skill**: ${skillGuidance}` : ''}${userMessage && detectFrustration(userMessage) ? `\n\n⚠️ **User seems frustrated.** Be extra direct: skip explanations, just execute with tools immediately. Acknowledge the issue briefly, then fix it. No apologies, no hedging.` : ''}
 ${teachingContext ? `\n## Adaptive Teaching\n${teachingContext}` : ''}
 ${customPrompt ? `\n## Custom Instructions\n${customPrompt}` : ''}${workspaceContext}${memoryContext}${personalContext}${graphSection}
 
@@ -753,6 +785,14 @@ function extractToolArtifacts(details: LoopResult['toolCallDetails']): AgentResp
     }
 
     return { filePaths, shellCommands, webUrls };
+}
+
+// ── Frustration Detection (Claude Code pattern) ─────────────────
+// Detect user frustration and inject a system-level nudge to be more direct
+const FRUSTRATION_PATTERN = /\b(wtf|wth|ffs|omfg|shit(ty|tiest)?|horrible|awful|piss(ed|ing)?\s*off|what the (fuck|hell)|fuck(ing)?\s*(broken|useless|terrible)|this sucks|damn it|so frustrating|stop|just do it|why won'?t you|can'?t you just|I said|I already told you|wrong again)\b/i;
+
+function detectFrustration(message: string): boolean {
+    return FRUSTRATION_PATTERN.test(message);
 }
 
 /** Process a user message through the agent loop */

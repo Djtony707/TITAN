@@ -188,6 +188,33 @@ export function guardToolCall(toolName: string, args: Record<string, unknown>): 
         }
     }
 
+    // Claude Code-inspired autonomous safety: BLOCK patterns for autonomous execution
+    // These only apply when running via initiative/autopilot (autonomous mode)
+    const isAutonomous = loadConfig().autonomy.mode === 'autonomous';
+    if (isAutonomous) {
+        // Block git push to default branch
+        if (toolName === 'shell') {
+            const cmd = (args.command as string || '').trim();
+            if (/git\s+push\s+.*\b(main|master)\b/.test(cmd) && !/--force/.test(cmd)) {
+                // Allow push to working branches, block push to main/master
+                if (/\b(origin|upstream)\s+(main|master)\b/.test(cmd)) {
+                    recordViolation('tool', 'git_push_default_branch', 'warning', `shell: ${cmd}`, true);
+                    return { allowed: false, reason: 'Autonomous mode cannot push to main/master branch', severity: 'warning' };
+                }
+            }
+            // Block curl|bash (untrusted code execution from external sources)
+            if (/curl\s.*\|\s*(bash|sh|zsh)/.test(cmd) || /wget\s.*\|\s*(bash|sh|zsh)/.test(cmd)) {
+                recordViolation('tool', 'code_from_external', 'critical', `shell: ${cmd}`, true);
+                return { allowed: false, reason: 'Autonomous mode cannot pipe external scripts to shell', severity: 'critical' };
+            }
+            // Block credential exploration
+            if (/\b(cat|less|head|tail|grep)\b.*\b(\.env|credentials|secrets|password|\.ssh\/id_|\.aws\/)/i.test(cmd)) {
+                recordViolation('tool', 'credential_exploration', 'warning', `shell: ${cmd}`, true);
+                return { allowed: false, reason: 'Autonomous mode cannot read credential files', severity: 'warning' };
+            }
+        }
+    }
+
     return { allowed: true, severity: 'info' };
 }
 
