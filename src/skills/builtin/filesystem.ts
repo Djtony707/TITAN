@@ -11,8 +11,14 @@ import { registerSkill } from '../registry.js';
 const BLOCKED_PATHS = ['/etc', '/root', '/sys', '/proc', '/dev', '/boot', '/var/log', '/var/run'];
 const BLOCKED_PATTERNS = ['.ssh', '.gnupg', '.aws', '.env', 'id_rsa', 'id_ed25519', '.netrc', '.npmrc'];
 
+/** Expand ~ and resolve to absolute path */
+function expandPath(filePath: string): string {
+    const expanded = filePath.startsWith('~/') ? join(homedir(), filePath.slice(2)) : filePath;
+    return resolve(expanded);
+}
+
 function validatePath(filePath: string): string | null {
-    const resolved = resolve(filePath);
+    const resolved = expandPath(filePath);
     const home = homedir();
     // Allow access within home directory and /tmp only
     if (!resolved.startsWith(home) && !resolved.startsWith('/tmp')) {
@@ -50,7 +56,7 @@ export function registerFilesystemSkill(): void {
                 required: ['path'],
             },
             execute: async (args) => {
-                const filePath = resolve(args.path as string);
+                const filePath = expandPath(args.path as string);
                 const pathErr = validatePath(filePath);
                 if (pathErr) return pathErr;
                 if (!existsSync(filePath)) return `Error: File not found: ${filePath}`;
@@ -81,7 +87,7 @@ export function registerFilesystemSkill(): void {
                 required: ['path', 'content'],
             },
             execute: async (args) => {
-                const filePath = resolve(args.path as string);
+                const filePath = expandPath(args.path as string);
                 const pathErr = validatePath(filePath);
                 if (pathErr) return pathErr;
                 try {
@@ -123,7 +129,7 @@ export function registerFilesystemSkill(): void {
                 required: ['path', 'content'],
             },
             execute: async (args) => {
-                const filePath = resolve(args.path as string);
+                const filePath = expandPath(args.path as string);
                 const pathErr = validatePath(filePath);
                 if (pathErr) return pathErr;
                 try {
@@ -153,7 +159,7 @@ export function registerFilesystemSkill(): void {
                 required: ['path', 'target', 'replacement'],
             },
             execute: async (args) => {
-                const filePath = resolve(args.path as string);
+                const filePath = expandPath(args.path as string);
                 const pathErr2 = validatePath(filePath);
                 if (pathErr2) return pathErr2;
                 if (!existsSync(filePath)) return `Error: File not found: ${filePath}`;
@@ -226,7 +232,7 @@ export function registerFilesystemSkill(): void {
                 required: ['path'],
             },
             execute: async (args) => {
-                const dirPath = resolve(args.path as string);
+                const dirPath = expandPath(args.path as string);
                 const dirErr = validatePath(dirPath);
                 if (dirErr) return dirErr;
                 if (!existsSync(dirPath)) return `Error: Directory not found: ${dirPath}`;
