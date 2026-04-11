@@ -53,7 +53,16 @@ export class AnthropicProvider extends LLMProvider {
         };
 
         if (systemMessage) {
-            body.system = systemMessage.content;
+            // Claude Code pattern: prompt cache splitting
+            // Place cache_control breakpoint on system prompt to cache it across turns.
+            // This reduces input costs by ~75% for subsequent messages in the same session.
+            body.system = [
+                {
+                    type: 'text',
+                    text: systemMessage.content,
+                    cache_control: { type: 'ephemeral' },
+                },
+            ];
         }
 
         if (options.tools && options.tools.length > 0) {
@@ -86,6 +95,7 @@ export class AnthropicProvider extends LLMProvider {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
                 'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'prompt-caching-2024-07-31',
             },
             body: JSON.stringify(body),
         });
@@ -169,7 +179,9 @@ export class AnthropicProvider extends LLMProvider {
             })),
         };
 
-        if (systemMessage) body.system = systemMessage.content;
+        if (systemMessage) {
+            body.system = [{ type: 'text', text: systemMessage.content, cache_control: { type: 'ephemeral' } }];
+        }
         if (options.tools && options.tools.length > 0) {
             body.tools = options.tools.map((t) => ({
                 name: t.function.name,
@@ -193,6 +205,7 @@ export class AnthropicProvider extends LLMProvider {
                     'Content-Type': 'application/json',
                     'x-api-key': apiKey,
                     'anthropic-version': '2023-06-01',
+                    'anthropic-beta': 'prompt-caching-2024-07-31',
                 },
                 body: JSON.stringify(body),
             });

@@ -104,6 +104,19 @@ function compressToolResults(messages: ChatMessage[]): ChatMessage[] {
 /** Persistent structured summary for iterative context compression */
 let currentSummary: StructuredSummary | null = null;
 
+/**
+ * Claude Code pattern: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+ * Disables compaction after 3 consecutive failures per session to prevent
+ * wasted API calls (Claude Code had 250K wasted calls/day from this bug).
+ */
+let consecutiveCompactFailures = 0;
+const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
+
+/** Reset compact failure counter (call on new session) */
+export function resetCompactFailures(): void {
+    consecutiveCompactFailures = 0;
+}
+
 /** Get the current structured summary (for external access) */
 export function getStructuredSummary(): StructuredSummary | null {
     return currentSummary;
@@ -129,7 +142,21 @@ export function buildSmartContext(
 ): ChatMessage[] {
     if (messages.length === 0) return [];
 
-    const result = compressContext(messages, tokenBudget, currentSummary);
+    // Claude Code pattern: skip compaction after consecutive failures
+    if (consecutiveCompactFailures >= MAX_CONSECUTIVE_COMPACT_FAILURES) {
+        logger.warn(COMPONENT, `Compaction disabled after ${consecutiveCompactFailures} consecutive failures — returning raw messages`);
+        return messages;
+    }
+
+    let result;
+    try {
+        result = compressContext(messages, tokenBudget, currentSummary);
+        consecutiveCompactFailures = 0; // Reset on success
+    } catch (err) {
+        consecutiveCompactFailures++;
+        logger.warn(COMPONENT, `Compaction failed (${consecutiveCompactFailures}/${MAX_CONSECUTIVE_COMPACT_FAILURES}): ${(err as Error).message}`);
+        return messages; // Return uncompressed on failure
+    }
 
     // Store summary for iterative updates on next compression
     if (result.summary) {

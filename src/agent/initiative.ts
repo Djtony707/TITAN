@@ -27,8 +27,10 @@ let lastInitiativeTime = 0;
 const DEFAULT_MIN_INTERVAL_MS = 30_000;
 let consecutiveFailures = 0;
 let consecutiveIdle = 0;
+let subtasksWithoutVerification = 0;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const MAX_CONSECUTIVE_IDLE = 3;
+const AUTO_VERIFY_THRESHOLD = 3; // Claude Code pattern: verify after 3+ completed tasks
 
 export interface InitiativeResult {
     acted: boolean;
@@ -161,6 +163,32 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
             completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
             logger.info(COMPONENT, `✅ Subtask VERIFIED complete: "${subtask.title}" (${toolsUsed.length} tools: ${toolsUsed.join(', ')})`);
             consecutiveFailures = 0;
+            subtasksWithoutVerification++;
+
+            // Claude Code pattern: auto-verification after 3+ completed tasks
+            if (subtasksWithoutVerification >= AUTO_VERIFY_THRESHOLD) {
+                subtasksWithoutVerification = 0;
+                logger.info(COMPONENT, `[AutoVerify] ${AUTO_VERIFY_THRESHOLD} subtasks completed — running build verification`);
+                titanEvents.emit('initiative:tool_call', {
+                    subtaskTitle: 'Auto-Verification', tool: 'shell',
+                    args: 'npm run build (auto-verify)', timestamp: new Date().toISOString(),
+                });
+                try {
+                    const verifyResult = await processMessage(
+                        'Run "npm run build" in the project directory to verify everything compiles. Report any errors found.',
+                        'initiative-verify',
+                    );
+                    logger.info(COMPONENT, `[AutoVerify] Build check: ${verifyResult.content.slice(0, 200)}`);
+                    titanEvents.emit('initiative:tool_result', {
+                        subtaskTitle: 'Auto-Verification', tool: 'build-check',
+                        success: !verifyResult.content.toLowerCase().includes('error'),
+                        durationMs: 0, timestamp: new Date().toISOString(),
+                    });
+                } catch (err) {
+                    logger.warn(COMPONENT, `[AutoVerify] Failed: ${(err as Error).message}`);
+                }
+            }
+
             titanEvents.emit('initiative:complete', {
                 goalId: goal.id, subtaskTitle: subtask.title,
                 toolsUsed, summary: result.content.slice(0, 300),

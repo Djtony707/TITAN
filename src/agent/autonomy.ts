@@ -18,6 +18,38 @@ const COMPONENT = 'Autonomy';
 export type AutonomyMode = 'autonomous' | 'supervised' | 'locked';
 export type RiskLevel = 'safe' | 'moderate' | 'dangerous';
 
+/**
+ * Claude Code pattern: Denial Tracking with Graceful Degradation
+ * After 3 consecutive denials OR 20 total session denials,
+ * fall back to explicit prompting instead of auto-mode.
+ * This prevents the agent from getting stuck in a deny loop.
+ */
+let consecutiveDenials = 0;
+let totalSessionDenials = 0;
+const MAX_CONSECUTIVE_DENIALS = 3;
+const MAX_TOTAL_DENIALS = 20;
+
+export function recordDenial(): void {
+    consecutiveDenials++;
+    totalSessionDenials++;
+    if (shouldFallbackToPrompting()) {
+        logger.warn(COMPONENT, `Denial threshold reached (${consecutiveDenials} consecutive, ${totalSessionDenials} total) — falling back to explicit prompting`);
+    }
+}
+
+export function recordApproval(): void {
+    consecutiveDenials = 0; // Reset consecutive on approval
+}
+
+export function shouldFallbackToPrompting(): boolean {
+    return consecutiveDenials >= MAX_CONSECUTIVE_DENIALS || totalSessionDenials >= MAX_TOTAL_DENIALS;
+}
+
+export function resetDenialTracking(): void {
+    consecutiveDenials = 0;
+    totalSessionDenials = 0;
+}
+
 /** Tool risk classification */
 const TOOL_RISK_MAP: Record<string, RiskLevel> = {
     // Safe — read-only, no side effects
