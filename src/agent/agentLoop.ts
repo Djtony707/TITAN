@@ -318,6 +318,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // Response validation retry flag (one retry max)
     let responseValidationRetried = false;
 
+    // Force tool_choice=required on next think phase (set by incomplete task guard)
+    let forceWriteOnNextThink = false;
+
     // Pending tool calls from think phase (passed to act phase)
     let pendingToolCalls: ToolCall[] = [];
     let pendingAssistantContent = '';
@@ -484,11 +487,16 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 temperature: ctx.config.agent.temperature,
                 thinking: isVoice ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
-                forceToolUse: ctx.activeTools.length > 0
+                forceToolUse: (ctx.activeTools.length > 0
                     && (ctx.isAutonomous || ctx.taskEnforcementActive)
                     && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false
-                    && phase !== 'respond',
+                    && phase !== 'respond')
+                    || forceWriteOnNextThink,  // Incomplete task guard forces tool call
             };
+            if (forceWriteOnNextThink) {
+                forceWriteOnNextThink = false; // Reset after use
+                logger.info(COMPONENT, '[IncompleteTask] Forcing tool_choice=required for write retry');
+            }
 
             let response: ChatResponse;
             if (ctx.streamCallbacks?.onToken) {
@@ -1065,12 +1073,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             const didWrite = result.toolsUsed.some(t => ['write_file', 'edit_file', 'append_file'].includes(t));
             const didRead = result.toolsUsed.includes('read_file') || result.toolsUsed.includes('shell');
             if (askedToWrite && !didWrite && didRead && round < ctx.effectiveMaxRounds - 1 && !responseValidationRetried) {
-                logger.warn(COMPONENT, `[IncompleteTask] User asked to edit but no write tool called after ${round} rounds — forcing back to think`);
+                logger.warn(COMPONENT, `[IncompleteTask] User asked to edit but no write tool called after ${round} rounds — forcing back to think with tool_choice=required`);
                 ctx.messages.push({
                     role: 'user',
                     content: '[INCOMPLETE] You read the file but did NOT make any changes. The user asked you to edit/fix/modify it. You MUST call edit_file or write_file NOW to apply your changes. Do NOT describe what you would change — MAKE the changes.',
                 });
                 responseValidationRetried = true; // Only do this once
+                forceWriteOnNextThink = true;     // Force tool_choice=required on next think
                 phase = 'think';
                 break;
             }
