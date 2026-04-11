@@ -910,6 +910,27 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     break;
                 }
 
+                // Fruitless search detector: if the model keeps searching for files
+                // across multiple rounds without finding them, force it to respond
+                if ((tr.name === 'shell' || tr.name === 'list_dir' || tr.name === 'read_file') && round >= 3) {
+                    const searchTools = result.toolCallDetails.filter(d =>
+                        (d.name === 'shell' && /\b(find|ls|grep|locate)\b/.test(d.args.command as string || '')) ||
+                        d.name === 'list_dir'
+                    );
+                    if (searchTools.length >= 3) {
+                        const allFailed = searchTools.every(d =>
+                            d.resultSnippet.length < 50 || /not found|no such|empty|error/i.test(d.resultSnippet)
+                        );
+                        if (allFailed) {
+                            logger.warn(COMPONENT, `[FruitlessSearch] ${searchTools.length} search attempts failed — forcing respond`);
+                            ctx.messages.push({
+                                role: 'user',
+                                content: '[STOP SEARCHING] You have searched for this file/directory multiple times without success. It does not exist at this location. Stop searching and tell the user what you found (or that you could not find it). Do NOT run more find/ls/grep commands.',
+                            });
+                        }
+                    }
+                }
+
                 // Learning
                 const success = !tr.content.toLowerCase().includes('error:');
                 recordToolResult(tr.name, success, undefined, success ? undefined : tr.content.slice(0, 200));
