@@ -3,7 +3,7 @@ import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X,
 import { useSSE } from '@/hooks/useSSE';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession, createSession } from '@/api/client';
-import type { ChatMessage, Session, AgentInfo } from '@/api/types';
+import type { ChatMessage, Session, AgentInfo, AgentEvent } from '@/api/types';
 import { useConfig } from '@/hooks/useConfig';
 import { MessageBubble } from './MessageBubble';
 import { StreamingMessage } from './StreamingMessage';
@@ -32,20 +32,78 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   const { isStreaming, streamingContent, activeTools, agentEvents, send, cancel } = useSSE();
   const { voiceAvailable } = useConfig();
 
+  // Initiative streaming state — shows live thinking/tool activity
+  const [initiativeActive, setInitiativeActive] = useState(false);
+  const [initiativeContent, setInitiativeContent] = useState('');
+  const [initiativeTools, setInitiativeTools] = useState<string[]>([]);
+  const [initiativeEvents, setInitiativeEvents] = useState<AgentEvent[]>([]);
+
   // Listen for daemon/initiative system messages via WebSocket
   useWebSocket({
     onMessage: useCallback((data: unknown) => {
       const msg = data as Record<string, unknown>;
-      if (msg.type === 'system_message' && msg.content) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}`,
-            role: 'assistant' as const,
-            content: `*[TITAN System]* ${msg.content as string}`,
-            timestamp: (msg.timestamp as string) || new Date().toISOString(),
-          } as ChatMessage,
-        ]);
+      if (msg.type === 'system_message' && msg.source === 'initiative') {
+        const content = msg.content as string;
+
+        const now = Date.now();
+        const makeEvent = (partial: Partial<AgentEvent>): AgentEvent => ({
+          id: String(now), type: 'thinking', timestamp: now, ...partial,
+        });
+
+        // Initiative start — show streaming bubble
+        if (content.includes('Initiative starting')) {
+          setInitiativeActive(true);
+          setInitiativeContent('');
+          setInitiativeTools([]);
+          setInitiativeEvents([makeEvent({ type: 'thinking' })]);
+        }
+        // Tool call — add to streaming events
+        else if (content.startsWith('🔧')) {
+          const toolName = content.match(/\*\*(\w+)\*\*/)?.[1] || 'tool';
+          const argsText = content.replace(/🔧\s*\*\*\w+\*\*:\s*/, '');
+          setInitiativeTools((prev) => [...prev, toolName]);
+          setInitiativeEvents((prev) => [
+            ...prev,
+            makeEvent({ type: 'tool_start', toolName, args: { path: argsText } }),
+          ]);
+        }
+        // Tool result — update events
+        else if (content.startsWith('✅') || content.startsWith('❌')) {
+          const toolName = content.match(/\*\*(\w+)\*\*/)?.[1] || 'tool';
+          const success = content.startsWith('✅');
+          const durationMs = parseInt(content.match(/\((\d+)ms\)/)?.[1] || '0');
+          setInitiativeTools((prev) => prev.filter((t) => t !== toolName));
+          setInitiativeEvents((prev) => [
+            ...prev,
+            makeEvent({ type: 'tool_end', toolName, status: success ? 'success' : 'error', durationMs }),
+          ]);
+        }
+        // Round — update events
+        else if (content.startsWith('🔄')) {
+          const match = content.match(/Round (\d+)\/(\d+)/);
+          if (match) {
+            setInitiativeEvents((prev) => [
+              ...prev,
+              makeEvent({ type: 'round', round: parseInt(match[1]), maxRounds: parseInt(match[2]) }),
+            ]);
+          }
+        }
+        // Subtask completed — finalize and add to messages
+        else if (content.includes('Subtask completed') || content.includes('No progress')) {
+          setInitiativeActive(false);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `sys-${Date.now()}`,
+              role: 'assistant' as const,
+              content: `*[TITAN Autonomous]* ${content}`,
+              timestamp: (msg.timestamp as string) || new Date().toISOString(),
+            } as ChatMessage,
+          ]);
+          setInitiativeEvents([]);
+          setInitiativeTools([]);
+          setInitiativeContent('');
+        }
       }
     }, []),
   });
@@ -412,6 +470,11 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
               })}
               {isStreaming && (
                 <StreamingMessage content={streamingContent} activeTools={activeTools} agentEvents={agentEvents} />
+              )}
+
+              {/* Initiative autonomous work — live streaming like Claude Code */}
+              {initiativeActive && !isStreaming && (
+                <StreamingMessage content={initiativeContent} activeTools={initiativeTools} agentEvents={initiativeEvents} />
               )}
 
               {/* Plan approval buttons — shown when the last message is a plan waiting for approve/deny */}
