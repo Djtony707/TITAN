@@ -479,7 +479,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     if (msg.role === 'tool' || (msg.role === 'assistant' && msg.toolCalls)) {
                         toolResultCount++;
                         if (toolResultCount > 5 && msg.content && msg.content.length > 200) {
-                            // Truncate old tool results (Claude Code pattern)
+                            // Truncate old tool results (TITAN pattern)
                             smartMessages[i] = { ...msg, content: '[Earlier tool result cleared — ' + msg.content.slice(0, 80) + '...]' };
                         }
                     }

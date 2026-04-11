@@ -22,7 +22,7 @@ interface ToolResult {
 
 type ToolExecutor = (name: string, args: Record<string, unknown>) => Promise<string>;
 
-/** Max concurrent tool executions (Claude Code pattern) */
+/** Max concurrent tool executions (TITAN pattern) */
 const MAX_TOOL_CONCURRENCY = 10;
 
 /** Tools that are always read-only regardless of input */
@@ -47,7 +47,7 @@ const DESTRUCTIVE_TOOLS = new Set([
     'process_kill', 'apply_patch',
 ]);
 
-/** Check if a specific tool call is safe to run concurrently (Claude Code pattern) */
+/** Check if a specific tool call is safe to run concurrently (TITAN pattern) */
 function isConcurrencySafe(tool: ToolCall): boolean {
     // Read-only tools are always safe
     if (READ_ONLY_TOOLS.has(tool.name)) return true;
@@ -73,7 +73,7 @@ function isDuplicate(a: ToolCall, b: ToolCall): boolean {
     return a.name === b.name && JSON.stringify(a.args) === JSON.stringify(b.args);
 }
 
-/** Partition tool calls into batches: read-only concurrent, write sequential (Claude Code pattern) */
+/** Partition tool calls into batches: read-only concurrent, write sequential (TITAN pattern) */
 function partitionToolCalls(tools: ToolCall[]): Array<{ concurrent: boolean; calls: ToolCall[] }> {
     // Deduplicate first
     const deduped: ToolCall[] = [];
@@ -108,7 +108,7 @@ function canRunParallel(tools: ToolCall[]): boolean {
     return tools.every(t => isConcurrencySafe(t));
 }
 
-/** Execute tools — partitioned into concurrent/sequential batches (Claude Code pattern) */
+/** Execute tools — partitioned into concurrent/sequential batches (TITAN pattern) */
 export async function executeToolsParallel(
     toolCalls: ToolCall[],
     executor: ToolExecutor,
@@ -121,7 +121,7 @@ export async function executeToolsParallel(
         return [{ toolCallId: tc.id, name: tc.name, content }];
     }
 
-    // Partition into batches (Claude Code pattern)
+    // Partition into batches (TITAN pattern)
     const batches = partitionToolCalls(toolCalls);
 
     if (batches.length === 1 && batches[0].concurrent) {

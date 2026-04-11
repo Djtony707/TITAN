@@ -432,7 +432,7 @@ export class OllamaProvider extends LLMProvider {
                     parameters: simplifySchema(t.function.parameters),
                 },
             }));
-            // Force tool_choice when requested (Claude Code pattern)
+            // Force tool_choice when requested (TITAN pattern)
             if (options.forceToolUse) {
                 body.tool_choice = 'required';
             }

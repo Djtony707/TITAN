@@ -19,7 +19,7 @@ export type AutonomyMode = 'autonomous' | 'supervised' | 'locked';
 export type RiskLevel = 'safe' | 'moderate' | 'dangerous';
 
 /**
- * Claude Code pattern: Denial Tracking with Graceful Degradation
+ * TITAN pattern: Denial Tracking with Graceful Degradation
  * After 3 consecutive denials OR 20 total session denials,
  * fall back to explicit prompting instead of auto-mode.
  * This prevents the agent from getting stuck in a deny loop.

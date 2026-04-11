@@ -1,7 +1,7 @@
 /**
- * TITAN — Self-Initiative Engine (Claude Code-Inspired Autonomous Execution)
+ * TITAN — Self-Initiative Engine (Advanced Autonomous Execution)
  *
- * Patterns adapted from Claude Code's leaked source:
+ * Advanced autonomous execution patterns:
  * 1. AUTONOMOUS LOOP CHECK — advance work already in motion, don't invent new work
  * 2. VERIFICATION — adversarially check files exist before marking complete
  * 3. AUTO MODE — start implementing immediately, make reasonable assumptions
@@ -30,7 +30,7 @@ let consecutiveIdle = 0;
 let subtasksWithoutVerification = 0;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const MAX_CONSECUTIVE_IDLE = 3;
-const AUTO_VERIFY_THRESHOLD = 3; // Claude Code pattern: verify after 3+ completed tasks
+const AUTO_VERIFY_THRESHOLD = 3; // TITAN pattern: verify after 3+ completed tasks
 
 export interface InitiativeResult {
     acted: boolean;
@@ -60,7 +60,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         return { acted: false };
     }
 
-    // Claude Code pattern: 3 consecutive "nothing to do" → scale back
+    // TITAN pattern: 3 consecutive "nothing to do" → scale back
     if (consecutiveIdle >= MAX_CONSECUTIVE_IDLE) {
         const scaledInterval = intervalMs * Math.min(consecutiveIdle, 10);
         if (now - lastInitiativeTime < scaledInterval) {
@@ -121,7 +121,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     try {
         const { processMessage } = await import('./agent.js');
 
-        // Claude Code pattern: direct action, no planning preamble
+        // TITAN pattern: direct action, no planning preamble
         const prompt = buildTaskPrompt(goal.title, subtask.title, subtask.description);
 
         // Stream tool calls to dashboard
@@ -149,7 +149,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
 
         const result = await processMessage(prompt, 'initiative', 'default', undefined, streamCallbacks);
 
-        // ── VERIFICATION — Claude Code pattern ────────────────
+        // ── VERIFICATION — TITAN pattern ────────────────
         // Don't trust self-reports. Check that files actually exist.
         const toolsUsed = result.toolsUsed || [];
         const wroteFiles = toolsUsed.some(t =>
@@ -165,7 +165,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
             consecutiveFailures = 0;
             subtasksWithoutVerification++;
 
-            // Claude Code pattern: auto-verification after 3+ completed tasks
+            // TITAN pattern: auto-verification after 3+ completed tasks
             if (subtasksWithoutVerification >= AUTO_VERIFY_THRESHOLD) {
                 subtasksWithoutVerification = 0;
                 logger.info(COMPONENT, `[AutoVerify] ${AUTO_VERIFY_THRESHOLD} subtasks completed — running build verification`);
@@ -223,7 +223,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         consecutiveFailures++;
         const msg = (err as Error).message;
 
-        // Claude Code pattern: reversible failures retry, irreversible ones fail
+        // TITAN pattern: reversible failures retry, irreversible ones fail
         if (msg.includes('timeout') || msg.includes('ECONNREFUSED') || msg.includes('rate limit') || msg.includes('circuit breaker')) {
             logger.warn(COMPONENT, `Transient error for "${subtask.title}": ${msg} — will retry`);
         } else {
@@ -242,7 +242,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
 }
 
 /**
- * Claude Code pattern: direct action prompt.
+ * TITAN pattern: direct action prompt.
  * "Start implementing right away. Make reasonable assumptions."
  * "Run the tests, don't say 'you could run the tests.'"
  */

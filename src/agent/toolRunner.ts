@@ -257,7 +257,7 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.info(COMPONENT, `Tool ${handler.name} completed in ${durationMs}ms`);
             }
 
-            // Smart truncation — keep head + tail for large results (Claude Code pattern)
+            // Smart truncation — keep head + tail for large results (TITAN pattern)
             let finalContent = result;
             if (result.length > 30000) {
                 const head = result.slice(0, 20000);

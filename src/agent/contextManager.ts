@@ -105,9 +105,9 @@ function compressToolResults(messages: ChatMessage[]): ChatMessage[] {
 let currentSummary: StructuredSummary | null = null;
 
 /**
- * Claude Code pattern: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+ * TITAN pattern: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
  * Disables compaction after 3 consecutive failures per session to prevent
- * wasted API calls (Claude Code had 250K wasted calls/day from this bug).
+ * wasted API calls (This class of bug can waste 250K+ API calls/day).
  */
 let consecutiveCompactFailures = 0;
 const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
@@ -142,7 +142,7 @@ export function buildSmartContext(
 ): ChatMessage[] {
     if (messages.length === 0) return [];
 
-    // Claude Code pattern: skip compaction after consecutive failures
+    // TITAN pattern: skip compaction after consecutive failures
     if (consecutiveCompactFailures >= MAX_CONSECUTIVE_COMPACT_FAILURES) {
         logger.warn(COMPONENT, `Compaction disabled after ${consecutiveCompactFailures} consecutive failures — returning raw messages`);
         return messages;

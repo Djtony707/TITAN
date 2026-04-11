@@ -53,7 +53,7 @@ export class AnthropicProvider extends LLMProvider {
         };
 
         if (systemMessage) {
-            // Claude Code pattern: prompt cache splitting
+            // TITAN pattern: prompt cache splitting
             // Place cache_control breakpoint on system prompt to cache it across turns.
             // This reduces input costs by ~75% for subsequent messages in the same session.
             body.system = [
