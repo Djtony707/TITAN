@@ -1225,9 +1225,21 @@ export async function processMessage(
         if (!verification.complete) {
             logger.warn(COMPONENT, `[RalphLoop] Task incomplete: ${verification.reason}. Re-running with forced write.`);
 
-            // Add the verification feedback and re-run
+            // Add the verification feedback and re-run with explicit tool guidance
             messages.push({ role: 'assistant', content: finalContent });
-            messages.push({ role: 'user', content: `[TASK INCOMPLETE] ${verification.reason}\n\nYou MUST call the appropriate tool NOW. Do NOT respond with text — call the tool.` });
+            messages.push({ role: 'user', content: [
+                `[TASK INCOMPLETE] ${verification.reason}`,
+                '',
+                'You have the file content from your previous read_file call.',
+                'Now call edit_file with these arguments:',
+                '  - path: the file path you just read',
+                '  - target: the exact string you want to replace (copy it from the file)',
+                '  - replacement: the new string to put in its place',
+                '',
+                'edit_file does a search-and-replace. You do NOT need to rewrite the whole file.',
+                'Just find a small section to change and replace it.',
+                'CALL edit_file NOW.',
+            ].join('\n') });
 
             const retryResult = await runAgentLoop({
                 messages,

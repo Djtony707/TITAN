@@ -1076,7 +1076,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 logger.warn(COMPONENT, `[IncompleteTask] User asked to edit but no write tool called after ${round} rounds — forcing back to think with tool_choice=required`);
                 ctx.messages.push({
                     role: 'user',
-                    content: '[INCOMPLETE] You read the file but did NOT make any changes. The user asked you to edit/fix/modify it. You MUST call edit_file or write_file NOW to apply your changes. Do NOT describe what you would change — MAKE the changes.',
+                    content: '[INCOMPLETE] You read the file but did NOT make changes. Call edit_file NOW.\n\nedit_file arguments:\n- path: (the file you read)\n- target: (exact string from the file to replace — copy a small section)\n- replacement: (the new version of that section)\n\nDo NOT use write_file for large files. Use edit_file for surgical changes. CALL IT NOW.',
                 });
                 responseValidationRetried = true; // Only do this once
                 forceWriteOnNextThink = true;     // Force tool_choice=required on next think
