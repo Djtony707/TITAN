@@ -92,73 +92,6 @@ function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?:
     return Math.min(budget, hardCap);
 }
 
-// ── Auto-Delegation Analysis ────────────────────────────────────
-
-interface DelegationPlan {
-    subtasks: Array<{
-        agent: string;     // Template name: 'explorer', 'coder', 'analyst', 'browser'
-        task: string;       // Task description for the sub-agent
-        maxRounds: number;
-    }>;
-}
-
-/**
- * Analyze a message to determine if it should be split into sub-agent tasks.
- * Returns null if the task should be handled by the main loop.
- * Returns a DelegationPlan if 2+ distinct sub-tasks are detected.
- */
-function analyzeForDelegation(message: string): DelegationPlan | null {
-    const lower = message.toLowerCase();
-
-    // Don't delegate short/simple messages
-    if (message.split(/\s+/).length < 15) return null;
-
-    // Detect explicit multi-part tasks with conjunctions
-    const hasMultipleParts = /\b(and then|then|after that|also|additionally|next|finally)\b/i.test(message)
-        || (message.match(/\b(and)\b/gi) || []).length >= 2;
-
-    if (!hasMultipleParts) return null;
-
-    const subtasks: DelegationPlan['subtasks'] = [];
-
-    // Detect research/web tasks
-    if (/\b(search|research|find out|look up|what is|current|latest|news)\b/i.test(lower)) {
-        const researchPart = message.match(/(?:search|research|find out|look up|what is|current|latest)[\s\S]*?(?:and then|then|,|\.|$)/i)?.[0] || message;
-        subtasks.push({ agent: 'explorer', task: researchPart.trim(), maxRounds: 6 });
-    }
-
-    // Detect code/file tasks
-    if (/\b(write|create|edit|modify|fix|read|update|add|remove|implement)\b.*\b(file|code|function|script|config)\b/i.test(lower)) {
-        const codePart = message.match(/(?:write|create|edit|modify|fix|read|update|add|remove|implement)[\s\S]*?(?:file|code|function|script|config)[\s\S]*?(?:and then|then|,|\.|$)/i)?.[0] || message;
-        subtasks.push({ agent: 'coder', task: codePart.trim(), maxRounds: 8 });
-    }
-
-    // Detect analysis/summarization tasks
-    if (/\b(analyze|summarize|compare|report|count|calculate|evaluate)\b/i.test(lower)) {
-        const analysisPart = message.match(/(?:analyze|summarize|compare|report|count|calculate|evaluate)[\s\S]*?(?:and then|then|,|\.|$)/i)?.[0] || message;
-        subtasks.push({ agent: 'analyst', task: analysisPart.trim(), maxRounds: 6 });
-    }
-
-    // Detect shell/command tasks
-    if (/\b(run|execute|install|deploy|build|test|check)\b.*\b(command|script|service|server|package)\b/i.test(lower)) {
-        const shellPart = message.match(/(?:run|execute|install|deploy|build|test|check)[\s\S]*?(?:command|script|service|server|package)[\s\S]*?(?:and then|then|,|\.|$)/i)?.[0] || message;
-        subtasks.push({ agent: 'coder', task: shellPart.trim(), maxRounds: 6 });
-    }
-
-    // Only delegate if we found 2+ distinct sub-tasks
-    if (subtasks.length < 2) return null;
-
-    // Deduplicate agents (don't spawn 2 coders)
-    const seen = new Set<string>();
-    const deduped = subtasks.filter(s => {
-        if (seen.has(s.agent)) return false;
-        seen.add(s.agent);
-        return true;
-    });
-
-    return deduped.length >= 2 ? { subtasks: deduped } : null;
-}
-
 // ── Current session context for spawn_agent async delegation ─────
 let currentSessionId: string | null = null;
 export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
@@ -1186,12 +1119,12 @@ export async function processMessage(
 
     // ── Orchestration: check if task benefits from sub-agent delegation ──
     const autoDelegate = (subAgentConfig as Record<string, unknown> | undefined)?.autoDelegate !== false;
-    if (!voiceFastPath && isAutonomous && autoDelegate && message.split(/\s+/).length >= 10) {
+    if (!voiceFastPath && isAutonomous && autoDelegate && channel !== 'deliberation' && message.split(/\s+/).length >= 8) {
         try {
             const delegationPlan = await analyzeForDelegation(message);
-            if (delegationPlan.shouldDelegate && delegationPlan.tasks.length >= 2) {
+            if (delegationPlan && delegationPlan.shouldDelegate && delegationPlan.tasks.length >= 2) {
                 logger.info(COMPONENT, `Orchestrator: delegating to ${delegationPlan.tasks.length} sub-agents`);
-                const orchResult = await executeDelegationPlan(delegationPlan);
+                const orchResult = await executeDelegationPlan(delegationPlan!);
                 if (orchResult.subResults.length > 0 && orchResult.subResults.some(r => r.success)) {
                     messages.push({
                         role: 'user',
@@ -1201,77 +1134,6 @@ export async function processMessage(
             }
         } catch (err) {
             logger.warn(COMPONENT, `Orchestration failed, falling through: ${(err as Error).message}`);
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // Auto-Delegation — Split complex tasks into sub-agents
-    // If the message implies 2+ distinct actions (e.g., "research X
-    // AND write a report"), automatically spawn sub-agents rather
-    // than having the main loop do everything sequentially.
-    // ══════════════════════════════════════════════════════════════
-    if (isAutonomous && !voiceFastPath && channel !== 'deliberation' && subAgentConfig?.enabled !== false) {
-        const delegation = analyzeForDelegation(message);
-        if (delegation) {
-            logger.info(COMPONENT, `[AutoDelegate] Splitting into ${delegation.subtasks.length} sub-agents: ${delegation.subtasks.map(s => s.agent).join(', ')}`);
-
-            const subResults: string[] = [];
-            for (const subtask of delegation.subtasks) {
-                const template = SUB_AGENT_TEMPLATES[subtask.agent];
-                if (!template) continue;
-                try {
-                    const subResult = await spawnSubAgent({
-                        ...template,
-                        name: template.name || subtask.agent,
-                        task: subtask.task,
-                        maxRounds: subtask.maxRounds || 6,
-                        streamCallbacks: streamCallbacks ? {
-                            onToolCall: streamCallbacks.onToolCall,
-                            onToolResult: streamCallbacks.onToolResult,
-                        } : undefined,
-                    });
-                    subResults.push(`[${subtask.agent}] ${subResult.content.slice(0, 500)}`);
-                    toolsUsed.push('spawn_agent', ...subResult.toolsUsed);
-                } catch (e) {
-                    subResults.push(`[${subtask.agent}] Error: ${(e as Error).message}`);
-                }
-            }
-
-            // Synthesize sub-agent results into a final response
-            const synthPrompt = `You delegated this task to sub-agents. Here are their results:\n\n${subResults.join('\n\n')}\n\nSynthesize these into a clear, complete response for the user. The original request was: "${message}"`;
-            messages.push({ role: 'user', content: synthPrompt });
-
-            const synthResponse = await chat({
-                model: activeModel,
-                messages,
-                maxTokens: config.agent.maxTokens,
-                temperature: config.agent.temperature,
-            });
-
-            finalContent = synthResponse.content;
-            modelUsed = synthResponse.model;
-            totalPromptTokens += synthResponse.usage?.promptTokens || 0;
-            totalCompletionTokens += synthResponse.usage?.completionTokens || 0;
-
-            // Skip the main agent loop — we already have the answer
-            addMessage(session, 'assistant', finalContent, { model: modelUsed });
-
-            consolidateWisdom(session.id, classifyTaskType(message), true, delegation.subtasks.length);
-            clearSoulState(session.id);
-            trace.setModel(modelUsed);
-            trace.setRounds(delegation.subtasks.length);
-            trace.setTokens(totalPromptTokens, totalCompletionTokens);
-            trace.end('completed');
-
-            const durationMs = Date.now() - startTime;
-            return {
-                content: finalContent,
-                sessionId: session.id,
-                toolsUsed: [...new Set(toolsUsed)],
-                tokenUsage: { prompt: totalPromptTokens, completion: totalCompletionTokens, total: totalPromptTokens + totalCompletionTokens },
-                model: modelUsed,
-                durationMs,
-            };
         }
     }
 
