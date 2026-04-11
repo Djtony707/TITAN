@@ -271,9 +271,14 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
 
   return (
     <div className="flex h-full overflow-hidden bg-bg">
+      {/* Session sidebar — slides in from left */}
+      {sidebarOpen && (
+        <div className="w-64 shrink-0 border-r border-border/50 overflow-hidden">
+          {sidebarContent}
+        </div>
+      )}
 
-
-      {/* Main content — split view when watcher is open */}
+      {/* Main content */}
       <div className="flex-1 flex min-w-0 flex-col md:flex-row">
         {/* Chat area */}
         <div className="flex-1 flex flex-col min-w-0" style={{ width: watcherOpen ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : '60%') : '100%', transition: 'width 300ms ease' }}>
