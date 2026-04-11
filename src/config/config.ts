@@ -40,14 +40,27 @@ export function loadConfig(): TitanConfig {
     // Apply environment variables
     applyEnvOverrides(rawConfig);
 
-    // Validate and merge with defaults via Zod
+    // Validate and merge with defaults via Zod.
+    // CRITICAL: On validation failure, deep-merge raw config over defaults
+    // so that valid user settings (daemon.enabled, autonomy.mode, etc.) survive.
+    // Previously this fell back to pure defaults, wiping ALL user config on any error.
     const result = TitanConfigSchema.safeParse(rawConfig);
-    if (!result.success) {
-        logger.warn(COMPONENT, 'Config validation issues, using defaults for invalid fields');
-        logger.debug(COMPONENT, result.error.message);
-        cachedConfig = getDefaultConfig();
-    } else {
+    if (result.success) {
         cachedConfig = result.data;
+    } else {
+        const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        logger.warn(COMPONENT, `Config validation issues (${issues}) — merging valid fields over defaults`);
+        // Deep-merge raw config over defaults so valid sections survive
+        const defaults = getDefaultConfig();
+        const merged = deepMerge(defaults as Record<string, unknown>, rawConfig) as TitanConfig;
+        // Try parsing the merged result — if it still fails, use defaults but log loudly
+        const reparse = TitanConfigSchema.safeParse(merged);
+        if (reparse.success) {
+            cachedConfig = reparse.data;
+        } else {
+            logger.error(COMPONENT, `Config still invalid after merge — falling back to defaults. Fix your titan.json.`);
+            cachedConfig = defaults;
+        }
     }
 
     return cachedConfig;

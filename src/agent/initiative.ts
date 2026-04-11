@@ -1,11 +1,14 @@
 /**
  * TITAN — Self-Initiative Engine
- * After completing a goal subtask, TITAN checks: "What should I do next?"
- * In supervised mode, proposes the next action. In autonomous mode, starts working.
- * Rate-limited to 1 self-initiated task per autopilot cycle.
+ *
+ * Executes goal subtasks autonomously using the PRIMARY agent (processMessage),
+ * not sub-agents. This gives each subtask the full round budget, best model,
+ * and all tools — critical for complex coding tasks.
+ *
+ * After completing a subtask, chains to the next one immediately.
+ * Rate-limited to prevent runaway execution.
  */
 import { getReadyTasks, completeSubtask, failSubtask } from './goals.js';
-import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 
@@ -13,14 +16,17 @@ const COMPONENT = 'Initiative';
 
 /** Track last initiative time to rate-limit */
 let lastInitiativeTime = 0;
-const DEFAULT_MIN_INTERVAL_MS = 60_000; // 1 minute between self-initiated tasks
+const DEFAULT_MIN_INTERVAL_MS = 30_000; // 30 seconds between self-initiated tasks
+/** Track consecutive failures to prevent infinite retry loops */
+let consecutiveFailures = 0;
+const MAX_CONSECUTIVE_FAILURES = 3;
 
 export interface InitiativeResult {
     acted: boolean;
     goalId?: string;
     subtaskId?: string;
     result?: string;
-    proposed?: string;  // In supervised mode, what we would have done
+    proposed?: string;
 }
 
 export interface InitiativeOptions {
@@ -29,7 +35,7 @@ export interface InitiativeOptions {
 
 /**
  * Check for and optionally execute the next ready task.
- * In autonomous mode: executes immediately.
+ * In autonomous mode: sends the task to the primary agent via processMessage().
  * In supervised mode: returns a proposal without executing.
  */
 export async function checkInitiative(options: InitiativeOptions = {}): Promise<InitiativeResult> {
@@ -44,6 +50,15 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         return { acted: false };
     }
 
+    // Back off on consecutive failures
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        const backoffMs = Math.min(consecutiveFailures * 60_000, 300_000); // Max 5 min backoff
+        if (now - lastInitiativeTime < backoffMs) {
+            return { acted: false };
+        }
+        logger.warn(COMPONENT, `Resuming after ${consecutiveFailures} consecutive failures (${Math.round(backoffMs / 1000)}s backoff)`);
+    }
+
     const readyTasks = getReadyTasks();
     if (readyTasks.length === 0) {
         return { acted: false };
@@ -53,7 +68,6 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     const isAutonomous = config.autonomy.mode === 'autonomous';
 
     if (!isAutonomous) {
-        // Supervised mode — propose but don't execute
         return {
             acted: false,
             goalId: goal.id,
@@ -63,38 +77,45 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     }
 
     if (dryRun) {
-        const proposed = `Dry-run: would self-initiate goal "${goal.title}" subtask "${subtask.title}" using template "${inferTemplate(subtask.description)}"`;
+        const proposed = `Dry-run: would self-initiate goal "${goal.title}" subtask "${subtask.title}"`;
         logger.info(COMPONENT, proposed);
-        return {
-            acted: false,
-            goalId: goal.id,
-            subtaskId: subtask.id,
-            proposed,
-        };
+        return { acted: false, goalId: goal.id, subtaskId: subtask.id, proposed };
     }
 
-    // Autonomous mode — execute the subtask
+    // Autonomous mode — execute via the primary agent
     lastInitiativeTime = now;
     logger.info(COMPONENT, `Self-initiating: "${subtask.title}" (goal: ${goal.title})`);
 
     try {
-        // Choose template based on subtask content
-        const template = inferTemplate(subtask.description);
-        const templateDef = SUB_AGENT_TEMPLATES[template] || {};
-        const result = await spawnSubAgent({
-            name: `Initiative-${template}`,
-            task: `Goal: ${goal.title}\n\nSubtask: ${subtask.title}\n\nInstructions: ${subtask.description}`,
-            tools: templateDef.tools,
-            systemPrompt: templateDef.systemPrompt,
-            tier: (templateDef as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
-        });
+        // Dynamically import processMessage to avoid circular dependency
+        const { processMessage } = await import('./agent.js');
 
-        if (result.success) {
+        // Build a focused, action-oriented prompt
+        const prompt = buildTaskPrompt(goal.title, subtask.title, subtask.description);
+
+        // Execute via the PRIMARY agent — full round budget, best model, all tools
+        const result = await processMessage(prompt, 'initiative');
+
+        // Validate the result — check if meaningful work was done
+        const toolsUsed = result.toolsUsed || [];
+        const wroteFiles = toolsUsed.some(t =>
+            t === 'write_file' || t === 'edit_file' || t === 'append_file' || t === 'apply_patch',
+        );
+        const ranCommands = toolsUsed.some(t => t === 'shell' || t === 'code_exec');
+        const didWork = wroteFiles || (ranCommands && toolsUsed.length >= 3);
+
+        if (didWork) {
             completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
-            logger.info(COMPONENT, `Subtask completed: "${subtask.title}"`);
+            logger.info(COMPONENT, `Subtask completed: "${subtask.title}" (${toolsUsed.length} tools: ${toolsUsed.join(', ')})`);
+            consecutiveFailures = 0; // Reset on success
+        } else if (toolsUsed.length === 0) {
+            // Agent returned text without using any tools — don't count as progress
+            logger.warn(COMPONENT, `Subtask "${subtask.title}" — agent returned text but used no tools, keeping as pending`);
+            consecutiveFailures++;
         } else {
-            failSubtask(goal.id, subtask.id, result.content.slice(0, 200));
-            logger.warn(COMPONENT, `Subtask failed: "${subtask.title}"`);
+            // Agent used tools but didn't write files — partial progress, keep as pending
+            logger.warn(COMPONENT, `Subtask "${subtask.title}" — used ${toolsUsed.join(', ')} but no files written, keeping as pending`);
+            consecutiveFailures++;
         }
 
         return {
@@ -104,24 +125,39 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
             result: result.content.slice(0, 500),
         };
     } catch (err) {
-        failSubtask(goal.id, subtask.id, (err as Error).message);
-        logger.error(COMPONENT, `Initiative failed: ${(err as Error).message}`);
-        return {
-            acted: false,
-            goalId: goal.id,
-            subtaskId: subtask.id,
-        };
+        consecutiveFailures++;
+        const msg = (err as Error).message;
+
+        // Don't fail the subtask on transient errors (network, timeout, rate limit)
+        if (msg.includes('timeout') || msg.includes('ECONNREFUSED') || msg.includes('rate limit') || msg.includes('circuit breaker')) {
+            logger.warn(COMPONENT, `Initiative transient error for "${subtask.title}": ${msg} — will retry`);
+        } else {
+            failSubtask(goal.id, subtask.id, msg.slice(0, 200));
+            logger.error(COMPONENT, `Initiative failed: ${msg}`);
+        }
+
+        return { acted: false, goalId: goal.id, subtaskId: subtask.id };
     }
 }
 
-/** Infer which sub-agent template to use based on task description */
-function inferTemplate(description: string): string {
-    const lower = description.toLowerCase();
-
-    if (/\b(research|search|find|discover|explore|scan|look up)\b/.test(lower)) return 'explorer';
-    if (/\b(write|create|build|code|implement|develop|edit|file)\b/.test(lower)) return 'coder';
-    if (/\b(browse|navigate|login|click|fill|form|website|page)\b/.test(lower)) return 'browser';
-    if (/\b(analyze|report|summarize|compare|evaluate|assess)\b/.test(lower)) return 'analyst';
-
-    return 'explorer'; // Default
+/**
+ * Build an action-oriented prompt for the primary agent.
+ * Explicitly tells the agent to use tools, not describe actions.
+ */
+function buildTaskPrompt(goalTitle: string, subtaskTitle: string, description: string): string {
+    return [
+        `You are working on goal: "${goalTitle}"`,
+        `Current subtask: ${subtaskTitle}`,
+        '',
+        `Instructions: ${description}`,
+        '',
+        'RULES:',
+        '- Use write_file to create new files with complete, working code',
+        '- Use edit_file to modify existing files',
+        '- Use shell to run commands (npm install, database setup, etc.)',
+        '- Do NOT use web_search or browser tools — you already know how to code',
+        '- Do NOT describe what you would do — actually DO IT with tool calls',
+        '- After creating files, verify with shell or read_file that they exist and are correct',
+        '- Update the goal when the subtask is complete',
+    ].join('\n');
 }

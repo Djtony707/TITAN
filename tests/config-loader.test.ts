@@ -244,7 +244,7 @@ describe('loadConfig', () => {
         expect(config).toBeTruthy();
         expect(logger.warn).toHaveBeenCalledWith(
             'Config',
-            'Config validation issues, using defaults for invalid fields',
+            expect.stringContaining('Config validation issues'),
         );
     });
 

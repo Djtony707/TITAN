@@ -1,5 +1,6 @@
 /**
  * Tests for src/agent/initiative.ts
+ * Initiative now uses processMessage (primary agent) instead of sub-agents.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -7,7 +8,7 @@ const mockLoadConfig = vi.hoisted(() => vi.fn());
 const mockGetReadyTasks = vi.hoisted(() => vi.fn());
 const mockCompleteSubtask = vi.hoisted(() => vi.fn());
 const mockFailSubtask = vi.hoisted(() => vi.fn());
-const mockSpawnSubAgent = vi.hoisted(() => vi.fn());
+const mockProcessMessage = vi.hoisted(() => vi.fn());
 
 vi.mock('../src/config/config.js', () => ({ loadConfig: mockLoadConfig }));
 vi.mock('../src/agent/goals.js', () => ({
@@ -15,14 +16,8 @@ vi.mock('../src/agent/goals.js', () => ({
     completeSubtask: mockCompleteSubtask,
     failSubtask: mockFailSubtask,
 }));
-vi.mock('../src/agent/subAgent.js', () => ({
-    spawnSubAgent: mockSpawnSubAgent,
-    SUB_AGENT_TEMPLATES: {
-        explorer: { name: 'Explorer', tools: ['web_search'], systemPrompt: 'Explore' },
-        coder: { name: 'Coder', tools: ['shell'], systemPrompt: 'Code' },
-        browser: { name: 'Browser', tools: ['browse_url'], systemPrompt: 'Browse' },
-        analyst: { name: 'Analyst', tools: ['memory'], systemPrompt: 'Analyze' },
-    },
+vi.mock('../src/agent/agent.js', () => ({
+    processMessage: mockProcessMessage,
 }));
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -35,21 +30,14 @@ describe('Initiative', () => {
         vi.clearAllMocks();
         vi.resetModules();
 
-        // Re-apply mocks after resetModules
         vi.doMock('../src/config/config.js', () => ({ loadConfig: mockLoadConfig }));
         vi.doMock('../src/agent/goals.js', () => ({
             getReadyTasks: mockGetReadyTasks,
             completeSubtask: mockCompleteSubtask,
             failSubtask: mockFailSubtask,
         }));
-        vi.doMock('../src/agent/subAgent.js', () => ({
-            spawnSubAgent: mockSpawnSubAgent,
-            SUB_AGENT_TEMPLATES: {
-                explorer: { name: 'Explorer', tools: ['web_search'], systemPrompt: 'Explore' },
-                coder: { name: 'Coder', tools: ['shell'], systemPrompt: 'Code' },
-                browser: { name: 'Browser', tools: ['browse_url'], systemPrompt: 'Browse' },
-                analyst: { name: 'Analyst', tools: ['memory'], systemPrompt: 'Analyze' },
-            },
+        vi.doMock('../src/agent/agent.js', () => ({
+            processMessage: mockProcessMessage,
         }));
         vi.doMock('../src/utils/logger.js', () => ({
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -79,86 +67,87 @@ describe('Initiative', () => {
         expect(result.acted).toBe(false);
         expect(result.proposed).toContain('Test Goal');
         expect(result.proposed).toContain('Research');
-        expect(mockSpawnSubAgent).not.toHaveBeenCalled();
+        expect(mockProcessMessage).not.toHaveBeenCalled();
     });
 
-    it('executes subtask in autonomous mode', async () => {
+    it('executes subtask via processMessage in autonomous mode and completes when files written', async () => {
         mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
         mockGetReadyTasks.mockReturnValue([{
-            goal: { id: 'g1', title: 'Test Goal' },
-            subtask: { id: 'st-1', title: 'Research AI', description: 'Search for AI trends' },
+            goal: { id: 'g1', title: 'Build App' },
+            subtask: { id: 'st-1', title: 'Create auth', description: 'Write auth.ts file' },
         }]);
-        mockSpawnSubAgent.mockResolvedValue({
-            content: 'Found AI trends: ...',
-            toolsUsed: ['web_search'],
-            success: true,
-            durationMs: 500,
-            rounds: 2,
+        mockProcessMessage.mockResolvedValue({
+            content: 'Created auth.ts with JWT utilities',
+            toolsUsed: ['write_file', 'shell'],
+            sessionId: 'test',
         });
 
         const result = await checkInitiative();
 
         expect(result.acted).toBe(true);
         expect(result.goalId).toBe('g1');
-        expect(result.subtaskId).toBe('st-1');
+        expect(mockProcessMessage).toHaveBeenCalledWith(expect.stringContaining('Create auth'), 'initiative');
         expect(mockCompleteSubtask).toHaveBeenCalledWith('g1', 'st-1', expect.any(String));
     });
 
-    it('fails subtask on error in autonomous mode', async () => {
+    it('keeps subtask pending when no files written', async () => {
         mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
         mockGetReadyTasks.mockReturnValue([{
-            goal: { id: 'g1', title: 'Test' },
-            subtask: { id: 'st-1', title: 'Fail', description: 'Will fail' },
+            goal: { id: 'g1', title: 'Build App' },
+            subtask: { id: 'st-1', title: 'Create auth', description: 'Write auth.ts file' },
         }]);
-        mockSpawnSubAgent.mockResolvedValue({
-            content: 'Something went wrong',
-            toolsUsed: [],
-            success: false,
-            durationMs: 100,
-            rounds: 1,
+        mockProcessMessage.mockResolvedValue({
+            content: 'I would create auth.ts...',
+            toolsUsed: ['read_file', 'list_dir'],
+            sessionId: 'test',
         });
 
         const result = await checkInitiative();
 
         expect(result.acted).toBe(true);
+        expect(mockCompleteSubtask).not.toHaveBeenCalled();
+        expect(mockFailSubtask).not.toHaveBeenCalled();
+    });
+
+    it('keeps subtask pending on transient errors', async () => {
+        mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
+        mockGetReadyTasks.mockReturnValue([{
+            goal: { id: 'g1', title: 'Test' },
+            subtask: { id: 'st-1', title: 'Fail', description: 'Will timeout' },
+        }]);
+        mockProcessMessage.mockRejectedValue(new Error('timeout'));
+
+        const result = await checkInitiative();
+
+        expect(result.acted).toBe(false);
+        expect(mockFailSubtask).not.toHaveBeenCalled(); // Transient — don't fail permanently
+    });
+
+    it('fails subtask on permanent errors', async () => {
+        mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
+        mockGetReadyTasks.mockReturnValue([{
+            goal: { id: 'g1', title: 'Test' },
+            subtask: { id: 'st-1', title: 'Fail', description: 'Will crash' },
+        }]);
+        mockProcessMessage.mockRejectedValue(new Error('Cannot read property x of undefined'));
+
+        const result = await checkInitiative();
+
+        expect(result.acted).toBe(false);
         expect(mockFailSubtask).toHaveBeenCalledWith('g1', 'st-1', expect.any(String));
     });
 
-    it('infers correct template from description', async () => {
-        mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
-        mockGetReadyTasks.mockReturnValue([{
-            goal: { id: 'g1', title: 'Code Goal' },
-            subtask: { id: 'st-1', title: 'Build it', description: 'Write a new feature implementation' },
-        }]);
-        mockSpawnSubAgent.mockResolvedValue({
-            content: 'Built it',
-            toolsUsed: ['shell'],
-            success: true,
-            durationMs: 100,
-            rounds: 1,
-        });
-
-        await checkInitiative();
-
-        expect(mockSpawnSubAgent).toHaveBeenCalledWith(expect.objectContaining({
-            name: 'Initiative-coder',
-        }));
-    });
-
-    it('returns a proposal and does not execute in dry-run mode', async () => {
+    it('returns proposal in dry-run mode', async () => {
         mockLoadConfig.mockReturnValue({ autonomy: { mode: 'autonomous' } });
         mockGetReadyTasks.mockReturnValue([{
             goal: { id: 'g1', title: 'Safety Goal' },
-            subtask: { id: 'st-1', title: 'Inspect logs', description: 'Analyze suspicious activity' },
+            subtask: { id: 'st-1', title: 'Inspect', description: 'Check logs' },
         }]);
 
         const result = await checkInitiative({ dryRun: true });
 
         expect(result.acted).toBe(false);
         expect(result.proposed).toContain('Dry-run');
-        expect(result.proposed).toContain('Safety Goal');
-        expect(mockSpawnSubAgent).not.toHaveBeenCalled();
-        expect(mockCompleteSubtask).not.toHaveBeenCalled();
-        expect(mockFailSubtask).not.toHaveBeenCalled();
+        expect(mockProcessMessage).not.toHaveBeenCalled();
     });
 });

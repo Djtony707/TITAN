@@ -116,7 +116,7 @@ MUST rules:
 
 CRITICAL: Keep each edit under 30 lines. For large changes, make multiple small edit_file calls.
 Return a summary of what was created/modified with exact file paths.`,
-        tier: 'fast',
+        tier: 'smart',
     },
     browser: {
         name: 'Browser',

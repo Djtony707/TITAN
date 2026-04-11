@@ -120,18 +120,39 @@ const watchers = new Map<string, WatcherState>();
 
 // ── Built-in Watchers ──────────────────────────────────────────────
 
-/** Check if any goal subtask is ready and not blocked */
+/** Check if any goal subtask is ready and execute it via the initiative system */
 async function goalWatcher(): Promise<void> {
     const readyTasks = getReadyTasks();
     if (readyTasks.length === 0) return;
 
-    for (const { goal, subtask } of readyTasks.slice(0, 3)) {
+    const config = loadConfig();
+    const isAutonomous = config.autonomy.mode === 'autonomous';
+
+    for (const { goal, subtask } of readyTasks.slice(0, 1)) { // One subtask at a time
         if (isThrottled()) break;
 
         logger.info(COMPONENT, `[GoalWatcher] Ready subtask: "${subtask.title}" (goal: ${goal.title})`);
         titanEvents.emit('goal:subtask:ready', { goalId: goal.id, subtaskId: subtask.id, title: subtask.title });
 
-        recordAction('goal', true);
+        // In autonomous mode, execute the subtask via the initiative system
+        if (isAutonomous) {
+            try {
+                const { checkInitiative } = await import('./initiative.js');
+                const result = await checkInitiative();
+                if (result.acted) {
+                    logger.info(COMPONENT, `[GoalWatcher] Initiative acted on: "${subtask.title}"`);
+                    recordAction('goal', true);
+                } else {
+                    recordAction('goal', true); // Detection still counts as an action
+                }
+            } catch (err) {
+                logger.error(COMPONENT, `[GoalWatcher] Initiative failed: ${(err as Error).message}`);
+                recordAction('goal', false);
+            }
+        } else {
+            recordAction('goal', true);
+        }
+
         auditLog({
             action: 'goal_subtask_detected',
             source: 'daemon:goal',
