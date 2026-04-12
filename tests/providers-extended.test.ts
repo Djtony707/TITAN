@@ -164,7 +164,10 @@ describe('AnthropicProvider', () => {
 
             const body = JSON.parse(opts.body);
             expect(body.model).toBe('claude-sonnet-4-20250514');
-            expect(body.system).toBe('You are a helpful assistant.');
+            // System prompt now uses Anthropic prompt caching format (array with cache_control)
+            expect(body.system).toEqual([
+                { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral' } },
+            ]);
             expect(body.messages).toHaveLength(1); // system is separated
             expect(body.max_tokens).toBe(1024);
             expect(body.temperature).toBe(0.5);
