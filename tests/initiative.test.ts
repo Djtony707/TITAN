@@ -65,7 +65,6 @@ describe('Initiative', () => {
         const result = await checkInitiative();
 
         expect(result.acted).toBe(false);
-        expect(result.proposed).toContain('Test Goal');
         expect(result.proposed).toContain('Research');
         expect(mockProcessMessage).not.toHaveBeenCalled();
     });

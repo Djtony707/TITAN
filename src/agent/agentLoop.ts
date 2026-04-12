@@ -758,6 +758,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         break;
                     }
 
+                    // In autonomous mode: if the model describes work instead of doing it,
+                    // push it back to use tools. This is the key behavioral pattern that
+                    // makes autonomous execution reliable — don't accept "I would do X"
+                    // when the model should be calling tools to actually do X.
+                    if (ctx.isAutonomous && round < ctx.effectiveMaxRounds - 2) {
+                        const describesWork = /\b(need to|should|would|will|let me|I'll|going to|plan to|we can|you can)\b.*\b(fix|edit|change|update|create|write|modify|run|install|build)\b/i.test(response.content);
+                        if (describesWork && noToolsRetryCount < 2) {
+                            noToolsRetryCount++;
+                            logger.info(COMPONENT, `[AutoPush] Autonomous mode: model described work without acting — pushing back to use tools (${noToolsRetryCount}/2)`);
+                            ctx.messages.push({ role: 'assistant', content: response.content });
+                            ctx.messages.push({ role: 'user', content: 'Do NOT describe what you would do. Execute it NOW with tool calls. Use edit_file, write_file, or shell immediately.' });
+                            round++;
+                            continue;
+                        }
+                    }
+
                     // Model chose to respond directly — accept it
                     result.content = stripToolJson(response.content);
                     setCachedResponse(smartMessages, activeModel, result.content);
