@@ -109,6 +109,38 @@ async function graphGet(endpoint: string, params?: Record<string, string>): Prom
     return await response.json() as Record<string, unknown>;
 }
 
+// ─── Content Safety ────────────────────────────────────────────
+
+/** Block posts containing personal/sensitive information */
+function checkForPII(content: string): string | null {
+    const lower = content.toLowerCase();
+    const patterns: Array<{ pattern: RegExp; label: string }> = [
+        { pattern: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/, label: 'phone number' },
+        { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, label: 'email address' },
+        { pattern: /\b\d{3}[-]?\d{2}[-]?\d{4}\b/, label: 'SSN-like number' },
+        { pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b/, label: 'credit card number' },
+        { pattern: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, label: 'IP address' },
+        { pattern: /(?:password|passwd|secret|api[_-]?key|token|bearer)\s*[:=]\s*\S+/i, label: 'credential/password' },
+        { pattern: /\b(?:ssh-rsa|ssh-ed25519|AKIA[0-9A-Z]{16})\b/, label: 'SSH/AWS key' },
+    ];
+
+    for (const { pattern, label } of patterns) {
+        if (pattern.test(content)) {
+            return label;
+        }
+    }
+
+    // Check for home directory paths
+    if (/\/home\/[a-z]+\//i.test(content) || /\/Users\/[a-z]+\//i.test(content)) {
+        // Allow ~/.titan paths but block real user paths
+        if (!content.includes('~/.titan') && !content.includes('/opt/TITAN')) {
+            return 'personal file path';
+        }
+    }
+
+    return null;
+}
+
 // ─── Skill Registration ────────────────────────────────────────
 
 export function registerFacebookSkill(): void {
@@ -132,6 +164,26 @@ export function registerFacebookSkill(): void {
                 const imageUrl = args.imageUrl as string | undefined;
                 const skipReview = args.skipReview as boolean || false;
                 const method = hasApiAccess() ? 'api' : 'browser';
+
+                // ── PII guard: block posts with personal/sensitive info ──
+                const piiMatch = checkForPII(message);
+                if (piiMatch) {
+                    logger.warn(COMPONENT, `Post blocked — contains ${piiMatch}: "${message.slice(0, 50)}..."`);
+                    return `Post blocked for safety: detected ${piiMatch} in content. Remove personal information and try again.`;
+                }
+
+                // ── Dedup guard: prevent double-fire within 5 minutes ──
+                const queue = loadQueue();
+                const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+                const duplicate = queue.posts.find(p =>
+                    p.content === message &&
+                    (p.status === 'posted' || p.status === 'pending') &&
+                    new Date(p.createdAt).getTime() > fiveMinAgo
+                );
+                if (duplicate) {
+                    logger.warn(COMPONENT, `Duplicate post blocked: "${message.slice(0, 50)}..." (original: ${duplicate.id})`);
+                    return `This post was already ${duplicate.status === 'posted' ? 'published' : 'queued'} ${duplicate.status === 'posted' ? `(Post ID: ${duplicate.fbPostId})` : `(Queue ID: ${duplicate.id})`}. Skipping duplicate.`;
+                }
 
                 const post: QueuedPost = {
                     id: uuid().slice(0, 8),
@@ -159,7 +211,6 @@ export function registerFacebookSkill(): void {
                         post.status = 'posted';
                         post.postedAt = new Date().toISOString();
 
-                        const queue = loadQueue();
                         queue.posts.push(post);
                         saveQueue(queue);
 
@@ -170,8 +221,7 @@ export function registerFacebookSkill(): void {
                     }
                 }
 
-                // Queue for review
-                const queue = loadQueue();
+                // Queue for review (reuse queue from dedup check)
                 queue.posts.push(post);
                 saveQueue(queue);
 
@@ -249,6 +299,10 @@ export function registerFacebookSkill(): void {
 
                 const commentId = args.commentId as string;
                 const message = args.message as string;
+
+                // PII check on replies too
+                const piiMatch = checkForPII(message);
+                if (piiMatch) return `Reply blocked: detected ${piiMatch}. Remove personal information and try again.`;
 
                 try {
                     const result = await graphPost(`/${commentId}/comments`, { message });
