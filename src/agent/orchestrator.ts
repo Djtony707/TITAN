@@ -202,6 +202,7 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
                     task: t.task,
                     tools: template.tools,
                     systemPrompt: template.systemPrompt,
+                    persona: (template as { persona?: string }).persona,
                     tier: (template as { tier?: ModelTier }).tier,
                 });
                 return { index: t.index, result };
@@ -234,6 +235,7 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
             task: enrichedTask,
             tools: template.tools,
             systemPrompt: template.systemPrompt,
+            persona: (template as { persona?: string }).persona,
             tier: (template as { tier?: ModelTier }).tier,
         });
         taskResults.set(t.index, result);

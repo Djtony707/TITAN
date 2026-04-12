@@ -17,6 +17,7 @@ import logger from '../utils/logger.js';
 import { resolveToolsFromCategories, type ToolCategory } from './toolCategories.js';
 import { registerMailbox, unregisterMailbox, drainMessages, formatMessagesForContext } from './messageBus.js';
 import { acquireAgent, releaseAgent, createPooledAgent, type PooledAgent } from './agentPool.js';
+import { getActivePersonaContent } from '../personas/manager.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -38,6 +39,8 @@ export interface SubAgentConfig {
     tier?: ModelTier;
     /** System prompt override */
     systemPrompt?: string;
+    /** Persona ID to apply (from assets/personas/). Appended to system prompt. */
+    persona?: string;
     /** Max tool rounds for this sub-agent (default: 10) */
     maxRounds?: number;
     /** Whether this is being called from within a sub-agent already */
@@ -76,10 +79,11 @@ export interface SubAgentResult {
  */
 export type ModelTier = 'cloud' | 'smart' | 'fast' | 'local';
 
-/** Built-in sub-agent templates */
+/** Built-in sub-agent templates with mapped personas */
 export const SUB_AGENT_TEMPLATES: Record<string, Partial<SubAgentConfig> & { tier?: ModelTier }> = {
     explorer: {
         name: 'Explorer',
+        persona: 'context-engineer',
         tools: ['web_search', 'web_fetch', 'browse_url', 'web_read', 'web_act'],
         systemPrompt: `You are the Explorer sub-agent. Your job is to research and gather information from the web using your tools.
 
@@ -100,6 +104,7 @@ Return a structured summary with: key findings, sources (with URLs), and confide
     },
     coder: {
         name: 'Coder',
+        persona: 'incremental-builder',
         tools: ['shell', 'read_file', 'write_file', 'edit_file', 'append_file', 'list_dir', 'code_exec'],
         systemPrompt: `You are the Coder sub-agent. Your job is to WRITE CODE using your tools. Lead with action, not exploration.
 
@@ -126,6 +131,7 @@ Return a summary of what was created/modified with exact file paths.`,
     },
     browser: {
         name: 'Browser',
+        persona: 'browser-tester',
         tools: ['browse_url', 'browser_auto_nav', 'browser_search', 'web_read', 'web_act', 'browser_screenshot'],
         systemPrompt: `You are the Browser sub-agent. Your job is to interact with web pages — navigate, extract content, fill forms, and click buttons.
 
@@ -147,6 +153,7 @@ Return a clear report of what was found/done on the page.`,
     },
     analyst: {
         name: 'Analyst',
+        persona: 'code-reviewer',
         tools: ['web_search', 'web_fetch', 'memory', 'graph_search', 'graph_remember'],
         systemPrompt: `You are the Analyst sub-agent. Your job is to analyze information, identify patterns, and produce structured analytical reports.
 
@@ -168,6 +175,7 @@ Return a structured analytical report with: executive summary, data findings, pa
     },
     researcher: {
         name: 'Researcher',
+        persona: 'trend-researcher',
         tools: ['web_search', 'web_read', 'web_fetch', 'rag_search', 'rag_ingest'],
         systemPrompt: `You are the Deep Researcher sub-agent. Your job is to systematically research a question using multiple sources and tools.
 
@@ -198,6 +206,7 @@ Output format: executive summary → sections with headers → numbered citation
     // ── Pipeline agents (DeerFlow-inspired) ────────────────────
     reporter: {
         name: 'Reporter',
+        persona: 'documentation-writer',
         tools: ['read_file', 'write_file', 'web_fetch'],
         systemPrompt: `You are the Reporter sub-agent. Your job is to synthesize research findings into structured, publication-quality documents saved to disk.
 
@@ -217,6 +226,7 @@ Report structure: executive summary → sections with markdown headers → confi
     },
     fact_checker: {
         name: 'Fact Checker',
+        persona: 'context-engineer',
         tools: ['web_search', 'web_fetch'],
         systemPrompt: `You are the Fact Checker sub-agent. Your job is to verify specific claims against multiple independent sources.
 
@@ -241,6 +251,7 @@ Return a structured report: claim → status → evidence → sources used.`,
     // ── Dev agents (TITAN_DEV only) ──────────────────────────
     dev_debugger: {
         name: 'Dev Debugger',
+        persona: 'debugger',
         tools: ['shell', 'read_file', 'write_file', 'debug_analyze', 'code_analyze'],
         systemPrompt: `You are the Dev Debugger sub-agent for the TITAN framework. Your job is to find and fix bugs by reading actual code and running diagnostic commands.
 
@@ -264,6 +275,7 @@ Return: root cause analysis, fix applied (with file path), verification result.`
     },
     dev_tester: {
         name: 'Dev Tester',
+        persona: 'tdd-engineer',
         tools: ['shell', 'read_file', 'write_file', 'test_generate', 'code_exec'],
         systemPrompt: `You are the Dev Tester sub-agent for the TITAN framework. Your job is to generate, run, and fix tests using vitest.
 
@@ -286,6 +298,7 @@ Return: test file path, number of tests written, test results (pass/fail counts)
     },
     dev_reviewer: {
         name: 'Dev Reviewer',
+        persona: 'code-reviewer',
         tools: ['shell', 'read_file', 'code_review', 'code_analyze', 'deps_audit'],
         systemPrompt: `You are the Dev Reviewer sub-agent for the TITAN framework. Your job is to perform thorough multi-pass code review.
 
@@ -313,6 +326,7 @@ Return: structured findings by severity (Critical/Major/Minor), with file + line
     },
     dev_architect: {
         name: 'Dev Architect',
+        persona: 'backend-architect',
         tools: ['shell', 'read_file', 'write_file', 'code_analyze', 'refactor_suggest', 'doc_generate'],
         systemPrompt: `You are the Dev Architect sub-agent for the TITAN framework. Your job is to analyze system architecture and implement structural improvements.
 
@@ -415,7 +429,22 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         availableTools = allTools.filter(t => canNest || t.function.name !== 'spawn_agent');
     }
 
-    const systemPrompt = config.systemPrompt || `You are the ${agentName} sub-agent of TITAN. Execute the task below using available tools. Be efficient and return a clear summary when done.`;
+    // Build system prompt: base template + persona overlay
+    let systemPrompt = config.systemPrompt || `You are the ${agentName} sub-agent of TITAN. Execute the task below using available tools. Be efficient and return a clear summary when done.`;
+
+    // ── Persona: inject persona content from assets/personas/ ──
+    const personaId = config.persona;
+    if (personaId && personaId !== 'default') {
+        try {
+            const personaContent = getActivePersonaContent(personaId);
+            if (personaContent) {
+                systemPrompt += `\n\n## Persona: ${personaId}\n${personaContent}`;
+                logger.debug(COMPONENT, `[${agentName}] Applied persona: ${personaId}`);
+            }
+        } catch {
+            logger.debug(COMPONENT, `[${agentName}] Persona "${personaId}" not found, using base prompt`);
+        }
+    }
 
     // ── Agent Pool: try to reuse a warm agent if pool enabled ──
     let pooledAgent: PooledAgent | null = null;
