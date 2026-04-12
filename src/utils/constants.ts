@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '2.8.8';
+export const TITAN_VERSION = '2.8.9';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
 export const TITAN_ASCII_LOGO = `
