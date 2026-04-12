@@ -314,10 +314,21 @@ export class MessengerChannel extends ChannelAdapter {
         }
     }
 
+    /** Tony's Facebook user ID — receives notifications about all conversations */
+    private readonly ownerId = '10233541366698333';
+
     /** Handle DM directly — generate TITAN-only reply and send via Messenger API */
     private async handleDirectReply(senderId: string, userMessage: string): Promise<void> {
         const reply = await generateMessengerReply(userMessage);
         await this.send({ channel: 'messenger', userId: senderId, content: reply });
+
+        // Notify Tony about the conversation (skip if Tony is the sender)
+        if (senderId !== this.ownerId) {
+            const notification = `📩 New DM on TITAN AI page\nFrom: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
+            await this.send({ channel: 'messenger', userId: this.ownerId, content: notification }).catch(e =>
+                logger.debug(COMPONENT, `Owner notification failed: ${(e as Error).message}`),
+            );
+        }
     }
 
     /** Get the verify token for webhook setup */
