@@ -241,7 +241,14 @@ async function trainStart(args: Record<string, unknown>): Promise<string> {
         return 'Training is disabled in config. Set training.enabled = true to enable.';
     }
 
-    const baseModel = (args.baseModel as string) || (trainingConfig?.baseModel as string) || 'qwen3.5:35b';
+    // Model resolution: explicit arg → config → active model (if local/ollama) → fallback
+    const activeModel = config.agent?.model || '';
+    const activeModelName = activeModel.replace(/^ollama\//, '');
+    const isLocalModel = activeModel.startsWith('ollama/') || (!activeModel.includes('/') && activeModel.length > 0);
+    const baseModel = (args.baseModel as string)
+        || (trainingConfig?.baseModel as string)
+        || (isLocalModel ? activeModelName : '')
+        || 'qwen3.5:35b';
     const method = (args.method as string) || (trainingConfig?.method as string) || 'lora';
     const budgetMinutes = (args.budgetMinutes as number) || (trainingConfig?.budgetMinutes as number) || 30;
     const epochs = (args.epochs as number) || 3;
@@ -593,7 +600,13 @@ async function trainDeploy(args: Record<string, unknown>): Promise<string> {
     // Create Modelfile for Ollama
     const config = loadConfig();
     const trainingConfig = (config as Record<string, unknown>).training as Record<string, unknown> | undefined;
-    const baseModel = (trainingConfig?.baseModel as string) || 'qwen3.5:35b';
+    // Use configured base model, or active local model, or fallback
+    const activeModel = config.agent?.model || '';
+    const activeModelName = activeModel.replace(/^ollama\//, '');
+    const isLocalModel = activeModel.startsWith('ollama/') || (!activeModel.includes('/') && activeModel.length > 0);
+    const baseModel = (trainingConfig?.baseModel as string)
+        || (isLocalModel ? activeModelName : '')
+        || 'qwen3.5:35b';
 
     const modelfilePath = join(runDir, 'Modelfile');
     const modelfileContent = `FROM ${baseModel}

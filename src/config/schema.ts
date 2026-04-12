@@ -593,8 +593,8 @@ export const TitanConfigSchema = z.object({
         budgetMinutes: z.number().default(30),
         /** Training method */
         method: z.enum(['lora', 'qlora', 'full']).default('lora'),
-        /** Base model to fine-tune */
-        baseModel: z.string().default('qwen3.5:35b'),
+        /** Base model to fine-tune. Empty = use active model (if local/Ollama). */
+        baseModel: z.string().default(''),
         /** Auto-deploy trained model to Ollama */
         autoDeploy: z.boolean().default(false),
         autoresearchEnabled: z.boolean().default(false),
