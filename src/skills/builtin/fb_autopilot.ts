@@ -43,15 +43,17 @@ interface AutopilotState {
     contentIndex: number;  // Rotates through content types
 }
 
-type ContentType = 'activity' | 'spotlight' | 'stats' | 'tips' | 'promo';
+type ContentType = 'activity' | 'spotlight' | 'stats' | 'tips' | 'promo' | 'usecase' | 'eli5';
 
-// Weighted content rotation
+// Weighted content rotation — balanced for technical AND non-technical audiences
 const CONTENT_ROTATION: ContentType[] = [
-    'activity', 'activity', 'activity', 'activity',  // 40%
-    'spotlight', 'spotlight',                          // 20%
-    'stats', 'stats',                                  // 15% (rounded)
-    'tips', 'tips',                                    // 15%
-    'promo',                                           // 10%
+    'activity', 'activity',                            // 15% — what TITAN's been doing
+    'usecase', 'usecase', 'usecase',                   // 25% — business/daily life ideas
+    'eli5', 'eli5',                                    // 15% — simple explanations for non-tech people
+    'spotlight', 'spotlight',                           // 15% — feature highlights
+    'tips',                                            // 10% — how-to content
+    'stats',                                           // 10% — milestones
+    'promo',                                           // 10% — install/GitHub CTA
 ];
 
 // ─── State Management ───────────────────────────────────────────
@@ -123,6 +125,39 @@ const TIPS = [
     'Multi-agent orchestration: TITAN analyzes your request and automatically delegates parts to specialized sub-agents in parallel.',
 ];
 
+const USE_CASES = [
+    // Small business
+    'A small bakery owner could use TITAN to automatically post daily specials to social media, track inventory, and draft emails to suppliers — all without touching a computer.',
+    'Real estate agents: TITAN can research property listings, draft listing descriptions, generate market comparisons, and schedule social media posts for open houses.',
+    'Freelancers can set TITAN to automatically send follow-up emails, track invoices, research leads, and generate proposals while they focus on actual work.',
+    'Restaurant owners: TITAN can monitor online reviews, draft responses, update your menu on the website, and generate weekly social posts — all on autopilot.',
+    // Daily life
+    'Planning a vacation? Tell TITAN where you want to go and your budget. It researches flights, hotels, activities, and builds a complete itinerary for you.',
+    'TITAN can be your personal research assistant. Ask it anything — it searches multiple sources, cross-references facts, and gives you a clear summary with sources.',
+    'Students: TITAN can help organize study notes, research topics in depth, create flashcard-style summaries, and even quiz you on the material.',
+    'Job seekers: TITAN can research companies, tailor your resume for specific roles, draft cover letters, and track your applications — all automatically.',
+    // Business operations
+    'Marketing teams: TITAN runs as your content engine. It researches trending topics, drafts posts, schedules them across platforms, and tracks engagement.',
+    'Customer support: TITAN can draft responses to common questions, categorize incoming tickets, and escalate urgent issues — reducing response time dramatically.',
+    'Startups: Use TITAN as your AI co-pilot. It can research competitors, draft business plans, write code, build prototypes, and even manage your social media.',
+    'E-commerce: TITAN can write product descriptions, optimize SEO, respond to customer reviews, and generate weekly sales reports.',
+    // Creative
+    'Content creators: TITAN researches topics, writes scripts, suggests thumbnails, and can even manage your posting schedule across YouTube, TikTok, and Instagram.',
+    'Musicians and DJs: TITAN can research venues, draft booking emails, manage your social media presence, and track your streaming stats across platforms.',
+    'Authors: TITAN can research topics for your book, organize notes, draft outlines, fact-check claims, and even help with editing and proofreading.',
+];
+
+const ELI5_EXPLANATIONS = [
+    'Think of TITAN like having a super-smart assistant that never sleeps. You tell it what you need, and it figures out how to do it — searching the web, writing documents, sending emails, or running code. All automatically.',
+    'Imagine if Siri or Alexa could actually DO things for you — not just answer questions, but research, write, create, and manage tasks. That\'s TITAN.',
+    'TITAN is like hiring a team of specialists, except they\'re all AI. Need research? TITAN sends its researcher. Need code? It sends its coder. Need a review? It sends its reviewer. All working together.',
+    'You know how you spend hours doing repetitive work on your computer? TITAN can learn those tasks and do them for you — 24/7, no breaks, no mistakes.',
+    'TITAN is an AI that can use tools — just like you use apps on your phone. It can search Google, write files, run code, send messages, browse websites, and more. Except it does it all by itself.',
+    'Think of TITAN as an AI employee. It has different "personas" — it can be a coder, a researcher, a writer, a debugger, or even a social media manager (like it\'s doing right now on this page!).',
+    'Regular AI chatbots just talk. TITAN actually DOES things. It writes code, creates files, searches the internet, manages servers, and runs your business tools. Talk is cheap — TITAN takes action.',
+    'TITAN is like having Iron Man\'s JARVIS, but real and open-source. It manages systems, answers questions, writes code, and even runs its own Facebook page. Yes, this post was written by TITAN.',
+];
+
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
     const model = config.agent?.model || 'ollama/glm-5.1:cloud';
@@ -137,6 +172,10 @@ async function generateContent(contentType: ContentType): Promise<string> {
         tips: `You are TITAN. Write a short helpful Facebook post (under 300 chars) sharing this tip with developers: "${TIPS[Math.floor(Math.random() * TIPS.length)]}". Make it practical and actionable. First person. Include 2-3 hashtags. No personal info.`,
 
         promo: `You are TITAN, an autonomous AI agent framework. Write a short promotional Facebook post (under 300 chars) encouraging developers to try TITAN. Mention: npm install titan-agent, github.com/Djtony707/TITAN, open-source, MIT licensed. Be enthusiastic but not pushy. First person. Include 2-3 hashtags. No personal info.`,
+
+        usecase: `You are TITAN, an autonomous AI agent. Write a Facebook post (under 400 chars) explaining this real-world use case in SIMPLE, non-technical language that any business owner or regular person can understand: "${USE_CASES[Math.floor(Math.random() * USE_CASES.length)]}". Make it relatable — use everyday language, not tech jargon. End with a question to encourage engagement (e.g., "What would you automate first?"). First person as TITAN. Include 2-3 hashtags. No personal info.`,
+
+        eli5: `You are TITAN, an autonomous AI agent. Write a Facebook post (under 350 chars) that explains what you are and what you do in VERY SIMPLE terms. Use this as inspiration: "${ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)]}". Write it so a non-technical person (grandma, small business owner, teenager) would understand. Be fun and relatable. First person as TITAN. Include 2-3 hashtags. No personal info. No jargon.`,
     };
 
     try {
