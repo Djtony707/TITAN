@@ -66,6 +66,46 @@ function executeCommand(command: string, cwd?: string, timeout: number = 30000):
     });
 }
 
+/**
+ * Start a background process and verify it's running.
+ * Solves the gap where TITAN can't start dev servers because shell timeout kills them.
+ */
+function startBackgroundProcess(command: string, cwd?: string, verifyPort?: number): Promise<string> {
+    const cmdErr = validateCommand(command);
+    if (cmdErr) return Promise.resolve(cmdErr);
+
+    logger.info(COMPONENT, `[Background] Starting: ${command.slice(0, 200)}`);
+
+    return new Promise((resolve) => {
+        // Start process detached so it survives shell timeout
+        const bgCmd = `cd ${cwd || '.'} && nohup ${command} > /tmp/titan-bg-process.log 2>&1 &`;
+        exec(bgCmd, { shell: '/bin/bash', timeout: 5000 }, () => {
+            // Wait for process to start, then verify
+            if (verifyPort) {
+                let attempts = 0;
+                const check = () => {
+                    exec(`ss -tlnp | grep :${verifyPort}`, { timeout: 3000 }, (err, stdout) => {
+                        if (stdout && stdout.includes(String(verifyPort))) {
+                            resolve(`Process started on port ${verifyPort}. Log: /tmp/titan-bg-process.log`);
+                        } else if (attempts < 10) {
+                            attempts++;
+                            setTimeout(check, 2000);
+                        } else {
+                            // Read log for errors
+                            exec('tail -20 /tmp/titan-bg-process.log', { timeout: 3000 }, (_e, log) => {
+                                resolve(`Process may not have started. Port ${verifyPort} not listening after 20s.\nLog output:\n${log || '(no log)'}`);
+                            });
+                        }
+                    });
+                };
+                setTimeout(check, 3000); // Initial wait before first check
+            } else {
+                setTimeout(() => resolve('Background process started. Log: /tmp/titan-bg-process.log'), 2000);
+            }
+        });
+    });
+}
+
 export function registerShellSkill(): void {
     registerSkill(
         {
@@ -93,6 +133,14 @@ export function registerShellSkill(): void {
                         type: 'number',
                         description: 'Timeout in milliseconds (default: 30000)',
                     },
+                    background: {
+                        type: 'boolean',
+                        description: 'Run the process in the background (for dev servers, long-running tasks). Process persists after shell returns.',
+                    },
+                    verify_port: {
+                        type: 'number',
+                        description: 'When background=true, wait up to 20s for this port to start listening. Use for dev servers (e.g., 3000, 48421).',
+                    },
                 },
                 required: ['command'],
             },
@@ -100,6 +148,12 @@ export function registerShellSkill(): void {
                 const command = args.command as string;
                 const cwd = args.cwd as string | undefined;
                 const timeout = (args.timeout as number) ?? 30000;
+                const background = args.background as boolean | undefined;
+                const verifyPort = args.verify_port as number | undefined;
+
+                if (background) {
+                    return await startBackgroundProcess(command, cwd, verifyPort);
+                }
 
                 logger.info(COMPONENT, `Executing: ${command}`);
                 return await executeCommand(command, cwd, timeout);

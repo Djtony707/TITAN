@@ -763,12 +763,16 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // makes autonomous execution reliable — don't accept "I would do X"
                     // when the model should be calling tools to actually do X.
                     if (ctx.isAutonomous && round < ctx.effectiveMaxRounds - 2) {
-                        const describesWork = /\b(need to|should|would|will|let me|I'll|going to|plan to|we can|you can)\b.*\b(fix|edit|change|update|create|write|modify|run|install|build)\b/i.test(response.content);
-                        if (describesWork && noToolsRetryCount < 2) {
+                        // Detect when model describes work instead of doing it
+                        const describesWork = /\b(need to|should|would|will|let me|I'll|going to|plan to|we can|you can|I can|check|look at|examine|investigate|verify|confirm|test)\b.*\b(fix|edit|change|update|create|write|modify|run|install|build|start|restart|read|open|debug|set up)\b/i.test(response.content);
+                        // Also detect "Let me check/read/look" patterns
+                        const startsWithDescription = /^(Let me|I('ll| will| need| should| can)|First|Now|Next|The|To fix|To resolve|Here'?s)/i.test(response.content.trim());
+
+                        if ((describesWork || startsWithDescription) && noToolsRetryCount < 3) {
                             noToolsRetryCount++;
-                            logger.info(COMPONENT, `[AutoPush] Autonomous mode: model described work without acting — pushing back to use tools (${noToolsRetryCount}/2)`);
+                            logger.info(COMPONENT, `[AutoPush] Model described instead of acting (${noToolsRetryCount}/3): "${response.content.slice(0, 80)}..."`);
                             ctx.messages.push({ role: 'assistant', content: response.content });
-                            ctx.messages.push({ role: 'user', content: 'Do NOT describe what you would do. Execute it NOW with tool calls. Use edit_file, write_file, or shell immediately.' });
+                            ctx.messages.push({ role: 'user', content: 'STOP describing. Call a tool RIGHT NOW. Use edit_file to fix code, write_file to create files, or shell to run commands. Your next response MUST be a tool call, not text.' });
                             round++;
                             continue;
                         }
