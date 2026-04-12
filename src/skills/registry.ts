@@ -273,6 +273,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerMixtureOfAgentsSkill } = await import('./builtin/mixture_of_agents.js');
     const { registerFileCheckpointsSkill } = await import('./builtin/file_checkpoints.js');
     const { registerVerifyPageSkill } = await import('./builtin/verify_page.js');
+    const { registerAgentMessagingSkill } = await import('./builtin/agent_messaging.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -351,6 +352,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['mixture_of_agents', registerMixtureOfAgentsSkill],
         ['file_checkpoints', registerFileCheckpointsSkill],
         ['verify_page', registerVerifyPageSkill],
+        ['agent_messaging', registerAgentMessagingSkill],
     ];
 
     for (const [name, fn] of registrations) {

@@ -9,6 +9,8 @@ import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult, type ModelTier
 import logger from '../utils/logger.js';
 import { createIssue, updateIssue } from './commandPost.js';
 import { queueWakeup } from './agentWakeup.js';
+import { claimNextTask, completeQueuedTask, failQueuedTask, getQueueStatus, type QueuedTask } from './taskQueue.js';
+import { decomposeHierarchically, executeHierarchicalPlan, summarizePlan, flattenPlan, type HierarchicalPlanResult } from './hierarchicalPlanner.js';
 
 const COMPONENT = 'Orchestrator';
 
@@ -253,4 +255,94 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
         subResults: results,
         durationMs,
     };
+}
+
+// ─── Task Queue Integration ────────────────────────────────────────────────
+
+/**
+ * Work the shared task queue — claim and execute the next available task.
+ * Pulls from goals, plans, and command post via the unified taskQueue facade.
+ */
+export async function executeFromQueue(agentId: string): Promise<SubAgentResult | null> {
+    const claim = claimNextTask(agentId);
+    if (!claim.success || !claim.task) {
+        logger.debug(COMPONENT, `No tasks in queue for ${agentId}`);
+        return null;
+    }
+
+    const task = claim.task;
+    logger.info(COMPONENT, `Queue: ${agentId} executing "${task.title}" (${task.source}, priority ${task.priority})`);
+
+    // Infer template from task source/description
+    const template = inferQueueTemplate(task);
+    const templateDef = SUB_AGENT_TEMPLATES[template] || SUB_AGENT_TEMPLATES.coder;
+
+    try {
+        const result = await spawnSubAgent({
+            name: `Queue-${task.source}-${task.id.split(':').pop()}`,
+            task: `${task.title}\n\n${task.description}`,
+            tools: templateDef.tools,
+            systemPrompt: templateDef.systemPrompt,
+            tier: (templateDef as { tier?: ModelTier }).tier,
+        });
+
+        if (result.success) {
+            completeQueuedTask(task.id, claim.checkoutRunId, result.content);
+        } else {
+            failQueuedTask(task.id, claim.checkoutRunId, result.content);
+        }
+
+        return result;
+    } catch (err) {
+        failQueuedTask(task.id, claim.checkoutRunId, (err as Error).message);
+        throw err;
+    }
+}
+
+/** Infer the best sub-agent template for a queued task */
+function inferQueueTemplate(task: QueuedTask): string {
+    const text = `${task.title} ${task.description}`.toLowerCase();
+    if (/\b(write|create|build|code|implement|edit|fix|deploy)\b/.test(text)) return 'coder';
+    if (/\b(research|search|find|discover|explore)\b/.test(text)) return 'explorer';
+    if (/\b(analyze|report|summarize|compare|review)\b/.test(text)) return 'analyst';
+    if (/\b(browse|navigate|login|click|form|page)\b/.test(text)) return 'browser';
+    return 'coder';
+}
+
+/**
+ * Get a snapshot of the shared task queue for status reporting.
+ */
+export function getTaskQueueSnapshot() {
+    return getQueueStatus();
+}
+
+// ─── Hierarchical Delegation ───────────────────────────────────────────────
+
+/**
+ * Decompose a complex goal into a multi-level hierarchical plan and execute it.
+ * Uses LLM-driven decomposition: goal → phases → tasks → subtasks (3 levels max).
+ * Compound tasks recurse, simple tasks dispatch to sub-agents.
+ */
+export async function executeHierarchicalDelegation(
+    goal: string,
+    opts?: { maxDepth?: number; baseRounds?: number },
+): Promise<{ result: HierarchicalPlanResult; summary: string }> {
+    const maxDepth = opts?.maxDepth ?? 3;
+    const baseRounds = opts?.baseRounds ?? 15;
+
+    logger.info(COMPONENT, `Hierarchical delegation: "${goal.slice(0, 80)}..." (maxDepth: ${maxDepth})`);
+
+    // Phase 1: Decompose
+    const plan = await decomposeHierarchically(goal, maxDepth);
+    const taskCount = flattenPlan(plan).length;
+    logger.info(COMPONENT, `Decomposed into ${taskCount} tasks across ${maxDepth} levels`);
+
+    // Phase 2: Execute
+    const result = await executeHierarchicalPlan(plan, 0, baseRounds);
+
+    // Phase 3: Summarize
+    const summary = summarizePlan(plan);
+    logger.info(COMPONENT, `Hierarchical delegation complete: ${result.completedTasks}/${result.totalTasks} succeeded`);
+
+    return { result, summary };
 }

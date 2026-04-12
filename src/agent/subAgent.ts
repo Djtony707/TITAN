@@ -15,6 +15,8 @@ import { loadConfig } from '../config/config.js';
 import type { ChatMessage, ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
 import { resolveToolsFromCategories, type ToolCategory } from './toolCategories.js';
+import { registerMailbox, unregisterMailbox, drainMessages, formatMessagesForContext } from './messageBus.js';
+import { acquireAgent, releaseAgent, createPooledAgent, type PooledAgent } from './agentPool.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -44,6 +46,8 @@ export interface SubAgentConfig {
     depth?: number;
     /** Progress callback: called each round with progress info */
     onProgress?: (round: number, totalRounds: number, agentName: string) => void;
+    /** Opt-in to agent pool reuse — warm agents preserve context between tasks */
+    reusePool?: boolean;
     /** Stream callbacks for Agent Watcher — tool_call, tool_end, round events */
     streamCallbacks?: {
         onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -393,6 +397,9 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
 
     logger.info(COMPONENT, `Spawning ${agentName}: "${config.task.slice(0, 80)}..." (model: ${model}, maxRounds: ${maxRounds})`);
 
+    // ── Message Bus: register mailbox for inter-agent communication ──
+    registerMailbox(agentName);
+
     // Build tool whitelist
     let availableTools: ToolDefinition[];
     const allTools = getToolDefinitions();
@@ -401,6 +408,8 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     if (config.tools && config.tools.length > 0) {
         const toolSet = new Set(config.tools);
         if (!canNest) toolSet.delete('spawn_agent');
+        // Ensure send_agent_message is always available for inter-agent comms
+        toolSet.add('send_agent_message');
         availableTools = allTools.filter(t => toolSet.has(t.function.name));
     } else {
         availableTools = allTools.filter(t => canNest || t.function.name !== 'spawn_agent');
@@ -408,10 +417,37 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
 
     const systemPrompt = config.systemPrompt || `You are the ${agentName} sub-agent of TITAN. Execute the task below using available tools. Be efficient and return a clear summary when done.`;
 
-    const messages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: config.task },
-    ];
+    // ── Agent Pool: try to reuse a warm agent if pool enabled ──
+    let pooledAgent: PooledAgent | null = null;
+    let messages: ChatMessage[];
+
+    if (config.reusePool) {
+        const templateName = Object.entries(SUB_AGENT_TEMPLATES).find(
+            ([, t]) => t.name === agentName || t.systemPrompt === config.systemPrompt,
+        )?.[0] || agentName;
+
+        pooledAgent = acquireAgent(templateName, model);
+        if (pooledAgent) {
+            // Reuse warm agent's conversation history + append new task
+            messages = [
+                ...pooledAgent.messages,
+                { role: 'user', content: config.task },
+            ];
+            logger.info(COMPONENT, `Reusing pooled agent ${pooledAgent.id} for ${agentName} (${pooledAgent.messages.length} prior messages)`);
+        } else {
+            // No pooled agent — create fresh and register for later reuse
+            pooledAgent = createPooledAgent(templateName, model);
+            messages = [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: config.task },
+            ];
+        }
+    } else {
+        messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: config.task },
+        ];
+    }
 
     const toolsUsed: string[] = [];
     let finalContent = '';
@@ -422,6 +458,14 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             rounds = round + 1;
             logger.debug(COMPONENT, `[${agentName}] Round ${rounds}/${maxRounds}`);
             config.onProgress?.(rounds, maxRounds, agentName);
+
+            // ── Message Bus: drain incoming messages at start of each round ──
+            const incoming = drainMessages(agentName);
+            const incomingContext = formatMessagesForContext(incoming);
+            if (incomingContext) {
+                messages.push({ role: 'system', content: incomingContext });
+                logger.debug(COMPONENT, `[${agentName}] Injected ${incoming.length} inter-agent messages`);
+            }
 
             const response = await chat({
                 model,
@@ -500,6 +544,14 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         };
     } finally {
         activeSubAgents--;
+
+        // ── Message Bus: unregister mailbox on completion ──
+        unregisterMailbox(agentName);
+
+        // ── Agent Pool: release back to pool for future reuse ──
+        if (config.reusePool && pooledAgent) {
+            releaseAgent(pooledAgent.id, messages, toolsUsed, rounds);
+        }
     }
 }
 

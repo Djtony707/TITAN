@@ -319,6 +319,11 @@ export function getActiveCheckouts(): TaskCheckout[] {
     return Array.from(checkouts.values()).filter(c => c.status === 'locked');
 }
 
+/** Get a specific task checkout by subtask ID (for taskQueue lock status). */
+export function getCheckout(subtaskId: string): TaskCheckout | undefined {
+    return checkouts.get(subtaskId);
+}
+
 function sweepExpiredCheckouts(): void {
     const now = Date.now();
     for (const [id, checkout] of checkouts) {

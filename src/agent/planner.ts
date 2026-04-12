@@ -29,6 +29,10 @@ export interface PlanTask {
     startedAt?: string;
     completedAt?: string;
     retries: number;
+    /** Nesting level for hierarchical plans (0 = root) */
+    level?: number;
+    /** Reference to a sub-plan for compound/hierarchical tasks */
+    subPlanId?: string;
 }
 
 export interface Plan {
@@ -201,6 +205,11 @@ export function listPlans(): Array<{ id: string; goal: string; status: string; t
 /** Get a plan by ID */
 export function getPlan(planId: string): Plan | undefined {
     return activePlans.get(planId);
+}
+
+/** Get all active plans (status = 'active'). Used by taskQueue for aggregation. */
+export function getActivePlans(): Plan[] {
+    return Array.from(activePlans.values()).filter(p => p.status === 'active');
 }
 
 function savePlan(plan: Plan): void {
