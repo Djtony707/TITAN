@@ -275,6 +275,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerVerifyPageSkill } = await import('./builtin/verify_page.js');
     const { registerAgentMessagingSkill } = await import('./builtin/agent_messaging.js');
     const { registerFacebookSkill } = await import('./builtin/facebook.js');
+    const { registerFBAutopilotSkill } = await import('./builtin/fb_autopilot.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -355,6 +356,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['verify_page', registerVerifyPageSkill],
         ['agent_messaging', registerAgentMessagingSkill],
         ['facebook', registerFacebookSkill],
+        ['fb_autopilot', registerFBAutopilotSkill],
     ];
 
     for (const [name, fn] of registrations) {
