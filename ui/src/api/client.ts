@@ -512,13 +512,40 @@ export async function getAuditStats(hours?: number): Promise<import('./types').A
 }
 
 // ---- Files Browser ----
-export async function listFiles(path?: string): Promise<import('./types').FileListing> {
-  const qs = path ? `?path=${encodeURIComponent(path)}` : '';
-  return request(`/api/files${qs}`);
+export async function getFileRoots(): Promise<import('./types').FileRoots> {
+  return request('/api/files/roots');
 }
 
-export async function readFile(path: string): Promise<import('./types').FileContent> {
-  return request(`/api/files/read?path=${encodeURIComponent(path)}`);
+export async function listFiles(path?: string, root?: string): Promise<import('./types').FileListing> {
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  if (root) params.set('root', root);
+  const qs = params.toString();
+  return request(`/api/files${qs ? `?${qs}` : ''}`);
+}
+
+export async function readFile(path: string, root?: string): Promise<import('./types').FileContent> {
+  const params = new URLSearchParams({ path });
+  if (root) params.set('root', root);
+  return request(`/api/files/read?${params}`);
+}
+
+export async function writeFile(path: string, content: string, root?: string): Promise<import('./types').FileWriteResult> {
+  return request('/api/files/write', { method: 'POST', body: JSON.stringify({ path, content, root }) });
+}
+
+export async function createDirectory(path: string, root?: string): Promise<import('./types').FileWriteResult> {
+  return request('/api/files/mkdir', { method: 'POST', body: JSON.stringify({ path, root }) });
+}
+
+export async function renameFile(oldPath: string, newPath: string, root?: string): Promise<import('./types').FileWriteResult> {
+  return request('/api/files/rename', { method: 'POST', body: JSON.stringify({ oldPath, newPath, root }) });
+}
+
+export async function deleteFile(path: string, root?: string): Promise<import('./types').FileWriteResult> {
+  const params = new URLSearchParams({ path });
+  if (root) params.set('root', root);
+  return request(`/api/files/delete?${params}`, { method: 'DELETE' });
 }
 
 // ---- Orpheus TTS management ----

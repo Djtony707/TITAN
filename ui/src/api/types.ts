@@ -366,6 +366,17 @@ export interface FileContent {
   modified: string;
 }
 
+export interface FileRoots {
+  roots: Array<{ label: string; path: string }>;
+}
+
+export interface FileWriteResult {
+  success: boolean;
+  path: string;
+  size?: number;
+  modified?: string;
+}
+
 export type TrainingType = 'tool_router' | 'main_agent';
 
 export interface TrainingConfig {

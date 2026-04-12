@@ -3425,29 +3425,74 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ results, count: results.length });
   });
 
-  // ── Files API (Workspace file browser) ────────────────────
+  // ── Files API (Full file manager with configurable roots) ────────────────────
 
-  app.get('/api/files', (req, res) => {
-    const reqPath = (req.query.path as string) || '';
-    const basePath = homedir() + '/.titan';
-    const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
+  // Helper: resolve configured root directories
+  function getFileRoots(): Array<{ label: string; path: string }> {
+    const cfg = loadConfig();
+    const fmCfg = (cfg as Record<string, unknown>).fileManager as { roots?: string[]; blockedPatterns?: string[] } | undefined;
+    const roots = fmCfg?.roots || ['~/.titan'];
+    return roots.map(r => {
+      const expanded = r.replace(/^~/, homedir());
+      const abs = resolve(expanded);
+      // Label: last dir component or full path for short ones
+      const label = abs.split('/').filter(Boolean).pop() || abs;
+      return { label, path: abs };
+    });
+  }
 
-    // Security: prevent traversal above TITAN_HOME
-    if (!fullPath.startsWith(basePath)) {
-      res.status(403).json({ error: 'Access denied: path outside TITAN home' });
-      return;
+  // Helper: validate a path is within an allowed root and not blocked
+  function validateFilePath(reqPath: string, rootParam?: string): { valid: boolean; fullPath: string; basePath: string; error?: string } {
+    const roots = getFileRoots();
+    if (roots.length === 0) return { valid: false, fullPath: '', basePath: '', error: 'No file roots configured' };
+
+    // Select root: by index, by label, or default to first
+    let selectedRoot = roots[0];
+    if (rootParam) {
+      const byIndex = roots[parseInt(rootParam, 10)];
+      const byLabel = roots.find(r => r.label === rootParam || r.path === rootParam);
+      selectedRoot = byIndex || byLabel || roots[0];
     }
 
+    const basePath = selectedRoot.path;
+    const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
+
+    // Security: must stay within root
+    if (!fullPath.startsWith(basePath)) {
+      return { valid: false, fullPath, basePath, error: 'Access denied: path outside allowed root' };
+    }
+
+    // Security: check blocked patterns
+    const cfg = loadConfig();
+    const fmCfg = (cfg as Record<string, unknown>).fileManager as { blockedPatterns?: string[] } | undefined;
+    const blocked = fmCfg?.blockedPatterns || ['.ssh', '.env', '.aws', '.gnupg', 'node_modules', '.git/objects'];
+    for (const pattern of blocked) {
+      if (fullPath.includes(`/${pattern}`) || fullPath.endsWith(`/${pattern}`)) {
+        return { valid: false, fullPath, basePath, error: `Access denied: blocked pattern "${pattern}"` };
+      }
+    }
+
+    return { valid: true, fullPath, basePath };
+  }
+
+  // GET /api/files/roots — list configured root directories
+  app.get('/api/files/roots', (_req, res) => {
+    res.json({ roots: getFileRoots() });
+  });
+
+  // GET /api/files — list directory contents
+  app.get('/api/files', (req, res) => {
+    const reqPath = (req.query.path as string) || '';
+    const rootParam = req.query.root as string | undefined;
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, rootParam);
+
+    if (!valid) { res.status(403).json({ error }); return; }
+
     try {
-      if (!fs.existsSync(fullPath)) {
-        res.status(404).json({ error: 'Path not found' });
-        return;
-      }
+      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'Path not found' }); return; }
       const stat = fs.statSync(fullPath);
-      if (!stat.isDirectory()) {
-        res.status(400).json({ error: 'Not a directory. Use /api/files/read for files.' });
-        return;
-      }
+      if (!stat.isDirectory()) { res.status(400).json({ error: 'Not a directory. Use /api/files/read for files.' }); return; }
+
       const entries = fs.readdirSync(fullPath).map(name => {
         try {
           const entryPath = join(fullPath, name);
@@ -3463,7 +3508,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           return { name, path: reqPath ? `${reqPath}/${name}` : name, type: 'file' as const, size: 0, modified: '' };
         }
       });
-      // Sort: directories first, then alphabetical
       entries.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -3474,24 +3518,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // GET /api/files/read — read file contents
   app.get('/api/files/read', (req, res) => {
     const reqPath = req.query.path as string;
     if (!reqPath) { res.status(400).json({ error: 'path parameter required' }); return; }
+    const rootParam = req.query.root as string | undefined;
+    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
 
-    const basePath = homedir() + '/.titan';
-    const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
-
-    if (!fullPath.startsWith(basePath)) {
-      res.status(403).json({ error: 'Access denied: path outside TITAN home' });
-      return;
-    }
+    if (!valid) { res.status(403).json({ error }); return; }
 
     try {
       if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'File not found' }); return; }
       const stat = fs.statSync(fullPath);
       if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
 
-      // Cap at 1MB to prevent browser hangs
       const MAX_SIZE = 1024 * 1024;
       if (stat.size > MAX_SIZE) {
         const content = fs.readFileSync(fullPath, 'utf-8').slice(0, MAX_SIZE);
@@ -3501,6 +3541,88 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       const content = fs.readFileSync(fullPath, 'utf-8');
       res.json({ path: reqPath, content, truncated: false, size: stat.size, modified: stat.mtime.toISOString() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // POST /api/files/write — create or overwrite a file
+  app.post('/api/files/write', express.json(), (req, res) => {
+    const { path: reqPath, content, root: rootParam } = req.body as { path?: string; content?: string; root?: string };
+    if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
+    if (content === undefined) { res.status(400).json({ error: 'content required' }); return; }
+
+    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    if (!valid) { res.status(403).json({ error }); return; }
+
+    try {
+      const dir = dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      const stat = fs.statSync(fullPath);
+      res.json({ success: true, path: reqPath, size: stat.size, modified: stat.mtime.toISOString() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // POST /api/files/mkdir — create a directory
+  app.post('/api/files/mkdir', express.json(), (req, res) => {
+    const { path: reqPath, root: rootParam } = req.body as { path?: string; root?: string };
+    if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
+
+    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    if (!valid) { res.status(403).json({ error }); return; }
+
+    try {
+      if (fs.existsSync(fullPath)) { res.status(409).json({ error: 'Path already exists' }); return; }
+      fs.mkdirSync(fullPath, { recursive: true });
+      res.json({ success: true, path: reqPath });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // POST /api/files/rename — rename or move a file/directory
+  app.post('/api/files/rename', express.json(), (req, res) => {
+    const { oldPath, newPath, root: rootParam } = req.body as { oldPath?: string; newPath?: string; root?: string };
+    if (!oldPath || !newPath) { res.status(400).json({ error: 'oldPath and newPath required' }); return; }
+
+    const oldValidation = validateFilePath(oldPath, rootParam);
+    const newValidation = validateFilePath(newPath, rootParam);
+    if (!oldValidation.valid) { res.status(403).json({ error: oldValidation.error }); return; }
+    if (!newValidation.valid) { res.status(403).json({ error: newValidation.error }); return; }
+
+    try {
+      if (!fs.existsSync(oldValidation.fullPath)) { res.status(404).json({ error: 'Source not found' }); return; }
+      if (fs.existsSync(newValidation.fullPath)) { res.status(409).json({ error: 'Destination already exists' }); return; }
+      fs.renameSync(oldValidation.fullPath, newValidation.fullPath);
+      res.json({ success: true, oldPath, newPath });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // DELETE /api/files/delete — delete a file or empty directory
+  app.delete('/api/files/delete', (req, res) => {
+    const reqPath = req.query.path as string;
+    const rootParam = req.query.root as string | undefined;
+    if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
+
+    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    if (!valid) { res.status(403).json({ error }); return; }
+
+    try {
+      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'Not found' }); return; }
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        const contents = fs.readdirSync(fullPath);
+        if (contents.length > 0) { res.status(400).json({ error: 'Directory not empty. Delete contents first.' }); return; }
+        fs.rmdirSync(fullPath);
+      } else {
+        fs.unlinkSync(fullPath);
+      }
+      res.json({ success: true, path: reqPath });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

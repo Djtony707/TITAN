@@ -452,6 +452,12 @@ export const TitanConfigSchema = z.object({
         marketplace: z.boolean().default(false),
     }).default({}),
     mesh: MeshConfigSchema.default({}),
+    fileManager: z.object({
+        /** Root directories the file manager can browse. Supports ~ for home. */
+        roots: z.array(z.string()).default(['~/.titan']),
+        /** Patterns to block from browsing/editing (security) */
+        blockedPatterns: z.array(z.string()).default(['.ssh', '.env', '.aws', '.gnupg', 'node_modules', '.git/objects']),
+    }).default({}),
     logging: z.object({
         level: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
         file: z.boolean().default(true),
