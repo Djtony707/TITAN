@@ -235,12 +235,12 @@ interface CircuitBreakerState {
     openSince: number | null;
 }
 
-/** Circuit breaker configuration */
+/** Circuit breaker configuration — tuned for cloud model tolerance */
 const CIRCUIT_BREAKER_CONFIG = {
-    failureThreshold: 5,        // Number of failures before opening circuit
-    resetTimeout: 30000,        // 30s before trying again (half-open)
-    monitoringWindow: 60000,    // 60s window for counting failures
-    successThreshold: 3,        // Successes needed in half-open to close circuit
+    failureThreshold: 8,        // Number of failures before opening circuit (was 5 — too aggressive for cloud)
+    resetTimeout: 60000,        // 60s before trying again (was 30s — cloud models need recovery time)
+    monitoringWindow: 120000,   // 120s window for counting failures (was 60s — cloud latency spikes are normal)
+    successThreshold: 2,        // Successes needed in half-open to close circuit (was 3)
 };
 
 /** Track circuit breaker state per provider */
@@ -379,9 +379,9 @@ export function getFallbackState(): { primary: string; active: string; reason: s
 
 /** Retry configuration with exponential backoff */
 const RETRY_CONFIG = {
-    maxRetries: 3,
-    initialDelayMs: 1000,
-    maxDelayMs: 30000,  // 30 second cap
+    maxRetries: 4,              // 4 retries (was 3) — cloud APIs need more chances
+    initialDelayMs: 1500,       // 1.5s initial (was 1s) — give cloud APIs breathing room
+    maxDelayMs: 45000,          // 45s cap (was 30s) — cloud models can take longer to recover
     backoffMultiplier: 2,
     jitter: true,
 };

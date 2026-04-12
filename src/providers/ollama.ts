@@ -315,11 +315,13 @@ export class OllamaProvider extends LLMProvider {
         const sentMessages = body.messages as Array<{role: string; content: string}>;
         const toolNames = body.tools ? (body.tools as Array<{function: {name: string}}>).map(t => t.function.name) : [];
         logger.info(COMPONENT, `Chat request: model=${model}, cloud=${isCloudModel}, tools=[${toolNames.join(',')}], think=${body.think}, messages=${sentMessages.length}`);
+        // Cloud models routed through Ollama need longer timeouts (they proxy to remote APIs)
+        const timeoutMs = isCloudModel ? 300_000 : 120_000; // 5min cloud, 2min local
         let response = await fetchWithRetry(`${this.baseUrl}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
-        });
+        }, { timeoutMs });
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -331,7 +333,7 @@ export class OllamaProvider extends LLMProvider {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
-                });
+                }, { timeoutMs });
                 if (!response.ok) {
                     const retryText = await response.text();
                     throw new Error(`Ollama error (${response.status}): ${retryText}`);
@@ -471,10 +473,13 @@ export class OllamaProvider extends LLMProvider {
         }
 
         try {
+            // Cloud models need longer timeouts for streaming too
+            const streamTimeoutMs = isCloudModel ? 300_000 : 120_000;
             let response = await fetch(`${this.baseUrl}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
+                signal: AbortSignal.timeout(streamTimeoutMs),
             });
 
             if (!response.ok || !response.body) {
@@ -487,6 +492,7 @@ export class OllamaProvider extends LLMProvider {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body),
+                        signal: AbortSignal.timeout(streamTimeoutMs),
                     });
                     if (!response.ok || !response.body) {
                         const retryText = await response.text();
