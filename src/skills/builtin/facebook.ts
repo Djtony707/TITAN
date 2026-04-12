@@ -141,6 +141,97 @@ function checkForPII(content: string): string | null {
     return null;
 }
 
+// ─── Centralized Post Function (single source of truth) ────────
+
+/** In-flight lock — prevents concurrent posts */
+let postingInProgress = false;
+
+/**
+ * Central function for ALL Facebook page posts.
+ * Both fb_post tool and fb_autopilot must use this.
+ * Handles: PII check, dedup, queue tracking, and Graph API posting.
+ */
+export async function postToPage(
+    message: string,
+    opts?: { imageUrl?: string; source?: string },
+): Promise<{ success: boolean; postId?: string; error?: string; skipped?: string }> {
+    // Concurrency lock — only one post at a time
+    if (postingInProgress) {
+        return { success: false, skipped: 'Another post is already in progress' };
+    }
+    postingInProgress = true;
+
+    try {
+        // PII check
+        const piiMatch = checkForPII(message);
+        if (piiMatch) {
+            logger.warn(COMPONENT, `Post blocked — contains ${piiMatch}`);
+            return { success: false, error: `Blocked: detected ${piiMatch}` };
+        }
+
+        // Dedup: check if same or very similar content posted in last 10 minutes
+        const queue = loadQueue();
+        const tenMinAgo = Date.now() - 10 * 60 * 1000;
+        const duplicate = queue.posts.find(p =>
+            (p.status === 'posted' || p.status === 'pending') &&
+            new Date(p.createdAt).getTime() > tenMinAgo &&
+            (p.content === message || similarity(p.content, message) > 0.8)
+        );
+        if (duplicate) {
+            logger.warn(COMPONENT, `Duplicate blocked: "${message.slice(0, 50)}..." matches ${duplicate.id}`);
+            return { success: false, skipped: `Already ${duplicate.status} (${duplicate.id})` };
+        }
+
+        if (!hasApiAccess()) {
+            // Queue for browser posting
+            const post: QueuedPost = {
+                id: uuid().slice(0, 8), type: 'post', content: message,
+                imageUrl: opts?.imageUrl, status: 'pending', method: 'browser',
+                createdAt: new Date().toISOString(),
+            };
+            queue.posts.push(post);
+            saveQueue(queue);
+            return { success: true, postId: post.id, error: 'Queued for browser (no API credentials)' };
+        }
+
+        // Post via Graph API
+        const pageId = getPageId();
+        let result: Record<string, unknown>;
+        if (opts?.imageUrl) {
+            result = await graphPost(`/${pageId}/photos`, { url: opts.imageUrl, message });
+        } else {
+            result = await graphPost(`/${pageId}/feed`, { message });
+        }
+
+        const fbPostId = result.id as string;
+        const post: QueuedPost = {
+            id: uuid().slice(0, 8), type: 'post', content: message,
+            imageUrl: opts?.imageUrl, status: 'posted', method: 'api',
+            createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+            fbPostId,
+        };
+        queue.posts.push(post);
+        // Keep queue bounded
+        if (queue.posts.length > 200) queue.posts = queue.posts.slice(-100);
+        saveQueue(queue);
+
+        logger.info(COMPONENT, `Posted to Facebook (${opts?.source || 'manual'}): ${fbPostId}`);
+        return { success: true, postId: fbPostId };
+    } finally {
+        postingInProgress = false;
+    }
+}
+
+/** Simple similarity check — Jaccard on word sets */
+function similarity(a: string, b: string): number {
+    const setA = new Set(a.toLowerCase().split(/\s+/));
+    const setB = new Set(b.toLowerCase().split(/\s+/));
+    let intersection = 0;
+    for (const w of setA) if (setB.has(w)) intersection++;
+    const union = setA.size + setB.size - intersection;
+    return union === 0 ? 0 : intersection / union;
+}
+
 // ─── Skill Registration ────────────────────────────────────────
 
 export function registerFacebookSkill(): void {
@@ -162,74 +253,14 @@ export function registerFacebookSkill(): void {
             execute: async (args) => {
                 const message = args.message as string;
                 const imageUrl = args.imageUrl as string | undefined;
-                const skipReview = args.skipReview as boolean || false;
-                const method = hasApiAccess() ? 'api' : 'browser';
 
-                // ── PII guard: block posts with personal/sensitive info ──
-                const piiMatch = checkForPII(message);
-                if (piiMatch) {
-                    logger.warn(COMPONENT, `Post blocked — contains ${piiMatch}: "${message.slice(0, 50)}..."`);
-                    return `Post blocked for safety: detected ${piiMatch} in content. Remove personal information and try again.`;
-                }
+                // All posting goes through the centralized postToPage()
+                const result = await postToPage(message, { imageUrl, source: 'fb_post_tool' });
 
-                // ── Dedup guard: prevent double-fire within 5 minutes ──
-                const queue = loadQueue();
-                const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-                const duplicate = queue.posts.find(p =>
-                    p.content === message &&
-                    (p.status === 'posted' || p.status === 'pending') &&
-                    new Date(p.createdAt).getTime() > fiveMinAgo
-                );
-                if (duplicate) {
-                    logger.warn(COMPONENT, `Duplicate post blocked: "${message.slice(0, 50)}..." (original: ${duplicate.id})`);
-                    return `This post was already ${duplicate.status === 'posted' ? 'published' : 'queued'} ${duplicate.status === 'posted' ? `(Post ID: ${duplicate.fbPostId})` : `(Queue ID: ${duplicate.id})`}. Skipping duplicate.`;
-                }
-
-                const post: QueuedPost = {
-                    id: uuid().slice(0, 8),
-                    type: 'post',
-                    content: message,
-                    imageUrl,
-                    status: skipReview ? 'approved' : 'pending',
-                    method,
-                    createdAt: new Date().toISOString(),
-                };
-
-                if (skipReview && method === 'api') {
-                    // Post directly via API
-                    try {
-                        const pageId = getPageId();
-                        const body: Record<string, unknown> = { message };
-                        if (imageUrl) {
-                            // Photo post
-                            const result = await graphPost(`/${pageId}/photos`, { url: imageUrl, message });
-                            post.fbPostId = result.id as string;
-                        } else {
-                            const result = await graphPost(`/${pageId}/feed`, body);
-                            post.fbPostId = result.id as string;
-                        }
-                        post.status = 'posted';
-                        post.postedAt = new Date().toISOString();
-
-                        queue.posts.push(post);
-                        saveQueue(queue);
-
-                        logger.info(COMPONENT, `Posted to Facebook Page: ${post.fbPostId}`);
-                        return `Posted to Facebook! Post ID: ${post.fbPostId}\nContent: "${message.slice(0, 100)}..."`;
-                    } catch (e) {
-                        return `Failed to post: ${(e as Error).message}. Post queued for browser automation instead.`;
-                    }
-                }
-
-                // Queue for review (reuse queue from dedup check)
-                queue.posts.push(post);
-                saveQueue(queue);
-
-                if (method === 'browser') {
-                    return `Post queued for browser automation (ID: ${post.id}). Use fb_review_queue to approve, then TITAN will post via browser.\n\nQueued: "${message.slice(0, 100)}..."`;
-                }
-
-                return `Post queued for review (ID: ${post.id}). Use fb_review_queue to approve before publishing.\n\nQueued: "${message.slice(0, 100)}..."`;
+                if (result.skipped) return `Skipped: ${result.skipped}`;
+                if (result.error && !result.success) return `Post blocked: ${result.error}`;
+                if (result.success) return `Posted to Facebook! Post ID: ${result.postId}\nContent: "${message.slice(0, 100)}..."`;
+                return `Failed to post: ${result.error || 'Unknown error'}`;
             },
         },
     );

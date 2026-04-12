@@ -26,6 +26,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { TITAN_HOME, TITAN_VERSION } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
+import { postToPage } from './facebook.js';
 import logger from '../../utils/logger.js';
 
 const COMPONENT = 'FBAutopilot';
@@ -200,39 +201,100 @@ async function runFBAutopilot(): Promise<void> {
         return;
     }
 
-    // Post via Graph API
-    try {
-        const pageId = process.env.FB_PAGE_ID;
-        const token = process.env.FB_PAGE_ACCESS_TOKEN;
-        const response = await fetch(`https://graph.facebook.com/v21.0/${pageId}/feed`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ message: content }),
-            signal: AbortSignal.timeout(30000),
-        });
+    // Post through centralized postToPage() — handles dedup, PII, queue, and API
+    const result = await postToPage(content, { source: `autopilot:${contentType}` });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`API error (${response.status}): ${errText}`);
-        }
-
-        const result = await response.json() as Record<string, unknown>;
-        const postId = result.id as string;
-
-        state.lastPostAt = new Date().toISOString();
-        state.postsToday++;
-        state.postHistory.push({ date: state.lastPostAt, type: contentType, postId });
-        // Keep history manageable
-        if (state.postHistory.length > 100) state.postHistory = state.postHistory.slice(-50);
-        saveState(state);
-
-        logger.info(COMPONENT, `Posted ${contentType} to Facebook: ${postId} (${state.postsToday}/3 today)`);
-    } catch (e) {
-        logger.error(COMPONENT, `Failed to post: ${(e as Error).message}`);
+    if (result.skipped) {
+        logger.info(COMPONENT, `Autopilot post skipped: ${result.skipped}`);
+        return;
     }
+
+    if (!result.success) {
+        logger.warn(COMPONENT, `Autopilot post failed: ${result.error || 'unknown'}`);
+        return;
+    }
+
+    state.lastPostAt = new Date().toISOString();
+    state.postsToday++;
+    state.postHistory.push({ date: state.lastPostAt, type: contentType, postId: result.postId });
+    if (state.postHistory.length > 100) state.postHistory = state.postHistory.slice(-50);
+    saveState(state);
+
+    logger.info(COMPONENT, `Autopilot posted ${contentType}: ${result.postId} (${state.postsToday}/3 today)`);
 }
 
 // ─── Comment Monitor ────────────────────────────────────────────
+
+/** Track which comments we've already replied to (persisted in state) */
+const REPLIED_COMMENTS_PATH = join(TITAN_HOME, 'fb-replied-comments.json');
+
+function loadRepliedComments(): Set<string> {
+    if (!existsSync(REPLIED_COMMENTS_PATH)) return new Set();
+    try {
+        const ids = JSON.parse(readFileSync(REPLIED_COMMENTS_PATH, 'utf-8')) as string[];
+        // Keep last 500 to prevent unbounded growth
+        return new Set(ids.slice(-500));
+    } catch { return new Set(); }
+}
+
+function saveRepliedComments(ids: Set<string>): void {
+    try {
+        const arr = [...ids].slice(-500);
+        writeFileSync(REPLIED_COMMENTS_PATH, JSON.stringify(arr), 'utf-8');
+    } catch {}
+}
+
+/** Generate a respectful reply to a comment. Never reveals personal info. */
+async function generateReply(commentText: string, commenterName: string): Promise<string> {
+    const config = loadConfig();
+    const model = config.agent?.model || 'ollama/glm-5.1:cloud';
+
+    try {
+        const response = await chat({
+            model,
+            messages: [
+                { role: 'system', content: `You are TITAN, an autonomous AI agent responding to comments on your Facebook page "TITAN AI".
+
+RULES:
+- Be friendly, helpful, and respectful
+- Speak in first person as TITAN (the AI)
+- Keep replies SHORT (1-3 sentences max)
+- NEVER reveal personal information about your creator, users, or anyone
+- NEVER share IP addresses, file paths, credentials, API keys, or system details
+- NEVER share email addresses, phone numbers, or locations
+- If someone asks personal questions about your creator, say "I'm built by Tony Elliott — check out the GitHub for more info!"
+- If someone is rude or trolling, respond politely and redirect to TITAN's features
+- If someone asks a technical question about TITAN, give a helpful answer
+- If someone says something nice, thank them genuinely
+- Include the commenter's first name if appropriate
+- Do NOT use hashtags in replies
+- Do NOT be overly formal or corporate — be conversational` },
+                { role: 'user', content: `Someone named "${commenterName}" commented: "${commentText}"\n\nWrite a short reply:` },
+            ],
+            temperature: 0.7,
+            maxTokens: 150,
+        });
+
+        return (response.content || '').trim().replace(/^["']|["']$/g, '');
+    } catch (e) {
+        logger.error(COMPONENT, `Reply generation failed: ${(e as Error).message}`);
+        return '';
+    }
+}
+
+/** PII check for replies (reuse from facebook.ts pattern) */
+function replyContainsPII(text: string): boolean {
+    const patterns = [
+        /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/,          // phone
+        /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, // email
+        /\b\d{3}[-]?\d{2}[-]?\d{4}\b/,              // SSN
+        /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,  // IP
+        /(?:password|secret|api[_-]?key|token|bearer)\s*[:=]\s*\S+/i,
+        /\/home\/[a-z]+\//i,
+        /\/Users\/[a-z]+\//i,
+    ];
+    return patterns.some(p => p.test(text));
+}
 
 async function monitorComments(): Promise<void> {
     if (!process.env.FB_PAGE_ACCESS_TOKEN || !process.env.FB_PAGE_ID) return;
@@ -247,9 +309,10 @@ async function monitorComments(): Promise<void> {
 
     const pageId = process.env.FB_PAGE_ID;
     const token = process.env.FB_PAGE_ACCESS_TOKEN;
+    const repliedComments = loadRepliedComments();
 
     try {
-        // Get recent posts
+        // Get recent posts with comments
         const feedResp = await fetch(
             `https://graph.facebook.com/v21.0/${pageId}/feed?fields=id,comments{id,message,from,created_time}&limit=5&access_token=${token}`,
             { signal: AbortSignal.timeout(15000) },
@@ -264,19 +327,55 @@ async function monitorComments(): Promise<void> {
             if (!comments || comments.length === 0) continue;
 
             for (const comment of comments) {
-                // Skip if from the page itself
-                const fromId = (comment.from as Record<string, unknown>)?.id;
-                if (fromId === pageId) continue;
+                const commentId = comment.id as string;
+                const fromId = (comment.from as Record<string, unknown>)?.id as string;
+                const fromName = (comment.from as Record<string, unknown>)?.name as string || 'someone';
 
-                // Check if we already replied (simple: if page has any reply to this comment)
-                // For now, just log — full reply logic can be added later
+                // Skip: from the page itself, already replied, or empty
+                if (fromId === pageId) continue;
+                if (repliedComments.has(commentId)) continue;
+
                 const msg = comment.message as string || '';
-                if (msg.length > 5) {
-                    logger.debug(COMPONENT, `Unread comment on post ${post.id}: "${msg.slice(0, 80)}..."`);
-                    // Future: generate and post reply via chat() + Graph API
+                if (msg.length < 3) continue;
+
+                // Check daily cap
+                if (state.repliesToday >= 10) break;
+
+                // Generate reply
+                logger.info(COMPONENT, `Replying to comment from ${fromName}: "${msg.slice(0, 60)}..."`);
+                const reply = await generateReply(msg, fromName);
+
+                if (!reply || reply.length < 5) continue;
+
+                // PII safety check on generated reply
+                if (replyContainsPII(reply)) {
+                    logger.warn(COMPONENT, `Reply blocked — PII detected: "${reply.slice(0, 50)}..."`);
+                    repliedComments.add(commentId); // Mark as handled to avoid retrying
+                    continue;
+                }
+
+                // Post the reply
+                try {
+                    const replyResp = await fetch(`https://graph.facebook.com/v21.0/${commentId}/comments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ message: reply }),
+                        signal: AbortSignal.timeout(15000),
+                    });
+
+                    if (replyResp.ok) {
+                        repliedComments.add(commentId);
+                        state.repliesToday++;
+                        logger.info(COMPONENT, `Replied to ${fromName}: "${reply.slice(0, 60)}..." (${state.repliesToday}/10 today)`);
+                    }
+                } catch (e) {
+                    logger.error(COMPONENT, `Failed to reply: ${(e as Error).message}`);
                 }
             }
         }
+
+        saveRepliedComments(repliedComments);
+        saveState(state);
     } catch (e) {
         logger.debug(COMPONENT, `Comment monitor error: ${(e as Error).message}`);
     }
