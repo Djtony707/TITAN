@@ -921,8 +921,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!auth || auth.mode === 'none') { next(); return; }
     // Token mode with no token configured = auth not set up, allow access
     if (auth.mode === 'token' && !auth.token) { next(); return; }
-    // Skip /api/login itself
+    // Skip public endpoints (login, health, messenger webhook)
     if (req.path === '/login') { next(); return; }
+    if (req.path === '/health') { next(); return; }
+    if (req.path === '/messenger/webhook') { next(); return; }
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (isValidToken(token, cfg)) { next(); return; }
