@@ -729,6 +729,14 @@ export function createIssue(opts: {
         updatedAt: new Date().toISOString(),
     };
     issues.set(issue.id, issue);
+    // Cap issues map to prevent unbounded memory growth
+    if (issues.size > 1000) {
+        const sorted = [...issues.entries()].sort((a, b) =>
+            new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime()
+        );
+        const toRemove = sorted.slice(0, issues.size - 800); // Keep newest 800
+        for (const [id] of toRemove) issues.delete(id);
+    }
     saveState();
     addActivity({ type: 'goal_created', message: `Issue ${issue.identifier} created: "${issue.title}"`, metadata: { issueId: issue.id } });
     return issue;
@@ -810,6 +818,14 @@ export function createApproval(opts: {
         createdAt: new Date().toISOString(),
     };
     approvals.set(approval.id, approval);
+    // Cap approvals map to prevent unbounded memory growth
+    if (approvals.size > 500) {
+        const sorted = [...approvals.entries()].sort((a, b) =>
+            new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime()
+        );
+        const toRemove = sorted.slice(0, approvals.size - 400);
+        for (const [id] of toRemove) approvals.delete(id);
+    }
     saveState();
     addActivity({ type: 'goal_created', message: `Approval requested: ${approval.type} by ${approval.requestedBy}`, metadata: { approvalId: approval.id } });
     return approval;

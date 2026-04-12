@@ -1434,7 +1434,7 @@ function connectWS() {
         loadMeshPanel();
         fetchData();
       }
-    } catch(err) {}
+    } catch(err) { console.warn('WebSocket message parse error:', err); }
   };
 }
 connectWS();
@@ -1769,7 +1769,7 @@ async function loadGoogleStatus() {
       if (connectBtn) connectBtn.style.display = '';
       if (disconnectBtn) disconnectBtn.style.display = 'none';
     }
-  } catch(e) {}
+  } catch(e) { console.error('Google auth check failed:', e); }
 }
 
 async function connectGoogle() {
@@ -1811,7 +1811,7 @@ async function loadSoulMd() {
     const data = await r.json();
     const el = document.getElementById('cfg-soul-content');
     if (el) el.value = data.content || '';
-  } catch(e) {}
+  } catch(e) { console.error('SOUL.md load failed:', e); }
 }
 
 async function saveSoulMd() {

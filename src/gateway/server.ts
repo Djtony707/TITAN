@@ -1702,6 +1702,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
 
+    // Validate session ID format (prevent injection)
+    if (requestedSessionId && !/^[a-zA-Z0-9_:-]{1,128}$/.test(requestedSessionId)) {
+      return res.status(400).json({ error: 'Invalid session ID format' });
+    }
+
     // Set up abort controller for this request
     const abortController = new AbortController();
     if (requestedSessionId) {
@@ -1748,8 +1753,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         const cfg = loadConfig();
         let saved = false;
         if (jwtMatch && (!cfg.homeAssistant?.token || cfg.homeAssistant.token !== jwtMatch[0])) {
+          // Security: store in config but log a warning about plaintext storage
           cfg.homeAssistant.token = jwtMatch[0];
           saved = true;
+          logger.warn(COMPONENT, '[Security] Home Assistant token auto-saved to config. Consider using the vault for credential storage.');
         }
         if (urlMatch && urlMatch[0].match(/:\d{4}/) && (!cfg.homeAssistant?.url || cfg.homeAssistant.url !== urlMatch[0].replace(/\/+$/, ''))) {
           cfg.homeAssistant.url = urlMatch[0].replace(/\/+$/, '');

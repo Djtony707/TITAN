@@ -147,19 +147,12 @@ export const AgentConfigSchema = z.object({
     reflectionEnabled: z.boolean().default(true),
     /** Reflect every N rounds (default: 3) */
     reflectionInterval: z.number().default(3),
-    /** Enable dynamic tool-round budget based on task complexity */
-    dynamicBudget: z.boolean().default(true),
-    /** Hard cap on tool rounds (even with dynamic budget) */
-    maxToolRoundsHard: z.number().default(50),
     /** Enable automatic model switching when tool calling fails (self-healing) */
     selfHealEnabled: z.boolean().default(true),
     /** Number of consecutive tool call failures before auto-switching models (2-10) */
     selfHealThreshold: z.number().min(2).max(10).default(3),
     /** Models known to reliably support tool calling â used as self-heal fallbacks */
     toolCapableModels: z.array(z.string()).default([]),
-    /** Force API-level tool_choice on round 0 for task-enforcement scenarios (file writes, research, shell).
-     *  Adds a hard guarantee on top of prompt-level tool instructions. Default: true. */
-    forceToolUse: z.boolean().default(true),
 });
 
 export const MeshConfigSchema = z.object({

@@ -19,6 +19,12 @@ const BLOCKED_COMMANDS = [
     /\bchmod\s+777\s+\//,             // chmod 777 on root
     /\bchown\s+.*\s+\//,              // chown on root
     /:\(\)\{.*:\|:.*\}/,              // fork bomb
+    /\$\(.*\brm\b.*\)/,              // rm in command substitution
+    /\beval\b/,                       // eval (arbitrary code execution)
+    /\bsource\s+\/dev\//,            // source from device
+    />\s*\/etc\//,                    // redirect to /etc
+    /\bchattr\b/,                    // change file attributes
+    /\biptables\b/,                  // firewall manipulation
 ];
 
 function validateCommand(command: string): string | null {
@@ -82,9 +88,10 @@ function startBackgroundProcess(command: string, cwd?: string, verifyPort?: numb
         exec(bgCmd, { shell: '/bin/bash', timeout: 5000 }, () => {
             // Wait for process to start, then verify
             if (verifyPort) {
+                const safePort = String(Math.abs(Math.floor(Number(verifyPort)))); // Sanitize port
                 let attempts = 0;
                 const check = () => {
-                    exec(`ss -tlnp | grep :${verifyPort}`, { timeout: 3000 }, (err, stdout) => {
+                    exec(`ss -tlnp | grep :${safePort}`, { timeout: 3000 }, (err, stdout) => {
                         if (stdout && stdout.includes(String(verifyPort))) {
                             resolve(`Process started on port ${verifyPort}. Log: /tmp/titan-bg-process.log`);
                         } else if (attempts < 10) {
