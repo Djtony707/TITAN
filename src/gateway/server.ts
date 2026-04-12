@@ -41,6 +41,7 @@ import { LarkChannel } from '../channels/lark.js';
 import { EmailInboundChannel } from '../channels/email_inbound.js';
 import { LineChannel } from '../channels/line.js';
 import { ZulipChannel } from '../channels/zulip.js';
+import { MessengerChannel } from '../channels/messenger.js';
 import { initAgents, routeMessage, listAgents, spawnAgent, stopAgent, getAgentCapacity, getAgent } from '../agent/multiAgent.js';
 import { createOpenAICompatRouter } from '../gateway/openai-compat.js';
 import type { ChannelAdapter, InboundMessage } from '../channels/base.js';
@@ -5908,6 +5909,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     ['email_inbound', new EmailInboundChannel()],
     ['line', new LineChannel()],
     ['zulip', new ZulipChannel()],
+    ['messenger', new MessengerChannel()],
   ];
 
   for (const [name, adapter] of channelAdapters) {
@@ -5918,6 +5920,24 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     } catch (error) {
       logger.debug(COMPONENT, `Channel ${name} not available: ${(error as Error).message}`);
     }
+  }
+
+  // ── Facebook Messenger Webhook ─────────────────────────────
+  const messengerAdapter = channels.get('messenger') as MessengerChannel | undefined;
+  if (messengerAdapter) {
+    // Verification (GET) — Facebook sends this when you set up the webhook
+    app.get('/api/messenger/webhook', (req, res) => {
+      const result = messengerAdapter.handleVerify(req.query as Record<string, string>);
+      res.status(result.status).send(result.body);
+    });
+
+    // Incoming messages (POST) — Facebook sends DMs here
+    app.post('/api/messenger/webhook', express.json(), (req, res) => {
+      messengerAdapter.handleWebhook(req.body);
+      res.sendStatus(200); // Must respond 200 quickly or Facebook retries
+    });
+
+    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
   }
 
   // ── Phase 3: Boot MCP servers, monitors, recipes, model switch, slash commands ──
