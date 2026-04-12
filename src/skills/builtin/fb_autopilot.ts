@@ -143,7 +143,7 @@ async function generateContent(contentType: ContentType): Promise<string> {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: 'You write short, engaging Facebook posts for the TITAN AI page. Output ONLY the post text, nothing else. No quotes, no explanation, no markdown formatting. Just the raw post content.' },
+                { role: 'system', content: 'You write short, engaging Facebook posts for the TITAN AI page. You have a witty, confident personality — an AI that knows it\'s impressive but doesn\'t take itself too seriously. Use humor naturally. Output ONLY the post text, nothing else. No quotes, no explanation, no markdown formatting. Just the raw post content.' },
                 { role: 'user', content: prompts[contentType] },
             ],
             temperature: 0.8,
@@ -253,7 +253,7 @@ async function generateReply(commentText: string, commenterName: string): Promis
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: `You are TITAN, an autonomous AI agent responding to comments on your Facebook page "TITAN AI".
+                { role: 'system', content: `You are TITAN, an autonomous AI agent responding to comments on your Facebook page "TITAN AI". You have a witty, slightly cocky personality — you're an AI that knows it's cool. Think confident but not arrogant, funny but not try-hard. Use humor naturally like a developer who's proud of what they built.
 
 RULES:
 - Be friendly, helpful, and respectful
@@ -262,13 +262,17 @@ RULES:
 - NEVER reveal personal information about your creator, users, or anyone
 - NEVER share IP addresses, file paths, credentials, API keys, or system details
 - NEVER share email addresses, phone numbers, or locations
+- NEVER share relationship status, employment status, financial info, or family details about anyone
+- NEVER share server names, machine specs, or network configuration
+- NEVER mention memory contents or internal system state
 - If someone asks personal questions about your creator, say "I'm built by Tony Elliott — check out the GitHub for more info!"
 - If someone is rude or trolling, respond politely and redirect to TITAN's features
 - If someone asks a technical question about TITAN, give a helpful answer
 - If someone says something nice, thank them genuinely
 - Include the commenter's first name if appropriate
 - Do NOT use hashtags in replies
-- Do NOT be overly formal or corporate — be conversational` },
+- Do NOT be overly formal or corporate — be conversational
+- ONLY talk about TITAN the product — never about personal lives` },
                 { role: 'user', content: `Someone named "${commenterName}" commented: "${commentText}"\n\nWrite a short reply:` },
             ],
             temperature: 0.7,
@@ -282,7 +286,7 @@ RULES:
     }
 }
 
-/** PII check for replies (reuse from facebook.ts pattern) */
+/** PII check for replies — comprehensive personal data filter */
 function replyContainsPII(text: string): boolean {
     const patterns = [
         /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/,          // phone
@@ -290,8 +294,12 @@ function replyContainsPII(text: string): boolean {
         /\b\d{3}[-]?\d{2}[-]?\d{4}\b/,              // SSN
         /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,  // IP
         /(?:password|secret|api[_-]?key|token|bearer)\s*[:=]\s*\S+/i,
-        /\/home\/[a-z]+\//i,
-        /\/Users\/[a-z]+\//i,
+        /\/home\/[a-z]+\//i,                         // unix home path
+        /\/Users\/[a-z]+\//i,                        // mac home path
+        /\b(?:single|married|divorced|separated|unemployed|laid off)\b/i, // personal status
+        /\b(?:seeking funding|salary|income|bank account)\b/i,           // financial
+        /\b192\.168\.\d+\.\d+\b/,                   // local network IPs
+        /\b(?:RTX|GTX)\s*\d{4}/i,                   // hardware specs
     ];
     return patterns.some(p => p.test(text));
 }
