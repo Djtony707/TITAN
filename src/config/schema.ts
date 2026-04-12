@@ -114,6 +114,14 @@ export const AgentConfigSchema = z.object({
         maxInputTokens: z.number().default(2000000).describe('Max input tokens per session'),
         maxSessionAgeHours: z.number().default(72).describe('Max session age in hours'),
     }).default({}).describe('Session compaction thresholds (Paperclip pattern)'),
+    /** Max tool-calling rounds per message in autonomous mode */
+    maxRounds: z.number().default(25),
+    /** Hard cap on tool rounds (safety limit) */
+    maxToolRoundsHard: z.number().default(50),
+    /** Enable dynamic budget (auto-calculates rounds based on task complexity) */
+    dynamicBudget: z.boolean().default(true),
+    /** Force tool_choice=required in autonomous mode */
+    forceToolUse: z.boolean().default(true),
     thinkingMode: z.enum(['off', 'low', 'medium', 'high']).default('medium'),
     /** Model aliases â e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
     modelAliases: z.record(z.string(), z.string()).default({

@@ -92,6 +92,14 @@ function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?:
         budget = 6;   // Default for unclassified moderate tasks
     }
 
+    // In autonomous mode, use the configured maxRounds directly
+    // The dynamic budget and hard cap should NOT limit autonomous execution
+    const isAutonomous = config.autonomy.mode === 'autonomous';
+    const configuredMax = (agentConfig.maxRounds as number) || 0;
+    if (isAutonomous && configuredMax > 0) {
+        return configuredMax;
+    }
+
     return Math.min(budget, hardCap);
 }
 
@@ -838,13 +846,16 @@ export async function processMessage(
     // ── Determine effective limits based on autonomy mode + dynamic budget ─────
     const isAutonomous = config.autonomy.mode === 'autonomous';
     const dynamicBudget = estimateRoundBudget(message, config);
-    const autonomyHardCap = isAutonomous
-        ? (config.autonomy as Record<string, unknown>).maxToolRoundsOverride as number || 25
-        : MAX_TOOL_ROUNDS;
+    // In autonomous mode, use agent.maxRounds from config (Zod-validated, default 25)
+    // In supervised mode, use the dynamic budget capped at MAX_TOOL_ROUNDS
+    const agentMaxRounds = config.agent.maxRounds || 25;
+    const hardCap = config.agent.maxToolRoundsHard || 50;
+    const autonomyHardCap = isAutonomous ? Math.min(agentMaxRounds, hardCap) : MAX_TOOL_ROUNDS;
     const isVoice = channel === 'voice';
     const voiceFastPath = isVoice && ((config.voice as Record<string, unknown>)?.fastPath !== false);
-    // Use the dynamic budget but cap at the autonomy limit (don't override budget upward)
-    let effectiveMaxRounds = Math.min(dynamicBudget, autonomyHardCap);
+    // In autonomous mode: use configured maxRounds directly (not limited by dynamic budget)
+    // In supervised mode: use the dynamic budget capped at the hard limit
+    let effectiveMaxRounds = isAutonomous ? autonomyHardCap : Math.min(dynamicBudget, autonomyHardCap);
     logger.info(COMPONENT, `[RoundBudget] ${dynamicBudget} rounds (cap: ${autonomyHardCap})`);
     const reflectionEnabled = voiceFastPath ? false : (config.agent.reflectionEnabled ?? true);
     const reflectionInterval = config.agent.reflectionInterval ?? 3;

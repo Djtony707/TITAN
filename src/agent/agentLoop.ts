@@ -766,7 +766,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         // Detect when model describes work instead of doing it
                         const describesWork = /\b(need to|should|would|will|let me|I'll|going to|plan to|we can|you can|I can|check|look at|examine|investigate|verify|confirm|test)\b.*\b(fix|edit|change|update|create|write|modify|run|install|build|start|restart|read|open|debug|set up)\b/i.test(response.content);
                         // Also detect "Let me check/read/look" patterns
-                        const startsWithDescription = /^(Let me|I('ll| will| need| should| can)|First|Now|Next|The|To fix|To resolve|Here'?s)/i.test(response.content.trim());
+                        const startsWithDescription = /^(Let me|I('ll| will| need| should| can| have| found| see| read| checked)|First|Now|Next|The|To fix|To resolve|To complete|Here'?s|Looking|Based on|After)/i.test(response.content.trim());
 
                         if ((describesWork || startsWithDescription) && noToolsRetryCount < 3) {
                             noToolsRetryCount++;
