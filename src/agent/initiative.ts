@@ -292,8 +292,8 @@ function buildSmartPrompt(
     parts.push('2. Each file contains complete, working code (not stubs or placeholders)');
     parts.push('3. All imports resolve to real modules');
     parts.push('4. The project builds without errors');
-    parts.push('5. If this is a web app: start the server with shell(background=true, verify_port=PORT) and verify the page renders with web_fetch or curl');
-    parts.push('6. If there are forms: verify they POST to the correct API endpoint and the endpoint returns a valid response');
+    parts.push('5. If this is a web app: start the server with shell(background=true, verify_port=PORT) and use verify_page to check the page renders in a real browser');
+    parts.push('6. If there are forms: use verify_page with checks ["renders", "form:form", "has:Submit"] to verify they work');
     parts.push('7. If there is auth: verify signup creates a user, login returns a token, and protected routes reject unauthenticated requests');
     parts.push('');
 

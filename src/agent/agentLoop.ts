@@ -1025,6 +1025,28 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 }
             }
 
+            // ── Read-only round detection ─────────────────────────
+            // If in autonomous mode and all tools this round were read-only
+            // (no writes, no edits), inject a directive to ACT on what was read.
+            // This prevents the "read → describe → stop" pattern.
+            if (ctx.isAutonomous && toolResults.length > 0) {
+                const READ_ONLY_TOOLS = new Set(['read_file', 'list_dir', 'web_search', 'web_fetch', 'tool_search', 'memory', 'system_info', 'goal_list', 'weather']);
+                const allReadOnly = toolResults.every(tr =>
+                    READ_ONLY_TOOLS.has(tr.name) ||
+                    (tr.name === 'shell' && /^\s*(cat|head|tail|less|ls|find|grep|wc|echo|date|whoami|hostname|uname|df|du|ps|ss|curl.*GET|pwd|which|type|file|stat)\b/i.test((pendingToolCalls.find(tc => tc.id === tr.toolCallId)?.function.arguments || '{}').replace(/.*"command"\s*:\s*"/, '').replace(/".*/, '')))
+                );
+                const hasWrites = toolResults.some(tr =>
+                    tr.name === 'write_file' || tr.name === 'edit_file' || tr.name === 'append_file'
+                );
+                if (allReadOnly && !hasWrites && round >= 2) {
+                    logger.info(COMPONENT, `[ReadOnlyNudge] Round ${round}: all tools were read-only — nudging to write`);
+                    ctx.messages.push({
+                        role: 'user',
+                        content: 'You just read files and ran diagnostic commands. Now ACT on what you found. Call edit_file or write_file to make the changes. Do NOT describe what needs to change — make the change NOW.',
+                    });
+                }
+            }
+
             // ── Phase transition decision ────────────────────────
             round++;
 
