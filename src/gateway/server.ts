@@ -67,7 +67,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
@@ -3323,6 +3323,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const updated = updateIssue(req.params.id, { title, description, status, priority, assigneeAgentId, goalId });
     if (!updated) { res.status(404).json({ error: 'Issue not found' }); return; }
     res.json(updated);
+  });
+
+  app.delete('/api/command-post/issues/:id', (req, res) => {
+    const ok = deleteIssue(req.params.id);
+    if (!ok) { res.status(404).json({ error: 'Issue not found' }); return; }
+    res.json({ success: true });
   });
 
   app.post('/api/command-post/issues/:id/checkout', (req, res) => {

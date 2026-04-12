@@ -698,6 +698,10 @@ export async function updateCPIssue(id: string, updates: Partial<CPIssue>): Prom
   });
 }
 
+export async function deleteCPIssue(id: string): Promise<{ success: boolean }> {
+  return request(`/api/command-post/issues/${id}`, { method: 'DELETE' });
+}
+
 export async function checkoutCPIssue(issueId: string, agentId: string): Promise<CPIssue> {
   return request(`/api/command-post/issues/${issueId}/checkout`, {
     method: 'POST', body: JSON.stringify({ agentId }),
@@ -792,6 +796,14 @@ export async function getCheckpoints(): Promise<{ checkpoints: import('./types.j
 }
 
 // ---- Companies ----
+
+export async function listCompanies(): Promise<unknown[]> {
+  return request('/api/companies');
+}
+
+export async function createCompany(opts: { name: string; mission?: string }): Promise<unknown> {
+  return request('/api/companies', { method: 'POST', body: JSON.stringify(opts) });
+}
 
 export async function deleteCompany(id: string): Promise<{ success: boolean }> {
   return request(`/api/companies/${id}`, { method: 'DELETE' });

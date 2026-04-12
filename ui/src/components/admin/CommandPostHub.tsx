@@ -3,12 +3,13 @@ import {
   Building2, Users, Lock, DollarSign, GitBranch, Activity,
   ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
   MessageSquare, Send, StopCircle, Plus, Shield, Eye,
-  BarChart3, Briefcase, Play, Pause, Search,
+  BarChart3, Briefcase, Play, Pause, Search, Trash2,
 } from 'lucide-react';
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
-  updateCPIssue, getCPApprovals, approveCPApproval, rejectCPApproval,
+  updateCPIssue, deleteCPIssue, getCPApprovals, approveCPApproval, rejectCPApproval,
   getCPRuns, getCPBudgets, createCPBudget, deleteCPBudget, updateCPAgent,
+  listCompanies, createCompany, deleteCompany,
 } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import type {
@@ -112,7 +113,32 @@ function DashboardTab({ d, activity }: { d: CommandPostDashboard; activity: CPAc
 
 function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
   const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
-  useEffect(() => { getCPOrg().then(setOrgTree).catch(() => {}); }, []);
+  const [companies, setCompanies] = useState<Array<{ id: string; name: string; mission?: string; status?: string }>>([]);
+  const [showCreateCompany, setShowCreateCompany] = useState(false);
+  const [companyName, setCompanyName] = useState('');
+  const [companyMission, setCompanyMission] = useState('');
+
+  const loadData = useCallback(() => {
+    getCPOrg().then(setOrgTree).catch(() => {});
+    listCompanies().then(c => setCompanies(c as Array<{ id: string; name: string; mission?: string; status?: string }>)).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleCreateCompany = async () => {
+    if (!companyName.trim()) return;
+    await createCompany({ name: companyName.trim(), mission: companyMission.trim() || undefined });
+    setCompanyName('');
+    setCompanyMission('');
+    setShowCreateCompany(false);
+    loadData();
+  };
+
+  const handleDeleteCompany = async (id: string, name: string) => {
+    if (!confirm(`Delete company "${name}"?`)) return;
+    await deleteCompany(id);
+    loadData();
+  };
 
   function renderNode(node: OrgNode, depth = 0): React.ReactNode {
     return (
@@ -134,16 +160,54 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
   }
 
   return (
-    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-      <SectionHeader icon={Building2} title="Organization Chart" count={agents.length} />
-      <div className="p-4">
-        {orgTree.length === 0 ? (
-          <div className="text-center py-8">
-            <Building2 size={24} className="mx-auto mb-2 text-white/10" />
-            <p className="text-[12px] text-white/25">No agents in org chart</p>
-            <p className="text-[10px] text-white/15 mt-1">Spawn agents and set reportsTo to build hierarchy</p>
+    <div className="space-y-4">
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Building2} title="Organization Chart" count={agents.length} />
+        <div className="p-4">
+          {orgTree.length === 0 ? (
+            <div className="text-center py-8">
+              <Building2 size={24} className="mx-auto mb-2 text-white/10" />
+              <p className="text-[12px] text-white/25">No agents in org chart</p>
+              <p className="text-[10px] text-white/15 mt-1">Spawn agents and set reportsTo to build hierarchy</p>
+            </div>
+          ) : orgTree.map(n => renderNode(n))}
+        </div>
+      </div>
+
+      {/* Companies Section */}
+      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+        <SectionHeader icon={Briefcase} title="Companies" count={companies.length}
+          action={<button onClick={() => setShowCreateCompany(true)} className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"><Plus size={10} /> New</button>}
+        />
+
+        {showCreateCompany && (
+          <div className="p-4 border-b border-white/[0.06] bg-white/[0.02] space-y-2">
+            <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Company name..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" onKeyDown={e => e.key === 'Enter' && handleCreateCompany()} />
+            <input value={companyMission} onChange={e => setCompanyMission(e.target.value)} placeholder="Mission (optional)..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/70 placeholder-white/15 focus:outline-none focus:border-indigo-500/30" />
+            <div className="flex gap-2">
+              <button onClick={handleCreateCompany} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg">Create</button>
+              <button onClick={() => setShowCreateCompany(false)} className="px-3 py-1.5 text-[11px] text-white/40">Cancel</button>
+            </div>
           </div>
-        ) : orgTree.map(n => renderNode(n))}
+        )}
+
+        <div className="divide-y divide-white/[0.03]">
+          {companies.length === 0 ? (
+            <div className="py-6 text-center text-[12px] text-white/25">No companies created</div>
+          ) : companies.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
+              <Briefcase size={14} className="text-indigo-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-[13px] text-white/80 font-medium">{c.name}</span>
+                {c.mission && <p className="text-[10px] text-white/30 truncate">{c.mission}</p>}
+              </div>
+              <StatusBadge status={c.status || 'active'} />
+              <button onClick={() => handleDeleteCompany(c.id, c.name)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete company">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -175,6 +239,12 @@ function IssuesTab() {
 
   const handleStatusChange = async (id: string, status: string) => {
     await updateCPIssue(id, { status: status as CPIssue['status'] });
+    load();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this issue?')) return;
+    await deleteCPIssue(id);
     load();
   };
 
@@ -226,6 +296,9 @@ function IssuesTab() {
                 {statuses.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 <option value="cancelled">cancelled</option>
               </select>
+              <button onClick={() => handleDelete(issue.id)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete issue">
+                <Trash2 size={12} />
+              </button>
             </div>
           ))}
         </div>

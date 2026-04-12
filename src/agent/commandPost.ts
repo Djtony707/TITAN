@@ -774,6 +774,14 @@ export function listIssues(filters?: { status?: string; assigneeAgentId?: string
     return result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
+export function deleteIssue(id: string): boolean {
+    if (!issues.has(id)) return false;
+    issues.delete(id);
+    saveState();
+    addActivity({ type: 'issue_deleted', agentId: 'user', message: `Issue ${id} deleted` });
+    return true;
+}
+
 export function checkoutIssue(issueId: string, agentId: string): CPIssue | null {
     const issue = issues.get(issueId);
     if (!issue) return null;
