@@ -166,8 +166,26 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         const verified = wroteFiles ? verifyDeliverables(result.content, subtask.description) : false;
 
         if (wroteFiles && verified) {
-            // Gap 2: Run build verification after successful writes
-            const buildOk = await runBuildVerification(processMessage);
+            // Gap 2: Run build verification — retry up to 3 times within this session
+            let buildOk = false;
+            for (let buildAttempt = 0; buildAttempt < 3; buildAttempt++) {
+                buildOk = await runBuildVerification(processMessage);
+                if (buildOk) break;
+
+                // Build failed — tell the model to fix errors and try again
+                logger.info(COMPONENT, `[BuildFix] Attempt ${buildAttempt + 1}/3 — sending errors back to model`);
+                titanEvents.emit('initiative:tool_call', {
+                    subtaskTitle: subtask.title, tool: 'build-fix',
+                    args: `Attempt ${buildAttempt + 1}/3`, timestamp: new Date().toISOString(),
+                });
+
+                try {
+                    await processMessage(
+                        'The build just failed. Run cd ~/titan-saas && npx next build 2>&1 | tail -20 to see the errors, then fix them with edit_file. Do NOT describe the fix — call edit_file immediately. After fixing, run the build again.',
+                        'initiative-fix',
+                    );
+                } catch { break; }
+            }
 
             if (buildOk) {
                 completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
@@ -180,20 +198,17 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
                     timestamp: new Date().toISOString(),
                 });
             } else {
-                // Gap 3: Build failed — save state for next session to fix
-                logger.warn(COMPONENT, `⚠️ Subtask "${subtask.title}" wrote files but build failed — saving state for fix`);
+                logger.warn(COMPONENT, `⚠️ Subtask "${subtask.title}" — build failed after 3 fix attempts`);
                 saveState({
-                    lastSubtask: subtask.title,
-                    lastGoal: goal.title,
-                    attemptCount,
-                    lastError: 'Build failed after writing files',
+                    lastSubtask: subtask.title, lastGoal: goal.title,
+                    attemptCount, lastError: 'Build failed after 3 fix attempts',
                     filesCreated: extractFilePaths(result.content),
                     timestamp: new Date().toISOString(),
                 });
                 consecutiveFailures++;
                 titanEvents.emit('initiative:no_progress', {
                     goalId: goal.id, subtaskTitle: subtask.title,
-                    reason: 'Files written but build failed — will fix on next cycle',
+                    reason: 'Build failed after 3 fix attempts — saving state for next cycle',
                     timestamp: new Date().toISOString(),
                 });
             }
