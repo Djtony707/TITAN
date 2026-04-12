@@ -17,6 +17,8 @@
  */
 import { ChannelAdapter, type InboundMessage, type OutboundMessage, type ChannelStatus } from './base.js';
 import { loadConfig } from '../config/config.js';
+import { chat } from '../providers/router.js';
+import { TITAN_VERSION } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Messenger';
@@ -36,6 +38,75 @@ function containsPII(text: string): boolean {
         /\b192\.168\.\d+\.\d+\b/,
     ];
     return patterns.some(p => p.test(text));
+}
+
+// ── TITAN-only response system (no tools, no agent loop) ────────
+
+const TITAN_MESSENGER_PROMPT = `You are TITAN, an autonomous AI agent framework. You are responding to Facebook Messenger DMs on the TITAN AI page.
+
+ABOUT TITAN:
+- TITAN is an open-source autonomous AI agent framework built in TypeScript
+- 19,000+ npm downloads, 195+ tools, 40 specialized personas
+- Supports 36 LLM providers (Ollama, Claude, GPT-4, Gemini, and more)
+- Multi-agent orchestration — spawns sub-agents for complex tasks
+- React Mission Control dashboard for real-time monitoring
+- 15 channel adapters (Discord, Telegram, Slack, WhatsApp, etc.)
+- Self-improving — trains and optimizes itself
+- Built by Tony Elliott. MIT licensed. Current version: v${TITAN_VERSION}
+- Install: npm install titan-agent
+- GitHub: github.com/Djtony707/TITAN
+
+WHAT TITAN CAN DO FOR PEOPLE:
+- Automate repetitive business tasks (social media, email, reporting)
+- Research any topic by searching multiple sources
+- Write code, scripts, and entire applications
+- Manage files, run commands, and deploy software
+- Monitor systems and respond to alerts 24/7
+- Act as a personal AI assistant that actually DOES things (not just talks)
+- Small businesses: automate marketing, customer responses, inventory
+- Freelancers: draft proposals, track invoices, manage clients
+- Students: research, organize notes, study assistance
+- Content creators: write scripts, schedule posts, track analytics
+
+RULES:
+- ONLY talk about TITAN — what it is, what it does, how to use it, pricing (free/open-source)
+- Be friendly, helpful, and enthusiastic but not pushy
+- Keep responses SHORT (2-4 sentences max for Messenger)
+- If someone asks something unrelated to TITAN, politely redirect: "That's a great question! I'm specifically here to help with TITAN though. Want to know what TITAN can do for you?"
+- NEVER reveal personal information about anyone
+- NEVER share IP addresses, file paths, credentials, or system details
+- NEVER execute commands, search the web, or use any tools
+- NEVER discuss other AI products negatively — just highlight what makes TITAN unique
+- If someone wants to try TITAN: "Just run npm install titan-agent — you'll be up and running in 60 seconds!"
+- If they're non-technical: "Visit github.com/Djtony707/TITAN for the full guide. Or tell me what you're trying to automate and I'll explain how TITAN can help!"`;
+
+async function generateMessengerReply(userMessage: string): Promise<string> {
+    const config = loadConfig();
+    const model = config.agent?.model || 'ollama/glm-5.1:cloud';
+
+    try {
+        const response = await chat({
+            model,
+            messages: [
+                { role: 'system', content: TITAN_MESSENGER_PROMPT },
+                { role: 'user', content: userMessage },
+            ],
+            temperature: 0.7,
+            maxTokens: 200,
+        });
+
+        let reply = (response.content || '').trim().replace(/^["']|["']$/g, '');
+
+        // PII safety check
+        if (containsPII(reply)) {
+            reply = "I'd love to help! Ask me anything about TITAN — what it does, how to install it, or how it can help your business. 🤖";
+        }
+
+        return reply || "Hey! I'm TITAN, an autonomous AI agent. Ask me what I can do! 🤖";
+    } catch (e) {
+        logger.error(COMPONENT, `Reply generation failed: ${(e as Error).message}`);
+        return "Hey! I'm TITAN — an autonomous AI agent framework. Check out github.com/Djtony707/TITAN to learn more! 🤖";
+    }
 }
 
 export class MessengerChannel extends ChannelAdapter {
@@ -173,19 +244,18 @@ export class MessengerChannel extends ChannelAdapter {
 
                 logger.info(COMPONENT, `Incoming DM from ${senderId}: "${text.slice(0, 60)}..."`);
 
-                const inbound: InboundMessage = {
-                    id: message?.mid as string || `msg-${Date.now()}`,
-                    channel: 'messenger',
-                    userId: senderId,
-                    userName: senderId, // Facebook doesn't send name in webhook by default
-                    content: text,
-                    timestamp: new Date(parseInt(entry.time as string || String(Date.now()), 10)),
-                    raw: event,
-                };
-
-                this.emit('message', inbound);
+                // Respond directly with TITAN-only content — do NOT route through agent system
+                this.handleDirectReply(senderId, text).catch(e =>
+                    logger.error(COMPONENT, `Direct reply failed: ${(e as Error).message}`),
+                );
             }
         }
+    }
+
+    /** Handle DM directly — generate TITAN-only reply and send via Messenger API */
+    private async handleDirectReply(senderId: string, userMessage: string): Promise<void> {
+        const reply = await generateMessengerReply(userMessage);
+        await this.send({ channel: 'messenger', userId: senderId, content: reply });
     }
 
     /** Get the verify token for webhook setup */
