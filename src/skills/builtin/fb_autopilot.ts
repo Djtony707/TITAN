@@ -216,9 +216,9 @@ async function generateContent(contentType: ContentType): Promise<string> {
         content = firstLine || content;
         content = content.replace(/^["']|["']$/g, '').trim();
 
-        // Safety: reject if it repeats instruction keywords
-        if (/\b(under \d+ char|first person|no personal info|write a .* post)\b/i.test(content)) {
-            logger.warn(COMPONENT, 'Post rejected — contains instruction echoing');
+        // Safety: reject if it contains instruction echoing or meta-reasoning
+        if (/\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example)\b/i.test(content)) {
+            logger.warn(COMPONENT, `Post rejected — instruction echoing: "${content.slice(0, 80)}..."`);
             return '';
         }
 

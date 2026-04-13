@@ -467,12 +467,20 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // If content is empty but thinking field has content, use thinking as content
-        // Models like qwen3.5 put everything in the thinking field even when think=false
+        // If content is empty but thinking field has content, only use it if it
+        // looks like actual content (not reasoning). Models like qwen3.5 sometimes
+        // put real content in the thinking field when think=false.
         let content = (message.content as string) || '';
         if (!content && message.thinking) {
-            logger.info(COMPONENT, `[ThinkingFallback] Using thinking field as content (${((message.thinking as string) || '').length} chars)`);
-            content = (message.thinking as string) || '';
+            const thinking = (message.thinking as string) || '';
+            // Only use thinking as content if it doesn't start with reasoning patterns
+            const isReasoning = /^(The user|I need|I should|Let me|OK so|Alright|Hmm|This is|Looking at)/i.test(thinking.trim());
+            if (!isReasoning && thinking.length > 10) {
+                logger.info(COMPONENT, `[ThinkingFallback] Using thinking field as content (${thinking.length} chars)`);
+                content = thinking;
+            } else if (thinking) {
+                logger.debug(COMPONENT, `[ThinkingFallback] Discarding thinking field (looks like reasoning, ${thinking.length} chars)`);
+            }
         }
         // Strip leaked thinking tags from Qwen/DeepSeek models
         content = content.replace(/^[\s\S]*?<\/think>\s*/m, '').trim();
