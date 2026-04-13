@@ -326,6 +326,12 @@ export function initDaemon(): void {
         }
     }
 
+    // Set running BEFORE starting watchers so their immediate invocation doesn't bail
+    running = true;
+    startedAt = Date.now();
+    paused = false;
+    pauseReason = null;
+
     // Initialize watchers from default + user config
     for (const wc of watcherConfigs) {
         if (!wc.enabled) continue;
@@ -363,11 +369,6 @@ export function initDaemon(): void {
         startWatcher(state);
     }
     pendingWatcherConfigs.clear();
-
-    running = true;
-    startedAt = Date.now();
-    paused = false;
-    pauseReason = null;
 
     logger.info(COMPONENT, `Daemon started with ${watchers.size} watchers: ${[...watchers.keys()].join(', ')}`);
     logger.info(COMPONENT, `Rate limit: ${maxActionsPerHour} actions/hour`);
