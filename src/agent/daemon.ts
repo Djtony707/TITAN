@@ -240,6 +240,9 @@ const BUILTIN_WATCHERS: Record<string, () => Promise<void>> = {
     dreaming: dreamingWatcher,
 };
 
+/** Watchers registered before daemon starts — stores their requested intervals */
+const pendingWatcherConfigs: Map<string, { handler: () => Promise<void>; intervalMs: number }> = new Map();
+
 const DEFAULT_WATCHER_CONFIGS: WatcherConfig[] = [
     { name: 'goal', enabled: true, intervalMs: 300_000 },          // 5 min
     { name: 'cronFailure', enabled: true, intervalMs: 600_000 },   // 10 min
@@ -323,7 +326,7 @@ export function initDaemon(): void {
         }
     }
 
-    // Initialize watchers
+    // Initialize watchers from default + user config
     for (const wc of watcherConfigs) {
         if (!wc.enabled) continue;
 
@@ -344,6 +347,22 @@ export function initDaemon(): void {
         watchers.set(wc.name, state);
         startWatcher(state);
     }
+
+    // Start any watchers registered early via registerWatcher() (e.g. from skills loaded before daemon)
+    for (const [name, pending] of pendingWatcherConfigs) {
+        if (watchers.has(name)) continue; // Already started above
+        const state: WatcherState = {
+            config: { name, enabled: true, intervalMs: pending.intervalMs },
+            timer: null,
+            lastRun: 0,
+            runCount: 0,
+            errorCount: 0,
+            handler: pending.handler,
+        };
+        watchers.set(name, state);
+        startWatcher(state);
+    }
+    pendingWatcherConfigs.clear();
 
     running = true;
     startedAt = Date.now();
@@ -419,7 +438,10 @@ export function registerWatcher(name: string, handler: () => Promise<void>, inte
 
     BUILTIN_WATCHERS[name] = handler;
 
-    if (!running) return;
+    if (!running) {
+        pendingWatcherConfigs.set(name, { handler, intervalMs });
+        return;
+    }
 
     const state: WatcherState = {
         config: { name, enabled: true, intervalMs },
