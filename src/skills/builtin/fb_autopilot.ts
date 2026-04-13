@@ -161,7 +161,7 @@ const ELI5_EXPLANATIONS = [
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    const model = (fbConfig?.model as string) || 'ollama/qwen3.5:35b';
+    const model = (fbConfig?.model as string) || 'ollama/minimax-m2.7:cloud';
 
     const spotlight = FEATURE_SPOTLIGHTS[Math.floor(Math.random() * FEATURE_SPOTLIGHTS.length)];
     const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
@@ -368,7 +368,7 @@ function looksLikeReasoning(text: string): boolean {
 async function generateReply(commentText: string, commenterName: string): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    const model = (fbConfig?.model as string) || 'ollama/qwen3.5:35b';
+    const model = (fbConfig?.model as string) || 'ollama/minimax-m2.7:cloud';
     const firstName = commenterName.split(' ')[0];
 
     try {
