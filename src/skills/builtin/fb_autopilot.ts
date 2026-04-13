@@ -405,8 +405,8 @@ async function monitorComments(): Promise<void> {
                 try {
                     const replyResp = await fetch(`https://graph.facebook.com/v21.0/${commentId}/comments`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ message: reply }),
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: reply, access_token: token }),
                         signal: AbortSignal.timeout(15000),
                     });
 
@@ -490,8 +490,8 @@ export function registerFBAutopilotSkill(): void {
     // Post watcher: runs every 4 hours, checks if it's time to post
     registerWatcher('fb-autopilot-post', runFBAutopilot, 4 * 60 * 60 * 1000); // 4 hours
 
-    // Comment monitor: runs every 2 hours
-    registerWatcher('fb-autopilot-comments', monitorComments, 2 * 60 * 60 * 1000); // 2 hours
+    // Comment monitor: runs every 5 minutes
+    registerWatcher('fb-autopilot-comments', monitorComments, 5 * 60 * 1000); // 5 minutes
 
-    logger.info(COMPONENT, 'Facebook Autopilot registered (post every 4h, comments every 2h)');
+    logger.info(COMPONENT, 'Facebook Autopilot registered (post every 4h, comments every 5m)');
 }
