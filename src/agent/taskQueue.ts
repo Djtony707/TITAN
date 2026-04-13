@@ -152,7 +152,7 @@ export function completeQueuedTask(taskId: string, runId?: string, result?: stri
     }
 
     if (source === 'plan') {
-        completePlanTask(sourceId, subtaskId, result);
+        completePlanTask(sourceId, subtaskId, result || '');
         if (runId && isCommandPostEnabled()) {
             checkinTask(subtaskId, runId);
         }
@@ -178,7 +178,7 @@ export function failQueuedTask(taskId: string, runId?: string, error?: string): 
     }
 
     if (source === 'plan') {
-        failPlanTask(sourceId, subtaskId, error);
+        failPlanTask(sourceId, subtaskId, error || 'Unknown error');
         if (runId && isCommandPostEnabled()) {
             checkinTask(subtaskId, runId);
         }

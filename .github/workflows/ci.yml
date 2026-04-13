@@ -40,23 +40,9 @@ jobs:
         run: npm run build:ui
 
       - name: Run tests
-        run: npx vitest run --reporter=verbose || true
+        run: npx vitest run --reporter=verbose
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Run tests with coverage
-        if: matrix.node-version == 22
-        run: npx vitest run --reporter=verbose || true --coverage
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Upload coverage report
-        if: matrix.node-version == 22
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 7
 
   health:
     needs: test
@@ -109,77 +95,8 @@ jobs:
           if [ "$FAIL" -eq 1 ]; then exit 1; fi
           echo "All 5 version locations match: $PKG_VER"
 
-      - name: Doc accuracy check
-        run: |
-          PKG_VER=$(node -e "console.log(require('./package.json').version)")
-          TEST_COUNT=$(npx vitest run --reporter=json 2>/dev/null | node -e "
-            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
-              try { const j=JSON.parse(d); console.log(j.numTotalTests||0); }
-              catch(e) { console.log('UNKNOWN'); }
-            })
-          " || echo "UNKNOWN")
-
-          echo "Actual test count: $TEST_COUNT"
-          echo "Checking CLAUDE.md and README.md for version $PKG_VER..."
-
-          # Check version in CLAUDE.md
-          if ! grep -q "$PKG_VER" CLAUDE.md; then
-            echo "::warning::CLAUDE.md does not contain version $PKG_VER"
-          fi
-          if ! grep -q "$PKG_VER" README.md; then
-            echo "::warning::README.md does not contain version $PKG_VER"
-          fi
-          echo "Doc check complete"
-
       - name: npm publish dry-run
         run: npm publish --dry-run 2>&1
 
       - name: Docker build smoke test
         run: docker build --target deps -t titan-deps-test . 2>&1 | tail -5
-
-  coverage-check:
-    needs: test
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    if: github.event_name == 'pull_request'
-    env:
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-
-      - name: Check coverage threshold
-        run: |
-          if [ ! -f coverage/json-summary/coverage-summary.json ]; then
-            echo "::warning::Coverage report not found, skipping check"
-            exit 0
-          fi
-
-          LINE_COV=$(node -e "
-            const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('coverage/json-summary/coverage-summary.json', 'utf-8'));
-            console.log(Math.round(data.total.lines.pct * 100) / 100);
-          ")
-
-          echo "Line coverage: ${LINE_COV}%"
-
-          if [ $(echo "$LINE_COV < 60" | bc -l) -eq 1 ]; then
-            echo "::error::Coverage ${LINE_COV}% is below 60% threshold"
-            exit 1
-          fi
-
-          echo "Coverage check passed!"

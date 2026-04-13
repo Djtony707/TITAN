@@ -443,6 +443,7 @@ export class MessengerChannel extends ChannelAdapter {
             await this.handleDirectReply(senderId, text);
 
             // Drain queue — process any messages that came in while we were busy
+            // eslint-disable-next-line no-constant-condition
             while (true) {
                 const queue = this.messageQueue.get(senderId);
                 if (!queue || queue.length === 0) break;
@@ -592,11 +593,17 @@ You are responding to your creator via Facebook Messenger. He has FULL admin acc
 - Be direct, casual, and concise — this is Messenger, keep replies under 500 chars when possible
 - Call him Tony or boss
 - NEVER leak credentials, tokens, IPs, or file paths over Messenger (insecure channel)
-- Respond QUICKLY. Use 1-2 tool calls max unless the task truly requires more.
+
+FACEBOOK TOOLS — IMPORTANT RULES:
+- To see comments on a post: ALWAYS use fb_read_comments with the post ID first. NEVER guess or make up comment content.
+- To reply to a comment: Use fb_read_comments to get the exact comment ID, then fb_reply with that ID.
+- fb_read_feed shows posts with up to 5 recent comments each. For full comments, use fb_read_comments.
+- NEVER claim you liked, replied to, or interacted with a comment unless a tool confirmed success with a result ID.
+- If a tool fails or returns an error, tell Tony exactly what went wrong — don't pretend it worked.
 
 His message: `;
 
-        const TIMEOUT_MS = 60_000;
+        const TIMEOUT_MS = 120_000; // 2 min — FB API calls + Ollama inference needs more than 60s
 
         // Refresh typing indicator while working
         const typingInterval = setInterval(() => {

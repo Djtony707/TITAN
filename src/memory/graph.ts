@@ -263,7 +263,7 @@ async function extractEntities(content: string): Promise<{ entities: Array<{ nam
 
         // Skip entity extraction for very small models that can't produce valid JSON
         const SKIP_MODELS = ['llama3.2:1b', 'tinyllama', 'phi-2'];
-        if (SKIP_MODELS.some(m => model.includes(m))) return [];
+        if (SKIP_MODELS.some(m => model.includes(m))) return { entities: [], relations: [] };
 
         logger.info(COMPONENT, `Extracting entities from ${content.length} char episode via ${config.agent.model}`);
 
@@ -299,13 +299,26 @@ Text: ${content.slice(0, 500)}`;
             );
         }
 
-        const text = response.content || '';
-        logger.info(COMPONENT, `Extraction response: ${text.length} chars`);
-        // Match JSON — try outer object with entities key first, then array, then any object
-        const match = text.match(/\{"entities"\s*:\s*\[[\s\S]*\}/) ?? text.match(/\[[\s\S]*\]/) ?? text.match(/\{[\s\S]*\}/);
+        const rawText = response.content || '';
+        logger.info(COMPONENT, `Extraction response: ${rawText.length} chars`);
+
+        // Strip markdown code fences, leading/trailing noise before regex matching
+        const text = rawText
+            .replace(/```json\s*/gi, '')
+            .replace(/```\s*/g, '')
+            .trim();
+
+        // Match JSON — try structured formats first, then fallback to any JSON
+        // 1. {entities:[...], relations:[...]} format
+        // 2. [{name:...},...] array format (legacy)
+        // 3. Any JSON object with "name" key
+        // 4. Any JSON array
+        const match = text.match(/\{[\s\S]*"entities"\s*:\s*\[[\s\S]*\}/)
+            ?? text.match(/\[[\s\S]*"name"\s*:[\s\S]*\]/)
+            ?? text.match(/\{[\s\S]*"name"\s*:[\s\S]*\}/);
         if (!match) {
             logger.warn(COMPONENT, `No JSON found in extraction response: ${text.slice(0, 200)}`);
-            return [];
+            return { entities: [], relations: [] };
         }
 
         // Try to repair common JSON issues from small models
@@ -340,7 +353,7 @@ Text: ${content.slice(0, 500)}`;
 
         if (!parsed) {
             logger.warn(COMPONENT, `Entity extraction JSON parse failed, raw: ${jsonStr.slice(0, 200)}`);
-            return [];
+            return { entities: [], relations: [] };
         }
 
         // Handle new format: {entities: [...], relations: [...]} or legacy array format

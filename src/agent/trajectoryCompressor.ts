@@ -53,7 +53,11 @@ export async function compressToolResult(
     // construct accurate edit_file targets. Compressing read_file to head+tail
     // causes edit_file to fail with "target not found" because the model can't
     // see the middle of the file. Same for edit_file results (confirmation text).
-    const noCompressTools = new Set(['read_file', 'edit_file', 'write_file', 'append_file', 'apply_patch']);
+    const noCompressTools = new Set([
+        'read_file', 'edit_file', 'write_file', 'append_file', 'apply_patch',
+        'fb_read_feed', 'fb_get_insights', 'fb_read_comments',  // Structured API data — compression destroys comment/engagement details
+        'graph_search', 'memory',                                // Knowledge retrieval — full context needed
+    ]);
     if (noCompressTools.has(toolName)) return result;
 
     if (result.length <= MAX_RESULT_CHARS) return result;

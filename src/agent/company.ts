@@ -333,7 +333,7 @@ export function startCompanyRunner(companyId: string, intervalMs = 60000): boole
     const companies = loadCompanies();
     const idx = companies.findIndex(c => c.id === companyId);
     if (idx >= 0) {
-        (companies[idx] as Record<string, unknown>).runnerActive = true;
+        (companies[idx] as unknown as Record<string, unknown>).runnerActive = true;
         saveCompanies(companies);
     }
 
@@ -351,7 +351,7 @@ export function stopCompanyRunner(companyId: string): boolean {
     const companies = loadCompanies();
     const idx = companies.findIndex(c => c.id === companyId);
     if (idx >= 0) {
-        (companies[idx] as Record<string, unknown>).runnerActive = false;
+        (companies[idx] as unknown as Record<string, unknown>).runnerActive = false;
         saveCompanies(companies);
     }
 

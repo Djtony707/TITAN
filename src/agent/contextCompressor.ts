@@ -307,7 +307,7 @@ export function compressContext(
     const phasesApplied: string[] = [];
 
     // Phase 1: Tool output pruning (no LLM call)
-    let working = pruneToolOutputs(messages, 2);
+    const working = pruneToolOutputs(messages, 2);
     phasesApplied.push('tool_pruning');
 
     // Check if pruning was enough

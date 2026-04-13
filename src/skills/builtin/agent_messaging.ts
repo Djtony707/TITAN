@@ -39,11 +39,11 @@ export function registerAgentMessagingSkill(): void {
                 },
                 required: ['to', 'message'],
             },
-            execute: async (args, context) => {
+            execute: async (args) => {
                 const to = args.to as string;
                 const message = args.message as string;
                 const priority = (args.priority as 'normal' | 'urgent') || 'normal';
-                const from = (context as Record<string, unknown>)?.agentName as string || 'Unknown';
+                const from = (args as Record<string, unknown>)?.agentName as string || 'Unknown';
 
                 if (to === '*') {
                     const sent = broadcastMessage(from, message);

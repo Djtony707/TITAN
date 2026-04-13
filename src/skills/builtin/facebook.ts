@@ -287,8 +287,9 @@ export function registerFacebookSkill(): void {
 
                 try {
                     const pageId = (args.pageId as string) || getPageId();
+                    // Fetch posts with comment content (not just summary counts)
                     const result = await graphGet(`/${pageId}/feed`, {
-                        fields: 'id,message,created_time,likes.summary(true),comments.summary(true),shares',
+                        fields: 'id,message,created_time,likes.summary(true),comments.limit(5){id,from{name},message,created_time},comments.summary(true),shares',
                         limit: limit.toString(),
                     });
 
@@ -299,8 +300,23 @@ export function registerFacebookSkill(): void {
                         const msg = (p.message as string || '(no text)').slice(0, 200);
                         const time = p.created_time as string || '';
                         const likes = ((p.likes as Record<string, unknown>)?.summary as Record<string, unknown>)?.total_count || 0;
-                        const comments = ((p.comments as Record<string, unknown>)?.summary as Record<string, unknown>)?.total_count || 0;
-                        return `${i + 1}. [${time}] ${msg}\n   ${likes} likes, ${comments} comments (ID: ${p.id})`;
+                        const commentSummary = (p.comments as Record<string, unknown>) || {};
+                        const commentCount = ((commentSummary.summary as Record<string, unknown>)?.total_count as number) || 0;
+                        const commentData = (commentSummary.data as Array<Record<string, unknown>>) || [];
+
+                        let postLine = `${i + 1}. [${time}] ${msg}\n   ${likes} likes, ${commentCount} comments (ID: ${p.id})`;
+
+                        // Include actual comment text so the agent doesn't hallucinate
+                        if (commentData.length > 0) {
+                            const commentLines = commentData.map(c => {
+                                const author = (c.from as Record<string, unknown>)?.name || 'Unknown';
+                                const cmsg = (c.message as string || '').slice(0, 150);
+                                return `     💬 ${author}: "${cmsg}" (comment ID: ${c.id})`;
+                            });
+                            postLine += '\n' + commentLines.join('\n');
+                        }
+
+                        return postLine;
                     });
 
                     return `Recent ${posts.length} posts:\n\n${lines.join('\n\n')}`;
@@ -331,21 +347,86 @@ export function registerFacebookSkill(): void {
                 const commentId = args.commentId as string;
                 const message = args.message as string;
 
+                if (!commentId || !message) return 'Both commentId and message are required.';
+
                 // PII check on replies too
                 const piiMatch = checkForPII(message);
                 if (piiMatch) return `Reply blocked: detected ${piiMatch}. Remove personal information and try again.`;
 
                 try {
-                    const result = await graphPost(`/${commentId}/comments`, { message });
-                    return `Reply posted! Comment ID: ${result.id}\nContent: "${message.slice(0, 100)}..."`;
+                    // First verify the comment exists
+                    const check = await graphGet(`/${commentId}`, { fields: 'id,from,message' });
+                    if (!check.id) return `Comment not found: ${commentId}. Use fb_read_comments to get valid comment IDs.`;
+
+                    // Post reply — Graph API requires access_token in the body for page-scoped actions
+                    const result = await graphPost(`/${commentId}/comments`, {
+                        message,
+                        access_token: getPageToken(),
+                    });
+
+                    if (!result.id) return `Reply may have failed — no comment ID returned. Check the post manually.`;
+                    return `Reply posted! Comment ID: ${result.id}\nReplied to: ${(check.from as Record<string, unknown>)?.name || 'unknown'}\nContent: "${message.slice(0, 100)}..."`;
                 } catch (e) {
-                    return `Failed to reply: ${(e as Error).message}`;
+                    const errMsg = (e as Error).message;
+                    if (errMsg.includes('190')) return `Auth error — page token may be expired. ${errMsg}`;
+                    if (errMsg.includes('100')) return `Invalid comment ID "${commentId}". Use fb_read_comments to get valid IDs. ${errMsg}`;
+                    return `Failed to reply: ${errMsg}`;
                 }
             },
         },
     );
 
-    // ── Tool 4: fb_get_insights ──
+    // ── Tool 4: fb_read_comments ──
+    registerSkill(
+        { name: 'facebook', description: 'Facebook hybrid skill', version: '1.0.0', source: 'bundled', enabled: true },
+        {
+            name: 'fb_read_comments',
+            description: 'Read comments on a specific Facebook post. Returns comment text, author names, and comment IDs for replying.\nUSE THIS WHEN: user wants to see comments on a post, check engagement, or find comment IDs to reply to.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    postId: { type: 'string', description: 'The post ID to read comments from (get this from fb_read_feed)' },
+                    limit: { type: 'number', description: 'Number of comments to fetch (default: 10, max: 50)' },
+                },
+                required: ['postId'],
+            },
+            execute: async (args) => {
+                if (!hasApiAccess()) return 'No Facebook API credentials configured. Set FB_PAGE_ACCESS_TOKEN and FB_PAGE_ID.';
+
+                const postId = args.postId as string;
+                if (!postId) return 'postId is required. Use fb_read_feed first to get post IDs.';
+                const limit = Math.min((args.limit as number) || 10, 50);
+
+                try {
+                    const result = await graphGet(`/${postId}/comments`, {
+                        fields: 'id,from{name,id},message,created_time,like_count,comment_count',
+                        limit: limit.toString(),
+                        order: 'reverse_chronological',
+                    });
+
+                    const comments = (result.data as Array<Record<string, unknown>>) || [];
+                    if (comments.length === 0) return `No comments found on post ${postId}.`;
+
+                    const lines = comments.map((c, i) => {
+                        const author = (c.from as Record<string, unknown>)?.name || 'Unknown';
+                        const msg = (c.message as string || '(no text)').slice(0, 300);
+                        const time = c.created_time as string || '';
+                        const likes = (c.like_count as number) || 0;
+                        const replies = (c.comment_count as number) || 0;
+                        return `${i + 1}. ${author} [${time}]: "${msg}"\n   ${likes} likes, ${replies} replies (comment ID: ${c.id})`;
+                    });
+
+                    return `${comments.length} comments on post ${postId}:\n\n${lines.join('\n\n')}`;
+                } catch (e) {
+                    const errMsg = (e as Error).message;
+                    if (errMsg.includes('100')) return `Post not found: ${postId}. Use fb_read_feed to get valid post IDs.`;
+                    return `Failed to read comments: ${errMsg}`;
+                }
+            },
+        },
+    );
+
+    // ── Tool 5: fb_get_insights ──
     registerSkill(
         { name: 'facebook', description: 'Facebook hybrid skill', version: '1.0.0', source: 'bundled', enabled: true },
         {
@@ -514,5 +595,5 @@ export function registerFacebookSkill(): void {
         },
     );
 
-    logger.info(COMPONENT, 'Facebook hybrid skill registered (6 tools)');
+    logger.info(COMPONENT, 'Facebook hybrid skill registered (7 tools)');
 }

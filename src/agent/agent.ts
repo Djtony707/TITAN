@@ -931,7 +931,7 @@ export async function processMessage(
             handleApproval(session.id, false);
             const content = 'Plan cancelled. Let me know if you want to try a different approach.';
             addMessage(session, 'assistant', '[DELIBERATION] ' + content, { model: config.agent.model, tokenCount: 0 });
-            return { content, sessionId: session.id, toolsUsed: [], tokenUsage: state?.tokenUsage || { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
+            return { content, sessionId: session.id, toolsUsed: [], tokenUsage: { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
         }
         // If neither yes/no, treat as a modification — cancel and fall through to normal processing
         cancelDeliberation(session.id);

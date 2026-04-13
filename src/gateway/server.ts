@@ -1526,7 +1526,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           providers: {
             ...cfg.providers,
             openrouter: {
-              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [] }),
+              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [], rotationStrategy: 'priority' as const, credentialCooldownMs: 60000 }),
               apiKey: openrouterKey,
               baseUrl: cloudApi + '/api/v1',
             }
@@ -1706,7 +1706,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Validate session ID format (prevent injection)
     if (requestedSessionId && !/^[a-zA-Z0-9_:-]{1,128}$/.test(requestedSessionId)) {
-      return res.status(400).json({ error: 'Invalid session ID format' });
+      res.status(400).json({ error: 'Invalid session ID format' });
+      return;
     }
 
     // Set up abort controller for this request

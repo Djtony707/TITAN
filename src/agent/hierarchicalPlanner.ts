@@ -191,6 +191,7 @@ export async function executeHierarchicalPlan(
     let failedTasks = 0;
 
     // Resolve dependencies and execute
+    // eslint-disable-next-line no-constant-condition
     while (true) {
         const ready = getReadyTasks(plan);
         if (ready.length === 0) break;

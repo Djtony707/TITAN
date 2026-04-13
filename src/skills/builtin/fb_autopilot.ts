@@ -280,7 +280,7 @@ function saveRepliedComments(ids: Set<string>): void {
     try {
         const arr = [...ids].slice(-500);
         writeFileSync(REPLIED_COMMENTS_PATH, JSON.stringify(arr), 'utf-8');
-    } catch {}
+    } catch { /* intentionally empty */ }
 }
 
 /** Generate a respectful reply to a comment. Never reveals personal info. */

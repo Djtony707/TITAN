@@ -68,7 +68,7 @@ export interface ActivityEntry {
     timestamp: string;
     type: 'task_checkout' | 'task_checkin' | 'task_expired' | 'budget_warning' |
           'budget_exceeded' | 'agent_heartbeat' | 'agent_status_change' |
-          'goal_created' | 'goal_completed' | 'autopilot_run' | 'tool_execution' | 'error';
+          'goal_created' | 'goal_completed' | 'autopilot_run' | 'tool_execution' | 'error' | 'issue_deleted';
     agentId?: string;
     goalId?: string;
     message: string;

@@ -283,7 +283,7 @@ export function verifyMemoryStaleness(): { pruned: number; decayed: number } {
     // Remove knowledge entries older than 60 days with low scores
     const before = k.entries.length;
     k.entries = k.entries.filter(e => {
-        const age = now - new Date(e.timestamp).getTime();
+        const age = now - new Date(e.createdAt).getTime();
         return age < SIXTY_DAYS || e.score > 0.7;
     });
     pruned = before - k.entries.length;

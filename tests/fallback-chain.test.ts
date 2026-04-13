@@ -28,6 +28,15 @@ vi.mock('../src/config/config.js', () => ({
     resetConfigCache: vi.fn(),
 }));
 
+// Mock sleep to avoid real delays in retry backoff — tests run in <1s instead of 110s
+vi.mock('../src/utils/helpers.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/utils/helpers.js')>();
+    return {
+        ...actual,
+        sleep: vi.fn(() => Promise.resolve()),
+    };
+});
+
 vi.mock('../src/mesh/registry.js', () => ({
     findModelOnMesh: vi.fn(() => null),
 }));
