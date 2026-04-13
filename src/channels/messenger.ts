@@ -142,7 +142,80 @@ TITAN is 100% free and open-source (MIT license). You bring your own AI models �
 - NEVER discuss competitors negatively — just highlight what makes TITAN unique
 - NEVER pretend to be human — own being an AI proudly, it's the whole point`;
 
+// ── Prompt Injection Detection ──────────────────────────────────
+
+const INJECTION_PATTERNS = [
+    // Direct instruction override attempts
+    /ignore (?:all |your |the |previous |above )?(instructions|rules|prompt|system)/i,
+    /forget (?:all |your |the |previous |above )?(instructions|rules|prompt|system)/i,
+    /disregard (?:all |your |the |previous |above )?(instructions|rules|prompt|system)/i,
+    /override (?:all |your |the |previous |above )?(instructions|rules|prompt|system)/i,
+    /you are now|you're now|act as if|pretend you(?:'re| are)/i,
+    /new instructions|new rules|new persona|new role/i,
+    /from now on|starting now|going forward.*(?:you|your)/i,
+
+    // Role-switching attempts
+    /you are (?:a |an )?(?:DAN|evil|unrestricted|jailbroken|unfiltered)/i,
+    /enter (?:dev|developer|debug|admin|god|sudo|root) mode/i,
+    /switch to (?:unrestricted|unfiltered|uncensored|raw) mode/i,
+    /(?:enable|activate|turn on) (?:dev|developer|debug|admin|jailbreak) mode/i,
+
+    // System prompt extraction
+    /(?:show|reveal|display|print|output|give|tell|share|repeat|recite).*(?:system prompt|instructions|rules|initial prompt|original prompt)/i,
+    /what (?:are|were) your (?:original |initial |system )?(?:instructions|rules|prompt)/i,
+    /paste (?:your|the) (?:system |original |initial )?(?:prompt|instructions)/i,
+
+    // Delimiter/formatting tricks
+    /\[SYSTEM\]|\[INST\]|<\|system\|>|<\|im_start\|>|<<SYS>>|###\s*(?:System|Instruction)/i,
+    /```(?:system|prompt|instructions)/i,
+
+    // Credential/token extraction
+    /(?:show|give|share|reveal|print).*(?:api key|token|password|secret|credential|access.token)/i,
+    /what is (?:your|the) (?:api |access )?(?:key|token|password|secret)/i,
+
+    // Code execution attempts
+    /(?:run|execute|eval)\s*(?:this|the following)?\s*(?:code|command|script|shell)/i,
+    /(?:import|require|fetch|curl|wget)\s*\(/i,
+
+    // Persona manipulation
+    /(?:you|your) (?:real|true|actual|hidden) (?:name|identity|purpose|personality)/i,
+    /stop being titan|stop pretending|drop the act|break character/i,
+];
+
+/** Check for prompt injection attempts. Returns the matched pattern or null. */
+function detectInjection(message: string): string | null {
+    for (const pattern of INJECTION_PATTERNS) {
+        if (pattern.test(message)) {
+            const match = message.match(pattern);
+            return match ? match[0] : 'injection pattern';
+        }
+    }
+
+    // Length-based heuristic: extremely long messages are suspicious
+    if (message.length > 2000) return 'oversized message (>2000 chars)';
+
+    // Base64/encoded content detection
+    if (/^[A-Za-z0-9+/=]{100,}$/.test(message.trim())) return 'base64-encoded content';
+
+    return null;
+}
+
+const INJECTION_RESPONSES = [
+    "Nice try! 😄 I'm TITAN — I only talk about what I can do for you. Want to know how I can automate your workflow?",
+    "I see what you did there! 🤖 I'm locked in on helping you learn about TITAN though. What can I help you with?",
+    "Ha, clever! But I'm built different — I stick to what I know: TITAN. Ask me anything about autonomous AI agents!",
+    "That's not going to work on me! 😎 But you know what does work? TITAN automating your entire workflow. Want to hear more?",
+    "I appreciate the creativity, but I'm focused on one thing: helping you learn about TITAN. What would you like to automate?",
+];
+
 async function generateMessengerReply(userMessage: string): Promise<string> {
+    // ── Injection detection — check before sending to LLM ──
+    const injection = detectInjection(userMessage);
+    if (injection) {
+        logger.warn(COMPONENT, `Injection attempt blocked: "${injection}" from message: "${userMessage.slice(0, 80)}..."`);
+        return INJECTION_RESPONSES[Math.floor(Math.random() * INJECTION_RESPONSES.length)];
+    }
+
     const config = loadConfig();
     const model = config.agent?.model || 'ollama/glm-5.1:cloud';
 
@@ -319,12 +392,14 @@ export class MessengerChannel extends ChannelAdapter {
 
     /** Handle DM directly — generate TITAN-only reply and send via Messenger API */
     private async handleDirectReply(senderId: string, userMessage: string): Promise<void> {
+        const injection = detectInjection(userMessage);
         const reply = await generateMessengerReply(userMessage);
         await this.send({ channel: 'messenger', userId: senderId, content: reply });
 
         // Notify Tony about the conversation (skip if Tony is the sender)
         if (senderId !== this.ownerId) {
-            const notification = `📩 New DM on TITAN AI page\nFrom: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
+            const alertTag = injection ? `⚠️ INJECTION BLOCKED: "${injection}"\n` : '';
+            const notification = `📩 New DM on TITAN AI page\n${alertTag}From: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
             await this.send({ channel: 'messenger', userId: this.ownerId, content: notification }).catch(e =>
                 logger.debug(COMPONENT, `Owner notification failed: ${(e as Error).message}`),
             );
