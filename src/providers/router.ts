@@ -27,6 +27,50 @@ import { getExistingPool } from './credentialPool.js';
 
 const COMPONENT = 'Router';
 
+// ── Chain-of-thought stripping ──────────────────────────────────
+// Some local models (qwen, glm, deepseek, etc.) leak their internal
+// reasoning into the response. This runs on EVERY chat() response so
+// no consumer (FB posts, Messenger, comments, web chat) ever sees it.
+
+function stripThinkingFromResponse(text: string): string {
+    let cleaned = text;
+
+    // 1. Remove <think>...</think> blocks (deepseek, qwen thinking mode)
+    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+    // 2. Remove ```thinking ... ``` blocks
+    cleaned = cleaned.replace(/```thinking[\s\S]*?```/gi, '');
+
+    // 3. If the response starts with reasoning and the actual reply follows,
+    //    try to extract just the reply. Common patterns:
+    //    - "The user wants... [reasoning]\n\n[actual reply]"
+    //    - "Let me think... [reasoning]\n\n[actual reply]"
+    //    Only do this if the text looks like it starts with meta-reasoning.
+    const reasoningStart = /^(The user wants|The comment|I need to|I should|Let me (think|craft|write|consider)|OK so|Alright|Hmm,)/i;
+    if (reasoningStart.test(cleaned.trim())) {
+        // Look for a clear break between reasoning and the actual output
+        // Double newline or "---" typically separates reasoning from reply
+        const parts = cleaned.split(/\n{2,}|^---$/m);
+        // Find the first part that doesn't look like reasoning
+        const replyParts = parts.filter(p => {
+            const trimmed = p.trim();
+            if (!trimmed) return false;
+            if (reasoningStart.test(trimmed)) return false;
+            if (/^(Wait|Actually|But |So |Since |That works|That's about|Let me count)/i.test(trimmed)) return false;
+            if (/\b(characters|under \d+ char|personality|mentioned|the rules)\b/i.test(trimmed)) return false;
+            return true;
+        });
+        if (replyParts.length > 0) {
+            cleaned = replyParts.join('\n\n');
+        }
+    }
+
+    // 4. Remove wrapping quotes that some models add
+    cleaned = cleaned.trim().replace(/^["']|["']$/g, '').trim();
+
+    return cleaned;
+}
+
 // ── Provider name normalization ─────────────────────────────────
 const PROVIDER_ALIASES: Record<string, string> = {
     'z.ai': 'xai',
@@ -610,6 +654,11 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const result = await provider.chat({ ...options, model });
+
+            // Strip chain-of-thought leakage from model responses
+            if (result.content) {
+                result.content = stripThinkingFromResponse(result.content);
+            }
 
             // Record success for circuit breaker
             recordSuccess(providerName);
