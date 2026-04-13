@@ -24,6 +24,7 @@ import type { ChatMessage } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
 import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensureLoaded as ensureBrainLoaded } from './brain.js';
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
+import { classifyPipeline, resolvePipelineConfig, PIPELINE_PROFILES } from './pipeline.js';
 import { buildSelfAwarenessContext } from './selfAwareness.js';
 import { analyzeForDelegation, executeDelegationPlan } from './orchestrator.js';
 import { queueWakeup } from './agentWakeup.js';
@@ -857,8 +858,29 @@ export async function processMessage(
     // In supervised mode: use the dynamic budget capped at the hard limit
     let effectiveMaxRounds = isAutonomous ? autonomyHardCap : Math.min(dynamicBudget, autonomyHardCap);
     logger.info(COMPONENT, `[RoundBudget] ${dynamicBudget} rounds (cap: ${autonomyHardCap})`);
-    const reflectionEnabled = voiceFastPath ? false : (config.agent.reflectionEnabled ?? true);
-    const reflectionInterval = config.agent.reflectionInterval ?? 3;
+    let reflectionEnabled = voiceFastPath ? false : (config.agent.reflectionEnabled ?? true);
+    let reflectionInterval = config.agent.reflectionInterval ?? 3;
+
+    // ── Pipeline classification ─────────────────────────────────
+    const pipelineType = classifyPipeline(message, channel);
+    const pipelineConfig = resolvePipelineConfig(pipelineType, effectiveMaxRounds, hardCap);
+    let pipelineTerminalTools: string[] | undefined;
+    let pipelineCompletionStrategy: 'smart-exit' | 'no-tools' | 'terminal-tool' | 'single-round' | undefined;
+    let pipelineSmartExit: boolean | undefined;
+    let pipelineTaskEnforcement: string | null = null;
+    let pipelineEnsureTools: string[] = [];
+
+    if (pipelineConfig) {
+        effectiveMaxRounds = pipelineConfig.maxRounds;
+        reflectionEnabled = pipelineConfig.reflectionEnabled;
+        reflectionInterval = pipelineConfig.reflectionInterval;
+        pipelineTerminalTools = pipelineConfig.terminalTools;
+        pipelineCompletionStrategy = pipelineConfig.completionStrategy;
+        pipelineSmartExit = pipelineConfig.smartExitEnabled;
+        pipelineTaskEnforcement = pipelineConfig.taskEnforcement;
+        pipelineEnsureTools = pipelineConfig.ensureTools;
+        logger.info(COMPONENT, `[Pipeline:${pipelineType}] rounds=${effectiveMaxRounds}, smartExit=${pipelineSmartExit}, completion=${pipelineCompletionStrategy}, terminals=[${pipelineTerminalTools.join(',')}]`);
+    }
 
     // Voice fast-path: cap tool rounds + skip heavyweight operations for faster responses
     if (voiceFastPath) {
@@ -1069,6 +1091,11 @@ export async function processMessage(
 
     if (voiceFastPath) {
         // Voice skips task enforcement — compact prompt handles everything
+    } else if (pipelineTaskEnforcement) {
+        // Pipeline-specific task enforcement — replaces scattered regex heuristics
+        systemPrompt += `\n\n${pipelineTaskEnforcement}`;
+        taskEnforcementActive = true;
+        logger.info(COMPONENT, `[Pipeline:${pipelineType}] Task enforcement injected`);
     } else {
     // Continuation injection: short messages like "CONFIRM", "yes", "all of them" lose all task
     // context after system prompt compression. Re-inject the task context so the model knows
@@ -1229,8 +1256,24 @@ export async function processMessage(
         // Use config coreTools only if non-empty; otherwise fall back to DEFAULT_CORE_TOOLS
         const configCoreTools = toolSearchConfig?.coreTools;
         const effectiveCoreTools = (configCoreTools && configCoreTools.length > 0) ? configCoreTools : DEFAULT_CORE_TOOLS;
-        const coreNames = new Set(voiceFastPath ? VOICE_CORE_TOOLS : effectiveCoreTools);
+        // Pipeline tools: merge pipeline-specific tools into the core set
+        const pipelineMerged = pipelineEnsureTools.length > 0
+            ? [...new Set([...effectiveCoreTools, ...pipelineEnsureTools])]
+            : effectiveCoreTools;
+        const coreNames = new Set(voiceFastPath ? VOICE_CORE_TOOLS : pipelineMerged);
         activeTools = activeTools.filter(t => coreNames.has(t.function.name));
+        // If pipeline tools were requested but not found in activeTools, pull from backup
+        if (pipelineEnsureTools.length > 0) {
+            const activeNames = new Set(activeTools.map(t => t.function.name));
+            const missing = pipelineEnsureTools.filter(name => !activeNames.has(name));
+            if (missing.length > 0) {
+                const rescued = allToolsBackup.filter(t => missing.includes(t.function.name));
+                activeTools.push(...rescued);
+                if (rescued.length > 0) {
+                    logger.info(COMPONENT, `[Pipeline:${pipelineType}] Rescued ${rescued.length} tools: [${rescued.map(t => t.function.name).join(', ')}]`);
+                }
+            }
+        }
         logger.info(COMPONENT, `[ToolSearch] Compact mode: ${allToolsBackup.length} → ${activeTools.length} tools (${allToolsBackup.length - activeTools.length} discoverable via tool_search)`);
     }
 
@@ -1283,7 +1326,11 @@ export async function processMessage(
         toolSearchEnabled,
         isKimiSwarm,
         selfHealEnabled,
+        smartExitEnabled: pipelineSmartExit,
         thinkingOverride: session.thinkingOverride,
+        pipelineTerminalTools,
+        completionStrategy: pipelineCompletionStrategy,
+        pipelineType,
     });
 
     // Unpack results

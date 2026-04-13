@@ -78,6 +78,12 @@ export interface LoopContext {
     selfHealEnabled: boolean;
     smartExitEnabled?: boolean;
     thinkingOverride?: string;
+    /** Pipeline-specific terminal tools for SmartExit */
+    pipelineTerminalTools?: string[];
+    /** Pipeline-specific completion detection strategy */
+    completionStrategy?: 'smart-exit' | 'no-tools' | 'terminal-tool' | 'single-round';
+    /** Pipeline type for logging */
+    pipelineType?: string;
 }
 
 /** Everything processMessage needs back from the loop */
@@ -1097,20 +1103,37 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 // Smart exit: only skip to respond if a single TERMINAL tool succeeded.
                 // Terminal tools are ones that produce a final artifact (write, append)
                 // or answer a direct question (weather, system_info).
-                // Information-gathering tools (read_file, list_dir, web_search, shell)
+                // Information-gathering tools (read_file, list_dir, web_search, shell, memory)
                 // are NOT terminal — they almost always need a follow-up action.
-                // The old list included read_file/shell/web_search which caused the model
-                // to bail after one read without ever writing anything.
-                const terminalTools = new Set(['write_file', 'append_file', 'weather', 'system_info', 'memory']);
-                const singleToolSuccess = pendingToolCalls.length === 1
-                    && toolResults.every(r => r.success)
-                    && terminalTools.has(pendingToolCalls[0].function.name);
-                if (singleToolSuccess && round >= 2 && ctx.smartExitEnabled !== false) {
-                    logger.info(COMPONENT, '[SmartExit] Terminal tool succeeded — skipping to respond phase');
-                    phase = 'respond';
-                } else {
-                    // Autonomous mode: go back for more tool rounds
+                const completionStrategy = ctx.completionStrategy || 'smart-exit';
+
+                // Pipeline-aware completion detection
+                if (completionStrategy === 'no-tools') {
+                    // Research/browser: keep going until model stops requesting tools
+                    // (This path always continues — SmartExit is effectively disabled)
                     phase = 'think';
+                } else if (completionStrategy === 'single-round') {
+                    // Chat: one tool round then respond
+                    if (round >= 1) {
+                        logger.info(COMPONENT, `[SmartExit:${ctx.pipelineType || 'chat'}] Single-round completion — skipping to respond`);
+                        phase = 'respond';
+                    } else {
+                        phase = 'think';
+                    }
+                } else {
+                    // smart-exit or terminal-tool: exit when a terminal tool succeeds
+                    const defaultTerminals = ['write_file', 'append_file', 'weather', 'system_info', 'fb_post', 'fb_reply', 'content_publish'];
+                    const terminalTools = new Set(ctx.pipelineTerminalTools || defaultTerminals);
+                    const singleToolSuccess = pendingToolCalls.length === 1
+                        && toolResults.every(r => r.success)
+                        && terminalTools.has(pendingToolCalls[0].function.name);
+                    if (singleToolSuccess && round >= 2 && ctx.smartExitEnabled !== false) {
+                        logger.info(COMPONENT, `[SmartExit:${ctx.pipelineType || 'general'}] Terminal tool "${pendingToolCalls[0].function.name}" succeeded — skipping to respond`);
+                        phase = 'respond';
+                    } else {
+                        // Autonomous mode: go back for more tool rounds
+                        phase = 'think';
+                    }
                 }
             } else {
                 // Non-autonomous: force text-only response
