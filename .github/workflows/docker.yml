@@ -45,7 +45,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta-standard
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -83,7 +83,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta-gpu
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
