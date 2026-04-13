@@ -798,7 +798,12 @@ export async function getCheckpoints(): Promise<{ checkpoints: import('./types.j
 // ---- Companies ----
 
 export async function listCompanies(): Promise<unknown[]> {
-  return request('/api/companies');
+  const data = await request<unknown>('/api/companies');
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object' && 'companies' in (data as Record<string, unknown>)) {
+    return (data as Record<string, unknown>).companies as unknown[];
+  }
+  return [];
 }
 
 export async function createCompany(opts: { name: string; mission?: string }): Promise<unknown> {

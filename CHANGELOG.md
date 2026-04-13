@@ -5,6 +5,69 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.2.1] — 2026-04-13
+
+### Fixed — 45-Bug Deep Audit (Agent, Memory, Pipeline, Providers)
+
+Comprehensive audit and fix across 30 files — no bandaids, real structural fixes only.
+
+**Ollama Provider (`ollama.ts`)**
+- Model capabilities system — per-model profiles (`ModelCapabilities` map) replacing blanket rules for thinking, temperature, tool forcing, and system merge
+- Gemma4 sampling params (temperature 1.0, topP 0.95, topK 64) applied via capabilities map
+- `chatStream()` now respects same model capabilities as `chat()`
+
+**Agent Core (`agent.ts`, `agentLoop.ts`)**
+- Generic pipeline prefix stripping (regex patterns for "His message:", "User said:", etc.)
+- Task-type-aware HallucinationGuard (skips chat/general/voice/admin channels)
+- Pipeline `minRounds` wired through agent → agentLoop → smart-exit check
+- `pipelineEnsureTools` works even when toolSearch is disabled
+- ToolRescue: fixed unreachable write_file/edit_file rescue with proper per-tool branching
+- Empty response retry guard prevents infinite retry loops
+- Context truncation no longer skips messages over 200 chars
+- Silent pivot rejection injects adjustment message instead of silently dropping
+- Per-session progress tracking (`sessionProgress` Map) replacing global array
+- Reflection sanitization (`sanitizeReflection()`) truncating to 200 chars, stripping injection patterns
+- Streaming token estimation from content length (~4 chars/token)
+- Deliberation message collapse in context trimming
+
+**Pipeline (`pipeline.ts`)**
+- Content rule checked before Social to prevent regex overlap
+- Social regex word gate (`>= 3 words`) to reduce false positives
+- Sysadmin regex: removed "process" (false positive), added "reboot", "upgrade", "shutdown"
+
+**Memory System (`memory.ts`, `learning.ts`, `graph.ts`, `relationship.ts`)**
+- Atomic file writes (write to `.tmp` then `renameSync`) across all 4 memory modules
+- Dirty flag pattern — failed writes trigger immediate retry on next save
+- Multi-user profile isolation (`profileCache` Map keyed by userId, per-user JSON files)
+- Word-boundary regex search replacing `.includes()` for accurate memory recall
+- Vector search stale ID check before score boosting
+- Result deduplication before returning
+- Knowledge graph: eliminated global mutable `lastExtractedRelations` — `extractEntities()` now returns `{ entities, relations }`
+- Co-mention edge cap (`MAX_CO_EDGES = 5`) preventing edge explosion
+
+**Tool Runner (`toolRunner.ts`)**
+- Hoisted `attempt` variable outside for-loop scope (was undefined in failure path)
+- JSON parse: logs warning + attempts salvage on malformed tool args
+
+**Deliberation (`deliberation.ts`)**
+- `handleApproval()` persists state + cleans cancelled entries
+- `executePlan()` deletes from active map on completion/failure
+- Token usage tracking (`tokenUsage` field on `DeliberationState`)
+
+**Reflection (`reflection.ts`)**
+- Model fallback chain: `fast → reasoning → agent model` instead of hardcoded `openai/gpt-4o-mini`
+
+**Loop & Stall Detection (`loopDetection.ts`, `stallDetector.ts`)**
+- `countNoProgressPolls()` checks `argsHash` in addition to `toolName` and `outputHash`
+- `sweepStaleSessions()` with auto-sweep every 10 min
+- Proper initialization of `toolNames` and `consecutiveNoTool` fields
+
+**Tests**
+- Updated mocks for `setProgressSession`, `renameSync`, retry counts
+- Fixed fallback-chain test to match `maxRetries: 4` config
+
+---
+
 ## [2.6.0] — 2026-04-10
 
 ### Redesigned — Mission Control v3 (Hybrid Command Center)

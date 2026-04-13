@@ -191,7 +191,7 @@ describe('Fallback Chain Router Logic', () => {
         const openai = getProvider('openai');
 
         if (anthropic && openai) {
-            // Primary fails with rate limit on all retry attempts (maxRetries=3, so 4 total calls)
+            // Primary fails with rate limit on all retry attempts (maxRetries=4, so 5 total calls)
             const anthropicError = Object.assign(new Error('rate limit exceeded'), { status: 429 });
             vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             // First fallback succeeds
@@ -208,8 +208,8 @@ describe('Fallback Chain Router Logic', () => {
             });
 
             expect(result.content).toBe('Hello from fallback');
-            // Primary is retried 4 times (1 initial + 3 retries) before fallback
-            expect(anthropic.chat).toHaveBeenCalledTimes(4);
+            // Primary is retried 5 times (1 initial + 4 retries) before fallback
+            expect(anthropic.chat).toHaveBeenCalledTimes(5);
             expect(openai.chat).toHaveBeenCalledTimes(1);
         }
     });

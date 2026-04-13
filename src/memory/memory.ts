@@ -3,7 +3,7 @@
  * JSON-file-backed persistent memory for conversations, facts, preferences, and usage.
  * Uses no native dependencies — pure Node.js for maximum portability.
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
@@ -82,6 +82,7 @@ interface SkillRecord {
 const DB_FILE = join(TITAN_HOME, 'titan-data.json');
 
 let store: DataStore | null = null;
+let dirty = false;
 
 function getDefaultStore(): DataStore {
   return {
@@ -94,6 +95,7 @@ function getDefaultStore(): DataStore {
   };
 }
 
+// NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadStore(): DataStore {
   if (store) return store;
   ensureDir(TITAN_HOME);
@@ -122,8 +124,12 @@ function saveStore(): void {
   if (!store) return;
   ensureDir(TITAN_HOME);
   try {
-    writeFileSync(DB_FILE, JSON.stringify(store, null, 2), 'utf-8');
+    const tmpFile = DB_FILE + '.tmp';
+    writeFileSync(tmpFile, JSON.stringify(store, null, 2), 'utf-8');
+    renameSync(tmpFile, DB_FILE);
+    dirty = false;
   } catch (e) {
+    dirty = true;
     logger.error(COMPONENT, `Failed to save data: ${(e as Error).message}`);
   }
 }
@@ -131,6 +137,7 @@ function saveStore(): void {
 // Auto-save periodically
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 function debouncedSave(): void {
+  if (dirty) { saveStore(); return; }
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveStore, 1000);
   saveTimeout.unref();
@@ -146,6 +153,9 @@ export function initMemory(): void {
 export function closeMemory(): void {
   if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
   saveStore();
+  if (dirty) {
+    logger.error(COMPONENT, 'DATA MAY BE LOST — failed to flush memory store on shutdown');
+  }
   store = null;
 }
 
@@ -297,8 +307,10 @@ export async function searchMemories(category?: string, query?: string): Promise
   }
   if (query) {
     const q = query.toLowerCase();
+    // Word-boundary match to avoid false positives ("use" matching "user", "reuse")
+    const qRegex = new RegExp('\\b' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
     results = results.filter((m) =>
-      m.key.toLowerCase().includes(q) || m.value.toLowerCase().includes(q)
+      qRegex.test(m.key) || qRegex.test(m.value)
     );
   }
 
@@ -328,6 +340,9 @@ export async function searchMemories(category?: string, query?: string): Promise
     try {
       const vectorResults = await searchVectors(query, 20, 'memory', 0.4);
       for (const vr of vectorResults) {
+        // Skip stale vector IDs that no longer exist in the store
+        const memEntry = s.memories.find(m => m.id === vr.id);
+        if (!memEntry) continue;
         const existing = scored.find(s => s.id === vr.id);
         if (existing) {
           // Boost keyword results that also match semantically
@@ -352,7 +367,10 @@ export async function searchMemories(category?: string, query?: string): Promise
   }
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 50).map(m => ({ key: m.key, value: m.value, category: m.category, score: m.score }));
+  // Deduplicate by ID (vector + keyword can match the same entry)
+  const seen = new Set<string>();
+  const unique = scored.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+  return unique.slice(0, 50).map(m => ({ key: m.key, value: m.value, category: m.category, score: m.score }));
 }
 
 // ─── Usage Tracking ──────────────────────────────────────────────

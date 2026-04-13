@@ -258,10 +258,18 @@ const CLASSIFICATION_RULES: Array<{
         test: (_msg, channel) => channel === 'voice',
     },
 
+    // Content creation — multi-step research + write + publish (checked BEFORE social to prevent overlap)
+    {
+        type: 'content',
+        test: (msg) => /\b(research.*and.*(write|post|publish|create)|write.*article|blog.*post|create.*content|draft.*report|write.*comparison)\b/i.test(msg)
+                    && msg.split(/\s+/).length > 10,
+    },
+
     // Social media — Facebook posting, replies, feed management
     {
         type: 'social',
-        test: (msg) => /\b(fb_|facebook|post to .*(page|facebook|fb)|share on|comment.*repl|reply.*comment|read.*feed|check.*feed|autopilot.*status|post.*about|hype|comparison.*post)\b/i.test(msg),
+        test: (msg) => /\b(fb_|facebook|post to .*(page|facebook|fb)|share on|comment.*repl|reply.*comment|read.*feed|check.*feed|autopilot.*status|post.*about|hype|comparison.*post)\b/i.test(msg)
+                    && msg.split(/\s+/).length >= 3,
     },
 
     // Home automation — smart home, IoT
@@ -276,18 +284,11 @@ const CLASSIFICATION_RULES: Array<{
         test: (msg) => /\b(browse|navigate to|fill.*form|click.*button|log ?in to|sign ?in to|captcha|screenshot.*page|form[- ]fill|web.?act)\b/i.test(msg),
     },
 
-    // Content creation — multi-step research + write + publish
-    {
-        type: 'content',
-        test: (msg) => /\b(research.*and.*(write|post|publish|create)|write.*article|blog.*post|create.*content|draft.*report|write.*comparison)\b/i.test(msg)
-                    && msg.split(/\s+/).length > 10,
-    },
-
     // System administration — shell, deploy, restart, install
     {
         type: 'sysadmin',
-        test: (msg) => /\b(run|execute|install|deploy|restart|start|stop|kill|ssh|systemctl|docker|npm run|git|build|compile|rsync|sudo|chmod|chown|service|process|daemon)\b/i.test(msg)
-                    && /\b(command|server|service|package|app|container|process|cluster|node|pm2)\b/i.test(msg),
+        test: (msg) => /\b(run|execute|install|deploy|restart|reboot|start|stop|kill|ssh|systemctl|docker|npm run|git|build|compile|rsync|sudo|chmod|chown|upgrade|shutdown|daemon)\b/i.test(msg)
+                    && /\b(command|server|service|package|app|container|cluster|node|pm2)\b/i.test(msg),
     },
 
     // Code editing — fix, edit, implement, debug
@@ -354,6 +355,7 @@ export function resolvePipelineConfig(
     currentMaxRounds: number,
     hardCap: number,
 ): {
+    minRounds: number;
     maxRounds: number;
     smartExitEnabled: boolean;
     terminalTools: string[];
@@ -375,6 +377,7 @@ export function resolvePipelineConfig(
         : currentMaxRounds;
 
     return {
+        minRounds: profile.minRounds,
         maxRounds,
         smartExitEnabled: profile.smartExitEnabled,
         terminalTools: profile.terminalTools,

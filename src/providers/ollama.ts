@@ -54,6 +54,100 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'qwen3.5:35b': 32768,
 };
 
+/**
+ * Model capability profiles — controls how TITAN adapts to each model's strengths.
+ * Instead of blanket rules for all models, each model gets tuned behavior.
+ *
+ * selfSelectsTools:  Model picks tools well on its own — don't force tool_choice='required'
+ * thinkingWithTools: Model benefits from thinking (<think> tags) during tool calling
+ * needsSystemMerge:  Model ignores standalone system messages — merge into first user msg
+ * toolTemperature:   Optimal temperature for tool-calling tasks (null = use caller's value or 0.5 default)
+ * toolTopP:          Optimal top_p for tool calling (null = omit)
+ * toolTopK:          Optimal top_k for tool calling (null = omit)
+ */
+interface ModelCapabilities {
+    selfSelectsTools: boolean;
+    thinkingWithTools: boolean;
+    needsSystemMerge: boolean;
+    toolTemperature: number | null;
+    toolTopP: number | null;
+    toolTopK: number | null;
+}
+
+const DEFAULT_CAPABILITIES: ModelCapabilities = {
+    selfSelectsTools: false,
+    thinkingWithTools: false,
+    needsSystemMerge: true,      // Conservative default: merge for unknown models
+    toolTemperature: 0.5,
+    toolTopP: null,
+    toolTopK: null,
+};
+
+const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
+    // ── Qwen family — excellent tool calling, uses thinking ──
+    'qwen3.5':          { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
+    'qwen3':            { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
+    'qwen3-coder-next': { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.5 },
+
+    // ── DeepSeek family — strong reasoning, good tool use ──
+    'deepseek-v3':      { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
+    'deepseek-v3.1':    { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
+    'deepseek-v3.2':    { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
+
+    // ── MiniMax M2.7 — XML tool format, needs special handling ──
+    'minimax-m2.7':     { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95, toolTopK: 40 },
+    'minimax-m2':       { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95 },
+
+    // ── Gemma family — good tool use, no thinking ──
+    'gemma4':           { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 1.0, toolTopP: 0.95, toolTopK: 64 },
+    'gemma-3':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
+
+    // ── GLM family — decent tool use ──
+    'glm-5.1':          { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.5 },
+    'glm-5':            { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
+    'glm-4.7':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
+
+    // ── Nemotron — needs system merge, weaker tool use ──
+    'nemotron-3-super': { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+    'nemotron-3-nano':  { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+
+    // ── Kimi — good instruction following ──
+    'kimi-k2.5':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
+
+    // ── Devstral — code-focused ──
+    'devstral-2':       { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 0.4 },
+    'devstral-small-2': { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+
+    // ── Gemini — handles system messages well ──
+    'gemini-3-flash':   { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.5 },
+
+    // ── Llama/Mistral — weaker tool calling ──
+    'llama3.1':         { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+    'llama3.2':         { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+    'mistral':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+};
+
+/** Resolve capabilities for a model by matching the longest prefix */
+function getModelCapabilities(modelName: string): ModelCapabilities {
+    const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
+    // Strip version suffixes like :cloud, :35b, :latest for matching
+    const baseName = bare.replace(/:(cloud|latest|\d+b(-cloud)?)$/i, '');
+
+    // Try exact match first, then prefix match (longest wins)
+    let bestMatch: Partial<ModelCapabilities> | undefined;
+    let bestLen = 0;
+    for (const [pattern, caps] of Object.entries(MODEL_CAPABILITIES)) {
+        if (baseName === pattern || baseName.startsWith(pattern)) {
+            if (pattern.length > bestLen) {
+                bestMatch = caps;
+                bestLen = pattern.length;
+            }
+        }
+    }
+
+    return { ...DEFAULT_CAPABILITIES, ...(bestMatch || {}) };
+}
+
 /** Get the optimal num_ctx for a given model name */
 function getModelCtx(modelName: string): number {
     const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
@@ -261,13 +355,20 @@ export class OllamaProvider extends LLMProvider {
             },
         };
 
-        // Explicit thinking mode for Ollama models
-        // For cloud models with tools, explicitly disable thinking to prevent interference
-        if (options.thinking === false || (isCloudModel && options.tools && options.tools.length > 0)) {
+        // Model capabilities — adapts behavior per model family
+        const caps = getModelCapabilities(model);
+
+        // Thinking mode: models that benefit from thinking during tool calls keep it on.
+        // Others get it disabled during tool calling to avoid leaked <think> tags.
+        if (options.thinking === false) {
             body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
+        } else if (hasTools && !caps.thinkingWithTools && isCloudModel) {
+            // Disable thinking for cloud models that don't benefit from it during tool calls
+            body.think = false;
         }
+        // Otherwise: omit body.think — let the model decide
 
         if (options.tools && options.tools.length > 0) {
             body.tools = options.tools.map((t) => ({
@@ -278,10 +379,14 @@ export class OllamaProvider extends LLMProvider {
                     parameters: simplifySchema(t.function.parameters),
                 },
             }));
-            // Lower temperature for better tool-calling compliance
-            (body.options as Record<string, unknown>).temperature = options.temperature ?? 0.3;
+            // Per-model optimal sampling for tool calling
+            (body.options as Record<string, unknown>).temperature = options.temperature ?? caps.toolTemperature ?? 0.5;
+            if (caps.toolTopP) (body.options as Record<string, unknown>).top_p = caps.toolTopP;
+            if (caps.toolTopK) (body.options as Record<string, unknown>).top_k = caps.toolTopK;
+
             // Force a tool call on the first round when the task requires it
-            if (options.forceToolUse) {
+            // Models that self-select tools well don't need forcing — it hurts them
+            if (options.forceToolUse && !caps.selfSelectsTools) {
                 body.tool_choice = 'required';
             }
         }
@@ -298,9 +403,9 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // Many models (Nemotron, Gemma, Llama, etc.) ignore standalone system messages for tool calling.
-        // Merge system content into the first user message (CrewAI fix pattern).
-        if (hasTools) {
+        // Some models ignore standalone system messages during tool calling.
+        // Only merge when the model's capability profile says it needs it.
+        if (hasTools && caps.needsSystemMerge) {
             const msgs = body.messages as Array<Record<string, unknown>>;
             const sysIdx = msgs.findIndex(m => m.role === 'system');
             const firstUserIdx = msgs.findIndex(m => m.role === 'user');
@@ -362,8 +467,14 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // Strip leaked thinking tags from Qwen/DeepSeek models
+        // If content is empty but thinking field has content, use thinking as content
+        // Models like qwen3.5 put everything in the thinking field even when think=false
         let content = (message.content as string) || '';
+        if (!content && message.thinking) {
+            logger.info(COMPONENT, `[ThinkingFallback] Using thinking field as content (${((message.thinking as string) || '').length} chars)`);
+            content = (message.thinking as string) || '';
+        }
+        // Strip leaked thinking tags from Qwen/DeepSeek models
         content = content.replace(/^[\s\S]*?<\/think>\s*/m, '').trim();
 
         return {
@@ -414,15 +525,23 @@ export class OllamaProvider extends LLMProvider {
             }),
             stream: true,
             keep_alive: '30m',
-            options: { num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384), num_ctx: getModelCtx(model), temperature: model.startsWith('gemma4') ? 1.0 : (options.temperature ?? 0.7), ...(model.startsWith('gemma4') ? { top_p: 0.95, top_k: 64 } : {}) },
+            options: {
+                num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384),
+                num_ctx: getModelCtx(model),
+                temperature: options.temperature ?? 0.7,
+            },
         };
 
+        // Model capabilities — adapts behavior per model family
+        const caps = getModelCapabilities(model);
 
-        // Explicit thinking mode — disable for cloud models with tools
-        if (options.thinking === false || (isCloudModel && hasTools)) {
+        // Thinking mode: respect explicit setting, otherwise use model capabilities
+        if (options.thinking === false) {
             body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
+        } else if (hasTools && !caps.thinkingWithTools && isCloudModel) {
+            body.think = false;
         }
 
         if (hasTools) {
@@ -434,20 +553,14 @@ export class OllamaProvider extends LLMProvider {
                     parameters: simplifySchema(t.function.parameters),
                 },
             }));
-            // Force tool_choice when requested (TITAN pattern)
-            if (options.forceToolUse) {
-                body.tool_choice = 'required';
-            }
+            // Per-model optimal sampling for tool calling
+            (body.options as Record<string, unknown>).temperature = options.temperature ?? caps.toolTemperature ?? 0.5;
+            if (caps.toolTopP) (body.options as Record<string, unknown>).top_p = caps.toolTopP;
+            if (caps.toolTopK) (body.options as Record<string, unknown>).top_k = caps.toolTopK;
 
-            // Gemma 4 requires specific sampling: temperature=1.0, top_p=0.95, top_k=64
-            const isGemma4 = model.startsWith('gemma4');
-            if (isGemma4) {
-                (body.options as Record<string, unknown>).temperature = 1.0;
-                (body.options as Record<string, unknown>).top_p = 0.95;
-                (body.options as Record<string, unknown>).top_k = 64;
-            } else {
-                // Lower temperature for better tool-calling compliance on other models
-                (body.options as Record<string, unknown>).temperature = options.temperature ?? 0.3;
+            // Force tool_choice when requested — skip for models that self-select well
+            if (options.forceToolUse && !caps.selfSelectsTools) {
+                body.tool_choice = 'required';
             }
         }
 
@@ -460,8 +573,8 @@ export class OllamaProvider extends LLMProvider {
                 body.messages = trimmed;
             }
         }
-        // Merge system into first user message for all models with tools
-        if (hasTools) {
+        // Merge system into first user message only for models that need it
+        if (hasTools && caps.needsSystemMerge) {
             const msgs2 = body.messages as Array<Record<string, unknown>>;
             const sysIdx = msgs2.findIndex(m => m.role === 'system');
             const firstUserIdx = msgs2.findIndex(m => m.role === 'user');

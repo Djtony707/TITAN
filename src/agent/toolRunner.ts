@@ -151,8 +151,20 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     let args: Record<string, unknown> = {};
     try {
         args = JSON.parse(toolCall.function.arguments);
-    } catch {
-        args = {};
+    } catch (parseErr) {
+        logger.warn('ToolRunner', `Malformed JSON args for ${handler.name}: ${(parseErr as Error).message} — raw: ${(toolCall.function.arguments || '').slice(0, 200)}`);
+        // Try to salvage: if it looks like a truncated JSON, extract what we can
+        const salvageMatch = (toolCall.function.arguments || '').match(/\{[\s\S]*/);
+        if (salvageMatch) {
+            try {
+                // Attempt to close the JSON and parse
+                const fixed = salvageMatch[0].replace(/,?\s*$/, '}');
+                args = JSON.parse(fixed);
+                logger.info('ToolRunner', `Salvaged partial JSON args for ${handler.name}`);
+            } catch {
+                args = {};
+            }
+        }
     }
 
     // Guardrails: validate tool call before execution
@@ -237,8 +249,9 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
 
     let lastError: Error | null = null;
     let lastErrorClass: ErrorClass = 'permanent';
+    let attempt = 0;
 
-    for (let attempt = 0; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
+    for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
         try {
             // On timeout retry, double the timeout
             const timeout = (attempt > 0 && lastErrorClass === 'timeout') ? baseTimeout * 2 : baseTimeout;
@@ -307,7 +320,7 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     // All retries exhausted or permanent error
     const durationMs = Date.now() - startTime;
     const errorMsg = lastError?.message || 'Unknown error';
-    const retryCount = retryEnabled ? Math.min(maxRetries, lastErrorClass === 'permanent' ? 0 : maxRetries) : 0;
+    const retryCount = attempt; // actual number of retries performed (matches success path)
     logger.error(COMPONENT, `Tool ${handler.name} failed (${lastErrorClass}${retryCount > 0 ? `, ${retryCount} retries` : ''}): ${errorMsg}`);
 
     return {

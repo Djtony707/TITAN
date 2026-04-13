@@ -3,7 +3,7 @@
  * Continuous self-improvement: learns from interactions, tracks patterns,
  * builds a knowledge base, and improves tool selection over time.
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
@@ -58,7 +58,9 @@ interface KnowledgeBase {
 }
 
 let kb: KnowledgeBase | null = null;
+let dirty = false;
 
+// NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadKnowledgeBase(): KnowledgeBase {
     if (kb) return kb;
     ensureDir(TITAN_HOME);
@@ -94,18 +96,25 @@ function createEmptyKB(): KnowledgeBase {
     };
 }
 
+function doSave(): void {
+    if (!kb) return;
+    ensureDir(TITAN_HOME);
+    try {
+        const tmpFile = KNOWLEDGE_FILE + '.tmp';
+        writeFileSync(tmpFile, JSON.stringify(kb, null, 2), 'utf-8');
+        renameSync(tmpFile, KNOWLEDGE_FILE);
+        dirty = false;
+    } catch (err) {
+        dirty = true;
+        logger.error(COMPONENT, `Failed to save knowledge base: ${(err as Error).message}`);
+    }
+}
+
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 function debouncedSave(): void {
+    if (dirty) { doSave(); return; }
     if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-        if (!kb) return;
-        ensureDir(TITAN_HOME);
-        try {
-            writeFileSync(KNOWLEDGE_FILE, JSON.stringify(kb, null, 2), 'utf-8');
-        } catch (err) {
-            logger.error(COMPONENT, `Failed to save knowledge base: ${(err as Error).message}`);
-        }
-    }, 2000);
+    saveTimeout = setTimeout(doSave, 2000);
 }
 
 /** Initialize the learning engine */
@@ -288,7 +297,7 @@ export function verifyMemoryStaleness(): { pruned: number; decayed: number } {
     }
 
     if (pruned > 0 || decayed > 0) {
-        saveKnowledgeBase(k);
+        doSave();
         logger.info(COMPONENT, `Memory staleness check: ${pruned} pruned, ${decayed} strategies decayed`);
     }
 

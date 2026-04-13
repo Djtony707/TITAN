@@ -21,6 +21,7 @@ import {
   Timer,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { apiFetch } from '@/api/client';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ function timeAgo(iso: string): string {
 }
 
 const api = async (path: string, opts?: RequestInit) => {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  const res = await apiFetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 };

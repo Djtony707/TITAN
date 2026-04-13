@@ -862,13 +862,33 @@ export async function processMessage(
     let reflectionInterval = config.agent.reflectionInterval ?? 3;
 
     // ── Pipeline classification ─────────────────────────────────
-    const pipelineType = classifyPipeline(message, channel);
+    // Strip channel-injected context prefixes before classification.
+    // Many channels wrap the user's actual message with metadata (sender info, platform name, etc.)
+    // that can falsely trigger pipeline classifiers (e.g. "Facebook Messenger" → social pipeline).
+    // Common patterns: "His message: <actual>", "User said: <actual>", "[Context] ... Message: <actual>"
+    let classificationMessage = message;
+    const prefixPatterns = [
+        /\bHis message:\s*/i,
+        /\bHer message:\s*/i,
+        /\bTheir message:\s*/i,
+        /\bUser (?:said|message|wrote):\s*/i,
+        /\bMessage:\s*$/im,  // "Message:" at end of a line
+    ];
+    for (const pattern of prefixPatterns) {
+        const match = classificationMessage.match(pattern);
+        if (match && match.index !== undefined) {
+            classificationMessage = classificationMessage.slice(match.index + match[0].length);
+            break;
+        }
+    }
+    const pipelineType = classifyPipeline(classificationMessage, channel);
     const pipelineConfig = resolvePipelineConfig(pipelineType, effectiveMaxRounds, hardCap);
     let pipelineTerminalTools: string[] | undefined;
     let pipelineCompletionStrategy: 'smart-exit' | 'no-tools' | 'terminal-tool' | 'single-round' | undefined;
     let pipelineSmartExit: boolean | undefined;
     let pipelineTaskEnforcement: string | null = null;
     let pipelineEnsureTools: string[] = [];
+    let pipelineMinRounds: number | undefined;
 
     if (pipelineConfig) {
         effectiveMaxRounds = pipelineConfig.maxRounds;
@@ -879,6 +899,7 @@ export async function processMessage(
         pipelineSmartExit = pipelineConfig.smartExitEnabled;
         pipelineTaskEnforcement = pipelineConfig.taskEnforcement;
         pipelineEnsureTools = pipelineConfig.ensureTools;
+        pipelineMinRounds = pipelineConfig.minRounds;
         logger.info(COMPONENT, `[Pipeline:${pipelineType}] rounds=${effectiveMaxRounds}, smartExit=${pipelineSmartExit}, completion=${pipelineCompletionStrategy}, terminals=[${pipelineTerminalTools.join(',')}]`);
     }
 
@@ -903,14 +924,14 @@ export async function processMessage(
             const state = handleApproval(session.id, true)!;
             const updatedState = await executePlan(state, config);
             const content = formatPlanResults(updatedState);
-            addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });
-            return { content, sessionId: session.id, toolsUsed: ['deliberation'], tokenUsage: { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
+            addMessage(session, 'assistant', '[DELIBERATION] ' + content, { model: config.agent.model, tokenCount: 0 });
+            return { content, sessionId: session.id, toolsUsed: ['deliberation'], tokenUsage: state?.tokenUsage || { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
         } else if (lower === 'no' || lower === 'n' || lower === 'cancel') {
             addMessage(session, 'user', message);
             handleApproval(session.id, false);
             const content = 'Plan cancelled. Let me know if you want to try a different approach.';
-            addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });
-            return { content, sessionId: session.id, toolsUsed: [], tokenUsage: { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
+            addMessage(session, 'assistant', '[DELIBERATION] ' + content, { model: config.agent.model, tokenCount: 0 });
+            return { content, sessionId: session.id, toolsUsed: [], tokenUsage: state?.tokenUsage || { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
         }
         // If neither yes/no, treat as a modification — cancel and fall through to normal processing
         cancelDeliberation(session.id);
@@ -941,12 +962,12 @@ export async function processMessage(
 
             if (planned.stage === 'awaiting_approval' && planned.planMarkdown) {
                 const content = planned.planMarkdown;
-                addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });
+                addMessage(session, 'assistant', '[DELIBERATION] ' + content, { model: config.agent.model, tokenCount: 0 });
                 return {
                     content,
                     sessionId: session.id,
                     toolsUsed: ['deliberation'],
-                    tokenUsage: { prompt: 0, completion: 0, total: 0 },
+                    tokenUsage: planned?.tokenUsage || { prompt: 0, completion: 0, total: 0 },
                     model: config.agent.model,
                     durationMs: Date.now() - startTime,
                     // Signal to UI that this response needs approve/deny before execution
@@ -964,8 +985,8 @@ export async function processMessage(
                         if (toolMatches) toolMatches.forEach(m => { const t = m.split(':').pop()?.trim(); if (t) planToolsUsed.add(t); });
                     }
                 }
-                addMessage(session, 'assistant', content, { model: config.agent.model, tokenCount: 0 });
-                return { content, sessionId: session.id, toolsUsed: [...planToolsUsed], tokenUsage: { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
+                addMessage(session, 'assistant', '[DELIBERATION] ' + content, { model: config.agent.model, tokenCount: 0 });
+                return { content, sessionId: session.id, toolsUsed: [...planToolsUsed], tokenUsage: planned?.tokenUsage || { prompt: 0, completion: 0, total: 0 }, model: config.agent.model, durationMs: Date.now() - startTime };
             } else {
                 // Planning failed, fall through to normal processing
                 logger.warn(COMPONENT, `Deliberation failed, falling through: ${planned.error || 'unknown error'}`);
@@ -1250,6 +1271,19 @@ export async function processMessage(
     const toolSearchEnabled = toolSearchConfig?.enabled ?? true;
     const allToolsBackup = activeTools;
 
+    // Always ensure pipeline tools are in the active set, even when toolSearch is disabled
+    if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12)) {
+        const activeNames = new Set(activeTools.map(t => t.function.name));
+        const missing = pipelineEnsureTools.filter(name => !activeNames.has(name));
+        if (missing.length > 0) {
+            const rescued = allToolsBackup.filter(t => missing.includes(t.function.name));
+            activeTools.push(...rescued);
+            if (rescued.length > 0) {
+                logger.info(COMPONENT, `[Pipeline:${pipelineType}] Ensured ${rescued.length} tools (no-compact): [${rescued.map(t => t.function.name).join(', ')}]`);
+            }
+        }
+    }
+
     if (toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12) {
         // Voice gets a minimal tool set for speed (fewer tool schemas = less prompt tokens)
         const VOICE_CORE_TOOLS = ['shell', 'web_search', 'weather', 'memory', 'ha_control', 'ha_devices', 'ha_status', 'ha_setup', 'tool_search'];
@@ -1331,6 +1365,7 @@ export async function processMessage(
         pipelineTerminalTools,
         completionStrategy: pipelineCompletionStrategy,
         pipelineType,
+        minRounds: pipelineMinRounds,
     });
 
     // Unpack results
@@ -1432,8 +1467,14 @@ export async function processMessage(
     // ── Hallucination Guard: detect cloud models that claim tool use but never called tools ──
     // Cloud models sometimes describe tool actions ("I wrote the file", "Output: ...") without
     // actually making tool calls. This pollutes session memory with false action claims.
+    //
+    // SKIP for conversational tasks — chat/general pipelines don't require tool use,
+    // so "I did X" in a conversational reply is normal, not a hallucination.
+    const isConversationalTask = pipelineType === 'chat' || pipelineType === 'general'
+        || channel?.endsWith('-admin') || channel === 'voice';
     const isCloudHallucination = toolsUsed.length === 0
         && taskEnforcementActive
+        && !isConversationalTask
         && (activeModel.includes(':cloud') || activeModel.includes('-cloud'))
         && finalContent.length > 0
         && /(?:(?:I(?:'ve| have)?|successfully|done|completed|executed|created|wrote|saved|ran|output|result)[:\s])/i.test(finalContent)

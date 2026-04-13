@@ -91,6 +91,7 @@ vi.mock('../src/agent/reflection.js', () => ({
     reflect: mockReflect,
     resetProgress: mockResetProgress,
     recordProgress: mockRecordProgress,
+    setProgressSession: vi.fn(),
 }));
 
 vi.mock('../src/memory/learning.js', () => ({

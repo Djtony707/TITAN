@@ -113,7 +113,7 @@ const CLOUD_TO_OPENROUTER: Record<string, string> = {
     'glm-5:cloud': 'thudm/glm-4-32b',
     'kimi-k2.5:cloud': 'moonshotai/kimi-k2',
     'gpt-oss:120b-cloud': 'openai/gpt-4.1',
-    'minimax-m2.7:cloud': 'minimax/minimax-m1-80k',
+    // minimax-m2.7:cloud stays on Ollama — no matching OpenRouter model
 };
 
 /** Resolve the provider and model from a model ID like "anthropic/claude-3" or alias like "fast" */

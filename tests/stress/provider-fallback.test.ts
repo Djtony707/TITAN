@@ -34,7 +34,7 @@ vi.mock('../../src/agent/costOptimizer.js', () => ({
 }));
 vi.mock('../../src/agent/contextManager.js', () => ({ buildSmartContext: mockBuildSmartContext }));
 vi.mock('../../src/agent/responseCache.js', () => ({ getCachedResponse: vi.fn().mockReturnValue(null), setCachedResponse: vi.fn() }));
-vi.mock('../../src/agent/reflection.js', () => ({ shouldReflect: vi.fn().mockReturnValue(false), reflect: vi.fn(), resetProgress: vi.fn(), recordProgress: vi.fn() }));
+vi.mock('../../src/agent/reflection.js', () => ({ shouldReflect: vi.fn().mockReturnValue(false), reflect: vi.fn(), resetProgress: vi.fn(), recordProgress: vi.fn(), setProgressSession: vi.fn() }));
 vi.mock('../../src/memory/learning.js', () => ({
     recordToolResult: vi.fn(), classifyTaskType: vi.fn().mockReturnValue('general'),
     recordToolPreference: vi.fn(), getErrorResolution: vi.fn().mockReturnValue(null), recordErrorResolution: vi.fn(),

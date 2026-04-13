@@ -13,7 +13,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from 'lucide-react';
-import { getConfig, updateConfig } from '@/api/client';
+import { getConfig, updateConfig, apiFetch } from '@/api/client';
 
 interface NvidiaConfig {
   enabled: boolean;
@@ -200,7 +200,7 @@ function NvidiaPanel() {
     if (config.cuopt.enabled) {
       setHealth(h => ({ ...h, cuopt: 'checking' }));
       try {
-        const res = await fetch(`/api/nvidia/health/cuopt`);
+        const res = await apiFetch(`/api/nvidia/health/cuopt`);
         const data = await res.json();
         setHealth(h => ({ ...h, cuopt: data.healthy ? 'healthy' : 'unhealthy' }));
       } catch {
@@ -212,7 +212,7 @@ function NvidiaPanel() {
     if (config.asr.enabled) {
       setHealth(h => ({ ...h, asr: 'checking' }));
       try {
-        const res = await fetch(`/api/nvidia/health/asr`);
+        const res = await apiFetch(`/api/nvidia/health/asr`);
         const data = await res.json();
         setHealth(h => ({ ...h, asr: data.healthy ? 'healthy' : 'unhealthy' }));
       } catch {
@@ -224,7 +224,7 @@ function NvidiaPanel() {
     if (hasApiKey || config.apiKey) {
       setHealth(h => ({ ...h, nim: 'checking' }));
       try {
-        const res = await fetch(`/api/nvidia/health/nim`);
+        const res = await apiFetch(`/api/nvidia/health/nim`);
         const data = await res.json();
         setHealth(h => ({ ...h, nim: data.healthy ? 'healthy' : 'unhealthy' }));
       } catch {

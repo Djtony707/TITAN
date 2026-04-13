@@ -921,9 +921,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!auth || auth.mode === 'none') { next(); return; }
     // Token mode with no token configured = auth not set up, allow access
     if (auth.mode === 'token' && !auth.token) { next(); return; }
-    // Skip public endpoints (login, health, messenger webhook)
+    // Skip public endpoints (login, messenger webhook)
     if (req.path === '/login') { next(); return; }
-    if (req.path === '/health') { next(); return; }
     if (req.path === '/messenger/webhook') { next(); return; }
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
@@ -5686,8 +5685,8 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // ── SPA fallback (must be after all API routes) ──────────
   if (hasReactUI) {
     app.get('*', (req, res, next) => {
-      // Don't intercept API, WebSocket, metrics, or legacy routes
-      if (req.path.startsWith('/api/') || req.path === '/ws' || req.path === '/metrics' || req.path === '/legacy' || req.path === '/login') {
+      // Don't intercept API, WebSocket, metrics, webhooks, or legacy routes
+      if (req.path.startsWith('/api/') || req.path.startsWith('/messenger/') || req.path === '/ws' || req.path === '/metrics' || req.path === '/legacy' || req.path === '/login') {
         return next();
       }
       res.sendFile(uiIndexPath);
@@ -5939,7 +5938,17 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       res.sendStatus(200); // Must respond 200 quickly or Facebook retries
     });
 
-    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
+    // Also register at /messenger/webhook (without /api prefix) for backwards compatibility
+    app.get('/messenger/webhook', (req, res) => {
+      const result = messengerAdapter.handleVerify(req.query as Record<string, string>);
+      res.status(result.status).send(result.body);
+    });
+    app.post('/messenger/webhook', express.json(), (req, res) => {
+      messengerAdapter.handleWebhook(req.body);
+      res.sendStatus(200);
+    });
+
+    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
   }
 
   // ── Phase 3: Boot MCP servers, monitors, recipes, model switch, slash commands ──

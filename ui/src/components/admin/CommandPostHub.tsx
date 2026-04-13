@@ -608,7 +608,7 @@ export default function CommandPostHub() {
   if (loading) return <div className="flex items-center justify-center h-full"><div className="flex items-center gap-3"><div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /><span className="text-sm text-white/40">Loading Command Post...</span></div></div>;
   if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-yellow-500" size={32} /><p className="text-sm text-white/60 mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70">Retry</button></div></div>;
 
-  const d = dashboard!;
+  const d = dashboard ?? { agents: [], totalAgents: 0, activeAgents: 0, activeCheckouts: 0, budgetUtilization: 0, recentActivity: [], checkouts: [], budgets: [], goalTree: [], companies: [] } as CommandPostDashboard;
 
   return (
     <div className="h-full overflow-auto">

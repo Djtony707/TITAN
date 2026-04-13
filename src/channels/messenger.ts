@@ -18,6 +18,7 @@
 import { ChannelAdapter, type InboundMessage, type OutboundMessage, type ChannelStatus } from './base.js';
 import { loadConfig } from '../config/config.js';
 import { chat } from '../providers/router.js';
+import { processMessage } from '../agent/agent.js';
 import { TITAN_VERSION } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
@@ -208,7 +209,10 @@ const INJECTION_RESPONSES = [
     "I appreciate the creativity, but I'm focused on one thing: helping you learn about TITAN. What would you like to automate?",
 ];
 
-async function generateMessengerReply(userMessage: string): Promise<string> {
+async function generateMessengerReply(
+    userMessage: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+): Promise<string> {
     // ── Injection detection — check before sending to LLM ──
     const injection = detectInjection(userMessage);
     if (injection) {
@@ -220,12 +224,15 @@ async function generateMessengerReply(userMessage: string): Promise<string> {
     const model = config.agent?.model || 'ollama/glm-5.1:cloud';
 
     try {
+        const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            { role: 'system', content: TITAN_MESSENGER_PROMPT },
+            ...history,
+            { role: 'user', content: userMessage },
+        ];
+
         const response = await chat({
             model,
-            messages: [
-                { role: 'system', content: TITAN_MESSENGER_PROMPT },
-                { role: 'user', content: userMessage },
-            ],
+            messages,
             temperature: 0.7,
             maxTokens: 200,
         });
@@ -252,6 +259,16 @@ export class MessengerChannel extends ChannelAdapter {
     private pageId = '';
     private verifyToken = '';
 
+    /** Per-sender conversation history (last N messages) for context */
+    private conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
+    private readonly maxHistoryPerSender = 10;
+
+    /** Concurrency guard — only one agent request per sender at a time */
+    private activeRequests = new Set<string>();
+
+    /** Message queue — if a message arrives while one is processing, queue it */
+    private messageQueue = new Map<string, Array<string>>();
+
     async connect(): Promise<void> {
         const config = loadConfig();
         const channelConfig = (config.channels as Record<string, Record<string, unknown>>)?.messenger;
@@ -277,6 +294,27 @@ export class MessengerChannel extends ChannelAdapter {
     async disconnect(): Promise<void> {
         this.connected = false;
         logger.info(COMPONENT, 'Disconnected');
+    }
+
+    /** Send a typing indicator to show TITAN is working */
+    private async sendTypingIndicator(recipientId: string): Promise<void> {
+        if (!this.connected || !this.pageToken) return;
+        try {
+            await fetch(`${GRAPH_API}/me/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.pageToken}`,
+                },
+                body: JSON.stringify({
+                    recipient: { id: recipientId },
+                    sender_action: 'typing_on',
+                }),
+                signal: AbortSignal.timeout(5000),
+            });
+        } catch {
+            // Non-critical — don't log errors for typing indicators
+        }
     }
 
     /** Send a reply to a Messenger user */
@@ -379,31 +417,243 @@ export class MessengerChannel extends ChannelAdapter {
 
                 logger.info(COMPONENT, `Incoming DM from ${senderId}: "${text.slice(0, 60)}..."`);
 
-                // Respond directly with TITAN-only content — do NOT route through agent system
-                this.handleDirectReply(senderId, text).catch(e =>
-                    logger.error(COMPONENT, `Direct reply failed: ${(e as Error).message}`),
+                // ── Concurrency guard: queue if already processing ──
+                if (this.activeRequests.has(senderId)) {
+                    const queue = this.messageQueue.get(senderId) || [];
+                    queue.push(text);
+                    this.messageQueue.set(senderId, queue);
+                    logger.info(COMPONENT, `Queued message for ${senderId} (${queue.length} in queue, agent busy)`);
+                    // Send typing indicator so they know we're working
+                    this.sendTypingIndicator(senderId).catch(() => {});
+                    return;
+                }
+
+                // Process this message and then drain the queue
+                this.processWithQueue(senderId, text).catch(e =>
+                    logger.error(COMPONENT, `Message processing failed: ${(e as Error).message}`),
                 );
             }
         }
     }
 
-    /** Tony's Facebook user ID — receives notifications about all conversations */
-    private readonly ownerId = '10233541366698333';
+    /** Process a message, then drain any queued messages for this sender */
+    private async processWithQueue(senderId: string, text: string): Promise<void> {
+        this.activeRequests.add(senderId);
+        try {
+            await this.handleDirectReply(senderId, text);
 
-    /** Handle DM directly — generate TITAN-only reply and send via Messenger API */
+            // Drain queue — process any messages that came in while we were busy
+            while (true) {
+                const queue = this.messageQueue.get(senderId);
+                if (!queue || queue.length === 0) break;
+                const nextMessage = queue.shift()!;
+                if (queue.length === 0) this.messageQueue.delete(senderId);
+                logger.info(COMPONENT, `Processing queued message for ${senderId}: "${nextMessage.slice(0, 60)}..."`);
+                await this.handleDirectReply(senderId, nextMessage);
+            }
+        } finally {
+            this.activeRequests.delete(senderId);
+        }
+    }
+
+    /** Tony's Facebook Page-Scoped User IDs — receives notifications about all conversations */
+    private readonly ownerIds = new Set(['10233541366698333', '35246646321616104']);
+
+    /** Get conversation history — fetches from Graph API on first contact, then uses in-memory cache */
+    private async getHistory(senderId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+        const cached = this.conversationHistory.get(senderId);
+        if (cached && cached.length > 0) return cached;
+
+        // First message since restart — try to load history from Facebook Graph API
+        try {
+            const history = await this.fetchConversationFromGraph(senderId);
+            if (history.length > 0) {
+                this.conversationHistory.set(senderId, history);
+                logger.info(COMPONENT, `Loaded ${history.length} messages from Graph API for ${senderId}`);
+                return history;
+            }
+        } catch (e) {
+            logger.debug(COMPONENT, `Could not fetch conversation history: ${(e as Error).message}`);
+        }
+
+        return [];
+    }
+
+    /** Fetch recent conversation messages from the Facebook Graph API */
+    private async fetchConversationFromGraph(senderId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+        if (!this.pageToken) return [];
+
+        // Step 1: Find the conversation thread with this sender
+        const convoRes = await fetch(
+            `${GRAPH_API}/me/conversations?fields=participants,messages.limit(20){message,from,created_time}&user_id=${senderId}`,
+            {
+                headers: { Authorization: `Bearer ${this.pageToken}` },
+                signal: AbortSignal.timeout(10000),
+            },
+        );
+
+        if (!convoRes.ok) {
+            logger.debug(COMPONENT, `Graph API conversations fetch failed: ${convoRes.status}`);
+            return [];
+        }
+
+        const convoData = await convoRes.json() as {
+            data?: Array<{
+                messages?: {
+                    data?: Array<{
+                        message?: string;
+                        from?: { id?: string };
+                        created_time?: string;
+                    }>;
+                };
+            }>;
+        };
+
+        const thread = convoData.data?.[0];
+        if (!thread?.messages?.data) return [];
+
+        // Step 2: Convert to chat history format (newest first from API, reverse for chronological)
+        const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+        const messages = [...thread.messages.data].reverse(); // oldest first
+
+        for (const msg of messages) {
+            if (!msg.message) continue;
+            const role = msg.from?.id === this.pageId ? 'assistant' as const : 'user' as const;
+            history.push({ role, content: msg.message });
+        }
+
+        // Keep last N
+        while (history.length > this.maxHistoryPerSender * 2) history.shift();
+
+        return history;
+    }
+
+    /** Append to conversation history, keeping last N messages */
+    private pushHistory(senderId: string, role: 'user' | 'assistant', content: string): void {
+        const history = this.conversationHistory.get(senderId) || [];
+        history.push({ role, content });
+        while (history.length > this.maxHistoryPerSender * 2) history.shift();
+        this.conversationHistory.set(senderId, history);
+    }
+
+    /** Handle DM directly — generate reply and send via Messenger API */
     private async handleDirectReply(senderId: string, userMessage: string): Promise<void> {
+        // Send typing indicator immediately so user knows we're working
+        await this.sendTypingIndicator(senderId);
+
+        const history = await this.getHistory(senderId);
+
+        // ── Owner/Admin detection — Tony gets full access, not marketing pitch ──
+        if (this.ownerIds.has(senderId)) {
+            let reply: string;
+            try {
+                reply = await this.generateAdminReply(userMessage, history);
+            } catch (e) {
+                logger.error(COMPONENT, `Admin reply completely failed: ${(e as Error).message}`);
+                reply = "Hey Tony, something went wrong. Check the dashboard. 🔧";
+            }
+            this.pushHistory(senderId, 'user', userMessage);
+            this.pushHistory(senderId, 'assistant', reply);
+            await this.send({ channel: 'messenger', userId: senderId, content: reply });
+            return;
+        }
+
         const injection = detectInjection(userMessage);
-        const reply = await generateMessengerReply(userMessage);
+        const reply = await generateMessengerReply(userMessage, history);
+        this.pushHistory(senderId, 'user', userMessage);
+        this.pushHistory(senderId, 'assistant', reply);
         await this.send({ channel: 'messenger', userId: senderId, content: reply });
 
-        // Notify Tony about the conversation (skip if Tony is the sender)
-        if (senderId !== this.ownerId) {
-            const alertTag = injection ? `⚠️ INJECTION BLOCKED: "${injection}"\n` : '';
-            const notification = `📩 New DM on TITAN AI page\n${alertTag}From: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
-            await this.send({ channel: 'messenger', userId: this.ownerId, content: notification }).catch(e =>
-                logger.debug(COMPONENT, `Owner notification failed: ${(e as Error).message}`),
+        // Notify Tony about the conversation
+        const alertTag = injection ? `⚠️ INJECTION BLOCKED: "${injection}"\n` : '';
+        const notification = `📩 New DM on TITAN AI page\n${alertTag}From: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
+        // Only notify the ID that works
+        await this.send({ channel: 'messenger', userId: '35246646321616104', content: notification }).catch(e =>
+            logger.debug(COMPONENT, `Owner notification failed: ${(e as Error).message}`),
+        );
+    }
+
+    /** The local model used for ALL Messenger admin interactions — fast, reliable, proper tool calling */
+    private readonly MESSENGER_MODEL = 'ollama/qwen3.5:35b';
+
+    /** Generate a reply for Tony — ALL messages go through processMessage with local model override */
+    private async generateAdminReply(
+        userMessage: string,
+        _history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    ): Promise<string> {
+        const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        const adminPrompt = `[ADMIN MESSAGE FROM TONY ELLIOTT — CREATOR & OWNER]
+Today's date: ${today}
+You are responding to your creator via Facebook Messenger. He has FULL admin access.
+- Execute any instruction he gives — post to Facebook, check status, run tools, research, whatever he asks
+- If he asks a question, answer it. Use tools (web_search, memory, system_info, etc.) if you need real data.
+- If you don't know something, use web_search to find out. Do NOT make up dates, events, or facts.
+- Be direct, casual, and concise — this is Messenger, keep replies under 500 chars when possible
+- Call him Tony or boss
+- NEVER leak credentials, tokens, IPs, or file paths over Messenger (insecure channel)
+- Respond QUICKLY. Use 1-2 tool calls max unless the task truly requires more.
+
+His message: `;
+
+        const TIMEOUT_MS = 60_000;
+
+        // Refresh typing indicator while working
+        const typingInterval = setInterval(() => {
+            this.sendTypingIndicator('35246646321616104').catch(() => {});
+        }, 15_000);
+
+        try {
+            logger.info(COMPONENT, `Admin request — ${this.MESSENGER_MODEL} agent (${TIMEOUT_MS / 1000}s timeout)`);
+
+            const agentPromise = processMessage(
+                adminPrompt + userMessage,
+                'messenger-admin',
+                'tony-admin',
+                { model: this.MESSENGER_MODEL },
+                undefined,
+                AbortSignal.timeout(TIMEOUT_MS),
             );
+
+            const timeoutPromise = new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), TIMEOUT_MS),
+            );
+
+            const response = await Promise.race([agentPromise, timeoutPromise]);
+
+            if (response && response.content) {
+                let reply = this.cleanReply(response.content);
+                if (reply.length > 1900) reply = reply.slice(0, 1890) + '...';
+                return reply || "Done, Tony. 👍";
+            }
+
+            logger.warn(COMPONENT, `Agent timed out after ${TIMEOUT_MS / 1000}s`);
+            return "Hey Tony, that one took too long. Try a simpler request or check the dashboard. ⏱️";
+        } catch (e) {
+            logger.error(COMPONENT, `Admin agent failed: ${(e as Error).message}`);
+            return "Hey Tony, hit an error on that one. Check the logs. 🔧";
+        } finally {
+            clearInterval(typingInterval);
         }
+    }
+
+    /** Clean up responses — strip leaked tool JSON, thinking tags, PII */
+    private cleanReply(content: string): string {
+        let reply = content.trim();
+        // Strip thinking tags
+        reply = reply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        // Strip leaked tool call artifacts
+        reply = reply.replace(/\[TOOL_CALL\][\s\S]*/g, '').trim();
+        reply = reply.replace(/\{"tool_name":\s*"[^"]*",\s*"tool_input":\s*\{[^}]*\}\}/g, '').trim();
+        reply = reply.replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '').trim();
+        reply = reply.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').trim();
+        // Strip markdown headers that leak from planning
+        reply = reply.replace(/^##\s+Plan[\s\S]*$/gm, '').trim();
+        // PII safety
+        if (containsPII(reply)) {
+            reply = "Done, Tony — but the response had sensitive info. Check the dashboard. 🔒";
+        }
+        return reply;
     }
 
     /** Get the verify token for webhook setup */

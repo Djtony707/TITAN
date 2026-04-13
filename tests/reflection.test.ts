@@ -129,7 +129,7 @@ describe('Reflection', () => {
             await reflect(3, [], 'test');
 
             expect(mockChat).toHaveBeenCalledWith(expect.objectContaining({
-                model: 'openai/gpt-4o-mini', // hardcoded fallback in reflection.ts
+                model: 'fallback-model', // falls back to configured agent model, not hardcoded provider
             }));
         });
 

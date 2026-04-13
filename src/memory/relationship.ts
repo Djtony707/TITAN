@@ -1,23 +1,27 @@
 /**
  * TITAN — Relationship Memory
  * The feature that makes TITAN truly personal, like a real JARVIS.
- * 
+ *
  * TITAN remembers WHO you are — your name, preferences, projects, people
  * you mention, goals, and communication style. This isn't just chat context;
  * it's a persistent personal profile that grows every session.
- * 
+ *
  * No other AI agent platform does this at this level.
  * Every interaction makes TITAN more "yours".
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
-const PROFILE_PATH = join(TITAN_HOME, 'profile.json');
 const COMPONENT = 'RelationshipMemory';
 
-let cachedProfile: PersonalProfile | null = null;
+function getProfilePath(userId = 'default'): string {
+    return join(TITAN_HOME, 'profiles', userId + '.json');
+}
+
+const profileCache = new Map<string, PersonalProfile>();
+let dirty = false;
 
 // ─── Types ────────────────────────────────────────────────────────
 export interface PersonalProfile {
@@ -52,20 +56,38 @@ export interface PersonalProfile {
 }
 
 // ─── Persistence ──────────────────────────────────────────────────
-function ensureDir(): void {
-    if (!existsSync(TITAN_HOME)) mkdirSync(TITAN_HOME, { recursive: true });
+function ensureProfilesDir(): void {
+    const profilesDir = join(TITAN_HOME, 'profiles');
+    if (!existsSync(profilesDir)) mkdirSync(profilesDir, { recursive: true });
 }
 
-export function loadProfile(): PersonalProfile {
-    if (cachedProfile) return cachedProfile;
+// NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
+export function loadProfile(userId = 'default'): PersonalProfile {
+    const cached = profileCache.get(userId);
+    if (cached) return cached;
+    const profilePath = getProfilePath(userId);
     try {
-        if (existsSync(PROFILE_PATH)) {
-            cachedProfile = JSON.parse(readFileSync(PROFILE_PATH, 'utf-8')) as PersonalProfile;
-            return cachedProfile;
+        if (existsSync(profilePath)) {
+            const profile = JSON.parse(readFileSync(profilePath, 'utf-8')) as PersonalProfile;
+            profileCache.set(userId, profile);
+            return profile;
         }
     } catch { /* */ }
-    cachedProfile = createEmptyProfile();
-    return cachedProfile;
+    // Migration: check legacy single-file location for default user
+    if (userId === 'default') {
+        const legacyPath = join(TITAN_HOME, 'profile.json');
+        try {
+            if (existsSync(legacyPath)) {
+                const profile = JSON.parse(readFileSync(legacyPath, 'utf-8')) as PersonalProfile;
+                profileCache.set(userId, profile);
+                // Migrate to new location on next save
+                return profile;
+            }
+        } catch { /* */ }
+    }
+    const profile = createEmptyProfile();
+    profileCache.set(userId, profile);
+    return profile;
 }
 
 function createEmptyProfile(): PersonalProfile {
@@ -83,32 +105,40 @@ function createEmptyProfile(): PersonalProfile {
     };
 }
 
-export function saveProfile(profile: PersonalProfile): void {
-    ensureDir();
+export function saveProfile(profile: PersonalProfile, userId = 'default'): void {
+    ensureProfilesDir();
     profile.lastSeenAt = new Date().toISOString();
     profile.interactionCount++;
-    cachedProfile = profile; // Update cache with the latest saved version
+    profileCache.set(userId, profile);
+    const profilePath = getProfilePath(userId);
     try {
-        writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2), 'utf-8');
+        const tmpFile = profilePath + '.tmp';
+        writeFileSync(tmpFile, JSON.stringify(profile, null, 2), 'utf-8');
+        renameSync(tmpFile, profilePath);
+        dirty = false;
     } catch (err) {
+        dirty = true;
         logger.error(COMPONENT, `Failed to save profile: ${(err as Error).message}`);
+    }
+    if (dirty) {
+        logger.error(COMPONENT, 'DATA MAY BE LOST — failed to save user profile');
     }
 }
 
 // ─── Profile Updates ──────────────────────────────────────────────
 
 /** Learn the user's name */
-export function learnName(name: string): void {
-    const p = loadProfile();
+export function learnName(name: string, userId?: string): void {
+    const p = loadProfile(userId);
     p.name = name;
     p.preferredGreeting = `Hey ${name}`;
-    saveProfile(p);
+    saveProfile(p, userId);
     logger.info(COMPONENT, `Learned user's name: ${name}`);
 }
 
 /** Add or update a project */
-export function rememberProject(name: string, description = ''): void {
-    const p = loadProfile();
+export function rememberProject(name: string, description = '', userId?: string): void {
+    const p = loadProfile(userId);
     const existing = p.projects.find((proj) => proj.name.toLowerCase() === name.toLowerCase());
     if (existing) {
         existing.description = description || existing.description;
@@ -116,12 +146,12 @@ export function rememberProject(name: string, description = ''): void {
     } else {
         p.projects.push({ name, description, lastMentioned: new Date().toISOString() });
     }
-    saveProfile(p);
+    saveProfile(p, userId);
 }
 
 /** Remember a contact */
-export function rememberContact(name: string, role?: string): void {
-    const p = loadProfile();
+export function rememberContact(name: string, role?: string, userId?: string): void {
+    const p = loadProfile(userId);
     const existing = p.contacts.find((c) => c.name.toLowerCase() === name.toLowerCase());
     if (existing) {
         if (role) existing.role = role;
@@ -129,45 +159,45 @@ export function rememberContact(name: string, role?: string): void {
     } else {
         p.contacts.push({ name, role, lastMentioned: new Date().toISOString() });
     }
-    saveProfile(p);
+    saveProfile(p, userId);
 }
 
 /** Learn a preference */
-export function learnPreference(key: string, value: string): void {
-    const p = loadProfile();
+export function learnPreference(key: string, value: string, userId?: string): void {
+    const p = loadProfile(userId);
     p.preferences[key] = value;
-    saveProfile(p);
+    saveProfile(p, userId);
 }
 
 /** Learn a fact about the user */
-export function learnFact(fact: string, confidence: 'certain' | 'likely' | 'maybe' = 'likely'): void {
-    const p = loadProfile();
+export function learnFact(fact: string, confidence: 'certain' | 'likely' | 'maybe' = 'likely', userId?: string): void {
+    const p = loadProfile(userId);
     if (!p.facts.some((f) => f.fact === fact)) {
         p.facts.push({ fact, learnedAt: new Date().toISOString(), confidence });
-        saveProfile(p);
+        saveProfile(p, userId);
         logger.info(COMPONENT, `Learned fact: ${fact}`);
     }
 }
 
 /** Add a goal */
-export function addGoal(goal: string): void {
-    const p = loadProfile();
+export function addGoal(goal: string, userId?: string): void {
+    const p = loadProfile(userId);
     if (!p.goals.some((g) => g.goal === goal)) {
         p.goals.push({ goal, addedAt: new Date().toISOString(), completed: false });
-        saveProfile(p);
+        saveProfile(p, userId);
     }
 }
 
 /** Set technical level based on conversation analysis */
-export function calibrateTechnicalLevel(level: PersonalProfile['technicalLevel']): void {
-    const p = loadProfile();
+export function calibrateTechnicalLevel(level: PersonalProfile['technicalLevel'], userId?: string): void {
+    const p = loadProfile(userId);
     p.technicalLevel = level;
-    saveProfile(p);
+    saveProfile(p, userId);
 }
 
 /** Build the personal context string to inject into every system prompt */
-export function buildPersonalContext(): string {
-    const p = loadProfile();
+export function buildPersonalContext(userId?: string): string {
+    const p = loadProfile(userId);
     const lines: string[] = [];
 
     if (p.name) lines.push(`The user's name is ${p.name}. Address them by name occasionally.`);
@@ -208,8 +238,8 @@ export function buildPersonalContext(): string {
 }
 
 /** Get a summary of what TITAN knows about the user */
-export function getProfileSummary(): string {
-    const p = loadProfile();
+export function getProfileSummary(userId?: string): string {
+    const p = loadProfile(userId);
     const lines: string[] = ['📋 **What TITAN knows about you:**\n'];
     if (p.name) lines.push(`👤 Name: ${p.name}`);
     if (p.occupation) lines.push(`💼 Role: ${p.occupation}`);

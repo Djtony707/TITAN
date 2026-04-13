@@ -43,6 +43,12 @@ vi.mock('fs', async (importOriginal) => {
         writeFileSync: vi.fn().mockImplementation((p: string, data: string) => {
             mockFiles[p] = data;
         }),
+        renameSync: vi.fn().mockImplementation((src: string, dest: string) => {
+            if (src in mockFiles) {
+                mockFiles[dest] = mockFiles[src];
+                delete mockFiles[src];
+            }
+        }),
         mkdirSync: vi.fn(),
     };
 });

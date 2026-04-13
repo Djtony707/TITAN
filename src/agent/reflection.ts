@@ -30,13 +30,25 @@ export interface ProgressScore {
     score: number;             // 0.0–1.0
 }
 
-// ── Progress Tracking ──────────────────────────────────────────────
+// ── Progress Tracking (per-session to avoid concurrency corruption) ──
 
-const progressHistory: ProgressScore[] = [];
+const sessionProgress: Map<string, ProgressScore[]> = new Map();
+let activeSessionId = '';
 
 /** Reset progress tracking (call at start of each request) */
-export function resetProgress(): void {
-    progressHistory.length = 0;
+export function resetProgress(sessionId?: string): void {
+    const sid = sessionId || activeSessionId;
+    if (sid) {
+        sessionProgress.delete(sid);
+    }
+}
+
+/** Set the active session for progress tracking */
+export function setProgressSession(sessionId: string): void {
+    activeSessionId = sessionId;
+    if (!sessionProgress.has(sessionId)) {
+        sessionProgress.set(sessionId, []);
+    }
 }
 
 /** Record a round's progress and return the score */
@@ -46,6 +58,9 @@ export function recordProgress(toolSucceeded: boolean, newInformation: boolean, 
         (newInformation ? 0.3 : 0) +
         (closerToGoal ? 0.4 : 0);
 
+    const progressHistory = sessionProgress.get(activeSessionId) || [];
+    if (!sessionProgress.has(activeSessionId)) sessionProgress.set(activeSessionId, progressHistory);
+
     const entry: ProgressScore = { toolSucceeded, newInformation, closerToGoal, score };
     progressHistory.push(entry);
     return entry;
@@ -53,15 +68,17 @@ export function recordProgress(toolSucceeded: boolean, newInformation: boolean, 
 
 /** Check if progress has stalled (score < 0.2 for N consecutive rounds) */
 export function isProgressStalled(consecutiveThreshold: number = 2): boolean {
-    if (progressHistory.length < consecutiveThreshold) return false;
-    const recent = progressHistory.slice(-consecutiveThreshold);
+    const history = sessionProgress.get(activeSessionId) || [];
+    if (history.length < consecutiveThreshold) return false;
+    const recent = history.slice(-consecutiveThreshold);
     return recent.every(p => p.score < 0.2);
 }
 
 /** Get average progress score over recent rounds */
 export function getAverageProgress(rounds: number = 3): number {
-    if (progressHistory.length === 0) return 1.0;
-    const recent = progressHistory.slice(-rounds);
+    const history = sessionProgress.get(activeSessionId) || [];
+    if (history.length === 0) return 1.0;
+    const recent = history.slice(-rounds);
     return recent.reduce((sum, p) => sum + p.score, 0) / recent.length;
 }
 
@@ -165,8 +182,10 @@ export async function reflect(
 ): Promise<ReflectionResult> {
     const config = loadConfig();
 
-    // Use the fast model alias for cheap reflection calls
-    const fastModel = config.agent.modelAliases?.fast || 'openai/gpt-4o-mini';
+    // Use the fast model alias for cheap reflection calls — chain through configured models, never hardcode a provider
+    const fastModel = config.agent.modelAliases?.fast
+        || config.agent.modelAliases?.reasoning
+        || config.agent.model;
 
     const prompt = buildReflectionPrompt(round, toolsUsed, originalMessage, lastToolResults, failedAttempts);
 

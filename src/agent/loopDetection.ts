@@ -88,7 +88,7 @@ export function checkForLoop(
         history.splice(0, history.length - cfg.historySize);
     }
 
-    // Per-session call counter
+    // Per-session call counter (single-threaded: no await between read/write, so this is atomic)
     const sessionCalls = (sessionCallCounts.get(sessionId) || 0) + 1;
     sessionCallCounts.set(sessionId, sessionCalls);
 
@@ -161,13 +161,18 @@ function countConsecutiveRepeats(history: ToolCallRecord[]): number {
     return count;
 }
 
-/** Count consecutive tool calls returning the same output */
+/** Count consecutive tool calls returning the same output WITH same args.
+ *  Only flags as "no progress" if both args and output are identical —
+ *  reading the same file 5x is a loop, but reading 5 different files
+ *  that happen to have similar output is not. */
 function countNoProgressPolls(history: ToolCallRecord[]): number {
     if (history.length < 2) return 1;
     const last = history[history.length - 1];
     let count = 1;
     for (let i = history.length - 2; i >= 0; i--) {
-        if (history[i].toolName === last.toolName && history[i].outputHash === last.outputHash) {
+        if (history[i].toolName === last.toolName
+            && history[i].argsHash === last.argsHash
+            && history[i].outputHash === last.outputHash) {
             count++;
         } else {
             break;

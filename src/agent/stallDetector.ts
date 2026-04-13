@@ -79,7 +79,7 @@ function hashArgs(args: Record<string, unknown>): string {
 
 function getOrCreate(sessionId: string): SessionState {
     if (!sessions.has(sessionId)) {
-        sessions.set(sessionId, { lastEventMs: Date.now(), toolHistory: [], nudgeCount: 0, stallCount: 0, consecutiveToolCallFailures: 0 });
+        sessions.set(sessionId, { lastEventMs: Date.now(), toolHistory: [], nudgeCount: 0, stallCount: 0, consecutiveToolCallFailures: 0, toolNames: [], consecutiveNoTool: 0 });
     }
     return sessions.get(sessionId)!;
 }
@@ -153,8 +153,7 @@ export function resetToolCallFailures(sessionId: string): void {
 /** Call this every time a tool is invoked */
 export function recordToolCall(sessionId: string, name: string, args: Record<string, unknown>): StallEvent | null {
     const state = getOrCreate(sessionId);
-    if (!state.toolNames) state.toolNames = [];
-    state.toolNames.push(name);
+    state.toolNames!.push(name);
     state.consecutiveNoTool = 0; // Reset no-tool counter on successful tool call
     const argsHash = hashArgs(args);
 
@@ -361,6 +360,28 @@ export function clearSession(sessionId: string): void {
     if (state?.timer) clearTimeout(state.timer);
     sessions.delete(sessionId);
 }
+
+/** Sweep stale sessions older than maxAgeMs (default: 30 minutes).
+ *  Call periodically to prevent unbounded memory growth in long-running instances. */
+export function sweepStaleSessions(maxAgeMs = 30 * 60 * 1000): number {
+    const now = Date.now();
+    let swept = 0;
+    for (const [id, state] of sessions) {
+        if (now - state.lastEventMs > maxAgeMs) {
+            if (state.timer) clearTimeout(state.timer);
+            sessions.delete(id);
+            swept++;
+        }
+    }
+    if (swept > 0) {
+        logger.info(COMPONENT, `Swept ${swept} stale sessions (>${maxAgeMs / 60_000}m idle)`);
+    }
+    return swept;
+}
+
+// Auto-sweep every 10 minutes to prevent memory leaks
+const _sweepInterval = setInterval(() => sweepStaleSessions(), 10 * 60 * 1000);
+_sweepInterval.unref(); // Don't keep process alive just for sweep
 
 /** Get stall stats across all sessions */
 export function getStallStats(): { sessionId: string; stallCount: number; nudgeCount: number }[] {

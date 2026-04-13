@@ -202,11 +202,12 @@ describe('LoopDetection', () => {
     // ─── checkForLoop — no progress polls ───────────────────────────
     describe('checkForLoop — no progress polls', () => {
         it('same output hash triggers detection at critical threshold', () => {
+            // Same tool + same args + same output = no progress loop
             for (let i = 0; i < 9; i++) {
-                checkForLoop(sessionId, 'poll_status', { id: i.toString() }, 'pending', HIGH_CB);
+                checkForLoop(sessionId, 'poll_status', { id: 'target' }, 'pending', HIGH_CB);
             }
-            const result = checkForLoop(sessionId, 'poll_status', { id: '10' }, 'pending', HIGH_CB);
-            // noProgressCount detects same tool + same output
+            const result = checkForLoop(sessionId, 'poll_status', { id: 'target' }, 'pending', HIGH_CB);
+            // noProgressCount detects same tool + same args + same output
             expect(result.allowed).toBe(false);
             expect(result.level).toBe('critical');
         });

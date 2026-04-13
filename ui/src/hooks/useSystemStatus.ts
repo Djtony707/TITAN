@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '@/api/client';
 
 interface SystemStatus {
   version: string;
@@ -24,7 +25,7 @@ export function useSystemStatus(intervalMs = 10000): SystemStatus {
 
     const poll = async () => {
       try {
-        const res = await fetch('/api/stats');
+        const res = await apiFetch('/api/stats');
         if (!res.ok) throw new Error();
         const data = await res.json();
         if (active) {

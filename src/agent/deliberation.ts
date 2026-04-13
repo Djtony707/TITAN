@@ -77,6 +77,7 @@ export interface DeliberationState {
     planMarkdown?: string;
     results: Array<{ taskId: string; result: string; success: boolean }>;
     error?: string;
+    tokenUsage?: { prompt: number; completion: number; total: number };
     createdAt: number;
     revision: number;  // Incremented on every state mutation
 }
@@ -172,6 +173,7 @@ export async function analyze(message: string, sessionId: string, config: TitanC
         stage: 'analyzing',
         originalMessage: message,
         results: [],
+        tokenUsage: { prompt: 0, completion: 0, total: 0 },
         createdAt: Date.now(),
         revision: 0,
     };
@@ -201,6 +203,11 @@ export async function analyze(message: string, sessionId: string, config: TitanC
 
         state.analysis = response.content;
         state.stage = 'planning';
+        if (response.usage && state.tokenUsage) {
+            state.tokenUsage.prompt += response.usage.promptTokens;
+            state.tokenUsage.completion += response.usage.completionTokens;
+            state.tokenUsage.total += response.usage.totalTokens;
+        }
         logger.info(COMPONENT, `Analysis complete (${response.content.length} chars)`);
     } catch (err) {
         state.stage = 'failed';
@@ -259,6 +266,11 @@ STEP: Test build | Run npm run build to verify no errors | shell`;
         });
 
         const text = response.content.trim();
+        if (response.usage && state.tokenUsage) {
+            state.tokenUsage.prompt += response.usage.promptTokens;
+            state.tokenUsage.completion += response.usage.completionTokens;
+            state.tokenUsage.total += response.usage.totalTokens;
+        }
         logger.info(COMPONENT, `Plan response (${text.length} chars): ${text.slice(0, 200)}`);
 
         // Parse GOAL: and STEP: lines
@@ -432,6 +444,8 @@ export async function executePlan(
 
     state.stage = plan.status === 'completed' ? 'completed' : 'failed';
     persistState(state);
+    // Clean up terminal states from in-memory map to prevent unbounded growth
+    activeDeliberations.delete(state.sessionId);
     emitPlanEvent({ type: 'plan:done', planId: plan.id, success: state.stage === 'completed', summary: `${state.results.filter(r => r.success).length}/${state.results.length} tasks succeeded` });
 
     logger.info(COMPONENT, `Plan execution ${state.stage}: ${state.results.filter(r => r.success).length}/${state.results.length} tasks succeeded`);
@@ -447,8 +461,11 @@ export function handleApproval(sessionId: string, approved: boolean): Deliberati
         state.stage = 'executing';
     } else {
         state.stage = 'cancelled';
+        // Clean up cancelled deliberations from memory
+        activeDeliberations.delete(sessionId);
     }
 
+    persistState(state);
     return state;
 }
 

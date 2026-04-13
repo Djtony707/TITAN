@@ -28,7 +28,7 @@ import { maybeCompressContext } from './costOptimizer.js';
 import type { TitanConfig } from '../config/schema.js';
 import { buildSmartContext } from './contextManager.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
-import { shouldReflect, reflect, resetProgress, recordProgress } from './reflection.js';
+import { shouldReflect, reflect, resetProgress, recordProgress, setProgressSession } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
 import { saveCheckpoint } from './checkpoint.js';
 import { updateSoulState, emitHeartbeat, getInnerMonologue, recordAttempt } from './soul.js';
@@ -40,6 +40,15 @@ import type { ChatMessage, ChatResponse, ToolCall, ToolDefinition } from '../pro
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'AgentLoop';
+
+/** Sanitize reflection reasoning before injecting into message stream */
+function sanitizeReflection(text: string): string {
+    return text
+        .slice(0, 200)
+        .replace(/\[SYSTEM\].*$/gm, '')
+        .replace(/^(You are|IMPORTANT:|CRITICAL:|IGNORE).*$/gim, '')
+        .trim() || 'approach not working';
+}
 
 // ── Phase State Machine ��─────────────────────────────────────────────
 
@@ -84,6 +93,8 @@ export interface LoopContext {
     completionStrategy?: 'smart-exit' | 'no-tools' | 'terminal-tool' | 'single-round';
     /** Pipeline type for logging */
     pipelineType?: string;
+    /** Minimum rounds before allowing SmartExit (pipeline-enforced) */
+    minRounds?: number;
 }
 
 /** Everything processMessage needs back from the loop */
@@ -141,7 +152,9 @@ function extractToolCallFromContent(
         } catch { /* malformed */ }
     }
 
-    // Strategy 2: Natural language tool mentions (cloud models)
+    // Strategy 2: Natural language tool mentions
+    // Cloud models often describe tool calls in text → empty skipSet to rescue all tools.
+    // Local models handle structured tool calls fine → skip common tools to avoid false rescues.
     const skipSet = isCloudModel
         ? new Set<string>()
         : new Set(['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory', 'web_search', 'web_fetch', 'tool_search']);
@@ -177,10 +190,22 @@ function extractToolCallFromContent(
                 if (cmd.length > 0) return { id: `rescue_${Date.now()}`, type: 'function', function: { name: 'shell', arguments: JSON.stringify({ command: cmd }) } };
             }
         }
-        if ((toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') && toolName === 'read_file') {
+        if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') {
             const pathMatch = content.match(/(?:file|path)[=:\s]+["']?((?:\/|~\/|\.\/)\S+?)["'\s,)]/i)
                 || content.match(/((?:\/|~\/)\S+\.\w{1,10})/);
-            if (pathMatch) return { id: `rescue_${Date.now()}`, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: pathMatch[1] }) } };
+            if (pathMatch) {
+                if (toolName === 'write_file') {
+                    // Try to extract content to write from code blocks
+                    const codeBlock = content.match(/```[\w]*\n([\s\S]*?)```/);
+                    const writeContent = codeBlock ? codeBlock[1] : '';
+                    return { id: `rescue_${Date.now()}`, type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: pathMatch[1], content: writeContent }) } };
+                } else if (toolName === 'edit_file') {
+                    // edit_file needs target+replacement — rescue as read_file first so the agent can see the file
+                    return { id: `rescue_${Date.now()}`, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: pathMatch[1] }) } };
+                } else {
+                    return { id: `rescue_${Date.now()}`, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: pathMatch[1] }) } };
+                }
+            }
         }
         if (toolName === 'web_search') {
             const queryMatch = content.match(/(?:search(?:ing)?(?:\s+for)?|query)[=:\s]+["'](.+?)["']/i)
@@ -310,7 +335,8 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     let pivotCount = 0;
     const MAX_PIVOTS = 1;
     const failedApproaches: string[] = [];
-    resetProgress();
+    setProgressSession(ctx.sessionId);
+    resetProgress(ctx.sessionId);
 
     // Learning state
     let lastFailedTool: { name: string; error: string } | null = null;
@@ -323,6 +349,8 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
     // Response validation retry flag (one retry max)
     let responseValidationRetried = false;
+    // Empty response retry flag (one retry max)
+    let emptyResponseRetried = false;
 
     // Force tool_choice=required on next think phase (set by incomplete task guard)
     let forceWriteOnNextThink = false;
@@ -390,13 +418,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                     if (reflectionResult.decision === 'stop') {
                         logger.info(COMPONENT, `Reflection says stop at round ${round + 1}: ${reflectionResult.reasoning}`);
-                        ctx.messages.push({ role: 'user', content: `You've reflected on your progress and decided you have enough information. Respond to the user now with your findings. Reasoning: ${reflectionResult.reasoning}` });
+                        ctx.messages.push({ role: 'user', content: `You've reflected on your progress and decided you have enough information. Respond to the user now with your findings. Reasoning: ${sanitizeReflection(reflectionResult.reasoning)}` });
                         phase = 'respond';
                         continue;
                     } else if (reflectionResult.decision === 'pivot' && pivotCount < MAX_PIVOTS) {
                         pivotCount++;
                         const toolsSummary = [...new Set(result.toolsUsed)].join(', ');
-                        const approachSummary = `Attempted tools: ${toolsSummary}. Result: ${reflectionResult.reasoning}`;
+                        const approachSummary = `Attempted tools: ${toolsSummary}. Result: ${sanitizeReflection(reflectionResult.reasoning)}`;
                         failedApproaches.push(approachSummary);
                         logger.info(COMPONENT, `PIVOT at round ${round + 1}: ${reflectionResult.reasoning}`);
 
@@ -406,13 +434,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         ctx.messages.length = 0;
                         if (systemMsg) ctx.messages.push(systemMsg);
                         if (userMsg) ctx.messages.push(userMsg);
-                        ctx.messages.push({ role: 'user', content: `Warning: STRATEGIC PIVOT: Your previous approach failed.\nWhat was tried: ${approachSummary}\nWhy it failed: ${reflectionResult.reasoning}\n\nTry a COMPLETELY DIFFERENT strategy. Do NOT repeat the same tools or approach.` });
+                        ctx.messages.push({ role: 'user', content: `Warning: STRATEGIC PIVOT: Your previous approach failed.\nWhat was tried: ${approachSummary}\nWhy it failed: ${sanitizeReflection(reflectionResult.reasoning)}\n\nTry a COMPLETELY DIFFERENT strategy. Do NOT repeat the same tools or approach.` });
 
                         resetProgress();
                         result.toolsUsed.length = 0;
                         result.orderedToolSequence.length = 0;
+                    } else if (reflectionResult.decision === 'pivot' && pivotCount >= MAX_PIVOTS) {
+                        // Pivot limit reached — inject guidance instead of silently ignoring
+                        logger.warn(COMPONENT, `Pivot limit reached (${MAX_PIVOTS}), injecting adjustment instead`);
+                        ctx.messages.push({ role: 'user', content: `Your approach isn't working but you've already pivoted ${MAX_PIVOTS} time(s). Instead of starting over, try a SMALL adjustment: ${sanitizeReflection(reflectionResult.reasoning)}. Focus on what's most likely to succeed with the tools you have.` });
                     } else if (reflectionResult.decision === 'adjust') {
-                        ctx.messages.push({ role: 'user', content: `Reflection suggests adjusting approach: ${reflectionResult.reasoning}. Try a different strategy.` });
+                        ctx.messages.push({ role: 'user', content: `Reflection suggests adjusting approach: ${sanitizeReflection(reflectionResult.reasoning)}. Try a different strategy.` });
                     }
                     // 'continue' → no injection, just keep going
                 } catch (e) {
@@ -479,13 +511,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // 1. Clear old tool results (keep last 5 in full, truncate older ones)
             // 2. Trim to recent messages if context is getting large
             if (smartMessages.length > 6) {
+                // Collapse deliberation messages to prevent plan markdown from polluting context
+                for (let i = smartMessages.length - 1; i >= 0; i--) {
+                    const msg = smartMessages[i];
+                    if (msg.role === 'assistant' && msg.content?.startsWith('[DELIBERATION]')) {
+                        smartMessages[i] = { ...msg, content: '[Prior deliberation plan — details omitted for brevity]' };
+                        continue; // don't count as tool result
+                    }
+                }
                 let toolResultCount = 0;
                 for (let i = smartMessages.length - 1; i >= 0; i--) {
                     const msg = smartMessages[i];
                     if (msg.role === 'tool' || (msg.role === 'assistant' && msg.toolCalls)) {
                         toolResultCount++;
-                        if (toolResultCount > 5 && msg.content && msg.content.length > 200) {
-                            // Truncate old tool results (TITAN pattern)
+                        if (toolResultCount > 5 && msg.content) {
+                            // Truncate ALL old tool results outside keep-5 window (regardless of length)
                             smartMessages[i] = { ...msg, content: '[Earlier tool result cleared — ' + msg.content.slice(0, 80) + '...]' };
                         }
                     }
@@ -534,11 +574,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         logger.error(COMPONENT, `Stream error: ${chunk.error}`);
                     }
                 }
+                // Estimate token counts for streaming (servers don't report usage in stream mode)
+                // ~4 chars per token is a reasonable approximation for English text
+                const estCompletionTokens = Math.ceil((streamContent.length + JSON.stringify(streamToolCalls).length) / 4);
+                const estPromptTokens = Math.ceil(JSON.stringify(smartMessages).length / 4);
                 response = {
                     id: `stream-${Date.now()}`,
                     content: streamContent,
                     toolCalls: streamToolCalls.length > 0 ? streamToolCalls : undefined,
-                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+                    usage: { promptTokens: estPromptTokens, completionTokens: estCompletionTokens, totalTokens: estPromptTokens + estCompletionTokens },
                     finishReason: streamToolCalls.length > 0 ? 'tool_calls' : 'stop',
                     model: activeModel,
                 };
@@ -1127,7 +1171,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     const singleToolSuccess = pendingToolCalls.length === 1
                         && toolResults.every(r => r.success)
                         && terminalTools.has(pendingToolCalls[0].function.name);
-                    if (singleToolSuccess && round >= 2 && ctx.smartExitEnabled !== false) {
+                    // Respect minRounds — don't allow early exit before the pipeline's minimum
+                    const minRoundsMet = round >= (ctx.minRounds ?? 2);
+                    if (singleToolSuccess && minRoundsMet && ctx.smartExitEnabled !== false) {
                         logger.info(COMPONENT, `[SmartExit:${ctx.pipelineType || 'general'}] Terminal tool "${pendingToolCalls[0].function.name}" succeeded — skipping to respond`);
                         phase = 'respond';
                     } else {
@@ -1227,18 +1273,34 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             // Empty response fallback: if the model returned nothing in respond phase,
-            // synthesize from the last tool results instead of showing a blank message
-            if (!result.content || result.content.trim().length === 0) {
-                const lastToolResults = ctx.messages
-                    .filter(m => m.role === 'tool')
-                    .slice(-2)
-                    .map(m => (m.content || '').slice(0, 300))
-                    .join('\n');
-                if (lastToolResults) {
-                    logger.warn(COMPONENT, '[EmptyResponse] Model returned empty — using tool results as fallback');
-                    result.content = lastToolResults;
-                } else {
-                    result.content = 'I completed the task but was unable to generate a summary. Please check the tool results above.';
+            // retry once with explicit instruction, then use a clean fallback
+            if (!emptyResponseRetried && (!result.content || result.content.trim().length === 0)) {
+                emptyResponseRetried = true;
+                // Try one more LLM call with a strong nudge to summarize
+                try {
+                    const retryMessages = [
+                        ...ctx.messages.slice(-6),
+                        { role: 'user' as const, content: '[SYSTEM] You MUST respond to the user\'s original question now. Summarize what you found from your tool calls in 2-3 sentences. Do NOT call any tools. Just answer directly.' },
+                    ];
+                    const retryResponse = await chat({
+                        model: activeModel,
+                        messages: retryMessages,
+                        temperature: 0.7,
+                        maxTokens: 300,
+                    });
+                    const retryContent = (retryResponse.content || '').trim();
+                    if (retryContent && retryContent.length > 10) {
+                        logger.info(COMPONENT, '[EmptyResponse] Recovery retry succeeded');
+                        result.content = stripToolJson(retryContent);
+                    }
+                } catch (retryErr) {
+                    logger.debug(COMPONENT, `[EmptyResponse] Recovery retry failed: ${(retryErr as Error).message}`);
+                }
+
+                // If retry also failed, use a clean message (never dump raw tool results)
+                if (!result.content || result.content.trim().length === 0) {
+                    logger.warn(COMPONENT, '[EmptyResponse] Model returned empty after retry — using clean fallback');
+                    result.content = 'I looked into that but couldn\'t generate a clear summary. Could you try asking again?';
                 }
             }
 

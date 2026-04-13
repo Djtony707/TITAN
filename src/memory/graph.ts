@@ -3,8 +3,8 @@
  * Pure TypeScript graph memory: no Docker, no Python, no extra API keys.
  * Uses TITAN's own LLM for entity extraction.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { writeFile } from 'fs/promises';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { v4 as uuid } from 'uuid';
@@ -133,8 +133,10 @@ export interface GraphEdge {
 // ── In-memory graph ───────────────────────────────────────────────
 let graph: TitanGraph = { episodes: [], entities: [], edges: [] };
 let initialized = false;
+let dirty = false;
 
 // ── Persistence ───────────────────────────────────────────────────
+// NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadGraph(): void {
     mkdirSync(TITAN_HOME, { recursive: true });
     if (existsSync(GRAPH_PATH)) {
@@ -173,22 +175,43 @@ function loadGraph(): void {
 let graphSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function saveGraph(): void {
+    if (dirty) {
+        // Bypass debounce if a previous write failed
+        if (graphSaveTimeout) { clearTimeout(graphSaveTimeout); graphSaveTimeout = null; }
+        doAsyncSave();
+        return;
+    }
     if (graphSaveTimeout) clearTimeout(graphSaveTimeout);
-    graphSaveTimeout = setTimeout(() => {
-        writeFile(GRAPH_PATH, JSON.stringify(graph, null, 2), 'utf-8').catch((e) => {
-            logger.error(COMPONENT, `Failed to save graph.json: ${(e as Error).message}`);
-        });
-    }, 1000);
+    graphSaveTimeout = setTimeout(doAsyncSave, 1000);
     graphSaveTimeout.unref();
+}
+
+async function doAsyncSave(): Promise<void> {
+    try {
+        const tmpFile = GRAPH_PATH + '.tmp';
+        await writeFile(tmpFile, JSON.stringify(graph, null, 2), 'utf-8');
+        await rename(tmpFile, GRAPH_PATH);
+        dirty = false;
+    } catch (e) {
+        dirty = true;
+        logger.error(COMPONENT, `Failed to save graph.json: ${(e as Error).message}`);
+    }
 }
 
 /** Flush graph to disk immediately (for shutdown) */
 export function flushGraph(): void {
     if (graphSaveTimeout) { clearTimeout(graphSaveTimeout); graphSaveTimeout = null; }
     try {
-        writeFileSync(GRAPH_PATH, JSON.stringify(graph, null, 2), 'utf-8');
+        const tmpFile = GRAPH_PATH + '.tmp';
+        writeFileSync(tmpFile, JSON.stringify(graph, null, 2), 'utf-8');
+        renameSync(tmpFile, GRAPH_PATH);
+        dirty = false;
     } catch (e) {
+        dirty = true;
         logger.error(COMPONENT, `Failed to flush graph.json: ${(e as Error).message}`);
+    }
+    if (dirty) {
+        logger.error(COMPONENT, 'DATA MAY BE LOST — failed to flush graph on shutdown');
     }
 }
 
@@ -230,9 +253,10 @@ export function initGraph(): void {
 }
 
 // ── Entity extraction via any configured LLM ────────────────────
-async function extractEntities(content: string): Promise<Array<{ name: string; type: string; facts: string[] }>> {
+async function extractEntities(content: string): Promise<{ entities: Array<{ name: string; type: string; facts: string[] }>; relations: Array<{ from: string; to: string; relation: string }> }> {
     try {
         // Dynamic import to avoid circular dependency (router → config → graph)
+        // Dynamic import breaks circular dependency: graph → router → agent → graph. This is intentional.
         const { chat: routerChat } = await import('../providers/router.js');
         const config = loadConfig();
         const model = config.agent.model.toLowerCase();
@@ -351,23 +375,18 @@ Text: ${content.slice(0, 500)}`;
             })
             .filter((e): e is { name: string; type: string; facts: string[] } => e !== null);
 
-        // Store extracted relations for use in addEpisode
-        if (rawRelations.length > 0) {
-            lastExtractedRelations = rawRelations
-                .filter(r => r.from && r.to && r.relation && typeof r.relation === 'string')
-                .map(r => ({ from: r.from, to: r.to, relation: r.relation.toLowerCase().replace(/\s+/g, '_') }));
-        }
+        // Build validated relations to return alongside entities
+        const validatedRelations = rawRelations
+            .filter(r => r.from && r.to && r.relation && typeof r.relation === 'string')
+            .map(r => ({ from: r.from, to: r.to, relation: r.relation.toLowerCase().replace(/\s+/g, '_') }));
 
         logger.info(COMPONENT, `Extraction: ${rawEntities.length} raw → ${entities.length} valid entities, ${rawRelations.length} relations`);
-        return entities;
+        return { entities, relations: validatedRelations };
     } catch (err) {
         logger.warn(COMPONENT, `Entity extraction failed: ${(err as Error).message}`);
-        return [];
+        return { entities: [], relations: [] };
     }
 }
-
-// Cache extracted relations for edge creation in addEpisode
-let lastExtractedRelations: Array<{ from: string; to: string; relation: string }> = [];
 
 /** Word-overlap fuzzy matching — requires >60% shared words or one name is a prefix of the other */
 function fuzzyNameMatch(a: string, b: string): boolean {
@@ -521,7 +540,8 @@ export async function addEpisode(content: string, source: string): Promise<Episo
     }
 
     // Background entity extraction (non-blocking)
-    extractEntities(content).then((extracted) => {
+    extractEntities(content).then((result) => {
+        const { entities: extracted, relations } = result;
         if (!extracted || extracted.length === 0) return;
 
         // Ensure graph arrays exist (defensive against race conditions)
@@ -553,8 +573,8 @@ export async function addEpisode(content: string, source: string): Promise<Episo
 
         // Apply LLM-extracted semantic relations
         const usedPairs = new Set<string>();
-        if (lastExtractedRelations.length > 0) {
-            for (const rel of lastExtractedRelations) {
+        if (relations.length > 0) {
+            for (const rel of relations) {
                 const fromId = entityNameToId.get(rel.from.toLowerCase());
                 const toId = entityNameToId.get(rel.to.toLowerCase());
                 if (!fromId || !toId || fromId === toId) continue;
@@ -574,13 +594,16 @@ export async function addEpisode(content: string, source: string): Promise<Episo
                     });
                 }
             }
-            lastExtractedRelations = []; // consume
         }
 
         // Fall back to co_mentioned for remaining entity pairs (limit to avoid edge explosion)
+        const MAX_CO_EDGES = 5;
+        let newCoEdgeCount = 0;
         if (episode.entities.length > 1 && episode.entities.length <= 8) {
             for (let i = 0; i < episode.entities.length; i++) {
+                if (newCoEdgeCount >= MAX_CO_EDGES) break;
                 for (let j = i + 1; j < episode.entities.length; j++) {
+                    if (newCoEdgeCount >= MAX_CO_EDGES) break;
                     const fromId = episode.entities[i];
                     const toId = episode.entities[j];
                     const pairKey = [fromId, toId].sort().join(':');
@@ -596,6 +619,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
                             relation: 'co_mentioned',
                             createdAt: new Date().toISOString(),
                         });
+                        newCoEdgeCount++;
                     }
                 }
             }
