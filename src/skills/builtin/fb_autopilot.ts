@@ -344,7 +344,10 @@ function replyContainsPII(text: string): boolean {
 }
 
 async function monitorComments(): Promise<void> {
-    if (!process.env.FB_PAGE_ACCESS_TOKEN || !process.env.FB_PAGE_ID) return;
+    if (!process.env.FB_PAGE_ACCESS_TOKEN || !process.env.FB_PAGE_ID) {
+        logger.debug(COMPONENT, 'Comment monitor: no FB credentials');
+        return;
+    }
 
     const state = loadState();
     resetDailyCounters(state);
@@ -364,23 +367,31 @@ async function monitorComments(): Promise<void> {
             `https://graph.facebook.com/v21.0/${pageId}/feed?fields=id,comments{id,message,from,created_time}&limit=5&access_token=${token}`,
             { signal: AbortSignal.timeout(15000) },
         );
-        if (!feedResp.ok) return;
+        if (!feedResp.ok) {
+            logger.warn(COMPONENT, `Comment monitor: feed fetch failed (${feedResp.status})`);
+            return;
+        }
 
         const feed = await feedResp.json() as Record<string, unknown>;
         const posts = (feed.data as Array<Record<string, unknown>>) || [];
+        let totalComments = 0;
+        let newComments = 0;
 
         for (const post of posts) {
             const comments = (post.comments as Record<string, unknown>)?.data as Array<Record<string, unknown>> | undefined;
             if (!comments || comments.length === 0) continue;
 
             for (const comment of comments) {
+                totalComments++;
                 const commentId = comment.id as string;
-                const fromId = (comment.from as Record<string, unknown>)?.id as string;
-                const fromName = (comment.from as Record<string, unknown>)?.name as string || 'someone';
+                const fromObj = comment.from as Record<string, unknown> | undefined;
+                const fromId = fromObj?.id as string | undefined;
+                const fromName = fromObj?.name as string || 'someone';
 
                 // Skip: from the page itself, already replied, or empty
                 if (fromId === pageId) continue;
                 if (repliedComments.has(commentId)) continue;
+                newComments++;
 
                 const msg = comment.message as string || '';
                 if (msg.length < 3) continue;
@@ -414,6 +425,9 @@ async function monitorComments(): Promise<void> {
                         repliedComments.add(commentId);
                         state.repliesToday++;
                         logger.info(COMPONENT, `Replied to ${fromName}: "${reply.slice(0, 60)}..." (${state.repliesToday}/10 today)`);
+                    } else {
+                        const errBody = await replyResp.text().catch(() => '');
+                        logger.warn(COMPONENT, `Reply API failed (${replyResp.status}): ${errBody.slice(0, 200)}`);
                     }
                 } catch (e) {
                     logger.error(COMPONENT, `Failed to reply: ${(e as Error).message}`);
@@ -421,10 +435,11 @@ async function monitorComments(): Promise<void> {
             }
         }
 
+        logger.info(COMPONENT, `Comment scan: ${posts.length} posts, ${totalComments} comments, ${newComments} new`);
         saveRepliedComments(repliedComments);
         saveState(state);
     } catch (e) {
-        logger.debug(COMPONENT, `Comment monitor error: ${(e as Error).message}`);
+        logger.error(COMPONENT, `Comment monitor error: ${(e as Error).message}`);
     }
 }
 
