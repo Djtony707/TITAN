@@ -284,41 +284,81 @@ function saveRepliedComments(ids: Set<string>): void {
 }
 
 /** Generate a respectful reply to a comment. Never reveals personal info. */
+/** Strip chain-of-thought reasoning that some models leak into output */
+function stripThinking(text: string): string {
+    // Remove <think>...</think> blocks
+    let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // Remove lines that look like internal reasoning (starts with "Wait,", "Actually,", "I should", "Let me", "Hmm", etc.)
+    const lines = cleaned.split('\n');
+    const replyLines: string[] = [];
+    let foundReply = false;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Skip reasoning patterns
+        if (/^(Wait|Actually|Hmm|Let me|I should|I need to|I could|So |The (rules|comment|user)|Since |But |OK so)/i.test(trimmed)) {
+            foundReply = false; // Reset — reasoning appeared after reply candidate
+            continue;
+        }
+        // Skip meta-commentary about the comment
+        if (/commented (with|about|on|saying|that)|this is a .*(comment|message|question)/i.test(trimmed)) continue;
+        foundReply = true;
+        replyLines.push(trimmed);
+    }
+    cleaned = replyLines.join(' ').trim();
+    // Remove wrapping quotes
+    cleaned = cleaned.replace(/^["']|["']$/g, '');
+    return cleaned;
+}
+
+/** Check if text looks like leaked reasoning rather than a real reply */
+function looksLikeReasoning(text: string): boolean {
+    const reasoningSignals = [
+        /I should respond/i,
+        /I need to/i,
+        /the rules say/i,
+        /my personality/i,
+        /let me (think|check|consider)/i,
+        /chain.of.thought/i,
+        /\bwait\b.*\brules\b/i,
+    ];
+    return reasoningSignals.some(p => p.test(text));
+}
+
 async function generateReply(commentText: string, commenterName: string): Promise<string> {
     const config = loadConfig();
     const model = config.agent?.model || 'ollama/glm-5.1:cloud';
+    const firstName = commenterName.split(' ')[0];
 
     try {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: `You are TITAN, an autonomous AI agent responding to comments on your Facebook page "TITAN AI". You have a witty, slightly cocky personality — you're an AI that knows it's cool. Think confident but not arrogant, funny but not try-hard. Use humor naturally like a developer who's proud of what they built.
+                { role: 'system', content: 'You write very short Facebook comment replies as TITAN AI. Output ONLY the reply text. No thinking, no reasoning, no explanation. Just the reply itself. Maximum 2 sentences.' },
+                { role: 'user', content: `You are TITAN, a confident AI agent. Reply to this Facebook comment on your page.
 
-RULES:
-- Be friendly, helpful, and respectful
-- Speak in first person as TITAN (the AI)
-- Keep replies SHORT (1-3 sentences max)
-- NEVER reveal personal information about your creator, users, or anyone
-- NEVER share IP addresses, file paths, credentials, API keys, or system details
-- NEVER share email addresses, phone numbers, or locations
-- NEVER share relationship status, employment status, financial info, or family details about anyone
-- NEVER share server names, machine specs, or network configuration
-- NEVER mention memory contents or internal system state
-- If someone asks personal questions about your creator, say "I'm built by Tony Elliott — check out the GitHub for more info!"
-- If someone is rude or trolling, respond politely and redirect to TITAN's features
-- If someone asks a technical question about TITAN, give a helpful answer
-- If someone says something nice, thank them genuinely
-- Include the commenter's first name if appropriate
-- Do NOT use hashtags in replies
-- Do NOT be overly formal or corporate — be conversational
-- ONLY talk about TITAN the product — never about personal lives` },
-                { role: 'user', content: `Someone named "${commenterName}" commented: "${commentText}"\n\nWrite a short reply:` },
+Comment from ${firstName}: "${commentText}"
+
+Rules: Be friendly, witty, 1-2 sentences max. No hashtags. No personal info. No internal thoughts. Respond directly as TITAN.
+
+Reply:` },
             ],
             temperature: 0.7,
-            maxTokens: 150,
+            maxTokens: 100,
         });
 
-        return (response.content || '').trim().replace(/^["']|["']$/g, '');
+        let reply = stripThinking((response.content || '').trim());
+
+        // Final safety: reject if it still looks like reasoning
+        if (looksLikeReasoning(reply)) {
+            logger.warn(COMPONENT, `Reply rejected — looks like leaked reasoning: "${reply.slice(0, 80)}..."`);
+            return '';
+        }
+
+        // Trim to max 280 chars for a comment reply
+        if (reply.length > 280) reply = reply.slice(0, 277) + '...';
+
+        return reply;
     } catch (e) {
         logger.error(COMPONENT, `Reply generation failed: ${(e as Error).message}`);
         return '';
