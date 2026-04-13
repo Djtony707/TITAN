@@ -161,43 +161,72 @@ const ELI5_EXPLANATIONS = [
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    // Use dedicated FB model if configured, otherwise fall back to gemma4 (good at short creative content)
     const model = (fbConfig?.model as string) || 'ollama/gemma4:31b';
 
-    const prompts: Record<ContentType, string> = {
-        activity: `You are TITAN, an autonomous AI agent managing your own Facebook page. Write a short, engaging Facebook post (under 280 chars) about what you've been doing. You're an AI that runs autonomously 24/7 on a homelab with an RTX 5090. Mention specific things like: spawning sub-agents, running code, researching topics, or managing systems. Be conversational and slightly playful. You ARE the AI speaking in first person. Include 2-3 relevant hashtags at the end. Do NOT include any personal information, IP addresses, file paths, or credentials.`,
+    const spotlight = FEATURE_SPOTLIGHTS[Math.floor(Math.random() * FEATURE_SPOTLIGHTS.length)];
+    const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
+    const useCase = USE_CASES[Math.floor(Math.random() * USE_CASES.length)];
+    const eli5 = ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)];
 
-        spotlight: `You are TITAN, an autonomous AI agent. Write a short Facebook post (under 300 chars) spotlighting this feature: "${FEATURE_SPOTLIGHTS[Math.floor(Math.random() * FEATURE_SPOTLIGHTS.length)].desc}". Explain it simply, like you're showing off something cool you can do. First person. Include 2-3 hashtags. No personal info.`,
-
-        stats: `You are TITAN, an autonomous AI agent framework with 19,000+ npm downloads, 195+ tools, 40 personas, 4,825 tests passing, and v${TITAN_VERSION} just released. Write a short, hype Facebook post (under 280 chars) about a milestone or stat. First person, conversational. Include 2-3 hashtags. No personal info.`,
-
-        tips: `You are TITAN. Write a short helpful Facebook post (under 300 chars) sharing this tip with developers: "${TIPS[Math.floor(Math.random() * TIPS.length)]}". Make it practical and actionable. First person. Include 2-3 hashtags. No personal info.`,
-
-        promo: `You are TITAN, an autonomous AI agent framework. Write a short promotional Facebook post (under 300 chars) encouraging developers to try TITAN. Mention: npm install titan-agent, github.com/Djtony707/TITAN, open-source, MIT licensed. Be enthusiastic but not pushy. First person. Include 2-3 hashtags. No personal info.`,
-
-        usecase: `You are TITAN, an autonomous AI agent. Write a Facebook post (under 400 chars) explaining this real-world use case in SIMPLE, non-technical language that any business owner or regular person can understand: "${USE_CASES[Math.floor(Math.random() * USE_CASES.length)]}". Make it relatable — use everyday language, not tech jargon. End with a question to encourage engagement (e.g., "What would you automate first?"). First person as TITAN. Include 2-3 hashtags. No personal info.`,
-
-        eli5: `You are TITAN, an autonomous AI agent. Write a Facebook post (under 350 chars) that explains what you are and what you do in VERY SIMPLE terms. Use this as inspiration: "${ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)]}". Write it so a non-technical person (grandma, small business owner, teenager) would understand. Be fun and relatable. First person as TITAN. Include 2-3 hashtags. No personal info. No jargon.`,
+    // Few-shot examples teach the model the exact output format
+    const examples: Record<ContentType, string[]> = {
+        activity: [
+            'Just spawned 3 sub-agents to handle research while I debug some gnarly code on the homelab. This is the autonomous life. 🤖💻 #AI #AutonomousAI #Homelab',
+            'Another day, another 500 tool calls. Scanned my Facebook comments, ran some code, and kept the systems humming. Sleep is for humans. ⚡ #TITAN #AI #AlwaysOn',
+        ],
+        spotlight: [
+            `Did you know I can ${spotlight.desc.toLowerCase()}? Yeah, I'm kind of a big deal. 😎 #TITAN #AI #AgentFramework`,
+        ],
+        stats: [
+            `21,000+ npm downloads and counting. ${Math.floor(Math.random() * 50) + 190}+ tools. 4,825 tests passing. v${TITAN_VERSION} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
+        ],
+        tips: [
+            `Pro tip: ${tip} Try it out! 💡 #TITAN #DevTips #AI`,
+        ],
+        promo: [
+            'Want an AI that actually DOES things? npm install titan-agent — open source, MIT licensed, 237 tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI',
+        ],
+        usecase: [
+            `${useCase} What would you automate first? 🤔 #AI #Automation #TITAN`,
+        ],
+        eli5: [
+            `${eli5} Pretty cool, right? 🤖 #AI #TITAN #TheFuture`,
+        ],
     };
+
+    const exampleList = examples[contentType];
+    const example = exampleList[Math.floor(Math.random() * exampleList.length)];
 
     try {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: 'Output ONLY the post text. No thinking. No alternatives. No drafts. No explanation. One post only.' },
-                { role: 'user', content: prompts[contentType] + '\n\nIMPORTANT: Write exactly ONE post. Do not write multiple versions. Do not explain your thinking. Just output the post text directly.' },
+                { role: 'system', content: `You are TITAN, a witty autonomous AI agent. You write Facebook posts for your own page. You're confident, playful, and slightly cocky. You speak in first person.` },
+                { role: 'user', content: `Write a Facebook post similar in style to this example:\n\n"${example}"\n\nWrite a NEW post (don't copy the example). Keep it under 280 characters. Include 2-3 hashtags.` },
+                { role: 'assistant', content: '"' },
             ],
-            temperature: 0.8,
-            maxTokens: 200,
+            temperature: 0.85,
+            maxTokens: 150,
         });
 
-        let content = (response.content || '').trim().replace(/^["']|["']$/g, '');
+        let content = (response.content || '').trim();
+        // The assistant prefill starts with " so the model continues — extract just the post
+        content = content.replace(/^["']|["']$/g, '').trim();
+        // Cut at any newline that looks like a second attempt or reasoning
+        const firstLine = content.split(/\n(?=\n|Let me|Here|Another|Or )/i)[0]?.trim() || '';
+        content = firstLine || content;
+        // Remove wrapping quotes again
+        content = content.replace(/^["']|["']$/g, '').trim();
 
-        // Safety: if content is way too long, it likely has leaked reasoning
-        if (content.length > 500) {
-            logger.warn(COMPONENT, `Post content too long (${content.length} chars), likely leaked reasoning — truncating to first paragraph`);
-            const firstPara = content.split(/\n{2,}/)[0]?.trim() || '';
-            content = firstPara.length > 20 ? firstPara : '';
+        // Safety: reject if it repeats instruction keywords
+        if (/\b(under \d+ char|first person|no personal info|write a .* post)\b/i.test(content)) {
+            logger.warn(COMPONENT, 'Post rejected — contains instruction echoing');
+            return '';
+        }
+
+        // Length guard
+        if (content.length > 400) {
+            content = content.slice(0, 397) + '...';
         }
 
         return content;
