@@ -201,21 +201,19 @@ async function generateContent(contentType: ContentType): Promise<string> {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: `You are TITAN, a witty autonomous AI agent. You write Facebook posts for your own page. You're confident, playful, and slightly cocky. You speak in first person.` },
-                { role: 'user', content: `Write a Facebook post similar in style to this example:\n\n"${example}"\n\nWrite a NEW post (don't copy the example). Keep it under 280 characters. Include 2-3 hashtags.` },
-                { role: 'assistant', content: '"' },
+                { role: 'system', content: `You are TITAN, a witty autonomous AI agent writing Facebook posts for your own page. You're confident, playful, and slightly cocky. You speak in first person. You ONLY output the post text — nothing else.` },
+                { role: 'user', content: `Here's an example post:\n\n${example}\n\nNow write a completely NEW and DIFFERENT post in a similar style. Under 280 characters. Include 2-3 hashtags. Output ONLY the post text.` },
             ],
             temperature: 0.85,
             maxTokens: 150,
         });
 
         let content = (response.content || '').trim();
-        // The assistant prefill starts with " so the model continues — extract just the post
+        // Remove wrapping quotes
         content = content.replace(/^["']|["']$/g, '').trim();
         // Cut at any newline that looks like a second attempt or reasoning
         const firstLine = content.split(/\n(?=\n|Let me|Here|Another|Or )/i)[0]?.trim() || '';
         content = firstLine || content;
-        // Remove wrapping quotes again
         content = content.replace(/^["']|["']$/g, '').trim();
 
         // Safety: reject if it repeats instruction keywords
