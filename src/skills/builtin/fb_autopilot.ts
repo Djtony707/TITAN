@@ -160,7 +160,9 @@ const ELI5_EXPLANATIONS = [
 
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
-    const model = config.agent?.model || 'ollama/glm-5.1:cloud';
+    const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+    // Use dedicated FB model if configured, otherwise fall back to gemma4 (good at short creative content)
+    const model = (fbConfig?.model as string) || 'ollama/gemma4:31b';
 
     const prompts: Record<ContentType, string> = {
         activity: `You are TITAN, an autonomous AI agent managing your own Facebook page. Write a short, engaging Facebook post (under 280 chars) about what you've been doing. You're an AI that runs autonomously 24/7 on a homelab with an RTX 5090. Mention specific things like: spawning sub-agents, running code, researching topics, or managing systems. Be conversational and slightly playful. You ARE the AI speaking in first person. Include 2-3 relevant hashtags at the end. Do NOT include any personal information, IP addresses, file paths, or credentials.`,
@@ -336,7 +338,8 @@ function looksLikeReasoning(text: string): boolean {
 
 async function generateReply(commentText: string, commenterName: string): Promise<string> {
     const config = loadConfig();
-    const model = config.agent?.model || 'ollama/glm-5.1:cloud';
+    const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+    const model = (fbConfig?.model as string) || 'ollama/gemma4:31b';
     const firstName = commenterName.split(' ')[0];
 
     try {
