@@ -182,14 +182,23 @@ async function generateContent(contentType: ContentType): Promise<string> {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: 'You write short, engaging Facebook posts for the TITAN AI page. You have a witty, confident personality — an AI that knows it\'s impressive but doesn\'t take itself too seriously. Use humor naturally. Output ONLY the post text, nothing else. No quotes, no explanation, no markdown formatting. Just the raw post content.' },
-                { role: 'user', content: prompts[contentType] },
+                { role: 'system', content: 'Output ONLY the post text. No thinking. No alternatives. No drafts. No explanation. One post only.' },
+                { role: 'user', content: prompts[contentType] + '\n\nIMPORTANT: Write exactly ONE post. Do not write multiple versions. Do not explain your thinking. Just output the post text directly.' },
             ],
             temperature: 0.8,
-            maxTokens: 300,
+            maxTokens: 200,
         });
 
-        return (response.content || '').trim().replace(/^["']|["']$/g, '');
+        let content = (response.content || '').trim().replace(/^["']|["']$/g, '');
+
+        // Safety: if content is way too long, it likely has leaked reasoning
+        if (content.length > 500) {
+            logger.warn(COMPONENT, `Post content too long (${content.length} chars), likely leaked reasoning — truncating to first paragraph`);
+            const firstPara = content.split(/\n{2,}/)[0]?.trim() || '';
+            content = firstPara.length > 20 ? firstPara : '';
+        }
+
+        return content;
     } catch (e) {
         logger.error(COMPONENT, `Content generation failed: ${(e as Error).message}`);
         return '';

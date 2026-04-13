@@ -41,22 +41,23 @@ function stripThinkingFromResponse(text: string): string {
     // 2. Remove ```thinking ... ``` blocks
     cleaned = cleaned.replace(/```thinking[\s\S]*?```/gi, '');
 
-    // 3. If the response starts with reasoning and the actual reply follows,
-    //    try to extract just the reply. Common patterns:
-    //    - "The user wants... [reasoning]\n\n[actual reply]"
-    //    - "Let me think... [reasoning]\n\n[actual reply]"
-    //    Only do this if the text looks like it starts with meta-reasoning.
-    const reasoningStart = /^(The user wants|The comment|I need to|I should|Let me (think|craft|write|consider)|OK so|Alright|Hmm,)/i;
+    // 3. Cut at "multiple draft" boundaries — models often generate several
+    //    versions inline: "Let me try another version:", "Here's another:", etc.
+    const draftBoundary = /\n+["']?\n*(Let me (try|make|write|do|craft)|Here'?s? (another|a better|a more)|Another (version|option|take|attempt)|Or (maybe|how about|alternatively)|Version \d|Option \d|Draft \d|---)/i;
+    const draftMatch = cleaned.match(draftBoundary);
+    if (draftMatch?.index !== undefined && draftMatch.index > 20) {
+        cleaned = cleaned.slice(0, draftMatch.index);
+    }
+
+    // 4. If the response starts with meta-reasoning, extract just the reply
+    const reasoningStart = /^(The user wants|The comment|I need to|I should|Let me (think|craft|write|consider|analyze)|OK so|Alright,|Hmm,|This is a)/i;
     if (reasoningStart.test(cleaned.trim())) {
-        // Look for a clear break between reasoning and the actual output
-        // Double newline or "---" typically separates reasoning from reply
         const parts = cleaned.split(/\n{2,}|^---$/m);
-        // Find the first part that doesn't look like reasoning
         const replyParts = parts.filter(p => {
             const trimmed = p.trim();
             if (!trimmed) return false;
             if (reasoningStart.test(trimmed)) return false;
-            if (/^(Wait|Actually|But |So |Since |That works|That's about|Let me count)/i.test(trimmed)) return false;
+            if (/^(Wait|Actually|But |So |Since |That works|That's about|Let me (count|check|think|try))/i.test(trimmed)) return false;
             if (/\b(characters|under \d+ char|personality|mentioned|the rules)\b/i.test(trimmed)) return false;
             return true;
         });
@@ -65,7 +66,7 @@ function stripThinkingFromResponse(text: string): string {
         }
     }
 
-    // 4. Remove wrapping quotes that some models add
+    // 5. Remove wrapping quotes that some models add
     cleaned = cleaned.trim().replace(/^["']|["']$/g, '').trim();
 
     return cleaned;
