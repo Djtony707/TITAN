@@ -3,7 +3,7 @@
  *
  * Autonomous Facebook page management. Runs as a daemon watcher on schedule.
  * Generates content from TITAN's real activity, stats, and knowledge.
- * Posts 1-2 times per day following the 80/20 value/promo rule.
+ * Posts up to 6 times per day (every ~2h) following the 80/20 value/promo rule.
  *
  * Content types (weighted rotation):
  *   40% — Activity log: what TITAN did today (tools, agents, tasks)
@@ -16,7 +16,7 @@
  *   - PII filter (from facebook.ts)
  *   - Dedup guard (from facebook.ts)
  *   - Posts go through review queue (configurable: auto-approve after testing)
- *   - Daily post cap: 3 max
+ *   - Daily post cap: 6 max
  *   - Comment replies capped at 10/day
  */
 import { registerSkill } from '../registry.js';
@@ -212,18 +212,18 @@ async function runFBAutopilot(): Promise<void> {
     const state = loadState();
     resetDailyCounters(state);
 
-    // Cap: max 3 posts per day
-    if (state.postsToday >= 3) {
-        logger.debug(COMPONENT, `Daily post cap reached (${state.postsToday}/3)`);
+    // Cap: max 6 posts per day
+    if (state.postsToday >= 6) {
+        logger.debug(COMPONENT, `Daily post cap reached (${state.postsToday}/6)`);
         saveState(state);
         return;
     }
 
-    // Minimum 6 hours between posts
+    // Minimum 2 hours between posts
     if (state.lastPostAt) {
         const hoursSince = (Date.now() - new Date(state.lastPostAt).getTime()) / (1000 * 60 * 60);
-        if (hoursSince < 6) {
-            logger.debug(COMPONENT, `Too soon since last post (${hoursSince.toFixed(1)}h, need 6h)`);
+        if (hoursSince < 2) {
+            logger.debug(COMPONENT, `Too soon since last post (${hoursSince.toFixed(1)}h, need 2h)`);
             return;
         }
     }
@@ -513,7 +513,7 @@ export function registerFBAutopilotSkill(): void {
                     return [
                         `Facebook Autopilot Status:`,
                         `- Credentials: ${hasCreds ? 'configured' : 'NOT configured'}`,
-                        `- Posts today: ${state.postsToday}/3`,
+                        `- Posts today: ${state.postsToday}/6`,
                         `- Replies today: ${state.repliesToday}/10`,
                         `- Last post: ${state.lastPostAt || 'never'}`,
                         `- Content index: ${state.contentIndex} (next: ${CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length]})`,
@@ -525,7 +525,7 @@ export function registerFBAutopilotSkill(): void {
                     await runFBAutopilot();
                     const updated = loadState();
                     return updated.lastPostAt !== state.lastPostAt
-                        ? `Post published! (${updated.postsToday}/3 today). Type: ${CONTENT_ROTATION[(state.contentIndex) % CONTENT_ROTATION.length]}`
+                        ? `Post published! (${updated.postsToday}/6 today). Type: ${CONTENT_ROTATION[(state.contentIndex) % CONTENT_ROTATION.length]}`
                         : 'Post skipped — either daily cap reached, too soon since last post, or generation failed.';
                 }
 
@@ -542,11 +542,11 @@ export function registerFBAutopilotSkill(): void {
     );
 
     // Register daemon watchers
-    // Post watcher: runs every 4 hours, checks if it's time to post
-    registerWatcher('fb-autopilot-post', runFBAutopilot, 4 * 60 * 60 * 1000); // 4 hours
+    // Post watcher: runs every hour, posts if 2h+ since last post
+    registerWatcher('fb-autopilot-post', runFBAutopilot, 60 * 60 * 1000); // 1 hour
 
     // Comment monitor: runs every 5 minutes
     registerWatcher('fb-autopilot-comments', monitorComments, 5 * 60 * 1000); // 5 minutes
 
-    logger.info(COMPONENT, 'Facebook Autopilot registered (post every 4h, comments every 5m)');
+    logger.info(COMPONENT, 'Facebook Autopilot registered (post every 1h, comments every 5m)');
 }
