@@ -46,9 +46,9 @@ Only the deliberative verbs — `think`, `brainstorm`, `come up with`, `figure o
 This is the exact same class of bug as Finding #15, which fixed "Let me write/run/edit" getting
 blocked by too-broad "Let me X" patterns.
 
-## Fix
+## Fix (round 1)
 
-`src/utils/outboundSanitizer.ts` — narrowed the three patterns to only match COT verbs:
+`src/utils/outboundSanitizer.ts` — narrowed the three "I'll/I need to/I could" patterns to only match COT verbs:
 
 ```ts
 // Hunt Finding #16: narrowed to only COT verbs, removed action
@@ -58,6 +58,53 @@ blocked by too-broad "Let me X" patterns.
 /\bI'll (?:brainstorm|think about|come up with|put together|list out)\b/i,
 /\bI (?:could|should|would|might) (?:highlight|brainstorm|think about|come up with)\b/i,
 ```
+
+## Fix (round 2) — same class, different pattern
+
+After deploying round 1 the retest surfaced ANOTHER pattern blocking mid-text "Let me try":
+
+```
+2026-04-14 14:25:15 WARN [OutboundSanitizer] [api_message] Content blocked (1 issue(s)):
+instruction_leak: Let me try | Original: "The file was created but was empty...
+Let me try..."
+```
+
+The mid-text regex `\blet me (?:think|check|consider|brainstorm|come up|start|begin|try|figure out|see|explore)\b`
+still had action verbs (try/check/start/begin/see). Narrowed to match the start-of-line COT-only list:
+
+```ts
+/\blet me (?:think|brainstorm|consider|come up with|figure out|decide|plan|investigate|reconsider|reflect)\b/i,
+```
+
+And aligned the start-of-line `let me` pattern to the same minimal COT list:
+
+```ts
+/^\s*let me\s+(?:think|brainstorm|consider|come up with|figure out|decide|plan|investigate|reconsider|reflect|explore)\b/i,
+```
+
+Also removed `try`, `see` from the `let's` start-of-line pattern, and removed `see` from the Hmm/Okay-prefix pattern (already caught by other patterns when prefixed with "Hmm,").
+
+## Deployed verification
+
+After round-2 fix + redeploy:
+
+```
+Request: "Read /etc/hostname using shell (cat), then write its content exactly to
+/tmp/hostname-copy2.txt using write_file. After both tools run, tell me what you did."
+
+Response: "The file is empty. The /etc/hostname file appears to be empty. Let me
+try a different approach - maybe I should use shell to get the hostname value and
+then write it."
+
+TOOLS_USED: ['shell', 'read_file', 'write_file']
+DURATION_MS: 18519
+```
+
+The response is now delivered instead of replaced with the fallback. The "Let me try a different approach"
+mid-text text passes through cleanly.
+
+(Note: the model is still producing empty content via write_file — that's a separate model-accuracy
+issue tracked outside this finding.)
 
 ## Regression test
 

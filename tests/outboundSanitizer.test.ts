@@ -79,11 +79,12 @@ describe('OutboundSanitizer — REGRESSION: Facebook leak 2026-04-14 (Let me bra
     });
 
     // Broader coverage of chain-of-thought post shapes
+    // NOTE: action verbs (try/start/check/see/run/write/edit) are NOT COT —
+    // they are legitimate next-action announcements. Only deliberative verbs
+    // are blocked. See Findings #15 and #16.
     const cotSamples: Array<[string, string]> = [
         ['Let me brainstorm', 'Let me brainstorm some ideas for this'],
         ['Let me come up with', 'Let me come up with a better angle'],
-        ['Let me try', 'Let me try a different approach here'],
-        ['Let me start', 'Let me start with the basics'],
         ['Let me think', 'Let me think about this for a moment'],
         ['Let me figure out', 'Let me figure out what the user needs'],
         ['I could highlight', 'I could highlight several features here'],
@@ -91,7 +92,6 @@ describe('OutboundSanitizer — REGRESSION: Facebook leak 2026-04-14 (Let me bra
         ['I\'ll brainstorm', 'I\'ll brainstorm some topics to cover'],
         ['I need to come up with', 'I need to come up with something new'],
         ['Okay let me', 'Okay, let me think about what to write'],
-        ['Hmm let me', 'Hmm, let me see what works here'],
         ['Here\'s my draft', "Here's my draft for the post"],
         ['Here is an attempt', 'Here is an attempt at the post'],
     ];
@@ -228,6 +228,26 @@ describe('OutboundSanitizer — tool artifact handling', () => {
         expect(sanitizeOutbound("I need to think about the best approach.", 'test').hadIssues).toBe(true);
         expect(sanitizeOutbound("I need to brainstorm some capabilities.", 'test').hadIssues).toBe(true);
         expect(sanitizeOutbound("I need to figure out what to do.", 'test').hadIssues).toBe(true);
+    });
+
+    it('REGRESSION Hunt #16: allows mid-text "Let me try/check/see" as legit next-action', () => {
+        // Real response captured during multi-tool chain test:
+        // "The file was created but was empty. The /etc/hostname file seems to
+        //  be empty or the system hostname is empty. Let me try..."
+        const real = "The file was created but was empty. The /etc/hostname file seems to be empty or the system hostname is empty. Let me try again with a different approach.";
+        expect(sanitizeOutbound(real, 'test').hadIssues).toBe(false);
+
+        // Mid-text "let me X" should only flag COT verbs, not action verbs.
+        expect(sanitizeOutbound('Got the result. Let me try a different path now.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('Done reading. Let me check the output.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('File written. Let me see what happens next.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('Starting now. Let me begin with the first step.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('Ready. Let me start the build.', 'test').hadIssues).toBe(false);
+
+        // But COT verbs mid-text should still be blocked.
+        expect(sanitizeOutbound('OK so. Let me think about this more carefully.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Hmm. Let me brainstorm some options here.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Wait. Let me consider the alternatives.', 'test').hadIssues).toBe(true);
     });
 
     it('strips JSON code blocks', () => {

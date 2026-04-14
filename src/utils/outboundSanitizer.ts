@@ -85,12 +85,17 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     // /tmp/foo" which is a legitimate post-action explanation. Only catch
     // the real chain-of-thought shape: "Let me think/brainstorm/consider/..."
     // not "Let me write/run/edit/create".
-    /^\s*let me\s+(?:think|brainstorm|check|consider|come up|see|figure out|explore|decide|plan|investigate)\b/i,
-    /^\s*let's\s+(?:brainstorm|think|see|try|figure)/i,
-    /^\s*(?:okay|ok|alright|hmm|well),?\s+(?:let me|let's|I'll|I should|I need)\s+(?:think|brainstorm|consider|figure|see|decide)\b/i,
+    /^\s*let me\s+(?:think|brainstorm|consider|come up with|figure out|decide|plan|investigate|reconsider|reflect|explore)\b/i,
+    /^\s*let's\s+(?:brainstorm|think|figure)/i,
+    /^\s*(?:okay|ok|alright|hmm|well),?\s+(?:let me|let's|I'll|I should|I need)\s+(?:think|brainstorm|consider|figure|decide)\b/i,
     // "Let me X" anywhere (broader than just start, to catch mid-text reasoning)
-    // Still catches COT verbs in the middle of a response.
-    /\blet me (?:think|check|consider|brainstorm|come up|start|begin|try|figure out|see|explore)\b/i,
+    // Hunt Finding #16 (2026-04-14): narrowed to match only the same COT verbs as
+    // the start-of-line pattern. The previous list included action verbs like
+    // try/start/begin/check/see that fire on legitimate post-action text:
+    //   "The file was empty. Let me try again with the full path."
+    //   "Got it. Let me check the result."
+    // Only catch deliberative verbs that indicate chain-of-thought.
+    /\blet me (?:think|brainstorm|consider|come up with|figure out|decide|plan|investigate|reconsider|reflect)\b/i,
     // Meta-descriptions of post drafts
     /\bhere(?:'s| is) (?:a|my|an?) (?:post|draft|idea|example|attempt)\b/i,
     /^(?:draft|attempt|version)\s*\d*[:.]?\s*$/im,
