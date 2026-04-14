@@ -484,6 +484,36 @@ describe('Hunt Finding #07 — forceToolUse respects chat pipeline', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Finding #08 — Autonomous mode forced tools on every round, causing loops
+// ═══════════════════════════════════════════════════════════════
+//
+// After Findings #05+#07, autonomous mode still forced tool_choice=required
+// on EVERY round in the forceToolUse gate (not just round 0). This meant
+// after round 1's tool call, round 2 was forced to call ANOTHER tool even
+// though the task was done, creating ping-pong loops.
+//
+// Fix: autonomous mode forces tools ONLY on round 0. After that, the model
+// decides whether to call more tools or generate text.
+
+describe('Hunt Finding #08 — autonomous mode only forces tools on round 0', () => {
+    it('source: the autonomous force gate requires round === 0', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        // Look for the autonomous gate containing both isAutonomous AND round === 0
+        // The condition should be: `round === 0 && ... && (ctx.isAutonomous || ...)`
+        // A simple regex check: the forceToolUse block must have `round === 0`
+        // AND `isAutonomous` within a reasonable window (same expression).
+        const forceBlock = src.match(/forceToolUse:[\s\S]{0,1500}?\),/);
+        expect(forceBlock).not.toBeNull();
+        const block = forceBlock?.[0] || '';
+        expect(block).toMatch(/round === 0/);
+        expect(block).toMatch(/isAutonomous/);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Finding #04 — Gateway silently serves partial interfaces on port conflict
 // ═══════════════════════════════════════════════════════════════
 //

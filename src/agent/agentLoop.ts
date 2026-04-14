@@ -633,21 +633,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 temperature: ctx.config.agent.temperature,
                 thinking: isVoice ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
-                forceToolUse: (ctx.activeTools.length > 0
+                forceToolUse: (
+                    // Hunt Finding #08 (2026-04-14): Only force tool_choice=required
+                    // on ROUND 0. After round 0, the model has tool results in context
+                    // and should be free to generate text OR call more tools as needed.
+                    // Previously, autonomous mode forced tools on every round, causing
+                    // ping-pong loops: model reads file → forced to call another tool →
+                    // calls shell → forced again → calls memory → loop detector kills it.
+                    // Only force when we haven't given the model a chance to finish.
+                    round === 0
+                    && ctx.activeTools.length > 0
                     && (ctx.isAutonomous || ctx.taskEnforcementActive)
                     && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false
                     && phase !== 'respond'
-                    // Hunt Finding #07 (2026-04-14): don't force tools on chat-pipeline
-                    // messages. Chat classification means the user is asking a simple
-                    // question — forcing tool_choice=required on "what is 2+2" breaks
-                    // the model because it correctly wants to answer with text ("4")
-                    // but isn't allowed to. Only force tools when the task actually
-                    // requires them.
+                    // Hunt Finding #07: don't force tools on chat-pipeline messages
                     && ctx.completionStrategy !== 'single-round'
                     && ctx.pipelineType !== 'chat')
-                    || forceWriteOnNextThink  // Incomplete task guard forces tool call
-                    // Hunt Finding #05: user explicitly asked to use a tool → force it,
-                    // even in non-autonomous mode. Only applies to round 1 think-phase.
+                    || forceWriteOnNextThink  // Incomplete task guard — specific retry
+                    // Hunt Finding #05: user explicitly asked to use a tool → force round 0
                     || (round === 0
                         && phase === 'think'
                         && ctx.activeTools.length > 0
