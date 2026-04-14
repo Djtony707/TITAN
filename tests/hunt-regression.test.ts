@@ -582,6 +582,80 @@ describe('Hunt Finding #09 — trimPairAware preserves tool call/result pairs', 
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Finding #10 — AutoPush regex over-matched descriptive answers
+// ═══════════════════════════════════════════════════════════════
+//
+// The old AutoPush regex `^(...|The|...)` with no word boundary matched
+// "These", "This", "Then", "There", "They" — all common ways to start a
+// valid descriptive answer. Combined with OR logic, a single weak match
+// fired the "describing instead of acting" nudge, causing correct answers
+// to be rejected and replaced with meta-commentary on retry.
+//
+// Fix: tighter regex with word boundaries + AND logic (both describesWork
+// AND futureIntentOpener must match).
+
+describe('Hunt Finding #10 — AutoPush only fires on real future-intent phrasing', () => {
+    // Extracted from the fixed regex — test the patterns directly to ensure
+    // they don't over-match common English openers.
+    function futureIntentOpener(text: string): boolean {
+        return /^(let me\s+\w+|I['']?ll\s+(?:start|begin|check|look|read|run|edit|write|create|try|go|investigate|verify|test|install|build|fix|update|change|set)|I\s+(?:will|need to|should|can|am going to|plan to)\s+\w+|first,?\s+I|now\s+I|to\s+(?:fix|resolve|complete|edit|write|create|update|change|run))\b/i.test(text.trim());
+    }
+
+    it('REGRESSION: "These represent two classic attacks..." does NOT match (real leaked case)', () => {
+        expect(futureIntentOpener('These represent two classic categories of web application attacks')).toBe(false);
+    });
+
+    it('does NOT match common descriptive openers (no more false positives)', () => {
+        const descriptive = [
+            'These are the results',
+            'This is a classic XSS attack',
+            'Then the database deletes the table',
+            'There are two ways to do this',
+            'They both exploit user input',
+            'The answer is machine learning',
+            'Machine learning is a subset of AI',
+            'Based on the research, AI is useful',
+            'Here\'s what SQL injection means',
+            'After careful analysis, I found two vulnerabilities',
+            'Looking at the code, it appears safe',
+            'Paris is the capital of France',
+            '2+2 = 4',
+            'Yes, that works',
+            'No, that\'s incorrect',
+        ];
+        for (const text of descriptive) {
+            expect(futureIntentOpener(text), `Incorrectly flagged as intent: "${text}"`).toBe(false);
+        }
+    });
+
+    it('DOES match real future-intent openers', () => {
+        const intents = [
+            "Let me check the file",
+            "Let me read the config",
+            "I'll start by reading package.json",
+            "I'll run the shell command",
+            "I will edit the file",
+            "I need to create a new test",
+            "I should write a fix for this",
+            "First, I'll check the logs",
+            "To fix this, I need to update the schema",
+        ];
+        for (const text of intents) {
+            expect(futureIntentOpener(text), `Missed real intent: "${text}"`).toBe(true);
+        }
+    });
+
+    it('source: agent loop uses AND logic not OR for the two regexes', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        // The new code uses futureIntentOpener && describesWork
+        expect(src).toMatch(/futureIntentOpener\s*&&\s*describesWork/);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Finding #04 — Gateway silently serves partial interfaces on port conflict
 // ═══════════════════════════════════════════════════════════════
 //

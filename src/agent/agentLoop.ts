@@ -1006,14 +1006,30 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // makes autonomous execution reliable — don't accept "I would do X"
                     // when the model should be calling tools to actually do X.
                     if (ctx.isAutonomous && round < ctx.effectiveMaxRounds - 2) {
-                        // Detect when model describes work instead of doing it
-                        const describesWork = /\b(need to|should|would|will|let me|I'll|going to|plan to|we can|you can|I can|check|look at|examine|investigate|verify|confirm|test)\b.*\b(fix|edit|change|update|create|write|modify|run|install|build|start|restart|read|open|debug|set up)\b/i.test(response.content);
-                        // Also detect "Let me check/read/look" patterns
-                        const startsWithDescription = /^(Let me|I('ll| will| need| should| can| have| found| see| read| checked)|First|Now|Next|The|To fix|To resolve|To complete|Here'?s|Looking|Based on|After)/i.test(response.content.trim());
+                        // Hunt Finding #10 (2026-04-14): the previous regexes over-matched.
+                        // `|The` with no word boundary matched "These"/"This"/"Then"/"There"/
+                        // "They" — all common ways to start valid descriptive answers. And
+                        // describesWork only needed one weak indicator. Result: a correct
+                        // answer starting with "These represent two classic attack categories..."
+                        // got nudged to "call a tool", then the model emitted meta-commentary
+                        // that was accepted as the final answer.
+                        //
+                        // New rules (tight):
+                        //   1. futureIntentOpener requires an EXPLICIT future-action phrase
+                        //      with a following verb ("Let me VERB", "I'll VERB", "I will VERB",
+                        //      "I need to VERB"). Common openers like "The"/"These"/"This"/
+                        //      "Based on"/"Here's" no longer trigger.
+                        //   2. describesWork also requires "I'll/I will/I need to/Let me"
+                        //      followed by an actual work verb nearby.
+                        //   3. BOTH must match to fire — one weak match isn't enough.
+                        const futureIntentOpener = /^(let me\s+\w+|I['']?ll\s+(?:start|begin|check|look|read|run|edit|write|create|try|go|investigate|verify|test|install|build|fix|update|change|set)|I\s+(?:will|need to|should|can|am going to|plan to)\s+\w+|first,?\s+I|now\s+I|to\s+(?:fix|resolve|complete|edit|write|create|update|change|run))\b/i.test(response.content.trim());
+                        const describesWork = /\b(?:I['']?ll|I (?:will|need to|should|plan to|am going to)|let me)\b[^.]{0,80}\b(?:fix|edit|change|update|create|write|modify|run|install|build|start|restart|read|open|debug|set up|check|look at|examine|investigate|verify|confirm|test)\b/i.test(response.content);
 
-                        if ((describesWork || startsWithDescription) && noToolsRetryCount < 3) {
+                        // BOTH must match to fire — prevents false positives on valid
+                        // descriptive answers that don't actually describe future work.
+                        if (futureIntentOpener && describesWork && noToolsRetryCount < 3) {
                             noToolsRetryCount++;
-                            logger.info(COMPONENT, `[AutoPush] Model described instead of acting (${noToolsRetryCount}/3): "${response.content.slice(0, 80)}..."`);
+                            logger.info(COMPONENT, `[AutoPush] Model described intent to act without acting (${noToolsRetryCount}/3): "${response.content.slice(0, 80)}..."`);
                             ctx.messages.push({ role: 'assistant', content: response.content });
                             ctx.messages.push({ role: 'user', content: 'STOP describing. Call a tool RIGHT NOW. Use edit_file to fix code, write_file to create files, or shell to run commands. Your next response MUST be a tool call, not text.' });
                             round++;
