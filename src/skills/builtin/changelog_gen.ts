@@ -32,9 +32,9 @@ export function registerChangelogGenSkill(): void {
                 const format = (args.format as string) || 'grouped';
 
                 try {
-                    const range = since ? `\${since}..\${until}` : `-50`;
+                    const range = since ? `${since}..${until}` : `-50`;
                     const log = execSync(
-                        `git log \${range} --pretty=format:"%h|%s|%an|%as" --no-merges`,
+                        `git log ${range} --pretty=format:"%h|%s|%an|%as" --no-merges`,
                         { cwd: dir, timeout: 10000 }
                     ).toString().trim();
 
@@ -46,7 +46,7 @@ export function registerChangelogGenSkill(): void {
                     });
 
                     if (format === 'list') {
-                        return commits.map(c => `- \${c.hash} \${c.subject} (\${c.author}, \${c.date})`).join('\n');
+                        return commits.map(c => `- ${c.hash} ${c.subject} (${c.author}, ${c.date})`).join('\n');
                     }
 
                     // Grouped format — categorize by conventional commit prefix
@@ -67,19 +67,19 @@ export function registerChangelogGenSkill(): void {
                         else groups['Other'].push(c);
                     }
 
-                    const lines: string[] = [`# Changelog (\${commits.length} commits)`, ''];
+                    const lines: string[] = [`# Changelog (${commits.length} commits)`, ''];
                     for (const [group, items] of Object.entries(groups)) {
                         if (items.length === 0) continue;
-                        lines.push(`## \${group}`);
+                        lines.push(`## ${group}`);
                         for (const c of items) {
-                            lines.push(`- \${c.subject} (\${c.hash})`);
+                            lines.push(`- ${c.subject} (${c.hash})`);
                         }
                         lines.push('');
                     }
 
                     // Stats
                     const stat = execSync(
-                        `git diff --stat \${since ? since + '..' + until : 'HEAD~' + Math.min(commits.length, 50) + '..HEAD'}`,
+                        `git diff --stat ${since ? since + '..' + until : 'HEAD~' + Math.min(commits.length, 50) + '..HEAD'}`,
                         { cwd: dir, timeout: 10000 }
                     ).toString().trim().split('\n').pop() || '';
 
@@ -88,7 +88,7 @@ export function registerChangelogGenSkill(): void {
 
                     return lines.join('\n');
                 } catch (e) {
-                    return `Error generating changelog: \${(e as Error).message}`;
+                    return `Error generating changelog: ${(e as Error).message}`;
                 }
             },
         },
@@ -115,12 +115,12 @@ export function registerChangelogGenSkill(): void {
                 const head = (args.head as string) || 'HEAD';
 
                 try {
-                    const diffStat = execSync(`git diff --stat \${base}...\${head}`, { cwd: dir, timeout: 10000 }).toString();
-                    const commits = execSync(`git log \${base}...\${head} --oneline --no-merges`, { cwd: dir, timeout: 10000 }).toString();
-                    const diff = execSync(`git diff \${base}...\${head} --no-color`, { cwd: dir, timeout: 30000 }).toString();
+                    const diffStat = execSync(`git diff --stat ${base}...${head}`, { cwd: dir, timeout: 10000 }).toString();
+                    const commits = execSync(`git log ${base}...${head} --oneline --no-merges`, { cwd: dir, timeout: 10000 }).toString();
+                    const diff = execSync(`git diff ${base}...${head} --no-color`, { cwd: dir, timeout: 30000 }).toString();
 
                     const lines = [
-                        `## PR Summary: \${base} → \${head}`,
+                        `## PR Summary: ${base} → ${head}`,
                         '',
                         '### Files Changed',
                         diffStat,
@@ -132,7 +132,7 @@ export function registerChangelogGenSkill(): void {
 
                     return lines.join('\n');
                 } catch (e) {
-                    return `Error: \${(e as Error).message}`;
+                    return `Error: ${(e as Error).message}`;
                 }
             },
         },

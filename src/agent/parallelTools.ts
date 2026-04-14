@@ -81,7 +81,7 @@ function partitionToolCalls(tools: ToolCall[]): Array<{ concurrent: boolean; cal
         if (!deduped.some(d => isDuplicate(d, tool))) {
             deduped.push(tool);
         } else {
-            logger.info(COMPONENT, `[Dedup] Skipping duplicate: \${tool.name}(\${JSON.stringify(tool.args).slice(0, 60)})`);
+            logger.info(COMPONENT, `[Dedup] Skipping duplicate: ${tool.name}(${JSON.stringify(tool.args).slice(0, 60)})`);
         }
     }
 
@@ -127,7 +127,7 @@ export async function executeToolsParallel(
     if (batches.length === 1 && batches[0].concurrent) {
         // All concurrent — run in parallel with concurrency cap
         const calls = batches[0].calls.slice(0, MAX_TOOL_CONCURRENCY);
-        logger.info(COMPONENT, `\u26a1 Executing \${calls.length} tools in parallel (max \${MAX_TOOL_CONCURRENCY})`);
+        logger.info(COMPONENT, `\u26a1 Executing ${calls.length} tools in parallel (max ${MAX_TOOL_CONCURRENCY})`);
         const start = Date.now();
         const results = await Promise.all(
             calls.map(async (tc) => {
@@ -135,7 +135,7 @@ export async function executeToolsParallel(
                 return { toolCallId: tc.id, name: tc.name, content };
             })
         );
-        logger.info(COMPONENT, `\u2705 Parallel execution: \${calls.length} tools in \${Date.now() - start}ms`);
+        logger.info(COMPONENT, `\u2705 Parallel execution: ${calls.length} tools in ${Date.now() - start}ms`);
         return results;
     }
 
@@ -144,7 +144,7 @@ export async function executeToolsParallel(
     for (const batch of batches) {
         if (batch.concurrent && batch.calls.length > 1) {
             const calls = batch.calls.slice(0, MAX_TOOL_CONCURRENCY);
-            logger.info(COMPONENT, `\u26a1 Batch: \${calls.length} concurrent tools`);
+            logger.info(COMPONENT, `\u26a1 Batch: ${calls.length} concurrent tools`);
             const results = await Promise.all(
                 calls.map(async (tc) => {
                     const content = await executor(tc.name, tc.args);

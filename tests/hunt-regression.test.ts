@@ -971,3 +971,83 @@ describe('Hunt Finding #17 — UserIntentRescue when model ignores tool_choice',
         expect(bailIdx).toBeGreaterThan(rescueIdx);
     });
 });
+
+// ─────────────────────────────────────────────────────────────
+// FINDING #18: Template literal escapes breaking 40 runtime strings
+// Discovered: 2026-04-14 during Phase 3 live log inspection
+// Symptom: parallelTools.ts logs literal "${calls.length}" instead of
+//   interpolated count. Grep revealed 40 bugs across 4 files including:
+//   - changelog_gen.ts (execSync passes literal "${range}" to git)
+//   - agentLoop.ts (FabricationGuard + IntentParser use literal
+//     "fab-${Date.now()}" as tool call ID, causing duplicate IDs)
+//   - security_scan.ts (skill output returns literal "${...}" strings)
+// Root cause: backslash-escaped dollar signs in template literals —
+//   `\${x}` is valid TS but emits a literal `${x}` instead of interpolating.
+// Fix: mass search-and-replace \${ → ${ in non-codegen files.
+// Guard: this lint test prevents regression.
+// ─────────────────────────────────────────────────────────────
+
+describe('Hunt Finding #18 — no template literal escape leaks in runtime code', () => {
+    it('source lint: no \\${ escapes outside whitelisted code-gen files', async () => {
+        // Use Node's fs and path to walk the src tree without a glob dependency.
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const srcDir = join(process.cwd(), 'src');
+        // scaffold.ts + generator.ts intentionally emit literal ${...} in
+        // generated source code for third-party skill templates.
+        const whitelisted = new Set([
+            path.join('skills', 'scaffold.ts'),
+            path.join('agent', 'generator.ts'),
+        ]);
+        const violations: Array<{ file: string; line: number; text: string }> = [];
+
+        function walk(dir: string, rel: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                const abs = path.join(dir, ent.name);
+                const r = path.join(rel, ent.name);
+                if (ent.isDirectory()) {
+                    walk(abs, r);
+                } else if (ent.isFile() && ent.name.endsWith('.ts')) {
+                    if (whitelisted.has(r)) continue;
+                    const content = fs.readFileSync(abs, 'utf-8');
+                    const lines = content.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        if (lines[i].includes('\\${')) {
+                            violations.push({ file: r, line: i + 1, text: lines[i].trim().slice(0, 80) });
+                        }
+                    }
+                }
+            }
+        }
+        walk(srcDir, '');
+
+        if (violations.length > 0) {
+            const msg = violations.map(v => `${v.file}:${v.line}  ${v.text}`).join('\n');
+            throw new Error(`Found ${violations.length} template literal escape(s):\n${msg}`);
+        }
+        expect(violations).toEqual([]);
+    });
+
+    it('changelog_gen.ts: git commands have interpolated ranges, not literal ${range}', () => {
+        const src = readFileSync(join(process.cwd(), 'src/skills/builtin/changelog_gen.ts'), 'utf-8');
+        // The fixed code should contain `git log ${range}` (interpolated),
+        // NOT `git log \${range}` (literal).
+        expect(src).not.toMatch(/git log \\\$/);
+        expect(src).toMatch(/git log \$\{range\}/);
+    });
+
+    it('agentLoop.ts: FabricationGuard + IntentParser tool IDs use real interpolation', () => {
+        const src = readFileSync(join(process.cwd(), 'src/agent/agentLoop.ts'), 'utf-8');
+        // Tool call IDs must interpolate Date.now(), not emit literal `${Date.now()}`
+        expect(src).not.toMatch(/fab-\\\$\{Date\.now\(\)\}/);
+        expect(src).not.toMatch(/intent-\\\$\{Date\.now\(\)\}/);
+        expect(src).toMatch(/fab-\$\{Date\.now\(\)\}/);
+        expect(src).toMatch(/intent-\$\{Date\.now\(\)\}/);
+    });
+
+    it('parallelTools.ts: log strings interpolate calls.length', () => {
+        const src = readFileSync(join(process.cwd(), 'src/agent/parallelTools.ts'), 'utf-8');
+        expect(src).not.toMatch(/Executing \\\$\{calls\.length\}/);
+        expect(src).toMatch(/Executing \$\{calls\.length\}/);
+    });
+});

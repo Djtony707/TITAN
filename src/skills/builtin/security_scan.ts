@@ -84,7 +84,7 @@ export function registerSecurityScanSkill(): void {
                 const results: string[] = [];
 
                 // Source code scan
-                logger.info(COMPONENT, `Scanning \${dir} for vulnerabilities`);
+                logger.info(COMPONENT, `Scanning ${dir} for vulnerabilities`);
                 const findings = scanDirectory(dir);
                 const critical = findings.filter(f => f.severity === 'critical');
                 const high = findings.filter(f => f.severity === 'high');
@@ -92,11 +92,11 @@ export function registerSecurityScanSkill(): void {
                 const info = findings.filter(f => f.severity === 'info');
 
                 results.push(`## Source Code Scan`);
-                results.push(`Found \${findings.length} issues: \${critical.length} critical, \${high.length} high, \${medium.length} medium, \${info.length} info`);
+                results.push(`Found ${findings.length} issues: ${critical.length} critical, ${high.length} high, ${medium.length} medium, ${info.length} info`);
                 results.push('');
 
                 for (const f of [...critical, ...high, ...medium].slice(0, 20)) {
-                    results.push(`[\${f.severity.toUpperCase()}] \${f.file}:\${f.line} — \${f.desc}`);
+                    results.push(`[${f.severity.toUpperCase()}] ${f.file}:${f.line} — ${f.desc}`);
                 }
 
                 // npm audit
@@ -107,7 +107,7 @@ export function registerSecurityScanSkill(): void {
                         const output = execSync('npm audit --json 2>/dev/null', { cwd: dir, timeout: 30000 }).toString();
                         const audit = JSON.parse(output);
                         const vulns = audit.metadata?.vulnerabilities || {};
-                        results.push(`Vulnerabilities: \${vulns.critical || 0} critical, \${vulns.high || 0} high, \${vulns.moderate || 0} moderate, \${vulns.low || 0} low`);
+                        results.push(`Vulnerabilities: ${vulns.critical || 0} critical, ${vulns.high || 0} high, ${vulns.moderate || 0} moderate, ${vulns.low || 0} low`);
                     } catch (e) {
                         try {
                             const output = execSync('npm audit 2>&1 || true', { cwd: dir, timeout: 30000 }).toString();

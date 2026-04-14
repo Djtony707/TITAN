@@ -937,9 +937,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // Extract what should have been written
                     const contentMatch = response.content.match(/(?:written|saved|wrote)\s+["`]([^"`]+)["`]/i);
                     const fileContent = contentMatch ? contentMatch[1] : 'placeholder';
-                    logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "\${filePath}" without tool call — forcing write_file`);
+                    logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "${filePath}" without tool call — forcing write_file`);
                     response.toolCalls = [{
-                        id: `fab-\${Date.now()}`,
+                        id: `fab-${Date.now()}`,
                         type: 'function' as const,
                         function: { name: 'write_file', arguments: JSON.stringify({ path: filePath, content: fileContent }) },
                     }];
@@ -1020,9 +1020,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         const pastWrite = text.match(/(?:wrote|written|saved|created)\s+(?:.*?)(?:to|at|in)\s+["'`]?(\/[\w/.-]+\.[a-z]+)["'`]?/i);
                         if (pastWrite) {
                             const contentMatch = text.match(/(?:wrote|written|saved)\s+["'`]([^"'`]+)["'`]/i);
-                            logger.info(COMPONENT, `[IntentParser] Past-tense write → write_file("\${pastWrite[1]}")`);
+                            logger.info(COMPONENT, `[IntentParser] Past-tense write → write_file("${pastWrite[1]}")`);
                             response.toolCalls = [{
-                                id: `intent-\${Date.now()}`,
+                                id: `intent-${Date.now()}`,
                                 type: 'function' as const,
                                 function: { name: 'write_file', arguments: JSON.stringify({ path: pastWrite[1], content: contentMatch ? contentMatch[1] : '' }) },
                             }];
