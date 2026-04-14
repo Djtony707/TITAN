@@ -101,8 +101,14 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     'deepseek-v3.2':    { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
 
     // ── MiniMax M2.7 — XML tool format, needs special handling ──
-    'minimax-m2.7':     { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95, toolTopK: 40 },
-    'minimax-m2':       { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95 },
+    // Hunt Finding #05 (2026-04-14): flipped selfSelectsTools from true→false.
+    // Confirmed by reproducing: a "use shell to run uptime" prompt returned
+    // fabricated uptime text with no tool call. The model hallucinates instead
+    // of calling tools when given the choice. Setting false forces the agent
+    // loop's forceToolUse to fire `tool_choice: required`, which prevents this
+    // class of hallucination at the API level.
+    'minimax-m2.7':     { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95, toolTopK: 40 },
+    'minimax-m2':       { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.8, toolTopP: 0.95 },
 
     // ── Gemma family — good tool use, no thinking ──
     'gemma4':           { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 1.0, toolTopP: 0.95, toolTopK: 64 },
@@ -409,6 +415,9 @@ export class OllamaProvider extends LLMProvider {
             // Models that self-select tools well don't need forcing — it hurts them
             if (options.forceToolUse && !caps.selfSelectsTools) {
                 body.tool_choice = 'required';
+                logger.info(COMPONENT, `[ToolChoiceRequired] Setting tool_choice=required for ${model} (forceToolUse=true, selfSelectsTools=false)`);
+            } else if (options.forceToolUse && caps.selfSelectsTools) {
+                logger.info(COMPONENT, `[ToolChoiceSkipped] forceToolUse=true but selfSelectsTools=true for ${model} — NOT setting tool_choice`);
             }
         }
 

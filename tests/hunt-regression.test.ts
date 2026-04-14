@@ -271,6 +271,110 @@ describe('Hunt Finding #03 — TITAN_HOME respects env var', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Finding #05 — Model hallucinated tool output without calling the tool
+// ═══════════════════════════════════════════════════════════════
+//
+// User said "use the shell tool to run uptime" but minimax-m2.7:cloud returned
+// fabricated uptime text with no tool call. The agent loop accepted it.
+// Fix: detectToolUseIntent() + force tool_choice=required on explicit requests.
+
+describe('Hunt Finding #05 — detectToolUseIntent catches explicit tool requests', () => {
+    it('detects the EXACT message that triggered the bug', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        const actualMessage = 'Use the shell tool to run: uptime. Return only what shell returned, verbatim.';
+        expect(detectToolUseIntent(actualMessage)).toBe(true);
+    });
+
+    it('detects "use the X tool" variants', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        const variants = [
+            'Use the shell tool to list files',
+            'use the web_search tool for news',
+            'Please use the read_file tool',
+            'use the memory tool',
+            'Use the write_file tool',
+        ];
+        for (const msg of variants) {
+            expect(detectToolUseIntent(msg), `Failed for: ${msg}`).toBe(true);
+        }
+    });
+
+    it('detects action verbs that require tool execution', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        const variants = [
+            'run the shell command uptime',
+            'execute this shell script',
+            'search the web for AI news',
+            'search for Python 3.13',
+            'fetch the page at https://example.com',
+            'read the file package.json',
+            'read the file at /etc/hostname',
+            'list files in ~/Desktop',
+            'list the contents of the workspace',
+        ];
+        for (const msg of variants) {
+            expect(detectToolUseIntent(msg), `Failed for: ${msg}`).toBe(true);
+        }
+    });
+
+    it('detects "what is the current X" that requires real state', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        const variants = [
+            'what is the current uptime?',
+            "what's the current hostname?",
+            'show me the current directory',
+            'get the current ip',
+        ];
+        for (const msg of variants) {
+            expect(detectToolUseIntent(msg), `Failed for: ${msg}`).toBe(true);
+        }
+    });
+
+    it('does NOT trigger on casual chat', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        const casual = [
+            'Hello',
+            'How are you?',
+            'What is TITAN?',
+            'Thanks for the reply',
+            'Tell me a joke',
+            'Explain quantum computing',
+        ];
+        for (const msg of casual) {
+            expect(detectToolUseIntent(msg), `Incorrectly flagged: ${msg}`).toBe(false);
+        }
+    });
+
+    it('handles empty and short inputs safely', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        expect(detectToolUseIntent('')).toBe(false);
+        expect(detectToolUseIntent('hi')).toBe(false);
+        expect(detectToolUseIntent('  ')).toBe(false);
+    });
+
+    it('source: minimax models are marked selfSelectsTools: false', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/providers/ollama.ts'),
+            'utf-8',
+        );
+        // Both variants should have selfSelectsTools: false after the fix
+        expect(src).toMatch(/'minimax-m2\.7':\s*\{\s*selfSelectsTools:\s*false/);
+        expect(src).toMatch(/'minimax-m2':\s*\{\s*selfSelectsTools:\s*false/);
+    });
+
+    it('source: agent loop contains HallucinationGuard', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/HallucinationGuard/);
+        expect(src).toMatch(/wantsVerbatim/);
+        // The guard should reference toolCallDetails (the real tool outputs)
+        expect(src).toMatch(/toolCallDetails/);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Finding #04 — Gateway silently serves partial interfaces on port conflict
 // ═══════════════════════════════════════════════════════════════
 //

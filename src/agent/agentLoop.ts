@@ -71,6 +71,49 @@ function sanitizeReflection(text: string): string {
         .trim() || 'approach not working';
 }
 
+/**
+ * Hunt Finding #05 (2026-04-14): detect explicit tool-use intent in the user message.
+ *
+ * Symptom: User says "use the shell tool to run uptime" but the model returns
+ * plausible but FABRICATED output (hallucinated uptime text) without actually
+ * calling the shell tool. The text looks like real tool output but isn't.
+ *
+ * Previously `forceToolUse` only fired in autonomous mode. Regular API calls
+ * let the model ignore tools, so any model with weak tool calling could
+ * hallucinate output.
+ *
+ * Fix: if the user message explicitly requests a tool, we force
+ * `tool_choice: required` on the first call, even in non-autonomous mode.
+ * This doesn't eliminate hallucination entirely but stops the most common
+ * pattern where the model chooses to not call a tool at all.
+ */
+export function detectToolUseIntent(userMessage: string): boolean {
+    if (!userMessage || userMessage.length < 5) return false;
+    const msg = userMessage.toLowerCase();
+
+    const intentPatterns = [
+        // Explicit "use the X tool" or "use X tool"
+        /\buse (?:the )?(\w+) tool\b/,
+        /\buse (?:the )?(shell|web_search|web_fetch|read_file|write_file|edit_file|list_dir|memory|weather|fb_post|fb_reply|fb_read_feed|github|email|calendar)\b/,
+        // "run X" / "execute X" / "call X"
+        /\brun (?:the )?(?:shell|command|tool|script)\b/,
+        /\bexecute (?:the )?(?:shell|command|tool|script|this)\b/,
+        /\bcall (?:the )?(?:\w+ )?tool\b/,
+        /\binvoke (?:the )?(\w+)\b/,
+        // Action verbs that require tool execution
+        /\b(?:search the web|search for|web search)\b/,
+        /\bfetch (?:the )?(url|page|content|https?:)/,
+        /\bread (?:the )?(?:file|contents? of|lines from)\b/,
+        /\bwrite (?:this |the )?(?:to (?:the )?file|file)\b/,
+        /\blist (?:the )?(?:files?|contents?) (?:in|of|at)\b/,
+        // Requests to check real system state that REQUIRES a tool
+        /\b(?:what is|what's|show me|get) (?:the )?(?:current|actual) (?:uptime|hostname|ip|path|directory|pwd|time|date|memory|disk)\b/,
+        /\brun\s+['"`]?(?:echo|ls|pwd|uptime|whoami|date|uname|cat|grep|find)\b/,
+    ];
+
+    return intentPatterns.some(p => p.test(msg));
+}
+
 // ── Phase State Machine ��─────────────────────────────────────────────
 
 export type AgentPhase = 'think' | 'act' | 'respond' | 'done';
@@ -594,11 +637,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     && (ctx.isAutonomous || ctx.taskEnforcementActive)
                     && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false
                     && phase !== 'respond')
-                    || forceWriteOnNextThink,  // Incomplete task guard forces tool call
+                    || forceWriteOnNextThink  // Incomplete task guard forces tool call
+                    // Hunt Finding #05: user explicitly asked to use a tool → force it,
+                    // even in non-autonomous mode. Only applies to round 1 think-phase.
+                    || (round === 0
+                        && phase === 'think'
+                        && ctx.activeTools.length > 0
+                        && detectToolUseIntent(ctx.message || '')),
             };
             if (forceWriteOnNextThink) {
                 forceWriteOnNextThink = false; // Reset after use
                 logger.info(COMPONENT, '[IncompleteTask] Forcing tool_choice=required for write retry');
+            }
+            // Hunt Finding #05: log when explicit-intent is forcing tool use
+            if (round === 0 && phase === 'think' && !ctx.isAutonomous && !ctx.taskEnforcementActive
+                && ctx.activeTools.length > 0 && detectToolUseIntent(ctx.message || '')) {
+                logger.info(COMPONENT, '[ExplicitIntent] User explicitly requested tool use — forcing tool_choice=required for round 1');
             }
 
             let response: ChatResponse;
@@ -879,8 +933,34 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         }
                     }
 
+                    // Hunt Finding #05 (continuation): before accepting a text-only
+                    // response as final, check if it looks like fabricated tool output.
+                    // If the user requested verbatim/exact tool output AND we have
+                    // real tool results in this turn, prefer the real result.
+                    const finalText = stripToolJson(response.content || '');
+                    const lastToolResult = result.toolCallDetails.length > 0
+                        ? result.toolCallDetails[result.toolCallDetails.length - 1]
+                        : null;
+                    const userMsgLower = (ctx.message || '').toLowerCase();
+                    const wantsVerbatim = /\b(?:verbatim|exactly|precise|literal|as(?: |-)is|raw output|just the output)\b/.test(userMsgLower);
+
+                    if (lastToolResult && lastToolResult.success && wantsVerbatim && finalText.length < 300) {
+                        // Check if the text appears in the actual tool output — if NOT,
+                        // it's likely a hallucinated echo of what the model thinks the
+                        // tool should have returned. Replace with the real output.
+                        const realOutput = lastToolResult.resultSnippet || '';
+                        const textAppearsInResult = realOutput.length > 10 && realOutput.toLowerCase().includes(finalText.toLowerCase().slice(0, 40));
+                        if (!textAppearsInResult && realOutput.length > 0) {
+                            logger.warn(COMPONENT, `[HallucinationGuard] Text response "${finalText.slice(0, 60)}..." does NOT match real tool output "${realOutput.slice(0, 60)}..." — user asked for verbatim, using real tool output instead`);
+                            result.content = realOutput.length < 1500 ? realOutput : realOutput.slice(0, 1500) + '...[truncated]';
+                            setCachedResponse(smartMessages, activeModel, result.content);
+                            phase = 'done';
+                            break;
+                        }
+                    }
+
                     // Model chose to respond directly — accept it
-                    result.content = stripToolJson(response.content);
+                    result.content = finalText;
                     setCachedResponse(smartMessages, activeModel, result.content);
                     phase = 'done';
                     break;
