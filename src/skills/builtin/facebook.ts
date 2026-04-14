@@ -84,11 +84,28 @@ function hasApiAccess(): boolean {
 async function graphPost(endpoint: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const token = getPageToken();
     const url = `${GRAPH_API_BASE}${endpoint}`;
+    // Facebook Graph API page-scoped actions require access_token in the body, not Authorization header
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, access_token: token }),
         signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Facebook API error (${response.status}): ${errText}`);
+    }
+    return await response.json() as Record<string, unknown>;
+}
+
+async function graphDelete(endpoint: string): Promise<Record<string, unknown>> {
+    const token = getPageToken();
+    const url = `${GRAPH_API_BASE}${endpoint}`;
+    const response = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: token }),
+        signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
         const errText = await response.text();
@@ -152,9 +169,10 @@ let postingInProgress = false;
  * Handles: PII check, dedup, queue tracking, and Graph API posting.
  */
 export async function postToPage(
-    message: string,
+    inputMessage: string,
     opts?: { imageUrl?: string; source?: string },
 ): Promise<{ success: boolean; postId?: string; error?: string; skipped?: string }> {
+    let message = inputMessage;
     // Concurrency lock — only one post at a time
     if (postingInProgress) {
         return { success: false, skipped: 'Another post is already in progress' };
@@ -162,7 +180,16 @@ export async function postToPage(
     postingInProgress = true;
 
     try {
-        // PII check
+        // Centralized outbound sanitizer — catches instruction leaks, tool artifacts, PII
+        const { sanitizeOutbound } = await import('../../utils/outboundSanitizer.js');
+        const sanitized = sanitizeOutbound(message, 'fb_post');
+        if (sanitized.hadIssues) {
+            logger.warn(COMPONENT, `Post blocked by outbound sanitizer: ${sanitized.issues.join(', ')}`);
+            return { success: false, error: `Blocked: ${sanitized.issues.join(', ')}` };
+        }
+        message = sanitized.text;
+
+        // PII check (legacy — sanitizer also checks, but keep for extra safety)
         const piiMatch = checkForPII(message);
         if (piiMatch) {
             logger.warn(COMPONENT, `Post blocked — contains ${piiMatch}`);
@@ -287,9 +314,9 @@ export function registerFacebookSkill(): void {
 
                 try {
                     const pageId = (args.pageId as string) || getPageId();
-                    // Fetch posts with comment content (not just summary counts)
+                    // Fetch posts with comment content and summary counts in a single comments field
                     const result = await graphGet(`/${pageId}/feed`, {
-                        fields: 'id,message,created_time,likes.summary(true),comments.limit(5){id,from{name},message,created_time},comments.summary(true),shares',
+                        fields: 'id,message,created_time,likes.summary(true),comments.summary(true).limit(5){id,from{name},message,created_time},shares',
                         limit: limit.toString(),
                     });
 
@@ -353,15 +380,21 @@ export function registerFacebookSkill(): void {
                 const piiMatch = checkForPII(message);
                 if (piiMatch) return `Reply blocked: detected ${piiMatch}. Remove personal information and try again.`;
 
+                // Centralized outbound sanitizer — catches instruction leaks, tool artifacts, PII
+                const { sanitizeOutbound } = await import('../../utils/outboundSanitizer.js');
+                const sanitized = sanitizeOutbound(message, 'fb_reply_tool');
+                if (sanitized.hadIssues) {
+                    return `Reply blocked by safety filter: ${sanitized.issues.join(', ')}. The content contained leaked instructions or sensitive data. Rephrase and try again.`;
+                }
+
                 try {
                     // First verify the comment exists
                     const check = await graphGet(`/${commentId}`, { fields: 'id,from,message' });
                     if (!check.id) return `Comment not found: ${commentId}. Use fb_read_comments to get valid comment IDs.`;
 
-                    // Post reply — Graph API requires access_token in the body for page-scoped actions
+                    // Post reply — graphPost() auto-adds access_token
                     const result = await graphPost(`/${commentId}/comments`, {
-                        message,
-                        access_token: getPageToken(),
+                        message: sanitized.text,
                     });
 
                     if (!result.id) return `Reply may have failed — no comment ID returned. Check the post manually.`;
@@ -595,5 +628,40 @@ export function registerFacebookSkill(): void {
         },
     );
 
-    logger.info(COMPONENT, 'Facebook hybrid skill registered (7 tools)');
+    // ── Tool 8: fb_delete_post ──
+    registerSkill(
+        { name: 'facebook', description: 'Facebook hybrid skill', version: '1.0.0', source: 'bundled', enabled: true },
+        {
+            name: 'fb_delete_post',
+            description: 'Delete a Facebook post by ID (requires API access).\nUSE THIS WHEN: user wants to remove or delete a Facebook post.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    postId: { type: 'string', description: 'The post ID to delete (get this from fb_read_feed)' },
+                },
+                required: ['postId'],
+            },
+            execute: async (args) => {
+                if (!hasApiAccess()) return 'No Facebook API credentials configured. Set FB_PAGE_ACCESS_TOKEN and FB_PAGE_ID.';
+
+                const postId = args.postId as string;
+                if (!postId) return 'postId is required. Use fb_read_feed first to get post IDs.';
+
+                try {
+                    const result = await graphDelete(`/${postId}`);
+                    if (result.success) {
+                        return `Post ${postId} deleted successfully.`;
+                    }
+                    return `Delete request sent but response was unexpected: ${JSON.stringify(result)}. Verify manually.`;
+                } catch (e) {
+                    const errMsg = (e as Error).message;
+                    if (errMsg.includes('190')) return `Auth error — page token may be expired. ${errMsg}`;
+                    if (errMsg.includes('100')) return `Invalid post ID "${postId}". Use fb_read_feed to get valid IDs. ${errMsg}`;
+                    return `Failed to delete post: ${errMsg}`;
+                }
+            },
+        },
+    );
+
+    logger.info(COMPONENT, 'Facebook hybrid skill registered (8 tools)');
 }

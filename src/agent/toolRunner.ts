@@ -22,6 +22,21 @@ import { snapshotBeforeWrite } from './shadowGit.js';
 
 const COMPONENT = 'ToolRunner';
 
+/**
+ * G1: Sanitize base64 image data from tool results (OpenClaw pattern).
+ * Prevents token explosion when vision/screenshot tools return raw base64.
+ * Replaces data URIs with a compact placeholder showing byte count.
+ */
+function sanitizeBase64(content: string): string {
+    return content.replace(
+        /data:image\/[^;]+;base64,[A-Za-z0-9+/=]{100,}/g,
+        (match) => {
+            const bytes = Math.ceil((match.length - match.indexOf(',') - 1) * 0.75);
+            return `[image: ${(bytes / 1024).toFixed(1)}KB omitted]`;
+        },
+    );
+}
+
 /** Error classification for retry decisions */
 export type ErrorClass = 'transient' | 'permanent' | 'timeout' | 'rate_limit';
 
@@ -116,10 +131,19 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     const handler = toolRegistry.get(toolCall.function.name);
 
     if (!handler) {
+        // LangGraph pattern: tell the LLM which tools actually exist so it can self-correct
+        const available = Array.from(toolRegistry.keys()).sort();
+        const suggestions = available.filter(t => {
+            const name = toolCall.function.name.toLowerCase();
+            return t.toLowerCase().includes(name.slice(0, 4)) || name.includes(t.slice(0, 4));
+        }).slice(0, 5);
+        const hint = suggestions.length > 0
+            ? `\nDid you mean: ${suggestions.join(', ')}?`
+            : `\nAvailable tools include: ${available.slice(0, 20).join(', ')}${available.length > 20 ? ` (and ${available.length - 20} more)` : ''}`;
         return {
             toolCallId: toolCall.id,
             name: toolCall.function.name,
-            content: `Error: Unknown tool "${toolCall.function.name}"`,
+            content: `Error: "${toolCall.function.name}" is not a valid tool.${hint}\nPlease use one of the available tools.`,
             success: false,
             durationMs: Date.now() - startTime,
         };
@@ -162,7 +186,34 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 args = JSON.parse(fixed);
                 logger.info('ToolRunner', `Salvaged partial JSON args for ${handler.name}`);
             } catch {
-                args = {};
+                // A5: Return error instead of executing with empty args (LangGraph pattern)
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: `Error: Could not parse arguments for "${handler.name}". Raw: ${(toolCall.function.arguments || '').slice(0, 200)}. Please provide valid JSON arguments.`,
+                    success: false,
+                    durationMs: Date.now() - startTime,
+                };
+            }
+        }
+    }
+
+    // Schema validation: check required parameters before execution (LangGraph pattern)
+    if (handler.parameters && typeof handler.parameters === 'object') {
+        const schema = handler.parameters as { required?: string[]; properties?: Record<string, unknown> };
+        if (schema.required && Array.isArray(schema.required)) {
+            const missing = schema.required.filter(key => args[key] === undefined || args[key] === null);
+            if (missing.length > 0) {
+                const available = schema.properties ? Object.keys(schema.properties) : [];
+                logger.warn('ToolRunner', `[SchemaValidation] ${handler.name}: missing required params: ${missing.join(', ')}`);
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: `Error: Missing required parameter(s): ${missing.join(', ')}. ` +
+                        `Expected parameters: ${available.join(', ')}. Please provide all required arguments.`,
+                    success: false,
+                    durationMs: Date.now() - startTime,
+                };
             }
         }
     }
@@ -270,12 +321,14 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.info(COMPONENT, `Tool ${handler.name} completed in ${durationMs}ms`);
             }
 
+            // G1: Strip base64 image data before size check (prevents token explosion)
+            let finalContent = sanitizeBase64(result);
+
             // Smart truncation — keep head + tail for large results (TITAN pattern)
-            let finalContent = result;
-            if (result.length > 30000) {
-                const head = result.slice(0, 20000);
-                const tail = result.slice(-5000);
-                finalContent = head + '\n\n[... ' + (result.length - 25000) + ' chars omitted ...]\n\n' + tail;
+            if (finalContent.length > 30000) {
+                const head = finalContent.slice(0, 20000);
+                const tail = finalContent.slice(-5000);
+                finalContent = head + '\n\n[... ' + (finalContent.length - 25000) + ' chars omitted ...]\n\n' + tail;
                 logger.info(COMPONENT, `Tool ${handler.name} output truncated: ${result.length} → ${finalContent.length} chars`);
             }
 

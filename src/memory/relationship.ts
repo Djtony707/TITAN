@@ -9,7 +9,7 @@
  * No other AI agent platform does this at this level.
  * Every interaction makes TITAN more "yours".
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
@@ -80,7 +80,10 @@ export function loadProfile(userId = 'default'): PersonalProfile {
             if (existsSync(legacyPath)) {
                 const profile = JSON.parse(readFileSync(legacyPath, 'utf-8')) as PersonalProfile;
                 profileCache.set(userId, profile);
-                // Migrate to new location on next save
+                // Migrate: save to new location, then remove legacy
+                saveProfile(profile, userId);
+                try { unlinkSync(legacyPath); } catch { /* ignore */ }
+                logger.info(COMPONENT, 'Migrated legacy profile to new location');
                 return profile;
             }
         } catch { /* */ }
@@ -105,10 +108,10 @@ function createEmptyProfile(): PersonalProfile {
     };
 }
 
-export function saveProfile(profile: PersonalProfile, userId = 'default'): void {
+export function saveProfile(profile: PersonalProfile, userId = 'default', isInteraction = false): void {
     ensureProfilesDir();
     profile.lastSeenAt = new Date().toISOString();
-    profile.interactionCount++;
+    if (isInteraction) profile.interactionCount++;
     profileCache.set(userId, profile);
     const profilePath = getProfilePath(userId);
     try {

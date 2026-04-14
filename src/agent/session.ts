@@ -7,6 +7,7 @@ import { getDb, getHistory, saveMessage, updateSessionMeta } from '../memory/mem
 import type { ChatMessage } from '../providers/base.js';
 import { MAX_CONTEXT_MESSAGES, SESSION_TIMEOUT_MS } from '../utils/constants.js';
 import { generateKey } from '../security/encryption.js';
+import { resetLoopDetection } from './loopDetection.js';
 import logger from '../utils/logger.js';
 // chat imported dynamically to avoid circular dependency
 
@@ -69,6 +70,9 @@ export function getOrCreateSession(channel: string, userId: string, agentId: str
                 lastActive: existing.last_active,
                 name: existing.name,
                 lastMessage: existing.last_message,
+                // D3: Restore persisted overrides on session recovery
+                modelOverride: (existing as unknown as Record<string, unknown>).model_override as string | undefined,
+                thinkingOverride: (existing as unknown as Record<string, unknown>).thinking_override as Session['thinkingOverride'],
                 // Note: If a session was encrypted but dropped from memory, we cannot recover the key
                 // A robust implementation would involve key exchange, but for now we warn:
                 e2eKey: undefined
@@ -290,7 +294,7 @@ export function listSessions(): Session[] {
     cleanupStaleSessions();
     const store = getDb();
     return store.sessions
-        .filter((s) => s.status === 'active')
+        .filter((s) => s.status === 'active' || s.status === 'idle')
         .sort((a, b) => b.last_active.localeCompare(a.last_active))
         .map((s) => {
             // Backfill name/lastMessage from conversation history for sessions created before this feature
@@ -322,6 +326,8 @@ export function listSessions(): Session[] {
 export function setSessionModelOverride(channel: string, userId: string, model: string): void {
     const session = getOrCreateSession(channel, userId, 'default');
     session.modelOverride = model;
+    // D3: Persist to database so override survives session recovery
+    updateSessionMeta(session.id, { model_override: model });
     logger.info(COMPONENT, `Session ${session.id.slice(0, 8)}: model override → ${model}`);
 }
 
@@ -329,6 +335,8 @@ export function setSessionModelOverride(channel: string, userId: string, model: 
 export function setSessionThinkingOverride(channel: string, userId: string, level: 'off' | 'low' | 'medium' | 'high'): void {
     const session = getOrCreateSession(channel, userId, 'default');
     session.thinkingOverride = level;
+    // D3: Persist to database so override survives session recovery
+    updateSessionMeta(session.id, { thinking_override: level });
     logger.info(COMPONENT, `Session ${session.id.slice(0, 8)}: thinking override → ${level}`);
 }
 
@@ -375,12 +383,19 @@ export function closeSession(sessionId: string): void {
         sessionRec.status = 'closed';
     }
 
+    // Delete ALL cache entries for this session (both id: and channel:user:agent keys)
+    const keysToDelete: string[] = [];
     for (const [key, session] of activeSessions) {
         if (session.id === sessionId) {
-            activeSessions.delete(key);
-            break;
+            keysToDelete.push(key);
         }
     }
+    for (const key of keysToDelete) {
+        activeSessions.delete(key);
+    }
+
+    // D1: Clean up loop detection state to prevent unbounded memory growth
+    resetLoopDetection(sessionId);
 
     logger.info(COMPONENT, `Closed session: ${sessionId}`);
 }

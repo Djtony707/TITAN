@@ -21,8 +21,8 @@ import { getActivePersonaContent } from '../personas/manager.js';
 
 const COMPONENT = 'SubAgent';
 
-/** Currently running sub-agent count */
-let activeSubAgents = 0;
+/** Currently running sub-agent IDs (Set for accurate tracking, prevents counter desync) */
+const activeSubAgentIds = new Set<string>();
 
 export interface SubAgentConfig {
     name: string;
@@ -378,7 +378,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         ? ((titanConfig as Record<string, unknown>).subAgents as Record<string, unknown>).maxConcurrent as number || 3
         : 3;
 
-    if (activeSubAgents >= maxConcurrent) {
+    if (activeSubAgentIds.size >= maxConcurrent) {
         return {
             content: `Error: Maximum concurrent sub-agents (${maxConcurrent}) reached. Wait for one to finish.`,
             toolsUsed: [],
@@ -389,8 +389,9 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         };
     }
 
-    activeSubAgents++;
     const agentName = config.name || 'SubAgent';
+    const agentTrackingId = `${agentName}-${Date.now()}`;
+    activeSubAgentIds.add(agentTrackingId);
     // Reduce max rounds by 30% per depth level to prevent runaway nesting
     const baseMaxRounds = config.maxRounds || 10;
     const depthReduction = Math.pow(0.7, currentDepth);
@@ -496,6 +497,13 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 logger.debug(COMPONENT, `[${agentName}] Injected ${incoming.length} inter-agent messages`);
             }
 
+            // B7: Abort if no tools available — prevents toolless agent from looping uselessly
+            if (availableTools.length === 0 && round === 0) {
+                logger.warn(COMPONENT, `[${agentName}] No tools available after filtering — aborting`);
+                finalContent = `Error: No tools available for sub-agent "${agentName}". Check tool permissions and skill configuration.`;
+                break;
+            }
+
             const response = await chat({
                 model,
                 messages,
@@ -572,7 +580,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             validated: false,
         };
     } finally {
-        activeSubAgents--;
+        activeSubAgentIds.delete(agentTrackingId);
 
         // ── Message Bus: unregister mailbox on completion ──
         unregisterMailbox(agentName);
@@ -596,5 +604,5 @@ function validateSubAgentOutput(content: string): boolean {
 
 /** Get count of currently active sub-agents */
 export function getActiveSubAgentCount(): number {
-    return activeSubAgents;
+    return activeSubAgentIds.size;
 }

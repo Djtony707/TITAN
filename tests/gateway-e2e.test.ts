@@ -252,6 +252,7 @@ describe('Gateway E2E — /api/message lifecycle', () => {
                 undefined, // no agentId
                 expect.anything(), // AbortSignal
                 undefined, // sessionId
+                undefined, // modelOverride
             );
         });
     });
@@ -421,6 +422,7 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             expect(mockRouteMessage).toHaveBeenCalledWith(
                 'follow up', 'api', 'api-user',
                 undefined, undefined, expect.anything(), 'sess-existing',
+                undefined, // modelOverride
             );
         });
 

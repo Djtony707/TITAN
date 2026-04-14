@@ -45,6 +45,9 @@ interface SessionRecord {
   last_active: string;
   name?: string;
   last_message?: string;
+  // D3: Persisted session overrides (survive session recovery after timeout/restart)
+  model_override?: string;
+  thinking_override?: string;
 }
 
 interface UsageRecord {
@@ -83,6 +86,7 @@ const DB_FILE = join(TITAN_HOME, 'titan-data.json');
 
 let store: DataStore | null = null;
 let dirty = false;
+let isShuttingDown = false;
 
 function getDefaultStore(): DataStore {
   return {
@@ -121,7 +125,7 @@ function loadStore(): DataStore {
 }
 
 function saveStore(): void {
-  if (!store) return;
+  if (!store || isShuttingDown) return;
   ensureDir(TITAN_HOME);
   try {
     const tmpFile = DB_FILE + '.tmp';
@@ -156,7 +160,7 @@ export function closeMemory(): void {
   if (dirty) {
     logger.error(COMPONENT, 'DATA MAY BE LOST — failed to flush memory store on shutdown');
   }
-  store = null;
+  isShuttingDown = true;
 }
 
 /** Get internal store (for skills like cron that need direct access) */
@@ -242,12 +246,15 @@ export function getHistory(sessionId: string, limit: number = 50, e2eKey?: strin
 }
 
 /** Update session name and/or last message snippet */
-export function updateSessionMeta(sessionId: string, meta: { name?: string; last_message?: string }): void {
+export function updateSessionMeta(sessionId: string, meta: { name?: string; last_message?: string; model_override?: string; thinking_override?: string }): void {
   const s = loadStore();
   const rec = s.sessions.find(ses => ses.id === sessionId);
   if (!rec) return;
   if (meta.name !== undefined) rec.name = meta.name;
   if (meta.last_message !== undefined) rec.last_message = meta.last_message;
+  // D3: Persist session overrides to database so they survive timeout/restart
+  if (meta.model_override !== undefined) rec.model_override = meta.model_override;
+  if (meta.thinking_override !== undefined) rec.thinking_override = meta.thinking_override;
   debouncedSave();
 }
 

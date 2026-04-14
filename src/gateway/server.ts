@@ -1689,7 +1689,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
-    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId } = req.body;
+    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel } = req.body;
     // Default channel to 'webchat' for browser-based Mission Control clients.
     // This enables the interactive plan approval flow (show plan → user approves/denies).
     // Programmatic API callers can explicitly pass channel: 'api' to auto-approve plans.
@@ -1822,7 +1822,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           onRound: (round, maxRounds) => {
             safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
           },
-        }, agentId, abortController.signal, requestedSessionId);
+        }, agentId, abortController.signal, requestedSessionId, requestedModel);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -1838,7 +1838,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId);
+        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId, requestedModel);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });

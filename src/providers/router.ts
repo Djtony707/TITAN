@@ -292,6 +292,31 @@ const CIRCUIT_BREAKER_CONFIG = {
 const circuitBreakers = new Map<string, CircuitBreakerState>();
 
 /**
+ * G2: Cooldown-aware probe throttling (OpenClaw pattern).
+ * When a provider is rate-limited, don't probe it again for MIN_PROBE_INTERVAL_MS.
+ * Prevents cascade failures during provider outages.
+ */
+const MIN_PROBE_INTERVAL_MS = 30000; // 30s between probes
+const providerRateLimitCooldowns = new Map<string, number>(); // provider → timestamp of last rate-limit
+
+/** Record that a provider returned a rate-limit error */
+function recordRateLimitCooldown(providerName: string): void {
+    providerRateLimitCooldowns.set(providerName, Date.now());
+}
+
+/** Check if a provider is still in its rate-limit cooldown window */
+function isInRateLimitCooldown(providerName: string): boolean {
+    const lastRateLimit = providerRateLimitCooldowns.get(providerName);
+    if (!lastRateLimit) return false;
+    const elapsed = Date.now() - lastRateLimit;
+    if (elapsed >= MIN_PROBE_INTERVAL_MS) {
+        providerRateLimitCooldowns.delete(providerName); // Cooldown expired
+        return false;
+    }
+    return true;
+}
+
+/**
  * Get or create circuit breaker state for a provider.
  */
 function getCircuitBreaker(providerName: string): CircuitBreakerState {
@@ -362,7 +387,14 @@ function recordFailure(providerName: string): void {
  * Returns true if closed or if half-open (time to test).
  * Returns false if open and still in timeout period.
  */
-function canRequest(providerName: string): boolean {
+function canRequest(providerName: string, isFallbackProbe = false): boolean {
+    // G2: Rate-limit cooldown only blocks FALLBACK probes, not primary model retries.
+    // Primary model has its own backoff logic — don't double-gate it.
+    if (isFallbackProbe && isInRateLimitCooldown(providerName)) {
+        logger.debug(COMPONENT, `[RateLimitCooldown] ${providerName} still cooling down — skipping fallback probe`);
+        return false;
+    }
+
     const cb = getCircuitBreaker(providerName);
 
     if (cb.state === 'closed') {
@@ -505,8 +537,8 @@ async function tryFallbackChain(
             const { provider: fbProvider, model: fbModel } = resolveModel(fallbackModelId);
             const fbProviderName = fbProvider.name;
 
-            // Check circuit breaker for fallback provider
-            if (!canRequest(fbProviderName)) {
+            // Check circuit breaker + rate-limit cooldown for fallback provider
+            if (!canRequest(fbProviderName, true)) {
                 const cb = getCircuitBreaker(fbProviderName);
                 logger.warn(COMPONENT, `Skipping fallback ${fallbackModelId} — circuit breaker OPEN (${cb.failureCount} failures)`);
                 continue;
@@ -562,8 +594,8 @@ async function tryFallbackChainStream(
             const { provider: fbProvider, model: fbModel } = resolveModel(fallbackModelId);
             const fbProviderName = fbProvider.name;
 
-            // Check circuit breaker for fallback provider
-            if (!canRequest(fbProviderName)) {
+            // Check circuit breaker + rate-limit cooldown for fallback provider
+            if (!canRequest(fbProviderName, true)) {
                 const cb = getCircuitBreaker(fbProviderName);
                 logger.warn(COMPONENT, `Skipping stream fallback ${fallbackModelId} — circuit breaker OPEN (${cb.failureCount} failures)`);
                 continue;
@@ -636,6 +668,9 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
     logger.info(COMPONENT, `Routing to ${provider.displayName} (model: ${model})`);
 
+    // G4: Track fallback attempts for structured error reporting (OpenClaw pattern)
+    const fallbackAttempts: Array<{ provider: string; model: string; error: string; reason: string }> = [];
+
     // Check circuit breaker before attempting request
     if (!canRequest(providerName)) {
         const cb = getCircuitBreaker(providerName);
@@ -680,6 +715,11 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
             // Only affect circuit breaker for genuine provider instability
             if (shouldAffectCircuitBreaker(classified)) {
                 recordFailure(providerName);
+            }
+
+            // G2: Record rate-limit cooldown to prevent probe hammering
+            if (classified.reason === FailoverReason.RATE_LIMIT) {
+                recordRateLimitCooldown(providerName);
             }
 
             // Exhaust credential in pool if rotation is recommended
@@ -755,8 +795,8 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 for (const fallbackName of failoverOrder) {
                     if (fallbackName === providerName) continue;
 
-                    // Check circuit breaker for fallback provider
-                    if (!canRequest(fallbackName)) {
+                    // Check circuit breaker + rate-limit cooldown for fallback provider
+                    if (!canRequest(fallbackName, true)) {
                         logger.debug(COMPONENT, `Skipping fallback ${fallbackName} — circuit breaker OPEN`);
                         continue;
                     }
@@ -764,6 +804,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                     const fallback = providers.get(fallbackName);
                     if (!fallback) continue;
 
+                    let fbModelName = 'unknown';
                     try {
                         const healthy = await fallback.healthCheck();
                         if (!healthy) continue;
@@ -773,28 +814,48 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
                         // Prefer a model with a similar name prefix (e.g. claude-* → claude-*)
                         const originalPrefix = model.split('-')[0];
-                        const preferred = models.find(m => m.startsWith(originalPrefix)) || models[0];
+                        fbModelName = models.find(m => m.startsWith(originalPrefix)) || models[0];
 
-                        logger.warn(COMPONENT, `Failing over from ${providerName}/${model} → ${fallbackName}/${preferred}`);
-                        const result = await fallback.chat({ ...options, model: preferred });
+                        logger.warn(COMPONENT, `Failing over from ${providerName}/${model} → ${fallbackName}/${fbModelName}`);
+                        const result = await fallback.chat({ ...options, model: fbModelName });
                         recordSuccess(fallbackName); // Record success for the fallback provider
                         return result;
                     } catch (fallbackErr) {
                         recordFailure(fallbackName); // Record failure for the fallback provider too
+                        // G4: Record fallback attempt for structured error chain
+                        fallbackAttempts.push({
+                            provider: fallbackName,
+                            model: fbModelName,
+                            error: (fallbackErr as Error).message,
+                            reason: classifyProviderError(fallbackErr).reason,
+                        });
                         logger.warn(COMPONENT, `Fallback ${fallbackName} also failed: ${(fallbackErr as Error).message}`);
                         continue;
                     }
                 }
             }
 
+            // G4: Record the primary attempt too
+            fallbackAttempts.unshift({
+                provider: providerName,
+                model,
+                error: (error as Error).message,
+                reason: classified.reason,
+            });
+
             // All recovery options exhausted, throw enhanced error
-            const finalError = new Error(`All providers failed: ${errorMsg}`);
+            const attemptSummary = fallbackAttempts.length > 1
+                ? ` | Tried ${fallbackAttempts.length} providers: ${fallbackAttempts.map(a => `${a.provider}/${a.model} [${a.reason}]`).join(', ')}`
+                : '';
+            const finalError = new Error(`All providers failed: ${errorMsg}${attemptSummary}`);
             Object.assign(finalError, {
                 status: classified.httpStatus,
                 provider: providerName,
                 model,
                 cause: error,
                 failoverReason: classified.reason,
+                // G4: Structured fallback attempt chain (OpenClaw FallbackSummaryError pattern)
+                fallbackAttempts,
             });
             throw finalError;
         }
@@ -921,7 +982,7 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
                 for (const fallbackName of failoverOrder) {
                     if (fallbackName === providerName) continue;
 
-                    if (!canRequest(fallbackName)) {
+                    if (!canRequest(fallbackName, true)) {
                         logger.debug(COMPONENT, `Skipping stream fallback ${fallbackName} — circuit breaker OPEN`);
                         continue;
                     }

@@ -102,20 +102,44 @@ function persistState(state: DeliberationState): void {
 export function recoverDeliberations(): number {
     if (!existsSync(DELIBERATION_DIR)) return 0;
     let recovered = 0;
+    const ONE_WEEK_MS = 7 * 24 * 3600 * 1000;
     try {
         const files = readdirSync(DELIBERATION_DIR).filter(f => f.endsWith('.json'));
         for (const file of files) {
             try {
                 const state = JSON.parse(readFileSync(join(DELIBERATION_DIR, file), 'utf-8')) as DeliberationState;
+                const age = Date.now() - state.createdAt;
+
                 if (state.stage === 'executing') {
                     // Mark as failed with crash-recovery note — don't auto-resume execution
                     state.stage = 'failed';
                     state.error = 'Gateway restarted while plan was executing. Re-submit the task to retry.';
                     persistState(state);
                     logger.info(COMPONENT, `Recovered deliberation ${state.sessionId}: marked as failed (was executing)`);
+                } else if (state.stage === 'awaiting_approval') {
+                    // D6: Stale awaiting_approval deliberations (>1 week) — auto-cancel
+                    if (age > ONE_WEEK_MS) {
+                        state.stage = 'cancelled';
+                        state.error = 'Auto-cancelled: awaiting approval for over 1 week.';
+                        persistState(state);
+                        logger.info(COMPONENT, `Recovered deliberation ${state.sessionId}: auto-cancelled (stale awaiting_approval, ${Math.floor(age / 86400000)}d old)`);
+                    } else {
+                        // D6: Load active non-terminal states into cache so getDeliberation() works
+                        activeDeliberations.set(state.sessionId, state);
+                        logger.info(COMPONENT, `Recovered deliberation ${state.sessionId}: restored awaiting_approval to cache`);
+                    }
+                } else if (state.stage === 'analyzing' || state.stage === 'planning') {
+                    // D6: Recover in-progress states — they were interrupted by restart
+                    if (age > ONE_WEEK_MS) {
+                        try { unlinkSync(join(DELIBERATION_DIR, file)); } catch { /* ignore */ }
+                    } else {
+                        state.stage = 'failed';
+                        state.error = 'Gateway restarted while deliberation was in progress. Re-submit the task.';
+                        persistState(state);
+                        logger.info(COMPONENT, `Recovered deliberation ${state.sessionId}: marked as failed (was ${state.stage})`);
+                    }
                 } else if (state.stage === 'completed' || state.stage === 'failed' || state.stage === 'cancelled') {
                     // Terminal states — clean up old files (>24h)
-                    const age = Date.now() - state.createdAt;
                     if (age > 24 * 3600 * 1000) {
                         try { unlinkSync(join(DELIBERATION_DIR, file)); } catch { /* ignore */ }
                     }
@@ -187,7 +211,8 @@ export async function analyze(message: string, sessionId: string, config: TitanC
     const supportsThinking = /\b(o[1-9]|claude)/i.test(reasoningModel);
 
     try {
-        const response = await chat({
+        // D8: Add 30s timeout to prevent hanging on slow/unresponsive models
+        const chatPromise = chat({
             model: reasoningModel,
             messages: [
                 {
@@ -200,8 +225,19 @@ export async function analyze(message: string, sessionId: string, config: TitanC
             temperature: 0.3,
             ...(supportsThinking ? { thinking: true, thinkingLevel: 'high' as const } : {}),
         });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Deliberation analysis timed out after 30s')), 30000),
+        );
+        const response = await Promise.race([chatPromise, timeoutPromise]);
 
         state.analysis = response.content;
+        // D5: Early exit if analysis produced no useful output
+        if (!state.analysis || state.analysis.trim().length === 0) {
+            state.stage = 'failed';
+            state.error = 'Analysis produced no output — model may be overloaded. Try again.';
+            logger.error(COMPONENT, 'Analysis returned empty — marking as failed');
+            return state;
+        }
         state.stage = 'planning';
         if (response.usage && state.tokenUsage) {
             state.tokenUsage.prompt += response.usage.promptTokens;
@@ -255,7 +291,8 @@ STEP: Test build | Run npm run build to verify no errors | shell`;
     let parsed: { goal: string; tasks: Array<{ title: string; description: string; dependsOn?: string[]; toolHint?: string }> } | null = null;
 
     try {
-        const response = await chat({
+        // D8: Add timeout to plan generation too
+        const planChatPromise = chat({
             model: reasoningModel,
             messages: [
                 { role: 'system', content: 'You are a planner. Output a plan using GOAL: and STEP: lines. Nothing else.' },
@@ -264,6 +301,10 @@ STEP: Test build | Run npm run build to verify no errors | shell`;
             maxTokens: 1500,
             temperature: 0.3,
         });
+        const planTimeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Plan generation timed out after 30s')), 30000),
+        );
+        const response = await Promise.race([planChatPromise, planTimeoutPromise]);
 
         const text = response.content.trim();
         if (response.usage && state.tokenUsage) {

@@ -93,8 +93,12 @@ export abstract class LLMProvider {
 
     /** Get the provider identifier from a model string like "anthropic/claude-3" */
     static parseModelId(modelId: string): { provider: string; model: string } {
+        // E3: Guard against empty/whitespace model IDs
+        if (!modelId || !modelId.trim()) {
+            return { provider: 'anthropic', model: 'claude-sonnet-4-20250514' };
+        }
         const parts = modelId.split('/');
-        if (parts.length >= 2) {
+        if (parts.length >= 2 && parts[0] && parts[1]) {
             return { provider: parts[0], model: parts.slice(1).join('/') };
         }
         return { provider: 'anthropic', model: modelId };

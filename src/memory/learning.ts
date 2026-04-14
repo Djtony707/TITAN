@@ -115,6 +115,7 @@ function debouncedSave(): void {
     if (dirty) { doSave(); return; }
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(doSave, 2000);
+    saveTimeout.unref();
 }
 
 /** Initialize the learning engine */

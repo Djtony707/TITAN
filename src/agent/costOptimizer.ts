@@ -226,11 +226,15 @@ export interface ChatMessageLike {
 }
 
 /**
- * If conversation history is too long, summarize old messages into a compact
- * paragraph and keep only recent ones. Saves 30-50% of input tokens.
+ * F2: Iterative context summarization (Hermes pattern).
+ * If conversation history is too long, build a structured summary of old messages
+ * and keep only recent ones. Includes both user topics AND assistant decisions/progress.
+ * Uses structured template: Goal/Progress/Decisions/Tools Used.
+ * Saves 30-50% of input tokens.
  */
 export function maybeCompressContext(
     messages: ChatMessageLike[],
+    previousSummary?: string,
 ): { messages: ChatMessageLike[]; didCompress: boolean; savedTokens: number } {
     const config = loadConfig();
     if (!config.agent.costOptimization?.contextSummarization) {
@@ -254,21 +258,46 @@ export function maybeCompressContext(
         return { messages, didCompress: false, savedTokens: 0 };
     }
 
-    // Build a compact summary of the old context
-    const summaryLines = toSummarize
+    // F2: Build structured summary with Hermes-style Goal/Progress/Decisions template
+    const userTopics = toSummarize
         .filter((m) => m.role === 'user')
         .map((m) => m.content.slice(0, 80))
         .join(' | ');
 
+    const assistantActions = toSummarize
+        .filter((m) => m.role === 'assistant' && m.content)
+        .map((m) => m.content.slice(0, 60))
+        .slice(-5)
+        .join(' | ');
+
+    const toolsUsed = toSummarize
+        .filter((m) => m.role === 'tool')
+        .map((m) => m.content?.match(/^Tool (\w+)/)?.[1] || 'unknown')
+        .filter((name, i, arr) => arr.indexOf(name) === i)
+        .join(', ');
+
+    // Iterative: incorporate previous summary if one exists
+    const priorSection = previousSummary
+        ? `\nPrior context: ${previousSummary.slice(0, 200)}`
+        : '';
+
     const summaryMsg: ChatMessageLike = {
         role: 'system',
-        content: `[CONTEXT SUMMARY — earlier conversation topics: ${summaryLines}]`,
+        content: [
+            `[CONTEXT SUMMARY — structured recap of earlier conversation]`,
+            `Topics discussed: ${userTopics || 'none'}`,
+            assistantActions ? `Progress/decisions: ${assistantActions}` : '',
+            toolsUsed ? `Tools used: ${toolsUsed}` : '',
+            priorSection,
+            // G3: Compaction identifier preservation (OpenClaw pattern)
+            `IMPORTANT: Preserve all file paths, UUIDs, commit hashes, and progress counts (e.g., "5/17 completed") exactly as shown in the recent messages.`,
+        ].filter(Boolean).join('\n'),
     };
 
     const compressed = [...systemMsgs, summaryMsg, ...keepRecent];
     const savedTokens = totalTokens - estimateTokens(compressed.map((m) => m.content).join(' '));
 
-    logger.info(COMPONENT, `Context compressed: saved ~${savedTokens} tokens`);
+    logger.info(COMPONENT, `Context compressed: saved ~${savedTokens} tokens (structured summary)`);
     return { messages: compressed, didCompress: true, savedTokens };
 }
 

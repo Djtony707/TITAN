@@ -1195,8 +1195,19 @@ export async function processMessage(
         }
     }
 
+    // F3: Inject procedural memory (Hermes skill recall) into system prompt
+    let enrichedSystemPrompt = systemPrompt;
+    try {
+        const { getProceduralContext } = await import('../skills/proceduralMemory.js');
+        const proceduralContext = getProceduralContext(message);
+        if (proceduralContext) {
+            enrichedSystemPrompt += '\n\n' + proceduralContext;
+            logger.debug('Agent', `[ProceduralMemory] Injected skill context into system prompt`);
+        }
+    } catch { /* proceduralMemory not available — non-critical */ }
+
     const messages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: enrichedSystemPrompt },
         ...historyMessages,
     ];
 

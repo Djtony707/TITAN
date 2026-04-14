@@ -21,17 +21,21 @@ const COMPONENT = 'Ollama';
  * Sources: Ollama Cloud model cards, March 2026.
  */
 const CLOUD_MODEL_CTX: Record<string, number> = {
+    // GLM-5.1 — 198K context (newest agentic flagship, SOTA SWE-Bench Pro)
+    'glm-5.1:cloud': 198656,
     // GLM-5 — 128K context
     'glm-5:cloud': 131072,
-    // Kimi K2.5 — 128K context
-    'kimi-k2.5:cloud': 131072,
+    // Kimi K2.5 — 256K context (native multimodal agentic, agent swarm)
+    'kimi-k2.5:cloud': 262144,
     // Qwen3 Coder Next — 262K context (massive)
     'qwen3-coder-next:cloud': 262144,
-    // Qwen3.5 397B Cloud — 32K context
-    'qwen3.5:397b-cloud': 32768,
-    // DeepSeek V3.1/V3.2 — 128K context
+    // Qwen3.5 397B Cloud — 256K context (all variants support 256K)
+    'qwen3.5:397b-cloud': 262144,
+    // DeepSeek V3.1 — 128K context
     'deepseek-v3.1:671b-cloud': 131072,
-    'deepseek-v3.2:671b-cloud': 131072,
+    // DeepSeek V3.2 — 160K context (DSA long-context optimized)
+    'deepseek-v3.2:671b-cloud': 163840,
+    'deepseek-v3.2:cloud': 163840,
     // Devstral 2 — 128K context
     'devstral-2:cloud': 131072,
     // Devstral Small 2 (local) — 32K
@@ -42,14 +46,16 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'nemotron-3-nano:latest': 32768,
     'nemotron-3-nano:4b': 32768,
     'nemotron-3-nano:30b': 32768,
-    // Nemotron 3 Super — 128K
-    'nemotron-3-super:cloud': 131072,
+    // Nemotron 3 Super — 256K context (MoE 120B/12B active)
+    'nemotron-3-super:cloud': 262144,
     // Gemini 3 Flash — 1M context
     'gemini-3-flash-preview:latest': 1048576,
     // GPT OSS — 128K
     'gpt-oss:120b-cloud': 131072,
-    // MiniMax M2.7 — 200K context
+    // MiniMax M2.7 — 200K context (Agent Teams, dynamic tool search)
     'minimax-m2.7:cloud': 204800,
+    // Gemma 4 — 256K context (native function calling)
+    'gemma4:cloud': 262144,
     // Qwen3.5 35B local — 32K
     'qwen3.5:35b': 32768,
 };
@@ -102,16 +108,16 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     'gemma4':           { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 1.0, toolTopP: 0.95, toolTopK: 64 },
     'gemma-3':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
 
-    // ── GLM family — decent tool use ──
-    'glm-5.1':          { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.5 },
+    // ── GLM family — GLM-5.1 is agentic flagship, SOTA SWE-Bench Pro, 198K ctx ──
+    'glm-5.1':          { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
     'glm-5':            { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
     'glm-4.7':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.4 },
 
-    // ── Nemotron — needs system merge, weaker tool use ──
-    'nemotron-3-super': { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
+    // ── Nemotron — Super is 256K MoE optimized for collaborative agents ──
+    'nemotron-3-super': { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: true, toolTemperature: 0.4 },
     'nemotron-3-nano':  { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
 
-    // ── Kimi — good instruction following ──
+    // ── Kimi K2.5 — 256K, native agentic, agent swarm decomposition ──
     'kimi-k2.5':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
 
     // ── Devstral — code-focused ──
@@ -145,6 +151,9 @@ function getModelCapabilities(modelName: string): ModelCapabilities {
         }
     }
 
+    if (!bestMatch) {
+        logger.debug(COMPONENT, `Model "${modelName}" not in capabilities database — using defaults`);
+    }
     return { ...DEFAULT_CAPABILITIES, ...(bestMatch || {}) };
 }
 
@@ -328,12 +337,20 @@ export class OllamaProvider extends LLMProvider {
                     msg.content = m.content;
                 }
                 if (m.toolCalls && m.toolCalls.length > 0) {
-                    msg.tool_calls = m.toolCalls.map(tc => ({
-                        function: {
-                            name: tc.function.name,
-                            arguments: JSON.parse(tc.function.arguments || '{}')
+                    msg.tool_calls = m.toolCalls.map(tc => {
+                        let parsedArgs: Record<string, unknown> = {};
+                        try {
+                            parsedArgs = JSON.parse(tc.function.arguments || '{}');
+                        } catch {
+                            logger.warn(COMPONENT, `Malformed tool arguments for ${tc.function.name}, using empty args`);
                         }
-                    }));
+                        return {
+                            function: {
+                                name: tc.function.name,
+                                arguments: parsedArgs,
+                            },
+                        };
+                    });
                 }
                 if (m.toolCallId) msg.tool_call_id = m.toolCallId;
                 // Cloud models (Gemini API) require function_response.name to be non-empty
@@ -358,14 +375,18 @@ export class OllamaProvider extends LLMProvider {
         // Model capabilities — adapts behavior per model family
         const caps = getModelCapabilities(model);
 
-        // Thinking mode: models that benefit from thinking during tool calls keep it on.
-        // Others get it disabled during tool calling to avoid leaked <think> tags.
+        // Thinking mode: explicitly control per model capabilities.
+        // Models that don't benefit from thinking (thinkingWithTools=false) get it disabled
+        // to prevent content being routed to the thinking field instead of content field.
+        // This is critical for models like minimax-m2.7:cloud which put ALL output in
+        // the thinking field when think is unset, leaving content empty.
         if (options.thinking === false) {
             body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
-        } else if (hasTools && !caps.thinkingWithTools && isCloudModel) {
-            // Disable thinking for cloud models that don't benefit from it during tool calls
+        } else if (isCloudModel && !caps.thinkingWithTools) {
+            // Disable thinking for cloud models that don't benefit from it —
+            // both with and without tools. Prevents empty content field.
             body.think = false;
         }
         // Otherwise: omit body.think — let the model decide
@@ -393,10 +414,10 @@ export class OllamaProvider extends LLMProvider {
 
         // Cloud models: trim conversation history preserving tool call/response pairs.
         // With 131K context window, cloud models can handle much longer histories.
-        // Only trim if truly excessive (>80 messages) to avoid cutting off mid-task.
+        // E1: Use >= 80 with margin (trim to 75) to prevent off-by-one at exact boundary.
         if (isCloudModel && hasTools) {
             const msgs = body.messages as Array<Record<string, unknown>>;
-            if (msgs.length > 80) {
+            if (msgs.length >= 80) {
                 const trimmed = trimPreservingToolPairs(msgs, 80);
                 logger.info(COMPONENT, `Cloud model context trim: ${msgs.length} → ${trimmed.length} messages`);
                 body.messages = trimmed;
@@ -467,19 +488,25 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
-        // If content is empty but thinking field has content, only use it if it
-        // looks like actual content (not reasoning). Models like qwen3.5 sometimes
-        // put real content in the thinking field when think=false.
+        // A2: Hallucinated tool name detection at provider level (LangGraph pattern)
+        if (options.tools && toolCalls.length > 0) {
+            const validNames = new Set(options.tools.map(t => t.function.name));
+            const invalid = toolCalls.filter(tc => !validNames.has(tc.function.name));
+            if (invalid.length > 0) {
+                logger.warn(COMPONENT, `[HallucinationGuard] Model hallucinated ${invalid.length} tool name(s): ${invalid.map(tc => tc.function.name).join(', ')}. Will be caught by toolRunner with corrective feedback.`);
+            }
+        }
+
+        // If content is empty but thinking field has content, use it as a fallback.
+        // This handles models that route output to thinking field when think is
+        // unset or misconfigured. The router's stripThinkingFromResponse() will
+        // clean up any reasoning that leaks through, so we can be permissive here.
         let content = (message.content as string) || '';
         if (!content && message.thinking) {
             const thinking = (message.thinking as string) || '';
-            // Only use thinking as content if it doesn't start with reasoning patterns
-            const isReasoning = /^(The user|I need|I should|Let me|OK so|Alright|Hmm|This is|Looking at)/i.test(thinking.trim());
-            if (!isReasoning && thinking.length > 10) {
-                logger.info(COMPONENT, `[ThinkingFallback] Using thinking field as content (${thinking.length} chars)`);
+            if (thinking.length > 0) {
+                logger.info(COMPONENT, `[ThinkingFallback] Content empty, using thinking field (${thinking.length} chars)`);
                 content = thinking;
-            } else if (thinking) {
-                logger.debug(COMPONENT, `[ThinkingFallback] Discarding thinking field (looks like reasoning, ${thinking.length} chars)`);
             }
         }
         // Strip leaked thinking tags from Qwen/DeepSeek models
@@ -543,12 +570,13 @@ export class OllamaProvider extends LLMProvider {
         // Model capabilities — adapts behavior per model family
         const caps = getModelCapabilities(model);
 
-        // Thinking mode: respect explicit setting, otherwise use model capabilities
+        // Thinking mode: respect explicit setting, otherwise use model capabilities.
+        // Disable for cloud models that don't benefit — prevents empty content field.
         if (options.thinking === false) {
             body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
-        } else if (hasTools && !caps.thinkingWithTools && isCloudModel) {
+        } else if (isCloudModel && !caps.thinkingWithTools) {
             body.think = false;
         }
 

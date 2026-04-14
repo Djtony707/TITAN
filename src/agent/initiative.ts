@@ -82,6 +82,10 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     const intervalMs = (autonomyCfg?.initiativeIntervalMs as number) || DEFAULT_MIN_INTERVAL_MS;
     if (now - lastInitiativeTime < intervalMs) return { acted: false };
 
+    // D2: Atomic guard — set time IMMEDIATELY to prevent double-execution (Hermes pattern)
+    const previousInitiativeTime = lastInitiativeTime;
+    lastInitiativeTime = now;
+
     if (consecutiveIdle >= MAX_CONSECUTIVE_IDLE) {
         const scaledInterval = intervalMs * Math.min(consecutiveIdle, 10);
         if (now - lastInitiativeTime < scaledInterval) return { acted: false };
@@ -95,6 +99,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
     const readyTasks = getReadyTasks();
     if (readyTasks.length === 0) {
         consecutiveIdle++;
+        lastInitiativeTime = previousInitiativeTime; // Restore — no work done
         return { acted: false };
     }
 

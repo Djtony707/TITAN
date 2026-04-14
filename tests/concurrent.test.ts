@@ -323,6 +323,7 @@ describe('Concurrent Requests', () => {
                     'agent-research',
                     expect.anything(),
                     undefined,
+                    undefined, // modelOverride
                 );
             } else {
                 expect(res.status).toBe(429);

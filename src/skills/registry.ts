@@ -389,6 +389,53 @@ export async function initBuiltinSkills(): Promise<void> {
     const { getToolSearchHandler } = await import('../agent/toolSearch.js');
     try { registerTool(getToolSearchHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_search: ${(e as Error).message}`); }
 
+    // F3: Register procedural memory tools (Hermes-inspired skill learning)
+    try {
+        const { saveSkill, searchSkills } = await import('./proceduralMemory.js');
+        registerTool({
+            name: 'save_skill',
+            description: 'Save a reusable approach/technique as a procedural skill for future tasks. Use this when you discover an effective approach that could help in similar future situations.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Short descriptive name for the skill (e.g., "Deploy Node.js app to Docker")' },
+                    tags: { type: 'array', items: { type: 'string' }, description: 'Tags for searchability (e.g., ["docker", "deployment", "nodejs"])' },
+                    content: { type: 'string', description: 'The reusable approach/technique in markdown format. Include key steps, commands, and gotchas.' },
+                },
+                required: ['name', 'tags', 'content'],
+            },
+            execute: async (args: Record<string, unknown>) => {
+                const name = args.name as string;
+                const tags = (args.tags as string[]) || [];
+                const content = args.content as string;
+                if (!name || !content) return 'Error: name and content are required';
+                const skill = saveSkill(name, tags, content);
+                return `Skill saved: "${skill.name}" (tags: ${skill.tags.join(', ')}). It will be auto-recalled in future tasks matching these tags.`;
+            },
+        });
+        registerTool({
+            name: 'recall_skill',
+            description: 'Search for previously saved procedural skills by keyword or tag. Returns reusable approaches from past tasks.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Search query — keywords or tags to find relevant skills' },
+                },
+                required: ['query'],
+            },
+            execute: async (args: Record<string, unknown>) => {
+                const query = args.query as string;
+                if (!query) return 'Error: query is required';
+                const results = searchSkills(query, 5);
+                if (results.length === 0) return 'No matching skills found. Consider saving useful approaches with save_skill.';
+                return results.map(s =>
+                    `### ${s.name}\nTags: ${s.tags.join(', ')} | Used ${s.useCount}x\n${s.content.slice(0, 800)}`
+                ).join('\n\n---\n\n');
+            },
+        });
+        logger.info(COMPONENT, 'Registered procedural memory tools (save_skill, recall_skill)');
+    } catch (e) { logger.warn(COMPONENT, `Failed to register procedural memory tools: ${(e as Error).message}`); }
+
     logger.info(COMPONENT, `Loaded ${registeredSkills.size} built-in skills`);
 
     // Load dev skills (only in dev mode — skip import entirely in production)

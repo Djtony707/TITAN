@@ -420,6 +420,11 @@ export class MessengerChannel extends ChannelAdapter {
                 // ── Concurrency guard: queue if already processing ──
                 if (this.activeRequests.has(senderId)) {
                     const queue = this.messageQueue.get(senderId) || [];
+                    const MAX_QUEUE_SIZE = 20;
+                    if (queue.length >= MAX_QUEUE_SIZE) {
+                        logger.warn(COMPONENT, `Message queue full for ${senderId} (${queue.length}), dropping oldest`);
+                        queue.shift();
+                    }
                     queue.push(text);
                     this.messageQueue.set(senderId, queue);
                     logger.info(COMPONENT, `Queued message for ${senderId} (${queue.length} in queue, agent busy)`);
@@ -518,7 +523,9 @@ export class MessengerChannel extends ChannelAdapter {
         const messages = [...thread.messages.data].reverse(); // oldest first
 
         for (const msg of messages) {
-            if (!msg.message) continue;
+            // E5: Use explicit null/undefined check — empty string "" is valid content,
+            // but !msg.message would incorrectly skip it
+            if (msg.message === undefined || msg.message === null) continue;
             const role = msg.from?.id === this.pageId ? 'assistant' as const : 'user' as const;
             history.push({ role, content: msg.message });
         }
@@ -568,14 +575,17 @@ export class MessengerChannel extends ChannelAdapter {
         // Notify Tony about the conversation
         const alertTag = injection ? `⚠️ INJECTION BLOCKED: "${injection}"\n` : '';
         const notification = `📩 New DM on TITAN AI page\n${alertTag}From: ${senderId}\nThey said: "${userMessage.slice(0, 200)}"\nI replied: "${reply.slice(0, 200)}"`;
-        // Only notify the ID that works
-        await this.send({ channel: 'messenger', userId: '35246646321616104', content: notification }).catch(e =>
-            logger.debug(COMPONENT, `Owner notification failed: ${(e as Error).message}`),
-        );
+        // E4: Notify all owner IDs (not just one hardcoded), log at WARN on failure
+        for (const ownerId of this.ownerIds) {
+            if (ownerId === senderId) continue; // Don't notify the sender about their own message
+            await this.send({ channel: 'messenger', userId: ownerId, content: notification }).catch(e =>
+                logger.warn(COMPONENT, `Owner notification to ${ownerId} failed: ${(e as Error).message}`),
+            );
+        }
     }
 
-    /** The local model used for ALL Messenger admin interactions — fast, reliable, proper tool calling */
-    private readonly MESSENGER_MODEL = 'ollama/qwen3.5:35b';
+    /** Cloud model for Messenger admin interactions — GLM-5.1 is newest agentic flagship, SOTA SWE-Bench Pro */
+    private readonly MESSENGER_MODEL = 'ollama/glm-5.1:cloud';
 
     /** Generate a reply for Tony — ALL messages go through processMessage with local model override */
     private async generateAdminReply(
@@ -629,7 +639,7 @@ His message: `;
             const response = await Promise.race([agentPromise, timeoutPromise]);
 
             if (response && response.content) {
-                let reply = this.cleanReply(response.content);
+                let reply = await this.cleanReply(response.content);
                 if (reply.length > 1900) reply = reply.slice(0, 1890) + '...';
                 return reply || "Done, Tony. 👍";
             }
@@ -644,8 +654,20 @@ His message: `;
         }
     }
 
-    /** Clean up responses — strip leaked tool JSON, thinking tags, PII */
-    private cleanReply(content: string): string {
+    /** Clean up responses — strip leaked tool JSON, thinking tags, PII, instruction leaks */
+    private async cleanReply(content: string): Promise<string> {
+        // Use centralized outbound sanitizer for instruction leak detection
+        try {
+            const { sanitizeOutbound } = await import('../utils/outboundSanitizer.js');
+            const sanitized = sanitizeOutbound(content, 'messenger_admin', "Hey Tony, the response had some internal info. Check the dashboard. 🔒");
+            if (sanitized.hadIssues) {
+                return sanitized.text;
+            }
+            return sanitized.text;
+        } catch {
+            // Fallback to inline cleaning if sanitizer module not available
+        }
+
         let reply = content.trim();
         // Strip thinking tags
         reply = reply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();

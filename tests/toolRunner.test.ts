@@ -68,10 +68,12 @@ describe('ToolRunner', () => {
         expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('executeTool: unknown tool returns success=false', async () => {
+    it('executeTool: unknown tool returns success=false with available tools hint', async () => {
         const result = await executeTool(makeCall('non_existent_tool_xyz'));
         expect(result.success).toBe(false);
-        expect(result.content).toMatch(/unknown tool/i);
+        expect(result.content).toMatch(/is not a valid tool/i);
+        // Should suggest available tools (LangGraph pattern)
+        expect(result.content).toMatch(/available tools|did you mean/i);
     });
 
     it('executeTool: timed-out tool returns timeout error', async () => {
@@ -134,16 +136,16 @@ describe('ToolRunner', () => {
         expect(echoFound).toBeUndefined();
     });
 
-    it('executeTool with malformed JSON arguments uses empty args', async () => {
+    it('executeTool with malformed JSON arguments returns error with guidance', async () => {
         const call: ToolCall = {
             id: 'tc-bad-json',
             type: 'function',
             function: { name: ECHO, arguments: '{not valid json' },
         };
         const result = await executeTool(call);
-        // Should not crash, args defaults to {}
-        expect(result.success).toBe(true);
-        expect(result.content).toBe('echo:empty');
+        // Should return error guiding the LLM to fix args (LangGraph pattern)
+        expect(result.success).toBe(false);
+        expect(result.content).toMatch(/could not parse arguments/i);
     });
 
     it('executeTool with tool that throws returns error result', async () => {

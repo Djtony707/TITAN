@@ -349,7 +349,7 @@ function stripThinking(text: string): string {
     return cleaned;
 }
 
-/** Check if text looks like leaked reasoning rather than a real reply */
+/** Check if text looks like leaked reasoning or echoed instructions rather than a real reply */
 function looksLikeReasoning(text: string): boolean {
     const reasoningSignals = [
         /I should respond/i,
@@ -359,6 +359,17 @@ function looksLikeReasoning(text: string): boolean {
         /let me (think|check|consider)/i,
         /chain.of.thought/i,
         /\bwait\b.*\brules\b/i,
+        // Detect echoed prompt instructions (the actual bug that leaked to Facebook)
+        /\bfriendly\b.*\bwitty\b/i,
+        /\bno hashtags\b/i,
+        /\bno personal info\b/i,
+        /\bno internal thoughts\b/i,
+        /\brespond directly\b/i,
+        /\b1-2 sentences\b/i,
+        /\bmaximum \d+ sentences\b/i,
+        /^[-•]\s*(friendly|witty|short|concise|no\b)/im, // Bullet-point instruction lists
+        /\brules:\b/i,
+        /\boutput only\b/i,
     ];
     return reasoningSignals.some(p => p.test(text));
 }
@@ -373,14 +384,8 @@ async function generateReply(commentText: string, commenterName: string): Promis
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: 'You write very short Facebook comment replies as TITAN AI. Output ONLY the reply text. No thinking, no reasoning, no explanation. Just the reply itself. Maximum 2 sentences.' },
-                { role: 'user', content: `You are TITAN, a confident AI agent. Reply to this Facebook comment on your page.
-
-Comment from ${firstName}: "${commentText}"
-
-Rules: Be friendly, witty, 1-2 sentences max. No hashtags. No personal info. No internal thoughts. Respond directly as TITAN.
-
-Reply:` },
+                { role: 'system', content: `You are TITAN, a confident autonomous AI agent replying to Facebook comments on your own page. You are witty, warm, and brief. Output ONLY the reply text — never repeat instructions, never include bullet points or rules, never explain what you're doing. Just the reply itself, 1-2 short sentences.` },
+                { role: 'user', content: `${firstName} commented: "${commentText}"` },
             ],
             temperature: 0.7,
             maxTokens: 100,
@@ -388,10 +393,16 @@ Reply:` },
 
         let reply = stripThinking((response.content || '').trim());
 
-        // Final safety: reject if it still looks like reasoning
+        // Final safety: reject if it still looks like reasoning or echoed instructions
         if (looksLikeReasoning(reply)) {
-            logger.warn(COMPONENT, `Reply rejected — looks like leaked reasoning: "${reply.slice(0, 80)}..."`);
-            return '';
+            logger.warn(COMPONENT, `Reply rejected — looks like leaked reasoning/instructions: "${reply.slice(0, 120)}..."`);
+            // Return a safe generic reply instead of empty string (which skips the comment)
+            const fallbacks = [
+                `Thanks for the comment, ${firstName}! 🤖`,
+                `Appreciate you stopping by, ${firstName}! 🙌`,
+                `Great point, ${firstName}! Always good to hear from our community. 🚀`,
+            ];
+            return fallbacks[Math.floor(Math.random() * fallbacks.length)];
         }
 
         // Trim to max 280 chars for a comment reply
@@ -491,12 +502,24 @@ async function monitorComments(): Promise<void> {
                     continue;
                 }
 
+                // Centralized outbound sanitizer — catches instruction leaks, tool artifacts, PII
+                const { sanitizeOutbound } = await import('../../utils/outboundSanitizer.js');
+                const sanitized = sanitizeOutbound(reply, 'fb_autopilot_comment', `Thanks for the comment! 🤖`);
+                if (sanitized.hadIssues) {
+                    logger.warn(COMPONENT, `Reply sanitized for ${fromName}: ${sanitized.issues.join(', ')}`);
+                    if (!sanitized.text) {
+                        repliedComments.add(commentId);
+                        continue;
+                    }
+                }
+                const safeReply = sanitized.text;
+
                 // Post the reply
                 try {
                     const replyResp = await fetch(`https://graph.facebook.com/v21.0/${commentId}/comments`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: reply, access_token: token }),
+                        body: JSON.stringify({ message: safeReply, access_token: token }),
                         signal: AbortSignal.timeout(15000),
                     });
 

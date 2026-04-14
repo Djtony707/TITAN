@@ -41,6 +41,27 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'AgentLoop';
 
+/**
+ * Validate tool call / tool result pairing (LangGraph pattern).
+ * Every assistant message with toolCalls must have a matching tool result for each call.
+ * Orphaned pairs cause API rejections from all providers.
+ */
+function validateToolPairs(messages: ChatMessage[]): ChatMessage[] {
+    const toolResultIds = new Set(
+        messages.filter(m => m.role === 'tool' && m.toolCallId).map(m => m.toolCallId)
+    );
+    return messages.filter(m => {
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+            const orphaned = m.toolCalls.filter(tc => !toolResultIds.has(tc.id));
+            if (orphaned.length > 0) {
+                logger.warn(COMPONENT, `[ToolPairValidation] Removing assistant msg with ${orphaned.length} orphaned tool call(s): ${orphaned.map(tc => tc.function.name).join(', ')}`);
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
 /** Sanitize reflection reasoning before injecting into message stream */
 function sanitizeReflection(text: string): string {
     return text
@@ -95,6 +116,10 @@ export interface LoopContext {
     pipelineType?: string;
     /** Minimum rounds before allowing SmartExit (pipeline-enforced) */
     minRounds?: number;
+    /** F1: Pre-model hook (LangGraph pattern) — modify messages for LLM without changing
+     *  persisted history. Use for RAG injection, summarization, dynamic token budgeting.
+     *  Receives a COPY of messages; return modified copy for the LLM call. */
+    beforeModelCall?: (messages: ChatMessage[], round: number) => ChatMessage[];
 }
 
 /** Everything processMessage needs back from the loop */
@@ -355,6 +380,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // Force tool_choice=required on next think phase (set by incomplete task guard)
     let forceWriteOnNextThink = false;
 
+    // F5: Budget soft warning — only inject once per loop
+    let budgetWarningSent = false;
+
     // Pending tool calls from think phase (passed to act phase)
     let pendingToolCalls: ToolCall[] = [];
     let pendingAssistantContent = '';
@@ -537,7 +565,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 const system = smartMessages.filter(m => m.role === 'system');
                 const recent = smartMessages.filter(m => m.role !== 'system').slice(-8);
                 smartMessages = [...system, ...recent];
+                // A11: Sanitize orphaned tool pairs after trim (Hermes pattern)
+                smartMessages = validateToolPairs(smartMessages);
                 logger.info(COMPONENT, `[ContextTrim] Trimmed to ${smartMessages.length} messages`);
+            }
+
+            // A1: Validate tool call/result pairing before sending to LLM (LangGraph pattern)
+            smartMessages = validateToolPairs(smartMessages);
+
+            // F1: Pre-model hook — let plugins modify messages for LLM without changing ctx.messages
+            if (ctx.beforeModelCall) {
+                try {
+                    smartMessages = ctx.beforeModelCall([...smartMessages], round);
+                } catch (e) {
+                    logger.warn(COMPONENT, `[PreModelHook] Hook threw: ${(e as Error).message} — using unmodified messages`);
+                }
             }
 
             const chatOptions = {
@@ -596,12 +638,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             result.promptTokens += promptTokens;
             result.completionTokens += completionTokens;
 
-            // ── Cost tracking ────────────────────────────────────
+            // ── Cost tracking (F5: two-tier budget enforcement) ──
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, promptTokens, completionTokens);
             if (costCheck.budgetExceeded) {
                 result.content = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control. You can increase the limit in settings or wait until tomorrow.';
                 phase = 'done';
                 break;
+            }
+            // F5: Soft warning at 80% — tell the LLM to wrap up efficiently
+            if (costCheck.budgetWarning && !budgetWarningSent) {
+                budgetWarningSent = true;
+                ctx.messages.push({
+                    role: 'user',
+                    content: `[System: ⚠️ Budget notice — you've used 80%+ of today's spending limit ($${costCheck.dailyTotal.toFixed(4)}). Be efficient: avoid unnecessary tool calls, summarize when possible, and wrap up soon.]`,
+                });
+                logger.info(COMPONENT, `[BudgetSoftWarning] Injected 80% budget warning into conversation`);
             }
 
             heartbeat(ctx.sessionId);
@@ -839,6 +890,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 noToolsRetryCount = 0;
             }
 
+            // A7: Remaining steps guard (LangGraph pattern) — suppress tool calls near budget limit
+            const remainingRounds = ctx.effectiveMaxRounds - round;
+            if (ctx.isAutonomous && remainingRounds <= 1 && response.toolCalls && response.toolCalls.length > 0) {
+                logger.warn(COMPONENT, `[BudgetGuard] Only ${remainingRounds} round(s) left — suppressing ${response.toolCalls.length} tool call(s), forcing text response`);
+                response.toolCalls = undefined;
+                result.budgetExhausted = true;
+                if (!response.content || response.content.trim().length === 0) {
+                    response.content = pendingAssistantContent || 'I\'ve used all available rounds. Here is what I accomplished so far.';
+                }
+            }
+
             // ── Model returned tool calls → transition to ACT ────
             if (response.toolCalls && response.toolCalls.length > 0) {
                 pendingToolCalls = response.toolCalls;
@@ -1025,6 +1087,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 recordToolUsage(tr.name);
                 recordToolPreference(tr.name, classifyTaskType(ctx.message), success);
 
+                // A6: Error classification feedback to LLM (Hermes ClassifiedError pattern)
+                if (!success && tr.errorClass && !ctx.voiceFastPath) {
+                    const isTransient = tr.errorClass === 'transient' || tr.errorClass === 'timeout' || tr.errorClass === 'rate_limit';
+                    const hint = isTransient
+                        ? `[Error Classification: TEMPORARY (${tr.errorClass}). Retrying this tool may succeed. Consider waiting briefly if rate-limited.]`
+                        : `[Error Classification: PERMANENT. This approach won't work — try a different tool or different arguments.]`;
+                    ctx.messages.push({ role: 'user', content: hint });
+                }
+
                 // Auto-fix hints (skip for voice)
                 if (!success && !ctx.voiceFastPath) {
                     const resolution = getErrorResolution(tr.content);
@@ -1139,9 +1210,18 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             if (round >= ctx.effectiveMaxRounds) {
-                // Budget exhausted
-                result.content = stripToolJson(pendingAssistantContent || 'I completed the tool operations. Let me know if you need anything else.');
+                // A8: Budget grace call (Hermes pattern) — give model one final chance to summarize
+                // instead of hard-cutting with a generic message
                 result.budgetExhausted = true;
+                if (pendingAssistantContent && pendingAssistantContent.trim().length > 20) {
+                    // Model already said something useful — use it
+                    result.content = stripToolJson(pendingAssistantContent);
+                } else {
+                    // Force one final toolless call to summarize
+                    phase = 'respond';
+                    logger.info(COMPONENT, `[BudgetGrace] Round limit reached — giving model one final respond call`);
+                    continue; // skip to respond phase
+                }
                 phase = 'done';
             } else if (ctx.isAutonomous) {
                 // Smart exit: only skip to respond if a single TERMINAL tool succeeded.
@@ -1226,6 +1306,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 smartMessages = (compressedMessages as ChatMessage[]).length <= 4
                     ? compressedMessages as ChatMessage[]
                     : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+            }
+
+            // F1: Pre-model hook for respond phase too
+            if (ctx.beforeModelCall) {
+                try {
+                    smartMessages = ctx.beforeModelCall([...smartMessages], round);
+                } catch (e) {
+                    logger.warn(COMPONENT, `[PreModelHook:respond] Hook threw: ${(e as Error).message}`);
+                }
             }
 
             const thinkingMode = ctx.thinkingOverride || ctx.config.agent.thinkingMode || 'off';

@@ -186,7 +186,14 @@ function saveGraph(): void {
     graphSaveTimeout.unref();
 }
 
+let saveInProgress = false;
+
 async function doAsyncSave(): Promise<void> {
+    if (saveInProgress) {
+        dirty = true;
+        return;
+    }
+    saveInProgress = true;
     try {
         const tmpFile = GRAPH_PATH + '.tmp';
         await writeFile(tmpFile, JSON.stringify(graph, null, 2), 'utf-8');
@@ -195,6 +202,8 @@ async function doAsyncSave(): Promise<void> {
     } catch (e) {
         dirty = true;
         logger.error(COMPONENT, `Failed to save graph.json: ${(e as Error).message}`);
+    } finally {
+        saveInProgress = false;
     }
 }
 
@@ -585,9 +594,12 @@ export async function addEpisode(content: string, source: string): Promise<Episo
         }
 
         // Apply LLM-extracted semantic relations
+        let newEdgeCount = 0;
+        const MAX_NEW_EDGES = 5;
         const usedPairs = new Set<string>();
         if (relations.length > 0) {
             for (const rel of relations) {
+                if (newEdgeCount >= MAX_NEW_EDGES) break;
                 const fromId = entityNameToId.get(rel.from.toLowerCase());
                 const toId = entityNameToId.get(rel.to.toLowerCase());
                 if (!fromId || !toId || fromId === toId) continue;
@@ -605,6 +617,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
                         relation: rel.relation || 'related_to',
                         createdAt: new Date().toISOString(),
                     });
+                    newEdgeCount++;
                 }
             }
         }
@@ -637,20 +650,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
                 }
             }
         }
-        // Enforce size limits
-        if (graph.episodes.length > 5000) {
-            graph.episodes = graph.episodes.slice(-5000);
-        }
-        if (graph.entities.length > 1000) {
-            graph.entities.sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
-            graph.entities = graph.entities.slice(0, 1000);
-        }
-        const MAX_EDGES = 10000;
-        if (graph.edges.length > MAX_EDGES) {
-            // Sort by timestamp ascending and keep only the newest
-            graph.edges.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-            graph.edges = graph.edges.slice(-MAX_EDGES);
-        }
+        enforceMemoryBounds();
         saveGraph();
         logger.info(COMPONENT, `Episode ${episode.id.slice(0, 8)}: extracted ${extracted.length} entities, total ${graph.entities.length} entities, ${graph.edges.length} edges`);
     }).catch((err) => logger.warn(COMPONENT, `Background entity extraction failed: ${(err as Error).message}`));
@@ -736,6 +736,7 @@ export function searchMemory(query: string, limit = 20): Episode[] {
                 scored.set(ep.id, { ep, score: vr.score * 1.5 });
             }
         }
+        lastVectorResults = [];
     }
 
     return Array.from(scored.values())

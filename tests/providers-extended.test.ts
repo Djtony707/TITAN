@@ -1862,10 +1862,11 @@ describe('Router (extended)', () => {
 // LLMProvider.parseModelId edge cases
 // =====================================================================
 describe('LLMProvider.parseModelId (extended)', () => {
-    it('should handle empty string', () => {
+    it('should handle empty string with safe default', () => {
         const result = LLMProvider.parseModelId('');
         expect(result.provider).toBe('anthropic');
-        expect(result.model).toBe('');
+        // E3: Empty model ID now returns a safe default instead of empty string
+        expect(result.model).toBeTruthy();
     });
 
     it('should handle multiple slashes in model name', () => {

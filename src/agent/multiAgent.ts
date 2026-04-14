@@ -127,8 +127,14 @@ export function resolveAgent(channel: string, userId: string): AgentInstance {
         }
     }
 
-    // Fallback to default
-    return agents.get('default')!;
+    // Fallback to default — defensive: reinit if somehow missing
+    const defaultAgent = agents.get('default');
+    if (!defaultAgent) {
+        logger.error(COMPONENT, 'Default agent missing from registry — reinitializing');
+        initAgents();
+        return agents.get('default')!;
+    }
+    return defaultAgent;
 }
 
 /** Route a message to the appropriate agent and process it */
@@ -140,6 +146,7 @@ export async function routeMessage(
     overrideAgentId?: string,
     signal?: AbortSignal,
     sessionId?: string,
+    modelOverride?: string,
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
     let agent = resolveAgent(channel, userId);
 
@@ -175,8 +182,8 @@ export async function routeMessage(
     }
 
     // Process through the agent
-    // Default agent always reads current config (so dashboard model changes take effect immediately)
-    const effectiveModel = agent.id === 'default' ? loadConfig().agent.model : agent.model;
+    // Model priority: explicit API override > agent config > default config
+    const effectiveModel = modelOverride || (agent.id === 'default' ? loadConfig().agent.model : agent.model);
     const response = await processMessage(message, channel, userId, {
         model: effectiveModel,
         systemPrompt: agent.systemPrompt,
