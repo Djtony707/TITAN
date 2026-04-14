@@ -5,6 +5,102 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.2.3] — 2026-04-14
+
+### Fixed — Synthetic User Hunt (9 real production bugs, critical severity)
+
+Executed a "synthetic user hunt" — simulated real user flows against the deployed
+gateway instead of writing more unit tests. 9 bugs found, every one root-caused
+and fixed with a permanent regression fixture captured from the real production
+behavior that triggered the bug.
+
+**Critical — affects every user, every tool (Finding #05)**
+- Model returned fabricated tool output (hallucinated `uptime` text) without
+  calling the `shell` tool, and the agent loop accepted it as final answer.
+  Three-layer fix:
+  1. `minimax-m2.7` capability flag corrected (`selfSelectsTools: true → false`)
+     — the flag was wrong; minimax hallucinates instead of self-selecting
+  2. `detectToolUseIntent()` in agent loop forces `tool_choice: required` when
+     user message explicitly requests a tool, even in non-autonomous mode
+  3. `HallucinationGuard` compares the model's final text response to the real
+     tool output (when user asked for verbatim) and replaces mismatched text
+     with the actual tool result
+
+**High — affects autonomous mode + multi-round tasks (Findings #08, #09)**
+- `forceToolUse` was set on every round in autonomous mode, causing ping-pong
+  tool loops. Now only fires on round 0; model decides after that based on
+  actual context.
+- Context hard trim used `.slice(-8)` which cut through `tool_call`/`tool_result`
+  pairs. `validateToolPairs` then dropped assistant messages as "orphaned".
+  Replaced with new `trimPairAware()` that keeps pairs atomic.
+
+**High — affects every skill config (Finding #01)**
+- `TitanConfigSchema` silently stripped unknown top-level keys. `facebook`,
+  `alerting`, and `guardrails` were read in code but not declared in the
+  schema. Users editing `~/.titan/titan.json` saw their changes disappear.
+  Added sub-schemas for all three + added a warning in `loadConfig()` for
+  any future unknown key.
+
+**Medium — various surface areas (Findings #02, #03, #06, #07)**
+- `fb_autopilot.ts monitorComments()` ignored `facebook.autopilotEnabled`.
+  Only post generation was gated. Now both paths check the flag.
+- `TITAN_HOME` was hardcoded to `~/.titan`. Env var was silently ignored.
+  Docker containers, shared machines, test fixtures, and the systemd unit's
+  `Environment=TITAN_HOME=...` directive couldn't override it. Now read at
+  module load with `~/` expansion.
+- `/api/message` silently ignored `sessionId` in request body when the session
+  didn't exist, falling back to the default channel+user session. Old context
+  polluted every "new" request. Added `getOrCreateSessionById()` that creates
+  fresh sessions with the requested ID.
+- Autonomous mode forced `tool_choice: required` for simple chat ("what is 2+2"),
+  causing "maximum tool rounds" errors. Added pipeline-type gate: don't force
+  tools when pipeline classified the message as `chat` or `single-round`.
+
+**Low — edge case (Finding #04)**
+- Starting a new gateway when a stale process was bound to `127.0.0.1:PORT`
+  succeeded silently but localhost traffic went to the zombie. Added a TCP
+  probe after the existing pre-check that warns about partial port conflicts.
+
+### Added
+
+- **9 fixture directories** under `tests/fixtures/hunt/NN-name/` with full
+  investigation notes, root cause, and verification steps per finding.
+- **`tests/hunt-regression.test.ts`** — 33 regression tests replaying the real
+  production scenarios that triggered each bug.
+- **`src/utils/replyQuality.ts`** — new module for reply validation (truncation,
+  self-deprecation, name-echo detection).
+- **`src/utils/outboundSanitizer.ts`** — centralized outbound content sanitizer
+  applied at every public output path (Facebook, Messenger) with instruction
+  leak, PII, and tool artifact detection. 44 leak patterns after hunt hardening.
+- **`scripts/check-fb-autopilot.sh`** — quick health check script for FB
+  autopilot state on Titan PC.
+- **`detectToolUseIntent()`** exported helper in agent loop for recognizing
+  explicit tool requests in user messages.
+- **`getOrCreateSessionById()`** exported helper in session module for clients
+  passing explicit session IDs.
+- **`trimPairAware()`** helper in agent loop for context trimming that
+  preserves tool call/result pairs.
+
+### Changed
+
+- `TitanConfigSchema` now contains `facebook`, `alerting`, `guardrails`
+  sub-schemas (previously any config under those keys was stripped).
+- `loadConfig()` logs a WARN when unknown top-level keys are detected so the
+  same class of bug can't silently regress.
+- `TITAN_HOME` resolved from env var first, falling back to `~/.titan`.
+- Gateway startup now includes a TCP probe for partial port conflicts.
+- `minimax-m2.7` and `minimax-m2` capabilities: `selfSelectsTools: false`.
+- FB autopilot reply generation restructured with hardened guards (instruction
+  echo detection, chain-of-thought pattern detection, HallucinationGuard grounding).
+
+### Tests
+
+- 169 test files, 5,021 tests passing (33 new hunt regression tests).
+- 0 typecheck errors, 0 lint errors on new code.
+- All changes deployed to Titan PC and verified against real traffic.
+
+---
+
 ## [3.2.1] — 2026-04-13
 
 ### Fixed — 45-Bug Deep Audit (Agent, Memory, Pipeline, Providers)
