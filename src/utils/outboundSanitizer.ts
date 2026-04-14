@@ -35,17 +35,18 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\bmaximum \d+ sentences\b/i,
 
     // System prompt fragments
-    /\byou are (?:an? )?(?:AI|assistant|agent|bot)\b.*\byou (?:should|must|will|are)\b/i,
+    /\byou are TITAN\b/i,
+    /\byou are (?:an? )?(?:AI|assistant|agent|bot)\b/i,
     /\byou write very short\b/i,
     /\bjust the reply itself\b/i,
     /\bno thinking,? no reasoning\b/i,
 
-    // Meta-instructions
-    /^rules:\s/im,
-    /^instructions:\s/im,
-    /^constraints:\s/im,
-    /^guidelines:\s/im,
-    /^important:\s/im,
+    // Meta-instructions (catch anywhere, not just start-of-line — the leak appeared mid-text)
+    /\brules:\s/i,
+    /\binstructions:\s/i,
+    /\bconstraints:\s/i,
+    /\bguidelines:\s/i,
+    /\bimportant:\s/i,
 
     // Tool call artifacts
     /\[TOOL_CALL\]/,
@@ -67,8 +68,10 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\bI need to (?:be|think|consider|respond|reply)\b/i,
     /\bthe rules say\b/i,
     /\bmy (?:instructions|personality|system prompt)\b/i,
-    /\blet me (?:think|check|consider) (?:about |how )/i,
+    /\blet me (?:think|check|consider)\b/i,
     /\bchain.of.thought\b/i,
+    /\bthe user wants\b/i,
+    /\bI'll (?:start by|begin by|first|now)\b/i,
 ];
 
 // ── PII Patterns ─────────────────────────────────────────────────────
