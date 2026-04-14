@@ -6114,6 +6114,37 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     }
   });
 
+  // Hunt Finding #04 (2026-04-14): detect partial port conflicts.
+  // If the user has a zombie gateway bound to 127.0.0.1:PORT and starts a
+  // new one on 0.0.0.0:PORT, BOTH bind successfully (different addresses).
+  // But localhost traffic routes to the zombie, not the new gateway — silent
+  // confusion for the user. Pre-check via a TCP probe to localhost:PORT.
+  // If something responds, log a clear warning before proceeding.
+  try {
+    await new Promise<void>((resolvePromise) => {
+      const probe = net.createConnection({ host: '127.0.0.1', port, timeout: 500 });
+      probe.once('connect', () => {
+        logger.warn(COMPONENT,
+          `[PortConflictProbe] Something is already listening on 127.0.0.1:${port}. ` +
+          `The new gateway will bind to ${host}:${port} but localhost traffic may be routed to the existing process. ` +
+          `Kill any stale processes (lsof -i :${port}) before starting.`,
+        );
+        probe.destroy();
+        resolvePromise();
+      });
+      probe.once('error', () => {
+        // ECONNREFUSED = port is free on localhost. Good.
+        resolvePromise();
+      });
+      probe.once('timeout', () => {
+        probe.destroy();
+        resolvePromise();
+      });
+    });
+  } catch {
+    // Probe failure is non-fatal — don't block startup
+  }
+
   // ── Internal Health Monitor (60s interval) ─────────────────────
   const ollamaBaseUrl = config.providers?.ollama?.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
   const ttsBaseUrl = config.voice?.ttsUrl || 'http://localhost:5005';

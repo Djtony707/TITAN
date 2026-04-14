@@ -184,3 +184,131 @@ describe('Hunt Finding #02 — monitorComments respects config flags', () => {
         expect(autopilotCheckIdx).toBeLessThan(fetchIdx);
     });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// Finding #03 — TITAN_HOME env var was ignored (hardcoded to ~/.titan)
+// ═══════════════════════════════════════════════════════════════
+//
+// Previously `TITAN_HOME = join(homedir(), '.titan')` — a constant with no
+// way to override. Docker containers, shared machines, test fixtures, and
+// systemd units with `Environment=TITAN_HOME=...` all silently used the
+// default. Fixed by reading `process.env.TITAN_HOME` in constants.ts.
+
+describe('Hunt Finding #03 — TITAN_HOME respects env var', () => {
+    it('uses process.env.TITAN_HOME when set', async () => {
+        const original = process.env.TITAN_HOME;
+        const customPath = '/tmp/titan-home-test-' + Date.now();
+        try {
+            process.env.TITAN_HOME = customPath;
+            vi.resetModules();
+            const { TITAN_HOME } = await import('../src/utils/constants.js');
+            expect(TITAN_HOME).toBe(customPath);
+        } finally {
+            if (original !== undefined) process.env.TITAN_HOME = original;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+
+    it('expands ~/ prefix in TITAN_HOME', async () => {
+        const original = process.env.TITAN_HOME;
+        try {
+            process.env.TITAN_HOME = '~/custom-titan-test';
+            vi.resetModules();
+            const { TITAN_HOME } = await import('../src/utils/constants.js');
+            const { homedir } = await import('os');
+            expect(TITAN_HOME).toBe(join(homedir(), 'custom-titan-test'));
+        } finally {
+            if (original !== undefined) process.env.TITAN_HOME = original;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+
+    it('falls back to ~/.titan when env var is unset', async () => {
+        const original = process.env.TITAN_HOME;
+        try {
+            delete process.env.TITAN_HOME;
+            vi.resetModules();
+            const { TITAN_HOME } = await import('../src/utils/constants.js');
+            const { homedir } = await import('os');
+            expect(TITAN_HOME).toBe(join(homedir(), '.titan'));
+        } finally {
+            if (original !== undefined) process.env.TITAN_HOME = original;
+            vi.resetModules();
+        }
+    });
+
+    it('falls back to ~/.titan when env var is empty string', async () => {
+        const original = process.env.TITAN_HOME;
+        try {
+            process.env.TITAN_HOME = '';
+            vi.resetModules();
+            const { TITAN_HOME } = await import('../src/utils/constants.js');
+            const { homedir } = await import('os');
+            expect(TITAN_HOME).toBe(join(homedir(), '.titan'));
+        } finally {
+            if (original !== undefined) process.env.TITAN_HOME = original;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+
+    it('trims whitespace in TITAN_HOME', async () => {
+        const original = process.env.TITAN_HOME;
+        const customPath = '/tmp/titan-home-trim-test';
+        try {
+            process.env.TITAN_HOME = '  ' + customPath + '  ';
+            vi.resetModules();
+            const { TITAN_HOME } = await import('../src/utils/constants.js');
+            expect(TITAN_HOME).toBe(customPath);
+        } finally {
+            if (original !== undefined) process.env.TITAN_HOME = original;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Finding #04 — Gateway silently serves partial interfaces on port conflict
+// ═══════════════════════════════════════════════════════════════
+//
+// When a zombie gateway is bound to 127.0.0.1:PORT and a new gateway starts
+// with host=0.0.0.0, both binds succeed (different addresses). Localhost
+// traffic routes to the zombie; LAN-IP traffic routes to the new gateway.
+// Silent and confusing. Added a TCP probe after the pre-check that detects
+// the partial conflict and logs a WARN.
+
+describe('Hunt Finding #04 — Port conflict probe in gateway', () => {
+    it('source code: gateway contains port conflict probe', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/gateway/server.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/PortConflictProbe/);
+        expect(src).toMatch(/127\.0\.0\.1/);
+        expect(src).toMatch(/Something is already listening/);
+    });
+
+    it('source code: probe handles ECONNREFUSED (port free) and connect (port busy)', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/gateway/server.ts'),
+            'utf-8',
+        );
+        // The probe should handle both the connect event (found something) and
+        // the error event (nothing there, probably ECONNREFUSED)
+        expect(src).toMatch(/probe\.once\('connect'/);
+        expect(src).toMatch(/probe\.once\('error'/);
+    });
+
+    it('source code: probe has a timeout to prevent blocking startup', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/gateway/server.ts'),
+            'utf-8',
+        );
+        // Should have timeout set on the socket
+        expect(src).toMatch(/timeout:\s*\d+/);
+        expect(src).toMatch(/probe\.once\('timeout'/);
+    });
+});

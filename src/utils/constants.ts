@@ -22,7 +22,29 @@ export const TITAN_ASCII_LOGO = `
 ╚══════════════════════════════════════════════════════╝`;
 
 // Paths
-export const TITAN_HOME = join(homedir(), '.titan');
+// Hunt Finding #03 (2026-04-14): honor TITAN_HOME env var if set.
+// Previously this was hardcoded to `~/.titan`, which meant:
+//   - Docker containers couldn't override the config path
+//   - Shared machines couldn't isolate per-user state
+//   - Test fixtures couldn't run against an isolated home
+//   - The systemd unit's `Environment=TITAN_HOME=...` was silently ignored
+// The env var is read once at module load (constants are resolved at import time).
+// If TITAN_HOME starts with `~/`, expand it to the user's home dir.
+function resolveTitanHome(): string {
+    const envHome = process.env.TITAN_HOME;
+    if (envHome && envHome.trim().length > 0) {
+        const trimmed = envHome.trim();
+        if (trimmed.startsWith('~/')) {
+            return join(homedir(), trimmed.slice(2));
+        }
+        if (trimmed === '~') {
+            return homedir();
+        }
+        return trimmed;
+    }
+    return join(homedir(), '.titan');
+}
+export const TITAN_HOME = resolveTitanHome();
 export const TITAN_CONFIG_PATH = join(TITAN_HOME, 'titan.json');
 export const TITAN_DB_PATH = join(TITAN_HOME, 'titan.db');
 export const TITAN_WORKSPACE = join(TITAN_HOME, 'workspace');
