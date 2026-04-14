@@ -183,6 +183,53 @@ describe('OutboundSanitizer — tool artifact handling', () => {
         expect(result.text).not.toContain('</minimax:tool_call>');
     });
 
+    it('REGRESSION Hunt #15: allows "Let me write" as legit action explanation', () => {
+        // Real response from minimax after a tool call — post-action explanation
+        const text = "Let me write to the correct path as requested. I'll use write_file to save the hostname to /tmp/hostname-copy.txt.";
+        const result = sanitizeOutbound(text, 'test');
+        expect(result.hadIssues).toBe(false);
+    });
+
+    it('REGRESSION Hunt #15: allows "Let me run X" and "Let me edit X"', () => {
+        expect(sanitizeOutbound('Let me run the shell command for you.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('Let me edit the file to fix the bug.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('Let me create a new test file.', 'test').hadIssues).toBe(false);
+    });
+
+    it('REGRESSION Hunt #15: still blocks "Let me think/brainstorm/consider"', () => {
+        // The original bad leak shapes must still be blocked
+        expect(sanitizeOutbound('Let me think about this for a moment.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Let me brainstorm some AI capabilities.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Let me consider the best approach.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Let me come up with something fresh.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Let me figure out what to do.', 'test').hadIssues).toBe(true);
+    });
+
+    it('REGRESSION Hunt #16: allows "I\'ll write/create/run" as legit post-action explanation', () => {
+        // Real response captured from minimax during the multi-tool chain test:
+        // "The hostname content is dj-Z690-Steel-Legend-D5. Now I'll write that
+        //  exact content to the target file."
+        // The sanitizer was flagging "I'll write" as a chain-of-thought leak.
+        const real = "The hostname content is `dj-Z690-Steel-Legend-D5`. Now I'll write that exact content to the target file.";
+        expect(sanitizeOutbound(real, 'test').hadIssues).toBe(false);
+
+        expect(sanitizeOutbound("I'll write the file now.", 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound("I'll create a new test file.", 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound("I'll run the shell command.", 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound("I'll generate the report now.", 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound("I need to write a config file.", 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound("I need to create the directory first.", 'test').hadIssues).toBe(false);
+    });
+
+    it('REGRESSION Hunt #16: still blocks "I\'ll brainstorm/think about/come up with"', () => {
+        expect(sanitizeOutbound("I'll brainstorm some ideas.", 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound("I'll think about this carefully.", 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound("I'll come up with something fresh.", 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound("I need to think about the best approach.", 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound("I need to brainstorm some capabilities.", 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound("I need to figure out what to do.", 'test').hadIssues).toBe(true);
+    });
+
     it('strips JSON code blocks', () => {
         const result = sanitizeOutbound('Here you go: ```json\n{"x":1}\n```', 'test');
         // After stripping, "Here you go:" remains

@@ -69,19 +69,27 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\[PROCEDURAL MEMORY/,
 
     // Chain-of-thought leaks (hardened after 2026-04-14 "Let me brainstorm" leak)
+    // Hunt Finding #16 (2026-04-14): narrowed to only COT verbs, removed action
+    // verbs like write/create/generate that appear in legitimate post-action
+    // explanations ("Now I'll write the file", "I need to create a test").
     /\bI should respond\b/i,
-    /\bI need to (?:be|think|consider|respond|reply|brainstorm|come up|write|create|generate|figure out|decide)\b/i,
+    /\bI need to (?:think|consider|brainstorm|come up with|figure out|decide)\b/i,
     /\bthe rules say\b/i,
     /\bmy (?:instructions|personality|system prompt)\b/i,
     /\bchain.of.thought\b/i,
     /\bthe user wants\b/i,
-    /\bI'll (?:start|begin|first|now|brainstorm|think|try|write|create|generate|come up|list|put together)\b/i,
-    /\bI (?:could|should|would|might|can) (?:highlight|brainstorm|list|write|create|generate|come up|think|try)\b/i,
-    // Any content that STARTS with "Let me X" or "Let's X" — classic LLM thinking-out-loud
-    /^\s*let me\s+\w+/i,
-    /^\s*let's\s+(?:brainstorm|think|see|try|start|figure)/i,
-    /^\s*(?:okay|ok|alright|hmm|well),?\s+(?:let me|let's|I'll|I should|I need)/i,
+    /\bI'll (?:brainstorm|think about|come up with|put together|list out)\b/i,
+    /\bI (?:could|should|would|might) (?:highlight|brainstorm|think about|come up with)\b/i,
+    // Any content that STARTS with "Let me X" — narrowed after Hunt Finding #15
+    // (2026-04-14): the previous `^let me\s+\w+` matched "Let me write to
+    // /tmp/foo" which is a legitimate post-action explanation. Only catch
+    // the real chain-of-thought shape: "Let me think/brainstorm/consider/..."
+    // not "Let me write/run/edit/create".
+    /^\s*let me\s+(?:think|brainstorm|check|consider|come up|see|figure out|explore|decide|plan|investigate)\b/i,
+    /^\s*let's\s+(?:brainstorm|think|see|try|figure)/i,
+    /^\s*(?:okay|ok|alright|hmm|well),?\s+(?:let me|let's|I'll|I should|I need)\s+(?:think|brainstorm|consider|figure|see|decide)\b/i,
     // "Let me X" anywhere (broader than just start, to catch mid-text reasoning)
+    // Still catches COT verbs in the middle of a response.
     /\blet me (?:think|check|consider|brainstorm|come up|start|begin|try|figure out|see|explore)\b/i,
     // Meta-descriptions of post drafts
     /\bhere(?:'s| is) (?:a|my|an?) (?:post|draft|idea|example|attempt)\b/i,
