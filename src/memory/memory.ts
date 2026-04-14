@@ -48,6 +48,13 @@ interface SessionRecord {
   // D3: Persisted session overrides (survive session recovery after timeout/restart)
   model_override?: string;
   thinking_override?: string;
+  // Hunt Finding #19 (2026-04-14): true when this session was created via an
+  // explicit sessionId (getOrCreateSessionById). Named sessions MUST NOT be
+  // returned by the default-slot lookup in getOrCreateSession — otherwise
+  // subsequent no-sessionId requests from the same channel+user+agent will
+  // inherit the most recent named session's history, causing privacy bleed
+  // between API callers.
+  is_named?: boolean;
 }
 
 interface UsageRecord {

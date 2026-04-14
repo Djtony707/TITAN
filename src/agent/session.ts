@@ -37,6 +37,22 @@ export interface Session {
 const activeSessions: Map<string, Session> = new Map();
 
 /** Create or retrieve a session */
+// Hunt Finding #19 (2026-04-14): UUID v4 pattern used to distinguish
+// auto-generated default sessions from caller-supplied named sessions.
+// Needed for backward compatibility with sessions created BEFORE the
+// is_named flag was added — those don't have the flag but can still be
+// identified by ID shape (non-UUID = named by caller).
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isDefaultSession(s: { id: string } & { is_named?: boolean }): boolean {
+    // Explicitly marked as named via the flag → not a default session.
+    if (s.is_named === true) return false;
+    // Pre-#19 sessions don't have the flag. Fall back to ID-shape detection:
+    // auto-generated defaults use uuid(), named sessions use caller-supplied
+    // strings that rarely match UUID v4.
+    return UUID_V4_PATTERN.test(s.id);
+}
+
 export function getOrCreateSession(channel: string, userId: string, agentId: string = 'default', isEncrypted: boolean = false): Session {
     const sessionKey = `${channel}:${userId}:${agentId}`;
 
@@ -46,10 +62,18 @@ export function getOrCreateSession(channel: string, userId: string, agentId: str
         return cached;
     }
 
-    // Check data store
+    // Check data store. Hunt Finding #19 (2026-04-14): exclude named sessions
+    // (those created via getOrCreateSessionById with an explicit ID). A named
+    // session belongs to whoever holds its ID — it must NOT be returned as the
+    // default for the channel+user+agent slot, or a subsequent no-sessionId
+    // request inherits the previous named caller's conversation history.
     const store = getDb();
     const existing = store.sessions.find(
-        (s) => s.channel === channel && s.user_id === userId && s.agent_id === agentId && s.status === 'active'
+        (s) => s.channel === channel
+            && s.user_id === userId
+            && s.agent_id === agentId
+            && s.status === 'active'
+            && isDefaultSession(s as unknown as { id: string; is_named?: boolean }),
     );
 
     if (existing) {
@@ -200,13 +224,19 @@ export function getOrCreateSessionById(
         message_count: 0,
         created_at: session.createdAt,
         last_active: session.lastActive,
-    });
+        // Hunt Finding #19 (2026-04-14): mark as named so the default-slot
+        // lookup in getOrCreateSession doesn't return this to an unrelated
+        // no-sessionId caller.
+        is_named: true,
+    } as Parameters<typeof store.sessions.push>[0]);
 
-    // Register under BOTH the id: key (for getSessionById) and the default
-    // channel+user+agent key (so subsequent requests without sessionId don't
-    // accidentally create yet another session for the same user).
+    // Hunt Finding #19 (2026-04-14): register ONLY under the id: key. Do NOT
+    // overwrite the default channel+user+agent slot — that's what was causing
+    // no-sessionId requests to inherit the most recent named session. The
+    // previous behavior claimed to "avoid creating another session for the
+    // same user" but that convenience cost was a privacy leak between API
+    // callers sharing the api-user:default fallback.
     activeSessions.set(`id:${session.id}`, session);
-    activeSessions.set(`${channel}:${userId}:${agentId}`, session);
 
     logger.info(COMPONENT, `Created new session with explicit ID: ${session.id} (${channel}/${userId})`);
     return session;

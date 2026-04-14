@@ -1051,3 +1051,131 @@ describe('Hunt Finding #18 — no template literal escape leaks in runtime code'
         expect(src).toMatch(/Executing \$\{calls\.length\}/);
     });
 });
+
+// ─────────────────────────────────────────────────────────────
+// FINDING #19: No-sessionId requests inherited the most recent named session
+// Discovered: 2026-04-14 during Phase 3a session isolation investigation
+// Symptom: two sequential no-sessionId POST /api/message requests both
+//   returned sessionId="hunt-bleed-test-...-b", inheriting conversation
+//   history from a PREVIOUS explicit-sessionId request. This is a privacy
+//   leak between API callers that share api-user:default as their fallback.
+// Root cause: getOrCreateSessionById was registering explicit-ID sessions
+//   under BOTH `id:${sid}` AND `${channel}:${userId}:${agentId}` cache keys.
+//   The second key is the same slot getOrCreateSession uses for no-sessionId
+//   lookups, so any subsequent no-sessionId request inherited the last
+//   named session. Worse, the store-level fallback lookup in getOrCreateSession
+//   didn't distinguish named from default sessions either — removing just the
+//   cache write wasn't enough.
+// Fix: added is_named flag to SessionRecord; getOrCreateSessionById sets it
+//   to true and only registers under `id:${sid}`; getOrCreateSession's store
+//   scan excludes named sessions.
+// ─────────────────────────────────────────────────────────────
+
+describe('Hunt Finding #19 — named sessions do not pollute default slot', () => {
+    it('no-sessionId request after named-sessionId request gets a FRESH default session', async () => {
+        // Use module imports directly — mocking the full session flow is fragile.
+        // We test at the session manager layer, which is what the bug lives in.
+        const session = await import('../src/agent/session.js');
+        // Isolate this test from other tests by using unique channel + userId.
+        const ch = `hunt19-${Date.now()}`;
+        const uid = `u-${Math.random().toString(36).slice(2)}`;
+
+        // Step 1: create a NAMED session for this channel+user (simulates a
+        // caller passing an explicit sessionId).
+        const namedId = `named-${Date.now()}`;
+        const named = session.getOrCreateSessionById(namedId, ch, uid, 'default');
+        expect(named.id).toBe(namedId);
+
+        // Step 2: simulate a subsequent no-sessionId request from the same
+        // channel+user+agent. BEFORE the fix, this returned the named session.
+        // AFTER the fix, it must return a fresh session with a different ID.
+        const defaultSession = session.getOrCreateSession(ch, uid, 'default');
+        expect(defaultSession.id).not.toBe(namedId);
+        expect(defaultSession.id).toMatch(/^[a-f0-9-]{36}$/); // uuid v4 shape
+
+        // Step 3: a second no-sessionId request should return the SAME default
+        // session, because getOrCreateSession still provides per-(channel,user,agent)
+        // continuity for callers that don't provide explicit IDs.
+        const defaultAgain = session.getOrCreateSession(ch, uid, 'default');
+        expect(defaultAgain.id).toBe(defaultSession.id);
+
+        // Step 4: a lookup by the named ID still returns the named session.
+        const reLookup = session.getSessionById(namedId);
+        expect(reLookup?.id).toBe(namedId);
+    });
+
+    it('two named sessions for the same channel+user do not interfere with each other', async () => {
+        const session = await import('../src/agent/session.js');
+        const ch = `hunt19b-${Date.now()}`;
+        const uid = `u-${Math.random().toString(36).slice(2)}`;
+
+        const a = session.getOrCreateSessionById(`named-a-${Date.now()}`, ch, uid, 'default');
+        const b = session.getOrCreateSessionById(`named-b-${Date.now()}`, ch, uid, 'default');
+        expect(a.id).not.toBe(b.id);
+
+        // Both lookups return the correct session.
+        expect(session.getSessionById(a.id)?.id).toBe(a.id);
+        expect(session.getSessionById(b.id)?.id).toBe(b.id);
+
+        // A no-sessionId request after both named sessions exist still gets a
+        // THIRD, distinct default session.
+        const def = session.getOrCreateSession(ch, uid, 'default');
+        expect(def.id).not.toBe(a.id);
+        expect(def.id).not.toBe(b.id);
+    });
+
+    it('source code: getOrCreateSessionById no longer writes the default slot', () => {
+        const src = readFileSync(join(process.cwd(), 'src/agent/session.ts'), 'utf-8');
+        // Find the function block.
+        const start = src.indexOf('export function getOrCreateSessionById(');
+        expect(start).toBeGreaterThan(0);
+        const end = src.indexOf('\n}\n', start);
+        expect(end).toBeGreaterThan(start);
+        const block = src.slice(start, end);
+        // MUST register under id:${session.id}
+        expect(block).toMatch(/activeSessions\.set\(`id:\$\{session\.id\}`, session\)/);
+        // MUST NOT overwrite the default ${channel}:${userId}:${agentId} slot.
+        expect(block).not.toMatch(/activeSessions\.set\(`\$\{channel\}:\$\{userId\}:\$\{agentId\}`, session\)/);
+        // MUST mark the session as named in the store record.
+        expect(block).toMatch(/is_named:\s*true/);
+    });
+
+    it('source code: getOrCreateSession store lookup excludes named sessions', () => {
+        const src = readFileSync(join(process.cwd(), 'src/agent/session.ts'), 'utf-8');
+        const start = src.indexOf('export function getOrCreateSession(');
+        expect(start).toBeGreaterThan(0);
+        // Exclusion clause must be present in the store scan. We check for the
+        // helper name (isDefaultSession) which does the double-check of both
+        // is_named flag AND UUID v4 ID shape for pre-flag backward compat.
+        expect(src.slice(start, start + 2000)).toMatch(/isDefaultSession/);
+        // And the helper itself must do both checks.
+        expect(src).toMatch(/function isDefaultSession/);
+        expect(src).toMatch(/UUID_V4_PATTERN/);
+    });
+
+    it('isDefaultSession helper: pre-flag sessions with caller IDs are treated as named', async () => {
+        // Pre-fix sessions don't have is_named=true set, so we must fall back
+        // to ID-shape detection. Any non-UUID ID is treated as named.
+        const session = await import('../src/agent/session.js');
+        const ch = `hunt19-backcompat-${Date.now()}`;
+        const uid = `u-${Math.random().toString(36).slice(2)}`;
+
+        // Simulate a legacy named session that was persisted BEFORE the
+        // is_named flag existed. We do this by creating one with getOrCreateSessionById
+        // (it gets is_named=true), then stripping the flag to emulate old data.
+        const legacy = session.getOrCreateSessionById('legacy-caller-id', ch, uid, 'default');
+        expect(legacy.id).toBe('legacy-caller-id');
+
+        // Strip the flag in the store to simulate a pre-fix record.
+        const { getDb } = await import('../src/memory/memory.js');
+        const db = getDb() as { sessions: Array<{ id: string; is_named?: boolean }> };
+        const rec = db.sessions.find(s => s.id === 'legacy-caller-id');
+        if (rec) delete rec.is_named;
+
+        // A no-sessionId request for the same channel+user+agent must NOT
+        // return the legacy session — the UUID-shape check catches it.
+        const defaultSession = session.getOrCreateSession(ch, uid, 'default');
+        expect(defaultSession.id).not.toBe('legacy-caller-id');
+        expect(defaultSession.id).toMatch(/^[a-f0-9-]{36}$/);
+    });
+});
