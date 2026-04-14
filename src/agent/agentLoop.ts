@@ -62,6 +62,80 @@ function validateToolPairs(messages: ChatMessage[]): ChatMessage[] {
     });
 }
 
+/**
+ * Hunt Finding #09 (2026-04-14): pair-aware context trim.
+ *
+ * Previously the agent loop trimmed with `.slice(-8)` on non-system messages,
+ * which cut right through tool_call/tool_result pairs. Then validateToolPairs
+ * dropped the assistant-with-orphan-toolcall messages, losing the work history.
+ * The model would see no prior tool calls and redo them, causing ping-pong loops.
+ *
+ * This trim walks backwards and keeps tool_call+tool_result PAIRS together. When
+ * we hit a tool_result, we also keep its parent assistant-with-tool_calls message.
+ * When we hit an assistant-with-tool_calls, we also keep ALL its tool_results.
+ */
+function trimPairAware(messages: ChatMessage[], maxTotal: number): ChatMessage[] {
+    const systemMsgs = messages.filter(m => m.role === 'system');
+    const nonSystem = messages.filter(m => m.role !== 'system');
+    const maxNonSystem = Math.max(1, maxTotal - systemMsgs.length);
+
+    if (nonSystem.length <= maxNonSystem) return messages;
+
+    // Walk backwards, keeping pairs together. Tool result messages belong to the
+    // nearest preceding assistant message with tool_calls; assistant messages with
+    // tool_calls own all immediately-following tool result messages.
+    const kept: ChatMessage[] = [];
+    let i = nonSystem.length - 1;
+
+    // First pass: collect indices to keep, preserving pair integrity
+    const keepIdx = new Set<number>();
+    while (i >= 0 && keepIdx.size < maxNonSystem) {
+        const msg = nonSystem[i];
+        if (msg.role === 'tool' && msg.toolCallId) {
+            // Find its parent assistant message
+            let parentIdx = -1;
+            for (let j = i - 1; j >= 0; j--) {
+                const cand = nonSystem[j];
+                if (cand.role === 'assistant' && cand.toolCalls?.some(tc => tc.id === msg.toolCallId)) {
+                    parentIdx = j;
+                    break;
+                }
+                if (cand.role !== 'tool') break; // only walk through tool siblings
+            }
+            keepIdx.add(i);
+            if (parentIdx >= 0) {
+                keepIdx.add(parentIdx);
+                // Also keep any sibling tool results for the same assistant
+                for (let j = parentIdx + 1; j < nonSystem.length; j++) {
+                    const sib = nonSystem[j];
+                    if (sib.role !== 'tool') break;
+                    keepIdx.add(j);
+                }
+            }
+            i = parentIdx >= 0 ? parentIdx - 1 : i - 1;
+        } else if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+            // Keep this assistant + all its tool results
+            keepIdx.add(i);
+            for (let j = i + 1; j < nonSystem.length; j++) {
+                const sib = nonSystem[j];
+                if (sib.role !== 'tool') break;
+                keepIdx.add(j);
+            }
+            i--;
+        } else {
+            keepIdx.add(i);
+            i--;
+        }
+    }
+
+    // Emit in original order
+    for (let k = 0; k < nonSystem.length; k++) {
+        if (keepIdx.has(k)) kept.push(nonSystem[k]);
+    }
+
+    return [...systemMsgs, ...kept];
+}
+
 /** Sanitize reflection reasoning before injecting into message stream */
 function sanitizeReflection(text: string): string {
     return text
@@ -603,14 +677,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 }
             }
 
-            // Hard trim if too many messages
+            // Hard trim if too many messages — Hunt Finding #09: pair-aware trim
+            // preserves tool_call/tool_result pairs so validateToolPairs doesn't
+            // then drop assistant messages with orphaned tool calls.
             if (smartMessages.length > 12 && phase !== 'respond') {
-                const system = smartMessages.filter(m => m.role === 'system');
-                const recent = smartMessages.filter(m => m.role !== 'system').slice(-8);
-                smartMessages = [...system, ...recent];
-                // A11: Sanitize orphaned tool pairs after trim (Hermes pattern)
+                const before = smartMessages.length;
+                smartMessages = trimPairAware(smartMessages, 12);
+                // A11: Sanitize any remaining orphans (safety net, should be zero)
                 smartMessages = validateToolPairs(smartMessages);
-                logger.info(COMPONENT, `[ContextTrim] Trimmed to ${smartMessages.length} messages`);
+                if (smartMessages.length !== before) {
+                    logger.info(COMPONENT, `[ContextTrim] Pair-aware trim: ${before} → ${smartMessages.length} messages`);
+                }
             }
 
             // A1: Validate tool call/result pairing before sending to LLM (LangGraph pattern)
