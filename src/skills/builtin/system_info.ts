@@ -228,13 +228,38 @@ async function gatherSystemInfo(sections: string[]): Promise<string> {
         if (ollamaList) {
             try {
                 const parsed = JSON.parse(ollamaList);
-                const models = (parsed.models || []).map((m: { name: string; size: number }) =>
-                    `  ${m.name} (${formatBytes(m.size)})`
-                );
-                results.push([
-                    '## Ollama Models',
-                    models.length > 0 ? models.join('\n') : 'No models installed',
-                ].join('\n'));
+                // Hunt Finding #23 (2026-04-14): cloud-hosted Ollama models
+                // return size=0 (or null) because they run remotely. Rendering
+                // them as "(0 KB)" caused the LLM to misinterpret them as
+                // corrupted. Split into local vs cloud groups with accurate
+                // labels. Cloud detection is broad: matches :cloud, -cloud,
+                // and any model with missing/zero size.
+                const local: string[] = [];
+                const cloud: string[] = [];
+                for (const m of (parsed.models || []) as Array<{ name: string; size: number | null | undefined }>) {
+                    const nameLooksCloud = /[-:]cloud(?::|$)/i.test(m.name);
+                    const sizeIsZero = !m.size || m.size === 0;
+                    const isCloud = nameLooksCloud || sizeIsZero;
+                    if (isCloud) {
+                        cloud.push(`  ${m.name} (cloud — no local storage)`);
+                    } else {
+                        local.push(`  ${m.name} (${formatBytes(m.size as number)})`);
+                    }
+                }
+                const lines: string[] = ['## Ollama Models'];
+                if (local.length === 0 && cloud.length === 0) {
+                    lines.push('No models installed');
+                } else {
+                    if (local.length > 0) {
+                        lines.push('### Local');
+                        lines.push(...local);
+                    }
+                    if (cloud.length > 0) {
+                        lines.push('### Cloud (remote, no local footprint)');
+                        lines.push(...cloud);
+                    }
+                }
+                results.push(lines.join('\n'));
             } catch {
                 // Parse error — skip
             }

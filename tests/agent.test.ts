@@ -552,7 +552,7 @@ describe('Agent processMessage', () => {
 
     // ── Loop detection ──────────────────────────────────────────────
 
-    it('should stop when loop detection triggers a circuit breaker', async () => {
+    it('should stop when loop detection triggers a circuit breaker without leaking debug text (Hunt #24)', async () => {
         const toolCalls = [
             { id: 'tc-1', type: 'function' as const, function: { name: 'shell', arguments: '{"command":"ls"}' } },
         ];
@@ -571,7 +571,15 @@ describe('Agent processMessage', () => {
 
         const result = await processMessage('Keep listing');
 
-        expect(result.content).toContain('Infinite loop detected');
+        // Hunt Finding #24: the raw breaker reason MUST NOT appear in the
+        // final reply. Previously the debug message ("Infinite loop detected:
+        // shell called 10 times...") was sent directly to the user. After the
+        // fix, the loop breaker routes through the respond phase instead, so
+        // the user gets a normal reply based on the data collected.
+        expect(result.content).not.toContain('Infinite loop detected');
+        expect(result.content).not.toContain('called 10 times');
+        // The loop WAS broken (the loop didn't run forever) — content exists.
+        expect(result.content).toBeTruthy();
     });
 
     // ── Swarm mode (kimi-k2.5) ──────────────────────────────────────

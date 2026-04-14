@@ -1153,6 +1153,36 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         expect(src).toMatch(/UUID_V4_PATTERN/);
     });
 
+    it('source code: system_info splits local vs cloud Ollama models (Hunt #23)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/skills/builtin/system_info.ts'), 'utf-8');
+        // Must not render cloud models as "0 KB" — that caused the LLM to
+        // claim they were corrupted.
+        expect(src).toMatch(/cloud — no local storage/);
+        expect(src).toMatch(/### Cloud \(remote, no local footprint\)/);
+        // Detection must handle both :cloud and -cloud name variants.
+        expect(src).toMatch(/\[-:\]cloud/);
+        // And zero/missing size as a fallback cloud indicator.
+        expect(src).toMatch(/!m\.size \|\| m\.size === 0/);
+    });
+
+    it('source code: agent loop routes loop-breaker through respond phase (Hunt #24)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/agent/agentLoop.ts'), 'utf-8');
+        // Old buggy code wrote loopCheck.reason directly to result.content:
+        //   result.content = loopCheck.reason || ...
+        // Must not exist anymore.
+        expect(src).not.toMatch(/result\.content\s*=\s*loopCheck\.reason/);
+        // New code sets phase = 'respond' when loop is broken and injects a
+        // directive message.
+        expect(src).toMatch(/phase = 'respond'/);
+        // The block around the loopBroken handling must include the respond
+        // routing (as a smoke check that this specific path exists).
+        const idx = src.indexOf('loopBroken = true');
+        expect(idx).toBeGreaterThan(0);
+        // Within 400 chars before that assignment we should see phase='respond'
+        const nearby = src.slice(Math.max(0, idx - 400), idx + 100);
+        expect(nearby).toMatch(/phase = 'respond'/);
+    });
+
     it('isDefaultSession helper: pre-flag sessions with caller IDs are treated as named', async () => {
         // Pre-fix sessions don't have is_named=true set, so we must fall back
         // to ID-shape detection. Any non-UUID ID is treated as named.

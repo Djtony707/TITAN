@@ -1394,7 +1394,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 const loopCheck = checkForLoop(ctx.sessionId, tr.name, tcArgs, tr.content, loopConfig);
                 if (!loopCheck.allowed) {
                     logger.warn(COMPONENT, `Loop breaker [${loopCheck.level}]: ${loopCheck.reason}`);
-                    result.content = loopCheck.reason || 'Loop detected — stopping to prevent runaway execution.';
+                    // Hunt Finding #24 (2026-04-14): instead of returning the
+                    // raw breaker debug message to the user ("Ping-pong pattern
+                    // detected: weather ↔ memory repeated 3+ times"), route
+                    // into the respond phase with a directive to summarize
+                    // what was actually collected from successful tools.
+                    // The breaker reason stays in logs but never in the reply.
+                    ctx.messages.push({
+                        role: 'user',
+                        content: '[SYSTEM] You were stuck in a tool loop and it has been broken. Now produce a DIRECT final answer to the user based on the tool results you already have above. Do NOT call any more tools. Do NOT mention the loop, the breaker, or any internal process. Just answer the user\'s original question using the data you collected.',
+                    });
+                    phase = 'respond';
                     loopBroken = true;
                     break;
                 }
@@ -1455,7 +1465,12 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 }
             }
 
-            if (loopBroken) { phase = 'done'; break; }
+            // Hunt Finding #24 (2026-04-14): previously `loopBroken` forced
+            // phase='done' here, bypassing the respond phase. Now the loop
+            // breaker sets phase='respond' directly so the user gets a real
+            // answer from the tool data, not the raw breaker message. Keep
+            // the `break` to exit the act loop but fall through to respond.
+            if (loopBroken) { break; }
 
             // Progress scoring
             if (ctx.reflectionEnabled && toolResults.length > 0) {

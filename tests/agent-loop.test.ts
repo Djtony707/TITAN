@@ -752,14 +752,24 @@ describe('AgentLoop — Streaming', () => {
 });
 
 describe('AgentLoop — Loop detection', () => {
-    it('should break loop when checkForLoop disallows continuation', async () => {
+    // Hunt Finding #24 (2026-04-14): when the loop breaker fires, the agent
+    // loop no longer returns the raw breaker reason to the user. Instead it
+    // routes into the respond phase with a directive to summarize from the
+    // data it already collected. The raw breaker text MUST NOT appear in the
+    // final reply (it was a UX bug — users saw "Ping-pong pattern detected"
+    // when asking for the weather).
+    it('Hunt Finding #24: breaker debug text does NOT leak to final reply', async () => {
         mockChat.mockResolvedValueOnce(makeChatResponse('', [{ name: 'shell', args: '{}' }]));
         mockExecuteTools.mockResolvedValueOnce([makeToolResult('shell', 'ok')]);
         mockCheckForLoop.mockReturnValueOnce({ allowed: false, level: 'hard', reason: 'Repeating same command' });
+        // Respond phase LLM call produces a clean summary.
+        mockChat.mockResolvedValueOnce(makeChatResponse('Here is the result based on the data I collected.', []));
 
         const result = await runAgentLoop(makeLoopContext());
 
-        expect(result.content).toContain('Repeating same command');
+        expect(result.content).not.toContain('Repeating same command');
+        expect(result.content).not.toContain('loop');
+        expect(result.content).not.toContain('breaker');
     });
 });
 
