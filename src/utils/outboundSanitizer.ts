@@ -53,6 +53,11 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\{"tool_name":\s*"/,
     /\{"name":\s*"[^"]+",\s*"(?:parameters|arguments)":/,
     /<minimax:tool_call>/,
+    // Hunt Finding #12 (2026-04-14): bare <invoke> / <parameter> XML tags leaked
+    // because the previous regex only matched when wrapped in <minimax:tool_call>.
+    // The model sometimes emits the inner tags alone.
+    /<invoke\s+name=["']/,
+    /<parameter\s+name=["']/,
     /ACTION:\s+\w+\s+/,
 
     // Thinking/reasoning tags
@@ -132,6 +137,12 @@ export function sanitizeOutbound(
     cleaned = cleaned.replace(/\[TOOL_CALL\][\s\S]*/g, '').trim();
     cleaned = cleaned.replace(/\{"tool_name":\s*"[^"]*",\s*"tool_input":\s*\{[^}]*\}\}/g, '').trim();
     cleaned = cleaned.replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '').trim();
+    // Hunt Finding #12: strip bare <invoke> and <parameter> XML tags (with or
+    // without closing tags) — minimax sometimes emits the inner payload alone.
+    cleaned = cleaned.replace(/<invoke\s+name=["'][^"']*["']>[\s\S]*?<\/invoke>/g, '').trim();
+    cleaned = cleaned.replace(/<invoke\s+name=["'][^"']*["']>[\s\S]*$/g, '').trim();
+    cleaned = cleaned.replace(/<parameter\s+name=["'][^"']*["']>[\s\S]*?<\/parameter>/g, '').trim();
+    cleaned = cleaned.replace(/<\/?(?:invoke|parameter|minimax:tool_call)[^>]*>/g, '').trim();
     cleaned = cleaned.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').trim();
 
     // 3. Strip markdown plan headers

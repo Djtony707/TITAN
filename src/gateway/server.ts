@@ -1833,6 +1833,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         }
         if (response.model) titanModelRequestsTotal.increment({ model: response.model, provider: 'default' });
         trackUsage(response.model || 'unknown', response.tokenUsage, response.durationMs || 0, response.sessionId || '');
+        // Hunt Finding #11: sanitize SSE response content as well
+        try {
+          const { sanitizeOutbound } = await import('../utils/outboundSanitizer.js');
+          const sanitized = sanitizeOutbound(
+            response.content || '',
+            'api_message_sse',
+            "I'm TITAN — I can run commands, edit files, search the web, remember things, and more. What would you like me to help with?",
+          );
+          if (sanitized.hadIssues) {
+            logger.warn(COMPONENT, `[OutboundGuard] SSE /api/message response sanitized: ${sanitized.issues.join(', ')}`);
+            response.content = sanitized.text;
+          }
+        } catch { /* sanitizer unavailable */ }
         if (!clientDisconnected) {
           safeWrite(`event: done\ndata: ${JSON.stringify({ content: response.content, sessionId: response.sessionId, durationMs: response.durationMs, model: response.model, toolsUsed: response.toolsUsed, pendingApproval: response.pendingApproval })}\n\n`);
           try { res.end(); } catch { /* client gone */ }
@@ -1849,6 +1862,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         }
         if (response.model) titanModelRequestsTotal.increment({ model: response.model, provider: 'default' });
         trackUsage(response.model || 'unknown', response.tokenUsage, response.durationMs || 0, response.sessionId || '');
+        // Hunt Finding #11 (2026-04-14): sanitize outbound content before returning
+        // to user. Catches system prompt leaks, instruction echoes, tool artifacts.
+        // Defense-in-depth: the system prompt tells the model not to leak, but if the
+        // model ignores that, this catches it.
+        try {
+          const { sanitizeOutbound } = await import('../utils/outboundSanitizer.js');
+          const sanitized = sanitizeOutbound(
+            response.content || '',
+            'api_message',
+            "I'm TITAN — I can run commands, edit files, search the web, remember things, and more. What would you like me to help with?",
+          );
+          if (sanitized.hadIssues) {
+            logger.warn(COMPONENT, `[OutboundGuard] /api/message response sanitized: ${sanitized.issues.join(', ')}`);
+            response.content = sanitized.text;
+          }
+        } catch { /* sanitizer unavailable — non-critical */ }
         res.json(response);
       }
     } catch (error) {

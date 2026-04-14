@@ -164,6 +164,25 @@ describe('OutboundSanitizer — tool artifact handling', () => {
         expect(result.text).toBe('Hello!');
     });
 
+    it('strips minimax <invoke> tag leaks (Hunt Finding #12 variant)', () => {
+        const result = sanitizeOutbound(
+            'The answer is:\n<invoke name="shell"><parameter name="cmd">ls</parameter></invoke>',
+            'test',
+        );
+        // Either the invoke tag is stripped OR content is flagged as empty/blocked.
+        // We don't want the raw XML to reach the user.
+        expect(result.text).not.toContain('<invoke');
+        expect(result.text).not.toContain('</invoke>');
+        expect(result.text).not.toContain('<parameter');
+    });
+
+    it('handles closed minimax XML block with multiline content', () => {
+        const input = 'Writing file.\n<minimax:tool_call>\n<invoke name="write_file">\n<parameter name="content">test</parameter>\n</invoke>\n</minimax:tool_call>';
+        const result = sanitizeOutbound(input, 'test');
+        expect(result.text).not.toContain('<minimax:tool_call>');
+        expect(result.text).not.toContain('</minimax:tool_call>');
+    });
+
     it('strips JSON code blocks', () => {
         const result = sanitizeOutbound('Here you go: ```json\n{"x":1}\n```', 'test');
         // After stripping, "Here you go:" remains
