@@ -217,9 +217,27 @@ async function generateContent(contentType: ContentType): Promise<string> {
         content = content.replace(/^["']|["']$/g, '').trim();
 
         // Safety: reject if it contains instruction echoing or meta-reasoning
-        if (/\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example)\b/i.test(content)) {
-            logger.warn(COMPONENT, `Post rejected — instruction echoing: "${content.slice(0, 80)}..."`);
-            return '';
+        // Expanded after a second leak on 2026-04-14 where "Let me brainstorm..." got through.
+        const leakPatterns = [
+            /\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example)\b/i,
+            // Chain-of-thought leaks (starts with "Let me" + any verb, or has future-tense planning)
+            /^\s*let me\s+\w+/i,
+            /^\s*let's\s+(brainstorm|think|see|try|start|figure)/i,
+            /^\s*(okay|ok|alright|hmm|well),?\s+(let me|let's|I'll|I should|I need)/i,
+            /\bI (?:could|should|would|will|might|can) (?:highlight|brainstorm|list|write|create|generate|come up|think|try)\b/i,
+            /\bI'll (?:brainstorm|think|start|begin|try|write|create|generate|come up|list|put together)\b/i,
+            /\bI need to (?:think|brainstorm|come up|write|create|generate|figure out|decide)\b/i,
+            // Meta-descriptions of what the post will be
+            /\b(?:here(?:'s| is) (?:a|my|an?) (?:post|draft|idea|example|attempt))\b/i,
+            /\b(?:draft|attempt|version)\s*\d*[:.]?\s*$/im,
+            // Bullet-list brainstorms (classic LLM thinking-out-loud shape)
+            /^\s*(?:let me|okay|ok|hmm)\b[\s\S]{0,80}\n\s*[-•*]\s/i,
+        ];
+        for (const pattern of leakPatterns) {
+            if (pattern.test(content)) {
+                logger.warn(COMPONENT, `Post rejected — chain-of-thought/instruction leak matched "${pattern.source.slice(0, 50)}": "${content.slice(0, 120)}..."`);
+                return '';
+            }
         }
 
         // Length guard

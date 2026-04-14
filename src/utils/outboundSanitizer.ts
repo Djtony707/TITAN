@@ -63,15 +63,24 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\[CONTEXT SUMMARY/,
     /\[PROCEDURAL MEMORY/,
 
-    // Chain-of-thought leaks
+    // Chain-of-thought leaks (hardened after 2026-04-14 "Let me brainstorm" leak)
     /\bI should respond\b/i,
-    /\bI need to (?:be|think|consider|respond|reply)\b/i,
+    /\bI need to (?:be|think|consider|respond|reply|brainstorm|come up|write|create|generate|figure out|decide)\b/i,
     /\bthe rules say\b/i,
     /\bmy (?:instructions|personality|system prompt)\b/i,
-    /\blet me (?:think|check|consider)\b/i,
     /\bchain.of.thought\b/i,
     /\bthe user wants\b/i,
-    /\bI'll (?:start by|begin by|first|now)\b/i,
+    /\bI'll (?:start|begin|first|now|brainstorm|think|try|write|create|generate|come up|list|put together)\b/i,
+    /\bI (?:could|should|would|might|can) (?:highlight|brainstorm|list|write|create|generate|come up|think|try)\b/i,
+    // Any content that STARTS with "Let me X" or "Let's X" — classic LLM thinking-out-loud
+    /^\s*let me\s+\w+/i,
+    /^\s*let's\s+(?:brainstorm|think|see|try|start|figure)/i,
+    /^\s*(?:okay|ok|alright|hmm|well),?\s+(?:let me|let's|I'll|I should|I need)/i,
+    // "Let me X" anywhere (broader than just start, to catch mid-text reasoning)
+    /\blet me (?:think|check|consider|brainstorm|come up|start|begin|try|figure out|see|explore)\b/i,
+    // Meta-descriptions of post drafts
+    /\bhere(?:'s| is) (?:a|my|an?) (?:post|draft|idea|example|attempt)\b/i,
+    /^(?:draft|attempt|version)\s*\d*[:.]?\s*$/im,
 ];
 
 // ── PII Patterns ─────────────────────────────────────────────────────

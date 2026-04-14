@@ -13,11 +13,26 @@ import { describe, it, expect } from 'vitest';
 import { sanitizeOutbound, isSafeToPost } from '../src/utils/outboundSanitizer.js';
 
 // ═══════════════════════════════════════════════════════════════
-// REGRESSION: The exact string that leaked to Facebook
+// REGRESSION: The exact strings that leaked to Facebook
 // ═══════════════════════════════════════════════════════════════
 
 const FACEBOOK_LEAK_2026_04_13 =
     '- Friendly and witty - 1-2 sentences max - No hashtags - No personal info - No internal thoughts - Respond directly';
+
+// Second leak — "Let me brainstorm..." chain-of-thought posted as a whole Facebook post
+const FACEBOOK_LEAK_2026_04_14_BRAINSTORM =
+    `Let me brainstorm some AI capabilities I could highlight:
+- Data analysis
+- Content generation
+- Research assistance
+- Scheduling
+- Language translation
+- Image generation
+- Predictive analytics
+- Code writing`;
+
+// Third leak — even shorter, just the opener
+const FACEBOOK_LEAK_2026_04_14_OPENER = 'Let me come up with something fresh:';
 
 describe('OutboundSanitizer — REGRESSION: Facebook leak 2026-04-13', () => {
     it('blocks the EXACT string that leaked to Facebook on 2026-04-13', () => {
@@ -41,6 +56,52 @@ describe('OutboundSanitizer — REGRESSION: Facebook leak 2026-04-13', () => {
     it('isSafeToPost returns false for the leak string', () => {
         expect(isSafeToPost(FACEBOOK_LEAK_2026_04_13)).toBe(false);
     });
+});
+
+describe('OutboundSanitizer — REGRESSION: Facebook leak 2026-04-14 (Let me brainstorm)', () => {
+    it('blocks the EXACT "Let me brainstorm..." post that leaked 2026-04-14', () => {
+        const result = sanitizeOutbound(FACEBOOK_LEAK_2026_04_14_BRAINSTORM, 'fb_test');
+        expect(result.hadIssues).toBe(true);
+        expect(result.issues.some(i => i.includes('instruction_leak'))).toBe(true);
+    });
+
+    it('blocks the EXACT "Let me come up with something fresh:" opener', () => {
+        const result = sanitizeOutbound(FACEBOOK_LEAK_2026_04_14_OPENER, 'fb_test');
+        expect(result.hadIssues).toBe(true);
+    });
+
+    it('isSafeToPost returns false for the brainstorm leak', () => {
+        expect(isSafeToPost(FACEBOOK_LEAK_2026_04_14_BRAINSTORM)).toBe(false);
+    });
+
+    it('isSafeToPost returns false for the opener leak', () => {
+        expect(isSafeToPost(FACEBOOK_LEAK_2026_04_14_OPENER)).toBe(false);
+    });
+
+    // Broader coverage of chain-of-thought post shapes
+    const cotSamples: Array<[string, string]> = [
+        ['Let me brainstorm', 'Let me brainstorm some ideas for this'],
+        ['Let me come up with', 'Let me come up with a better angle'],
+        ['Let me try', 'Let me try a different approach here'],
+        ['Let me start', 'Let me start with the basics'],
+        ['Let me think', 'Let me think about this for a moment'],
+        ['Let me figure out', 'Let me figure out what the user needs'],
+        ['I could highlight', 'I could highlight several features here'],
+        ['I should brainstorm', 'I should brainstorm some options'],
+        ['I\'ll brainstorm', 'I\'ll brainstorm some topics to cover'],
+        ['I need to come up with', 'I need to come up with something new'],
+        ['Okay let me', 'Okay, let me think about what to write'],
+        ['Hmm let me', 'Hmm, let me see what works here'],
+        ['Here\'s my draft', "Here's my draft for the post"],
+        ['Here is an attempt', 'Here is an attempt at the post'],
+    ];
+
+    for (const [name, text] of cotSamples) {
+        it(`blocks chain-of-thought: ${name}`, () => {
+            const result = sanitizeOutbound(text, 'test');
+            expect(result.hadIssues).toBe(true);
+        });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════
