@@ -572,12 +572,15 @@ titanEvents.on('initiative:round', (data) => {
     });
 });
 
-/** Safely send a response through a channel adapter */
+/** Safely send a response through a channel adapter.
+ * Hunt Finding #13: uses deliver() which runs the content through the
+ * outbound sanitizer before invoking the channel's send() method. Applies
+ * to all 17 channel adapters automatically. */
 async function safeSend(channelName: string, msg: { channel: string; userId: string; groupId?: string; content: string; replyTo?: string }): Promise<void> {
   const channel = channels.get(channelName);
   if (!channel) return;
   try {
-    await channel.send(msg);
+    await channel.deliver(msg);
   } catch (err) {
     logger.warn(COMPONENT, `Channel send failed (${channelName}): ${(err as Error).message}`);
   }

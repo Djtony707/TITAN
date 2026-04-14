@@ -736,6 +736,84 @@ describe('Hunt Finding #12 — outboundSanitizer strips bare invoke/parameter XM
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Finding #13 — 16 of 17 channels had no sanitizer (central deliver fix)
+// ═══════════════════════════════════════════════════════════════
+//
+// Before: only messenger.ts imported sanitizeOutbound. Discord, Telegram,
+// Slack, Matrix, WhatsApp, etc. (16 others) could leak system prompts,
+// tool artifacts, hallucinations, PII.
+//
+// Fix: added concrete `deliver()` method to ChannelAdapter base class that
+// sanitizes before calling the subclass's send(). gateway/safeSend calls
+// deliver() instead of send(). All 17 channels now covered automatically.
+
+describe('Hunt Finding #13 — central channel deliver() sanitizer', () => {
+    it('source: base.ts has a concrete deliver method', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/channels/base.ts'),
+            'utf-8',
+        );
+        // Must have `async deliver(...)` defined as a concrete method (not abstract)
+        expect(src).toMatch(/async deliver\s*\(/);
+        expect(src).not.toMatch(/abstract deliver/);
+    });
+
+    it('source: base deliver calls sanitizeOutbound', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/channels/base.ts'),
+            'utf-8',
+        );
+        // The deliver method should reference sanitizeOutbound
+        const deliverMatch = src.match(/async deliver[\s\S]{0,1500}\n {4}\}/);
+        expect(deliverMatch).not.toBeNull();
+        expect(deliverMatch?.[0]).toMatch(/sanitizeOutbound/);
+    });
+
+    it('source: base deliver calls this.send at the end', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/channels/base.ts'),
+            'utf-8',
+        );
+        const deliverMatch = src.match(/async deliver[\s\S]{0,1500}\n {4}\}/);
+        expect(deliverMatch).not.toBeNull();
+        expect(deliverMatch?.[0]).toMatch(/return this\.send\(/);
+    });
+
+    it('source: gateway safeSend calls deliver not send directly', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/gateway/server.ts'),
+            'utf-8',
+        );
+        // Find the safeSend function body
+        const safeSendIdx = src.indexOf('async function safeSend');
+        expect(safeSendIdx).toBeGreaterThan(-1);
+        const body = src.slice(safeSendIdx, safeSendIdx + 800);
+        expect(body).toMatch(/channel\.deliver\(/);
+        expect(body).not.toMatch(/channel\.send\(msg\)/);
+    });
+
+    it('every channel adapter subclass still implements send (transport layer)', () => {
+        // Verify that channels aren't regressing — each adapter must still
+        // implement send() because deliver() calls it.
+        const channels = [
+            'discord', 'telegram', 'slack', 'matrix', 'messenger',
+            'whatsapp', 'irc', 'webchat', 'signal', 'msteams',
+        ];
+        for (const name of channels) {
+            const path = join(process.cwd(), `src/channels/${name}.ts`);
+            if (!existsSync(path)) continue;
+            const src = readFileSync(path, 'utf-8');
+            // Either the class has `async send(` or it's exported without one
+            // (which would be a different kind of bug).
+            const hasClass = /class\s+\w+Channel\s+extends\s+ChannelAdapter/.test(src);
+            if (hasClass) {
+                expect(src, `${name}.ts should have a send() method`).toMatch(/async\s+send\s*\(/);
+            }
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Finding #04 — Gateway silently serves partial interfaces on port conflict
 // ═══════════════════════════════════════════════════════════════
 //
