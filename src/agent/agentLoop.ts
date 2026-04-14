@@ -45,21 +45,43 @@ const COMPONENT = 'AgentLoop';
  * Validate tool call / tool result pairing (LangGraph pattern).
  * Every assistant message with toolCalls must have a matching tool result for each call.
  * Orphaned pairs cause API rejections from all providers.
+ *
+ * Hunt Finding #14 (2026-04-14): previously this function DROPPED assistant
+ * messages with orphaned tool calls, destroying the model's work history and
+ * causing it to redo tool calls or get confused about its state. The 5-phase
+ * context compressor can legitimately drop tool RESULT messages while keeping
+ * the assistant tool_call messages (or vice versa), creating orphans.
+ *
+ * New behavior: when an orphaned tool_call is detected, SYNTHESIZE a placeholder
+ * tool result message with `[Earlier tool result cleared]` content. This keeps
+ * the conversation shape valid for providers AND preserves the model's history.
+ * The model still sees that the tool was called and knows not to call it again.
  */
 function validateToolPairs(messages: ChatMessage[]): ChatMessage[] {
     const toolResultIds = new Set(
         messages.filter(m => m.role === 'tool' && m.toolCallId).map(m => m.toolCallId)
     );
-    return messages.filter(m => {
+    const out: ChatMessage[] = [];
+    for (const m of messages) {
+        out.push(m);
         if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
             const orphaned = m.toolCalls.filter(tc => !toolResultIds.has(tc.id));
             if (orphaned.length > 0) {
-                logger.warn(COMPONENT, `[ToolPairValidation] Removing assistant msg with ${orphaned.length} orphaned tool call(s): ${orphaned.map(tc => tc.function.name).join(', ')}`);
-                return false;
+                logger.warn(COMPONENT, `[ToolPairValidation] Synthesizing ${orphaned.length} missing tool result(s) for orphaned tool call(s): ${orphaned.map(tc => tc.function.name).join(', ')}`);
+                // Insert a synthetic tool result immediately after the assistant message.
+                // This preserves the model's work history while keeping the pairing valid.
+                for (const tc of orphaned) {
+                    out.push({
+                        role: 'tool',
+                        content: `[Earlier tool result cleared — ${tc.function.name} was called previously but its result was pruned from context.]`,
+                        toolCallId: tc.id,
+                    });
+                    toolResultIds.add(tc.id);
+                }
             }
         }
-        return true;
-    });
+    }
+    return out;
 }
 
 /**
@@ -182,10 +204,106 @@ export function detectToolUseIntent(userMessage: string): boolean {
         /\blist (?:the )?(?:files?|contents?) (?:in|of|at)\b/,
         // Requests to check real system state that REQUIRES a tool
         /\b(?:what is|what's|show me|get) (?:the )?(?:current|actual) (?:uptime|hostname|ip|path|directory|pwd|time|date|memory|disk)\b/,
-        /\brun\s+['"`]?(?:echo|ls|pwd|uptime|whoami|date|uname|cat|grep|find)\b/,
+        // Hunt Finding #17 (2026-04-14): added `[\s:]+` so "run: ls" matches too.
+        /\brun[\s:]+['"`]?(?:echo|ls|pwd|uptime|whoami|date|uname|cat|grep|find|node|npm|git|which|ps|df|free)\b/,
     ];
 
     return intentPatterns.some(p => p.test(msg));
+}
+
+/**
+ * Hunt Finding #17 (2026-04-14): Extract a tool call from the USER MESSAGE directly.
+ *
+ * Runs as a last-resort rescue path in the NoTools handler. Triggered when the model
+ * ignored `tool_choice=required` and all model-response-based rescue paths failed.
+ *
+ * The key insight: when the user's request explicitly names a command or file, we
+ * don't need the model's cooperation to figure out what tool to call — we can parse
+ * the intent from the user message itself.
+ *
+ * This defends against weak models (like minimax-m2.7:cloud) that fabricate
+ * plausible-sounding tool output ("Permission denied", "command returned null",
+ * "Node.js is not installed") instead of actually calling the tool.
+ *
+ * Returns a synthetic tool call or null if no clear intent can be extracted.
+ */
+export function extractToolCallFromUserMessage(
+    userMessage: string,
+    activeTools: ToolDefinition[],
+): ToolCall | null {
+    if (!userMessage || userMessage.length < 5) return null;
+    const msg = userMessage.trim();
+    const lower = msg.toLowerCase();
+    const availableNames = new Set(activeTools.map(t => t.function.name));
+    const mkCall = (name: string, args: Record<string, unknown>): ToolCall => ({
+        id: `uir-${Date.now()}`,
+        type: 'function' as const,
+        function: { name, arguments: JSON.stringify(args) },
+    });
+
+    // Shell: "run X", "run: X", "execute X", "please run X", "can you run X"
+    // X starts with a known shell command.
+    if (availableNames.has('shell')) {
+        const shellMatch = msg.match(
+            /(?:please\s+)?(?:can you\s+)?(?:run|execute)[\s:]+[`'"]?((?:ls|cat|grep|find|echo|pwd|uname|node|npm|git|which|ps|df|free|uptime|whoami|date|hostname|ip|head|tail|wc|sort|uniq|awk|sed|curl|wget|ping|du|stat|file|env|printenv|history)\s[^\n`'"]*?)[`'"]?(?:\s+and|\s+then|\.|\?|\s*$)/i,
+        );
+        if (shellMatch && shellMatch[1]) {
+            return mkCall('shell', { command: shellMatch[1].trim() });
+        }
+        // Bare "run: ls /path" without other clauses
+        const bareMatch = msg.match(
+            /^(?:please\s+)?(?:run|execute)[\s:]+[`'"]?((?:ls|cat|grep|find|echo|pwd|uname|node|npm|git|which|ps|df|free|uptime|whoami|date|hostname)\s[^\n`'"]+?)[`'"]?\s*$/i,
+        );
+        if (bareMatch && bareMatch[1]) {
+            return mkCall('shell', { command: bareMatch[1].trim() });
+        }
+    }
+
+    // read_file: "read the file X", "read /path/to/file", "show me the contents of X"
+    if (availableNames.has('read_file')) {
+        const readMatch = msg.match(
+            /(?:read|open|show me|display|view)\s+(?:the\s+)?(?:file\s+|contents of\s+)?[`'"]?(\/[a-zA-Z0-9/._-]+)[`'"]?/i,
+        );
+        if (readMatch && readMatch[1]) {
+            return mkCall('read_file', { path: readMatch[1] });
+        }
+    }
+
+    // list_dir: "list files in X", "list X", "what's in X"
+    if (availableNames.has('list_dir')) {
+        const listMatch = msg.match(
+            /(?:list|show)\s+(?:the\s+)?(?:files?|contents?|directory)\s+(?:in|of|at)\s+[`'"]?(\/[a-zA-Z0-9/._-]+)[`'"]?/i,
+        );
+        if (listMatch && listMatch[1]) {
+            return mkCall('list_dir', { path: listMatch[1] });
+        }
+    }
+
+    // web_search: "search the web for X", "google X", "search for X"
+    if (availableNames.has('web_search')) {
+        const searchMatch = msg.match(/(?:search\s+(?:the\s+)?web\s+for|google|web\s+search\s+for|search\s+for)\s+(.+?)(?:\.|\?|$)/i);
+        if (searchMatch && searchMatch[1]) {
+            return mkCall('web_search', { query: searchMatch[1].trim() });
+        }
+    }
+
+    // web_fetch: "fetch https://...", "open URL https://..."
+    if (availableNames.has('web_fetch')) {
+        const fetchMatch = msg.match(/(?:fetch|open|load|get)\s+(https?:\/\/[^\s]+)/i);
+        if (fetchMatch && fetchMatch[1]) {
+            return mkCall('web_fetch', { url: fetchMatch[1] });
+        }
+    }
+
+    // weather: "weather for X", "what's the weather in X"
+    if (availableNames.has('weather')) {
+        const weatherMatch = lower.match(/weather\s+(?:for|in|at)\s+([a-zA-Z][a-zA-Z\s,]+?)(?:\.|\?|$)/i);
+        if (weatherMatch && weatherMatch[1]) {
+            return mkCall('weather', { location: weatherMatch[1].trim() });
+        }
+    }
+
+    return null;
 }
 
 // ── Phase State Machine ��─────────────────────────────────────────────
@@ -612,9 +730,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (ctx.voiceFastPath) {
                 smartMessages = ctx.messages as ChatMessage[];
             } else {
-                const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(
-                    ctx.messages.filter((m) => m.role !== 'tool' || round < 3)
-                );
+                // Hunt Finding #14 (2026-04-14): previously this filter dropped ALL tool
+                // messages on round 3+, leaving their parent assistant-with-tool_calls
+                // messages orphaned. validateToolPairs would then either synthesize
+                // placeholders (history preserved but content lost) or drop assistants
+                // (history destroyed). Either way, the model lost data and made bad
+                // decisions (e.g., writing empty files).
+                //
+                // Fix: pass ALL messages through. trimPairAware + pruneToolOutputs in the
+                // compressor already handle context size, and they do it atomically
+                // (keeping pairs together) so no orphans are created.
+                const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(ctx.messages);
                 if (didCompress) {
                     logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
                     ctx.messages.length = 0;
@@ -959,6 +1085,22 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     if (rescuedToolCall) {
                         logger.info(COMPONENT, `[ToolRescue] Extracted "${rescuedToolCall.function.name}" from content text`);
                         response.toolCalls = [rescuedToolCall];
+                        // Fall through to tool_calls handling below
+                    }
+                }
+
+                // Hunt Finding #17 (2026-04-14): UserIntentRescue — when the model
+                // ignores tool_choice=required AND all model-response-based rescue
+                // paths fail, extract the intended tool call from the USER MESSAGE
+                // directly. This catches the case where a weak model fabricates
+                // plausible-sounding tool output (e.g. "Permission denied",
+                // "command returned null") instead of actually running the tool.
+                if (!response.toolCalls || response.toolCalls.length === 0) {
+                    const userIntent = extractToolCallFromUserMessage(ctx.message || '', ctx.activeTools);
+                    if (userIntent) {
+                        logger.warn(COMPONENT, `[UserIntentRescue] Model ignored tool_choice=required; extracting "${userIntent.function.name}" from user message`);
+                        response.toolCalls = [userIntent];
+                        response.content = '';
                         // Fall through to tool_calls handling below
                     }
                 }

@@ -855,3 +855,119 @@ describe('Hunt Finding #04 — Port conflict probe in gateway', () => {
         expect(src).toMatch(/probe\.once\('timeout'/);
     });
 });
+
+// ─────────────────────────────────────────────────────────────
+// FINDING #17: Model fabricates tool output when ignoring tool_choice=required
+// Discovered: 2026-04-14 during Phase 3 tool execution gauntlet
+// Symptom: User asked "Please run: ls /nonexistent" — minimax replied
+//   "The command failed with exit code 2..." but never called shell.
+//   Gateway log showed tool_calls=undefined, TOOLS_USED=[] in response.
+// Root cause: minimax-m2.7:cloud ignores tool_choice=required. None of the
+//   existing rescue paths (FabricationGuard, IntentParser, ToolRescue) match
+//   when the model fabricates realistic-sounding tool output. TITAN bails
+//   after 3 [NoTools] retries and delivers the fabricated text to the user.
+// Fix: Added UserIntentRescue — parses the USER MESSAGE (not model response)
+//   for explicit tool intent and synthesizes the tool call directly.
+// ─────────────────────────────────────────────────────────────
+
+describe('Hunt Finding #17 — UserIntentRescue when model ignores tool_choice', () => {
+    it('extracts shell command from "Please run: ls /nonexistent"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'shell', description: 'run shell', parameters: { type: 'object', properties: {} } } } as any];
+        const result = extractToolCallFromUserMessage('Please run: ls /nonexistent/directory/that/does/not/exist', tools);
+        expect(result).not.toBeNull();
+        expect(result?.function.name).toBe('shell');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.command).toContain('ls');
+        expect(args.command).toContain('/nonexistent');
+    });
+
+    it('extracts shell command from "run ls /tmp"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'shell', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('run ls /tmp', tools);
+        expect(result?.function.name).toBe('shell');
+    });
+
+    it('extracts shell command from "execute uname -a"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'shell', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('execute uname -a', tools);
+        expect(result?.function.name).toBe('shell');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.command).toContain('uname');
+    });
+
+    it('extracts read_file from "read the file /etc/hostname"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'read_file', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('Please read the file /etc/hostname and tell me its contents.', tools);
+        expect(result?.function.name).toBe('read_file');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.path).toBe('/etc/hostname');
+    });
+
+    it('extracts list_dir from "list files in /tmp"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'list_dir', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('list files in /tmp', tools);
+        expect(result?.function.name).toBe('list_dir');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.path).toBe('/tmp');
+    });
+
+    it('extracts web_search from "search the web for AI agents"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'web_search', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('Please search the web for AI agents in 2026.', tools);
+        expect(result?.function.name).toBe('web_search');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.query).toContain('AI agents');
+    });
+
+    it('extracts web_fetch from "fetch https://example.com"', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'web_fetch', description: '', parameters: {} } } as any];
+        const result = extractToolCallFromUserMessage('Please fetch https://example.com/index.html', tools);
+        expect(result?.function.name).toBe('web_fetch');
+        const args = JSON.parse(result!.function.arguments);
+        expect(args.url).toBe('https://example.com/index.html');
+    });
+
+    it('returns null when user message has no clear tool intent', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        const tools = [{ function: { name: 'shell', description: '', parameters: {} } } as any];
+        expect(extractToolCallFromUserMessage('Hi, how are you today?', tools)).toBeNull();
+        expect(extractToolCallFromUserMessage('What is the meaning of life?', tools)).toBeNull();
+        expect(extractToolCallFromUserMessage('Tell me a joke', tools)).toBeNull();
+    });
+
+    it('returns null when the required tool is not in activeTools', async () => {
+        const { extractToolCallFromUserMessage } = await import('../src/agent/agentLoop.js');
+        // shell is requested but not available
+        const tools = [{ function: { name: 'web_search', description: '', parameters: {} } } as any];
+        expect(extractToolCallFromUserMessage('run ls /tmp', tools)).toBeNull();
+    });
+
+    it('detectToolUseIntent now matches "run: ls" with colon', async () => {
+        const { detectToolUseIntent } = await import('../src/agent/agentLoop.js');
+        // Hunt Finding #17: the pre-fix regex only matched "run " (space), not "run:"
+        expect(detectToolUseIntent('Please run: ls /tmp')).toBe(true);
+        expect(detectToolUseIntent('run: uname -a')).toBe(true);
+        expect(detectToolUseIntent('run:ls')).toBe(true);
+    });
+
+    it('source code: agentLoop has UserIntentRescue path after ToolRescue', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/UserIntentRescue/);
+        expect(src).toMatch(/extractToolCallFromUserMessage/);
+        // The rescue path must run BEFORE the bail-out / stall detection.
+        const rescueIdx = src.indexOf('UserIntentRescue');
+        const bailIdx = src.indexOf('Bailing after');
+        expect(rescueIdx).toBeGreaterThan(0);
+        expect(bailIdx).toBeGreaterThan(rescueIdx);
+    });
+});
