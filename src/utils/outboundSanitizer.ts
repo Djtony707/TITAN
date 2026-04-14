@@ -80,6 +80,19 @@ const INSTRUCTION_LEAK_PATTERNS: RegExp[] = [
     /\bthe user wants\b/i,
     /\bI'll (?:brainstorm|think about|come up with|put together|list out)\b/i,
     /\bI (?:could|should|would|might) (?:highlight|brainstorm|think about|come up with)\b/i,
+    // Hunt Finding #21 (2026-04-14): narrative third-person framing of the
+    // user's request — a classic respond-phase internal-monologue leak.
+    // "The user asked me to run X and write Y..." is the model narrating its
+    // task understanding to ITSELF and accidentally sending it to the user.
+    // Match the OPENING of a response only — a response body that later
+    // references "the user asked" in context is usually legitimate.
+    /^\s*(?:the user|user)\s+(?:asked|wants|said|requested|mentioned|told|wrote)\s+me\b/i,
+    /^\s*(?:the user|user)\s+(?:asked|wants|requested)\s+(?:me\s+)?to\s+\w+/i,
+    // Mid-text self-reflection about tool output — "Actually, looking at the
+    // results..." is always a CoT tell in a respond phase.
+    /\bactually,?\s+looking\s+at\s+(?:the\s+)?(?:results?|output|this|that)\b/i,
+    /\bnull\s+which\s+(?:means|might\s+mean|seems|suggests)\b/i,
+    /\bwait,?\s+(?:let me|I need to|that's not)\b/i,
     // Any content that STARTS with "Let me X" — narrowed after Hunt Finding #15
     // (2026-04-14): the previous `^let me\s+\w+` matched "Let me write to
     // /tmp/foo" which is a legitimate post-action explanation. Only catch

@@ -230,6 +230,37 @@ describe('OutboundSanitizer — tool artifact handling', () => {
         expect(sanitizeOutbound("I need to figure out what to do.", 'test').hadIssues).toBe(true);
     });
 
+    it('REGRESSION Hunt #21: blocks "The user asked me to..." narrative opener', () => {
+        // Real response captured from minimax during a tool chain test:
+        // "The user asked me to run echo rep1, write it to a file, and verify with cat.
+        //  The shell commands returned 'null' which seems like an empty output.
+        //  Let me try again with a different approach... Actually, looking at the results..."
+        const real = `The user asked me to run echo rep1, write it to a file, and verify with cat. The shell commands returned "null" which seems like an empty output. Let me try again with a different approach. Actually, looking at the results, the commands executed but returned no output.`;
+        const r = sanitizeOutbound(real, 'test');
+        expect(r.hadIssues).toBe(true);
+        // Multiple patterns should match — the opener, the null-which-means
+        // tell, AND the "actually looking at" reflection.
+        expect(r.issues.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('REGRESSION Hunt #21: blocks narrative openers from revealing internal framing', () => {
+        expect(sanitizeOutbound('The user asked me to read the config file.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('The user wants me to run a diagnostic.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('User requested me to summarize the log.', 'test').hadIssues).toBe(true);
+    });
+
+    it('REGRESSION Hunt #21: blocks mid-text reflection on tool results', () => {
+        expect(sanitizeOutbound('Done. Actually, looking at the results, there was an error.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('The command returned null which means the directory is empty.', 'test').hadIssues).toBe(true);
+        expect(sanitizeOutbound('Wait, let me reconsider what happened here.', 'test').hadIssues).toBe(true);
+    });
+
+    it('REGRESSION Hunt #21: allows legitimate third-person references to "the user"', () => {
+        // When "the user" appears NOT as a narrative opener, it's legitimate.
+        expect(sanitizeOutbound('I can help the user with that task.', 'test').hadIssues).toBe(false);
+        expect(sanitizeOutbound('For the user who ran this command, the output was saved.', 'test').hadIssues).toBe(false);
+    });
+
     it('REGRESSION Hunt #16: allows mid-text "Let me try/check/see" as legit next-action', () => {
         // Real response captured during multi-tool chain test:
         // "The file was created but was empty. The /etc/hostname file seems to

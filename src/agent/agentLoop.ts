@@ -378,7 +378,20 @@ export interface LoopResult {
 // ── Helper: strip leaked tool JSON from LLM responses ────────────────
 
 function stripToolJson(text: string): string {
-    return text.replace(/\s*\{"(?:name|tool_call)":\s*"[^"]+",\s*"(?:parameters|arguments)":\s*\{[^}]*\}\s*\}\s*/g, '').trim();
+    let cleaned = text.replace(/\s*\{"(?:name|tool_call)":\s*"[^"]+",\s*"(?:parameters|arguments)":\s*\{[^}]*\}\s*\}\s*/g, '').trim();
+    // Hunt Finding #21 (2026-04-14): also strip minimax:tool_call XML blocks
+    // and bare <invoke>/<parameter> tags that models sometimes emit as text
+    // when they want to call a tool but shouldn't (e.g., in the respond phase
+    // which runs with tools: undefined). Without this, the raw XML reaches
+    // result.content, which bypasses the empty-response retry and forces the
+    // gateway-level sanitizer to strip + fallback, losing task confirmation.
+    cleaned = cleaned.replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '').trim();
+    cleaned = cleaned.replace(/<minimax:tool_call>[\s\S]*$/g, '').trim(); // unclosed
+    cleaned = cleaned.replace(/<invoke\s+name=["'][^"']*["']>[\s\S]*?<\/invoke>/g, '').trim();
+    cleaned = cleaned.replace(/<invoke\s+name=["'][^"']*["']>[\s\S]*$/g, '').trim(); // unclosed
+    cleaned = cleaned.replace(/<parameter\s+name=["'][^"']*["']>[\s\S]*?<\/parameter>/g, '').trim();
+    cleaned = cleaned.replace(/<\/?(?:invoke|parameter|minimax:tool_call)[^>]*>/g, '').trim();
+    return cleaned;
 }
 
 // ── Helper: extract tool call from text content (ToolRescue) ─────────
@@ -1642,6 +1655,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     logger.warn(COMPONENT, `[PreModelHook:respond] Hook threw: ${(e as Error).message}`);
                 }
             }
+
+            // Hunt Finding #21 (2026-04-14): inject a directive message at the
+            // tail of the context for the respond phase. Without this, weak
+            // models (minimax-m2.7:cloud) produce internal-monologue text like
+            // "The user asked me to run X... Actually, looking at the results..."
+            // which is raw chain-of-thought leaking into the final answer.
+            // This directive is appended only to the respond-phase request —
+            // not persisted to the session history.
+            const respondDirective: ChatMessage = {
+                role: 'user',
+                content: '[System directive for this reply only] Write the final answer for the user. RULES: (1) Do NOT narrate what the user asked — they already know. (2) Do NOT describe your reasoning, thinking, or past tool attempts. (3) Do NOT start with "The user asked", "Let me", "Actually", "Looking at", "Wait" — start with the result. (4) Report outcomes as facts in 1-3 sentences. (5) No XML, no tool call blocks, no meta-commentary. Just the answer.',
+            };
+            smartMessages = [...smartMessages, respondDirective];
 
             const thinkingMode = ctx.thinkingOverride || ctx.config.agent.thinkingMode || 'off';
             const chatOptions = {
