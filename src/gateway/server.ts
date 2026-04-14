@@ -2299,6 +2299,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const { model } = req.body as { model?: string };
       if (!model) { res.status(400).json({ error: 'model is required' }); return; }
+      // Hunt Finding #25 (2026-04-14): validate input SHAPE before anything else.
+      // Prevents writing bogus strings to config.
+      if (typeof model !== 'string' || model.length === 0 || model.length > 200) {
+        res.status(400).json({ error: 'model must be a non-empty string up to 200 chars' });
+        return;
+      }
+      if (!/^[a-zA-Z0-9._:\-/]+$/.test(model)) {
+        res.status(400).json({ error: 'model contains invalid characters (allowed: alnum, ._:-/)' });
+        return;
+      }
       const cfg = loadConfig();
       // Resolve aliases
       const aliases = cfg.agent.modelAliases || {};
@@ -2307,6 +2317,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // ── CRITICAL FIX: Validate model exists for ALL providers ──
       const [providerName, ...modelParts] = resolved.split('/');
       const modelName = modelParts.join('/') || resolved; // Handle models with slashes in name
+
+      // Hunt Finding #25 (2026-04-14): previously, any providerName that
+      // wasn't 'ollama' fell through the `else if (providerName)` branch and
+      // was accepted without validation. A POST with model="fake/fake-model"
+      // would succeed and write the bogus value to config, bricking the
+      // gateway until manually reverted. Validate the provider exists in
+      // the registered router before accepting the switch.
+      if (providerName && providerName !== 'ollama') {
+        const { getProvider } = await import('../providers/router.js');
+        if (!getProvider(providerName)) {
+          logger.warn(COMPONENT, `[ModelSwitch] Unknown provider '${providerName}' — rejecting`);
+          res.status(400).json({
+            error: `Unknown provider '${providerName}'. Use /api/models to list available providers and models.`,
+          });
+          return;
+        }
+      }
 
       // 1. Ollama local models — check if model is pulled
       if (providerName === 'ollama') {

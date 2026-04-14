@@ -129,11 +129,12 @@ Key endpoints:
 - `GET /api/vram/check?mb=N` — Dry-run VRAM availability check
 
 ### Agent Wakeup API
-- `GET /api/wakeup` — List all wakeup requests
-- `POST /api/wakeup` — Create wakeup request (agentId, task, model)
-- `DELETE /api/wakeup/:id` — Cancel wakeup request
-- `GET /api/agents/me/inbox` — Get assigned issues + drain pending results
-- `GET /api/agents/me/inbox-lite` — Get inbox without draining
+Wakeup endpoints live under `/api/command-post/*` (moved during the Command Post
+refactor — Hunt Finding #25 cleaned up stale references):
+- `POST /api/command-post/wakeup` — Create wakeup request (body: `{agentId, task, model}`)
+- `GET /api/command-post/wakeup/:requestId` — Get wakeup request status
+- `DELETE /api/command-post/wakeup/:requestId` — Cancel wakeup request
+- `GET /api/command-post/agents/:agentId/inbox` — Get agent's assigned issues + drain pending results
 
 ### Command Post API
 - `GET /api/command-post/dashboard` — Full dashboard state (agents, issues, budgets)

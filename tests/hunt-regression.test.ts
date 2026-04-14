@@ -1165,6 +1165,22 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         expect(src).toMatch(/!m\.size \|\| m\.size === 0/);
     });
 
+    it('source code: /api/model/switch validates provider and input shape (Hunt #25)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
+        // Find the model switch handler
+        const idx = src.indexOf("app.post('/api/model/switch'");
+        expect(idx).toBeGreaterThan(0);
+        const block = src.slice(idx, idx + 3000);
+
+        // Input shape validation: length + allowed chars
+        expect(block).toMatch(/model\.length === 0 \|\| model\.length > 200/);
+        expect(block).toMatch(/\[a-zA-Z0-9\._:\\-\/\]/);
+
+        // Provider existence check via getProvider
+        expect(block).toMatch(/getProvider\(providerName\)/);
+        expect(block).toMatch(/Unknown provider/);
+    });
+
     it('source code: agent loop routes loop-breaker through respond phase (Hunt #24)', () => {
         const src = readFileSync(join(process.cwd(), 'src/agent/agentLoop.ts'), 'utf-8');
         // Old buggy code wrote loopCheck.reason directly to result.content:
