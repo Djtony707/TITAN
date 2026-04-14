@@ -457,6 +457,20 @@ async function monitorComments(): Promise<void> {
         return;
     }
 
+    // Hunt Finding #02 (2026-04-14): honor both config flags.
+    // Previously monitorComments ran unconditionally regardless of `facebook.autopilotEnabled`
+    // so a user disabling the autopilot still got auto-replies. Both flags now gate this path.
+    const config = loadConfig();
+    const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+    if (fbConfig?.autopilotEnabled === false) {
+        logger.debug(COMPONENT, 'Comment monitor: disabled via facebook.autopilotEnabled');
+        return;
+    }
+    if (fbConfig?.replyMonitorEnabled === false) {
+        logger.debug(COMPONENT, 'Comment monitor: disabled via facebook.replyMonitorEnabled');
+        return;
+    }
+
     const state = loadState();
     resetDailyCounters(state);
 

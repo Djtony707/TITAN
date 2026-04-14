@@ -698,6 +698,46 @@ export const TitanConfigSchema = z.object({
         /** Activity feed buffer size */
         activityBufferSize: z.number().default(500),
     }).default({}),
+
+    /**
+     * Facebook skill + autopilot config.
+     * Added after Hunt Finding #1 (2026-04-14): this key was previously NOT in the
+     * schema, so `facebook.autopilotEnabled: false` in titan.json was silently
+     * stripped by Zod on load, meaning users could not disable the FB autopilot
+     * via config editing. The autopilot would continue to run despite the flag.
+     */
+    facebook: z.object({
+        /** Master switch for FB autopilot (scheduled posts + comment replies). When false, neither runs. */
+        autopilotEnabled: z.boolean().default(true),
+        /** Disable only comment reply monitoring (kept for finer control). */
+        replyMonitorEnabled: z.boolean().default(true),
+        /** Model override for autopilot content generation. Empty = use agent.model. */
+        model: z.string().default(''),
+    }).default({}),
+
+    /**
+     * Alerting — where and how autonomous agent alerts are delivered.
+     * Previously accessed via `(config as Record<string, unknown>).alerting` in src/agent/alerts.ts
+     * but was NOT in the schema and thus silently stripped on load.
+     */
+    alerting: z.object({
+        /** Minimum severity that triggers alerts: info | warn | error | critical */
+        minSeverity: z.enum(['info', 'warn', 'error', 'critical']).default('error'),
+        /** Webhook URL for alert delivery (Slack/Discord/etc.) */
+        webhookUrl: z.string().optional(),
+    }).default({}),
+
+    /**
+     * Guardrails — input/output safety filters for the agent loop.
+     * Previously accessed via `(config as Record<string, unknown>).guardrails` in src/agent/guardrails.ts
+     * but was NOT in the schema and thus silently stripped on load.
+     */
+    guardrails: z.object({
+        /** Master switch for guardrails */
+        enabled: z.boolean().default(true),
+        /** Log violations only, don't block */
+        logOnly: z.boolean().default(false),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;

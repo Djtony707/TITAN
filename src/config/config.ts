@@ -40,6 +40,26 @@ export function loadConfig(): TitanConfig {
     // Apply environment variables
     applyEnvOverrides(rawConfig);
 
+    // Detect unknown top-level keys BEFORE Zod strips them.
+    // Hunt Finding #1 (2026-04-14): `facebook: {...}` was silently stripped because
+    // the key wasn't in TitanConfigSchema. Users editing their config saw no effect.
+    // Now we warn loudly when a key is about to be dropped, so bugs of this class
+    // are caught immediately instead of being debugged days later.
+    try {
+        const schemaShape = (TitanConfigSchema as unknown as { _def: { shape: () => Record<string, unknown> } })._def.shape();
+        const knownKeys = new Set(Object.keys(schemaShape));
+        const unknownKeys = Object.keys(rawConfig).filter(k => !knownKeys.has(k));
+        if (unknownKeys.length > 0) {
+            logger.warn(
+                COMPONENT,
+                `Config contains unknown top-level keys that will be stripped: ${unknownKeys.join(', ')}. ` +
+                `If these are intentional, add them to TitanConfigSchema in src/config/schema.ts.`,
+            );
+        }
+    } catch {
+        // If the schema shape introspection fails, skip the warning (shouldn't block load).
+    }
+
     // Validate and merge with defaults via Zod.
     // CRITICAL: On validation failure, deep-merge raw config over defaults
     // so that valid user settings (daemon.enabled, autonomy.mode, etc.) survive.

@@ -1,0 +1,21 @@
+{
+    "onboarded": true,
+    "agent": {
+        "model": "ollama/qwen3.5:35b"
+    },
+    "facebook": {
+        "autopilotEnabled": false,
+        "replyMonitorEnabled": false
+    },
+    "alerting": {
+        "minSeverity": "warn",
+        "webhookUrl": "https://example.com/webhook"
+    },
+    "guardrails": {
+        "enabled": true,
+        "logOnly": true
+    },
+    "totallyMadeUpKey": {
+        "shouldBeWarned": true
+    }
+}
