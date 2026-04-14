@@ -1165,6 +1165,33 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         expect(src).toMatch(/!m\.size \|\| m\.size === 0/);
     });
 
+    it('source lint: every channel adapter extends ChannelAdapter (Hunt #26)', async () => {
+        // Every .ts file in src/channels/ (except base.ts) that defines a
+        // class must extend ChannelAdapter. Direct standalone channel classes
+        // bypass the centralized deliver() sanitizer from Finding #13 and
+        // become the next leak path — Finding #26 caught qq.ts which was a
+        // standalone scaffold.
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const dir = join(process.cwd(), 'src/channels');
+        const offenders: string[] = [];
+        for (const f of fs.readdirSync(dir)) {
+            if (!f.endsWith('.ts') || f === 'base.ts') continue;
+            const content = fs.readFileSync(path.join(dir, f), 'utf-8');
+            // Look for a class declaration
+            const classMatch = content.match(/export\s+class\s+(\w+)(?:\s+extends\s+(\w+))?/);
+            if (!classMatch) continue; // pure-function file — skip
+            const className = classMatch[1];
+            const ext = classMatch[2];
+            if (ext !== 'ChannelAdapter') {
+                offenders.push(`${f}: class ${className} extends ${ext ?? '(nothing)'}`);
+            }
+        }
+        if (offenders.length > 0) {
+            throw new Error(`Channel classes not extending ChannelAdapter (outbound sanitizer bypass risk):\n${offenders.join('\n')}`);
+        }
+    });
+
     it('source code: /api/model/switch validates provider and input shape (Hunt #25)', () => {
         const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
         // Find the model switch handler

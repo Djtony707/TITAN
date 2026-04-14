@@ -145,6 +145,13 @@ vi.mock('../src/providers/router.js', () => ({
         { id: 'gpt-4o', provider: 'openai' },
     ]),
     getModelAliases: vi.fn().mockReturnValue({ sonnet: 'claude-sonnet-4-20250514' }),
+    // Hunt Finding #25 (2026-04-14): /api/model/switch validates provider
+    // exists in the router. Pretend every provider is registered.
+    getProvider: vi.fn().mockImplementation((name: string) => ({
+        name,
+        displayName: name,
+        listModels: vi.fn().mockResolvedValue([]),
+    })),
     chatStream: vi.fn().mockImplementation(async function* () {
         yield { type: 'text', text: 'streamed' };
         yield { type: 'done' };
