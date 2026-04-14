@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { loadConfig } from '../config/config.js';
-import { getOrCreateSession, getSessionById, addMessage, getContextMessages } from './session.js';
+import { getOrCreateSession, getOrCreateSessionById, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
 import { getLearningContext, learnFact, getToolWarnings, classifyTaskType, recordStrategy, recordStrategyOutcome, getStrategyHints, getLearnedPreferenceHints } from '../memory/learning.js';
@@ -815,9 +815,13 @@ export async function processMessage(
 ): Promise<AgentResponse> {
     const startTime = Date.now();
     const config = loadConfig();
-    // If a specific sessionId is provided, load that session (for session switching)
+    // If a specific sessionId is provided:
+    //   - Load that session if it exists
+    //   - Otherwise CREATE a new session with that exact ID (Hunt Finding #06)
+    // Previously, an unknown sessionId would silently fall back to the default
+    // session for the channel+user, causing context pollution across requests.
     const session = overrides?.sessionId
-        ? (getSessionById(overrides.sessionId) || getOrCreateSession(channel, userId, overrides?.agentId || 'default'))
+        ? getOrCreateSessionById(overrides.sessionId, channel, userId, overrides?.agentId || 'default')
         : getOrCreateSession(channel, userId, overrides?.agentId || 'default');
     const trace = startTrace(session.id, message);
     const soulState = initSoulState(session.id, message);

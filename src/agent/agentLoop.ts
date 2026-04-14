@@ -636,7 +636,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 forceToolUse: (ctx.activeTools.length > 0
                     && (ctx.isAutonomous || ctx.taskEnforcementActive)
                     && (ctx.config.agent as Record<string, unknown>).forceToolUse !== false
-                    && phase !== 'respond')
+                    && phase !== 'respond'
+                    // Hunt Finding #07 (2026-04-14): don't force tools on chat-pipeline
+                    // messages. Chat classification means the user is asking a simple
+                    // question — forcing tool_choice=required on "what is 2+2" breaks
+                    // the model because it correctly wants to answer with text ("4")
+                    // but isn't allowed to. Only force tools when the task actually
+                    // requires them.
+                    && ctx.completionStrategy !== 'single-round'
+                    && ctx.pipelineType !== 'chat')
                     || forceWriteOnNextThink  // Incomplete task guard forces tool call
                     // Hunt Finding #05: user explicitly asked to use a tool → force it,
                     // even in non-autonomous mode. Only applies to round 1 think-phase.

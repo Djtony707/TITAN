@@ -157,6 +157,61 @@ export function createNewSession(channel: string, userId: string, agentId: strin
     return session;
 }
 
+/**
+ * Get a session by ID, or create a new one with that exact ID if it doesn't exist.
+ *
+ * Hunt Finding #06 (2026-04-14): clients that pass an explicit sessionId to
+ * /api/message previously had their ID silently ignored when the session
+ * didn't exist — processMessage fell through to getOrCreateSession(channel,
+ * userId, agentId), which returned the default session for that channel+user
+ * combo. The client's intent to start a fresh isolated session was dropped
+ * and old context polluted the new request.
+ *
+ * This helper preserves the requested ID: if the session exists, return it;
+ * if not, create a brand-new session and register it under the requested ID.
+ */
+export function getOrCreateSessionById(
+    sessionId: string,
+    channel: string,
+    userId: string,
+    agentId: string = 'default',
+): Session {
+    const existing = getSessionById(sessionId);
+    if (existing) return existing;
+
+    const session: Session = {
+        id: sessionId,
+        channel,
+        userId,
+        agentId,
+        status: 'active',
+        messageCount: 0,
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+    };
+
+    const store = getDb();
+    store.sessions.push({
+        id: session.id,
+        channel,
+        user_id: userId,
+        agent_id: agentId,
+        status: 'active',
+        message_count: 0,
+        created_at: session.createdAt,
+        last_active: session.lastActive,
+    });
+
+    // Register under BOTH the id: key (for getSessionById) and the default
+    // channel+user+agent key (so subsequent requests without sessionId don't
+    // accidentally create yet another session for the same user).
+    activeSessions.set(`id:${session.id}`, session);
+    activeSessions.set(`${channel}:${userId}:${agentId}`, session);
+
+    logger.info(COMPONENT, `Created new session with explicit ID: ${session.id} (${channel}/${userId})`);
+    return session;
+}
+
 /** Get a session by its ID (for session switching) */
 export function getSessionById(sessionId: string): Session | null {
     // Check cache first

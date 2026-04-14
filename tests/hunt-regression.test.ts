@@ -375,6 +375,115 @@ describe('Hunt Finding #05 — detectToolUseIntent catches explicit tool request
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Finding #06 — Explicit sessionId silently ignored
+// ═══════════════════════════════════════════════════════════════
+//
+// Clients passing `sessionId: "fresh-id"` to /api/message had their ID silently
+// dropped when the session didn't exist. The old fallback used getOrCreateSession
+// (channel+user key) which returned the DEFAULT session, polluting state.
+//
+// Fix: new getOrCreateSessionById() helper that preserves the requested ID.
+
+describe('Hunt Finding #06 — getOrCreateSessionById creates session with requested ID', () => {
+    it('source: session.ts exports getOrCreateSessionById', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/session.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/export function getOrCreateSessionById/);
+    });
+
+    it('source: agent.ts uses getOrCreateSessionById for sessionId overrides', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agent.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/getOrCreateSessionById/);
+    });
+
+    it('getOrCreateSessionById creates new session with given ID', async () => {
+        vi.resetModules();
+        // Isolate DB/state to a temp home
+        const origHome = process.env.TITAN_HOME;
+        const tmpDir = `/tmp/titan-hunt-06-${Date.now()}`;
+        process.env.TITAN_HOME = tmpDir;
+
+        try {
+            const { getOrCreateSessionById, getSessionById } = await import('../src/agent/session.js');
+            const customId = 'hunt-test-session-abc123';
+
+            // Before: session doesn't exist
+            expect(getSessionById(customId)).toBeNull();
+
+            // Create it
+            const created = getOrCreateSessionById(customId, 'api', 'test-user', 'default');
+            expect(created.id).toBe(customId);
+            expect(created.channel).toBe('api');
+            expect(created.userId).toBe('test-user');
+
+            // Now it exists
+            const found = getSessionById(customId);
+            expect(found).not.toBeNull();
+            expect(found?.id).toBe(customId);
+        } finally {
+            if (origHome !== undefined) process.env.TITAN_HOME = origHome;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+
+    it('getOrCreateSessionById returns existing session when ID exists', async () => {
+        vi.resetModules();
+        const origHome = process.env.TITAN_HOME;
+        const tmpDir = `/tmp/titan-hunt-06b-${Date.now()}`;
+        process.env.TITAN_HOME = tmpDir;
+
+        try {
+            const { getOrCreateSessionById } = await import('../src/agent/session.js');
+            const customId = 'hunt-existing-id-xyz';
+            const first = getOrCreateSessionById(customId, 'api', 'user1', 'default');
+            const second = getOrCreateSessionById(customId, 'api', 'user1', 'default');
+            // Should return the SAME session (reference equality via the cache)
+            expect(second.id).toBe(first.id);
+            expect(second.createdAt).toBe(first.createdAt);
+        } finally {
+            if (origHome !== undefined) process.env.TITAN_HOME = origHome;
+            else delete process.env.TITAN_HOME;
+            vi.resetModules();
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Finding #07 — Chat-classified messages were forced to use tools
+// ═══════════════════════════════════════════════════════════════
+//
+// After Finding #05 flipped minimax selfSelectsTools to false, autonomous mode
+// began forcing tool_choice=required on ALL messages — including simple chat.
+// The model answered "4" to "what is 2+2" correctly but was rejected for not
+// calling a tool, burning 3 rounds and returning "maximum rounds" error.
+//
+// Fix: added pipeline-type gates to the forceToolUse condition in agent loop.
+
+describe('Hunt Finding #07 — forceToolUse respects chat pipeline', () => {
+    it('source: agent loop skips forceToolUse for single-round completion', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/completionStrategy\s*!==\s*['"]single-round['"]/);
+    });
+
+    it('source: agent loop skips forceToolUse for chat pipeline type', () => {
+        const src = readFileSync(
+            join(process.cwd(), 'src/agent/agentLoop.ts'),
+            'utf-8',
+        );
+        expect(src).toMatch(/pipelineType\s*!==\s*['"]chat['"]/);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Finding #04 — Gateway silently serves partial interfaces on port conflict
 // ═══════════════════════════════════════════════════════════════
 //
