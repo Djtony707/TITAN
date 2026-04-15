@@ -2162,7 +2162,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
   });
 
-  app.post('/api/config', (req, res) => {
+  app.post('/api/config', async (req, res) => {
     try {
       const body = req.body as Record<string, unknown>;
       const cfg = loadConfig();
@@ -2172,7 +2172,31 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // Track which config fields are being changed for restart detection
       const changedFields: string[] = [];
 
-      if (body.model) { draft.agent.model = body.model as string; changedFields.push('agent.model'); }
+      if (body.model) {
+        // Hunt Finding #35 (2026-04-14): POST /api/config's `model` field
+        // was bypassing the shape + provider-registry validation that
+        // /api/model/switch gained in #25. Same bug class: a bogus string
+        // got persisted to config. Apply the same shape check here.
+        const modelShapeErr = validateModelId(body.model);
+        if (modelShapeErr) {
+          res.status(400).json({ error: `model: ${modelShapeErr}` });
+          return;
+        }
+        // Also validate the provider is registered (same as #25).
+        const modelStr = body.model as string;
+        const providerPrefix = modelStr.split('/')[0];
+        if (providerPrefix && providerPrefix !== 'ollama') {
+          const { getProvider } = await import('../providers/router.js');
+          if (!getProvider(providerPrefix)) {
+            res.status(400).json({
+              error: `Unknown provider '${providerPrefix}'. Use /api/models to list available providers and models.`,
+            });
+            return;
+          }
+        }
+        draft.agent.model = modelStr;
+        changedFields.push('agent.model');
+      }
       if (body.autonomyMode) { draft.autonomy.mode = body.autonomyMode as 'supervised' | 'autonomous' | 'locked'; changedFields.push('autonomy.mode'); }
       if (body.sandboxMode) { draft.security.sandboxMode = body.sandboxMode as 'host' | 'docker' | 'none'; changedFields.push('security.sandboxMode'); }
       if (body.logLevel) { draft.logging.level = body.logLevel as 'info' | 'debug' | 'warn' | 'silent'; changedFields.push('logging.level'); }
@@ -2338,20 +2362,27 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(state || { active: null });
   });
 
+  /**
+   * Hunt Finding #25 + #35 (2026-04-14): shared model-id input validator.
+   * Used by BOTH /api/model/switch AND /api/config (where `body.model` takes
+   * the same path). Returns a validation error string or null if valid.
+   */
+  function validateModelId(model: unknown): string | null {
+    if (typeof model !== 'string' || model.length === 0 || model.length > 200) {
+      return 'model must be a non-empty string up to 200 chars';
+    }
+    if (!/^[a-zA-Z0-9._:\-/]+$/.test(model)) {
+      return 'model contains invalid characters (allowed: alnum, ._:-/)';
+    }
+    return null;
+  }
+
   app.post('/api/model/switch', async (req, res) => {
     try {
       const { model } = req.body as { model?: string };
       if (!model) { res.status(400).json({ error: 'model is required' }); return; }
-      // Hunt Finding #25 (2026-04-14): validate input SHAPE before anything else.
-      // Prevents writing bogus strings to config.
-      if (typeof model !== 'string' || model.length === 0 || model.length > 200) {
-        res.status(400).json({ error: 'model must be a non-empty string up to 200 chars' });
-        return;
-      }
-      if (!/^[a-zA-Z0-9._:\-/]+$/.test(model)) {
-        res.status(400).json({ error: 'model contains invalid characters (allowed: alnum, ._:-/)' });
-        return;
-      }
+      const shapeErr = validateModelId(model);
+      if (shapeErr) { res.status(400).json({ error: shapeErr }); return; }
       const cfg = loadConfig();
       // Resolve aliases
       const aliases = cfg.agent.modelAliases || {};

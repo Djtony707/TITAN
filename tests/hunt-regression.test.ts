@@ -1278,20 +1278,41 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         }
     });
 
+    it('source code: /api/config validates model field via shared helper (Hunt #35)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
+        // The shared validateModelId helper must exist.
+        expect(src).toMatch(/function validateModelId\(model: unknown\)/);
+        // Find the POST /api/config handler and confirm it CALLS validateModelId on body.model.
+        const cfgIdx = src.indexOf("app.post('/api/config'");
+        expect(cfgIdx).toBeGreaterThan(0);
+        // Within the first ~3000 chars of the handler, it should reference validateModelId.
+        const cfgBlock = src.slice(cfgIdx, cfgIdx + 5000);
+        expect(cfgBlock).toMatch(/validateModelId\(body\.model\)/);
+        // And it should call getProvider() for non-ollama prefixes, same as #25.
+        expect(cfgBlock).toMatch(/getProvider\(providerPrefix\)/);
+    });
+
     it('source code: /api/model/switch validates provider and input shape (Hunt #25)', () => {
         const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
-        // Find the model switch handler
-        const idx = src.indexOf("app.post('/api/model/switch'");
-        expect(idx).toBeGreaterThan(0);
-        const block = src.slice(idx, idx + 3000);
 
-        // Input shape validation: length + allowed chars
-        expect(block).toMatch(/model\.length === 0 \|\| model\.length > 200/);
-        expect(block).toMatch(/\[a-zA-Z0-9\._:\\-\/\]/);
+        // Hunt Finding #35 (2026-04-14): shape validation lives in the shared
+        // validateModelId helper (so both /api/model/switch and /api/config
+        // use the same rules). Assert the helper exists with the right checks.
+        const helperIdx = src.indexOf('function validateModelId');
+        expect(helperIdx).toBeGreaterThan(0);
+        const helperBlock = src.slice(helperIdx, helperIdx + 700);
+        expect(helperBlock).toMatch(/model\.length === 0 \|\| model\.length > 200/);
+        expect(helperBlock).toMatch(/\[a-zA-Z0-9\._:\\-\/\]/);
+
+        // The switch handler must call validateModelId (shape check).
+        const switchIdx = src.indexOf("app.post('/api/model/switch'");
+        expect(switchIdx).toBeGreaterThan(0);
+        const switchBlock = src.slice(switchIdx, switchIdx + 3000);
+        expect(switchBlock).toMatch(/validateModelId\(model\)/);
 
         // Provider existence check via getProvider
-        expect(block).toMatch(/getProvider\(providerName\)/);
-        expect(block).toMatch(/Unknown provider/);
+        expect(switchBlock).toMatch(/getProvider\(providerName\)/);
+        expect(switchBlock).toMatch(/Unknown provider/);
     });
 
     it('source code: agent loop routes loop-breaker through respond phase (Hunt #24)', () => {
