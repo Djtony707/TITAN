@@ -89,6 +89,35 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #43 — default user profile path is the README path
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #43 — default profile lives at README-promised path', () => {
+        const RELATIONSHIP = readFileSync(
+            resolve(__dirname, '../src/memory/relationship.ts'),
+            'utf-8',
+        );
+
+        it('default user profile path is ~/.titan/profile.json (README:924)', () => {
+            // README table lists: Relationship -> ~/.titan/profile.json
+            // A previous refactor moved the file to ~/.titan/profiles/default.json
+            // and deleted the legacy. Finding #43 restores the canonical path.
+            expect(RELATIONSHIP).toMatch(/userId === 'default'/);
+            expect(RELATIONSHIP).toMatch(/join\(TITAN_HOME, 'profile\.json'\)/);
+        });
+
+        it('no longer unlinkSyncs the legacy path', () => {
+            // Previously loadProfile would unlinkSync the canonical
+            // profile.json after migrating. That was the root cause of the
+            // README gap. Check we removed that destructive behavior.
+            expect(RELATIONSHIP).not.toMatch(/unlinkSync\(legacy/);
+        });
+
+        it('references Hunt #43', () => {
+            expect(RELATIONSHIP).toMatch(/Hunt (Finding )?#43/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #42 — modelAliases floor guarantees README-promised names
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #42 — modelAliases must include README-promised built-ins', () => {

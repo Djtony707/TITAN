@@ -9,14 +9,22 @@
  * No other AI agent platform does this at this level.
  * Every interaction makes TITAN more "yours".
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'RelationshipMemory';
 
+// Hunt Finding #43 (2026-04-15): README:924 documents the default user's
+// relationship profile at ~/.titan/profile.json. A previous refactor moved
+// it to ~/.titan/profiles/<userId>.json and deleted the legacy location,
+// breaking the README claim. Fix: for the default user, use the legacy
+// path the README promises; other users still get the per-user directory.
 function getProfilePath(userId = 'default'): string {
+    if (userId === 'default') {
+        return join(TITAN_HOME, 'profile.json');
+    }
     return join(TITAN_HOME, 'profiles', userId + '.json');
 }
 
@@ -73,17 +81,20 @@ export function loadProfile(userId = 'default'): PersonalProfile {
             return profile;
         }
     } catch { /* */ }
-    // Migration: check legacy single-file location for default user
+    // Hunt Finding #43 (2026-04-15): backward-compat — if the default user's
+    // profile only exists at the post-refactor path (~/.titan/profiles/default.json)
+    // but not at the README-promised path (~/.titan/profile.json), read from
+    // there and let saveProfile re-create it at the canonical location on
+    // next write. We no longer unlinkSync the canonical location.
     if (userId === 'default') {
-        const legacyPath = join(TITAN_HOME, 'profile.json');
+        const postRefactorPath = join(TITAN_HOME, 'profiles', 'default.json');
         try {
-            if (existsSync(legacyPath)) {
-                const profile = JSON.parse(readFileSync(legacyPath, 'utf-8')) as PersonalProfile;
+            if (existsSync(postRefactorPath)) {
+                const profile = JSON.parse(readFileSync(postRefactorPath, 'utf-8')) as PersonalProfile;
                 profileCache.set(userId, profile);
-                // Migrate: save to new location, then remove legacy
+                // Write to the canonical README path on next save.
                 saveProfile(profile, userId);
-                try { unlinkSync(legacyPath); } catch { /* ignore */ }
-                logger.info(COMPONENT, 'Migrated legacy profile to new location');
+                logger.info(COMPONENT, 'Restored default profile to canonical ~/.titan/profile.json');
                 return profile;
             }
         } catch { /* */ }
