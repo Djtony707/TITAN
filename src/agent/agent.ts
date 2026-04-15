@@ -14,7 +14,9 @@ import { retainStrategy, getHindsightHints } from '../memory/hindsightBridge.js'
 import { getTeachingContext, isCorrection } from './teaching.js';
 import { recordCorrection } from './userProfile.js';
 import { heartbeat, clearSession, setStallHandler, setAutonomousMode } from './stallDetector.js';
-import { resetLoopDetection } from './loopDetection.js';
+// Hunt Finding #22 / #46: resetLoopDetection is intentionally NOT called here.
+// See agent.ts:~1466 for the explanation. Session-close handles cleanup.
+// (Import left out so lint doesn't flag the unused symbol.)
 import { routeModel } from './costOptimizer.js';
 import { getPlugins } from '../plugins/registry.js';
 import { runAfterTurn } from '../plugins/contextEngine.js';
@@ -1464,7 +1466,15 @@ export async function processMessage(
 
     // Clean up stall detector for this session
     clearSession(session.id);
-    resetLoopDetection(session.id);
+    // Hunt Finding #22 / #46 (2026-04-15): previously resetLoopDetection fired
+    // at the end of EVERY turn, wiping cross-turn state. That meant the loop
+    // breaker could only catch loops within a single turn — a model that
+    // hit the same tool on turn 1, turn 2, turn 3 (across separate requests
+    // in the same session) would never trip. The README claims TITAN
+    // "prevents runaway loops and wasted tokens" which implies cross-turn
+    // coverage. Fix: keep the session's loop state alive until the session
+    // actually closes (session.ts:483 still wipes on session close).
+    // resetLoopDetection(session.id);  // INTENTIONALLY REMOVED — see comment above
 
     // Clear checkpoints on successful completion (no need to resume)
     if (!budgetExhausted) {

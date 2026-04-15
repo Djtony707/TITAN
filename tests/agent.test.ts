@@ -376,11 +376,15 @@ describe('Agent processMessage', () => {
         );
     });
 
-    it('should clean up stall detector and loop detection on completion', async () => {
+    it('should clean up stall detector on turn completion (Hunt #46: loop detection persists across turns)', async () => {
         await processMessage('Hello');
 
         expect(mockClearSession).toHaveBeenCalledWith('session-123');
-        expect(mockResetLoopDetection).toHaveBeenCalledWith('session-123');
+        // Hunt Finding #22/#46: previously this test expected loop detection
+        // to be reset at the end of every turn. That was the bug — wiping the
+        // rolling window defeats cross-turn loop detection. The session-close
+        // path (session.ts closeSession) still resets via its own call.
+        expect(mockResetLoopDetection).not.toHaveBeenCalled();
     });
 
     // ── Tool calling ────────────────────────────────────────────────

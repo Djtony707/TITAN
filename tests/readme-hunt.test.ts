@@ -89,6 +89,30 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #22/#46 — cross-turn loop detection (previously deferred)
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #22/#46 — cross-turn loop detection survives between turns', () => {
+        const AGENT = readFileSync(
+            resolve(__dirname, '../src/agent/agent.ts'),
+            'utf-8',
+        );
+
+        it('agent.ts does NOT call resetLoopDetection on every turn end', () => {
+            // The previous behavior wiped loop state at turn end, making it
+            // impossible to catch loops that span multiple turns in the same
+            // session. Session-close (session.ts:483) still handles cleanup.
+            const callSites = AGENT.match(/^\s*resetLoopDetection\(session\.id\)/gm) || [];
+            // Zero active call sites in agent.ts (the only legitimate reset
+            // path is session-close in session.ts).
+            expect(callSites.length).toBe(0);
+        });
+
+        it('references Hunt #22 or #46', () => {
+            expect(AGENT).toMatch(/Hunt (Finding )?#(22|46)/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #45 — mesh reconnect backoff cap tightened
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #45 — mesh reconnect backoff cap', () => {
