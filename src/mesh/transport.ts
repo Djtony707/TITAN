@@ -17,9 +17,16 @@ const pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject:
 const reconnectState = new Map<string, { attempts: number; nodeId: string; address: string; port: number; meshSecret: string; timer?: ReturnType<typeof setTimeout> }>();
 const peerUseTls = new Map<string, boolean>();
 
-/** Reconnection config constants */
+/** Reconnection config constants.
+ *
+ * Hunt Finding #45 (2026-04-15): README promises "reconnect automatically on
+ * restart." The mesh DID reconnect, but the exponential backoff was tuned
+ * too loose for a LAN mesh — attempts 5-6 slept 35s and 54s respectively,
+ * meaning a Mini PC restart could leave the mesh degraded for 2+ minutes.
+ * Tightened the cap from 60s → 30s so worst-case gap after restart is ~35s.
+ */
 const RECONNECT_BASE_DELAY = 2000;
-const RECONNECT_MAX_DELAY = 60000;
+const RECONNECT_MAX_DELAY = 30000;
 const RECONNECT_JITTER_FRAC = 0.2; // ±20% jitter
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 0; // 0 = unlimited reconnection attempts
 

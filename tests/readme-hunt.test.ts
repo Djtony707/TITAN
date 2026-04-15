@@ -89,6 +89,30 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #45 — mesh reconnect backoff cap tightened
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #45 — mesh reconnect backoff cap', () => {
+        const TRANSPORT = readFileSync(
+            resolve(__dirname, '../src/mesh/transport.ts'),
+            'utf-8',
+        );
+
+        it('RECONNECT_MAX_DELAY capped at <= 30s for README-compliant recovery', () => {
+            // README promises "reconnect automatically on restart". A 60s cap
+            // meant attempts 5-6 slept ~54s each, leaving the mesh degraded for
+            // 2+ minutes. Cap tightened to 30s.
+            const match = TRANSPORT.match(/RECONNECT_MAX_DELAY\s*=\s*(\d+)/);
+            expect(match).not.toBeNull();
+            const delay = parseInt(match![1], 10);
+            expect(delay).toBeLessThanOrEqual(30000);
+        });
+
+        it('references Hunt #45', () => {
+            expect(TRANSPORT).toMatch(/Hunt (Finding )?#45/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #44 — SPA catch-all must not swallow /mcp
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #44 — /mcp route passes SPA catch-all', () => {
