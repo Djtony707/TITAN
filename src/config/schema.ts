@@ -98,6 +98,14 @@ export const GatewayConfigSchema = z.object({
         token: z.string().optional(),
         password: z.string().optional(),
     }).default({}),
+    /**
+     * Hunt Finding #27 (2026-04-14): max parallel /api/message requests the
+     * gateway will accept before returning HTTP 503. Hardcoded to 5 before
+     * this was added. Tune higher for production deployments where the
+     * upstream model provider can handle more concurrent requests.
+     * Valid range: 1-1000. Default: 5 (safe for local Ollama).
+     */
+    maxConcurrentMessages: z.number().int().min(1).max(1000).default(5),
 });
 
 export const AgentConfigSchema = z.object({

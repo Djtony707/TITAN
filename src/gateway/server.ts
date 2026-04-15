@@ -784,8 +784,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   }
 
   // ── Concurrent request guard (prevents parallel abuse) ────
+  // Hunt Finding #27 (2026-04-14): previously this attached BOTH a 'finish'
+  // and a 'close' handler that each decremented the counter. Both events
+  // fire for a normal request completion ('finish' first, then 'close'),
+  // so every real request caused TWO decrements. Under parallel load the
+  // counter drifted below the true active-request count, effectively
+  // doubling the allowed concurrency. Math.max(0, -) kept it from going
+  // negative numerically but the effective limit became 2×MAX.
+  //
+  // Fix: use ONLY 'close', which fires for every completed response
+  // (normal, aborted, errored) exactly once. Remove 'finish' to eliminate
+  // the double-decrement. Also make the limit configurable via config
+  // so operators can tune it for their deployment instead of being stuck
+  // at the hardcoded 5.
   let activeMessageRequests = 0;
-  const MAX_CONCURRENT_MESSAGES = 5;
+  const MAX_CONCURRENT_MESSAGES = (() => {
+      const cfg = loadConfig() as unknown as { gateway?: { maxConcurrentMessages?: number } };
+      const v = cfg.gateway?.maxConcurrentMessages;
+      if (typeof v === 'number' && v > 0 && v <= 1000) return v;
+      return 5;
+  })();
 
   function concurrencyGuard(maxConcurrent: number) {
       return (_req: Request, res: Response, next: NextFunction) => {
@@ -794,8 +812,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               return;
           }
           activeMessageRequests++;
-          res.on('finish', () => { activeMessageRequests = Math.max(0, activeMessageRequests - 1); });
-          res.on('close', () => { activeMessageRequests = Math.max(0, activeMessageRequests - 1); });
+          // 'close' fires exactly once per completed request — safer than 'finish'
+          // which only fires for successful sends AND is followed by 'close'
+          // anyway (causing the double-decrement bug).
+          let decremented = false;
+          res.on('close', () => {
+              if (decremented) return;
+              decremented = true;
+              activeMessageRequests = Math.max(0, activeMessageRequests - 1);
+          });
           next();
       };
   }

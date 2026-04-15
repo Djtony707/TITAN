@@ -1165,6 +1165,41 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         expect(src).toMatch(/!m\.size \|\| m\.size === 0/);
     });
 
+    it('source code: concurrency guard decrements counter exactly once per request (Hunt #27)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
+        // Locate the concurrencyGuard helper
+        const idx = src.indexOf('function concurrencyGuard');
+        expect(idx).toBeGreaterThan(0);
+        const block = src.slice(idx, idx + 1500);
+
+        // Must NOT have a 'finish' listener decrementing — double-decrement bug.
+        expect(block).not.toMatch(/res\.on\(['"]finish['"]/);
+
+        // Must have 'close' listener (fires exactly once, for every completion type).
+        expect(block).toMatch(/res\.on\(['"]close['"]/);
+
+        // Must guard against double-fire via a flag — defense-in-depth if
+        // someone re-adds a 'finish' listener later or a library emits close twice.
+        expect(block).toMatch(/decremented/);
+
+        // Limit must come from config, not a hardcoded magic number inside
+        // the guard closure. The loaded value must still be in the MAX
+        // constant declaration.
+        const maxDecl = src.indexOf('MAX_CONCURRENT_MESSAGES');
+        expect(maxDecl).toBeGreaterThan(0);
+        const maxBlock = src.slice(maxDecl, maxDecl + 400);
+        expect(maxBlock).toMatch(/maxConcurrentMessages/);
+    });
+
+    it('source code: GatewayConfigSchema has maxConcurrentMessages field (Hunt #27)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/config/schema.ts'), 'utf-8');
+        expect(src).toMatch(/maxConcurrentMessages: z\.number\(\)/);
+        // Must have bounds and a default
+        const match = src.match(/maxConcurrentMessages: z\.number\(\)[\s\S]*?\.default\((\d+)\)/);
+        expect(match).toBeTruthy();
+        expect(match![1]).toBe('5'); // default stays at 5
+    });
+
     it('source lint: every channel adapter extends ChannelAdapter (Hunt #26)', async () => {
         // Every .ts file in src/channels/ (except base.ts) that defines a
         // class must extend ChannelAdapter. Direct standalone channel classes
