@@ -724,7 +724,14 @@ export class OllamaProvider extends LLMProvider {
     async listModels(): Promise<string[]> {
         try {
             const response = await fetch(`${this.baseUrl}/api/tags`);
-            if (!response.ok) return [];
+            if (!response.ok) {
+                // Hunt Finding #29 (2026-04-14): consume the body even on
+                // error paths so the underlying socket can return to the
+                // keep-alive pool. Without this, every non-200 response
+                // leaks its socket until the GC gets around to it.
+                await response.body?.cancel().catch(() => {});
+                return [];
+            }
             const data = await response.json() as { models?: Array<{ name: string }> };
             return (data.models || []).map((m) => m.name);
         } catch {
@@ -735,7 +742,12 @@ export class OllamaProvider extends LLMProvider {
     async healthCheck(): Promise<boolean> {
         try {
             const response = await fetch(`${this.baseUrl}/api/tags`);
-            return response.ok;
+            const ok = response.ok;
+            // Hunt Finding #29 (2026-04-14): ALWAYS consume or cancel the
+            // body. Previously we returned response.ok directly, leaving the
+            // body stream dangling and the socket held open.
+            await response.body?.cancel().catch(() => {});
+            return ok;
         } catch {
             return false;
         }

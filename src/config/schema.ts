@@ -106,6 +106,24 @@ export const GatewayConfigSchema = z.object({
      * Valid range: 1-1000. Default: 5 (safe for local Ollama).
      */
     maxConcurrentMessages: z.number().int().min(1).max(1000).default(5),
+    /**
+     * Hunt Finding #29 (2026-04-14): global fetch() HTTP pool configuration.
+     * Without this, Node's default dispatcher has no per-origin connection
+     * cap and the keep-alive pool to Ollama grew to 80+ sockets under load.
+     * The defaults are tuned for a single-machine Ollama deployment.
+     */
+    httpPool: z.object({
+        /** Max connections per origin (in-flight + idle). Default 16. */
+        connections: z.number().int().min(1).max(1024).default(16),
+        /** Idle keep-alive timeout in ms. Default 10_000. */
+        keepAliveTimeoutMs: z.number().int().min(1_000).max(300_000).default(10_000),
+        /** Hard cap on keep-alive bumps in ms. Default 60_000. */
+        keepAliveMaxTimeoutMs: z.number().int().min(1_000).max(600_000).default(60_000),
+        /** Max time to wait for response headers. Default 60_000. */
+        headersTimeoutMs: z.number().int().min(1_000).max(600_000).default(60_000),
+        /** Max time to wait for full response body. Default 300_000. */
+        bodyTimeoutMs: z.number().int().min(1_000).max(1_200_000).default(300_000),
+    }).default({}),
 });
 
 export const AgentConfigSchema = z.object({

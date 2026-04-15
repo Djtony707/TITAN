@@ -1165,6 +1165,57 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         expect(src).toMatch(/!m\.size \|\| m\.size === 0/);
     });
 
+    it('source code: Finding #29 — global HTTP pool installed at gateway startup', () => {
+        const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
+        // The pool installer must be imported AND called from startGateway.
+        expect(src).toMatch(/installGlobalHttpPool/);
+        // Must be called INSIDE startGateway (not module-level) to avoid
+        // side effects during unit tests that import the module.
+        const startIdx = src.indexOf('export async function startGateway');
+        expect(startIdx).toBeGreaterThan(0);
+        const startBlock = src.slice(startIdx, startIdx + 3000);
+        expect(startBlock).toMatch(/installGlobalHttpPool/);
+    });
+
+    it('source code: Finding #29 — Ollama healthCheck/listModels consume response bodies', () => {
+        const src = readFileSync(join(process.cwd(), 'src/providers/ollama.ts'), 'utf-8');
+        // healthCheck must NOT just return response.ok — that leaks the body.
+        const hcIdx = src.indexOf('async healthCheck');
+        expect(hcIdx).toBeGreaterThan(0);
+        const hcBlock = src.slice(hcIdx, hcIdx + 500);
+        // Must explicitly cancel or consume the body.
+        expect(hcBlock).toMatch(/body\?\.cancel\(\)|\.json\(\)|\.text\(\)/);
+        // listModels must also consume on error paths.
+        const lmIdx = src.indexOf('async listModels');
+        expect(lmIdx).toBeGreaterThan(0);
+        const lmBlock = src.slice(lmIdx, lmIdx + 500);
+        expect(lmBlock).toMatch(/body\?\.cancel\(\)/);
+    });
+
+    it('source code: Finding #29 — fetchWithRetry cancels intermediate retry bodies', () => {
+        const src = readFileSync(join(process.cwd(), 'src/utils/helpers.ts'), 'utf-8');
+        const idx = src.indexOf('export async function fetchWithRetry');
+        expect(idx).toBeGreaterThan(0);
+        const block = src.slice(idx, idx + 2000);
+        expect(block).toMatch(/response\.body\?\.cancel\(\)/);
+    });
+
+    it('source code: Finding #29 — vectors.embed cancels body on error', () => {
+        const src = readFileSync(join(process.cwd(), 'src/memory/vectors.ts'), 'utf-8');
+        // Find the embed function and check the error-return path cancels.
+        const idx = src.indexOf('async function embed');
+        expect(idx).toBeGreaterThan(0);
+        const block = src.slice(idx, idx + 1000);
+        expect(block).toMatch(/body\?\.cancel\(\)/);
+    });
+
+    it('source code: Finding #29 — gateway schema has httpPool config', () => {
+        const src = readFileSync(join(process.cwd(), 'src/config/schema.ts'), 'utf-8');
+        expect(src).toMatch(/httpPool: z\.object\(/);
+        expect(src).toMatch(/connections: z\.number/);
+        expect(src).toMatch(/keepAliveTimeoutMs/);
+    });
+
     it('source code: concurrency guard decrements counter exactly once per request (Hunt #27)', () => {
         const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
         // Locate the concurrencyGuard helper

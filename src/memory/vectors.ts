@@ -105,6 +105,8 @@ async function embed(text: string): Promise<number[] | null> {
 
         if (!response.ok) {
             logger.warn(COMPONENT, `Embedding API returned ${response.status}`);
+            // Hunt Finding #29: consume body so the socket returns to the pool
+            await response.body?.cancel().catch(() => {});
             return null;
         }
 

@@ -667,6 +667,24 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   const port = options?.port || config.gateway.port;
   let host = options?.host || config.gateway.host;
 
+  // Hunt Finding #29 (2026-04-14): install a bounded global HTTP dispatcher
+  // BEFORE any fetch() calls are made. Without this, each parallel Ollama
+  // fetch opens a fresh socket and the keep-alive pool grows unboundedly.
+  // Phase 5 load test saw 80+ idle sockets to Ollama after 100 requests.
+  try {
+    const { installGlobalHttpPool } = await import('../utils/httpPool.js');
+    const poolCfg = (config.gateway as unknown as { httpPool?: { connections?: number; keepAliveTimeoutMs?: number; keepAliveMaxTimeoutMs?: number; headersTimeoutMs?: number; bodyTimeoutMs?: number } }).httpPool;
+    installGlobalHttpPool({
+      connections: poolCfg?.connections,
+      keepAliveTimeoutMs: poolCfg?.keepAliveTimeoutMs,
+      keepAliveMaxTimeoutMs: poolCfg?.keepAliveMaxTimeoutMs,
+      headersTimeoutMs: poolCfg?.headersTimeoutMs,
+      bodyTimeoutMs: poolCfg?.bodyTimeoutMs,
+    });
+  } catch (e) {
+    logger.warn(COMPONENT, `[HttpPool] Failed to install global dispatcher: ${(e as Error).message} — fetch() will use Node defaults (unbounded pool)`);
+  }
+
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
 
   // ── First-run guard: refuse to start with no usable provider ──

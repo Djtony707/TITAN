@@ -93,6 +93,10 @@ export async function fetchWithRetry(
             // Import logger dynamically to avoid circular deps
             const { default: logger } = await import('../utils/logger.js');
             logger.warn('Retry', `${response.status} from ${url} — retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+            // Hunt Finding #29 (2026-04-14): consume the intermediate response
+            // body before the retry delay so its socket returns to the pool.
+            // Without this, every retry-eligible response leaked its socket.
+            await response.body?.cancel().catch(() => {});
             await new Promise(r => setTimeout(r, delayMs));
         } catch (err) {
             lastError = err as Error;
