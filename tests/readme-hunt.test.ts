@@ -89,6 +89,38 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #41 — `data_analysis` tool must exist (README claim)
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #41 — data_analysis tool exists', () => {
+        const DATA_ANALYSIS = readFileSync(
+            resolve(__dirname, '../src/skills/builtin/data_analysis.ts'),
+            'utf-8',
+        );
+
+        it('registers a tool named data_analysis (not just a skill)', () => {
+            // The README Tools table at README.md:747 lists data_analysis
+            // as the top-level tool. Previously only csv_parse/csv_stats/csv_query
+            // were registered, leaving data_analysis as a skill name with no
+            // matching tool. Added a high-level wrapper so the README claim holds.
+            const toolDecls = DATA_ANALYSIS.match(/name:\s*'data_analysis'/g) || [];
+            // At least one skill registration + the new tool registration.
+            // (Old file had 3 "data_analysis" skill names referring to the skill;
+            // with the new tool, the count is 4+).
+            expect(toolDecls.length).toBeGreaterThanOrEqual(4);
+        });
+
+        it('data_analysis tool supports summary/preview/stats/query operations', () => {
+            expect(DATA_ANALYSIS).toContain("operation === 'preview'");
+            expect(DATA_ANALYSIS).toContain("operation === 'stats'");
+            expect(DATA_ANALYSIS).toContain("operation === 'query'");
+        });
+
+        it('references Hunt #41', () => {
+            expect(DATA_ANALYSIS).toMatch(/Hunt (Finding )?#41/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #38b round 2 — narrator preamble stripping
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #38b round 2 — narrator preamble stripping', () => {

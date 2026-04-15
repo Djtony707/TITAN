@@ -334,6 +334,133 @@ export function registerDataAnalysisSkill(): void {
         }
     );
 
+    // Hunt Finding #41 (2026-04-15): README's Tools table lists `data_analysis`
+    // as a first-class tool name, but only csv_parse/csv_stats/csv_query were
+    // registered. Added a high-level `data_analysis` wrapper so the README
+    // claim holds. It dispatches to the specialist tools based on `operation`.
+    registerSkill(
+        {
+            name: 'data_analysis',
+            description: 'Use this when the user wants a one-shot analysis of a CSV: parse+stats+query in a single call. The README lists data_analysis as the top-level data tool.',
+            version: '1.0.0',
+            source: 'bundled',
+            enabled: true,
+        },
+        {
+            name: 'data_analysis',
+            description: 'High-level data analysis for CSV files. Chooses the right operation (preview, stats, query) based on the `operation` parameter. When the user says "analyze this CSV", "what does this data look like", or "give me a report on this dataset", call this tool with operation="summary" and it will return headers, row count, column stats, and a sample of rows in one response.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to the CSV file' },
+                    operation: {
+                        type: 'string',
+                        description: 'Which analysis to run: "summary" (preview + stats in one call, default), "preview" (first N rows), "stats" (column statistics), or "query" (filter/sort).',
+                        enum: ['summary', 'preview', 'stats', 'query'],
+                    },
+                    columns: { type: 'string', description: 'Comma-separated columns to focus on (optional)' },
+                    filter: { type: 'string', description: 'Filter expression for operation="query" (e.g. "age > 30")' },
+                    sort: { type: 'string', description: 'Sort column for operation="query"' },
+                    limit: { type: 'number', description: 'Row limit (default 20 for summary/preview, 50 for query)' },
+                    delimiter: { type: 'string', description: 'Field delimiter (default: comma)' },
+                },
+                required: ['path'],
+            },
+            execute: async (args) => {
+                try {
+                    const path = args.path as string;
+                    const operation = (args.operation as string) || 'summary';
+                    const delimiter = (args.delimiter as string) || ',';
+                    const columnsArg = (args.columns as string) || '';
+                    const limit = Math.min((args.limit as number) || (operation === 'query' ? 50 : 20), 1000);
+
+                    const filePath = resolve(path);
+                    const content = readFileSync(filePath, 'utf-8');
+                    const { headers, rows } = parseCSV(content, delimiter);
+
+                    if (operation === 'preview') {
+                        const displayRows = rows.slice(0, limit);
+                        return `File: ${path}\nRows: ${rows.length} total, showing first ${displayRows.length}\nColumns (${headers.length}): ${headers.join(', ')}\n\n${formatTable(headers, displayRows)}`;
+                    }
+
+                    if (operation === 'stats') {
+                        const selectedColumns = columnsArg ? columnsArg.split(',').map(c => c.trim()) : headers;
+                        const stats: Record<string, ColumnStats> = {};
+                        for (const col of selectedColumns) {
+                            if (!headers.includes(col)) continue;
+                            const values = rows.map(r => r[col] || '');
+                            const numericValues = values.filter(isNumeric).map(Number);
+                            if (numericValues.length > 0) {
+                                stats[col] = calculateNumericStats(numericValues) as ColumnStats;
+                            } else {
+                                const unique = new Set(values.filter(v => v.trim())).size;
+                                stats[col] = { count: values.length, unique };
+                            }
+                        }
+                        return `File: ${path}\nRows: ${rows.length}\nColumn stats:\n\n${formatStatsTable(stats)}`;
+                    }
+
+                    if (operation === 'query') {
+                        const filter = (args.filter as string) || '';
+                        const sort = (args.sort as string) || '';
+                        let filtered = rows;
+                        if (filter) {
+                            const match = filter.match(/^\s*(\w+)\s*(>=|<=|!=|==|>|<|contains)\s*(.+)\s*$/);
+                            if (match) {
+                                const [, col, op, rawVal] = match;
+                                const val = rawVal.trim().replace(/^['"]|['"]$/g, '');
+                                filtered = filtered.filter(row => {
+                                    const cell = row[col] || '';
+                                    return evaluateExpression(`${cell} ${op} ${val}`, cell);
+                                });
+                            }
+                        }
+                        if (sort && headers.includes(sort)) {
+                            filtered = [...filtered].sort((a, b) => {
+                                const aNum = Number(a[sort] || '');
+                                const bNum = Number(b[sort] || '');
+                                if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+                                return (a[sort] || '').localeCompare(b[sort] || '');
+                            });
+                        }
+                        const displayHeaders = columnsArg ? columnsArg.split(',').map(c => c.trim()) : headers;
+                        const displayRows = filtered.slice(0, limit);
+                        return `File: ${path}\nMatched ${filtered.length} of ${rows.length} rows, showing ${displayRows.length}\n\n${formatTable(displayHeaders, displayRows)}`;
+                    }
+
+                    // Default: summary — preview + stats combined
+                    const preview = rows.slice(0, Math.min(limit, 10));
+                    const selectedColumns = columnsArg ? columnsArg.split(',').map(c => c.trim()) : headers;
+                    const stats: Record<string, ColumnStats> = {};
+                    for (const col of selectedColumns) {
+                        if (!headers.includes(col)) continue;
+                        const values = rows.map(r => r[col] || '');
+                        const numericValues = values.filter(isNumeric).map(Number);
+                        if (numericValues.length > 0) {
+                            stats[col] = calculateNumericStats(numericValues) as ColumnStats;
+                        } else {
+                            const unique = new Set(values.filter(v => v.trim())).size;
+                            stats[col] = { count: values.length, unique };
+                        }
+                    }
+                    return [
+                        `File: ${path}`,
+                        `Rows: ${rows.length}`,
+                        `Columns (${headers.length}): ${headers.join(', ')}`,
+                        '',
+                        '── Preview (first 10) ──',
+                        formatTable(headers, preview),
+                        '',
+                        '── Column stats ──',
+                        formatStatsTable(stats),
+                    ].join('\n');
+                } catch (e) {
+                    return `Error in data_analysis: ${(e as Error).message}`;
+                }
+            },
+        }
+    );
+
     registerSkill(
         {
             name: 'data_analysis',
