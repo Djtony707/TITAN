@@ -237,12 +237,21 @@ export function initFileWatchers(): void {
     }
 }
 
-/** Security: validate that a watch path is within allowed directories */
-function isAllowedWatchPath(watchPath: string): boolean {
+/** Security: validate that a watch path is within allowed directories.
+ *
+ * Hunt Finding #32 (2026-04-14): fixed `startsWith` trap via path-separator
+ * boundary check.
+ */
+export function isAllowedWatchPath(watchPath: string): boolean {
     const normalized = normalize(resolve(watchPath));
     const home = homedir();
+    const withinDir = (child: string, parent: string): boolean => {
+        if (child === parent) return true;
+        const p = parent.endsWith('/') ? parent : parent + '/';
+        return child.startsWith(p);
+    };
     // Only allow watching under home directory or /tmp
-    if (!normalized.startsWith(home) && !normalized.startsWith('/tmp')) return false;
+    if (!withinDir(normalized, home) && !withinDir(normalized, '/tmp')) return false;
     // Block sensitive directories
     const lowerPath = normalized.toLowerCase();
     const blocked = ['.ssh', '.gnupg', '.env', 'credentials', '.aws', '.gcloud', '.kube'];

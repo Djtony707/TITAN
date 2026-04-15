@@ -16,17 +16,27 @@ import logger from '../../utils/logger.js';
 const COMPONENT = 'ExecuteCode';
 const WORK_DIR = join(homedir(), '.titan', 'code-sandbox');
 
-// Blocked patterns for safety
+// Blocked patterns for safety.
+// Hunt Finding #31 (2026-04-14): the previous `rm -rf /(?!tmp)` pattern
+// carved out /tmp as a "safe" exception but `rm -rf /tmp` still wipes
+// every user-writable file in /tmp wholesale (real damage demonstrated
+// in Finding #28). Widened to match the allowlist in shell.ts and
+// guardrails.ts — only scoped subpath rms pass.
 const BLOCKED_PATTERNS = [
-    /rm\s+-rf\s+\/(?!tmp)/,            // rm -rf outside /tmp
-    /mkfs|fdisk|dd\s+if=/,             // disk operations
-    /:(){ :|:& };:/,                    // fork bomb
-    />\s*\/dev\/sd[a-z]/,              // write to raw disk
-    /curl.*\|\s*(?:bash|sh)/,          // pipe to shell from internet
-    /wget.*\|\s*(?:bash|sh)/,
+    // rm -rf on / itself
+    /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+\/(?![a-zA-Z0-9_])/,
+    // rm -rf on any top-level directory (no subdir continuation)
+    /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+\/(?:tmp|var|home|etc|usr|opt|root|bin|sbin|lib|lib32|lib64|boot|dev|mnt|media|run|srv|sys|proc)\/?(?!\/?[a-zA-Z0-9_])/,
+    // Home-dir wipe
+    /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+(?:~|\$HOME|\$\{HOME\})(?!\/?[a-zA-Z0-9_])/,
+    /\bmkfs(?:\.\w+)?\b|\bfdisk\b|\bdd\s+if=/,             // disk operations
+    /:\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}/,                     // fork bomb
+    />\s*\/dev\/sd[a-z]/,                                    // write to raw disk
+    /\bcurl\b[^|;&\n]*\|\s*(?:sudo\s+)?(?:bash|sh|zsh)/,   // pipe to shell from internet
+    /\bwget\b[^|;&\n]*\|\s*(?:sudo\s+)?(?:bash|sh|zsh)/,
 ];
 
-function isSafe(code: string): boolean {
+export function isSafe(code: string): boolean {
     return !BLOCKED_PATTERNS.some(p => p.test(code));
 }
 

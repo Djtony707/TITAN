@@ -3568,8 +3568,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const basePath = selectedRoot.path;
     const fullPath = resolve(basePath, reqPath.replace(/^\//, ''));
 
-    // Security: must stay within root
-    if (!fullPath.startsWith(basePath)) {
+    // Security: must stay within root.
+    // Hunt Finding #34 (2026-04-14): previous `fullPath.startsWith(basePath)`
+    // let siblings through — e.g. if basePath=/home/dj/workspace and the
+    // attacker supplies path=/home/dj/workspace-evil/file, resolve() returns
+    // /home/dj/workspace-evil/file which startsWith('/home/dj/workspace')
+    // is TRUE, granting access to a directory outside the configured root.
+    // Check for exact match or path-separator boundary.
+    const basePathWithSep = basePath.endsWith('/') ? basePath : basePath + '/';
+    if (fullPath !== basePath && !fullPath.startsWith(basePathWithSep)) {
       return { valid: false, fullPath, basePath, error: 'Access denied: path outside allowed root' };
     }
 

@@ -17,11 +17,27 @@ function expandPath(filePath: string): string {
     return resolve(expanded);
 }
 
-function validatePath(filePath: string): string | null {
+/**
+ * Hunt Finding #32 (2026-04-14): helper to check if `child` is the same as
+ * or contained within `parent` on the filesystem, WITHOUT the `startsWith`
+ * trap. A naive `child.startsWith(parent)` returns true for siblings that
+ * share a prefix (e.g. `/tmpfoo` starts with `/tmp`, `/home/djacob` starts
+ * with `/home/dj`). We require either exact match or a path-separator
+ * boundary after `parent`.
+ */
+export function isWithinDir(child: string, parent: string): boolean {
+    if (child === parent) return true;
+    // Ensure trailing separator on parent so /tmpfoo doesn't match /tmp
+    const parentWithSep = parent.endsWith('/') ? parent : parent + '/';
+    return child.startsWith(parentWithSep);
+}
+
+export function validatePath(filePath: string): string | null {
     const resolved = expandPath(filePath);
     const home = homedir();
-    // Allow access within home directory and /tmp only
-    if (!resolved.startsWith(home) && !resolved.startsWith('/tmp')) {
+    // Allow access within home directory and /tmp only.
+    // Hunt Finding #32: must check path-separator boundary, not raw startsWith.
+    if (!isWithinDir(resolved, home) && !isWithinDir(resolved, '/tmp')) {
         return `Access denied: path must be within home directory or /tmp`;
     }
     // Block sensitive paths even within home
@@ -32,7 +48,7 @@ function validatePath(filePath: string): string | null {
     }
     // Block system directories
     for (const blocked of BLOCKED_PATHS) {
-        if (resolved.startsWith(blocked)) {
+        if (isWithinDir(resolved, blocked)) {
             return `Access denied: cannot access system directory ${blocked}`;
         }
     }

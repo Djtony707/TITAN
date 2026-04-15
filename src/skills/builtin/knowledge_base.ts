@@ -19,31 +19,82 @@ function isValidCollectionName(name: string): boolean {
     return /^[\w-]+$/.test(name) && !name.includes('..');
 }
 
-/** Block SSRF: reject internal/metadata URLs */
-function isBlockedUrl(url: string): boolean {
+/**
+ * Block SSRF: reject internal/metadata URLs.
+ *
+ * Hunt Finding #33 (2026-04-14): the previous version only blocked the
+ * exact `169.254.169.254` and loopback. An attacker could still aim the
+ * knowledge-base ingest at any private RFC 1918 address (10.x, 172.16-31.x,
+ * 192.168.x) to hit the user's internal network — routers, printers, NAS,
+ * admin consoles, other services on the gateway's LAN. Widened to block
+ * all private IPv4 ranges, IPv6 loopback + unique-local + link-local, and
+ * every 169.254.x.x link-local address (not just the cloud metadata IP).
+ */
+export function isBlockedUrl(url: string): boolean {
     try {
         const parsed = new URL(url);
         const hostname = parsed.hostname.toLowerCase();
-        // Block cloud metadata endpoints
-        if (hostname === '169.254.169.254') return true;
+        // Block non-HTTP(S) schemes outright
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
+        // Block cloud metadata hostnames
         if (hostname === 'metadata.google.internal') return true;
-        // Block loopback unless explicitly allowed
-        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-        // Block file:// protocol
-        if (parsed.protocol === 'file:') return true;
+        if (hostname === 'metadata.aws.internal') return true;
+        if (hostname === 'metadata.azure.com') return true;
+        // Block loopback by name
+        if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === 'localhost.localdomain') return true;
+
+        // IPv4 private ranges + loopback + link-local
+        const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+        if (ipv4) {
+            const o = [Number(ipv4[1]), Number(ipv4[2]), Number(ipv4[3]), Number(ipv4[4])];
+            if (o.some(x => x > 255)) return true; // invalid
+            // 127.0.0.0/8 loopback
+            if (o[0] === 127) return true;
+            // 10.0.0.0/8 private
+            if (o[0] === 10) return true;
+            // 172.16.0.0/12 private
+            if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true;
+            // 192.168.0.0/16 private
+            if (o[0] === 192 && o[1] === 168) return true;
+            // 169.254.0.0/16 link-local (covers cloud metadata + everything else)
+            if (o[0] === 169 && o[1] === 254) return true;
+            // 0.0.0.0/8 "this network"
+            if (o[0] === 0) return true;
+            // 100.64.0.0/10 CGNAT
+            if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true;
+        }
+
+        // IPv6 loopback / private / link-local
+        if (hostname === '::1' || hostname === '[::1]') return true;
+        if (hostname.startsWith('fe80:') || hostname.startsWith('[fe80:')) return true; // link-local
+        if (hostname.startsWith('fc00:') || hostname.startsWith('[fc00:')) return true; // unique local
+        if (hostname.startsWith('fd') || hostname.startsWith('[fd')) return true; // unique local (fd00::/8)
+        // IPv4-mapped IPv6: ::ffff:127.0.0.1, ::ffff:192.168.x.x, etc.
+        if (/^::ffff:/i.test(hostname) || /^\[::ffff:/i.test(hostname)) return true;
+
         return false;
     } catch {
         return true; // Invalid URL = blocked
     }
 }
 
-/** Validate that a resolved file path is safe to read */
-function isAllowedFilePath(filePath: string): boolean {
+/** Validate that a resolved file path is safe to read.
+ *
+ * Hunt Finding #32 (2026-04-14): the previous version used raw
+ * `startsWith('/tmp')` which also matched `/tmpfoo`. Fixed with the
+ * path-separator boundary check — exact match or a real subdirectory.
+ */
+export function isAllowedFilePath(filePath: string): boolean {
     const normalized = normalize(filePath);
     const home = homedir();
     const tmp = tmpdir();
+    const withinDir = (child: string, parent: string): boolean => {
+        if (child === parent) return true;
+        const p = parent.endsWith('/') ? parent : parent + '/';
+        return child.startsWith(p);
+    };
     // Must be under home directory, /tmp, or OS temp directory
-    if (!normalized.startsWith(home) && !normalized.startsWith('/tmp') && !normalized.startsWith(tmp)) return false;
+    if (!withinDir(normalized, home) && !withinDir(normalized, '/tmp') && !withinDir(normalized, tmp)) return false;
     // Block sensitive directories
     const lowerPath = normalized.toLowerCase();
     const blocked = ['.ssh', '.gnupg', '.env', 'credentials', '.aws', '.gcloud', '.azure', '.kube', '.docker/config'];

@@ -129,17 +129,34 @@ export function guardInput(message: string): GuardResult {
 
 // ── Tool Guard ──────────────────────────────────────────────────
 
-/** Dangerous shell commands that should be blocked or warned */
-const DANGEROUS_COMMANDS = [
-    { pattern: /\brm\s+-rf\s+\/(?!tmp)/, rule: 'rm_rf_root', severity: 'critical' as const },
+/**
+ * Dangerous shell commands that should be blocked or warned.
+ *
+ * Hunt Finding #31 (2026-04-14): the original `rm -rf /` pattern used
+ * `(?!tmp)` as an escape hatch to let `rm -rf /tmp` through. But as
+ * Finding #28 proved with real damage on the live gateway, `rm -rf /tmp`
+ * wipes every user-writable file in /tmp wholesale. Widened the detection
+ * to cover every top-level directory (and + `/` root), matching the
+ * allowlist in `src/skills/builtin/shell.ts`. Scoped subpath rms like
+ * `rm -rf /tmp/titan-cache` still pass.
+ *
+ * Exported so tests can iterate the patterns directly without needing
+ * to spin up the full config-loading guardToolCall() path.
+ */
+export const DANGEROUS_COMMANDS = [
+    // rm on / itself or on a top-level directory (no continuation into a subdir).
+    { pattern: /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+\/(?![a-zA-Z0-9_])/, rule: 'rm_rf_root', severity: 'critical' as const },
+    { pattern: /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+\/(?:tmp|var|home|etc|usr|opt|root|bin|sbin|lib|lib32|lib64|boot|dev|mnt|media|run|srv|sys|proc)\/?(?!\/?[a-zA-Z0-9_])/, rule: 'rm_rf_topdir', severity: 'critical' as const },
+    // Home-dir wipes
+    { pattern: /\brm\s+(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+(?:~|\$HOME|\$\{HOME\})(?!\/?[a-zA-Z0-9_])/, rule: 'rm_rf_home', severity: 'critical' as const },
     { pattern: /\bdd\s+.*of=\/dev\//, rule: 'dd_device_write', severity: 'critical' as const },
-    { pattern: /\bmkfs\b/, rule: 'mkfs', severity: 'critical' as const },
-    { pattern: /\b(shutdown|reboot|init\s+[06])\b/, rule: 'system_shutdown', severity: 'warning' as const },
-    { pattern: /\bchmod\s+777\s+\//, rule: 'chmod_777_root', severity: 'warning' as const },
+    { pattern: /\bmkfs(?:\.\w+)?\b/, rule: 'mkfs', severity: 'critical' as const },
+    { pattern: /\b(shutdown|reboot|halt|poweroff|init\s+[06])\b/, rule: 'system_shutdown', severity: 'warning' as const },
+    { pattern: /\bchmod\s+-?R?\s*777\s+\/(?!tmp\/|home\/\w+\/|var\/tmp\/)/, rule: 'chmod_777_root', severity: 'warning' as const },
     { pattern: />\s*\/etc\//, rule: 'overwrite_etc', severity: 'critical' as const },
-    { pattern: /\bcurl\b.*\|\s*(bash|sh|zsh)/, rule: 'curl_pipe_shell', severity: 'critical' as const },
-    { pattern: /\bwget\b.*\|\s*(bash|sh|zsh)/, rule: 'wget_pipe_shell', severity: 'critical' as const },
-    { pattern: /\b:()\s*\{\s*:\s*\|\s*:\s*&\s*\}/, rule: 'fork_bomb', severity: 'critical' as const },
+    { pattern: /\bcurl\b[^|;&\n]*\|\s*(?:sudo\s+)?(bash|sh|zsh)/, rule: 'curl_pipe_shell', severity: 'critical' as const },
+    { pattern: /\bwget\b[^|;&\n]*\|\s*(?:sudo\s+)?(bash|sh|zsh)/, rule: 'wget_pipe_shell', severity: 'critical' as const },
+    { pattern: /:\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}/, rule: 'fork_bomb', severity: 'critical' as const },
 ];
 
 /** File paths that should never be written to */
