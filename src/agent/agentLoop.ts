@@ -841,6 +841,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 }
             }
 
+            // Hunt Finding #38 (2026-04-15): for chat-pipeline messages that
+            // complete in a single think-phase round, the respond-phase
+            // directive (Finding #21) never fires — the model's raw think
+            // output goes directly to the user (streaming, so the tokens are
+            // already on screen) and the sanitizer catches narrator leaks at
+            // the END by which point it's too late. Inject the directive
+            // into the context BEFORE the first think call for chat pipelines
+            // so the model's FIRST token is already post-directive.
+            if (round === 0 && phase === 'think' && ctx.completionStrategy === 'single-round') {
+                smartMessages = [
+                    ...smartMessages,
+                    {
+                        role: 'user' as const,
+                        content: '[System directive for this reply only] Respond directly to the user. RULES: (1) Do NOT narrate what the user asked — they already know. (2) Do NOT describe your reasoning, thinking, or what you\'re about to do. (3) Do NOT start with "The user asked", "Let me", "I should", "I\'ll", "Actually", "Looking at" — start with the actual answer. (4) Be brief and friendly. 1-3 sentences is usually enough. (5) No meta-commentary. Just the answer.',
+                    },
+                ];
+            }
+
             const chatOptions = {
                 model: activeModel,
                 messages: smartMessages,

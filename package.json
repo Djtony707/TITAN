@@ -144,6 +144,7 @@
     "node-cron": "^3.0.3",
     "ora": "^8.1.0",
     "turndown": "^7.2.2",
+    "undici": "^7.25.0",
     "uuid": "^10.0.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
@@ -229,7 +230,8 @@
       "matrix-js-sdk",
       "pdf-parse",
       "jsdom",
-      "node-llama-cpp"
+      "node-llama-cpp",
+      "undici"
     ],
     "banner": {
       "js": "#!/usr/bin/env node"
