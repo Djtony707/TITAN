@@ -363,3 +363,60 @@ export function shouldAffectCircuitBreaker(classified: ClassifiedError): boolean
         && classified.reason !== FailoverReason.CONTENT_FILTERED
         && classified.reason !== FailoverReason.FORMAT_ERROR;
 }
+
+/**
+ * Hunt Finding #37 (2026-04-14): a shared helper for building errors from
+ * a failed fetch Response. Previous code pattern was:
+ *
+ *     throw new Error(`Provider error (${response.status}): ${errorText}`);
+ *
+ * This dropped the `Retry-After` header on the floor. Downstream code in
+ * router.ts tried `(error as Response)?.headers?.get?.('Retry-After')`
+ * which always returned undefined at runtime because the error is an
+ * Error object, not a Response. Result: Retry-After headers were NEVER
+ * respected, even though the code pretended to.
+ *
+ * New pattern: use this helper to attach status + parsed Retry-After
+ * (in ms) + the original body snippet to the error, so router.ts can
+ * read them back via typed properties.
+ */
+export interface ProviderHttpError extends Error {
+    status?: number;
+    retryAfterMs?: number | null;
+    provider?: string;
+    model?: string;
+}
+
+export function createProviderError(
+    providerDisplayName: string,
+    response: { status: number; headers?: { get(name: string): string | null } },
+    errorText: string,
+    opts?: { provider?: string; model?: string },
+): ProviderHttpError {
+    const err: ProviderHttpError = new Error(
+        `${providerDisplayName} error (${response.status}): ${errorText}`,
+    );
+    err.status = response.status;
+    err.provider = opts?.provider;
+    err.model = opts?.model;
+
+    // Parse Retry-After at throw time — router.ts reads err.retryAfterMs later
+    try {
+        const raw = response.headers?.get('Retry-After');
+        if (raw) {
+            const sec = parseInt(raw, 10);
+            if (Number.isFinite(sec)) {
+                err.retryAfterMs = Math.max(0, Math.min(sec * 1000, 300_000));
+            } else {
+                const date = new Date(raw);
+                if (!isNaN(date.getTime())) {
+                    err.retryAfterMs = Math.max(0, Math.min(date.getTime() - Date.now(), 300_000));
+                }
+            }
+        }
+    } catch {
+        // Header parsing failures are non-fatal — just fall back to calculated backoff.
+    }
+
+    return err;
+}

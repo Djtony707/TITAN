@@ -471,10 +471,15 @@ export class OllamaProvider extends LLMProvider {
                 }, { timeoutMs });
                 if (!response.ok) {
                     const retryText = await response.text();
-                    throw new Error(`Ollama error (${response.status}): ${retryText}`);
+                    // Hunt Finding #37 (2026-04-14): use createProviderError to
+                    // attach status + parsed Retry-After so the router actually
+                    // respects the provider's backoff hint.
+                    const { createProviderError } = await import('./errorTaxonomy.js');
+                    throw createProviderError('Ollama', response, retryText, { provider: 'ollama', model });
                 }
             } else {
-                throw new Error(`Ollama error (${response.status}): ${errorText}`);
+                const { createProviderError } = await import('./errorTaxonomy.js');
+                throw createProviderError('Ollama', response, errorText, { provider: 'ollama', model });
             }
         }
 

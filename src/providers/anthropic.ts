@@ -102,7 +102,9 @@ export class AnthropicProvider extends LLMProvider {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+            // Hunt Finding #37: attach status + Retry-After so the router can respect backoff
+            const { createProviderError } = await import('./errorTaxonomy.js');
+            throw createProviderError('Anthropic API', response, errorText, { provider: 'anthropic', model });
         }
 
         const data = await response.json() as Record<string, unknown>;

@@ -83,7 +83,9 @@ export class GoogleProvider extends LLMProvider {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Google API error (${response.status}): ${errorText}`);
+            // Hunt Finding #37: attach status + Retry-After so the router can respect backoff
+            const { createProviderError } = await import('./errorTaxonomy.js');
+            throw createProviderError('Google API', response, errorText, { provider: 'google', model });
         }
 
         const data = await response.json() as Record<string, unknown>;

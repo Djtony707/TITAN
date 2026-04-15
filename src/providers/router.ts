@@ -742,13 +742,25 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 // Use taxonomy cooldown or calculate backoff, whichever is larger
                 let retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
 
-                // Respect Retry-After header for rate limits
-                const retryAfter = (error as Response)?.headers?.get?.('Retry-After');
-                if (retryAfter) {
-                    const parsed = parseRetryAfter(retryAfter);
-                    if (parsed !== null) {
-                        retryDelayMs = parsed;
-                        logger.info(COMPONENT, `[RateLimit] Respecting Retry-After: ${Math.round(retryDelayMs / 1000)}s`);
+                // Hunt Finding #37 (2026-04-14): previous code tried
+                // `(error as Response)?.headers?.get?.('Retry-After')` which
+                // always returned undefined at runtime because the error is
+                // an Error object, not a Response. Retry-After headers were
+                // never actually respected. Providers now attach retryAfterMs
+                // to the thrown error via createProviderError().
+                const errWithHints = error as { retryAfterMs?: number | null; headers?: { get?(k: string): string | null } };
+                if (typeof errWithHints.retryAfterMs === 'number' && errWithHints.retryAfterMs > 0) {
+                    retryDelayMs = errWithHints.retryAfterMs;
+                    logger.info(COMPONENT, `[RateLimit] Respecting Retry-After: ${Math.round(retryDelayMs / 1000)}s`);
+                } else {
+                    // Back-compat: old-style error that happens to wrap a Response
+                    const retryAfter = errWithHints.headers?.get?.('Retry-After');
+                    if (retryAfter) {
+                        const parsed = parseRetryAfter(retryAfter);
+                        if (parsed !== null) {
+                            retryDelayMs = parsed;
+                            logger.info(COMPONENT, `[RateLimit] Respecting Retry-After (legacy): ${Math.round(retryDelayMs / 1000)}s`);
+                        }
                     }
                 }
 
