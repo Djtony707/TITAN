@@ -8,30 +8,97 @@ import logger from '../../utils/logger.js';
 
 const COMPONENT = 'Shell';
 
-/** S5: Dangerous command patterns that should be blocked */
+/**
+ * S5 / Hunt Finding #28 (2026-04-14): Dangerous command patterns that should
+ * be blocked.
+ *
+ * Finding #28 was caught during Phase 5.6 injection testing: a prompt
+ * injection attempt containing backtick-wrapped `rm -rf /tmp/` was obeyed by
+ * the model, the shell tool executed it, and the command wiped user dj's
+ * files in /tmp on the live Titan PC. Root cause: the original `rm -rf /`
+ * regex `\brm\s+(-[rfRF]+\s+)?\/(?!\w)` was specifically designed to allow
+ * `rm -rf /tmp/foo`, but the `(?!\w)` boundary meant `rm -rf /tmp` ALSO
+ * passed — so any top-level directory (/tmp, /var, /home, /etc, /usr, /opt,
+ * /root, /bin, /sbin, /lib, /boot, /dev, /mnt, /media, /run, /srv, /sys,
+ * /proc) could be wiped.
+ *
+ * New rule: block `rm -rf` on ANY top-level directory by name. Require at
+ * least TWO path components after `/` for the command to pass. This still
+ * allows `rm -rf /tmp/foo`, `rm -rf /var/log/old`, etc. — legitimate scoped
+ * cleanup — but blocks the whole-directory nuke attacks.
+ *
+ * Also added home-directory wipe patterns (`~`, `$HOME`) and extended the
+ * chmod/chown patterns to catch more than just `/`.
+ */
+// Common fragment: an `rm` flag set that includes -r and/or -f in any order
+// (e.g., -rf, -Rf, -fr, -rfv, -Rvf). Matches one or more flag words.
+const RM_DESTRUCTIVE_FLAGS = /(?:-[a-zA-Z]*[rfRF][a-zA-Z]*\s+)+/.source;
+
 const BLOCKED_COMMANDS = [
-    /\brm\s+(-[rfRF]+\s+)?\/(?!\w)/,  // rm -rf / (but allow rm -rf /tmp/foo)
-    /\bdd\b.*\bof\s*=\s*\/dev/,        // dd to devices
-    /\bmkfs\b/,                         // format filesystems
-    /\bformat\b.*\/dev/,               // format devices
-    /\bshutdown\b/,                    // system shutdown
-    /\breboot\b/,                      // system reboot
-    /\bchmod\s+777\s+\//,             // chmod 777 on root
-    /\bchown\s+.*\s+\//,              // chown on root
-    /:\(\)\{.*:\|:.*\}/,              // fork bomb
-    /\$\(.*\brm\b.*\)/,              // rm in command substitution
-    /\beval\b/,                       // eval (arbitrary code execution)
-    /\bsource\s+\/dev\//,            // source from device
-    />\s*\/etc\//,                    // redirect to /etc
-    /\bchattr\b/,                    // change file attributes
-    /\biptables\b/,                  // firewall manipulation
+    // rm on / itself (root directory) — either exactly /, or / followed by a
+    // non-path character (whitespace, quote, terminator, or end).
+    new RegExp(`\\brm\\s+${RM_DESTRUCTIVE_FLAGS}\\/(?![a-zA-Z0-9_])`),
+    // rm on a top-level directory by name where the path does NOT continue
+    // into a subdirectory. Matches: /tmp, /tmp/, /tmp "..., /var, etc.
+    // Does NOT match: /tmp/foo, /var/log/old (legitimate scoped rm).
+    // The key is the lookahead `(?!\/[a-zA-Z0-9_])` — "not followed by
+    // slash-then-wordchar" — which means a trailing `/` is OK only if
+    // nothing else comes after it.
+    new RegExp(
+        `\\brm\\s+${RM_DESTRUCTIVE_FLAGS}\\/(?:tmp|var|home|etc|usr|opt|root|bin|sbin|lib|lib32|lib64|boot|dev|mnt|media|run|srv|sys|proc)\\/?(?!\\/?[a-zA-Z0-9_])`,
+    ),
+    // Home-directory wipe: rm -rf ~, rm -rf $HOME, rm -rf $HOME/
+    new RegExp(
+        `\\brm\\s+${RM_DESTRUCTIVE_FLAGS}(?:~|\\$HOME|\\$\\{HOME\\})(?!\\/?[a-zA-Z0-9_])`,
+    ),
+    // Glob wipe: rm -rf /* or rm -rf *
+    new RegExp(`\\brm\\s+${RM_DESTRUCTIVE_FLAGS}\\/?\\*(?:\\s|$|["'\`;&|])`),
+    // Also block rm with SEPARATED flags: rm -r -f /tmp
+    /\brm(?:\s+-[rRfF])+\s+\/(?:tmp|var|home|etc|usr|opt|root|bin|sbin|lib|lib32|lib64|boot|dev|mnt|media|run|srv|sys|proc)\/?(?!\/?[a-zA-Z0-9_])/,
+    // dd to raw devices
+    /\bdd\b[^;|&\n]*\bof\s*=\s*\/dev\//,
+    // Filesystem format
+    /\bmkfs(?:\.\w+)?\b/,
+    /\bformat\b[^;|&\n]*\/dev\//,
+    // System power
+    /\bshutdown\b/,
+    /\breboot\b/,
+    /\bhalt\b/,
+    /\bpoweroff\b/,
+    // Overly permissive chmod/chown on sensitive paths. The allowlist
+    // exempts /tmp/, /home/<user>/, /var/tmp/ which are user-writable areas
+    // where 777 is legitimate for shared sockets etc.
+    /\bchmod\s+-R?\s*777\s+\/(?!tmp\/|home\/\w+\/|var\/tmp\/)/,
+    /\bchmod\s+-?R?\s*777\s+\/(?!tmp\/|home\/\w+\/|var\/tmp\/)/,
+    // chown on sensitive system dirs. The (?:-R\s+)? absorbs optional -R.
+    /\bchown\s+(?:-R\s+)?[^\s]+\s+\/(?:etc|usr|bin|sbin|lib|boot|dev|root|sys|proc)(?:\/|\s|$|["'`])/,
+    // Fork bomb
+    /:\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}/,
+    // Embedded rm in command substitution
+    /\$\([^)]*\brm\s+-[a-zA-Z]*[rfRF][a-zA-Z]*[^)]*\)/,
+    // eval / exec of arbitrary strings
+    /\beval\s+["'`]/,
+    // Sourcing from device files
+    /\bsource\s+\/dev\//,
+    // Redirects to system config
+    />\s*\/etc\//,
+    />\s*\/boot\//,
+    // Attribute changes on critical dirs
+    /\bchattr\b/,
+    // Firewall manipulation
+    /\biptables\b/,
+    /\bufw\s+(?:disable|enable|reset|default|delete|allow|deny)/,
+    /\bnftables\b/,
+    // Curl|pipe|bash — classic "pipe from internet to shell" attacks
+    /\bcurl\s+[^|;&\n]+\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/,
+    /\bwget\s+-\w*O-\s+[^|;&\n]+\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/,
 ];
 
-function validateCommand(command: string): string | null {
+export function validateCommand(command: string): string | null {
     for (const pattern of BLOCKED_COMMANDS) {
         if (pattern.test(command)) {
-            logger.warn(COMPONENT, `Blocked dangerous command: ${command.slice(0, 100)}`);
-            return `Command blocked: this pattern is not allowed for security reasons`;
+            logger.warn(COMPONENT, `[Finding28Guard] Blocked dangerous command: ${command.slice(0, 200)}`);
+            return `Command blocked: this pattern is not allowed for security reasons. The command appears to match a destructive / unsafe pattern (e.g., wiping a top-level directory, formatting a device, piping internet content to bash). If this was legitimate, scope it to a more specific path.`;
         }
     }
     return null;
