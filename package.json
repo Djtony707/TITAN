@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "3.2.3",
+  "version": "3.2.4",
   "description": "TITAN — Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 15 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -34,7 +34,7 @@
   },
   "scripts": {
     "build:ui": "cd ui && npm install && npm run build",
-    "postinstall": "node scripts/postinstall.cjs",
+    "postinstall": "node -e \"try{require('./scripts/postinstall.cjs')}catch(e){if(e.code==='MODULE_NOT_FOUND'){console.log('TITAN installed. Run: titan onboard')}else{throw e}}\"",
     "build": "tsup",
     "build:personal": "node scripts/build-personal.cjs",
     "dev": "tsx src/cli/index.ts",
