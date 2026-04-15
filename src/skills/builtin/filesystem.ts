@@ -2,7 +2,7 @@
  * TITAN — Filesystem Skill (Built-in)
  * Read, write, edit, and list files and directories.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, openSync, readSync, closeSync } from 'fs';
 import { join, resolve } from 'path';
 import { homedir } from 'os';
 import { registerSkill } from '../registry.js';
@@ -55,13 +55,49 @@ export function validatePath(filePath: string): string | null {
     return null; // valid
 }
 
+/**
+ * Hunt Finding #36 (2026-04-14): max bytes returned by read_file in a single
+ * call. A Phase 5.5 test read a 1MB file and the full content got pumped into
+ * the model context, exploding it to 213K tokens and driving the model into
+ * 21-tool-call pathological exploration before returning a hallucinated
+ * wrong answer. Now: files over this threshold return a preview + stats +
+ * usage hint; the caller can use byteOffset/byteLimit to page through.
+ * Tunable via env var TITAN_READ_FILE_MAX_BYTES.
+ */
+const READ_FILE_MAX_BYTES = (() => {
+    const v = process.env.TITAN_READ_FILE_MAX_BYTES;
+    const n = v ? parseInt(v, 10) : NaN;
+    if (Number.isFinite(n) && n > 0 && n <= 10_000_000) return n;
+    return 100_000; // 100 KB default — enough for most source files, small enough to not blow context
+})();
+
+/** Read the first N bytes of a file without loading the whole thing. */
+function readFirstBytes(filePath: string, maxBytes: number): string {
+    const fd = openSync(filePath, 'r');
+    try {
+        const buf = Buffer.alloc(maxBytes);
+        const bytesRead = readSync(fd, buf, 0, maxBytes, 0);
+        return buf.subarray(0, bytesRead).toString('utf-8');
+    } finally {
+        closeSync(fd);
+    }
+}
+
 export function registerFilesystemSkill(): void {
     // Read File
     registerSkill(
         { name: 'read_file', description: 'Read file contents', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'read_file',
-            description: 'Read the contents of a file and return it with line numbers.\n\nUSE THIS WHEN Tony says: "read X" / "show me X file" / "what\'s in X" / "open X" / "check X file" / "look at X"\n\nRULES:\n- ALWAYS call read_file before editing — never edit blind\n- Use startLine/endLine for large files to read specific sections\n- Returns line numbers — use these when calling edit_file',
+            description: `Read the contents of a file and return it with line numbers.
+
+USE THIS WHEN Tony says: "read X" / "show me X file" / "what's in X" / "open X" / "check X file" / "look at X"
+
+RULES:
+- ALWAYS call read_file before editing — never edit blind
+- Use startLine/endLine for large files to read specific sections
+- Returns line numbers — use these when calling edit_file
+- Files larger than ~100 KB return a preview + size hint; use startLine/endLine to read the rest`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -77,12 +113,56 @@ export function registerFilesystemSkill(): void {
                 if (pathErr) return pathErr;
                 if (!existsSync(filePath)) return `Error: File not found: ${filePath}`;
                 try {
+                    // Hunt Finding #36 (2026-04-14): check file size BEFORE reading
+                    // the full content. Previous version called readFileSync
+                    // unconditionally and a 1MB file exploded context to 213K
+                    // tokens and drove the model into 21-call pathological
+                    // exploration before hallucinating a wrong answer.
+                    const stat = statSync(filePath);
+                    const fileSize = stat.size;
+                    const oversized = fileSize > READ_FILE_MAX_BYTES;
+
+                    // If the caller supplied startLine/endLine they're opting
+                    // into scoped reads — let them read even from a large file,
+                    // but still cap the total bytes returned.
+                    const rawStart = args.startLine as number | undefined;
+                    const rawEnd = args.endLine as number | undefined;
+                    const hasScope = (rawStart !== undefined) || (rawEnd !== undefined);
+
+                    if (oversized && !hasScope) {
+                        // Return a preview of the first READ_FILE_MAX_BYTES
+                        // plus file stats + a usage hint. This keeps context
+                        // bounded and points the model at the right next action.
+                        const preview = readFirstBytes(filePath, READ_FILE_MAX_BYTES);
+                        const previewLines = preview.split('\n');
+                        const humanSize = fileSize >= 1_000_000
+                            ? `${(fileSize / 1_000_000).toFixed(2)} MB`
+                            : `${(fileSize / 1_000).toFixed(1)} KB`;
+                        return [
+                            `File: ${filePath}`,
+                            `Size: ${humanSize} (${fileSize} bytes) — TRUNCATED`,
+                            `Showing first ${READ_FILE_MAX_BYTES} bytes (~${previewLines.length} lines). The file is too large to load in full.`,
+                            `To read more, call read_file again with startLine/endLine parameters.`,
+                            `---`,
+                            ...previewLines.slice(0, 500).map((l, i) => `${i + 1}: ${l}`),
+                        ].join('\n');
+                    }
+
                     const content = readFileSync(filePath, 'utf-8');
                     const lines = content.split('\n');
-                    const start = (args.startLine as number) || 1;
-                    const end = (args.endLine as number) || lines.length;
+                    const start = rawStart || 1;
+                    const end = rawEnd || lines.length;
                     const selected = lines.slice(start - 1, end);
-                    return `File: ${filePath} (${lines.length} lines)\n---\n${selected.map((l, i) => `${start + i}: ${l}`).join('\n')}`;
+
+                    // Even with scoped reads, cap the returned size so a file
+                    // with one million characters on a single line doesn't
+                    // blow up context through the startLine=1,endLine=1 path.
+                    const output = `File: ${filePath} (${lines.length} lines)\n---\n${selected.map((l, i) => `${start + i}: ${l}`).join('\n')}`;
+                    if (output.length > READ_FILE_MAX_BYTES * 2) {
+                        return output.slice(0, READ_FILE_MAX_BYTES * 2) +
+                            `\n\n... [output truncated: ${output.length - READ_FILE_MAX_BYTES * 2} bytes omitted. Use narrower startLine/endLine to paginate.]`;
+                    }
+                    return output;
                 } catch (e) { return `Error reading file: ${(e as Error).message}`; }
             },
         },

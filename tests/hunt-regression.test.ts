@@ -1278,6 +1278,22 @@ describe('Hunt Finding #19 — named sessions do not pollute default slot', () =
         }
     });
 
+    it('source code: read_file has byte cap + truncation path (Hunt #36)', () => {
+        const src = readFileSync(join(process.cwd(), 'src/skills/builtin/filesystem.ts'), 'utf-8');
+        // Must define a byte cap
+        expect(src).toMatch(/READ_FILE_MAX_BYTES/);
+        // Must call statSync to check size BEFORE readFileSync
+        const readExecIdx = src.indexOf("execute: async (args)");
+        expect(readExecIdx).toBeGreaterThan(0);
+        const block = src.slice(readExecIdx, readExecIdx + 3500);
+        expect(block).toMatch(/statSync\(filePath\)/);
+        expect(block).toMatch(/oversized/);
+        expect(block).toMatch(/TRUNCATED/);
+        // Must have the partial-read helper that doesn't load the full file
+        expect(src).toMatch(/readFirstBytes/);
+        expect(src).toMatch(/readSync/);
+    });
+
     it('source code: /api/config validates model field via shared helper (Hunt #35)', () => {
         const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
         // The shared validateModelId helper must exist.
