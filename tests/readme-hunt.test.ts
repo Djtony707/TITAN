@@ -89,6 +89,37 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #42 — modelAliases floor guarantees README-promised names
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #42 — modelAliases must include README-promised built-ins', () => {
+        it('parsed config always has fast/smart/cheap/reasoning/local as a floor', async () => {
+            // README:552 "Built-in aliases: fast, smart, cheap, reasoning, local"
+            // Previously, any user override would REPLACE the defaults so the
+            // user could lose 'cheap' by setting only {fast, cloud}. The schema
+            // now uses .transform() to merge user aliases on top of the floor.
+            const mod = await import('../src/config/schema.js');
+            const schema = mod.AgentConfigSchema;
+
+            // User override that intentionally omits cheap/reasoning/local
+            const parsed = schema.parse({
+                model: 'ollama/foo',
+                modelAliases: {
+                    fast: 'my/custom-fast',
+                    cloud: 'my/custom-cloud',
+                },
+            });
+            const aliases = parsed.modelAliases as Record<string, string>;
+            expect(aliases.fast).toBe('my/custom-fast');
+            expect(aliases.cloud).toBe('my/custom-cloud');
+            expect(aliases.smart).toBeDefined();
+            expect(aliases.cheap).toBeDefined();
+            expect(aliases.reasoning).toBeDefined();
+            expect(aliases.local).toBeDefined();
+        });
+
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #41 — `data_analysis` tool must exist (README claim)
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #41 — data_analysis tool exists', () => {

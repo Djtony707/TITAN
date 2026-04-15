@@ -69,11 +69,15 @@ beforeEach(async () => {
 // ════════════════════════════════════════════════════════════════════
 
 describe('Data Analysis Skill — Registration', () => {
-    it('should register all 3 tool handlers', () => {
-        expect(handlers.size).toBe(3);
+    it('should register all 4 tool handlers', () => {
+        // Hunt Finding #41 (2026-04-15): added `data_analysis` as a top-level
+        // tool so the README Tools table claim holds. Previously 3 handlers
+        // (csv_parse, csv_stats, csv_query); now 4 with data_analysis wrapper.
+        expect(handlers.size).toBe(4);
         expect(handlers.has('csv_parse')).toBe(true);
         expect(handlers.has('csv_stats')).toBe(true);
         expect(handlers.has('csv_query')).toBe(true);
+        expect(handlers.has('data_analysis')).toBe(true);
     });
 
     it('should have path as a required parameter for csv_parse', () => {

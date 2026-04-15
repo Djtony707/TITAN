@@ -150,14 +150,30 @@ export const AgentConfigSchema = z.object({
     forceToolUse: z.boolean().default(true),
     thinkingMode: z.enum(['off', 'low', 'medium', 'high']).default('medium'),
     /** Model aliases â e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
-    modelAliases: z.record(z.string(), z.string()).default({
-        fast: 'openai/gpt-4o-mini',
-        smart: 'anthropic/claude-sonnet-4-20250514',
-        reasoning: 'openai/o3-mini',
-        cheap: 'google/gemini-2.0-flash',
-        local: 'ollama/qwen3.5:4b',
-        cloud: 'ollama/qwen3.5:397b-cloud',
-    }),
+    // Hunt Finding #42 (2026-04-15): README promises built-in aliases
+    // `fast, smart, cheap, reasoning, local`. Zod's .default() replaces the
+    // whole record on any user override, so once a user customized aliases
+    // their file would LOSE the built-ins. Use .transform() to merge user
+    // overrides on top of the built-ins.
+    modelAliases: z.record(z.string(), z.string())
+        .default({
+            fast: 'openai/gpt-4o-mini',
+            smart: 'anthropic/claude-sonnet-4-20250514',
+            reasoning: 'openai/o3-mini',
+            cheap: 'google/gemini-2.0-flash',
+            local: 'ollama/qwen3.5:4b',
+            cloud: 'ollama/qwen3.5:397b-cloud',
+        })
+        .transform((userAliases): Record<string, string> => ({
+            // README-promised built-ins (always present as a floor)
+            fast: 'openai/gpt-4o-mini',
+            smart: 'anthropic/claude-sonnet-4-20250514',
+            cheap: 'google/gemini-2.0-flash',
+            reasoning: 'openai/o3-mini',
+            local: 'ollama/qwen3.5:4b',
+            // User overrides win (and may add aliases like 'cloud')
+            ...userAliases,
+        })),
     costOptimization: z.object({
         smartRouting: z.boolean().default(true),
         contextSummarization: z.boolean().default(true),
