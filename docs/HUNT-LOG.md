@@ -1,20 +1,22 @@
 # TITAN Synthetic User Hunt — Final Report
 
-**Period:** 2026-04-13 (prior session, findings #01–#10) and 2026-04-14 (this session, findings #11–#30)
+**Period:** 2026-04-13 (prior session, findings #01–#10) and 2026-04-14 (this session, findings #11–#37)
 **Methodology:** Execute realistic user scenarios against the deployed gateway, observe real output, fix at the right layer on first failure, capture every bug as a regression fixture.
 
 ## Summary
 
-- **30 findings** captured and fixed across six phases of synthetic user testing
+- **37 findings** captured and fixed across every phase of synthetic user testing
 - **1 finding** (#22) deferred — symptom masked by an earlier fix in the same session
-- **Test count growth:** 4,904 → 5,189 (+285 regression tests over the two-day hunt; +148 in this session including +108 shell command-validation suite)
+- **Test count growth:** 4,904 → **5,306** (+402 regression tests over the two-day hunt; +265 in this session)
 - **Zero production leaks** in the 24 hours following the initial round of fixes (#01–#10)
-- **All 20 findings from this session** were reproduced against the LIVE deployed gateway on Titan PC, fixed with source changes, re-deployed, and re-verified live before being captured as fixtures
+- **All 27 findings from this session** were reproduced against the LIVE deployed gateway on Titan PC, fixed with source changes, re-deployed, and re-verified live before being captured as fixtures
 - **Critical security finding (#28)** caught actual filesystem damage on the live gateway: a prompt-injected `rm -rf /tmp/` was executed and wiped real user files. Fixed with a comprehensive shell command allowlist + 108-case regression suite.
 - **Critical packaging finding (#30)** caught that `npm install titan-agent@latest` had been broken since v3.2.3 was published. Fixed with self-healing postinstall + version bump to 3.2.4.
+- **The Finding #28 class-level lesson ("audit every security validator for test coverage") immediately produced findings #31–#34** — four more validator bugs in six files that were all exploitable copies of similar patterns. Recommendations written during a hunt should point at the next findings.
+- **The Finding #25 lesson ("every persistent-write endpoint needs shape + registry validation") immediately produced #35** — `/api/config` bypassed the validation added to `/api/model/switch`.
 
 Previous session (findings #01–#10) documented in commits `8cec3b75` through `5a83c5c3`.
-This session (findings #11–#30) documented below.
+This session (findings #11–#37) documented below.
 
 ## Findings ledger — 2026-04-14 session
 
@@ -38,6 +40,14 @@ Each finding has a full README under `tests/fixtures/hunt/NN-name/`.
 | **#28** | **CRITICAL** — Shell tool allowed `rm -rf /tmp` (wiped real files on live gateway via prompt injection) | CRITICAL | Shell validator allowlist + 108-case regression suite | `84375f57` |
 | **#29** | Unbounded undici keep-alive pool + unconsumed response bodies (FD leak) | HIGH | New global HTTP pool module + ollama/vectors/helpers body cancellation | `911789c5` |
 | **#30** | **CRITICAL** — `npm install titan-agent@latest` was broken since v3.2.3 was published | CRITICAL | Self-healing postinstall + version bump to 3.2.4 | `e349f0d5` |
+| **#31** | `guardrails.ts` + `executeCode.ts` had the same `rm -rf /tmp` bypass as #28 | HIGH | Shared pattern library across 3 shell validators | `bb6f2ee1` |
+| **#32** | Four files used `startsWith('/tmp')` — sibling path traversal (`/tmpfoo`) | MEDIUM | `isWithinDir` path-boundary helper applied everywhere | `bb6f2ee1` |
+| **#33** | `knowledge_base.isBlockedUrl` SSRF: didn't block private RFC 1918 / IPv6 / CGNAT | HIGH | Complete SSRF allowlist rewrite | `bb6f2ee1` |
+| **#34** | `server.validateFilePath` sibling traversal (`workspace-evil/` vs `workspace/`) | MEDIUM | Path-separator boundary check | `bb6f2ee1` |
+| **#35** | `/api/config` model field bypassed the #25 validator | HIGH | Shared `validateModelId` helper + provider registry check | `84d04aed` |
+| **#36** | `read_file` on a 1 MB file exploded context to 213K tokens → wrong answer | HIGH | Size-aware read with `readFirstBytes` + hard output ceiling | `f3df72bd` |
+| **#37** | `Retry-After` header was never actually respected (TypeScript cast not runtime) | HIGH | `createProviderError` helper + all 5 providers updated | `125281fa` |
+| follow-redirects CVE | `follow-redirects <= 1.15.11` CVE (custom auth header leak on cross-domain redirect) | MODERATE | Added npm `overrides` entry for 1.16.0 | `f3df72bd` |
 
 ### Deferred
 
@@ -111,6 +121,45 @@ I left this for the end thinking it would be a quick smoke-check. Instead it cau
   - With `postinstall.cjs` deliberately deleted (simulating the historical npm bug): install STILL succeeds, prints fallback message, `titan --version` returns `3.2.4`.
 - **Action required from user:** run `npm publish` to push 3.2.4 to the npm registry. This is the only finding that requires user credentials — Claude can't publish to npm.
 
+### Post-#28 validator audit (Findings #31–#34)
+
+The class-level lesson from #28 was: "audit every `validateCommand`-style allowlist for unit test coverage". I immediately ran that audit and it produced four more findings:
+
+- **#31** — `guardrails.ts DANGEROUS_COMMANDS` and `executeCode.ts BLOCKED_PATTERNS` both had the exact same `rm -rf /(?!tmp)` bypass as #28. TITAN has three separate `rm -rf /` validators across three files, none sharing a source of truth, all with the same hole. Fix: rewrote both to match the shell.ts pattern library from #28.
+- **#32** — Four files used raw `startsWith('/tmp')` for path sandboxing: `filesystem.ts`, `knowledge_base.ts`, `event_triggers.ts`, and `server.ts`. `/tmpfoo` passes `startsWith('/tmp')`, granting access to a sibling directory outside `/tmp`. If home is `/home/dj`, then `/home/djacob` passes `startsWith('/home/dj')`. Fix: added a shared `isWithinDir(child, parent)` helper that requires exact match or a path-separator boundary. Applied consistently to all four call sites.
+- **#33** — `knowledge_base.ts isBlockedUrl` SSRF was wide open. It blocked `169.254.169.254`, `localhost`, `127.0.0.1`, `::1`, and `file:`. It let through every private RFC 1918 range, entire 127/8, all of 169.254/16, CGNAT 100.64/10, IPv6 loopback/link-local/unique-local, IPv4-mapped IPv6, and every non-HTTP scheme except `file://`. An attacker could point knowledge-base ingest at `http://192.168.1.1/admin` (the user's router) or `http://[::ffff:127.0.0.1]/` (loopback bypass via IPv4-mapped IPv6). Fix: complete rewrite with a proper RFC 1918 check + scheme allowlist.
+- **#34** — `server.ts validateFilePath` for Mission Control's file manager had the same `startsWith` bug as #32. Supplying `path=/home/dj/workspace-evil/file` when the configured root is `/home/dj/workspace` bypassed the root guard. Fix: separator-aware boundary check.
+
+New test file `tests/security-validators.test.ts` with **102 cases**. Every validator now has a must-block section and a must-pass section — any future "widen the regex" fix will fail the tests if it breaks safe usage or re-opens any of the holes.
+
+### Post-#25 write-endpoint audit (Finding #35)
+
+Similar follow-up to #25. The class-level lesson was "every endpoint that writes to persistent config needs validation". That recommendation pointed straight at `POST /api/config`, which was accepting a `model` field that bypassed the validation #25 added to `/api/model/switch`.
+
+Fix: extracted the validation into a shared `validateModelId` helper and called from both endpoints. Three test cases verified live: bogus provider rejected, special chars rejected, valid model accepted.
+
+### Phase 5.5 — Large tool output (Finding #36)
+
+Created a 1 MB file on the live gateway and asked the model to read it. Result: context exploded to 213K tokens, 21 shell calls of pathological exploration, 144-second duration, and a WRONG answer ("first character is Z" for a file of all 'A'). Root cause: `read_file` called `readFileSync` unconditionally with no size check.
+
+Fix: new `READ_FILE_MAX_BYTES` constant (100 KB default, env-tunable), `readFirstBytes` helper using `openSync`+`readSync` with a bounded buffer (no unbounded `readFileSync`), and a hard ceiling on the final formatted output even for scoped reads. Live retest showed the model correctly used the scoped read path and dropped from 213K → 180K tokens, with the #21 narrator sanitizer catching the remaining leak. Cascading defenses working in sequence.
+
+### Phase 5.17 — Dependency audit
+
+`npm audit` flagged `follow-redirects <= 1.15.11` as a moderate severity issue — custom authentication headers leak to cross-domain redirect targets. Pulled in via `@whiskeysockets/baileys → axios → follow-redirects`. Added a `follow-redirects: ^1.16.0` entry to the existing `overrides` block in `package.json`. Post-fix audit: 0 vulnerabilities.
+
+### Phase 5.2/5.3 — Provider rate-limit audit (Finding #37)
+
+Source audit of the router's retry loop found this line:
+
+```ts
+const retryAfter = (error as Response)?.headers?.get?.('Retry-After');
+```
+
+This is a TypeScript cast, not a runtime conversion. The error is always an `Error` object, not a Response, so `.headers` is undefined, and the Retry-After branch was **dead code** — grep of production logs confirmed `"[RateLimit] Respecting Retry-After"` had never fired. Every rate-limited provider got retried on calculated backoff (1s, 2s, 4s, 8s, 15s) regardless of what Retry-After said. Providers asking for a single 60-second pause got 5 retries burned in 30 seconds.
+
+Fix: new `createProviderError` helper in `errorTaxonomy.ts` that parses Retry-After at **throw** time and attaches `retryAfterMs` to the Error object. All 5 providers (ollama, anthropic, google, openai, openai_compat — the latter covering 30+ OpenAI-compatible providers) now use it. Router reads via a typed interface. Capped at 5 minutes to prevent a misconfigured provider from stalling the chain. New test file `tests/providerError.test.ts` with 13 cases covering seconds, HTTP dates, case-insensitive headers, missing header, and the 5-minute cap.
+
 ## Fixture library
 
 All 22 fixtures (carrying forward from findings #01–#13 of the previous session and #16–#26 of this session) live under `tests/fixtures/hunt/NN-name/README.md`. Each README contains:
@@ -152,13 +201,15 @@ Beyond the individual bug fixes, the session established several architectural i
 
 ## Test coverage delta
 
-- `tests/hunt-regression.test.ts`: 58 → 79 tests (+21 for findings #17–#19, #21–#27, #29)
+- `tests/hunt-regression.test.ts`: 58 → 81 tests (+23 for findings #17–#19, #21–#29, #35, #36)
 - `tests/outboundSanitizer.test.ts`: 75 → 87 tests (+12 for findings #12, #16, #21)
 - `tests/shell-validateCommand.test.ts`: NEW, **108 tests** (Finding #28 — first-ever shell validator unit tests)
+- `tests/security-validators.test.ts`: NEW, **102 tests** (Findings #31–#34 — post-#28 validator audit)
 - `tests/httpPool.test.ts`: NEW, 5 tests (Finding #29)
+- `tests/providerError.test.ts`: NEW, **13 tests** (Finding #37 — Retry-After respect)
 - `tests/agent-loop.test.ts` + `tests/agent.test.ts`: 2 existing tests updated to match new correct behavior (#24)
-- Total hunt-related fixtures in `tests/fixtures/hunt/`: **27**
-- **Total test count: 4,904 → 5,189** (+285 over the two-day hunt; +148 in this session)
+- Total hunt-related fixtures in `tests/fixtures/hunt/`: **33** (31-34 combined into one fixture)
+- **Total test count: 4,904 → 5,306** (+402 over the two-day hunt; +265 in this session)
 
 ## Known risks remaining
 
@@ -192,6 +243,10 @@ Beyond the individual bug fixes, the session established several architectural i
 
 This session (2026-04-14):
 ```
+125281fa fix(hunt/37): Retry-After header was never actually respected
+f3df72bd fix(hunt/36): read_file byte cap + follow-redirects CVE via npm override
+84d04aed fix(hunt/35): /api/config model field bypassed the #25 validator
+bb6f2ee1 fix(hunt/31-34): post-#28 security validator audit — 4 bugs across 6 files
 e349f0d5 fix(hunt/30): CRITICAL — npm install titan-agent@latest was broken
 911789c5 fix(hunt/29): bounded HTTP pool + consume response bodies on error paths
 84375f57 fix(hunt/28): CRITICAL — shell tool allowed rm -rf on any top-level dir
