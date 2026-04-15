@@ -375,6 +375,76 @@ export interface LoopResult {
     }>;
 }
 
+/**
+ * Hunt Finding #38b (2026-04-15): strip narrator preamble from chat
+ * responses. Weak models (minimax-m2.7:cloud, glm-5.1) love to prefix
+ * their answer with internal monologue like:
+ *   "The user wants a joke. I can respond directly without needing any
+ *    tools. Why don't scientists trust atoms? Because they make up
+ *    everything."
+ *
+ * We can't prevent this reliably via a system directive because the
+ * model ignores it 30-50% of the time. Instead, we detect and strip
+ * the preamble server-side after the model has finished generating,
+ * keeping only the actual answer.
+ *
+ * Strategy: the preamble is a sequence of sentences that start with
+ * narrator openers ("The user wants", "I can/should/will respond",
+ * "Let me", "Actually", "Looking at", "I'll"). We strip those
+ * sentences off the front until we hit content that doesn't start
+ * with a narrator opener. That's the real answer.
+ */
+export function stripNarratorPreamble(text: string): string {
+    if (!text || text.length < 10) return text;
+    const NARRATOR_OPENERS = [
+        /^\s*the user (?:wants|asked|said|is asking|is requesting|needs|wrote|mentioned|told me)/i,
+        /^\s*(?:the\s+)?user (?:wants|asked|said|is asking)/i,
+        /^\s*I (?:should|need to|can|will|must|could|'ll|'m going to) (?:respond|reply|answer|provide|give|explain|tell|just|simply)/i,
+        /^\s*I['']m (?:going to|about to) (?:respond|reply|answer)/i,
+        /^\s*(?:let me|let's)\b/i,
+        /^\s*(?:actually|okay|alright|hmm|well|so|right),?\s+(?:I|let|the)/i,
+        /^\s*looking at (?:this|the|what)/i,
+        /^\s*(?:this is|that['']s) (?:a|an) (?:casual|simple|direct|basic|friendly|quick)/i,
+        /^\s*no tools? (?:needed|required)/i,
+        /^\s*(?:i can|i['']ll) (?:respond|reply|answer) (?:directly|simply|without|naturally)/i,
+    ];
+
+    // Split into sentences, attempt to strip leading narrator sentences.
+    // Use a conservative split that respects common sentence terminators.
+    const sentences: string[] = [];
+    let buffer = '';
+    for (let i = 0; i < text.length; i++) {
+        buffer += text[i];
+        if (/[.!?]/.test(text[i])) {
+            // Lookahead for end of sentence — next char should be whitespace or newline
+            const next = text[i + 1];
+            if (!next || /\s/.test(next)) {
+                sentences.push(buffer);
+                buffer = '';
+            }
+        }
+    }
+    if (buffer) sentences.push(buffer);
+
+    let stripCount = 0;
+    for (const sentence of sentences) {
+        if (NARRATOR_OPENERS.some(p => p.test(sentence))) {
+            stripCount++;
+        } else {
+            break;
+        }
+    }
+
+    if (stripCount === 0) return text;
+    // Limit: never strip more than 75% of the content, or 3 sentences.
+    // If the whole thing looks like narrator, leave it for the sanitizer
+    // to catch as a hard fail (the sanitizer will fallback to a safe msg).
+    if (stripCount >= sentences.length || stripCount > 3) return text;
+    const remaining = sentences.slice(stripCount).join('').trim();
+    if (remaining.length < 5) return text;
+    return remaining;
+}
+
 // ── Helper: strip leaked tool JSON from LLM responses ────────────────
 
 function stripToolJson(text: string): string {
@@ -901,7 +971,23 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             let response: ChatResponse;
-            if (ctx.streamCallbacks?.onToken) {
+            // Hunt Finding #38b (2026-04-15): for single-round chat pipelines,
+            // the model's round-0 think output IS the user-facing answer (no
+            // respond phase ever runs). With live SSE streaming, the raw
+            // narrator tokens from a weak model hit the UI before the
+            // sanitizer can run at the end — the user sees "The user wants a
+            // joke. I can respond directly without needing any tools. Why
+            // don't scientists trust atoms?..." on screen. Fix: DO NOT stream
+            // chat-pipeline round-0 think output. Collect the full response,
+            // run it through the sanitizer, THEN emit as a single block.
+            // The client shows a typing indicator during the short wait
+            // instead of streaming raw narrator tokens.
+            const isChatRound0Think =
+                round === 0
+                && phase === 'think'
+                && ctx.completionStrategy === 'single-round';
+
+            if (ctx.streamCallbacks?.onToken && !isChatRound0Think) {
                 let streamContent = '';
                 const streamToolCalls: ToolCall[] = [];
                 for await (const chunk of chatStream(chatOptions)) {
@@ -928,7 +1014,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     model: activeModel,
                 };
             } else {
+                // Non-streaming path. For chat-pipeline round-0 think we
+                // deliberately come here so the sanitizer gets to see the
+                // full response before the client does. We also strip any
+                // leading narrator preamble that the model emitted despite
+                // our respond directive (Hunt Finding #38b).
                 response = await chat(chatOptions);
+                if (isChatRound0Think && response.content) {
+                    const stripped = stripNarratorPreamble(response.content);
+                    if (stripped !== response.content) {
+                        logger.info(COMPONENT, `[NarratorStrip] Removed ${response.content.length - stripped.length} chars of narrator preamble from chat response`);
+                        response.content = stripped;
+                    }
+                }
             }
 
             result.modelUsed = response.model;
