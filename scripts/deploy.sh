@@ -155,6 +155,45 @@ else
 fi
 DEPLOYED_COMPONENTS+=("package.json")
 
+# Hunt Finding #30 (2026-04-14): previous versions of this script only synced
+# dist/, ui/dist/, assets/, and package.json. But the published npm tarball
+# inherits the filesystem state of the host where `npm publish` runs, so
+# anything in package.json's `files` array that's NOT synced gets silently
+# dropped from the publish. Two real-world consequences of this gap:
+#   - scripts/postinstall.cjs missing → every new install crashed
+#     (MODULE_NOT_FOUND) since v3.2.3
+#   - README.md missing → npmjs.com showed "This package does not have a
+#     README" for the same period
+# Both were publishing bugs masquerading as source bugs. Fix: sync every
+# file that package.json's `files` array references.
+info "scripts/ → remote (required for postinstall.cjs + dev scripts)"
+if $DRY_RUN; then
+  $RSYNC_BASE --dry-run "$PROJECT_DIR/scripts/" "$REMOTE:$REMOTE_PATH/scripts/" 2>&1 | tail -3
+else
+  $RSYNC_BASE "$PROJECT_DIR/scripts/" "$REMOTE:$REMOTE_PATH/scripts/" 2>&1 | tail -3
+fi
+DEPLOYED_COMPONENTS+=("scripts/")
+
+info "docs/ → remote (required for published docs/HUNT-LOG.md etc.)"
+if $DRY_RUN; then
+  $RSYNC_BASE --dry-run "$PROJECT_DIR/docs/" "$REMOTE:$REMOTE_PATH/docs/" 2>&1 | tail -3
+else
+  $RSYNC_BASE "$PROJECT_DIR/docs/" "$REMOTE:$REMOTE_PATH/docs/" 2>&1 | tail -3
+fi
+DEPLOYED_COMPONENTS+=("docs/")
+
+info "README.md + LICENSE + THIRD_PARTY_NOTICES.md + .env.example → remote"
+if $DRY_RUN; then
+  info "Would copy README.md, LICENSE, THIRD_PARTY_NOTICES.md, .env.example"
+else
+  for f in README.md LICENSE THIRD_PARTY_NOTICES.md .env.example; do
+    if [ -f "$PROJECT_DIR/$f" ]; then
+      rsync -avz "$PROJECT_DIR/$f" "$REMOTE:$REMOTE_PATH/$f" 2>&1 | tail -1
+    fi
+  done
+fi
+DEPLOYED_COMPONENTS+=("root files")
+
 # node_modules/ (only with --deps)
 if $SYNC_DEPS; then
   info "node_modules/ → remote (this may take a while...)"
