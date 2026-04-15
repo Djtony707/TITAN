@@ -1452,7 +1452,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 recordAttempt(ctx.sessionId, `${tr.name}(${Object.keys(tcArgs).join(',')})`);
 
                 // Record structured tool call details for inter-step context in deliberation
-                const tcSuccess = !tr.content.toLowerCase().includes('error:');
+                // Hunt Finding #40: AutoVerify needs to flip tcSuccess/tr.success
+                // when a write verify fails, so SmartExit doesn't treat the write
+                // as terminal-success. Must be `let` for that mutation.
+                let tcSuccess = !tr.content.toLowerCase().includes('error:');
                 result.toolCallDetails.push({
                     name: tr.name,
                     args: tcArgs,
@@ -1465,13 +1468,29 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 // TODO: Re-enable when models handle injected context better.
 
                 // Auto-verify file writes — catch silent truncation, empty files, broken HTML/JSON
+                // Hunt Finding #40 (2026-04-15): previously AutoVerify only logged
+                // a warning and pushed a suggestion. When glm-5.1 wrote to the
+                // wrong path (/home/titan/... on a machine where user=dj), the
+                // write was silently rejected by validatePath, AutoVerify warned
+                // but tr.success stayed TRUE, SmartExit saw "terminal tool
+                // succeeded" and transitioned to respond — dropping the file
+                // entirely. Fix: flip tr.success=false on verify failure, and
+                // mark the result with a clear [AutoVerify FAILED] banner so
+                // the next think round sees it and retries.
                 if (tr.name === 'write_file' || tr.name === 'append_file') {
                     const vr = verifyFileWrite(tr.name, tcArgs, tr.content);
                     if (!vr.passed) {
-                        logger.warn(COMPONENT, `[AutoVerify] ${tr.name}: ${vr.issue}`);
+                        logger.warn(COMPONENT, `[AutoVerify] ${tr.name}: ${vr.issue} — forcing retry (Hunt #40)`);
+                        // Flip success false so SmartExit doesn't treat this as
+                        // a terminal-tool success.
+                        tr.success = false;
+                        tcSuccess = false;
+                        // Mutate tr.content so the assistant sees the failure
+                        // in the tool_result message on the next think round.
+                        tr.content = `[AutoVerify FAILED] ${vr.issue}. Original tool output: ${tr.content}`;
                         ctx.messages.push({
                             role: 'user',
-                            content: `[AutoVerify] ${vr.issue}${vr.suggestion ? `\n\nSuggestion: ${vr.suggestion}` : ''}`,
+                            content: `[AutoVerify] ${vr.issue}${vr.suggestion ? `\n\nSuggestion: ${vr.suggestion}` : ''}\n\nCall the tool again with the corrected arguments. Do NOT proceed until the verify passes.`,
                         });
                     }
                 }
@@ -1836,6 +1855,38 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             result.modelUsed = response.model;
             result.promptTokens += response.usage?.promptTokens || 0;
             result.completionTokens += response.usage?.completionTokens || 0;
+
+            // Hunt Finding #39 (2026-04-15): if the model emits tool calls in
+            // the respond phase (despite tools being undefined), those calls
+            // are the model's attempt to RECOVER from an earlier failure. A
+            // real captured example: model wrote to /home/titan/docs/foo.md
+            // (wrong user), the write was rejected, then in the respond phase
+            // it emitted a corrected write_file to /tmp/readme-b1-comparison.md.
+            // Previously we dropped that tool call silently. Now we route
+            // back to the think phase so the recovery actually executes.
+            if (response.toolCalls && response.toolCalls.length > 0) {
+                logger.warn(
+                    COMPONENT,
+                    `[RespondPhaseToolCall] Model emitted ${response.toolCalls.length} tool call(s) in respond phase — routing back to think phase to execute (Hunt #39)`,
+                );
+                // Inject the tool call as an assistant message so the next
+                // think round sees it and the agent loop executes it.
+                ctx.messages.push({
+                    role: 'assistant',
+                    content: response.content || '',
+                    toolCalls: response.toolCalls,
+                });
+                // Synthesize a placeholder tool message so the next think
+                // iteration doesn't orphan the tool_calls.
+                // Actually — leave it. The act-phase handler runs tool calls
+                // from the most recent assistant. Transition phase=act and
+                // let the existing execution path handle it.
+                phase = 'act';
+                // Seed pendingToolCalls so the act handler picks them up
+                pendingToolCalls = response.toolCalls;
+                pendingAssistantContent = response.content || '';
+                break; // exit respond case; re-enter the while loop at act
+            }
 
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, response.usage?.promptTokens || 0, response.usage?.completionTokens || 0);
             if (costCheck.budgetExceeded) {
