@@ -89,6 +89,28 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #44 — SPA catch-all must not swallow /mcp
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #44 — /mcp route passes SPA catch-all', () => {
+        const SERVER = readFileSync(
+            resolve(__dirname, '../src/gateway/server.ts'),
+            'utf-8',
+        );
+
+        it('SPA catch-all exempts /mcp paths', () => {
+            // README:683 promises MCP HTTP transport at http://localhost:48420/mcp.
+            // The SPA catch-all was swallowing GETs and returning the dashboard
+            // HTML instead of routing to mountMcpHttpEndpoints.
+            const catchAll = SERVER.split("app.get('*'")[1]?.split('});')[0] || '';
+            expect(catchAll).toContain("startsWith('/mcp')");
+        });
+
+        it('references Hunt #44', () => {
+            expect(SERVER).toMatch(/Hunt (Finding )?#44/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #43 — default user profile path is the README path
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #43 — default profile lives at README-promised path', () => {

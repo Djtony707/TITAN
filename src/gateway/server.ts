@@ -5826,8 +5826,21 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // ── SPA fallback (must be after all API routes) ──────────
   if (hasReactUI) {
     app.get('*', (req, res, next) => {
-      // Don't intercept API, WebSocket, metrics, webhooks, or legacy routes
-      if (req.path.startsWith('/api/') || req.path.startsWith('/messenger/') || req.path === '/ws' || req.path === '/metrics' || req.path === '/legacy' || req.path === '/login') {
+      // Don't intercept API, WebSocket, metrics, webhooks, or legacy routes.
+      // Hunt Finding #44 (2026-04-15): README promised `http://localhost:48420/mcp`
+      // as the MCP HTTP transport endpoint, but the SPA catch-all was
+      // swallowing /mcp and /mcp/health GETs and returning the dashboard
+      // HTML. Pass /mcp* through to next() so mountMcpHttpEndpoints can
+      // handle it. (POST /mcp is fine regardless — only GETs hit this.)
+      if (
+        req.path.startsWith('/api/') ||
+        req.path.startsWith('/messenger/') ||
+        req.path.startsWith('/mcp') ||
+        req.path === '/ws' ||
+        req.path === '/metrics' ||
+        req.path === '/legacy' ||
+        req.path === '/login'
+      ) {
         return next();
       }
       res.sendFile(uiIndexPath);
