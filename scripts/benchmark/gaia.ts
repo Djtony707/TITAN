@@ -40,8 +40,32 @@ const DATASET_FILE = getArg('--dataset');
 const TIMEOUT = parseInt(getArg('--timeout') || '120000', 10);
 const VERBOSE = args.includes('--verbose');
 const JSON_ONLY = args.includes('--json');
+const PASSWORD = getArg('--password') || process.env.TITAN_PASSWORD;
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// ── Auth ────────────────────────────────────────────────────────
+let AUTH_TOKEN = '';
+
+async function authenticate(): Promise<void> {
+    if (!PASSWORD) return;
+    const res = await fetch(`${GATEWAY}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: PASSWORD }),
+        signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Login failed: ${res.status}`);
+    const data = await res.json() as { token?: string };
+    AUTH_TOKEN = data.token || '';
+    if (!AUTH_TOKEN) throw new Error('Login returned no token');
+}
+
+function authHeaders(): Record<string, string> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) h['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+    return h;
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -183,7 +207,7 @@ async function sendMessage(content: string): Promise<ApiResponse> {
 
     const res = await fetch(`${GATEWAY}/api/message`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(TIMEOUT),
     });
@@ -292,10 +316,17 @@ async function main() {
     log(`   Gateway: ${GATEWAY}`);
     if (MODEL) log(`   Model: ${MODEL}`);
 
+    // Authenticate
+    if (PASSWORD) {
+        log('   Authenticating...');
+        await authenticate();
+        log('   ✓ Authenticated');
+    }
+
     // Health check
     let version = 'unknown';
     try {
-        const health = await fetch(`${GATEWAY}/api/health`, { signal: AbortSignal.timeout(10000) }).then(r => r.json()) as { version: string; uptime: number };
+        const health = await fetch(`${GATEWAY}/api/health`, { headers: authHeaders(), signal: AbortSignal.timeout(10000) }).then(r => r.json()) as { version: string; uptime: number };
         version = health.version;
         log(`   Version: ${version}\n`);
     } catch {
