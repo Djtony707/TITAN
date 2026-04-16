@@ -1596,6 +1596,23 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 recordToolUsage(tr.name);
                 recordToolPreference(tr.name, classifyTaskType(ctx.message), success);
 
+                // Persistent audit — Paperclip competitive gap fix
+                // Tracks per-agent, per-run, per-tool cost attribution
+                try {
+                    const { logAuditEvent } = await import('./auditStore.js');
+                    logAuditEvent({
+                        agentId: ctx.agentId || 'default',
+                        runId: undefined, // TODO: pipe runId through LoopContext
+                        sessionId: ctx.sessionId,
+                        type: 'tool_execution',
+                        toolName: tr.name,
+                        durationMs: tr.durationMs,
+                        promptTokens: result.promptTokens,
+                        completionTokens: result.completionTokens,
+                        success,
+                    });
+                } catch { /* audit store not critical */ }
+
                 // A6: Error classification feedback to LLM (Hermes ClassifiedError pattern)
                 if (!success && tr.errorClass && !ctx.voiceFastPath) {
                     const isTransient = tr.errorClass === 'transient' || tr.errorClass === 'timeout' || tr.errorClass === 'rate_limit';

@@ -513,6 +513,35 @@ export function getGoalTree(): GoalTreeNode[] {
 
 // ─── Agent Registry ──────────────────────────────────────────────────────
 
+/**
+ * Register a new agent in the Command Post registry.
+ * Used by the hire approval flow and syncAgentRegistry.
+ */
+export function registerAgent(opts: {
+    name: string;
+    role?: string;
+    title?: string;
+    model?: string;
+    status?: RegisteredAgent['status'];
+}): RegisteredAgent {
+    const id = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const agent: RegisteredAgent = {
+        id,
+        name: opts.name,
+        model: opts.model || '',
+        status: opts.status || 'active',
+        lastHeartbeat: new Date().toISOString(),
+        totalTasksCompleted: 0,
+        totalCostUsd: 0,
+        createdAt: new Date().toISOString(),
+        role: (opts.role || 'general') as RegisteredAgent['role'],
+        title: opts.title,
+    };
+    registeredAgents.set(id, agent);
+    saveState();
+    return agent;
+}
+
 export function syncAgentRegistry(): void {
     const liveAgents = listAgents();
     for (const agent of liveAgents) {
@@ -852,12 +881,70 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
     approval.decidedAt = new Date().toISOString();
     approval.decisionNote = note;
     saveState();
-    addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
 
-    // If budget override: resume paused agent
-    if (approval.type === 'budget_override' && approval.payload.agentId) {
+    // Paperclip competitive gap fix: wire up approval actions
+    // Previously hire_agent was dead code — approving a hire didn't create an agent.
+    if (approval.type === 'hire_agent') {
+        const { name, role, template, model, task } = approval.payload as {
+            name?: string; role?: string; template?: string; model?: string; task?: string;
+        };
+        if (name) {
+            const agent = registerAgent({
+                name,
+                role: role || 'agent',
+                title: role || 'Agent',
+                status: 'active',
+            });
+            logger.info('CommandPost', `[HireApproval] Agent "${name}" hired and activated (approved by ${decidedBy})`);
+            addActivity({ type: 'agent_status_change', message: `Agent "${name}" hired and activated (approved by ${decidedBy})`, metadata: { approvalId: id, agentId: agent.id } });
+
+            // Optionally create a first task issue for the new agent
+            if (task) {
+                createIssue({
+                    title: task,
+                    description: `Initial task assigned on hire (approval ${id})`,
+                    priority: 'medium',
+                    assigneeAgentId: agent.id,
+                });
+            }
+        }
+    } else if (approval.type === 'budget_override' && approval.payload.agentId) {
+        // Resume paused agent
         updateAgentStatus(approval.payload.agentId as string, 'active');
+        addActivity({ type: 'goal_completed', message: `Budget override approved for ${approval.payload.agentId} by ${decidedBy}`, metadata: { approvalId: id } });
+    } else {
+        addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
     }
+
+    return approval;
+}
+
+/**
+ * Request a hire approval. Creates a pending approval that, when approved,
+ * will register the agent and optionally create their first task.
+ */
+export function requestHireApproval(
+    requestedBy: string,
+    name: string,
+    role: string,
+    template?: string,
+    model?: string,
+    task?: string,
+): CPApproval {
+    const id = `appr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const approval: CPApproval = {
+        id,
+        type: 'hire_agent',
+        status: 'pending',
+        requestedBy,
+        payload: { name, role, template, model, task },
+        linkedIssueIds: [],
+        createdAt: new Date().toISOString(),
+    };
+    approvals.set(id, approval);
+    saveState();
+    addActivity({ type: 'agent_status_change', message: `Hire approval requested for "${name}" (${role}) by ${requestedBy}`, metadata: { approvalId: id } });
+    logger.info('CommandPost', `[HireRequest] Pending approval for "${name}" (${role})`);
     return approval;
 }
 

@@ -34,6 +34,7 @@ export const DEFAULT_CORE_TOOLS = [
     'goal_list',
     'spawn_agent',
     'tool_search',
+    'tool_expand',
     'self_doctor',
     'ha_control',
     'ha_devices',
@@ -49,13 +50,21 @@ export function buildToolCatalog(): string {
         .join(' | ');
 }
 
-/** Search registered tools by keyword query */
-export function searchTools(query: string): ToolHandler[] {
+/**
+ * Search registered tools by keyword query.
+ *
+ * Progressive disclosure mode (Hermes competitive gap fix):
+ * When metadataOnly=true, returns tools with truncated descriptions
+ * and no parameter schemas — ~20 tokens each instead of ~200.
+ * The model then calls tool_expand(name) to get the full schema
+ * for just the tools it needs.
+ */
+export function searchTools(query: string, metadataOnly = false): ToolHandler[] {
     const tools = getRegisteredTools();
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
     const scored = tools
-        .filter(t => t.name !== 'tool_search')
+        .filter(t => t.name !== 'tool_search' && t.name !== 'tool_expand')
         .map(t => {
             const text = `${t.name} ${t.description}`.toLowerCase();
             const score = terms.reduce((s, term) => s + (text.includes(term) ? 1 : 0), 0);
@@ -65,7 +74,27 @@ export function searchTools(query: string): ToolHandler[] {
         .sort((a, b) => b.score - a.score)
         .slice(0, 8);
 
+    if (metadataOnly) {
+        // Return lightweight metadata — just name + one-line description
+        return scored.map(({ tool }) => ({
+            ...tool,
+            description: tool.description.slice(0, 80),
+            parameters: { type: 'object' as const, properties: {}, required: [] },
+        }));
+    }
+
     return scored.map(({ tool }) => tool);
+}
+
+/**
+ * Expand a single tool's full schema by name.
+ * Part of the progressive disclosure pattern — model calls tool_search
+ * to get names, then tool_expand to get the full schema for just the
+ * tools it needs.
+ */
+export function expandTool(name: string): ToolHandler | null {
+    const tools = getRegisteredTools();
+    return tools.find(t => t.name === name) || null;
 }
 
 /** Get the tool_search tool handler */
@@ -107,6 +136,51 @@ export function getToolSearchHandler(): ToolHandler {
             }).join('\n');
 
             return `Found ${results.length} tools:\n${formatted}\n\nYou can now call these tools directly.`;
+        },
+    };
+}
+
+/**
+ * Get the tool_expand handler — progressive disclosure (Hermes gap fix).
+ * Returns the full JSON schema for a single tool by name.
+ */
+export function getToolExpandHandler(): ToolHandler {
+    return {
+        name: 'tool_expand',
+        description: 'Get the full parameter schema for a specific tool. Use after tool_search to see the detailed parameters before calling the tool.',
+        parameters: {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description: 'The exact tool name to expand (e.g. "email_send", "freelance_search")',
+                },
+            },
+            required: ['name'],
+        },
+        execute: async (args: Record<string, unknown>) => {
+            const name = (args.name as string) || '';
+            if (!name.trim()) {
+                return 'Please provide a tool name. Example: tool_expand({name: "email_send"})';
+            }
+
+            const tool = expandTool(name);
+            if (!tool) {
+                return `Tool "${name}" not found. Use tool_search to find the correct name.`;
+            }
+
+            logger.info(COMPONENT, `Expand "${name}" → full schema loaded`);
+
+            const params = tool.parameters as Record<string, unknown>;
+            const props = (params.properties || {}) as Record<string, { type?: string; description?: string }>;
+            const required = (params.required || []) as string[];
+
+            const paramDocs = Object.entries(props).map(([key, val]) => {
+                const req = required.includes(key) ? ' (required)' : '';
+                return `  - **${key}**${req}: ${val.description || val.type || 'any'}`;
+            }).join('\n');
+
+            return `## ${tool.name}\n${tool.description}\n\n### Parameters\n${paramDocs || '  (no parameters)'}\n\nYou can now call ${tool.name}() with these parameters.`;
         },
     };
 }

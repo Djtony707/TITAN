@@ -385,9 +385,11 @@ export async function initBuiltinSkills(): Promise<void> {
         if (smartCompress.bootstrap) await smartCompress.bootstrap({});
     } catch (e) { logger.warn(COMPONENT, `Failed to register SmartCompress plugin: ${(e as Error).message}`); }
 
-    // Register tool_search — meta-tool for discovering tools on demand
-    const { getToolSearchHandler } = await import('../agent/toolSearch.js');
+    // Register tool_search + tool_expand — meta-tools for discovering tools on demand
+    // tool_expand is the progressive disclosure extension (Hermes competitive gap fix)
+    const { getToolSearchHandler, getToolExpandHandler } = await import('../agent/toolSearch.js');
     try { registerTool(getToolSearchHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_search: ${(e as Error).message}`); }
+    try { registerTool(getToolExpandHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_expand: ${(e as Error).message}`); }
 
     // F3: Register procedural memory tools (Hermes-inspired skill learning)
     try {

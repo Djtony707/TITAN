@@ -3271,6 +3271,41 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(getActivity({ limit, type }));
   });
 
+  // ── Persistent Audit (Paperclip competitive gap fix) ──
+  app.get('/api/command-post/audit', (req, res) => {
+    try {
+      const { queryAudit } = require('../agent/auditStore.js');
+      const query = {
+        agentId: req.query.agentId as string | undefined,
+        sessionId: req.query.sessionId as string | undefined,
+        type: req.query.type as string | undefined,
+        toolName: req.query.toolName as string | undefined,
+        from: req.query.from as string | undefined,
+        to: req.query.to as string | undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string) : 100,
+      };
+      res.json(queryAudit(query));
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/command-post/audit/costs', (req, res) => {
+    try {
+      const { getAgentCostSummary, getDailyCostBreakdown } = require('../agent/auditStore.js');
+      const groupBy = req.query.groupBy as string || 'agent';
+      if (groupBy === 'day') {
+        const days = req.query.days ? parseInt(req.query.days as string) : 30;
+        res.json(getDailyCostBreakdown(days));
+      } else {
+        const agentId = req.query.agentId as string | undefined;
+        res.json(getAgentCostSummary(agentId));
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.get('/api/command-post/goals/tree', (_req, res) => {
     res.json(getGoalTree());
   });
