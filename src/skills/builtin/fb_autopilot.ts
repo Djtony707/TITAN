@@ -216,45 +216,47 @@ async function generateContent(contentType: ContentType): Promise<string> {
         // Remove wrapping quotes
         content = content.replace(/^["']|["']$/g, '').trim();
         // Cut at any newline that looks like a second attempt or reasoning
-        const firstLine = content.split(/\n(?=\n|Let me|Here|Another|Or )/i)[0]?.trim() || '';
+        const firstLine = content.split(/\n(?=\n|Let me|Here|Another|Or |I'll go|I should|I could|Maybe)/i)[0]?.trim() || '';
         content = firstLine || content;
         content = content.replace(/^["']|["']$/g, '').trim();
 
-        // Safety: reject if it contains instruction echoing or meta-reasoning
-        // Expanded after a second leak on 2026-04-14 where "Let me brainstorm..." got through.
-        const leakPatterns = [
-            /\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example)\b/i,
-            // Chain-of-thought leaks (starts with "Let me" + any verb, or has future-tense planning)
-            /^\s*let me\s+\w+/i,
-            /^\s*let's\s+(brainstorm|think|see|try|start|figure)/i,
-            /^\s*(okay|ok|alright|hmm|well),?\s+(let me|let's|I'll|I should|I need)/i,
-            /\bI (?:could|should|would|will|might|can) (?:highlight|brainstorm|list|write|create|generate|come up|think|try)\b/i,
-            /\bI'll (?:brainstorm|think|start|begin|try|write|create|generate|come up|list|put together)\b/i,
-            /\bI need to (?:think|brainstorm|come up|write|create|generate|figure out|decide)\b/i,
-            // Meta-descriptions of what the post will be
-            /\b(?:here(?:'s| is) (?:a|my|an?) (?:post|draft|idea|example|attempt))\b/i,
-            /\b(?:draft|attempt|version)\s*\d*[:.]?\s*$/im,
-            // Bullet-list brainstorms (classic LLM thinking-out-loud shape)
-            /^\s*(?:let me|okay|ok|hmm)\b[\s\S]{0,80}\n\s*[-•*]\s/i,
-            // Numbered brainstorm lists: "1. Something\n2. Something" — model is listing IDEAS, not writing a post
-            /^\s*1\.\s+.{5,}\n\s*2\.\s+/,
-            // "Comparison to" / "Talking about" / "A playful" — brainstorm topic labels, not post content
-            /^\s*\d+\.\s+(?:comparison|talking about|a playful|a fun|an analogy|something about)\b/i,
-            // Starts with a question about approach: "Should I..." / "What if I..."
-            /^\s*(?:should I|what if I|how about|maybe I)\b/i,
-            // Contains explicit planning markers: "Option 1:", "Approach:", "Ideas:"
-            /\b(?:option \d|approach|ideas|brainstorm|topics?|angles?)\s*[:]\s/i,
-        ];
-        for (const pattern of leakPatterns) {
-            if (pattern.test(content)) {
-                logger.warn(COMPONENT, `Post rejected — chain-of-thought/instruction leak matched "${pattern.source.slice(0, 50)}": "${content.slice(0, 120)}..."`);
-                return '';
-            }
+        // ─── Structural Validation ───────────────────────────────
+        // Instead of pattern-matching specific leak phrases (whack-a-mole),
+        // validate that the output LOOKS like a social media post.
+        // A valid FB post: has a hashtag, is 40-400 chars, doesn't start
+        // with planning/meta language, and reads like something a human
+        // would actually publish.
+
+        // Must have at least one hashtag (all our examples have them)
+        if (!/#\w+/.test(content)) {
+            logger.warn(COMPONENT, `Post rejected — no hashtag found (structural): "${content.slice(0, 120)}"`);
+            return '';
         }
 
-        // Length guard
+        // Must be 40-400 chars (too short = fragment, too long = essay)
+        if (content.length < 40) {
+            logger.warn(COMPONENT, `Post rejected — too short (${content.length} chars): "${content}"`);
+            return '';
+        }
         if (content.length > 400) {
             content = content.slice(0, 397) + '...';
+        }
+
+        // Must NOT start with meta-language — catch-all for any planning/reasoning leak.
+        // Valid posts start with: a statement, a question, an emoji, or a quote.
+        // Invalid starts: "I'll", "I should", "I could", "Let me", "The user", "I need to",
+        // "Here's", "OK", "Alright", "So", numbered list, bullet list.
+        const badStarts = /^\s*(?:I'll\s|I should\s|I could\s|I would\s|I can\s|I might\s|I need\s|Let me\s|Let's\s|The user\s|The example\s|Here(?:'s| is)\s|(?:OK|Okay|Alright|Well|So|Hmm),?\s|(?:Option|Approach|Topic|Angle|Idea)\s*\d|^\d+\.\s)/i;
+        if (badStarts.test(content)) {
+            logger.warn(COMPONENT, `Post rejected — starts with meta/planning language: "${content.slice(0, 120)}"`);
+            return '';
+        }
+
+        // Must NOT contain instruction echoing
+        const echoPatterns = /\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example|280 char|output only)\b/i;
+        if (echoPatterns.test(content)) {
+            logger.warn(COMPONENT, `Post rejected — instruction echo: "${content.slice(0, 120)}"`);
+            return '';
         }
 
         return content;
@@ -312,7 +314,7 @@ async function runFBAutopilot(): Promise<void> {
     }
 
     if (!content || content.length < 20) {
-        logger.warn(COMPONENT, 'Generated content too short after 3 attempts — skipping this cycle');
+        logger.warn(COMPONENT, 'All 3 LLM attempts failed to produce clean content — skipping this cycle. Will retry next hour.');
         return;
     }
 
