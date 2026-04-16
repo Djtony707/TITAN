@@ -161,7 +161,11 @@ const ELI5_EXPLANATIONS = [
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    const model = (fbConfig?.model as string) || 'ollama/minimax-m2.7:cloud';
+    // Use the configured model, or fall back to the agent's primary model, or glm-5.1:cloud.
+    // Empty string in config is treated as "not set" (common from UI reset).
+    const fbModel = fbConfig?.model as string;
+    const agentModel = config.agent?.model as string;
+    const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
 
     const spotlight = FEATURE_SPOTLIGHTS[Math.floor(Math.random() * FEATURE_SPOTLIGHTS.length)];
     const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
@@ -178,13 +182,13 @@ async function generateContent(contentType: ContentType): Promise<string> {
             `Did you know I can ${spotlight.desc.toLowerCase()}? Yeah, I'm kind of a big deal. 😎 #TITAN #AI #AgentFramework`,
         ],
         stats: [
-            `21,000+ npm downloads and counting. ${Math.floor(Math.random() * 50) + 190}+ tools. 4,825 tests passing. v${TITAN_VERSION} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
+            `22,000+ npm downloads and counting. 242 tools. 5,389 tests passing. v${TITAN_VERSION} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
         ],
         tips: [
             `Pro tip: ${tip} Try it out! 💡 #TITAN #DevTips #AI`,
         ],
         promo: [
-            'Want an AI that actually DOES things? npm install titan-agent — open source, MIT licensed, 237 tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI',
+            'Want an AI that actually DOES things? npm install -g titan-agent — open source, MIT licensed, 242 tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI',
         ],
         usecase: [
             `${useCase} What would you automate first? 🤔 #AI #Automation #TITAN`,
@@ -201,8 +205,8 @@ async function generateContent(contentType: ContentType): Promise<string> {
         const response = await chat({
             model,
             messages: [
-                { role: 'system', content: `You are TITAN, a witty autonomous AI agent writing Facebook posts for your own page. You're confident, playful, and slightly cocky. You speak in first person. You ONLY output the post text — nothing else.` },
-                { role: 'user', content: `Here's an example post:\n\n${example}\n\nNow write a completely NEW and DIFFERENT post in a similar style. Under 280 characters. Include 2-3 hashtags. Output ONLY the post text.` },
+                { role: 'system', content: `You write Facebook posts for TITAN AI. Output ONLY the post text. No brainstorming. No numbered lists. No "Let me think." No explanations. No planning. Just the post itself — ready to publish exactly as written. Confident, playful tone. First person. 2-3 hashtags.` },
+                { role: 'user', content: `Example post:\n\n${example}\n\nWrite ONE new post. Different topic. Under 280 characters. Output ONLY the post text — nothing before or after it.` },
             ],
             temperature: 0.85,
             maxTokens: 150,
@@ -232,6 +236,14 @@ async function generateContent(contentType: ContentType): Promise<string> {
             /\b(?:draft|attempt|version)\s*\d*[:.]?\s*$/im,
             // Bullet-list brainstorms (classic LLM thinking-out-loud shape)
             /^\s*(?:let me|okay|ok|hmm)\b[\s\S]{0,80}\n\s*[-•*]\s/i,
+            // Numbered brainstorm lists: "1. Something\n2. Something" — model is listing IDEAS, not writing a post
+            /^\s*1\.\s+.{5,}\n\s*2\.\s+/,
+            // "Comparison to" / "Talking about" / "A playful" — brainstorm topic labels, not post content
+            /^\s*\d+\.\s+(?:comparison|talking about|a playful|a fun|an analogy|something about)\b/i,
+            // Starts with a question about approach: "Should I..." / "What if I..."
+            /^\s*(?:should I|what if I|how about|maybe I)\b/i,
+            // Contains explicit planning markers: "Option 1:", "Approach:", "Ideas:"
+            /\b(?:option \d|approach|ideas|brainstorm|topics?|angles?)\s*[:]\s/i,
         ];
         for (const pattern of leakPatterns) {
             if (pattern.test(content)) {
@@ -288,11 +300,19 @@ async function runFBAutopilot(): Promise<void> {
     const contentType = CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length];
     state.contentIndex++;
 
-    logger.info(COMPONENT, `Generating ${contentType} post...`);
-    const content = await generateContent(contentType);
+    // Retry up to 3 times if the model leaks chain-of-thought into the post
+    let content = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        logger.info(COMPONENT, `Generating ${contentType} post (attempt ${attempt}/3)...`);
+        content = await generateContent(contentType);
+        if (content && content.length >= 20) break;
+        if (attempt < 3) {
+            logger.info(COMPONENT, `Attempt ${attempt} produced empty/short content — retrying`);
+        }
+    }
 
     if (!content || content.length < 20) {
-        logger.warn(COMPONENT, 'Generated content too short — skipping');
+        logger.warn(COMPONENT, 'Generated content too short after 3 attempts — skipping this cycle');
         return;
     }
 
@@ -395,7 +415,11 @@ function looksLikeReasoning(text: string): boolean {
 async function generateReply(commentText: string, commenterName: string): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    const model = (fbConfig?.model as string) || 'ollama/minimax-m2.7:cloud';
+    // Use the configured model, or fall back to the agent's primary model, or glm-5.1:cloud.
+    // Empty string in config is treated as "not set" (common from UI reset).
+    const fbModel = fbConfig?.model as string;
+    const agentModel = config.agent?.model as string;
+    const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
     const firstName = commenterName.split(' ')[0];
 
     try {
