@@ -1934,7 +1934,16 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (costCheck.budgetExceeded) {
                 result.content = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control.';
             } else {
-                result.content = stripToolJson(response.content);
+                // Output guardrails pipeline — centralized post-processing
+                // Strips thinking blocks, narrator preamble, instruction echoes,
+                // and validates structure before delivering to user.
+                const { applyOutputGuardrails } = await import('./outputGuardrails.js');
+                const guardrailed = applyOutputGuardrails(response.content, {
+                    type: 'chat_response',
+                    originalMessage: ctx.message,
+                    model: activeModel,
+                });
+                result.content = guardrailed.content;
             }
 
             // Empty response fallback: if the model returned nothing in respond phase,

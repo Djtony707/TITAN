@@ -161,8 +161,9 @@ const ELI5_EXPLANATIONS = [
 async function generateContent(contentType: ContentType): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    // Use the configured model, or fall back to the agent's primary model, or glm-5.1:cloud.
-    // Empty string in config is treated as "not set" (common from UI reset).
+    // Use the configured FB model, fall back to primary agent model.
+    // glm-5.1 is ideal — it reasons via <think> tags which the output
+    // guardrails pipeline strips. The reasoning improves post quality.
     const fbModel = fbConfig?.model as string;
     const agentModel = config.agent?.model as string;
     const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
@@ -202,64 +203,98 @@ async function generateContent(contentType: ContentType): Promise<string> {
     const example = exampleList[Math.floor(Math.random() * exampleList.length)];
 
     try {
-        const response = await chat({
+        // Two-phase generation: Plan → Extract
+        // Phase 1: Ask the model to plan the post in a structured format
+        const planResponse = await chat({
             model,
             messages: [
-                { role: 'system', content: `You write Facebook posts for TITAN AI. Output ONLY the post text. No brainstorming. No numbered lists. No "Let me think." No explanations. No planning. Just the post itself — ready to publish exactly as written. Confident, playful tone. First person. 2-3 hashtags.` },
-                { role: 'user', content: `Example post:\n\n${example}\n\nWrite ONE new post. Different topic. Under 280 characters. Output ONLY the post text — nothing before or after it.` },
+                { role: 'user', content: `You are writing a Facebook post for TITAN AI (an autonomous AI agent framework).
+
+Content type: ${contentType}
+Example for reference: "${example}"
+
+Think about what angle to take, then write your draft.
+
+Reply in this EXACT format:
+TOPIC: <one line describing the topic>
+ANGLE: <one line describing the approach>
+DRAFT: <the actual post text, under 280 chars, with 2-3 hashtags like #TITAN #AI>` },
             ],
-            temperature: 0.85,
-            maxTokens: 150,
+            temperature: 0.7,
+            maxTokens: 300,
         });
 
-        let content = (response.content || '').trim();
+        // Phase 2: Extract the DRAFT from the structured output
+        // Models format this differently: DRAFT: ..., *Draft:* ..., **Draft:** ..., etc.
+        const planText = (planResponse.content || '').trim();
+
+        let content: string = '';
+
+        // Try multiple extraction patterns (most specific first)
+        const draftPatterns = [
+            /DRAFT:\s*(.+?)(?:\n(?:TOPIC|ANGLE)|$)/is,           // DRAFT: ...
+            /\*?\*?Draft\*?\*?:?\*?\s*(.+?)(?:\n|$)/i,           // *Draft:* ..., **Draft:** ...
+            /(?:post|final|output):\s*(.+?)(?:\n|$)/i,           // Post: ..., Final: ...
+        ];
+
+        for (const pattern of draftPatterns) {
+            const match = planText.match(pattern);
+            if (match && match[1].trim().length >= 30) {
+                content = match[1].trim();
+                logger.info(COMPONENT, `[TwoPhase] Extracted draft: "${content.slice(0, 80)}"`);
+                break;
+            }
+        }
+
+        // Fallback: find any line that has a hashtag (it's probably the post)
+        // Skip lines that reference the example
+        if (!content) {
+            const lines = planText.split('\n').map(l => l.replace(/^\s*[-*•]\s*/, '').trim());
+            const hashtagLine = lines.find(l =>
+                /#\w+/.test(l) && l.length >= 30
+                && !/reference\s*example/i.test(l)
+                && !/example\s*(?:given|post|of)/i.test(l)
+            );
+            if (hashtagLine) {
+                // Strip any "Reference Example:" or "Draft:" prefix
+                content = hashtagLine.replace(/^\*?\*?(?:Reference|Example|Sample|Draft)\s*(?:Example|Post|:)?\*?\*?\s*:?\s*[""]?\s*/i, '').trim();
+                logger.info(COMPONENT, `[TwoPhase] Extracted via hashtag detection: "${content.slice(0, 80)}"`);
+            }
+        }
+
+        // Last resort: longest line that's not a label
+        if (!content) {
+            const lines = planText.split('\n')
+                .map(l => l.replace(/^\s*[-*•]\s*/, '').replace(/^\*?\*?\w+\*?\*?:\s*/, '').trim())
+                .filter(l => l.length >= 30 && !l.startsWith('TOPIC') && !l.startsWith('ANGLE'));
+            if (lines.length > 0) {
+                content = lines.sort((a, b) => b.length - a.length)[0];
+                logger.warn(COMPONENT, `[TwoPhase] Using longest line as fallback: "${content.slice(0, 80)}"`);
+            }
+        }
+
+        if (!content) {
+            logger.warn(COMPONENT, `[TwoPhase] Could not extract draft from plan: "${planText.slice(0, 200)}"`);
+            return '';
+        }
+
         // Remove wrapping quotes
         content = content.replace(/^["']|["']$/g, '').trim();
-        // Cut at any newline that looks like a second attempt or reasoning
-        const firstLine = content.split(/\n(?=\n|Let me|Here|Another|Or |I'll go|I should|I could|Maybe)/i)[0]?.trim() || '';
-        content = firstLine || content;
-        content = content.replace(/^["']|["']$/g, '').trim();
 
-        // ─── Structural Validation ───────────────────────────────
-        // Instead of pattern-matching specific leak phrases (whack-a-mole),
-        // validate that the output LOOKS like a social media post.
-        // A valid FB post: has a hashtag, is 40-400 chars, doesn't start
-        // with planning/meta language, and reads like something a human
-        // would actually publish.
+        // ─── Output Guardrails Pipeline ──────────────────────────
+        // Centralized post-processing — validates the extracted draft.
+        const { applyOutputGuardrails } = await import('../../agent/outputGuardrails.js');
+        const guardrailed = applyOutputGuardrails(content, {
+            type: 'facebook_post',
+            requirements: { minLength: 40, maxLength: 400 },
+        });
 
-        // Must have at least one hashtag (all our examples have them)
-        if (!/#\w+/.test(content)) {
-            logger.warn(COMPONENT, `Post rejected — no hashtag found (structural): "${content.slice(0, 120)}"`);
+        if (!guardrailed.passed) {
+            logger.warn(COMPONENT, `Post rejected by guardrails (score=${guardrailed.score}): "${content.slice(0, 120)}"`);
             return '';
         }
 
-        // Must be 40-400 chars (too short = fragment, too long = essay)
-        if (content.length < 40) {
-            logger.warn(COMPONENT, `Post rejected — too short (${content.length} chars): "${content}"`);
-            return '';
-        }
-        if (content.length > 400) {
-            content = content.slice(0, 397) + '...';
-        }
-
-        // Must NOT start with meta-language — catch-all for any planning/reasoning leak.
-        // Valid posts start with: a statement, a question, an emoji, or a quote.
-        // Invalid starts: "I'll", "I should", "I could", "Let me", "The user", "I need to",
-        // "Here's", "OK", "Alright", "So", numbered list, bullet list.
-        const badStarts = /^\s*(?:I'll\s|I should\s|I could\s|I would\s|I can\s|I might\s|I need\s|Let me\s|Let's\s|The user\s|The example\s|Here(?:'s| is)\s|(?:OK|Okay|Alright|Well|So|Hmm),?\s|(?:Option|Approach|Topic|Angle|Idea)\s*\d|^\d+\.\s)/i;
-        if (badStarts.test(content)) {
-            logger.warn(COMPONENT, `Post rejected — starts with meta/planning language: "${content.slice(0, 120)}"`);
-            return '';
-        }
-
-        // Must NOT contain instruction echoing
-        const echoPatterns = /\b(under \d+ char|first person|no personal info|write a .* post|similar style|the example|280 char|output only)\b/i;
-        if (echoPatterns.test(content)) {
-            logger.warn(COMPONENT, `Post rejected — instruction echo: "${content.slice(0, 120)}"`);
-            return '';
-        }
-
-        return content;
+        return guardrailed.content;
     } catch (e) {
         logger.error(COMPONENT, `Content generation failed: ${(e as Error).message}`);
         return '';
@@ -417,8 +452,9 @@ function looksLikeReasoning(text: string): boolean {
 async function generateReply(commentText: string, commenterName: string): Promise<string> {
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
-    // Use the configured model, or fall back to the agent's primary model, or glm-5.1:cloud.
-    // Empty string in config is treated as "not set" (common from UI reset).
+    // Use the configured FB model, fall back to primary agent model.
+    // glm-5.1 is ideal — it reasons via <think> tags which the output
+    // guardrails pipeline strips. The reasoning improves post quality.
     const fbModel = fbConfig?.model as string;
     const agentModel = config.agent?.model as string;
     const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
