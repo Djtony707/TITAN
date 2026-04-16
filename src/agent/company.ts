@@ -326,8 +326,8 @@ export function startCompanyRunner(companyId: string, intervalMs = 60000): boole
     };
 
     // First tick immediately, then on interval
-    tick().catch(() => {});
-    const timer = setInterval(() => tick().catch(() => {}), intervalMs);
+    tick().catch(e => logger.debug(COMPONENT, `Background tick failed: ${(e as Error).message}`));
+    const timer = setInterval(() => tick().catch(e => logger.debug(COMPONENT, `Background tick failed: ${(e as Error).message}`)), intervalMs);
     activeRunners.set(companyId, timer);
 
     const companies = loadCompanies();

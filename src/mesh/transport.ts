@@ -399,7 +399,7 @@ export async function connectToPeer(
             logger.info(COMPONENT, `Reconnecting to ${address}:${port} in ${jitteredDelay}ms (attempt ${state.attempts})`);
 
             const timer = setTimeout(() => {
-                connectToPeer(address, port, localNodeId, meshSecret).catch(() => {});
+                connectToPeer(address, port, localNodeId, meshSecret).catch(e => logger.debug(COMPONENT, `Background reconnect failed: ${(e as Error).message}`));
             }, jitteredDelay);
             state.timer = timer;
         });

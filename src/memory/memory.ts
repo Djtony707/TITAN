@@ -300,7 +300,7 @@ export function rememberFact(category: string, key: string, value: string, metad
 
   // Index to vector store (fire-and-forget)
   if (isVectorSearchAvailable()) {
-    addVector(id, `${category}: ${key} = ${value}`, 'memory', { category, key }).catch(() => {});
+    addVector(id, `${category}: ${key} = ${value}`, 'memory', { category, key }).catch(e => logger.debug(COMPONENT, `Background vector indexing failed: ${(e as Error).message}`));
   }
 }
 

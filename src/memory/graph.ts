@@ -485,6 +485,11 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
         facts,
         episodeIds: [],
     };
+    // Pre-push bounds check: if at 2x the limit, enforce immediately
+    // to prevent unbounded growth if enforceMemoryBounds fails
+    if (graph.entities.length >= MAX_ENTITIES * 2) {
+        enforceMemoryBounds();
+    }
     graph.entities.push(entity);
     return entity;
 }

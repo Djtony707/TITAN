@@ -1,12 +1,12 @@
 /**
  * TITAN — Email Skill (Built-in)
- * Send and read email via SMTP (with native TLS upgrade) and Gmail API stubs.
+ * Send and read email via SMTP (with native TLS upgrade) and Gmail OAuth2 API.
  *
  * Supported tools:
  *   email_send   — Send email over SMTP (Gmail or custom server)
- *   email_search — Search Gmail messages (OAuth2 stub)
- *   email_read   — Read a Gmail message by ID (OAuth2 stub)
- *   email_list   — List recent emails in a folder (IMAP/OAuth2 stub)
+ *   email_search — Search Gmail messages (Gmail OAuth2)
+ *   email_read   — Read a Gmail message by ID (Gmail OAuth2)
+ *   email_list   — List recent emails in a folder (IMAP/Gmail OAuth2)
  */
 import { createConnection } from 'net';
 import { connect as tlsConnect, type TLSSocket } from 'tls';

@@ -489,7 +489,7 @@ export async function startDiscovery(
         mdnsRestartInterval = setInterval(() => {
             if (mdnsNodeId && mdnsPort !== null) {
                 logger.info(COMPONENT, 'Restarting mDNS to handle network changes...');
-                startMdns(mdnsNodeId, mdnsPort, mdnsAutoApprove).catch(() => {});
+                startMdns(mdnsNodeId, mdnsPort, mdnsAutoApprove).catch(e => logger.debug(COMPONENT, `Background mDNS restart failed: ${(e as Error).message}`));
             }
         }, MDNS_RESTART_INTERVAL_MS);
     }
@@ -499,7 +499,7 @@ export async function startDiscovery(
         await scanTailscalePeers(nodeId, port, autoApprove);
         // Re-scan every 60 seconds
         tailscaleInterval = setInterval(() => {
-            scanTailscalePeers(nodeId, port, autoApprove).catch(() => {});
+            scanTailscalePeers(nodeId, port, autoApprove).catch(e => logger.debug(COMPONENT, `Background Tailscale scan failed: ${(e as Error).message}`));
         }, 60_000);
     }
 

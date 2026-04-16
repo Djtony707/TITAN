@@ -6,6 +6,7 @@
 import { exec } from 'child_process';
 import { platform, hostname, totalmem, freemem, cpus, uptime, release, arch, networkInterfaces } from 'os';
 import { registerSkill } from '../registry.js';
+import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
 
 const COMPONENT = 'SystemInfo';
@@ -224,7 +225,9 @@ async function gatherSystemInfo(sections: string[]): Promise<string> {
 
     // ── Ollama ──────────────────────────────────────────────────
     if (wantAll || sections.includes('ollama')) {
-        const ollamaList = await run('curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null');
+        const cfg = loadConfig();
+        const ollamaBase = cfg.providers.ollama?.baseUrl || 'http://localhost:11434';
+        const ollamaList = await run(`curl -s --max-time 3 ${ollamaBase}/api/tags 2>/dev/null`);
         if (ollamaList) {
             try {
                 const parsed = JSON.parse(ollamaList);

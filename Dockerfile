@@ -43,10 +43,10 @@ COPY assets ./assets
 COPY --from=builder /app/ui/dist ./ui/dist
 COPY .env.example ./.env.example
 
-# Copy voice components
-COPY titan-voice-server ./titan-voice-server
-COPY titan-voice-agent ./titan-voice-agent
-COPY scripts/qwen3-tts-server.py ./scripts/qwen3-tts-server.py
+# Copy voice components (optional — only included if present in build context)
+COPY titan-voice-serve[r] ./titan-voice-server
+COPY titan-voice-agen[t] ./titan-voice-agent
+COPY scripts/qwen3-tts-server.p[y] ./scripts/
 
 # Create non-root titan user with home directory
 RUN addgroup -g 1001 titan && \

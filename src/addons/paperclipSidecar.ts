@@ -129,7 +129,7 @@ export async function startPaperclip(
                 restartCount++;
                 logger.info(COMPONENT, `Restarting Paperclip (attempt ${restartCount}/${MAX_RESTARTS})...`);
                 setTimeout(() => {
-                    if (currentConfig) startPaperclip(currentConfig, titanEventsEmitter || undefined).catch(() => {});
+                    if (currentConfig) startPaperclip(currentConfig, titanEventsEmitter || undefined).catch(e => logger.debug(COMPONENT, `Background Paperclip restart failed: ${(e as Error).message}`));
                 }, RESTART_DELAY_MS);
             } else {
                 logger.error(COMPONENT, `Paperclip failed after ${MAX_RESTARTS} restarts, giving up`);

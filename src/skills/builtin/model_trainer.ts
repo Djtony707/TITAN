@@ -765,7 +765,8 @@ const CLOUD_TRAINING_CATEGORIES: Record<string, { description: string; prompts: 
 };
 
 async function callOllamaCloud(model: string, systemPrompt: string, userPrompt: string): Promise<string> {
-    const ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
+    const cfg = loadConfig();
+    const ollamaUrl = cfg.providers.ollama?.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
     try {
         const resp = await fetch(`${ollamaUrl}/api/chat`, {
             method: 'POST',

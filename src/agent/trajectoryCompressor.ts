@@ -47,7 +47,7 @@ export async function compressToolResult(
     round: number,
 ): Promise<string> {
     // Persist full result to disk (fire-and-forget)
-    persistResult(sessionId, toolCallId, toolName, result).catch(() => {});
+    persistResult(sessionId, toolCallId, toolName, result).catch(e => logger.debug(COMPONENT, `Background result persistence failed: ${(e as Error).message}`));
 
     // Never compress file content tools — the model needs the full text to
     // construct accurate edit_file targets. Compressing read_file to head+tail
