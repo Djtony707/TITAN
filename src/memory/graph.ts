@@ -558,7 +558,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
 
     // Index to vector store for semantic search (fire-and-forget)
     if (isVectorSearchAvailable()) {
-        addVector(`graph:${episode.id}`, content, 'graph', { source, episodeId: episode.id }).catch(() => {});
+        addVector(`graph:${episode.id}`, content, 'graph', { source, episodeId: episode.id }).catch(e => logger.debug('Graph', `Vector op failed: ${(e as Error).message}`));
     }
 
     // Background entity extraction (non-blocking)
@@ -721,7 +721,7 @@ export function searchMemory(query: string, limit = 20): Episode[] {
                 id: vr.id.replace('graph:', ''),
                 score: vr.score,
             }));
-        }).catch(() => {});
+        }).catch(e => logger.debug('Graph', `Vector op failed: ${(e as Error).message}`));
     }
 
     // Merge cached vector results if available

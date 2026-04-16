@@ -3272,9 +3272,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Persistent Audit (Paperclip competitive gap fix) ──
-  app.get('/api/command-post/audit', (req, res) => {
+  app.get('/api/command-post/audit', async (req, res) => {
     try {
-      const { queryAudit } = require('../agent/auditStore.js');
+      const { queryAudit } = await import('../agent/auditStore.js');
       const query = {
         agentId: req.query.agentId as string | undefined,
         sessionId: req.query.sessionId as string | undefined,
@@ -3290,9 +3290,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  app.get('/api/command-post/audit/costs', (req, res) => {
+  app.get('/api/command-post/audit/costs', async (req, res) => {
     try {
-      const { getAgentCostSummary, getDailyCostBreakdown } = require('../agent/auditStore.js');
+      const { getAgentCostSummary, getDailyCostBreakdown } = await import('../agent/auditStore.js');
       const groupBy = req.query.groupBy as string || 'agent';
       if (groupBy === 'day') {
         const days = req.query.days ? parseInt(req.query.days as string) : 30;

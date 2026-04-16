@@ -925,7 +925,7 @@ export async function processMessage(
     }
 
     // ── Brain: background warmup (non-blocking) — skip for voice fast-path ──
-    if (!voiceFastPath) ensureBrainLoaded().catch(() => {});
+    if (!voiceFastPath) ensureBrainLoaded().catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
 
     // ── Deliberation intercept ─────────────────────────────────
     const existingDelib = getDeliberation(session.id);
@@ -1070,7 +1070,7 @@ export async function processMessage(
     initGraph();
 
     // Auto-record user message to knowledge graph (fire-and-forget)
-    addEpisode(`[${channel}/${userId}] ${message}`, channel).catch(() => {});
+    addEpisode(`[${channel}/${userId}] ${message}`, channel).catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
 
     // Build context — voice gets a compact prompt (~500 tokens vs ~3000+)
     let systemPrompt: string;
@@ -1478,7 +1478,7 @@ export async function processMessage(
 
     // Clear checkpoints on successful completion (no need to resume)
     if (!budgetExhausted) {
-        import('./checkpoint.js').then(m => m.clearCheckpoints(session.id)).catch(() => {});
+        import('./checkpoint.js').then(m => m.clearCheckpoints(session.id)).catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
     }
 
     // Active Learning: record strategy for future reference
@@ -1526,7 +1526,7 @@ export async function processMessage(
 
     // Auto-record agent response to knowledge graph (fire-and-forget, skip short/error responses)
     if (finalContent.length > 50 && !finalContent.startsWith('⚠️')) {
-        addEpisode(`[TITAN → ${channel}/${userId}] ${finalContent.slice(0, 500)}`, 'agent').catch(() => {});
+        addEpisode(`[TITAN → ${channel}/${userId}] ${finalContent.slice(0, 500)}`, 'agent').catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
     }
 
     // Record usage
@@ -1549,7 +1549,7 @@ export async function processMessage(
     // ── ContextEngine afterTurn hooks (fire-and-forget — TopFacts, SmartCompress, etc.) ──
     const afterTurnPlugins = getPlugins() || [];
     if (afterTurnPlugins.length > 0) {
-        runAfterTurn(afterTurnPlugins, { content: finalContent, toolsUsed: [...new Set(toolsUsed)] }).catch(() => {});
+        runAfterTurn(afterTurnPlugins, { content: finalContent, toolsUsed: [...new Set(toolsUsed)] }).catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
     }
 
     // ── Checkpoint: if budget exhausted, build a checkpoint for potential resumption ──

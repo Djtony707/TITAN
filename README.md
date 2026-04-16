@@ -1,5 +1,5 @@
 [//]: # (npm-text-start)
-> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, 234 tools, 36 LLM providers, 15 channels, mesh networking, LiveKit voice with F5-TTS cloning, Paperclip-style Command Post governance, mixture-of-agents reasoning, auto-skill generation, shadow git file recovery, and a React dashboard with 30+ panels. It trains itself. `npm i -g titan-agent`
+> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, 242 tools, 36 LLM providers, 16 channels, mesh networking, LiveKit voice with F5-TTS cloning, Paperclip-style Command Post governance, mixture-of-agents reasoning, auto-skill generation, shadow git file recovery, and a React dashboard with 30+ panels. It trains itself. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
 # TITAN — The Intelligent Task Automation Network
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance, deliberative reasoning, mixture-of-agents reasoning, auto-skill generation from trajectories, shadow git file recovery, 5-phase context compression, centralized error taxonomy, credential rotation, per-turn model routing, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 15 channels, 36 providers, 234 tools, 4,791 tests. It trains itself. Pure TypeScript. No native compilation. No, seriously.</strong>
+  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance, deliberative reasoning, mixture-of-agents reasoning, auto-skill generation from trajectories, shadow git file recovery, 5-phase context compression, centralized error taxonomy, credential rotation, per-turn model routing, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 16 channels, 36 providers, 242 tools, 5,389 tests. It trains itself. Pure TypeScript. No native compilation. No, seriously.</strong>
 </p>
 
 <p align="center">
@@ -23,9 +23,9 @@
   <a href="https://github.com/Djtony707/TITAN/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Djtony707/TITAN/ci.yml?label=tests" alt="CI Status"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
   <a href="#providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
-  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-234-orange" alt="234 Tools"/></a>
-  <a href="#channels"><img src="https://img.shields.io/badge/channels-15-blue" alt="15 Channels"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-4%2C791-brightgreen" alt="4,791 Tests"/></a>
+  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-242-orange" alt="242 Tools"/></a>
+  <a href="#channels"><img src="https://img.shields.io/badge/channels-16-blue" alt="16 Channels"/></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-5%2C389-brightgreen" alt="5,389 Tests"/></a>
   <a href="https://github.com/Djtony707/TITAN/graphs/contributors"><img src="https://img.shields.io/github/contributors/Djtony707/TITAN" alt="Contributors"/></a>
 </p>
 
@@ -68,7 +68,7 @@
 
 ## Why TITAN?
 
-TITAN is the only open-source agent framework that **trains itself on your GPU**, **generates its own skills from experience**, and **gets cheaper every round it runs**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, trajectory-based skill learning, mixture-of-agents reasoning, 5-phase context compression, credential rotation, shadow git file recovery, voice, GUI, 15 channels, mesh networking, agent governance, and 36 providers in one package.
+TITAN is the only open-source agent framework that **trains itself on your GPU**, **generates its own skills from experience**, and **gets cheaper every round it runs**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, trajectory-based skill learning, mixture-of-agents reasoning, 5-phase context compression, credential rotation, shadow git file recovery, voice, GUI, 16 channels, mesh networking, agent governance, and 36 providers in one package.
 
 | Feature | TITAN | OpenClaw | CrewAI | LangGraph | AutoGen | Forge (MiniMax) |
 |---------|:-----:|:--------:|:------:|:---------:|:-------:|:---------------:|
@@ -119,7 +119,7 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 >
 > **Shadow Git Checkpoints** — Automatic file snapshots before every write/edit/append operation. Shadow git repos at `~/.titan/file-checkpoints/` enable point-in-time recovery without touching the user's actual git. Three recovery tools: `checkpoint_list`, `checkpoint_diff`, `checkpoint_restore`.
 >
-> **Also new**: 141 skills (up from 117), 234 tools, 4,791 tests across 160 files.
+> **Also new**: 142 skills (up from 117), 242 tools, 5,389 tests across 160 files.
 >
 > Previous: v2.0.0 — 15-layer tool pipeline, dreaming memory, OpenAI API compat, durable task flows, memory wiki.
 
@@ -208,7 +208,7 @@ TITAN SSHs into the target machine via the mesh network, pulls the latest code, 
 **"Get better at everything while I sleep"**
 TITAN runs self-improvement experiments overnight. It modifies its own prompts, evaluates the changes against a benchmark suite using LLM-as-judge scoring, and keeps only the improvements. It can even fine-tune its own local model on your GPU. You wake up to a smarter agent.
 
-No custom code required for any of the above. TITAN ships with 141 loaded skills exposing 234 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly — or auto-generate one from successful task trajectories.
+No custom code required for any of the above. TITAN ships with 142 loaded skills exposing 242 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly — or auto-generate one from successful task trajectories.
 
 ---
 
@@ -238,8 +238,8 @@ No custom code required for any of the above. TITAN ships with 141 loaded skills
        +----+----+       IRC                mDNS + Tailscale
        |         |       Mattermost         Peer Discovery
     Skills    Providers  Lark/Feishu        WS Transport
-    141 loaded 36 total   Email (IMAP)
-    234 tools (4 native  LINE               Voice
+    142 loaded 36 total   Email (IMAP)
+    242 tools (4 native  LINE               Voice
        |       + 30       Zulip             LiveKit WebRTC
     Memory     compat)
     Graph + RAG
@@ -431,7 +431,7 @@ Or let autopilot handle it — set `autopilot.mode: "self-improve"` and TITAN ru
 | **Agents** | Spawn, stop, and monitor up to 5 agent instances |
 | **Settings** | 6-tab live config: AI, Providers, Channels, Security, Gateway, Profile |
 | **Channels** | Connection status for all 15 channel adapters |
-| **Skills** | 141 loaded skills with per-skill enable/disable toggles |
+| **Skills** | 142 loaded skills with per-skill enable/disable toggles |
 | **Sessions** | Active sessions with message counts and history |
 | **Learning** | Tool success rates and knowledge base stats |
 | **Autopilot** | Schedule, status, history, and run control |
@@ -666,7 +666,7 @@ Mesh peers are authenticated via an **out-of-band shared secret** (generated by 
 
 ## MCP Server Mode
 
-TITAN can act as an **MCP server**, exposing all 234 tools to other AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). Any MCP client (Cursor, Windsurf, or similar) can connect and use TITAN's tools.
+TITAN can act as an **MCP server**, exposing all 242 tools to other AI agents via the [Model Context Protocol](https://modelcontextprotocol.io/). Any MCP client (Cursor, Windsurf, or similar) can connect and use TITAN's tools.
 
 **HTTP transport** (runs on the gateway port):
 ```json
@@ -733,7 +733,7 @@ print(f"Found {len(results)} results")
 
 ## Built-in Tools
 
-141 loaded skills exposing 234 tools. All individually toggleable from Mission Control.
+142 loaded skills exposing 242 tools. All individually toggleable from Mission Control.
 
 | Category | Tools |
 |----------|-------|
@@ -769,10 +769,10 @@ print(f"Found {len(results)} results")
 
 ### Tool Search — Compact Mode
 
-TITAN doesn't dump all 234 tool schemas into every LLM call. It sends only 9 core tools plus `tool_search`. When the LLM needs a capability, it calls `tool_search("email")` and gets the relevant tools added dynamically.
+TITAN doesn't dump all 242 tool schemas into every LLM call. It sends only 9 core tools plus `tool_search`. When the LLM needs a capability, it calls `tool_search("email")` and gets the relevant tools added dynamically.
 
 ```
-Before: 234 tools x ~50 tokens each = ~10,450 input tokens
+Before: 242 tools x ~50 tokens each = ~10,450 input tokens
 After:  10 core tools + tool_search  = ~700 input tokens (93% reduction)
 ```
 
@@ -932,7 +932,7 @@ The temporal graph is pure TypeScript — no Neo4j, no Docker, no external servi
 
 ```bash
 npm run build          # tsup ESM production build
-npm run test           # vitest (4,791 tests across 160 files)
+npm run test           # vitest (5,389 tests across 160 files)
 npm run test:coverage  # ~82% line coverage
 npm run ci             # typecheck + full test suite
 npm run typecheck      # tsc --noEmit
@@ -952,7 +952,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 
 ### Previous (v2.8.x)
 
-- **v2.8.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing (fast tier for simple follow-ups, 30-60% cost savings). Credential pool with round-robin/least-used rotation and auto-exhaustion. 5-phase context compression (tool pruning, head/tail protection, structured summary, iterative updates). Task-level trajectory logging with auto-skill generation from repeated patterns. Mixture-of-agents tool (parallel multi-model queries with synthesize/vote/best strategies). Shadow git file checkpoints with automatic pre-write snapshots and point-in-time recovery. 141 skills, 234 tools, 4,791 tests across 160 files.
+- **v2.8.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing (fast tier for simple follow-ups, 30-60% cost savings). Credential pool with round-robin/least-used rotation and auto-exhaustion. 5-phase context compression (tool pruning, head/tail protection, structured summary, iterative updates). Task-level trajectory logging with auto-skill generation from repeated patterns. Mixture-of-agents tool (parallel multi-model queries with synthesize/vote/best strategies). Shadow git file checkpoints with automatic pre-write snapshots and point-in-time recovery. 142 skills, 242 tools, 5,389 tests across 160 files.
 
 ### Previous (v2.0.0)
 
@@ -976,7 +976,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 - **v2026.10.28**: **Bug Fixes** — Vector search circular dependency fixed (`initVectors` now calls Ollama `/api/embed` directly instead of `embed()` which was gated on `available=false` during init, causing RAG to never initialize). ActiveLearning no-op fixed (no longer records "use X instead of X" when same tool succeeds on retry). ESLint prefer-const fix.
 - **v2026.10.27**: **System Prompt Architecture Overhaul** — Complete redesign of how TITAN instructs AI models to use tools reliably. Tool Execution rules now appear first in the system prompt (before identity/capabilities). ReAct loop (Reason→Act→Observe) taught to every model. MUST/NEVER directives and negative examples (wrong vs. right behavior) burn in correct tool-call patterns. Task-aware dynamic injection appends `[TASK ENFORCEMENT]` blocks for file-write, research, and shell tasks detected in the message. API-level `tool_choice: "required"` added for OpenAI/Ollama and `tool_choice: {type: "any"}` for Anthropic on enforced first rounds. Ollama cloud prompt compression fixed — tool enforcement rules now survive compression (limit raised 2000→3500 chars). All 11 sub-agent templates (Explorer, Coder, Browser, Analyst, Researcher, Reporter, Fact Checker, Dev Debugger, Dev Tester, Dev Reviewer, Dev Architect) rewritten with tool-specific guidance, MUST rules, and output format requirements. New `agent.forceToolUse` config flag.
 - **v2026.10.26**: **Live Training Feed** — Real-time SSE streaming of training progress in Self-Improvement panel, incremental training data writes (data survives tool timeouts), cloud-assisted training pipeline
-- **v2026.10.22**: **Voice System Hardening** — 24 bug fixes across voice, gateway, and agent core. VoiceOverlay rewrite (stale closure fixes, AbortController cleanup, session continuity, emotion tag stripping). FluidOrb canvas rewrite (single animation loop, no 60fps teardown). Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor (Ollama/TTS/memory watchdog), fetchWithRetry timeout, systemd service unit, log rotation. 91 loaded skills, 234 tools, 3,839 tests across 123 files.
+- **v2026.10.22**: **Voice System Hardening** — 24 bug fixes across voice, gateway, and agent core. VoiceOverlay rewrite (stale closure fixes, AbortController cleanup, session continuity, emotion tag stripping). FluidOrb canvas rewrite (single animation loop, no 60fps teardown). Gateway SSE leak fix, TTS health probe fix, Ollama context 8K→16K, internal health monitor (Ollama/TTS/memory watchdog), fetchWithRetry timeout, systemd service unit, log rotation. 91 loaded skills, 242 tools, 3,839 tests across 123 files.
 - **v2026.10.21**: **Dual Training Pipelines** — Tool Router (single-turn tool selection) and Main Agent (multi-turn ChatML with OpenAI function calling) training modes. Self-Improve panel training type selector with fully customizable hyperparameters (base model, LoRA rank, learning rate, epochs, time budget, max sequence length). Training data generation, model deployment, and benchmarking from the UI. Ollama provider context management fix (prevents context over-allocation). New API endpoints: generate-data, deploy, type-filtered results.
 - **v2026.10.20**: **Autonomous Self-Improvement** — TITAN experiments on its own prompts, tool selection, response quality, and error recovery using LLM-as-judge evaluation. LoRA fine-tuning pipeline (unsloth → GGUF → Ollama) for local model training on GPU. Configurable schedule (1–12 runs/day), budget caps, auto-apply, weekend pause. Mission Control Self-Improvement panel. Autopilot `self-improve` mode. 8 new tools, 149 total tools, 91 skills, 3,839 tests across 123 files.
 - **v2026.10.17**: CapSolver CAPTCHA solving, direct form-fill API, deferred button clicks, React-compatible form automation

@@ -106,18 +106,17 @@ export function validateCommand(command: string): string | null {
     // Scored command scanner (Hermes competitive gap fix)
     // Catches exfiltration, escalation, and resource patterns the regex list misses
     try {
-        const { scanCommand } = require('../../security/commandScanner.js');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { scanCommand } = require('../../security/commandScanner.js') as typeof import('../../security/commandScanner.js');
         const scan = scanCommand(command);
         if (scan.level === 'block') {
             return `Command blocked (risk score ${scan.score}/100): ${scan.reasons.join(', ')}. Rephrase the command to be more specific and scoped.`;
         }
-        // Warn-level commands execute but get logged — the warn injection
-        // happens at the agent loop level via the tool result content
         if (scan.level === 'warn') {
             logger.warn(COMPONENT, `[CommandScanner] WARN (${scan.score}/100): ${command.slice(0, 120)} — ${scan.reasons.join(', ')}`);
         }
     } catch {
-        // Scanner module not available — fall through to legacy behavior
+        // Scanner module not available at startup — fall through to legacy behavior
     }
 
     return null;
