@@ -95,12 +95,31 @@ const BLOCKED_COMMANDS = [
 ];
 
 export function validateCommand(command: string): string | null {
+    // Legacy regex-based block list (Finding #28)
     for (const pattern of BLOCKED_COMMANDS) {
         if (pattern.test(command)) {
             logger.warn(COMPONENT, `[Finding28Guard] Blocked dangerous command: ${command.slice(0, 200)}`);
             return `Command blocked: this pattern is not allowed for security reasons. The command appears to match a destructive / unsafe pattern (e.g., wiping a top-level directory, formatting a device, piping internet content to bash). If this was legitimate, scope it to a more specific path.`;
         }
     }
+
+    // Scored command scanner (Hermes competitive gap fix)
+    // Catches exfiltration, escalation, and resource patterns the regex list misses
+    try {
+        const { scanCommand } = require('../../security/commandScanner.js');
+        const scan = scanCommand(command);
+        if (scan.level === 'block') {
+            return `Command blocked (risk score ${scan.score}/100): ${scan.reasons.join(', ')}. Rephrase the command to be more specific and scoped.`;
+        }
+        // Warn-level commands execute but get logged — the warn injection
+        // happens at the agent loop level via the tool result content
+        if (scan.level === 'warn') {
+            logger.warn(COMPONENT, `[CommandScanner] WARN (${scan.score}/100): ${command.slice(0, 120)} — ${scan.reasons.join(', ')}`);
+        }
+    } catch {
+        // Scanner module not available — fall through to legacy behavior
+    }
+
     return null;
 }
 

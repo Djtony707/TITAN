@@ -13,6 +13,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { getRecentTrajectories, getSequenceSignature, countMatchingTrajectories, type TaskTrajectory } from './trajectoryLogger.js';
 import { classifyTaskType } from '../memory/learning.js';
+import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'AutoSkillGen';
@@ -67,9 +68,107 @@ export function shouldGenerateSkill(trajectory: TaskTrajectory): boolean {
 }
 
 /**
- * Generate a SKILL.md file content from a trajectory.
+ * Generate a SKILL.md file content from a trajectory using the LLM.
+ *
+ * Competitive gap fix (Hermes): Hermes generates rich skills with edge cases,
+ * verification steps, and failure modes via LLM. TITAN was template-only.
+ * Now we send the trajectory to the `fast` model alias for rich generation,
+ * with automatic fallback to the template if the LLM call fails.
  */
-export function generateSkillContent(trajectory: TaskTrajectory): string {
+export async function generateSkillContent(trajectory: TaskTrajectory): Promise<string> {
+    // Try LLM-enhanced generation first
+    try {
+        const config = loadConfig();
+        const aliases = (config.agent as Record<string, unknown>).modelAliases as Record<string, string> | undefined;
+        const fastModel = aliases?.fast || 'openai/gpt-4o-mini';
+
+        const llmContent = await generateSkillWithLLM(trajectory, fastModel);
+        if (llmContent && llmContent.length > 200) {
+            logger.info(COMPONENT, `LLM-enhanced skill generated (${llmContent.length} chars) for ${trajectory.taskType}`);
+            return llmContent;
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `LLM skill generation failed, falling back to template: ${(err as Error).message}`);
+    }
+
+    // Fallback: template-based generation (original behavior)
+    return generateSkillTemplate(trajectory);
+}
+
+/**
+ * LLM-enhanced skill generation — sends the trajectory to the fast model
+ * and gets back a rich SKILL.md with edge cases, pitfalls, and verification.
+ */
+async function generateSkillWithLLM(trajectory: TaskTrajectory, model: string): Promise<string> {
+    // Dynamic import to avoid circular dependency at module load
+    const { chat } = await import('../providers/router.js');
+
+    const matchingTrajectories = getRecentTrajectories(50, {
+        taskType: trajectory.taskType,
+        success: true,
+    }).filter(t => getSequenceSignature(t.toolSequence) === getSequenceSignature(trajectory.toolSequence));
+
+    const avgRounds = matchingTrajectories.length > 0
+        ? Math.round(matchingTrajectories.reduce((sum, t) => sum + t.rounds, 0) / matchingTrajectories.length)
+        : trajectory.rounds;
+
+    const toolDetails = trajectory.toolSequence.map((tool, i) => {
+        const detail = trajectory.toolDetails[i];
+        const argsPreview = detail
+            ? JSON.stringify(detail.args).slice(0, 200)
+            : '{}';
+        const resultPreview = detail?.resultSnippet || '';
+        return `Step ${i + 1}: ${tool}(${argsPreview})${resultPreview ? ` → ${resultPreview.slice(0, 100)}` : ''}`;
+    }).join('\n');
+
+    const prompt = `You are a skill documentation writer for the TITAN AI agent framework.
+
+A task has been completed successfully ${matchingTrajectories.length} times using this tool sequence.
+Write a reusable SKILL.md that future agents can follow.
+
+## Task Details
+- **Task type**: ${trajectory.taskType}
+- **User request**: ${trajectory.task.slice(0, 300)}
+- **Tool sequence**: ${trajectory.toolSequence.join(' → ')}
+- **Rounds**: ${avgRounds} average
+- **Duration**: ${Math.round(trajectory.durationMs / 1000)}s
+
+## Tool Call Details
+${toolDetails}
+
+## Required Output Format
+Write a SKILL.md with YAML frontmatter. Include these sections:
+1. **Trigger Patterns** — when should this skill be applied (2-4 bullet points)
+2. **Procedure** — step-by-step with the exact tool sequence and key arguments
+3. **Common Pitfalls** — what goes wrong and how to avoid it (2-3 items)
+4. **Verification** — how to confirm the task succeeded (1-2 checks)
+5. **Statistics** — success count, avg rounds, avg duration
+
+Start with:
+---
+name: ${skillDirName(trajectory.taskType, trajectory.toolSequence)}
+description: <one-line description>
+version: 1.0.0
+author: TITAN AutoSkill
+category: auto-generated
+---
+
+Keep it concise — under 60 lines total. No filler.`;
+
+    const response = await chat({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        maxTokens: 1500,
+    });
+
+    return response.content || '';
+}
+
+/**
+ * Template-based skill generation (original behavior, used as fallback).
+ */
+function generateSkillTemplate(trajectory: TaskTrajectory): string {
     const matchingTrajectories = getRecentTrajectories(50, {
         taskType: trajectory.taskType,
         success: true,
@@ -119,7 +218,7 @@ Apply this sequence when the user asks for a ${trajectory.taskType} task that in
 /**
  * Save a generated skill to disk.
  */
-export function saveGeneratedSkill(trajectory: TaskTrajectory): GeneratedSkill | null {
+export async function saveGeneratedSkill(trajectory: TaskTrajectory): Promise<GeneratedSkill | null> {
     try {
         const dirPath = join(SKILLS_DIR, skillDirName(trajectory.taskType, trajectory.toolSequence));
         const filePath = join(dirPath, 'SKILL.md');
@@ -128,7 +227,7 @@ export function saveGeneratedSkill(trajectory: TaskTrajectory): GeneratedSkill |
             mkdirSync(dirPath, { recursive: true });
         }
 
-        const content = generateSkillContent(trajectory);
+        const content = await generateSkillContent(trajectory);
         writeFileSync(filePath, content, 'utf-8');
 
         const skill: GeneratedSkill = {
@@ -219,9 +318,13 @@ export function getSkillGuidance(message: string): string | null {
 /**
  * Process a trajectory: log it, check if a skill should be generated, generate if so.
  * This is the main entry point called from agent.ts after each task.
+ * Runs async (LLM call for rich skill generation) but fire-and-forget — never blocks the agent response.
  */
 export function processTrajectoryForSkills(trajectory: TaskTrajectory): void {
     if (shouldGenerateSkill(trajectory)) {
-        saveGeneratedSkill(trajectory);
+        // Fire-and-forget: don't block the agent response on skill generation
+        saveGeneratedSkill(trajectory).catch(err => {
+            logger.warn(COMPONENT, `Auto-skill generation failed: ${(err as Error).message}`);
+        });
     }
 }
