@@ -1060,19 +1060,44 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
                 // FabricationGuard: detect model claiming to have completed actions without tool calls
                 // gemma4 says "I've written X to file Y" without actually calling write_file
+                //
+                // Hunt Finding #47 (2026-04-15): this guard was DESTROYING correctly
+                // written files. When the model summarized "all results were written
+                // to /tmp/foo.txt", the regex matched, content extraction failed, and
+                // the file was overwritten with "placeholder" — nuking the real 198-byte
+                // output. Fix: skip if the file already exists with >0 bytes (the write
+                // already succeeded in a prior round). Also require an explicit content
+                // extract — never fall back to "placeholder".
                 const fabricationMatch = response.content.match(/(?:written|saved|created|wrote)\s+(?:.*?)(?:to|at|in)\s+["'`]?(\/[\w/.-]+\.[a-z]+)["'`]?/i);
                 if (fabricationMatch) {
                     const filePath = fabricationMatch[1];
-                    // Extract what should have been written
-                    const contentMatch = response.content.match(/(?:written|saved|wrote)\s+["`]([^"`]+)["`]/i);
-                    const fileContent = contentMatch ? contentMatch[1] : 'placeholder';
-                    logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "${filePath}" without tool call — forcing write_file`);
-                    response.toolCalls = [{
-                        id: `fab-${Date.now()}`,
-                        type: 'function' as const,
-                        function: { name: 'write_file', arguments: JSON.stringify({ path: filePath, content: fileContent }) },
-                    }];
-                    response.content = '';
+                    // Check if the file already exists — if so, the write already
+                    // succeeded in a previous round and this is just the model
+                    // summarizing what it did. Don't overwrite.
+                    let fileAlreadyExists = false;
+                    try {
+                        const { existsSync, statSync } = await import('fs');
+                        fileAlreadyExists = existsSync(filePath) && statSync(filePath).size > 0;
+                    } catch { /* can't check, assume not */ }
+
+                    if (fileAlreadyExists) {
+                        logger.info(COMPONENT, `[FabricationGuard] File "${filePath}" already exists (${fileAlreadyExists ? 'has content' : 'empty'}) — skipping forced write (Hunt #47)`);
+                    } else {
+                        // Extract what should have been written — require explicit content
+                        const contentMatch = response.content.match(/(?:written|saved|wrote)\s+["`]([^"`]+)["`]/i);
+                        if (contentMatch) {
+                            const fileContent = contentMatch[1];
+                            logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "${filePath}" without tool call — forcing write_file`);
+                            response.toolCalls = [{
+                                id: `fab-${Date.now()}`,
+                                type: 'function' as const,
+                                function: { name: 'write_file', arguments: JSON.stringify({ path: filePath, content: fileContent }) },
+                            }];
+                            response.content = '';
+                        } else {
+                            logger.warn(COMPONENT, `[FabricationGuard] Model claimed to write "${filePath}" but no extractable content — skipping forced write to avoid placeholder damage (Hunt #47)`);
+                        }
+                    }
                 }
                 // Self-Heal: detect tool calling failure
                 if (ctx.selfHealEnabled && !selfHealExhausted && ctx.activeTools.length > 0) {

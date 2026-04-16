@@ -89,6 +89,24 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     });
 
     // ─────────────────────────────────────────────────────────────────
+    // Finding #47 — FabricationGuard destroys correctly-written files
+    // ─────────────────────────────────────────────────────────────────
+    describe('Finding #47 — FabricationGuard skips existing files', () => {
+        it('checks file existence before forcing a write', () => {
+            expect(AGENT_LOOP).toContain('fileAlreadyExists');
+            expect(AGENT_LOOP).toContain('Hunt #47');
+        });
+
+        it('never falls back to "placeholder" content', () => {
+            // The old code had: const fileContent = contentMatch ? ... : 'placeholder'
+            // This resulted in correctly-written files being overwritten with "placeholder".
+            // The fix requires an explicit content match — no contentMatch means no forced write.
+            const fabricationBlock = AGENT_LOOP.split('FabricationGuard')[2] || '';
+            expect(fabricationBlock).not.toMatch(/fileContent\s*=\s*.*'placeholder'/);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
     // Finding #22/#46 — cross-turn loop detection (previously deferred)
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #22/#46 — cross-turn loop detection survives between turns', () => {
