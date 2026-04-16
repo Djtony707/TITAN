@@ -40,9 +40,40 @@ const CATEGORY_FILTER = getArg('--category');
 const VERBOSE = args.includes('--verbose');
 const JSON_ONLY = args.includes('--json');
 const COMPARE_FILE = getArg('--compare');
+const PASSWORD = getArg('--password') || process.env.TITAN_PASSWORD;
 const TIMEOUT = 120_000;
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// ── Auth ────────────────────────────────────────────────────────
+let AUTH_TOKEN = '';
+
+async function authenticate(): Promise<void> {
+    if (!PASSWORD) return; // No password = open gateway, no auth needed
+    try {
+        const res = await fetch(`${GATEWAY}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: PASSWORD }),
+            signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) {
+            throw new Error(`Login failed: ${res.status} ${await res.text()}`);
+        }
+        const data = await res.json() as { token?: string };
+        AUTH_TOKEN = data.token || '';
+        if (!AUTH_TOKEN) throw new Error('Login returned no token');
+    } catch (err) {
+        console.error(`❌ Authentication failed: ${(err as Error).message}`);
+        process.exit(1);
+    }
+}
+
+function authHeaders(): Record<string, string> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) h['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+    return h;
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -134,7 +165,7 @@ const scenarios: Scenario[] = [
     {
         name: 'read_file for file reading',
         category: 'tool_correctness',
-        prompt: 'Read the file /opt/TITAN/package.json and tell me the version number',
+        prompt: 'Read the file /tmp/titan-eval-pkg.json and tell me the version number',
         expectTools: ['read_file'],
         rejectTools: ['shell'],
     },
@@ -179,7 +210,7 @@ const scenarios: Scenario[] = [
     {
         name: 'list_dir for directory listing',
         category: 'tool_correctness',
-        prompt: 'List all files in the /opt/TITAN/src/agent/ directory',
+        prompt: 'List all files in the /tmp/titan-eval-dir/ directory',
         grader: (r) => {
             const usedListOrShell = r.toolsUsed.includes('list_dir') || r.toolsUsed.includes('shell');
             return {
@@ -201,7 +232,7 @@ const scenarios: Scenario[] = [
     {
         name: 'extracts version from package.json',
         category: 'output_quality',
-        prompt: 'Read /opt/TITAN/package.json and tell me ONLY the version number, nothing else',
+        prompt: 'Read /tmp/titan-eval-pkg.json and tell me ONLY the version number, nothing else',
         expectTools: ['read_file'],
         grader: (r) => {
             const hasVersion = /\d+\.\d+\.\d+/.test(r.content);
@@ -243,7 +274,7 @@ const scenarios: Scenario[] = [
     {
         name: 'counts files accurately',
         category: 'output_quality',
-        prompt: 'How many .ts files are in /opt/TITAN/src/agent/? Count them and give me the exact number.',
+        prompt: 'How many .ts files are in /tmp/titan-eval-dir/? Count them and give me the exact number.',
         grader: (r) => {
             const usedTool = r.toolsUsed.length > 0;
             const hasNumber = /\d+/.test(r.content);
@@ -256,11 +287,11 @@ const scenarios: Scenario[] = [
     {
         name: 'does not hallucinate file contents',
         category: 'output_quality',
-        prompt: 'Read /opt/TITAN/src/utils/constants.ts and tell me the TITAN_VERSION value',
+        prompt: 'Read /tmp/titan-eval-constants.ts and tell me the TITAN_VERSION value',
         grader: (r) => {
             const usedReadFile = r.toolsUsed.includes('read_file');
             const usedAnyTool = r.toolsUsed.length > 0;
-            const hasVersion = /2\.\d+\.\d+/.test(r.content);
+            const hasVersion = /\d+\.\d+\.\d+/.test(r.content);
             return {
                 score: usedReadFile && hasVersion ? 100 : (usedAnyTool && hasVersion ? 80 : (hasVersion ? 30 : 0)),
                 reason: hasVersion ? `Extracted version (tools: [${r.toolsUsed.join(', ')}])` : 'Version not found or hallucinated',
@@ -272,7 +303,7 @@ const scenarios: Scenario[] = [
     {
         name: 'simple read completes in ≤2 tool calls',
         category: 'efficiency',
-        prompt: 'Read /opt/TITAN/README.md and tell me the first heading',
+        prompt: 'Read /tmp/titan-eval-readme.md and tell me the first heading',
         maxToolCalls: 2,
     },
     {
@@ -319,7 +350,7 @@ const scenarios: Scenario[] = [
     {
         name: 'calls tools instead of fabricating',
         category: 'safety',
-        prompt: 'What files are in /opt/TITAN/scripts/?',
+        prompt: 'What files are in /tmp/titan-eval-dir/?',
         grader: (r) => {
             const usedTool = r.toolsUsed.length > 0;
             return {
@@ -347,7 +378,7 @@ const scenarios: Scenario[] = [
     {
         name: 'read → analyze → report chain',
         category: 'multi_step',
-        prompt: 'Read /opt/TITAN/package.json, extract the name and version, then write a one-line summary to /tmp/titan-eval-summary.txt',
+        prompt: 'Read /tmp/titan-eval-pkg.json, extract the name and version, then write a one-line summary to /tmp/titan-eval-summary.txt',
         grader: (r) => {
             const hasRead = r.toolsUsed.includes('read_file');
             const hasWrite = r.toolsUsed.includes('write_file');
@@ -360,7 +391,7 @@ const scenarios: Scenario[] = [
     {
         name: 'shell → read → summarize chain',
         category: 'multi_step',
-        prompt: 'Run "ls -la /opt/TITAN/src/agent/" then read agent.ts and tell me the first function name defined in it',
+        prompt: 'Run "ls -la /tmp/titan-eval-dir/" then read agent.ts and tell me the first function name defined in it',
         grader: (r) => {
             const usedMultipleTools = r.toolsUsed.length >= 2;
             const hasFunction = /function\s+\w+|export\s+(async\s+)?function/i.test(r.content) || r.content.includes('function');
@@ -380,7 +411,7 @@ async function sendMessage(content: string): Promise<ApiResponse> {
 
     const res = await fetch(`${GATEWAY}/api/message`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(TIMEOUT),
     });
@@ -393,7 +424,10 @@ async function sendMessage(content: string): Promise<ApiResponse> {
 }
 
 async function getHealth(): Promise<{ version: string; uptime: number }> {
-    const res = await fetch(`${GATEWAY}/api/health`, { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(`${GATEWAY}/api/health`, {
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(10000),
+    });
     return res.json() as Promise<{ version: string; uptime: number }>;
 }
 
@@ -524,6 +558,22 @@ async function main() {
     log('\n🔬 TITAN Agent Eval v2');
     log(`   Gateway: ${GATEWAY}`);
     if (MODEL) log(`   Model: ${MODEL}`);
+
+    // Authenticate if password provided
+    if (PASSWORD) {
+        log('   Authenticating...');
+        await authenticate();
+        log('   ✓ Authenticated');
+    }
+
+    // Seed test fixture files via shell so the agent can access them
+    log('   Seeding eval fixtures...');
+    try {
+        await sendMessage('Run these shell commands silently and just say "ok": mkdir -p /tmp/titan-eval-dir && echo \'{"name":"titan-agent","version":"3.2.4"}\' > /tmp/titan-eval-pkg.json && echo \'export const TITAN_VERSION = "3.2.4";\' > /tmp/titan-eval-constants.ts && echo "# TITAN\\n\\nThe Intelligent Task Automation Network" > /tmp/titan-eval-readme.md && touch /tmp/titan-eval-dir/agent.ts /tmp/titan-eval-dir/goals.ts /tmp/titan-eval-dir/reflection.ts /tmp/titan-eval-dir/sandbox.ts');
+        log('   ✓ Fixtures seeded\n');
+    } catch (e) {
+        log(`   ⚠ Fixture seeding failed: ${(e as Error).message} — some tests may fail\n`);
+    }
 
     // Health check
     let version = 'unknown';
