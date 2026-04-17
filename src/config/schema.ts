@@ -425,10 +425,24 @@ export const CapsolverConfigSchema = z.object({
     minScore: z.number().min(0.1).max(0.9).default(0.7),
 });
 
+/** Soma organism layer — homeostatic drives, hormonal broadcasts, shadow
+ *  rehearsal. Disabled by default so v4.0 is bit-identical to v3.6 for
+ *  existing users. Opt in by setting `organism.enabled: true` in titan.json. */
+export const OrganismConfigSchema = z.object({
+    enabled: z.boolean().default(false).describe('Master switch. When false, Soma is inert: driveTick watcher is not registered, no drive state files are written, and hormone prompt injection is skipped.'),
+    hormonesInPrompt: z.boolean().default(true).describe('Include hormonal ambient-state block in the system prompt when Soma is enabled.'),
+    pressureThreshold: z.number().min(0).max(5).default(1.2).describe('Combined drive pressure above which Soma fires a proposal. Raise to make Soma more conservative.'),
+    driveSetpoints: z.record(z.string(), z.number().min(0).max(1)).optional().describe('Per-drive setpoint overrides: { purpose: 0.7, hunger: 0.6, ... }'),
+    shadowEnabled: z.boolean().default(true).describe('Run shadow rehearsal before each Soma proposal is filed for approval.'),
+    shadowModel: z.string().default('fast').describe('Model alias (or provider/model id) used for shadow rehearsal.'),
+    tickIntervalMs: z.number().min(10_000).max(3_600_000).default(60_000).describe('Drive tick cadence in ms. Default 60s; minimum 10s to prevent self-DoS.'),
+});
+
 export const TitanConfigSchema = z.object({
     /** Whether the user has completed the web onboarding wizard */
     onboarded: z.boolean().default(false),
     agent: AgentConfigSchema.default({}),
+    organism: OrganismConfigSchema.default({}),
     providers: z.object({
         anthropic: ProviderConfigSchema.default({}),
         openai: ProviderConfigSchema.default({}),

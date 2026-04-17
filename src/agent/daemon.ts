@@ -232,12 +232,20 @@ async function dreamingWatcher(): Promise<void> {
 
 // ── Watcher Registry ───────────────────────────────────────────────
 
+/** Soma drive tick — lazy-imported to avoid loading organism modules in
+ *  installations where organism is disabled (keeps cold-start fast). */
+async function driveTickWatcherAdapter(): Promise<void> {
+    const { driveTickHandler } = await import('../organism/driveTickWatcher.js');
+    return driveTickHandler();
+}
+
 const BUILTIN_WATCHERS: Record<string, () => Promise<void>> = {
     goal: goalWatcher,
     cronFailure: cronFailureWatcher,
     health: healthWatcher,
     memoryTrigger: memoryTriggerWatcher,
     dreaming: dreamingWatcher,
+    driveTick: driveTickWatcherAdapter,
 };
 
 /** Watchers registered before daemon starts — stores their requested intervals */
@@ -249,6 +257,10 @@ const DEFAULT_WATCHER_CONFIGS: WatcherConfig[] = [
     { name: 'health', enabled: true, intervalMs: 120_000 },        // 2 min
     { name: 'memoryTrigger', enabled: true, intervalMs: 300_000 }, // 5 min
     { name: 'dreaming', enabled: true, intervalMs: 86_400_000 },   // 24 hours
+    // Soma drive tick. Gated by config.organism.enabled in initDaemon; if the
+    // flag is false at daemon startup this watcher is excluded from the
+    // runtime registry entirely (zero overhead for existing users).
+    { name: 'driveTick', enabled: true, intervalMs: 60_000 },       // 60 s
 ];
 
 // ── Core Daemon Functions ──────────────────────────────────────────
@@ -318,6 +330,16 @@ export function initDaemon(): void {
         const override = userWatchers.find(uw => uw.name === dw.name);
         return override ? { ...dw, ...override } : dw;
     });
+
+    // Soma gate: driveTick only runs when organism.enabled=true. We mutate
+    // the config we're about to iterate — cleaner than a runtime check in
+    // the handler, and guarantees zero overhead for installations that
+    // never opt in to Soma.
+    const organismEnabled = !!(config as unknown as { organism?: { enabled?: boolean } }).organism?.enabled;
+    if (!organismEnabled) {
+        const idx = watcherConfigs.findIndex(wc => wc.name === 'driveTick');
+        if (idx >= 0) watcherConfigs[idx] = { ...watcherConfigs[idx], enabled: false };
+    }
 
     // Add any custom user watchers not in defaults
     for (const uw of userWatchers) {

@@ -521,8 +521,12 @@ function ApprovalsTab() {
           {approvals.length === 0 ? (
             <div className="py-8 text-center text-[12px] text-white/25">No approvals</div>
           ) : approvals.map(a => {
-            const isProposal = a.type === 'goal_proposal';
+            const isProposal = a.type === 'goal_proposal' || a.type === 'soma_proposal';
+            const isSoma = a.type === 'soma_proposal';
             const pp = a.payload as Record<string, unknown>;
+            const shadowVerdict = isSoma && pp.shadowVerdict && typeof pp.shadowVerdict === 'object'
+              ? pp.shadowVerdict as { reversibilityScore: number; estimatedCostUsd: number; breakRisks: string[] }
+              : null;
             const proposalTitle = isProposal && typeof pp.title === 'string' ? pp.title : null;
             const proposalDesc = isProposal && typeof pp.description === 'string' ? pp.description : null;
             const proposalRationale = isProposal && typeof pp.rationale === 'string' ? pp.rationale : null;
@@ -538,10 +542,20 @@ function ApprovalsTab() {
                 <span className="text-[10px] text-white/20">{timeSince(a.createdAt)}</span>
               </div>
               {isProposal && proposalTitle && (
-                <div className="mt-1 mb-2 pl-2 border-l-2 border-emerald-500/40">
-                  <div className="text-[13px] text-white/90 font-medium">{proposalTitle}</div>
+                <div className={`mt-1 mb-2 pl-2 border-l-2 ${isSoma ? 'border-indigo-500/50' : 'border-emerald-500/40'}`}>
+                  <div className="text-[13px] text-white/90 font-medium flex items-center gap-2">
+                    {isSoma && <span className="text-[9px] uppercase tracking-wider text-indigo-300/80 bg-indigo-500/10 px-1.5 py-0.5 rounded">Soma</span>}
+                    {proposalTitle}
+                  </div>
                   {proposalDesc && <div className="text-[11px] text-white/60 mt-0.5">{proposalDesc}</div>}
-                  {proposalRationale && <div className="text-[10px] text-emerald-300/70 mt-1 italic">Why: {proposalRationale}</div>}
+                  {proposalRationale && <div className={`text-[10px] mt-1 italic ${isSoma ? 'text-indigo-300/70' : 'text-emerald-300/70'}`}>Why: {proposalRationale}</div>}
+                  {shadowVerdict && (
+                    <div className="text-[10px] text-white/50 mt-1.5 flex gap-3">
+                      <span>shadow: ${shadowVerdict.estimatedCostUsd.toFixed(2)}</span>
+                      <span>reversible {Math.round(shadowVerdict.reversibilityScore * 100)}%</span>
+                      <span>{shadowVerdict.breakRisks.length} risk(s)</span>
+                    </div>
+                  )}
                   {proposalSubtasks && proposalSubtasks.length > 0 && (
                     <div className="text-[10px] text-white/40 mt-1">
                       {proposalSubtasks.length} subtask{proposalSubtasks.length === 1 ? '' : 's'}: {proposalSubtasks.map(s => s.title).filter(Boolean).join(' • ')}

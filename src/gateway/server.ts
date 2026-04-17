@@ -3591,6 +3591,80 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(result);
   });
 
+  // ── Soma (v4.0): organism state ──────────────────────────
+  app.get('/api/soma/state', async (_req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { organism?: { enabled?: boolean; driveSetpoints?: Record<string, number> } };
+      const organismEnabled = !!cfg.organism?.enabled;
+      if (!organismEnabled) {
+        res.json({
+          enabled: false,
+          message: 'Soma organism layer is disabled. Set organism.enabled: true in titan.json to activate.',
+          drives: [],
+          hormonal: { available: false, asOf: null, levels: {}, elevated: [], dominant: null },
+        });
+        return;
+      }
+      const { runDriveTick } = await import('../organism/drives.js');
+      const { buildBlock } = await import('../organism/hormones.js');
+      const tick = runDriveTick(cfg.organism?.driveSetpoints || {});
+      const hormonal = buildBlock(tick.drives, tick.timestamp);
+      res.json({
+        enabled: true,
+        timestamp: tick.timestamp,
+        drives: tick.drives,
+        totalPressure: tick.totalPressure,
+        dominantDrives: tick.dominantDrives,
+        hormonal,
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/soma/history', async (req, res) => {
+    try {
+      const { loadDriveHistory } = await import('../organism/drives.js');
+      const history = loadDriveHistory();
+      if (!history) {
+        res.json({ enabled: false, history: [], latest: null });
+        return;
+      }
+      const hoursRaw = req.query.hours ? Number(req.query.hours) : 24;
+      const hours = Number.isFinite(hoursRaw) && hoursRaw > 0 && hoursRaw <= 168 ? hoursRaw : 24;
+      const cutoff = Date.now() - hours * 3_600_000;
+      const trimmed = history.history.filter(h => new Date(h.timestamp).getTime() >= cutoff);
+      res.json({ enabled: true, history: trimmed, latest: history.latest });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/soma/setpoints', async (req, res) => {
+    try {
+      const setpoints = req.body as Record<string, unknown> | undefined;
+      if (!setpoints || typeof setpoints !== 'object') {
+        res.status(400).json({ error: 'Body must be an object of driveId → setpoint (0-1).' });
+        return;
+      }
+      const validDrives = new Set(['purpose', 'hunger', 'curiosity', 'safety', 'social']);
+      const cleaned: Record<string, number> = {};
+      for (const [k, v] of Object.entries(setpoints)) {
+        if (!validDrives.has(k)) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 1) continue;
+        cleaned[k] = n;
+      }
+      const cfg = loadConfig() as unknown as { organism?: Record<string, unknown> };
+      const merged = { ...(cfg.organism || {}), driveSetpoints: cleaned };
+      const { updateConfig } = await import('../config/config.js');
+      updateConfig({ organism: merged } as Partial<import('../config/schema.js').TitanConfig>);
+      res.json({ ok: true, setpoints: cleaned });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── F3: Debates ──────────────────────────────────────────
   app.get('/api/command-post/debates', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 50;

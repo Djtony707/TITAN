@@ -129,7 +129,7 @@ export interface CPComment {
 
 export interface CPApproval {
     id: string;
-    type: 'hire_agent' | 'budget_override' | 'goal_proposal' | 'custom';
+    type: 'hire_agent' | 'budget_override' | 'goal_proposal' | 'soma_proposal' | 'custom';
     status: 'pending' | 'approved' | 'rejected';
     requestedBy: string;
     payload: Record<string, unknown>;
@@ -925,7 +925,7 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
         // Resume paused agent
         updateAgentStatus(approval.payload.agentId as string, 'active');
         addActivity({ type: 'goal_completed', message: `Budget override approved for ${approval.payload.agentId} by ${decidedBy}`, metadata: { approvalId: id } });
-    } else if (approval.type === 'goal_proposal') {
+    } else if (approval.type === 'goal_proposal' || approval.type === 'soma_proposal') {
         const payload = approval.payload as {
             title?: string; description?: string; priority?: number;
             tags?: string[]; parentGoalId?: string;
@@ -1008,6 +1008,23 @@ export function rejectApproval(id: string, decidedBy: string, note?: string): CP
     const activityType: ActivityEntry['type'] =
         approval.type === 'goal_proposal' ? 'goal_proposal_rejected' : 'error';
     addActivity({ type: activityType, message: `Approval ${approval.type} rejected by ${decidedBy}${note ? `: ${note}` : ''}`, metadata: { approvalId: id, proposedBy: approval.requestedBy } });
+    return approval;
+}
+
+/**
+ * Attach a Soma shadow-rehearsal verdict to an existing pending approval.
+ * The verdict is merged into the approval payload under `shadowVerdict` so
+ * downstream UI (Approvals tab, Soma view) can render it alongside accept/reject.
+ * Returns the updated approval or null if the approval doesn't exist / was decided.
+ */
+export function attachShadowVerdictToApproval(
+    approvalId: string,
+    verdict: Record<string, unknown>,
+): CPApproval | null {
+    const approval = approvals.get(approvalId);
+    if (!approval || approval.status !== 'pending') return null;
+    approval.payload = { ...approval.payload, shadowVerdict: verdict };
+    saveState();
     return approval;
 }
 

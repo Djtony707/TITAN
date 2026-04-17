@@ -1,0 +1,366 @@
+/* ============================================================
+   TITAN-Soma visual language
+   — anatomical drive layout + pulse keyframes
+   — respects prefers-reduced-motion
+   ============================================================ */
+
+/* Drive accent colors. Override-able via CSS variables on any ancestor
+   so future theming hooks in without touching components. */
+:root {
+    --soma-purpose: #8b5cf6;
+    --soma-hunger: #f59e0b;
+    --soma-curiosity: #06b6d4;
+    --soma-safety: #10b981;
+    --soma-social: #ec4899;
+}
+
+/* ── Header body indicator ────────────────────────────────── */
+
+.soma-body-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.015);
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease;
+}
+
+.soma-body-indicator:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.soma-drive-pip {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    animation: soma-pip-breathe 8s ease-in-out infinite;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.soma-drive-pip--elevated {
+    animation-name: soma-pip-pulse;
+}
+
+@keyframes soma-pip-breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
+}
+
+@keyframes soma-pip-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.4; }
+    50%      { transform: scale(1.25); opacity: 1; }
+}
+
+/* ── Full-page Soma view ──────────────────────────────────── */
+
+.soma-page {
+    position: relative;
+    min-height: 100%;
+    padding: 24px 32px 160px;
+    overflow-x: hidden;
+}
+
+.soma-page__atmosphere {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 600ms ease, background 900ms ease;
+    z-index: 0;
+}
+
+.soma-page__atmosphere[data-dominant="safety"]  { opacity: 0.1; background: radial-gradient(ellipse at top, #f97316 0%, transparent 55%); }
+.soma-page__atmosphere[data-dominant="hunger"]   { opacity: 0.1; background: radial-gradient(ellipse at top, #f59e0b 0%, transparent 55%); }
+.soma-page__atmosphere[data-dominant="purpose"]  { opacity: 0.08; background: radial-gradient(ellipse at top, #8b5cf6 0%, transparent 55%); }
+.soma-page__atmosphere[data-dominant="curiosity"] { opacity: 0.08; background: radial-gradient(ellipse at top, #06b6d4 0%, transparent 55%); }
+.soma-page__atmosphere[data-dominant="social"]   { opacity: 0.08; background: radial-gradient(ellipse at top, #ec4899 0%, transparent 55%); }
+
+.soma-page__content {
+    position: relative;
+    z-index: 1;
+}
+
+.soma-page__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 28px;
+}
+
+.soma-page__title {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.soma-page__subtitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 4px;
+}
+
+/* ── Anatomical drive layout ──────────────────────────────── */
+
+.soma-body {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 4 / 5;
+    margin: 0 auto;
+}
+
+.soma-silhouette {
+    position: absolute;
+    inset: 0;
+    border: 1px dashed rgba(255, 255, 255, 0.05);
+    border-radius: 50% 50% 48% 48% / 40% 40% 60% 60%;
+    background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.015) 0%, transparent 70%);
+}
+
+.soma-region {
+    position: absolute;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: soma-region-breathe 9s ease-in-out infinite;
+}
+
+.soma-region--elevated {
+    animation-name: soma-region-pulse;
+}
+
+.soma-region:hover, .soma-region:focus-visible {
+    transform: translate(-50%, -50%) scale(1.08);
+    box-shadow: 0 0 40px currentColor;
+    outline: none;
+}
+
+.soma-region--active {
+    transform: translate(-50%, -50%) scale(1.12);
+    box-shadow: 0 0 48px currentColor;
+}
+
+.soma-region__label {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+    letter-spacing: 0.4px;
+}
+
+@keyframes soma-region-breathe {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50%      { transform: translate(-50%, -50%) scale(1.04); }
+}
+
+@keyframes soma-region-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); filter: brightness(0.85); }
+    50%      { transform: translate(-50%, -50%) scale(1.14); filter: brightness(1.15); }
+}
+
+/* Body region positions — abstract, not literal anatomy */
+.soma-region[data-drive="purpose"]   { top: 12%; left: 50%; width: 100px; height: 100px; background: var(--soma-purpose); }
+.soma-region[data-drive="curiosity"] { top: 36%; left: 22%; width: 88px;  height: 88px;  background: var(--soma-curiosity); }
+.soma-region[data-drive="social"]    { top: 36%; left: 78%; width: 88px;  height: 88px;  background: var(--soma-social); }
+.soma-region[data-drive="safety"]    { top: 62%; left: 32%; width: 92px;  height: 92px;  background: var(--soma-safety); }
+.soma-region[data-drive="hunger"]    { top: 62%; left: 68%; width: 92px;  height: 92px;  background: var(--soma-hunger); }
+
+/* ── Drive inspector side panel ───────────────────────────── */
+
+.soma-inspector {
+    position: fixed;
+    top: 64px;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    padding: 24px;
+    background: rgba(10, 10, 14, 0.96);
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-y: auto;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+    animation: soma-inspector-slide 220ms ease;
+}
+
+@keyframes soma-inspector-slide {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
+}
+
+.soma-inspector__close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.soma-inspector__title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.soma-inspector__reason {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    font-style: italic;
+    margin-bottom: 20px;
+}
+
+.soma-inspector__stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+}
+
+.soma-inspector__stat-label {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.soma-inspector__stat-value {
+    color: rgba(255, 255, 255, 0.85);
+    font-variant-numeric: tabular-nums;
+}
+
+.soma-inspector__slider-row {
+    margin: 18px 0;
+}
+
+.soma-inspector__slider-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.soma-inspector__slider {
+    width: 100%;
+    accent-color: currentColor;
+}
+
+/* ── Proposal queue right rail ────────────────────────────── */
+
+.soma-proposal-queue {
+    margin-top: 36px;
+}
+
+.soma-proposal-card {
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    transition: border-color 140ms ease;
+}
+
+.soma-proposal-card:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.soma-proposal-card__badges {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.soma-drive-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.soma-proposal-card__title {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: rgba(255, 255, 255, 0.88);
+}
+
+.soma-proposal-card__description {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 8px;
+}
+
+.soma-proposal-card__shadow {
+    display: flex;
+    gap: 12px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    margin: 8px 0;
+}
+
+.soma-proposal-card__shadow-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.soma-proposal-card__shadow-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.soma-proposal-card__buttons {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.soma-btn {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: filter 120ms ease;
+}
+
+.soma-btn:hover { filter: brightness(1.12); }
+.soma-btn--approve { background: #10b981; color: white; }
+.soma-btn--reject  { background: #ef4444aa; color: white; }
+.soma-btn--defer   { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.7); }
+
+/* ── Reduced motion ───────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    .soma-drive-pip,
+    .soma-region {
+        animation-name: soma-opacity-breathe;
+    }
+    @keyframes soma-opacity-breathe {
+        0%, 100% { opacity: 0.7; }
+        50%      { opacity: 1; }
+    }
+    .soma-inspector { animation: none; }
+}

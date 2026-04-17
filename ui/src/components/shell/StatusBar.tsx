@@ -1,5 +1,6 @@
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { Circle } from 'lucide-react';
+import BodyStateIndicator from './BodyStateIndicator';
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -40,6 +41,9 @@ export default function StatusBar() {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Soma body-state indicator — hides itself if organism disabled */}
+        <BodyStateIndicator />
+
         {/* Memory */}
         {status.memoryMB > 0 && (
           <span>{status.memoryMB}MB</span>

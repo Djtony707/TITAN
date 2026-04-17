@@ -395,12 +395,25 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const { getActivePersonaContent } = await import('../personas/manager.js');
     const personaContent = getActivePersonaContent(effectivePersona);
 
+    // Soma (v4.0): hormonal ambient-state block. Empty string when organism
+    // is disabled or hormonesInPrompt is false — system prompts for existing
+    // users remain byte-identical until they opt in.
+    let hormoneBlock = '';
+    const organismCfg = (config as unknown as { organism?: { enabled?: boolean; hormonesInPrompt?: boolean } }).organism;
+    if (organismCfg?.enabled && organismCfg?.hormonesInPrompt !== false) {
+        try {
+            const { getHormonalPromptBlock } = await import('../organism/hormones.js');
+            hormoneBlock = getHormonalPromptBlock();
+        } catch { /* organism not ready yet — fine */ }
+    }
+
     const workspaceContext = [
         titanMd ? `\n## Project Instructions (TITAN.md)\n${titanMd}` : '',
         agentsMd ? `\n## Agent Instructions (AGENTS.md)\n${agentsMd}` : '',
         soulMd ? `\n## Personality (SOUL.md)\n${soulMd}` : '',
         personaContent ? `\n## Active Persona\n${personaContent}` : '',
         toolsMd ? `\n## Tool Notes (TOOLS.md)\n${toolsMd}` : '',
+        hormoneBlock,
     ].filter(Boolean).join('\n');
 
     // Continuous learning context
@@ -873,6 +886,20 @@ export async function processMessage(
     const soulState = initSoulState(session.id, message);
 
     logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId}) trace=${trace.traceId} strategy=${soulState.strategy}`);
+
+    // Soma (v4.0): trace bus event. No-op when no subscribers; costs <1ms.
+    try {
+        const { emit: emitTrace } = await import('../substrate/traceBus.js');
+        emitTrace('turn:pre', {
+            agentId: overrides?.agentId || 'default',
+            sessionId: session.id,
+            channel,
+            userId,
+            message: message.slice(0, 500),
+            taskType: classifyTaskType(message),
+            timestamp: new Date().toISOString(),
+        });
+    } catch { /* substrate not available — skip */ }
 
     // ── Detect user corrections and learn from them ───
     if (isCorrection(message)) {
@@ -1642,6 +1669,24 @@ export async function processMessage(
         trace.toolCall(tc.name, tc.args, 0, tc.success, 0);
     }
     trace.end(budgetExhausted ? 'failed' : 'completed', budgetExhausted ? 'budget exhausted' : undefined);
+
+    // Soma (v4.0): turn:post event on the trace bus. Fires for every
+    // non-early-return turn. Subscribers (drive recompute, activity feed)
+    // react here; no-op when nothing listening.
+    try {
+        const { emit: emitTrace } = await import('../substrate/traceBus.js');
+        emitTrace('turn:post', {
+            agentId: overrides?.agentId || 'default',
+            sessionId: session.id,
+            channel,
+            userId,
+            success: !budgetExhausted,
+            toolsUsed: [...new Set(toolsUsed)],
+            durationMs,
+            model: modelUsed,
+            timestamp: new Date().toISOString(),
+        });
+    } catch { /* substrate not available — skip */ }
 
     return {
         content: finalContent,

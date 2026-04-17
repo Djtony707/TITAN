@@ -512,7 +512,7 @@ export interface CPComment {
 
 export interface CPApproval {
   id: string;
-  type: 'hire_agent' | 'budget_override' | 'goal_proposal' | 'custom';
+  type: 'hire_agent' | 'budget_override' | 'goal_proposal' | 'soma_proposal' | 'custom';
   status: 'pending' | 'approved' | 'rejected';
   requestedBy: string;
   payload: Record<string, unknown>;
