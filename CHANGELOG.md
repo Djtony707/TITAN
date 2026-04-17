@@ -5,6 +5,39 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.2] — 2026-04-17 — Onboarding wizard refresh for v4.0
+
+Patch release. The onboarding wizard (`ui/src/components/onboarding/SetupWizard.tsx`)
+was carrying pre-v4.0 copy — "110+ tools, 34 providers, 15 channels" — which
+no longer matched reality and did not mention TITAN-Soma at all. A fresh user
+walked into v4.0 with no indication that the defining architectural shift of
+the release even existed.
+
+### Changes
+- Welcome copy rewritten to v4.0 numbers: 143 skills, 248 tools, 36 providers, 16 channels, plus explicit Soma callout.
+- Feature pills replaced: dropped stale "Web Search / Email / Research"-style pills, added `Soma Drives`, `Multi-Agent`, `Deep Research`, `VRAM Orchestrator`, `Mesh Networking`.
+- **New wizard step — Soma.** Opt-in toggle that writes `organism.enabled: true` via `POST /api/config` after onboarding completes. Includes plain-language explainer (drives drift → Soma proposes work → user still approves) and an explicit opt-in warning card. Non-fatal if the config endpoint fails — the user can flip it in Settings → Organism later.
+- Launch screen counter grid expanded from 3 → 4 tiles (added Skills, updated Tools/Providers/Channels targets to match v4.0).
+- Confirmation line on Launch when Soma was toggled on in-wizard.
+- Package `description` updated to list 16 channels and mention Soma.
+
+### Affected files
+- `ui/src/components/onboarding/SetupWizard.tsx` — all of the above
+- `package.json` — version + description
+- `src/utils/constants.ts` — `TITAN_VERSION`
+- `tests/core.test.ts`, `tests/mission-control.test.ts` — version assertions
+- `CHANGELOG.md` — this entry
+- `CLAUDE.md` — quick-reference stats refreshed to v4.0 reality
+
+### Verified
+- `npm run typecheck && npm run build:ui` clean
+- Test suite passes (4,655+ tests across vitest)
+- Deployed to Titan PC and re-ran the wizard against a fresh `TITAN_HOME`: all five local-mode steps render, Soma toggle persists `organism.enabled` into `titan.json`, Launch counter animation hits the new targets.
+
+No backend behavior changes. Existing users are unaffected — they never see the wizard.
+
+---
+
 ## [4.0.1] — 2026-04-17 — Soma UI fetch fix
 
 Patch release. The v4.0.0 Soma UI treated `apiFetch` return values as

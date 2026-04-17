@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket, Cloud } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket, Cloud, Activity } from 'lucide-react';
 import { FluidOrb } from '@/components/voice/FluidOrb';
 import { apiFetch } from '@/api/client';
 import type { PersonaMeta } from '@/api/types';
@@ -48,7 +48,16 @@ const CLOUD_MODELS = {
   ],
 };
 
-const FEATURE_PILLS = ['Web Search', 'Code Execution', 'Smart Home', 'Email', 'Research', 'Voice'];
+const FEATURE_PILLS = [
+  'Soma Drives',
+  'Multi-Agent',
+  'Deep Research',
+  'Code Execution',
+  'Smart Home',
+  'Voice',
+  'VRAM Orchestrator',
+  'Mesh Networking',
+];
 
 /** Animated counter that counts from 0 to target */
 function AnimCounter({ target, suffix = '' }: { target: number; suffix?: string }) {
@@ -85,6 +94,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [pillsVisible, setPillsVisible] = useState(false);
   const [cloudMode, setCloudMode] = useState(false);
   const [cloudEmail, setCloudEmail] = useState('');
+  const [somaEnabled, setSomaEnabled] = useState(false);
 
   const selectedProvider = PROVIDERS.find(p => p.id === provider);
   const needsKey = selectedProvider && !('noKey' in selectedProvider && selectedProvider.noKey);
@@ -129,19 +139,22 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const canAdvance = () => {
     if (cloudMode) {
-      // Cloud mode steps: 0=Welcome, 1=Model, 2=Profile, 3=Launch
+      // Cloud mode steps: 0=Welcome, 1=Model, 2=Profile, 3=Soma, 4=Launch
       switch (step) {
         case 0: return true;
         case 1: return !!model;
         case 2: return !!agentName;
+        case 3: return true;
         default: return true;
       }
     }
+    // Local mode steps: 0=Welcome, 1=Provider, 2=Model, 3=Profile, 4=Soma, 5=Launch
     switch (step) {
       case 0: return true;
       case 1: return !!provider && (!needsKey || apiKey.length > 5);
       case 2: return !!model;
       case 3: return !!agentName;
+      case 4: return true;
       default: return true;
     }
   };
@@ -173,6 +186,19 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         const data = await res.json();
         throw new Error(data.error || 'Setup failed');
       }
+      // Enable Soma if the user opted in. Done as a follow-up PATCH so onboarding
+      // completion succeeds even if the organism config endpoint is unavailable.
+      if (somaEnabled) {
+        try {
+          await apiFetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organism: { enabled: true } }),
+          });
+        } catch {
+          // Non-fatal — user can flip the switch in Settings later.
+        }
+      }
       onComplete();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -185,8 +211,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     ? personas.slice(0, 10)
     : [];
 
-  const orbSize = step === 0 || step === 4 ? 200 : 0;
-  const orbSpeaker = step === 4 ? 'assistant' : 'idle';
+  const lastStepIndex = cloudMode ? 4 : 5;
+  const orbSize = step === 0 || step === lastStepIndex ? 200 : 0;
+  const orbSpeaker = step === lastStepIndex ? 'assistant' : 'idle';
 
   const steps = [
     // ── Step 0: Welcome ── FluidOrb hero
@@ -194,11 +221,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       <div className="relative mb-6" style={{ transition: 'all 0.6s cubic-bezier(0.22, 1, 0.36, 1)' }}>
         <FluidOrb audioLevel={0} speaker="idle" size={orbSize} />
       </div>
-      <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">Welcome to TITAN</h1>
+      <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">Welcome to TITAN 4.0</h1>
       <p className="text-lg text-text-secondary mb-2">The Intelligent Task Automation Network</p>
       <p className="text-sm text-text-muted max-w-md mb-8 leading-relaxed">
-        Your autonomous AI agent with 110+ tools, 34 providers, 15 channels, and a very motivated attitude.
-        Let's get you set up in under a minute.
+        143 skills, 248 tools, 36 providers, 16 channels — and a new homeostatic core
+        called <span className="text-white font-medium">Soma</span> that gives TITAN its own sense of
+        how it&apos;s doing. Let&apos;s get you set up in under a minute.
       </p>
       <div className="flex flex-wrap justify-center gap-3 mb-6">
         {FEATURE_PILLS.map((f, i) => (
@@ -412,7 +440,61 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       </div>
     </div>,
 
-    // ── Step 4: Launch ── Cinematic with FluidOrb + shimmer text + animated counters
+    // ── Step 4 (cloud) / Step 5 (local): Soma ── opt-in homeostatic drives
+    <div key="soma" className="w-full max-w-lg mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <Activity className="w-6 h-6 text-accent" />
+        <div>
+          <h2 className="text-xl font-semibold text-white">TITAN-Soma — Homeostatic Drives</h2>
+          <p className="text-sm text-text-muted">New in 4.0. Off by default — opt in if you want it.</p>
+        </div>
+      </div>
+      <div className="space-y-4">
+        <p className="text-sm text-text-secondary leading-relaxed">
+          TITAN 4.0 has its own sense of how it&apos;s doing. Internal drives — <span className="text-white">purpose, curiosity, hunger, safety, social, rest</span> — drift
+          over time. When they cross a threshold, Soma <span className="text-white">proposes</span> work
+          to you (a research dig, a cleanup, a check-in). You stay in charge; TITAN just thinks for
+          itself about what to ask.
+        </p>
+        <div className="p-4 rounded-xl border border-warning/30 bg-warning/5">
+          <p className="text-xs text-[#fbbf24] font-medium mb-1">Opt-in feature</p>
+          <p className="text-xs text-text-muted leading-relaxed">
+            With Soma enabled, TITAN will surface unsolicited proposals in the Command Post feed
+            and inject an ambient-state block into its system prompt. Every proposal still
+            requires your approval before execution. You can flip this off anytime in Settings →
+            Organism.
+          </p>
+        </div>
+        <button
+          onClick={() => setSomaEnabled(!somaEnabled)}
+          className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${
+            somaEnabled
+              ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+              : 'border-border bg-bg-secondary hover:border-border-light'
+          }`}
+        >
+          <div className="text-left">
+            <p className="font-medium text-white text-sm">Enable Soma drives</p>
+            <p className="text-xs text-text-muted mt-0.5">
+              {somaEnabled ? 'TITAN will propose work based on its internal state.' : 'TITAN waits for your prompts only.'}
+            </p>
+          </div>
+          <div
+            className={`relative w-11 h-6 rounded-full transition-colors ${
+              somaEnabled ? 'bg-accent' : 'bg-bg-tertiary'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                somaEnabled ? 'left-5' : 'left-0.5'
+              }`}
+            />
+          </div>
+        </button>
+      </div>
+    </div>,
+
+    // ── Last step: Launch ── Cinematic with FluidOrb + shimmer text + animated counters
     <div key="launch" className="flex flex-col items-center text-center">
       <div className="relative mb-6">
         <FluidOrb audioLevel={0.15} speaker={orbSpeaker} size={200} />
@@ -437,20 +519,29 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           <>via <span className="text-white font-medium">{selectedProvider?.name || provider}</span>.</>
         )}
       </p>
-      <div className="grid grid-cols-3 gap-4 text-center max-w-md w-full mb-8">
+      <div className="grid grid-cols-4 gap-3 text-center max-w-lg w-full mb-8">
         <div className="p-4 rounded-xl bg-bg-secondary border border-border">
-          <p className="text-2xl font-bold text-white"><AnimCounter target={110} suffix="+" /></p>
+          <p className="text-2xl font-bold text-white"><AnimCounter target={143} /></p>
+          <p className="text-xs text-text-muted mt-1">Skills</p>
+        </div>
+        <div className="p-4 rounded-xl bg-bg-secondary border border-border">
+          <p className="text-2xl font-bold text-white"><AnimCounter target={248} /></p>
           <p className="text-xs text-text-muted mt-1">Tools</p>
         </div>
         <div className="p-4 rounded-xl bg-bg-secondary border border-border">
-          <p className="text-2xl font-bold text-white"><AnimCounter target={34} /></p>
+          <p className="text-2xl font-bold text-white"><AnimCounter target={36} /></p>
           <p className="text-xs text-text-muted mt-1">Providers</p>
         </div>
         <div className="p-4 rounded-xl bg-bg-secondary border border-border">
-          <p className="text-2xl font-bold text-white"><AnimCounter target={15} /></p>
+          <p className="text-2xl font-bold text-white"><AnimCounter target={16} /></p>
           <p className="text-xs text-text-muted mt-1">Channels</p>
         </div>
       </div>
+      {somaEnabled && (
+        <p className="text-xs text-accent-hover mb-4 flex items-center gap-2">
+          <Activity size={12} /> Soma drives enabled — TITAN will propose work when its internal state shifts.
+        </p>
+      )}
       {error && (
         <div className="mb-4 p-3 rounded-xl border border-error/50 bg-error/10 text-error text-sm w-full max-w-sm">
           {error}
@@ -465,7 +556,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     </div>,
   ];
 
-  const stepLabels = cloudMode ? ['Welcome', 'Model', 'Profile', 'Launch'] : ['Welcome', 'Provider', 'Model', 'Profile', 'Launch'];
+  const stepLabels = cloudMode
+    ? ['Welcome', 'Model', 'Profile', 'Soma', 'Launch']
+    : ['Welcome', 'Provider', 'Model', 'Profile', 'Soma', 'Launch'];
   const isLast = step === steps.length - 1;
 
   return (

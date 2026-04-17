@@ -6,7 +6,7 @@
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 5,500+ installs. Created by Tony Elliott.
 
-- **Current version**: v2.0.0 (semantic versioning — NOT 2026.10.XX)
+- **Current version**: v4.0.2 (semantic versioning — NOT 2026.10.XX)
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 22, pure ESM
@@ -16,10 +16,11 @@
 | Stat | Value |
 |------|-------|
 | Providers | 36 (4 native + 32 OpenAI-compatible) |
-| Skills | 100+ loaded |
-| Tools | ~195 across 100+ loaded skills |
-| Channels | 15 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, etc.) |
-| Tests | 4,655 across 154 files (vitest) |
+| Skills | 143 loaded |
+| Tools | 248 across 143 loaded skills |
+| Channels | 16 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, Line, Zulip, etc.) |
+| Soma | Homeostatic drive layer (v4.0+, opt-in via `organism.enabled`) |
+| Tests | 4,655+ across 154+ files (vitest) |
 | Default model | `anthropic/claude-sonnet-4-20250514` |
 | Gateway port | 48420 |
 
@@ -29,15 +30,16 @@
 src/
 ├── agent/        # Agent core, reflection, sub-agents, orchestrator, goals, initiative, Command Post
 ├── browsing/     # Shared browser pool (Playwright), CAPTCHA solver (CapSolver)
-├── channels/     # 15 channel adapters
+├── channels/     # 16 channel adapters
 ├── config/       # Zod-validated config schema
 ├── context/      # ContextEngine plugin system
 ├── gateway/      # Express HTTP/WS server + Mission Control v2 (React SPA)
 ├── mcp/          # MCP Server (JSON-RPC 2.0, stdio + HTTP)
 ├── memory/       # Memory, learning, graph, relationship, briefings
 ├── mesh/         # P2P mesh networking (mDNS, WebSocket, HMAC)
-├── providers/    # LLM provider router + 34 providers
-├── skills/       # Builtin skills (100+ loaded, ~195 tools) + dev + NVIDIA skills
+├── organism/     # TITAN-Soma: homeostatic drives, pressure loop, hormonal broadcasts, shadow rehearsal (v4.0+)
+├── providers/    # LLM provider router + 36 providers
+├── skills/       # Builtin skills (143 loaded, 248 tools) + dev + NVIDIA skills
 ├── utils/        # Constants, helpers, hardware detection
 ├── voice/        # LiveKit WebRTC voice integration
 └── vram/         # VRAM orchestrator (GPU memory management, model swap, leases)
