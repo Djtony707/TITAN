@@ -5,6 +5,124 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.0] — 2026-04-17 — TITAN-Soma: The First Homeostatic Digital Organism
+
+This is a re-framing release, not a feature bundle. Every other agent framework
+treats agents as task executors waiting for work. TITAN-Soma is the first
+production multi-agent framework in which agent action is driven by
+**homeostatic needs** rather than user tasks. The existing 137-skill /
+242-tool / 180-test-file stack becomes the organism's anatomy:
+
+- **Paperclip Command Post** = immune system + governance
+- **OpenClaw dreaming + soul** = circadian rhythm + mood
+- **Hermes mixture + skill gen** = nervous system + motor memory
+- **Claude Code MCP** = digestive system + hands
+- **NEW: Drive layer** = endocrine system (homeostatic needs)
+- **NEW: Hormonal broadcasts** = bloodstream (ambient state)
+- **NEW: Shadow rehearsal** = prefrontal cortex (predict before act)
+- **NEW: Trace bus** = circulatory system (typed event stream)
+
+### Backward compatibility — the critical promise
+
+**When `organism.enabled=false` (the default), v4.0.0 behaves bit-identically
+to v3.6.0 for the 22,000 existing users.**
+
+- `config.organism.enabled` defaults to `false`. Zero config migration required.
+- driveTick watcher is excluded from the registry when disabled — not just
+  gated at handler entry. Zero overhead on every existing install.
+- System prompts for disabled installations stay byte-identical.
+- No new files are created on disk until organism is enabled.
+- 5,511 existing tests still pass. 50 new tests added.
+
+### What's new
+
+**Drive layer (`src/organism/drives.ts`)** — five homeostatic drives
+(Purpose, Hunger, Curiosity, Safety, Social) each with a pure-function
+`compute(snapshot)` that derives a 0-1 satisfaction from existing TITAN
+telemetry. No new instrumentation required. The sixth drive — Hygiene,
+which shells out to `npm test` + `git status` — lands in v4.1.
+
+**Hormonal broadcast (`src/organism/hormones.ts`)** — drive levels propagate
+as an ambient state block prepended to every agent's system prompt when
+enabled, and emitted as `hormone:update` events for UI consumers. This is
+the layer nothing else has: agents feel the organism's state *everywhere*,
+not just when they're handed a task.
+
+**Pressure fusion (`src/organism/pressure.ts`)** — drive deficits accumulate
+into weighted pressure. When combined pressure crosses the configurable
+threshold (default 1.2), Soma files a `soma_proposal` approval via the
+existing `requestGoalProposalApproval` pipeline from F1. Reuses F1's
+per-agent daily rate limit so Soma can never spam proposals.
+
+**Shadow rehearsal (`src/organism/shadow.ts`)** — before each proposal reaches
+the approval queue, a cheap LLM call predicts reversibility, cost, and risks
+in structured JSON. The verdict attaches to the approval payload so human
+approvers see "cost $0.30, reversibility 85%, no risks identified" alongside
+Accept / Reject. Falls back to a conservative default verdict on any
+parsing or network failure.
+
+**Drive tick watcher (`src/organism/driveTickWatcher.ts`)** — runs every
+60s via the existing `registerWatcher` pattern in `daemon.ts`. Builds the
+snapshot, computes drives, persists the tick (ring buffer, last 24h),
+emits events, optionally fires pressure fusion → shadow → proposal.
+
+**Trace bus (`src/substrate/traceBus.ts`)** — typed facade over the
+existing `titanEvents` EventEmitter. New typed topics: `turn:pre`,
+`turn:post`, `tool:call`, `tool:result`, `drive:tick`, `hormone:update`,
+`pressure:threshold`, `soma:proposal`. Safe when no subscribers. Called
+from `agent.ts processMessage` to emit turn-level events — enables the
+full self-observation loop.
+
+**Soma interface (`ui/src/views/SomaView.tsx` + friends)** — a dedicated
+full-page anatomical interface at `/soma`. Five drives rendered as body
+regions around a stylized silhouette; elevated drives pulse faster.
+Hormonal atmosphere shifts the page tint based on dominant drive. Clicking
+a region opens an inspector with live sparkline, setpoint slider, and the
+drive's input signals. Right-rail shows pending Soma proposals with shadow
+verdicts. Timeline strip at the bottom shows 24h of drive satisfaction.
+All animations respect `prefers-reduced-motion`.
+
+**Persistent header indicator (`ui/src/components/shell/BodyStateIndicator.tsx`)**
+— five tiny drive circles always visible in the status bar. Pulse cadence
+reflects drive health. Click → `/soma`. Hides itself cleanly when organism
+is disabled or backend is pre-4.0.
+
+**Approvals tab enhancement** — Soma proposals render inline with drive
+badges + shadow verdict summary. Non-Soma approvals render unchanged.
+
+### API
+
+- `GET /api/soma/state` — current drives + hormonal block + pressure. Returns
+  `{ enabled: false, message: ... }` with 200 when organism is disabled
+  (UI uses this to render the enablement card, not an error state).
+- `GET /api/soma/history?hours=24` — ring-buffered drive history.
+- `POST /api/soma/setpoints` — admin override per drive (persists via `updateConfig`).
+
+### Config
+
+New top-level `organism` block in `titan.json`:
+- `enabled: false` (default)
+- `hormonesInPrompt: true`
+- `pressureThreshold: 1.2`
+- `driveSetpoints: {}` (optional per-drive overrides 0-1)
+- `shadowEnabled: true`
+- `shadowModel: 'fast'`
+- `tickIntervalMs: 60000`
+
+### Release runway (v4.1–v4.4)
+
+- **v4.1** — Hygiene drive (shell hooks to `npm test`, `git status`).
+- **v4.2** — Drive-affinity emergent specialization (`RegisteredAgent.driveAffinities`).
+- **v4.3** — Dreaming recalibrates setpoints (Phase 5 of the consolidation cycle).
+- **v4.4** — Claude Code permission model applied to MCP surface.
+
+### Kill switch
+
+Set `organism.enabled: false` in `titan.json` and restart the gateway.
+Fixes any organism-related issue instantly. No data migration.
+
+---
+
 ## [3.6.0] — 2026-04-16
 
 ### Added — Agent Debate (F3)
