@@ -699,6 +699,76 @@ program
         process.exit(0);
     });
 
+// ─── PROBE-MODELS ──────────────────────────────────────────────────
+program
+    .command('probe-models')
+    .description('Empirically probe model capabilities (thinking routing, tool calling, latency, CoT leaks) and cache results')
+    .option('--model <id>', 'Probe one specific model (e.g. ollama/glm-5.1:cloud)')
+    .option('--all-cloud', 'Probe all configured cloud models')
+    .option('--list', 'List previously probed models')
+    .option('--clear', 'Clear the probe registry')
+    .action(async (options) => {
+        const { probeModel, formatProbeResult } = await import('../agent/modelProbe.js');
+        const { listProbedModels, clearRegistry, recordProbeResult, loadRegistry } = await import('../agent/capabilitiesRegistry.js');
+
+        if (options.clear) {
+            clearRegistry();
+            console.log(chalk.green('✅ Cleared probe registry'));
+            return;
+        }
+
+        if (options.list) {
+            const models = listProbedModels();
+            const registry = loadRegistry();
+            console.log(chalk.cyan(`\n🔬 Probed Models (${models.length})\n`));
+            for (const m of models) {
+                const r = registry.models[m];
+                console.log(formatProbeResult(r));
+                console.log();
+            }
+            return;
+        }
+
+        // Decide which models to probe
+        const modelsToProbe: string[] = [];
+        if (options.model) {
+            modelsToProbe.push(options.model);
+        } else if (options.allCloud) {
+            // Discover all cloud models from config + Ollama
+            try {
+                const config = loadConfig();
+                const aliases = Object.values(config.agent.modelAliases || {}) as string[];
+                const fallbacks = (config.agent.fallbackChain || []) as string[];
+                const primary = config.agent.model ? [config.agent.model] : [];
+                const all = new Set([...primary, ...aliases, ...fallbacks].filter(m => m && m.includes('/')));
+                modelsToProbe.push(...Array.from(all));
+            } catch (err) {
+                console.log(chalk.red(`Failed to load config: ${(err as Error).message}`));
+                process.exit(1);
+            }
+        } else {
+            console.log(chalk.yellow('Usage: titan probe-models --model <id>'));
+            console.log(chalk.yellow('       titan probe-models --all-cloud'));
+            console.log(chalk.yellow('       titan probe-models --list'));
+            console.log(chalk.yellow('       titan probe-models --clear'));
+            process.exit(0);
+        }
+
+        console.log(chalk.cyan(`\n🔬 Probing ${modelsToProbe.length} model(s)...\n`));
+        for (const model of modelsToProbe) {
+            console.log(chalk.gray(`Probing ${model}...`));
+            try {
+                const result = await probeModel(model);
+                recordProbeResult(result);
+                console.log(formatProbeResult(result));
+                console.log();
+            } catch (err) {
+                console.log(chalk.red(`❌ ${model}: ${(err as Error).message}\n`));
+            }
+        }
+        console.log(chalk.green(`✅ Probe complete. Results saved to ~/.titan/model-capabilities.json`));
+    });
+
 // ─── MONITOR ─────────────────────────────────────────────────────
 program
     .command('monitor')

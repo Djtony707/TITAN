@@ -139,13 +139,40 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     'mistral':          { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
 };
 
-/** Resolve capabilities for a model by matching the longest prefix */
+/** Resolve capabilities for a model.
+ *
+ * Lookup order:
+ *   1. Empirical probe result from capabilities registry (~/.titan/model-capabilities.json)
+ *      — This reflects ACTUAL behavior tested against the live model
+ *   2. Hardcoded MODEL_CAPABILITIES map (this file) — matched by longest prefix
+ *   3. DEFAULT_CAPABILITIES — conservative fallback for unknown models
+ */
 function getModelCapabilities(modelName: string): ModelCapabilities {
+    // Step 1: Check empirical probe registry (preferred)
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getProbeResult, isProbeStale } = require('../agent/capabilitiesRegistry.js') as typeof import('../agent/capabilitiesRegistry.js');
+        const probe = getProbeResult(modelName) || getProbeResult(`ollama/${modelName}`);
+        if (probe && !isProbeStale(probe)) {
+            // Convert probe result to capability flags
+            return {
+                ...DEFAULT_CAPABILITIES,
+                selfSelectsTools: probe.nativeToolCalls,
+                thinkingWithTools: probe.hasThinkingMode && !probe.needsExplicitThinkFalse,
+                needsSystemMerge: !probe.respectsSystemPrompt,
+                toolTemperature: probe.nativeToolCalls ? 0.5 : 0.3,
+                toolTopP: null,
+                toolTopK: null,
+            };
+        }
+    } catch {
+        // Registry not available (e.g., during tests) — fall through
+    }
+
+    // Step 2: Hardcoded map (prefix-matched, longest wins)
     const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
-    // Strip version suffixes like :cloud, :35b, :latest for matching
     const baseName = bare.replace(/:(cloud|latest|\d+b(-cloud)?)$/i, '');
 
-    // Try exact match first, then prefix match (longest wins)
     let bestMatch: Partial<ModelCapabilities> | undefined;
     let bestLen = 0;
     for (const [pattern, caps] of Object.entries(MODEL_CAPABILITIES)) {
@@ -158,7 +185,7 @@ function getModelCapabilities(modelName: string): ModelCapabilities {
     }
 
     if (!bestMatch) {
-        logger.debug(COMPONENT, `Model "${modelName}" not in capabilities database — using defaults`);
+        logger.debug(COMPONENT, `Model "${modelName}" not in capabilities database or registry — using defaults`);
     }
     return { ...DEFAULT_CAPABILITIES, ...(bestMatch || {}) };
 }

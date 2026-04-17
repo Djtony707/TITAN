@@ -2457,6 +2457,52 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ─── Model Probe — empirical capabilities discovery ──────────
+  // POST /api/model/probe  { model: "ollama/glm-5.1:cloud" }
+  // POST /api/model/probe  { models: ["...", "..."] }
+  // GET  /api/model/probe  — list all probed models
+  app.post('/api/model/probe', async (req, res) => {
+    try {
+      const body = req.body as { model?: string; models?: string[] };
+      const targets = body.model ? [body.model] : (body.models || []);
+      if (targets.length === 0) {
+        res.status(400).json({ error: 'Provide {model: "id"} or {models: ["id1","id2"]}' });
+        return;
+      }
+
+      const { probeModel } = await import('../agent/modelProbe.js');
+      const { recordProbeResult } = await import('../agent/capabilitiesRegistry.js');
+
+      const results = [];
+      for (const modelId of targets) {
+        try {
+          const result = await probeModel(modelId);
+          recordProbeResult(result);
+          results.push(result);
+        } catch (err) {
+          results.push({ model: modelId, error: (err as Error).message });
+        }
+      }
+      res.json({ probed: results.length, results });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/model/probe', async (_req, res) => {
+    try {
+      const { loadRegistry } = await import('../agent/capabilitiesRegistry.js');
+      const registry = loadRegistry();
+      res.json({
+        updatedAt: registry.updatedAt,
+        count: Object.keys(registry.models).length,
+        models: registry.models,
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // Profile endpoints
   app.get('/api/profile', (_req, res) => {
     const profile = loadProfile();
