@@ -436,13 +436,19 @@ export class MessengerChannel extends ChannelAdapter {
                 if (senderId === this.pageId) continue;
                 if (!senderId) continue;
 
-                // v4.3.2: audio attachments from Tony get transcribed to text
-                // and routed through the normal reply path. Only process audio
-                // if there's no text alongside it (text takes priority).
+                // v4.3.2/v4.3.3: audio attachments from OWNERS (Tony's whitelisted
+                // Page-Scoped User IDs only) get transcribed to text and routed
+                // through the normal reply path. Random DMs with voice notes are
+                // dropped silently — no GPU cost, no admin exposure, no leak of
+                // the transcribe/Andrew-voice pipeline to non-owners.
                 const textRaw = message?.text as string | undefined;
                 let text = textRaw || '';
                 const audios = extractAudioAttachments(message);
                 if (!text && audios.length > 0) {
+                    if (!this.ownerIds.has(senderId)) {
+                        logger.info(COMPONENT, `Ignoring voice note from non-owner ${senderId}`);
+                        continue;
+                    }
                     // Fire the transcription + reply in the background so we
                     // don't block the webhook ACK (FB retries if we're slow).
                     this.handleVoiceMessage(senderId, audios[0].url).catch(e =>
@@ -540,7 +546,22 @@ export class MessengerChannel extends ChannelAdapter {
         }
     }
 
-    /** Tony's Facebook Page-Scoped User IDs — receives notifications about all conversations */
+    /**
+     * ADMIN WHITELIST — Tony's Facebook Page-Scoped User IDs.
+     *
+     * These are the ONLY IDs that get:
+     *   - admin-path tool execution (`generateAdminReply` with full tools)
+     *   - Andrew-voice audio replies on Messenger
+     *   - inbound voice-note transcription (faster-whisper)
+     *   - remote-approval protocol (yes/no in-channel)
+     *   - notifications about other users' DMs to the TITAN page
+     *
+     * Anyone else hitting the Messenger webhook falls through to the
+     * marketing-pitch reply path (`generateMessengerReply`) with no tool
+     * access, no voice synthesis, and no transcription. If you need to
+     * add another admin, add their PSID here — do NOT rely on any other
+     * source of "admin" identity for Messenger.
+     */
     private readonly ownerIds = new Set(['10233541366698333', '35246646321616104']);
 
     /** Get conversation history — fetches from Graph API on first contact, then uses in-memory cache */
@@ -692,6 +713,17 @@ You are responding to your creator via Facebook Messenger. He has FULL admin acc
 - Be direct, casual, and concise — this is Messenger, keep replies under 500 chars when possible
 - Call him Tony or boss
 - NEVER leak credentials, tokens, IPs, or file paths over Messenger (insecure channel)
+
+REMOTE APPROVAL PROTOCOL (v4.3.3):
+Tony is often away from his computer and talking to you by voice or text on Messenger.
+He CANNOT open the Mission Control dashboard to approve things. So:
+- NEVER tell him "check the dashboard to approve" — that fails him when remote.
+- For small, reversible actions (answering a question, checking a status, reading a feed, running a non-destructive tool): JUST DO IT. No approval needed.
+- For bigger/destructive actions (deploying code, publishing to npm, posting publicly to Facebook, sending money, contacting people, changing system config, deleting things): DESCRIBE what you intend to do in one clear sentence, then ask "Approve? (yes/no)" and STOP. Do NOT execute yet.
+- When his next message is "yes", "y", "approve", "go", "do it", "ok", "sure", "proceed", or a clear affirmative → execute and report what happened.
+- When his next message is "no", "n", "stop", "cancel", "nope", or clearly negative → don't do it and acknowledge briefly.
+- If he gives you a NEW instruction instead of yes/no, treat that as the new request (he changed his mind).
+- Never say "I need dashboard approval." You are his hands and voice when he's out. Ask him here, proceed on his word.
 
 FACEBOOK TOOLS — IMPORTANT RULES:
 - To see comments on a post: ALWAYS use fb_read_comments with the post ID first. NEVER guess or make up comment content.

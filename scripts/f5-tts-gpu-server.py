@@ -66,10 +66,21 @@ except Exception as _e:
 VOICES_DIR = Path.home() / ".titan" / "voices"
 ENGINE = "f5-tts"
 SAMPLE_RATE = 24000
-SPEED = 0.87
-STEPS = 16
+# v4.3.3: bumped STEPS 16→32 for pitch stability. The cheap-and-fast 16-step
+# inference produced audible pitch wobble ("chipmunk for a few words, then
+# normal") especially on short utterances. 32 is the F5-TTS reference default.
+STEPS = 32
+# v4.3.3: neutral speed. Previous 0.87 slowed slightly but also sometimes
+# triggered timing artifacts mid-sentence. 1.0 is pass-through.
+SPEED = 1.0
 CFG_STRENGTH = 1.5
 SEED = 42
+# v4.3.3: output format + playback-safe sample rate for Messenger. Messenger
+# can misinterpret 24kHz WAVs as 16kHz-encoded phone audio → pitch shifted
+# 1.5× = "fast + high". MP3 at 44.1kHz embeds unambiguous rate metadata.
+OUTPUT_FORMAT = "mp3"
+OUTPUT_SAMPLE_RATE = 44100
+OUTPUT_BITRATE = "128k"
 
 _model_lock = threading.Lock()
 _tts_model = None  # Cached F5TTS instance
@@ -177,8 +188,13 @@ def _preprocess_voice(input_path, output_path):
     return {"ok": True, "duration": round(duration, 1)}
 
 
-def generate_speech(text, voice="default"):
-    """Generate speech using F5-TTS PyTorch API with CUDA."""
+def generate_speech(text, voice="default", output_format=None):
+    """Generate speech using F5-TTS PyTorch API with CUDA.
+
+    output_format: 'mp3' (default, Messenger-safe) or 'wav' (raw).
+    """
+    if output_format is None:
+        output_format = OUTPUT_FORMAT
     with _model_lock:
         import numpy as np
         import soundfile as sf
@@ -262,10 +278,45 @@ def generate_speech(text, voice="default"):
             target_peak = 0.3
             wav = wav * (target_peak / peak)
 
-        # Write to WAV bytes
-        buf = io.BytesIO()
-        sf.write(buf, wav, sr, format='WAV', subtype='PCM_16')
-        return buf.getvalue()
+        # v4.3.3: write WAV at F5-TTS's native rate, then transcode to MP3
+        # at 44.1kHz so Messenger / any consumer plays it back at correct
+        # pitch regardless of sample-rate heuristics. Keeps a WAV fallback
+        # path for callers that explicitly request wav.
+        wav_buf = io.BytesIO()
+        sf.write(wav_buf, wav, sr, format='WAV', subtype='PCM_16')
+        wav_bytes = wav_buf.getvalue()
+
+        if output_format == 'wav':
+            return wav_bytes
+
+        # Transcode to MP3 via ffmpeg. ffmpeg is a hard dependency of the
+        # voice preprocessing path above, so it's already installed.
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f_in:
+            f_in.write(wav_bytes)
+            in_path = f_in.name
+        with tempfile.NamedTemporaryFile(suffix=f'.{output_format}', delete=False) as f_out:
+            out_path = f_out.name
+        try:
+            cmd = [
+                'ffmpeg', '-y', '-i', in_path,
+                '-ar', str(OUTPUT_SAMPLE_RATE),
+                '-ac', '1',
+                '-b:a', OUTPUT_BITRATE,
+                '-f', output_format,
+                out_path,
+            ]
+            proc = subprocess.run(cmd, capture_output=True, timeout=30)
+            if proc.returncode != 0:
+                print(f"[VoiceClone] ffmpeg transcode failed, returning WAV: {proc.stderr[-200:].decode(errors='ignore')}")
+                return wav_bytes
+            with open(out_path, 'rb') as f:
+                return f.read()
+        finally:
+            for p in (in_path, out_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
 
 class TTSHandler(BaseHTTPRequestHandler):
@@ -311,24 +362,28 @@ class TTSHandler(BaseHTTPRequestHandler):
 
             text = body.get("input", "")
             voice = body.get("voice", "default")
+            # v4.3.3: per-request format override (defaults to server-wide
+            # OUTPUT_FORMAT). Callers that need raw WAV pass response_format='wav'.
+            requested_format = (body.get("response_format") or OUTPUT_FORMAT).lower()
 
             if not text:
                 self._json_response(400, {"error": "input is required"})
                 return
 
-            print(f'[VoiceClone] Generating: "{text[:120]}" ({len(text)} chars) voice={voice}')
+            print(f'[VoiceClone] Generating: "{text[:120]}" ({len(text)} chars) voice={voice} format={requested_format}')
 
             import time
             start = time.time()
-            wav_bytes = generate_speech(text, voice=voice)
+            audio_bytes = generate_speech(text, voice=voice, output_format=requested_format)
             elapsed = time.time() - start
-            print(f"[VoiceClone] Generated {len(wav_bytes)} bytes in {elapsed:.2f}s")
+            print(f"[VoiceClone] Generated {len(audio_bytes)} bytes in {elapsed:.2f}s ({requested_format})")
 
+            content_type = "audio/mpeg" if requested_format == "mp3" else "audio/wav"
             self.send_response(200)
-            self.send_header("Content-Type", "audio/wav")
-            self.send_header("Content-Length", str(len(wav_bytes)))
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(audio_bytes)))
             self.end_headers()
-            self.wfile.write(wav_bytes)
+            self.wfile.write(audio_bytes)
 
         except Exception as e:
             print(f"[VoiceClone] Error: {e}")

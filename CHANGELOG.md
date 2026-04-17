@@ -5,6 +5,60 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.3] — 2026-04-17 — Andrew-voice pitch fix + remote approval protocol + owner whitelist
+
+Tony reported the Andrew voice coming through "high pitch and fast sometimes"
+on Messenger, and asked for fully remote operation — no dashboard needed
+while he's out. Three fixes.
+
+### Pitch stability (the "chipmunk" bug)
+
+- `scripts/f5-tts-gpu-server.py` — raised `STEPS` 16→32 (F5-TTS default
+  reference). 16-step inference was unstable on short utterances, causing
+  audible pitch wobble mid-sentence.
+- Reset `SPEED` 0.87→1.0 (neutral). The 0.87 setting occasionally fought
+  the model's internal timing and produced artifacts.
+- **Root-cause of the 1.5× chipmunk effect: output format.** Server now
+  returns **MP3 at 44.1 kHz** via an ffmpeg transcode. Previously it
+  returned raw 24 kHz WAV, and Messenger's audio player was interpreting
+  it as 16 kHz-encoded voicemail audio → every clip played back ~1.5×
+  fast and ~5 semitones high. MP3 embeds unambiguous sample-rate metadata.
+- `response_format` per-request override still supported (`wav` or `mp3`).
+- `src/channels/messenger-voice.ts` — `synthesizeToWav()` → `synthesizeAudio()`
+  which returns `{buf, mime, ext}`. Messenger attachment upload now uses
+  the correct MIME + extension per response. WAV fallback kept in case
+  ffmpeg transcode fails server-side.
+
+### Remote approval protocol (no dashboard needed)
+
+- `src/channels/messenger.ts` — admin prompt updated. Tony is on his phone
+  in Messenger; he can't open Mission Control. So the agent is explicitly
+  told:
+  - Just do small reversible actions without asking.
+  - For destructive/big actions, describe the plan in one sentence, ask
+    "Approve? (yes/no)" and stop.
+  - On the next inbound message, treat yes/y/approve/go/ok/sure/proceed
+    as approval; no/n/stop/cancel as rejection; a new instruction as a
+    pivot.
+  - Never say "check the dashboard" — that fails him when he's remote.
+
+### Owner whitelist is authoritative
+
+- `ownerIds` is now the single source of truth for Messenger admin. Only
+  PSIDs in that set get: admin-path tool access, voice replies in Andrew,
+  inbound voice-note transcription, and the remote-approval protocol.
+- Non-owners sending voice notes are now silently dropped at the webhook
+  (no GPU cost, no pipeline exposure). They still get the marketing-pitch
+  text reply if they send text.
+- Comment on the `ownerIds` Set now documents this contract explicitly.
+
+### Version bumps
+
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts` all on 4.3.3.
+
+---
+
 ## [4.3.2] — 2026-04-17 — Messenger voice (Andrew, bidirectional)
 
 Tony asked for voice on Messenger end-to-end: "when I'm away from home I

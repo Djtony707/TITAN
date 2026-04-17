@@ -129,14 +129,24 @@ export async function transcribeMessengerAudio(url: string): Promise<string> {
     }
 }
 
-/** Synthesize text → WAV via F5-TTS GPU server. Returns Buffer or null. */
-export async function synthesizeToWav(text: string, voice = 'andrew'): Promise<Buffer | null> {
+/**
+ * Synthesize text via F5-TTS GPU server. Returns { buf, mime, ext } or null.
+ *
+ * v4.3.3: switched from WAV 24kHz → MP3 44.1kHz because Messenger's audio
+ * player was misinterpreting the 24kHz WAV as 16kHz and playing back 1.5×
+ * fast + high-pitched (chipmunk Andrew). MP3 embeds unambiguous sample-rate
+ * metadata that every player respects.
+ */
+export async function synthesizeAudio(
+    text: string,
+    voice = 'andrew',
+): Promise<{ buf: Buffer; mime: string; ext: string } | null> {
     try {
         const res = await fetch(`${F5_TTS_URL}/v1/audio/speech`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: text, voice, response_format: 'wav' }),
-            signal: AbortSignal.timeout(120_000), // long texts chunk across multiple inferences
+            body: JSON.stringify({ input: text, voice, response_format: 'mp3' }),
+            signal: AbortSignal.timeout(180_000), // long texts chunk across multiple inferences
         });
         if (!res.ok) {
             const errBody = await res.text().catch(() => '');
@@ -148,23 +158,37 @@ export async function synthesizeToWav(text: string, voice = 'andrew'): Promise<B
             logger.warn(COMPONENT, 'F5-TTS returned empty buffer');
             return null;
         }
-        logger.info(COMPONENT, `Synthesized ${buf.length} bytes of audio (voice=${voice})`);
-        return buf;
+        // Honor whatever the server actually returned — it falls back to
+        // WAV if ffmpeg transcode fails. Either format plays correctly.
+        const contentType = res.headers.get('content-type') || 'audio/mpeg';
+        const isMp3 = contentType.includes('mpeg') || contentType.includes('mp3');
+        const ext = isMp3 ? 'mp3' : 'wav';
+        const mime = isMp3 ? 'audio/mpeg' : 'audio/wav';
+        logger.info(COMPONENT, `Synthesized ${buf.length} bytes (voice=${voice}, ${ext})`);
+        return { buf, mime, ext };
     } catch (e) {
         logger.warn(COMPONENT, `F5-TTS error: ${(e as Error).message}`);
         return null;
     }
 }
 
-/** Upload a WAV buffer to Messenger's attachment_upload endpoint, returns attachment_id */
+/** Back-compat alias; v4.3.3 returns MP3 by default via synthesizeAudio. */
+export async function synthesizeToWav(text: string, voice = 'andrew'): Promise<Buffer | null> {
+    const r = await synthesizeAudio(text, voice);
+    return r?.buf ?? null;
+}
+
+/** Upload an audio buffer to Messenger's attachment_upload endpoint, returns attachment_id */
 async function uploadMessengerAttachment(
-    wav: Buffer,
+    audio: Buffer,
     pageToken: string,
+    mime: string,
+    ext: string,
 ): Promise<string | null> {
     try {
         const form = new FormData();
         form.append('message', JSON.stringify({ attachment: { type: 'audio', payload: { is_reusable: true } } }));
-        form.append('filedata', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'reply.wav');
+        form.append('filedata', new Blob([new Uint8Array(audio)], { type: mime }), `reply.${ext}`);
 
         const res = await fetch(`${GRAPH_API}/me/message_attachments?access_token=${encodeURIComponent(pageToken)}`, {
             method: 'POST',
@@ -237,15 +261,15 @@ export async function sendVoiceReply(
     // for Messenger, but cap to ~1000 chars anyway to bound latency.
     const trimmed = text.length > 1000 ? text.slice(0, 990) + '…' : text;
 
-    const wav = await synthesizeToWav(trimmed, voice);
-    if (!wav) return false;
+    const audio = await synthesizeAudio(trimmed, voice);
+    if (!audio) return false;
 
-    const attachmentId = await uploadMessengerAttachment(wav, pageToken);
+    const attachmentId = await uploadMessengerAttachment(audio.buf, pageToken, audio.mime, audio.ext);
     if (!attachmentId) return false;
 
     const ok = await sendAttachmentMessage(recipientId, attachmentId, pageToken);
     if (ok) {
-        logger.info(COMPONENT, `Voice reply delivered to ${recipientId} (voice=${voice}, ${wav.length} bytes)`);
+        logger.info(COMPONENT, `Voice reply delivered to ${recipientId} (voice=${voice}, ${audio.buf.length} bytes, ${audio.ext})`);
     }
     return ok;
 }
