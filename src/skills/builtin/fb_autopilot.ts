@@ -337,18 +337,22 @@ async function runFBAutopilot(): Promise<void> {
     const state = loadState();
     resetDailyCounters(state);
 
-    // Cap: max 6 posts per day
-    if (state.postsToday >= 6) {
-        logger.debug(COMPONENT, `Daily post cap reached (${state.postsToday}/6)`);
+    // Cadence config (v4.0.3): was hardcoded 6/day + 2h gap. Now configurable.
+    // Defaults tuned to avoid FB anti-spam feed throttle (observed burst of 4
+    // posts in 40min trigger hidden-from-feed behavior).
+    const maxPostsPerDay = Number(fbConfig?.maxPostsPerDay ?? 6);
+    const minPostGapHours = Number(fbConfig?.minPostGapHours ?? 3);
+
+    if (state.postsToday >= maxPostsPerDay) {
+        logger.debug(COMPONENT, `Daily post cap reached (${state.postsToday}/${maxPostsPerDay})`);
         saveState(state);
         return;
     }
 
-    // Minimum 2 hours between posts
     if (state.lastPostAt) {
         const hoursSince = (Date.now() - new Date(state.lastPostAt).getTime()) / (1000 * 60 * 60);
-        if (hoursSince < 2) {
-            logger.debug(COMPONENT, `Too soon since last post (${hoursSince.toFixed(1)}h, need 2h)`);
+        if (hoursSince < minPostGapHours) {
+            logger.debug(COMPONENT, `Too soon since last post (${hoursSince.toFixed(1)}h, need ${minPostGapHours}h)`);
             return;
         }
     }
@@ -392,7 +396,7 @@ async function runFBAutopilot(): Promise<void> {
     if (state.postHistory.length > 100) state.postHistory = state.postHistory.slice(-50);
     saveState(state);
 
-    logger.info(COMPONENT, `Autopilot posted ${contentType}: ${result.postId} (${state.postsToday}/3 today)`);
+    logger.info(COMPONENT, `Autopilot posted ${contentType}: ${result.postId} (${state.postsToday}/${maxPostsPerDay} today)`);
 }
 
 // ─── Comment Monitor ────────────────────────────────────────────
@@ -686,10 +690,15 @@ export function registerFBAutopilotSkill(): void {
 
                 if (action === 'status') {
                     const hasCreds = !!(process.env.FB_PAGE_ACCESS_TOKEN && process.env.FB_PAGE_ID);
+                    const cfg = loadConfig();
+                    const fbCfg = (cfg as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+                    const cap = Number(fbCfg?.maxPostsPerDay ?? 6);
+                    const gap = Number(fbCfg?.minPostGapHours ?? 3);
                     return [
                         `Facebook Autopilot Status:`,
                         `- Credentials: ${hasCreds ? 'configured' : 'NOT configured'}`,
-                        `- Posts today: ${state.postsToday}/6`,
+                        `- Posts today: ${state.postsToday}/${cap}`,
+                        `- Min gap: ${gap}h between posts`,
                         `- Replies today: ${state.repliesToday}/10`,
                         `- Last post: ${state.lastPostAt || 'never'}`,
                         `- Content index: ${state.contentIndex} (next: ${CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length]})`,
@@ -700,8 +709,11 @@ export function registerFBAutopilotSkill(): void {
                 if (action === 'post_now') {
                     await runFBAutopilot();
                     const updated = loadState();
+                    const cfg = loadConfig();
+                    const fbCfg = (cfg as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+                    const cap = Number(fbCfg?.maxPostsPerDay ?? 6);
                     return updated.lastPostAt !== state.lastPostAt
-                        ? `Post published! (${updated.postsToday}/6 today). Type: ${CONTENT_ROTATION[(state.contentIndex) % CONTENT_ROTATION.length]}`
+                        ? `Post published! (${updated.postsToday}/${cap} today). Type: ${CONTENT_ROTATION[(state.contentIndex) % CONTENT_ROTATION.length]}`
                         : 'Post skipped — either daily cap reached, too soon since last post, or generation failed.';
                 }
 

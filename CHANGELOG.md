@@ -5,6 +5,36 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.3] — 2026-04-17 — Soma nav link + FB autopilot cadence configurable
+
+### UX fix: Soma was route-only, now in the nav
+
+The `/soma` route shipped in v4.0.0 but was never added to the icon rail. Users
+had to type the URL directly to reach the organism interface. Now:
+
+- `ui/src/components/shell/IconRail.tsx` — new Heart icon between Mission and
+  Command Post. Clicking takes you straight to `/soma` with the anatomical
+  drive layout and proposal queue.
+
+### FB autopilot cadence configurable + anti-burst defaults
+
+Observed today: a cluster of posts tripped Facebook's public-feed visibility
+throttle — posts were technically published but hidden from the page's public
+view. Cadence was hardcoded (6/day cap, 2h gap). Now both are config knobs with
+safer defaults that spread posts through the day.
+
+- `src/config/schema.ts` `facebook.maxPostsPerDay` (default `6`, range 1-12).
+- `src/config/schema.ts` `facebook.minPostGapHours` (default `3`, up from
+  hardcoded 2). 6 posts × 3h gap = ~18h natural spread.
+- `src/skills/builtin/fb_autopilot.ts` — reads config, status + post_now
+  actions surface the configured cap + gap in their responses.
+
+Users wanting denser cadence can raise `maxPostsPerDay` and lower
+`minPostGapHours`, but going above 8/day or below 2h gap reliably triggers
+Facebook's anti-spam surface.
+
+---
+
 ## [4.0.2] — 2026-04-17 — Onboarding wizard refresh for v4.0
 
 Patch release. The onboarding wizard (`ui/src/components/onboarding/SetupWizard.tsx`)

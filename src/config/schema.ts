@@ -777,6 +777,15 @@ export const TitanConfigSchema = z.object({
         replyMonitorEnabled: z.boolean().default(true),
         /** Model override for autopilot content generation. Empty = use agent.model. */
         model: z.string().default(''),
+        /** Max posts per 24h window. v4.0.3: was hardcoded to 6. Keep at 6 for active
+         *  hype cadence (one every ~3-4h); Facebook tolerates this well. Going above
+         *  ~8/day will trip FB's anti-spam feed throttle and hide today's posts from
+         *  the public page view. */
+        maxPostsPerDay: z.number().min(1).max(12).default(6),
+        /** Minimum hours between consecutive posts. v4.0.3: raised from 2 to 3 after
+         *  observing a burst of 4 posts in 40 minutes trigger FB's visibility throttle.
+         *  3h * 6 posts = 18h natural spread through the day. */
+        minPostGapHours: z.number().min(0.5).max(24).default(3),
     }).default({}),
 
     /**

@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router';
-import { Crosshair, Shield, Brain, Wrench, Server, Settings, Zap } from 'lucide-react';
+import { Crosshair, Shield, Brain, Wrench, Server, Settings, Zap, Heart } from 'lucide-react';
 import clsx from 'clsx';
 
 const NAV_ITEMS = [
   { to: '/', icon: Crosshair, label: 'Mission', exact: true },
+  { to: '/soma', icon: Heart, label: 'Soma' },
   { to: '/command-post', icon: Shield, label: 'Command Post' },
   { to: '/intelligence', icon: Brain, label: 'Intelligence' },
   { to: '/tools', icon: Wrench, label: 'Tools' },
