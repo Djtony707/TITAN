@@ -118,6 +118,10 @@ const INSTRUCTION_ECHO_PATTERNS: RegExp[] = [
     /\b(?:in first person|confident.*tone|playful.*tone)\b/i,
     /\b(?:similar style|like the example|following the format)\b/i,
     /\b(?:include \d+-?\d* hashtag)/i,
+    // Parenthetical instruction echo: "(under 280 chars, 2-3 hashtags)"
+    /\((?:under \d+|must include|should be|include \d+)/i,
+    // Starts with parenthetical instruction description
+    /^\s*\((?:under|must|should|include|use|keep|make)/i,
     // Example echoing — model copies the example instead of writing new content
     /^(?:Example\s*(?:given|post|of|:))/i,
     /^(?:\*?\*?Reference\s*(?:Example|Post)\*?\*?\s*:)/i,
@@ -229,9 +233,20 @@ function validateContent(text: string, opts: GuardrailOptions): ValidationResult
             if (fbBadStarts.test(text)) {
                 issues.push('fb_starts_with_meta');
             }
+            // Must not start with a parenthetical — that's always an instruction echo
+            if (/^\s*\(/.test(text)) {
+                issues.push('fb_starts_with_paren');
+            }
             // Must not be a numbered brainstorm list
             if (/^\s*1\.\s+.{5,}\n\s*2\.\s+/.test(text)) {
                 issues.push('fb_numbered_list');
+            }
+            // Must have real sentence structure — not just instructions wrapped in hashtags
+            // Count actual words vs instruction words
+            const instructionWords = /\b(?:under|must|include|should|character|hashtag|tone|first person)\b/gi;
+            const matches = text.match(instructionWords) || [];
+            if (matches.length >= 3) {
+                issues.push('fb_instruction_heavy');
             }
             break;
         }
@@ -277,6 +292,8 @@ function scoreContent(
     for (const issue of validation.issues) {
         if (issue === 'empty') score -= 100;
         else if (issue.startsWith('starts_with_meta') || issue.startsWith('fb_starts_with_meta')) score -= 60;
+        else if (issue === 'fb_starts_with_paren') score -= 80;   // Instruction echo in parens
+        else if (issue === 'fb_instruction_heavy') score -= 70;   // Too many instruction words
         else if (issue === 'no_hashtag') score -= 60;       // FB post MUST have hashtag
         else if (issue === 'fb_numbered_list') score -= 80;  // Brainstorm lists are never valid posts
         else if (issue.startsWith('fb_too_short')) score -= 60;  // Under 40 chars is never a valid FB post

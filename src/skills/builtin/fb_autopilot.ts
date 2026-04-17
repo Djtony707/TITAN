@@ -203,22 +203,22 @@ async function generateContent(contentType: ContentType): Promise<string> {
     const example = exampleList[Math.floor(Math.random() * exampleList.length)];
 
     try {
-        // Two-phase generation: Plan → Extract
-        // Phase 1: Ask the model to plan the post in a structured format
+        // Phase 1: Generate the post with thinking=false to force content in the content field.
+        // Critical: cloud models like glm-5.1 route ALL output to the thinking field when
+        // thinking mode is unset, which pollutes our content with internal reasoning like
+        // "[actual post text]" placeholders. Explicit thinking=false puts it in content.
         const planResponse = await chat({
             model,
+            thinking: false,  // ← This is the fix for the thinking-field pollution
             messages: [
-                { role: 'user', content: `You are writing a Facebook post for TITAN AI (an autonomous AI agent framework).
+                { role: 'user', content: `Write one Facebook post for TITAN AI (an autonomous AI agent framework).
 
-Content type: ${contentType}
-Example for reference: "${example}"
+Here is an example post in the correct style:
+${example}
 
-Think about what angle to take, then write your draft.
+Now write a DIFFERENT post on a different topic. Match the playful first-person style. Keep it under 280 characters. End with 2-3 hashtags like #TITAN #AI.
 
-Reply in this EXACT format:
-TOPIC: <one line describing the topic>
-ANGLE: <one line describing the approach>
-DRAFT: <the actual post text, under 280 chars, with 2-3 hashtags like #TITAN #AI>` },
+Reply with ONLY the post text — no explanations, no labels, no planning, no examples. Just the ready-to-publish post.` },
             ],
             temperature: 0.7,
             maxTokens: 300,
@@ -232,15 +232,35 @@ DRAFT: <the actual post text, under 280 chars, with 2-3 hashtags like #TITAN #AI
 
         // Try multiple extraction patterns (most specific first)
         const draftPatterns = [
-            /DRAFT:\s*(.+?)(?:\n(?:TOPIC|ANGLE)|$)/is,           // DRAFT: ...
-            /\*?\*?Draft\*?\*?:?\*?\s*(.+?)(?:\n|$)/i,           // *Draft:* ..., **Draft:** ...
-            /(?:post|final|output):\s*(.+?)(?:\n|$)/i,           // Post: ..., Final: ...
+            /POST:\s*(.+?)(?:\n(?:TOPIC|ANGLE|DRAFT)|$)/is,      // POST: ... (new format)
+            /DRAFT:\s*(.+?)(?:\n(?:TOPIC|ANGLE|POST)|$)/is,      // DRAFT: ... (legacy)
+            /\*?\*?(?:Post|Draft)\*?\*?:?\*?\s*(.+?)(?:\n|$)/i, // *Post:*, **Draft:**
+            /(?:final|output):\s*(.+?)(?:\n|$)/i,                // Final: ...
         ];
+
+        // Detect when the DRAFT line is actually just the instruction template
+        // echoed back (e.g., "(under 280 chars, 2-3 hashtags including #TITAN and #AI)").
+        // Reject any line that looks like it's quoting the brief instead of writing a post.
+        const isInstructionTemplate = (line: string): boolean => {
+            if (/^\s*\(/.test(line)) return true;  // Starts with parenthesis
+            if (/<[a-z]+\s*(?:post|text|content|topic|angle)/i.test(line)) return true;  // <post>, <topic> placeholder
+            if (/\[(?:actual|your|the)?\s*(?:post|draft|text|content|topic|angle)[^\]]*\]/i.test(line)) return true;  // [actual post text], [post content]
+            if (/^\s*\[/.test(line)) return true;  // Starts with [ — likely a placeholder
+            // Count instruction words vs content words
+            const instructionMatches = line.match(/\b(?:under|must|include|should|character|hashtag|tone|first person|example)\b/gi) || [];
+            if (instructionMatches.length >= 3) return true;
+            return false;
+        };
 
         for (const pattern of draftPatterns) {
             const match = planText.match(pattern);
             if (match && match[1].trim().length >= 30) {
-                content = match[1].trim();
+                const candidate = match[1].trim();
+                if (isInstructionTemplate(candidate)) {
+                    logger.warn(COMPONENT, `[TwoPhase] Draft looks like instruction template — skipping: "${candidate.slice(0, 80)}"`);
+                    continue;
+                }
+                content = candidate;
                 logger.info(COMPONENT, `[TwoPhase] Extracted draft: "${content.slice(0, 80)}"`);
                 break;
             }
