@@ -141,6 +141,37 @@ function buildPrompt(agentId: string, slotsLeft: number, ctx: GoalProposerContex
     return sections.join('\n');
 }
 
+/** JSON schema passed to Ollama's native structured-outputs `format` field.
+ *  Constrains the model to emit an array of proposal objects matching the
+ *  fields normalizeProposal() accepts. Belt-and-suspenders — the downstream
+ *  defensive parser is still the authoritative validator. */
+const PROPOSAL_ARRAY_SCHEMA: Record<string, unknown> = {
+    type: 'array',
+    items: {
+        type: 'object',
+        required: ['title', 'description', 'rationale'],
+        properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            rationale: { type: 'string' },
+            priority: { type: 'number' },
+            tags: { type: 'array', items: { type: 'string' } },
+            subtasks: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    required: ['title', 'description'],
+                    properties: {
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        dependsOn: { type: 'array', items: { type: 'string' } },
+                    },
+                },
+            },
+        },
+    },
+};
+
 // ── JSON Extraction ──────────────────────────────────────────────
 
 /** Defensively parse a JSON array from LLM output. Returns [] on failure. */
@@ -239,6 +270,10 @@ export async function generateGoalProposals(
 
     const prompt = buildPrompt(agentId, slotsLeft, ctx);
 
+    // Only Ollama honours the `format` JSON-schema constraint today.
+    // Other providers would either ignore it or error, so we gate on provider.
+    const isOllama = model.toLowerCase().startsWith('ollama/');
+
     let rawContent: string;
     try {
         const response = await chat({
@@ -249,6 +284,7 @@ export async function generateGoalProposals(
             ],
             temperature: 0.4,
             maxTokens: 1500,
+            ...(isOllama ? { format: PROPOSAL_ARRAY_SCHEMA } : {}),
         });
         rawContent = response.content || '';
     } catch (err) {

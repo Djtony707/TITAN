@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.0] — 2026-04-17 — Ollama native structured outputs
+
+Adopts Ollama's `format` parameter (JSON-schema-constrained generation) in
+the two TITAN call sites that currently prompt-engineer for JSON and then
+defensively parse. This eliminates a whole class of "LLM wrapped the JSON
+in prose/code fences/thinking tags" failures for Ollama-routed models. The
+defensive parsers remain as belt-and-suspenders — and as the only path for
+non-Ollama providers, which ignore `format`.
+
+### Provider plumbing
+
+- `src/providers/base.ts` — `ChatOptions.format?: Record<string, unknown> | 'json'`.
+  Loose-JSON mode (`'json'`) and strict JSON-schema mode (object) both
+  supported per Ollama docs:
+  <https://docs.ollama.com/capabilities/structured-outputs.md>.
+- `src/providers/ollama.ts` — forwards `format` into the `/api/chat`
+  request body verbatim on both `chat()` and `chatStream()`. Other providers
+  silently ignore the field; the router passes `ChatOptions` through without
+  modification.
+
+### Goal proposer
+
+- `src/agent/goalProposer.ts` — when the resolved proposal model is
+  `ollama/*`, the chat call now carries a JSON schema matching the shape
+  `normalizeProposal()` accepts (array of `{title, description, rationale,
+  priority?, tags?, subtasks?}`). The "return ONLY a JSON array" prompt
+  is kept because non-Ollama providers still rely on it, and the
+  `extractProposalArray()` defensive parser still runs as the authoritative
+  validator.
+
+### Agent debate — judge resolution
+
+- `src/skills/builtin/agent_debate.ts` — when the judge model is
+  `ollama/*`, the judge call carries a JSON schema enforcing
+  `{winnerRole, justification, finalAnswer}`. The `parseJudgeVerdict()`
+  parse + fallback-to-vote path is preserved untouched, so malformed
+  verdicts (or non-Ollama judges) still degrade gracefully.
+
+### Tests
+
+- `tests/providers-ollama.test.ts` — new suite: forwards JSON-schema
+  objects and `'json'` strings into the request body, omits `format`
+  entirely when the caller doesn't pass it.
+- `tests/goalProposer.test.ts` — asserts `format` is present when
+  `modelAliases.fast = 'ollama/...'`, absent when it's `openai/...`.
+- `tests/agentDebate.test.ts` — asserts `format` is present on the judge
+  call when `modelAliases.smart = 'ollama/...'`, absent when it's
+  `anthropic/...`.
+
+All 42 tests across the three files pass. The one pre-existing failure
+in `tests/agent-loop.test.ts` (RESPOND phase tool stripping) is unrelated
+to this change — it fails on unmodified `main` as well.
+
+---
+
 ## [4.2.0] — 2026-04-17 — Soma customization + UI-driven debates + auto-publish
 
 Second release in the UI arc (v4.1 → v4.2 → v4.3).

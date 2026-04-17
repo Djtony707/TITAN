@@ -462,6 +462,12 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
+        // Ollama-native structured outputs — constrain generation to a JSON schema.
+        // https://docs.ollama.com/capabilities/structured-outputs.md
+        if (options.format !== undefined) {
+            body.format = options.format;
+        }
+
         // Cloud models: trim conversation history preserving tool call/response pairs.
         // With 131K context window, cloud models can handle much longer histories.
         // E1: Use >= 80 with margin (trim to 75) to prevent off-by-one at exact boundary.
@@ -661,6 +667,11 @@ export class OllamaProvider extends LLMProvider {
             if (options.forceToolUse && !caps.selfSelectsTools) {
                 body.tool_choice = 'required';
             }
+        }
+
+        // Ollama-native structured outputs (stream variant).
+        if (options.format !== undefined) {
+            body.format = options.format;
         }
 
         // Optimize: trim history preserving tool pairs (cloud models only — local models have smaller contexts)

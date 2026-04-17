@@ -144,6 +144,18 @@ ${finalRound
 No preamble. Do not write "<think>" blocks or narrate your reasoning process.`;
 }
 
+/** JSON schema for Ollama's native structured outputs — constrains the judge
+ *  verdict to the exact shape parseJudgeVerdict() expects. */
+const JUDGE_VERDICT_SCHEMA: Record<string, unknown> = {
+    type: 'object',
+    required: ['winnerRole', 'justification', 'finalAnswer'],
+    properties: {
+        winnerRole: { type: 'string' },
+        justification: { type: 'string' },
+        finalAnswer: { type: 'string' },
+    },
+};
+
 function buildJudgePrompt(question: string, transcript: DebateTurn[]): string {
     const rounds = new Map<number, DebateTurn[]>();
     for (const t of transcript) {
@@ -324,6 +336,10 @@ async function runDebate(opts: RunOptions): Promise<DebateTranscript> {
     } else {
         // judge
         const judgeModel = opts.judgeModel || (config.agent.modelAliases['smart'] || defaultModel);
+        // Only Ollama honours the `format` JSON-schema constraint today.
+        // For everything else we keep the belt-and-suspenders prompt + regex
+        // parse path (see parseJudgeVerdict + fallback-to-vote below).
+        const isOllamaJudge = judgeModel.toLowerCase().startsWith('ollama/');
         try {
             const verdict = await chat({
                 model: judgeModel,
@@ -333,6 +349,7 @@ async function runDebate(opts: RunOptions): Promise<DebateTranscript> {
                 ],
                 temperature: 0.2,
                 maxTokens: 600,
+                ...(isOllamaJudge ? { format: JUDGE_VERDICT_SCHEMA } : {}),
             });
             const guarded = applyOutputGuardrails(verdict.content, { type: 'sub_agent' });
             const parsed = parseJudgeVerdict(guarded.content);

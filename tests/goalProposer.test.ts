@@ -220,6 +220,56 @@ describe('GoalProposer', () => {
         expect(result).toEqual([]);
     });
 
+    describe('Ollama structured-outputs (format schema)', () => {
+        it('passes a JSON schema in chat `format` when resolved model is ollama/*', async () => {
+            mockLoadConfig.mockReturnValue({
+                ...defaultConfig,
+                agent: {
+                    ...defaultConfig.agent,
+                    modelAliases: { fast: 'ollama/qwen3.5:latest' },
+                },
+            });
+            vi.resetModules();
+            proposerModule = await import('../src/agent/goalProposer.js');
+
+            mockChat.mockResolvedValue({
+                content: JSON.stringify([
+                    { title: 't', description: 'd', rationale: 'r' },
+                ]),
+            });
+
+            await proposerModule.generateGoalProposals('agent-a', {});
+
+            expect(mockChat).toHaveBeenCalledTimes(1);
+            const opts = mockChat.mock.calls[0][0];
+            expect(opts.model).toBe('ollama/qwen3.5:latest');
+            expect(opts.format).toBeDefined();
+            expect(opts.format).toMatchObject({
+                type: 'array',
+                items: expect.objectContaining({
+                    type: 'object',
+                    required: ['title', 'description', 'rationale'],
+                }),
+            });
+        });
+
+        it('omits `format` when resolved model is not ollama', async () => {
+            // Default config already uses openai/gpt-4o-mini.
+            mockChat.mockResolvedValue({
+                content: JSON.stringify([
+                    { title: 't', description: 'd', rationale: 'r' },
+                ]),
+            });
+
+            await proposerModule.generateGoalProposals('agent-a', {});
+
+            expect(mockChat).toHaveBeenCalledTimes(1);
+            const opts = mockChat.mock.calls[0][0];
+            expect(opts.model).toBe('openai/gpt-4o-mini');
+            expect(opts.format).toBeUndefined();
+        });
+    });
+
     it('buildDefaultContext aggregates goals + failures + activity', () => {
         mockListGoals.mockImplementation((status?: string) => {
             const all = [

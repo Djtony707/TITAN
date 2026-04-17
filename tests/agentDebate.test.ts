@@ -279,6 +279,74 @@ describe('AgentDebate', () => {
             expect(t.winner!.justification).toContain('malformed');
         });
 
+        it('passes a JSON schema in chat `format` when the judge model is ollama/*', async () => {
+            mockLoadConfig.mockReturnValue({
+                agent: {
+                    model: 'openai/gpt-4o-mini',
+                    modelAliases: { smart: 'ollama/glm-5.1:cloud', fast: 'openai/gpt-4o-mini' },
+                },
+            });
+            vi.resetModules();
+            debateModule = await import('../src/skills/builtin/agent_debate.js');
+
+            let turn = 0;
+            mockChat.mockImplementation(() => {
+                turn++;
+                if (turn <= 2) return Promise.resolve({ content: `position ${turn}` });
+                return Promise.resolve({
+                    content: JSON.stringify({
+                        winnerRole: 'a',
+                        justification: 'clear',
+                        finalAnswer: 'A wins',
+                    }),
+                });
+            });
+
+            await debateModule.runDebate({
+                question: 'q',
+                participants: [{ role: 'a' }, { role: 'b' }],
+                rounds: 1,
+                resolution: 'judge',
+            });
+
+            // The judge call is the 3rd chat() invocation.
+            expect(mockChat).toHaveBeenCalledTimes(3);
+            const judgeOpts = mockChat.mock.calls[2][0];
+            expect(judgeOpts.model).toBe('ollama/glm-5.1:cloud');
+            expect(judgeOpts.format).toBeDefined();
+            expect(judgeOpts.format).toMatchObject({
+                type: 'object',
+                required: ['winnerRole', 'justification', 'finalAnswer'],
+            });
+        });
+
+        it('omits `format` on the judge call when judge model is not ollama', async () => {
+            // Default config: smart = anthropic/claude-sonnet-4-20250514.
+            let turn = 0;
+            mockChat.mockImplementation(() => {
+                turn++;
+                if (turn <= 2) return Promise.resolve({ content: `position ${turn}` });
+                return Promise.resolve({
+                    content: JSON.stringify({
+                        winnerRole: 'a',
+                        justification: 'clear',
+                        finalAnswer: 'A wins',
+                    }),
+                });
+            });
+
+            await debateModule.runDebate({
+                question: 'q',
+                participants: [{ role: 'a' }, { role: 'b' }],
+                rounds: 1,
+                resolution: 'judge',
+            });
+
+            const judgeOpts = mockChat.mock.calls[2][0];
+            expect(judgeOpts.model).toBe('anthropic/claude-sonnet-4-20250514');
+            expect(judgeOpts.format).toBeUndefined();
+        });
+
         it('falls back to vote when judge LLM throws', async () => {
             let turn = 0;
             mockChat.mockImplementation(() => {

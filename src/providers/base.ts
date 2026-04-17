@@ -52,6 +52,10 @@ export interface ChatOptions {
      *  this, a silent fallback would poison the capabilities registry with data
      *  from whichever model happened to answer. */
     noFallback?: boolean;
+    /** Ollama-native structured output. Pass a JSON schema to constrain the
+     *  model's output to match it, or the string 'json' for loose JSON mode.
+     *  Only the Ollama provider honours this today — other providers ignore it. */
+    format?: Record<string, unknown> | 'json';
 }
 
 /** Response from a chat completion */
