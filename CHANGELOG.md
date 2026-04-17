@@ -5,6 +5,29 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.5] — 2026-04-17 — Shadow rehearsal on every Soma proposal
+
+Bug fix. When a Soma pressure cycle produced multiple proposals in one
+call (e.g., goalProposer returns 2 proposals because slot count and LLM
+output both allowed it), only the first proposal got shadow-rehearsed.
+The second, third, etc. reached the Approvals queue with no shadow
+verdict on the payload — users saw "no shadow" on proposals that
+should have had one.
+
+- `src/organism/pressure.ts` — `runPressureCycle` now loops over every
+  returned approval, shadow-rehearses each, and attaches the verdict.
+  `soma:proposal` events also emit once per approval instead of once
+  total. The first approval is still returned as the "primary" in the
+  cycle result for backward compat with callers that expect a single
+  approvalId/shadow.
+- `tests/organism/pressure.test.ts` — new regression test asserts
+  shadow is attached to all 3 of 3 proposals when proposer returns
+  multiple.
+
+No config changes. Drops in cleanly.
+
+---
+
 ## [4.0.4] — 2026-04-17 — Time awareness in every turn
 
 TITAN now injects current date, time, timezone, and UTC offset into

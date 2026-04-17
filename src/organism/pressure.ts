@@ -172,40 +172,52 @@ export async function runPressureCycle(
                 skipped: 'proposer returned no actionable proposals (below quality bar or rate-limited)',
             };
         }
-        const approval = approvals[0];
-        approvalId = approval.id;
 
-        // Shadow rehearsal on the winning proposal. If shadowEnabled=false,
-        // skip — but still emit the proposal event so the UI sees it.
+        // v4.0.5: shadow-rehearse EVERY proposal returned by the proposer,
+        // not just approvals[0]. Earlier cycles that returned 2+ proposals
+        // left the extras without a shadow verdict on the approval payload.
+        // The first approval is still the "primary" returned in the result
+        // for backward compat with callers expecting a single approvalId.
+        const primary = approvals[0];
+        approvalId = primary.id;
+
         if (organism.shadowEnabled !== false) {
-            try {
-                shadow = await rehearseShadow({
-                    title: (approval.payload as { title?: string })?.title ?? '(unspecified)',
-                    description: (approval.payload as { description?: string })?.description ?? '',
-                    rationale: (approval.payload as { rationale?: string })?.rationale ?? '',
-                }, organism.shadowModel);
-                attachShadowVerdictToApproval(approval.id, shadow as unknown as Record<string, unknown>);
-            } catch (err) {
-                logger.warn(COMPONENT, `Shadow rehearsal failed for ${approval.id}: ${(err as Error).message}`);
+            for (const approval of approvals) {
+                try {
+                    const verdict = await rehearseShadow({
+                        title: (approval.payload as { title?: string })?.title ?? '(unspecified)',
+                        description: (approval.payload as { description?: string })?.description ?? '',
+                        rationale: (approval.payload as { rationale?: string })?.rationale ?? '',
+                    }, organism.shadowModel);
+                    attachShadowVerdictToApproval(approval.id, verdict as unknown as Record<string, unknown>);
+                    if (approval.id === primary.id) shadow = verdict;
+                } catch (err) {
+                    logger.warn(COMPONENT, `Shadow rehearsal failed for ${approval.id}: ${(err as Error).message}`);
+                }
             }
         }
 
-        emit('soma:proposal', {
-            timestamp: new Date().toISOString(),
-            approvalId: approval.id,
-            proposedBy: somaAgentId,
-            title: (approval.payload as { title?: string })?.title ?? '',
-            dominantDrives: decision.dominantDrives,
-            shadowVerdict: shadow ? {
-                reversibilityScore: shadow.reversibilityScore,
-                estimatedCostUsd: shadow.estimatedCostUsd,
-                breakRisks: shadow.breakRisks,
-            } : undefined,
-        });
+        // Emit one soma:proposal per approval so UI + activity feed see each.
+        for (const approval of approvals) {
+            const currentVerdict = (approval.payload as { shadowVerdict?: ShadowVerdict })?.shadowVerdict;
+            emit('soma:proposal', {
+                timestamp: new Date().toISOString(),
+                approvalId: approval.id,
+                proposedBy: somaAgentId,
+                title: (approval.payload as { title?: string })?.title ?? '',
+                dominantDrives: decision.dominantDrives,
+                shadowVerdict: currentVerdict ? {
+                    reversibilityScore: currentVerdict.reversibilityScore,
+                    estimatedCostUsd: currentVerdict.estimatedCostUsd,
+                    breakRisks: currentVerdict.breakRisks,
+                } : undefined,
+            });
+        }
 
         // Quiet the 'unused' check on getApproval — we may use it for logging.
         void getApproval;
-        logger.info(COMPONENT, `Soma fired ${approval.id}: ${decision.reason}`);
+        void requestGoalProposalApproval;
+        logger.info(COMPONENT, `Soma fired ${approvals.length} proposal(s), primary=${primary.id}: ${decision.reason}`);
         return { fired: true, reading, decision, approvalId, shadow };
     } catch (err) {
         logger.warn(COMPONENT, `Pressure cycle failed: ${(err as Error).message}`);

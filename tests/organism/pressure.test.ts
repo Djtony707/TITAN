@@ -131,6 +131,29 @@ describe('pressure', () => {
             expect(mockRehearseShadow).not.toHaveBeenCalled();
         });
 
+        it('v4.0.5: shadows EVERY returned proposal, not just the first', async () => {
+            // Regression test: earlier versions attached shadow only to approvals[0],
+            // leaving additional proposals with no verdict on the approval payload.
+            mockGenerateProposals.mockResolvedValue([
+                { id: 'appr-a', type: 'goal_proposal', status: 'pending', payload: { title: 'A', description: 'dA', rationale: 'rA' }, requestedBy: 'soma:hunger' },
+                { id: 'appr-b', type: 'goal_proposal', status: 'pending', payload: { title: 'B', description: 'dB', rationale: 'rB' }, requestedBy: 'soma:hunger' },
+                { id: 'appr-c', type: 'goal_proposal', status: 'pending', payload: { title: 'C', description: 'dC', rationale: 'rC' }, requestedBy: 'soma:hunger' },
+            ]);
+            mockRehearseShadow.mockResolvedValue({
+                reversibilityScore: 0.5, estimatedCostUsd: 0.1, breakRisks: [], affectedSystems: [], fallback: false,
+            });
+            const result = await runPressureCycle([makeDrive('hunger', 1.5)]);
+            expect(result.fired).toBe(true);
+            expect(result.approvalId).toBe('appr-a'); // primary preserved for backcompat
+            // All 3 approvals must have been shadow-rehearsed and attached.
+            expect(mockRehearseShadow).toHaveBeenCalledTimes(3);
+            expect(mockAttachShadow).toHaveBeenCalledTimes(3);
+            expect(mockAttachShadow.mock.calls.map(c => c[0]).sort()).toEqual(['appr-a','appr-b','appr-c']);
+            // soma:proposal emitted once per approval.
+            const somaEmits = mockEmit.mock.calls.filter(c => c[0] === 'soma:proposal');
+            expect(somaEmits).toHaveLength(3);
+        });
+
         it('continues when shadow rehearsal throws', async () => {
             mockGenerateProposals.mockResolvedValue([{
                 id: 'appr-3', type: 'goal_proposal', status: 'pending',
