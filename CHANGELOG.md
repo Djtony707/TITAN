@@ -5,6 +5,32 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.6] — 2026-04-17 — Autopilot deadlock detector
+
+Bug fix. Observed in prod tonight on Tony's Titan PC: autopilot ran 5+
+consecutive cycles against the same subtask, all logged as "failed — No
+output" with 0 tokens / 0 cost, because Initiative's `consecutiveFailures`
+backoff (5 × 60s = 5 min) aligned exactly with autopilot's 5-min cadence.
+Initiative returned `{acted: false}` without marking the subtask failed;
+autopilot treated it as a soft skip; the queue never advanced and goals
+2 and 3 behind it starved.
+
+Fix in `src/agent/autopilot.ts`:
+- New module-level `emptyOutputStreak: Map<subtaskId, count>` + threshold
+  constant `EMPTY_OUTPUT_DEADLOCK_THRESHOLD = 3`.
+- After each run, if `initiativeResult` came back with `acted: false` AND
+  no `result` AND no `proposed`, increment the streak for that subtask.
+- At 3 consecutive empty-outputs on the same subtask, autopilot calls
+  `failSubtask()` itself with an explanatory error, so the queue
+  advances on the next tick.
+- Any non-empty outcome resets the streak.
+
+This converts a silent deadlock into a bounded 3-attempt failure mode.
+The subtask in question was also unblocked manually by editing
+`goals.json`; the fix prevents this pattern from recurring.
+
+---
+
 ## [4.0.5] — 2026-04-17 — Shadow rehearsal on every Soma proposal
 
 Bug fix. When a Soma pressure cycle produced multiple proposals in one

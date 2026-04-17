@@ -67,6 +67,12 @@ let isRunning = false;
 let lastRun: AutopilotRun | null = null;
 let runtimeDryRun: boolean | undefined;
 
+// v4.0.6: deadlock-detector state. Counts consecutive "empty output" returns
+// from Initiative per subtask. When a subtask hits the threshold, autopilot
+// fails it so the queue can advance instead of looping forever.
+const emptyOutputStreak = new Map<string, number>();
+const EMPTY_OUTPUT_DEADLOCK_THRESHOLD = 3;
+
 // ─── Default checklist template ─────────────────────────────────
 
 const DEFAULT_CHECKLIST = `# TITAN Autopilot Checklist
@@ -474,6 +480,34 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
             content: initiativeResult.result || initiativeResult.proposed || 'No output',
             toolsUsed: [] as string[],
         };
+
+        // v4.0.6: detect Initiative deadlock (acted=false + empty result + empty
+        // proposed = Initiative's internal rate-limit / backoff / consecutiveFailures
+        // blocked execution WITHOUT marking the subtask failed). If the same
+        // subtask hits this N times in a row, mark it failed so the queue
+        // advances instead of looping forever.
+        //
+        // This was observed in prod 2026-04-17: 5+ consecutive "No output"
+        // autopilot cycles on the same subtask, 0 tokens / 0 cost each,
+        // because Initiative's consecutiveFailures backoff (5*60s = 5min)
+        // aligned exactly with autopilot's 5-min cadence.
+        if (!initiativeResult.acted
+            && !initiativeResult.result
+            && !initiativeResult.proposed) {
+            emptyOutputStreak.set(subtask.id, (emptyOutputStreak.get(subtask.id) ?? 0) + 1);
+            const streak = emptyOutputStreak.get(subtask.id) ?? 0;
+            if (streak >= EMPTY_OUTPUT_DEADLOCK_THRESHOLD) {
+                const { failSubtask } = await import('./goals.js');
+                failSubtask(goal.id, subtask.id,
+                    `Initiative deadlock: ${streak} consecutive empty-output cycles. Autopilot advanced the queue.`);
+                emptyOutputStreak.delete(subtask.id);
+                logger.warn(COMPONENT,
+                    `Subtask "${subtask.title}" auto-failed after ${streak} empty-output deadlock cycles — queue advanced`);
+            }
+        } else {
+            // Any non-empty outcome resets the streak for this subtask.
+            emptyOutputStreak.delete(subtask.id);
+        }
 
         // Release Command Post checkout lock
         if (isCommandPostEnabled() && checkoutRunId) {
