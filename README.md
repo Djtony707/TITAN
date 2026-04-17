@@ -66,6 +66,29 @@
 
 ---
 
+## What is TITAN-Soma? (v4.0, 2026-04-17)
+
+**TITAN-Soma is the first production multi-agent LLM framework in which agent action is driven by homeostatic needs rather than user tasks.**
+
+Every other agent framework (AutoGPT, CrewAI, LangGraph, AutoGen, OpenClaw, Paperclip, Hermes) treats agents as task executors waiting for work. Soma adds a fourth architectural layer on top of the existing stack: a **drive layer** — five homeostatic needs (Purpose, Hunger, Curiosity, Safety, Social) that each compute a 0-1 satisfaction from existing TITAN telemetry. When a drive dips below its setpoint, pressure accumulates. Cross-drive pressure fusion files proposals through the existing approval pipeline. A **shadow rehearsal** step predicts cost, reversibility, and risks before the proposal reaches a human approver.
+
+Around it: **hormonal broadcasts** carry the organism's ambient state to every agent's system prompt, and a **trace bus** threads a single typed event stream through the whole system (`turn:pre`, `turn:post`, `drive:tick`, `hormone:update`, `pressure:threshold`, `soma:proposal`).
+
+The existing layers keep their roles and become the organism's anatomy:
+- **Paperclip Command Post** = immune system + governance ("should this happen?")
+- **OpenClaw dreaming + soul** = circadian rhythm + mood ("in what mindset?")
+- **Hermes mixture + skill gen** = nervous system + motor memory ("what worked?")
+- **Claude Code MCP** = digestive system + hands ("what tools are available?")
+- **NEW: Drives** = endocrine system ("what does the body need?")
+- **NEW: Hormones** = bloodstream (ambient state)
+- **NEW: Shadow** = prefrontal cortex (predict before act)
+
+Disabled by default — existing installs stay bit-identical. Opt in with `"organism": { "enabled": true }` in `titan.json`. See [`docs/ADR-001-soma.md`](./docs/ADR-001-soma.md) for the full architecture. Soma UI lives at `/soma` in Mission Control.
+
+Roadmap: v4.1 adds the Hygiene drive (self-watches its own code health) • v4.2 adds emergent agent specialization via drive affinity • v4.3 lets dreaming recalibrate setpoints from experience • v4.4 applies Claude Code's permission model to the MCP surface.
+
+---
+
 ## Why TITAN?
 
 TITAN is the only open-source agent framework that **trains itself on your GPU**, **generates its own skills from experience**, and **gets cheaper every round it runs**. While other frameworks focus on orchestration or chat, TITAN is a complete autonomous platform — self-improvement, trajectory-based skill learning, mixture-of-agents reasoning, 5-phase context compression, credential rotation, shadow git file recovery, voice, GUI, 16 channels, mesh networking, agent governance, and 36 providers in one package.
