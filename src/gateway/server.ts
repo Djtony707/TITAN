@@ -3611,7 +3611,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Soma (v4.0): organism state ──────────────────────────
   app.get('/api/soma/state', async (_req, res) => {
     try {
-      const cfg = loadConfig() as unknown as { organism?: { enabled?: boolean; driveSetpoints?: Record<string, number> } };
+      const cfg = loadConfig() as unknown as { organism?: {
+        enabled?: boolean;
+        driveSetpoints?: Record<string, number>;
+        driveWeights?: Record<string, number>;
+        disabledDrives?: string[];
+      } };
       const organismEnabled = !!cfg.organism?.enabled;
       if (!organismEnabled) {
         res.json({
@@ -3624,7 +3629,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       const { runDriveTick } = await import('../organism/drives.js');
       const { buildBlock } = await import('../organism/hormones.js');
-      const tick = runDriveTick(cfg.organism?.driveSetpoints || {});
+      const tick = runDriveTick(
+        (cfg.organism?.driveSetpoints as Record<import('../organism/drives.js').DriveId, number>) || {},
+        (cfg.organism?.driveWeights as Record<import('../organism/drives.js').DriveId, number>) || {},
+        (cfg.organism?.disabledDrives as import('../organism/drives.js').DriveId[]) || [],
+      );
       const hormonal = buildBlock(tick.drives, tick.timestamp);
       res.json({
         enabled: true,
@@ -3677,6 +3686,78 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { updateConfig } = await import('../config/config.js');
       updateConfig({ organism: merged } as Partial<import('../config/schema.js').TitanConfig>);
       res.json({ ok: true, setpoints: cleaned });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v4.2: per-drive weight override (0.1 – 3.0). Affects pressure fusion.
+  app.post('/api/soma/weights', async (req, res) => {
+    try {
+      const weights = req.body as Record<string, unknown> | undefined;
+      if (!weights || typeof weights !== 'object') {
+        res.status(400).json({ error: 'Body must be an object of driveId → weight (0.1-3.0).' });
+        return;
+      }
+      const validDrives = new Set(['purpose', 'hunger', 'curiosity', 'safety', 'social']);
+      const cleaned: Record<string, number> = {};
+      for (const [k, v] of Object.entries(weights)) {
+        if (!validDrives.has(k)) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0.1 || n > 3.0) continue;
+        cleaned[k] = n;
+      }
+      const cfg = loadConfig() as unknown as { organism?: Record<string, unknown> };
+      const merged = { ...(cfg.organism || {}), driveWeights: cleaned };
+      const { updateConfig } = await import('../config/config.js');
+      updateConfig({ organism: merged } as Partial<import('../config/schema.js').TitanConfig>);
+      res.json({ ok: true, weights: cleaned });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v4.2: enable/disable an individual drive without disabling Soma entirely.
+  app.post('/api/soma/drives/:id/disable', async (req, res) => {
+    try {
+      const driveId = req.params.id;
+      const validDrives = ['purpose', 'hunger', 'curiosity', 'safety', 'social'];
+      if (!validDrives.includes(driveId)) {
+        res.status(400).json({ error: `Invalid drive: ${driveId}` });
+        return;
+      }
+      const disabled = req.body?.disabled !== false; // default true
+      const cfg = loadConfig() as unknown as { organism?: { disabledDrives?: string[] } };
+      const current = cfg.organism?.disabledDrives || [];
+      const next = disabled
+        ? [...new Set([...current, driveId])]
+        : current.filter(d => d !== driveId);
+      const { updateConfig } = await import('../config/config.js');
+      const merged = { ...(cfg.organism || {}), disabledDrives: next };
+      updateConfig({ organism: merged } as Partial<import('../config/schema.js').TitanConfig>);
+      res.json({ ok: true, disabledDrives: next });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v4.2: trigger a debate from the UI (LLM tool also works).
+  app.post('/api/command-post/debates', async (req, res) => {
+    try {
+      const { question, participants, rounds, resolution, judgeModel } = req.body || {};
+      if (!question || !Array.isArray(participants) || participants.length < 2) {
+        res.status(400).json({ error: 'question + 2-5 participants required' });
+        return;
+      }
+      const { runDebate } = await import('../skills/builtin/agent_debate.js');
+      const result = await runDebate({
+        question: String(question),
+        participants,
+        rounds: Math.max(1, Math.min(4, Number(rounds) || 2)),
+        resolution: (resolution === 'vote' || resolution === 'synthesize' || resolution === 'judge') ? resolution : 'judge',
+        judgeModel: judgeModel ? String(judgeModel) : undefined,
+      });
+      res.json({ ok: true, id: result.id, winner: result.winner });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

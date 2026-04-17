@@ -319,18 +319,24 @@ export function buildSnapshot(): DriveSnapshot {
 
 // ── Drive state computation ──────────────────────────────────────
 
-/** Compute all drive states for a given snapshot, applying per-drive setpoint
- *  overrides if supplied (from config.organism.driveSetpoints). */
+/** Compute all drive states for a given snapshot, applying per-drive
+ *  setpoint + weight overrides + disabled-drive filter (all from
+ *  config.organism.{driveSetpoints,driveWeights,disabledDrives}). */
 export function computeAllDrives(
     snapshot: DriveSnapshot,
     setpointOverrides: Partial<Record<DriveId, number>> = {},
+    weightOverrides: Partial<Record<DriveId, number>> = {},
+    disabledDrives: DriveId[] = [],
 ): DriveState[] {
     const out: DriveState[] = [];
+    const disabled = new Set(disabledDrives);
     for (const def of DRIVES) {
+        if (disabled.has(def.id)) continue;
         const { satisfaction, inputs } = def.compute(snapshot);
         const setpoint = setpointOverrides[def.id] ?? def.defaultSetpoint;
+        const weight = weightOverrides[def.id] ?? def.weight;
         const pressure = satisfaction < setpoint
-            ? (setpoint - satisfaction) * def.weight
+            ? (setpoint - satisfaction) * weight
             : 0;
         out.push({
             id: def.id,
@@ -338,7 +344,7 @@ export function computeAllDrives(
             satisfaction: clamp01(satisfaction),
             setpoint,
             pressure,
-            weight: def.weight,
+            weight,
             inputs,
             description: def.describe(satisfaction, inputs),
         });
@@ -391,9 +397,11 @@ export function saveDriveTick(tick: DriveTickResult): void {
  *  endpoints don't). */
 export function runDriveTick(
     setpointOverrides: Partial<Record<DriveId, number>> = {},
+    weightOverrides: Partial<Record<DriveId, number>> = {},
+    disabledDrives: DriveId[] = [],
 ): DriveTickResult {
     const snapshot = buildSnapshot();
-    const drives = computeAllDrives(snapshot, setpointOverrides);
+    const drives = computeAllDrives(snapshot, setpointOverrides, weightOverrides, disabledDrives);
     const totalPressure = drives.reduce((sum, d) => sum + d.pressure, 0);
     const dominantDrives = drives
         .filter(d => d.pressure > 0)

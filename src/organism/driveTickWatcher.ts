@@ -27,6 +27,8 @@ export async function driveTickHandler(): Promise<void> {
     const organism = (config as unknown as { organism?: {
         enabled?: boolean;
         driveSetpoints?: Record<string, number>;
+        driveWeights?: Record<string, number>;
+        disabledDrives?: string[];
     } }).organism || {};
 
     if (!organism.enabled) {
@@ -39,7 +41,12 @@ export async function driveTickHandler(): Promise<void> {
         // Use runDriveTick rather than direct calls so setpoint overrides
         // flow through a single code path.
         const snapshot = buildSnapshot();
-        const drives = computeAllDrives(snapshot, (organism.driveSetpoints as Record<import('./drives.js').DriveId, number>) || {});
+        const drives = computeAllDrives(
+            snapshot,
+            (organism.driveSetpoints as Record<import('./drives.js').DriveId, number>) || {},
+            (organism.driveWeights as Record<import('./drives.js').DriveId, number>) || {},
+            (organism.disabledDrives as import('./drives.js').DriveId[]) || [],
+        );
         const totalPressure = drives.reduce((sum, d) => sum + d.pressure, 0);
         const dominantDrives = drives
             .filter(d => d.pressure > 0)

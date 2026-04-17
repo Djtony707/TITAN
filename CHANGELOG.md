@@ -5,6 +5,81 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.2.0] — 2026-04-17 — Soma customization + UI-driven debates + auto-publish
+
+Second release in the UI arc (v4.1 → v4.2 → v4.3).
+
+### Soma: tunable drive weights + individual drive disable
+
+Previously drive weights were hardcoded at the module level and the
+only way to opt out of a drive was to disable all of Soma. Now:
+
+- `src/organism/drives.ts` `computeAllDrives()` accepts
+  `weightOverrides` + `disabledDrives` in addition to existing
+  `setpointOverrides`. Disabled drives are filtered before compute
+  runs — zero cost, not just zero weight.
+- `src/organism/driveTickWatcher.ts` + `/api/soma/state` pass all
+  three config inputs through.
+- `src/config/schema.ts` — new `organism.driveWeights: Record<DriveId,
+  number>` (0.1–3.0) and `organism.disabledDrives: DriveId[]`.
+- `POST /api/soma/weights` — admin override per drive. Mirrors the
+  existing `/api/soma/setpoints` endpoint.
+- `POST /api/soma/drives/:id/disable` — with `{disabled: true|false}`
+  body. Updates `organism.disabledDrives`.
+- `ui/src/views/SomaView.tsx` — inspector panel now has a second
+  slider ("Weight / pressure multiplier") next to the setpoint
+  slider. Drags to 0.1–3.0, saves immediately. Below that, a red
+  "Disable X drive" button that removes the drive from pressure
+  fusion without affecting the rest of the organism.
+
+### Command Post: trigger debates from the UI
+
+Previously debates were agent-only — an LLM had to call
+`agent_debate`. Now any operator can run one from Command Post.
+
+- `POST /api/command-post/debates` — wraps `runDebate()` from
+  `src/skills/builtin/agent_debate.ts`. Validates question +
+  participants (2-5) + rounds (1-4) + resolution mode.
+- `ui/src/components/admin/CommandPostHub.tsx` Debates tab gains
+  "+ New Debate" action. Opens `NewDebateForm` modal: question
+  textarea, participant rows (role + optional model override) with
+  add/remove up to 5, rounds dropdown, resolution dropdown
+  (judge / synthesize / vote). Submit runs the debate live
+  (1-3 minutes typically) and transcript auto-saves.
+- Also fixed the same `apiFetch`-returns-Response bug in
+  `DebatesTab` that was caught in v4.0.1 for SomaView. Now both
+  the list and detail endpoints properly parse `.json()`.
+
+### Release tooling: auto-publish via Titan PC's npm token
+
+Observed at v4.1: OTP walls make `npm publish` from Mac painful.
+Titan PC already has an auth token. New `--publish` flag on
+`./scripts/deploy.sh`: after successful deploy, runs
+`ssh titan "cd /opt/TITAN && npm publish --tag latest"`. Uses the
+stored token on Titan PC — no OTP prompt needed on the Mac side.
+
+Usage: `./scripts/deploy.sh --publish`
+
+v4.1.0 was published this way; v4.2.0 uses the automated path.
+
+### Browser-verified
+
+Preview test confirmed:
+- Soma inspector renders setpoint slider, weight slider, disable
+  button with help text. Screenshot captured.
+- Debate form modal renders with question textarea, 2 participant
+  rows + add button, rounds + resolution dropdowns, italic runtime
+  hint. Screenshot captured.
+
+### Deferred to v4.2.1
+
+Per the plan's v4.2 scope, still outstanding: cron CRUD, recipes
+CRUD, MCP server edit, memory wiki entity CRUD. Each needs
+backend archaeology to plumb. Shipping what's ready now rather
+than batching.
+
+---
+
 ## [4.1.0] — 2026-04-17 — Mission Control CRUD customization pass
 
 First release of the UI customization arc (v4.1 → v4.2 → v4.3). Wires

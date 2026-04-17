@@ -433,6 +433,8 @@ export const OrganismConfigSchema = z.object({
     hormonesInPrompt: z.boolean().default(true).describe('Include hormonal ambient-state block in the system prompt when Soma is enabled.'),
     pressureThreshold: z.number().min(0).max(5).default(1.2).describe('Combined drive pressure above which Soma fires a proposal. Raise to make Soma more conservative.'),
     driveSetpoints: z.record(z.string(), z.number().min(0).max(1)).optional().describe('Per-drive setpoint overrides: { purpose: 0.7, hunger: 0.6, ... }'),
+    driveWeights: z.record(z.string(), z.number().min(0.1).max(3.0)).optional().describe('Per-drive weight overrides for pressure fusion. 1.0 is baseline; higher = more urgent.'),
+    disabledDrives: z.array(z.string()).default([]).describe('Drive IDs to skip entirely in computeAllDrives + pressure fusion.'),
     shadowEnabled: z.boolean().default(true).describe('Run shadow rehearsal before each Soma proposal is filed for approval.'),
     shadowModel: z.string().default('fast').describe('Model alias (or provider/model id) used for shadow rehearsal.'),
     tickIntervalMs: z.number().min(10_000).max(3_600_000).default(60_000).describe('Drive tick cadence in ms. Default 60s; minimum 10s to prevent self-DoS.'),

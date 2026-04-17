@@ -159,6 +159,30 @@ export default function SomaView() {
         setSaving(false);
     };
 
+    const saveWeight = async (driveId: string, weight: number) => {
+        try {
+            const res = await apiFetch('/api/soma/weights', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [driveId]: weight }),
+            });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            fetchAll();
+        } catch (e) { alert(`Weight update failed: ${(e as Error).message}`); }
+    };
+
+    const toggleDriveDisabled = async (driveId: string, disabled: boolean) => {
+        try {
+            const res = await apiFetch(`/api/soma/drives/${driveId}/disable`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ disabled }),
+            });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            fetchAll();
+        } catch (e) { alert(`Drive toggle failed: ${(e as Error).message}`); }
+    };
+
     if (!state) {
         return (
             <div className="soma-page">
@@ -410,6 +434,49 @@ export default function SomaView() {
                             </button>
                         )}
                     </div>
+
+                    {/* v4.2: weight slider — affects pressure fusion for this drive */}
+                    <div className="soma-inspector__slider-row">
+                        <div className="soma-inspector__slider-label">
+                            <span>Weight (pressure multiplier)</span>
+                            <span>{selectedDrive.weight.toFixed(1)}×</span>
+                        </div>
+                        <input
+                            type="range"
+                            className="soma-inspector__slider"
+                            min={1}
+                            max={30}
+                            step={1}
+                            value={Math.round(selectedDrive.weight * 10)}
+                            onChange={(e) => saveWeight(selectedDrive.id, Number(e.target.value) / 10)}
+                            style={{ color: DRIVE_COLORS[selectedDrive.id] }}
+                            title="Drag to adjust how much this drive contributes to total pressure. 1.0 is baseline."
+                        />
+                    </div>
+
+                    {/* v4.2: disable this drive entirely without disabling Soma */}
+                    <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                        <button
+                            onClick={() => toggleDriveDisabled(selectedDrive.id, true)}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                fontSize: 11,
+                                border: '1px solid rgba(239, 68, 68, 0.2)',
+                                background: 'rgba(239, 68, 68, 0.08)',
+                                color: '#ef4444',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                            }}
+                            title="Skip this drive in pressure fusion. Soma stays on for the other drives."
+                        >
+                            Disable {selectedDrive.label} drive
+                        </button>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center' }}>
+                            Re-enable by editing <code style={{ background: 'rgba(255,255,255,0.06)', padding: '1px 4px', borderRadius: 3 }}>organism.disabledDrives</code> in titan.json
+                        </div>
+                    </div>
+
                     {selectedDrive.inputs && (
                         <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                             <div className="soma-inspector__slider-label">Signals</div>

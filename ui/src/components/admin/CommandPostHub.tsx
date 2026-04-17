@@ -1299,16 +1299,165 @@ interface DebateTranscript extends DebateSummary {
   winner?: { role: string; content: string; justification?: string };
 }
 
+function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [question, setQuestion] = useState('');
+  const [participants, setParticipants] = useState([
+    { role: 'pragmatist', model: '' },
+    { role: 'skeptic', model: '' },
+  ]);
+  const [rounds, setRounds] = useState(2);
+  const [resolution, setResolution] = useState<'vote' | 'synthesize' | 'judge'>('judge');
+  const [submitting, setSubmitting] = useState(false);
+
+  const addParticipant = () => {
+    if (participants.length >= 5) return;
+    setParticipants([...participants, { role: `participant-${participants.length + 1}`, model: '' }]);
+  };
+  const removeParticipant = (idx: number) => {
+    if (participants.length <= 2) return;
+    setParticipants(participants.filter((_, i) => i !== idx));
+  };
+  const updateParticipant = (idx: number, patch: Partial<{ role: string; model: string }>) => {
+    setParticipants(participants.map((p, i) => i === idx ? { ...p, ...patch } : p));
+  };
+
+  const submit = async () => {
+    if (!question.trim() || participants.length < 2) return;
+    setSubmitting(true);
+    try {
+      const res = await apiFetch('/api/command-post/debates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: question.trim(),
+          participants: participants.map(p => ({
+            role: p.role.trim() || 'participant',
+            model: p.model.trim() || undefined,
+          })),
+          rounds,
+          resolution,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      onCreated();
+    } catch (e) {
+      alert(`Debate failed: ${(e as Error).message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Start a new debate"
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={submitting || !question.trim() || participants.length < 2}
+            className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {submitting ? 'Running debate…' : 'Run debate'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-[12px]">
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-white/40">Question</label>
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="e.g. Should we cache the Ollama probe results for 7 days or 30 days?"
+            rows={2}
+            className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40 resize-none"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] uppercase tracking-wider text-white/40">
+              Participants ({participants.length}/5)
+            </label>
+            <button
+              onClick={addParticipant}
+              disabled={participants.length >= 5}
+              className="text-[10px] text-indigo-300/70 hover:text-indigo-300 disabled:opacity-40"
+            >
+              + Add participant
+            </button>
+          </div>
+          <div className="space-y-2">
+            {participants.map((p, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <input
+                  value={p.role}
+                  onChange={(e) => updateParticipant(i, { role: e.target.value })}
+                  placeholder="role (e.g. pragmatist)"
+                  className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none"
+                />
+                <input
+                  value={p.model}
+                  onChange={(e) => updateParticipant(i, { model: e.target.value })}
+                  placeholder="model (optional — defaults to agent.model)"
+                  className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/60 focus:outline-none"
+                />
+                <button
+                  onClick={() => removeParticipant(i)}
+                  disabled={participants.length <= 2}
+                  className="text-white/20 hover:text-red-400 disabled:opacity-20 px-1"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Rounds</label>
+            <select value={rounds} onChange={(e) => setRounds(Number(e.target.value))} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+              {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n} round{n === 1 ? '' : 's'}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Resolution</label>
+            <select value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+              <option value="judge">Judge (LLM picks winner)</option>
+              <option value="synthesize">Synthesize (LLM merges)</option>
+              <option value="vote">Vote (word-overlap consensus)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="text-[10px] text-white/35 italic">
+          Runs live — 1-3 minutes depending on model + rounds. Transcript saves automatically.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function DebatesTab() {
   const [debates, setDebates] = useState<DebateSummary[]>([]);
   const [selected, setSelected] = useState<DebateTranscript | null>(null);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await apiFetch('/api/command-post/debates') as unknown as { items: DebateSummary[] };
-      setDebates(r?.items || []);
+      const res = await apiFetch('/api/command-post/debates');
+      if (res.ok) {
+        const r = await res.json() as { items: DebateSummary[] };
+        setDebates(r?.items || []);
+      }
     } catch { /* ignore */ }
     setLoading(false);
   }, []);
@@ -1316,8 +1465,11 @@ function DebatesTab() {
 
   const open = async (id: string) => {
     try {
-      const t = await apiFetch(`/api/command-post/debates/${id}`) as unknown as DebateTranscript;
-      setSelected(t);
+      const res = await apiFetch(`/api/command-post/debates/${id}`);
+      if (res.ok) {
+        const t = await res.json() as DebateTranscript;
+        setSelected(t);
+      }
     } catch { /* ignore */ }
   };
 
@@ -1370,7 +1522,25 @@ function DebatesTab() {
 
   return (
     <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-      <SectionHeader icon={Scale} title="Debates" count={debates.length} />
+      <SectionHeader
+        icon={Scale}
+        title="Debates"
+        count={debates.length}
+        action={
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"
+          >
+            <Plus size={10} /> New Debate
+          </button>
+        }
+      />
+      {creating && (
+        <NewDebateForm
+          onClose={() => setCreating(false)}
+          onCreated={() => { setCreating(false); load(); }}
+        />
+      )}
       <div className="divide-y divide-white/[0.03]">
         {loading ? (
           <div className="py-8 text-center text-[12px] text-white/25">Loading...</div>

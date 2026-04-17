@@ -11,10 +11,14 @@
 #   --deps        Also sync node_modules/ to remote (slow)
 #   --no-restart  Deploy files without restarting the service
 #   --dry-run     Show what would be deployed without doing anything
+#   --publish     After successful deploy, run `npm publish --tag latest`
+#                 from Titan PC (uses the stored auth token there, so no
+#                 2FA OTP prompt on the Mac). v4.1.0 pattern.
 #
 # Examples:
 #   ./scripts/deploy.sh                # Standard deploy
 #   ./scripts/deploy.sh --ui --deps    # Full deploy with UI rebuild and deps
+#   ./scripts/deploy.sh --publish      # Deploy + auto-publish to npm from Titan PC
 #   ./scripts/deploy.sh --dry-run      # Preview what would happen
 # ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +40,7 @@ FORCE_UI=false
 SYNC_DEPS=false
 NO_RESTART=false
 DRY_RUN=false
+PUBLISH=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -43,9 +48,10 @@ for arg in "$@"; do
     --deps)       SYNC_DEPS=true ;;
     --no-restart) NO_RESTART=true ;;
     --dry-run)    DRY_RUN=true ;;
+    --publish)    PUBLISH=true ;;
     *)
       echo "Unknown flag: $arg"
-      echo "Usage: deploy.sh [--ui] [--deps] [--no-restart] [--dry-run]"
+      echo "Usage: deploy.sh [--ui] [--deps] [--no-restart] [--dry-run] [--publish]"
       exit 1
       ;;
   esac
@@ -292,3 +298,24 @@ echo "║                                       ║"
 echo "║  Dashboard: http://192.168.1.11:48420  ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
+
+# ── Optional: publish to npm from Titan PC (skips Mac 2FA OTP wall) ──
+if $PUBLISH && ! $DRY_RUN; then
+  step "8. Publishing to npm from Titan PC"
+  LOCAL_VERSION=$(node -p "require('./package.json').version")
+  info "Publishing titan-agent@$LOCAL_VERSION to npm (using stored token on Titan PC)"
+  # Run in a login shell so Titan PC's nvm/node resolves npm correctly
+  ssh "$REMOTE" "cd $REMOTE_PATH && npm publish --tag latest" 2>&1 | tail -10
+  PUBLISH_STATUS=$?
+  if [ $PUBLISH_STATUS -eq 0 ]; then
+    ok "Published titan-agent@$LOCAL_VERSION to npm"
+    echo ""
+    echo "  Verify:  npm view titan-agent@$LOCAL_VERSION version"
+    echo ""
+  else
+    echo ""
+    echo "  ⚠ npm publish returned status $PUBLISH_STATUS"
+    echo "  Run manually on Titan PC: ssh titan 'cd $REMOTE_PATH && npm publish --tag latest'"
+    echo ""
+  fi
+fi
