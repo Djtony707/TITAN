@@ -411,7 +411,14 @@ function ApprovalsTab() {
         <div className="divide-y divide-white/[0.03]">
           {approvals.length === 0 ? (
             <div className="py-8 text-center text-[12px] text-white/25">No approvals</div>
-          ) : approvals.map(a => (
+          ) : approvals.map(a => {
+            const isProposal = a.type === 'goal_proposal';
+            const pp = a.payload as Record<string, unknown>;
+            const proposalTitle = isProposal && typeof pp.title === 'string' ? pp.title : null;
+            const proposalDesc = isProposal && typeof pp.description === 'string' ? pp.description : null;
+            const proposalRationale = isProposal && typeof pp.rationale === 'string' ? pp.rationale : null;
+            const proposalSubtasks = isProposal && Array.isArray(pp.subtasks) ? pp.subtasks as Array<{ title?: string }> : null;
+            return (
             <div key={a.id} className="px-4 py-3">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
@@ -421,6 +428,18 @@ function ApprovalsTab() {
                 </div>
                 <span className="text-[10px] text-white/20">{timeSince(a.createdAt)}</span>
               </div>
+              {isProposal && proposalTitle && (
+                <div className="mt-1 mb-2 pl-2 border-l-2 border-emerald-500/40">
+                  <div className="text-[13px] text-white/90 font-medium">{proposalTitle}</div>
+                  {proposalDesc && <div className="text-[11px] text-white/60 mt-0.5">{proposalDesc}</div>}
+                  {proposalRationale && <div className="text-[10px] text-emerald-300/70 mt-1 italic">Why: {proposalRationale}</div>}
+                  {proposalSubtasks && proposalSubtasks.length > 0 && (
+                    <div className="text-[10px] text-white/40 mt-1">
+                      {proposalSubtasks.length} subtask{proposalSubtasks.length === 1 ? '' : 's'}: {proposalSubtasks.map(s => s.title).filter(Boolean).join(' • ')}
+                    </div>
+                  )}
+                </div>
+              )}
               {a.status === 'pending' && (
                 <div className="flex gap-2 mt-2">
                   <button onClick={() => handleApprove(a.id)} className="px-3 py-1 text-[10px] bg-green-600 text-white rounded-lg hover:bg-green-500">Approve</button>
@@ -429,7 +448,8 @@ function ApprovalsTab() {
               )}
               {a.decidedBy && <div className="text-[10px] text-white/25 mt-1">{a.status} by {a.decidedBy}{a.decisionNote ? `: ${a.decisionNote}` : ''}</div>}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

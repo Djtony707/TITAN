@@ -5,6 +5,9 @@
  * Phase 1 (Light Sleep): Score + deduplicate learning entries
  * Phase 2 (REM):         Cross-reference with knowledge graph, synthesize entity summaries
  * Phase 3 (Deep Sleep):  Prune low-quality data, compact graph, write consolidation log
+ * Phase 4 (Dream):       Registered agents propose new goals (opt-in via
+ *                        config.agent.autoProposeGoals). Proposals go into the
+ *                        Command Post approval queue for human review.
  *
  * Triggered by daemon watcher on configurable schedule (default: daily 3am).
  */
@@ -212,6 +215,33 @@ export async function runConsolidation(): Promise<ConsolidationResult> {
     }
 
     logger.info(COMPONENT, `Deep Sleep: pruned ${entriesPruned} entries, removed ${entitiesRemoved} entities, ${edgesRemoved} edges`);
+
+    // ── Phase 4: Dream (Goal Proposals) ──────────────────────
+    // Each registered agent gets a quiet window to propose new work.
+    // Opt-in — guarded by config.agent.autoProposeGoals. Failures here never
+    // fail the whole consolidation (memory work already landed).
+    if (config.agent?.autoProposeGoals) {
+        try {
+            const { generateGoalProposals, buildDefaultContext } = await import('../agent/goalProposer.js');
+            const { getRegisteredAgents } = await import('../agent/commandPost.js');
+            const notes = `Consolidation summary: pruned ${entriesPruned} entries, merged ${duplicatesMerged} duplicates, summarized ${entitiesSummarized} entities, marked ${orphansMarked} orphans.`;
+            const ctx = { ...buildDefaultContext(), consolidationNotes: notes };
+            const agents = getRegisteredAgents();
+            logger.info(COMPONENT, `Phase 4: Dream — inviting ${agents.length} registered agent(s) to propose goals`);
+            let totalFiled = 0;
+            for (const agent of agents) {
+                try {
+                    const approvals = await generateGoalProposals(agent.id, ctx);
+                    totalFiled += approvals.length;
+                } catch (err) {
+                    logger.warn(COMPONENT, `Agent ${agent.id} proposal generation failed: ${(err as Error).message}`);
+                }
+            }
+            logger.info(COMPONENT, `Dream: ${totalFiled} goal proposal(s) filed for approval`);
+        } catch (err) {
+            logger.warn(COMPONENT, `Phase 4 (Dream) failed, continuing: ${(err as Error).message}`);
+        }
+    }
 
     // ── Write Consolidation Log ──────────────────────────────
     const result: ConsolidationResult = {

@@ -195,6 +195,14 @@ export const AgentConfigSchema = z.object({
     selfHealThreshold: z.number().min(2).max(10).default(3),
     /** Models known to reliably support tool calling â used as self-heal fallbacks */
     toolCapableModels: z.array(z.string()).default([]),
+    /** Allow registered agents to propose new goals during the nightly dreaming cycle.
+     *  Proposals become pending approvals that a human (or approver agent) must accept
+     *  before the goal is created. Opt-in because it starts the LLM on a schedule. */
+    autoProposeGoals: z.boolean().default(false),
+    /** Maximum goal proposals a single agent can file per rolling 24h window. */
+    proposalRateLimitPerDay: z.number().min(0).max(20).default(3),
+    /** Model alias used for the proposal generation step. Should be cheap/fast. */
+    proposalModel: z.string().default('fast'),
 });
 
 export const MeshConfigSchema = z.object({

@@ -68,7 +68,8 @@ export interface ActivityEntry {
     timestamp: string;
     type: 'task_checkout' | 'task_checkin' | 'task_expired' | 'budget_warning' |
           'budget_exceeded' | 'agent_heartbeat' | 'agent_status_change' |
-          'goal_created' | 'goal_completed' | 'autopilot_run' | 'tool_execution' | 'error' | 'issue_deleted';
+          'goal_created' | 'goal_completed' | 'goal_proposal_requested' | 'goal_proposal_rejected' |
+          'autopilot_run' | 'tool_execution' | 'error' | 'issue_deleted';
     agentId?: string;
     goalId?: string;
     message: string;
@@ -116,7 +117,7 @@ export interface CPComment {
 
 export interface CPApproval {
     id: string;
-    type: 'hire_agent' | 'budget_override' | 'custom';
+    type: 'hire_agent' | 'budget_override' | 'goal_proposal' | 'custom';
     status: 'pending' | 'approved' | 'rejected';
     requestedBy: string;
     payload: Record<string, unknown>;
@@ -912,6 +913,42 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
         // Resume paused agent
         updateAgentStatus(approval.payload.agentId as string, 'active');
         addActivity({ type: 'goal_completed', message: `Budget override approved for ${approval.payload.agentId} by ${decidedBy}`, metadata: { approvalId: id } });
+    } else if (approval.type === 'goal_proposal') {
+        const payload = approval.payload as {
+            title?: string; description?: string; priority?: number;
+            tags?: string[]; parentGoalId?: string;
+            subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
+        };
+        if (!payload.title || !payload.description) {
+            logger.warn('CommandPost', `[GoalProposal] Approval ${id} has malformed payload — missing title/description`);
+            addActivity({ type: 'error', message: `Goal proposal ${id} approved but payload was malformed`, metadata: { approvalId: id } });
+        } else {
+            // Dynamic import to avoid circular dependency (goals.ts imports commandPost types)
+            import('./goals.js').then(({ createGoal }) => {
+                try {
+                    const goal = createGoal({
+                        title: payload.title!,
+                        description: payload.description!,
+                        priority: payload.priority,
+                        tags: payload.tags,
+                        parentGoalId: payload.parentGoalId,
+                        subtasks: payload.subtasks,
+                    });
+                    addActivity({
+                        type: 'goal_created',
+                        goalId: goal.id,
+                        message: `Goal proposal approved: "${goal.title}" (proposed by ${approval.requestedBy}, approved by ${decidedBy})`,
+                        metadata: { approvalId: id, proposedBy: approval.requestedBy },
+                    });
+                    logger.info('CommandPost', `[GoalProposal] Goal ${goal.id} created from approval ${id}`);
+                } catch (err) {
+                    logger.error('CommandPost', `[GoalProposal] Failed to create goal from approval ${id}: ${(err as Error).message}`);
+                    addActivity({ type: 'error', message: `Goal proposal ${id} creation failed: ${(err as Error).message}`, metadata: { approvalId: id } });
+                }
+            }).catch((err) => {
+                logger.error('CommandPost', `[GoalProposal] Failed to load goals module: ${(err as Error).message}`);
+            });
+        }
     } else {
         addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
     }
@@ -956,7 +993,40 @@ export function rejectApproval(id: string, decidedBy: string, note?: string): CP
     approval.decidedAt = new Date().toISOString();
     approval.decisionNote = note;
     saveState();
-    addActivity({ type: 'error', message: `Approval ${approval.type} rejected by ${decidedBy}`, metadata: { approvalId: id } });
+    const activityType: ActivityEntry['type'] =
+        approval.type === 'goal_proposal' ? 'goal_proposal_rejected' : 'error';
+    addActivity({ type: activityType, message: `Approval ${approval.type} rejected by ${decidedBy}${note ? `: ${note}` : ''}`, metadata: { approvalId: id, proposedBy: approval.requestedBy } });
+    return approval;
+}
+
+/**
+ * File a goal proposal from an agent. Creates a pending approval that, when
+ * approved, becomes a real goal via createGoal(). Used by the goalProposer
+ * during the nightly dreaming cycle.
+ */
+export function requestGoalProposalApproval(
+    requestedBy: string,
+    proposal: {
+        title: string;
+        description: string;
+        rationale?: string;
+        priority?: number;
+        tags?: string[];
+        parentGoalId?: string;
+        subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
+    },
+): CPApproval {
+    const approval = createApproval({
+        type: 'goal_proposal',
+        requestedBy,
+        payload: proposal,
+    });
+    addActivity({
+        type: 'goal_proposal_requested',
+        agentId: requestedBy,
+        message: `Goal proposal filed by ${requestedBy}: "${proposal.title}"`,
+        metadata: { approvalId: approval.id, rationale: proposal.rationale },
+    });
     return approval;
 }
 

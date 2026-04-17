@@ -53,6 +53,7 @@ import {
     getRegisteredAgents, reportHeartbeat, getActivity, getDashboard,
     validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual,
     getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent,
+    requestGoalProposalApproval, approveApproval, rejectApproval, getApproval,
 } from '../src/agent/commandPost.js';
 
 const defaultConfig = {
@@ -507,6 +508,85 @@ describe('Command Post', () => {
             for (const p of policies) {
                 expect(p.currentSpend).toBe(5);
             }
+        });
+    });
+
+    // ── Goal Proposal Approvals ──────────────────────────────
+    describe('Goal Proposal Approvals', () => {
+        it('files a proposal as a pending approval of type goal_proposal', () => {
+            const approval = requestGoalProposalApproval('agent-a', {
+                title: 'Run nightly backup check',
+                description: 'Verify that the LaCie backup completed without errors.',
+                rationale: 'We had silent failures last month.',
+                priority: 2,
+                tags: ['backup', 'safety'],
+            });
+            expect(approval.type).toBe('goal_proposal');
+            expect(approval.status).toBe('pending');
+            expect(approval.requestedBy).toBe('agent-a');
+            expect((approval.payload as { title: string }).title).toBe('Run nightly backup check');
+        });
+
+        it('emits a goal_proposal_requested activity entry when filed', () => {
+            requestGoalProposalApproval('agent-b', {
+                title: 'Document deploy flow',
+                description: 'Write a one-pager for new contributors.',
+                rationale: 'Tony asked.',
+            });
+            const requests = getActivity({ type: 'goal_proposal_requested' });
+            expect(requests.length).toBeGreaterThanOrEqual(1);
+            expect(requests[0].agentId).toBe('agent-b');
+            expect(requests[0].message).toContain('Document deploy flow');
+        });
+
+        it('approving a goal_proposal triggers goal creation via async createGoal import', async () => {
+            const approval = requestGoalProposalApproval('agent-a', {
+                title: 'Test goal',
+                description: 'Ensure approval wires through.',
+                rationale: 'Verification.',
+            });
+            const result = approveApproval(approval.id, 'board', 'looks good');
+            expect(result).not.toBeNull();
+            expect(result!.status).toBe('approved');
+            // createGoal is invoked asynchronously via dynamic import.
+            // We don't verify the goal was created here because goals.ts is mocked
+            // at the top of this file — just that the approval state transitioned
+            // and the wiring did not throw.
+        });
+
+        it('rejecting a goal_proposal emits goal_proposal_rejected activity', () => {
+            const approval = requestGoalProposalApproval('agent-a', {
+                title: 'Silly idea',
+                description: 'not worth doing',
+                rationale: 'no reason',
+            });
+            const result = rejectApproval(approval.id, 'board', 'out of scope');
+            expect(result!.status).toBe('rejected');
+            const rejections = getActivity({ type: 'goal_proposal_rejected' });
+            expect(rejections.some(a =>
+                typeof a.metadata?.approvalId === 'string' && a.metadata.approvalId === approval.id
+            )).toBe(true);
+        });
+
+        it('cannot approve a proposal twice', () => {
+            const approval = requestGoalProposalApproval('agent-a', {
+                title: 'Once',
+                description: 'desc',
+                rationale: 'why',
+            });
+            approveApproval(approval.id, 'board');
+            const second = approveApproval(approval.id, 'board');
+            expect(second).toBeNull();
+        });
+
+        it('getApproval returns the pending proposal', () => {
+            const approval = requestGoalProposalApproval('agent-a', {
+                title: 'Lookup',
+                description: 'desc',
+                rationale: 'why',
+            });
+            const fetched = getApproval(approval.id);
+            expect(fetched?.type).toBe('goal_proposal');
         });
     });
 });
