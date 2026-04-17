@@ -214,6 +214,19 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
     onRefresh();
   };
 
+  // v4.3.1: pause a stuck or noisy goal without deleting it. Backend
+  // accepts any of Goal.status values — UI flips active⇄paused.
+  const handleToggleStatus = async (goalId: string, currentStatus: string) => {
+    const next = currentStatus === 'paused' ? 'active' : 'paused';
+    try {
+      await api(`/api/goals/${goalId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      onRefresh();
+    } catch (e) { alert(`Update failed: ${(e as Error).message}`); }
+  };
+
   const handleRetrySubtask = async (goalId: string, subtaskId: string) => {
     try {
       await api(`/api/goals/${goalId}/subtasks/${subtaskId}/retry`, { method: 'POST' });
@@ -332,6 +345,18 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
                       </div>
                     )}
                   </div>
+                  {goal.status !== 'completed' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); handleToggleStatus(goal.id, goal.status); }}
+                      className="p-1 rounded hover:opacity-80 flex-shrink-0"
+                      title={goal.status === 'paused' ? 'Resume goal' : 'Pause goal'}
+                    >
+                      {goal.status === 'paused'
+                        ? <Play className="w-3.5 h-3.5" style={{ color: '#34d399' }} />
+                        : <Pause className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
+                      }
+                    </button>
+                  )}
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(goal.id); }}
                     className="p-1 rounded hover:opacity-80 flex-shrink-0"

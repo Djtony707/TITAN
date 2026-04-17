@@ -5,6 +5,45 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.1] — 2026-04-17 — Goal pause/resume endpoint
+
+Closes a small but painful gap: there was no HTTP endpoint to update a
+goal's top-level fields (status, priority, title, description). The UI had
+Delete and per-subtask edits, but no way to *pause* a noisy or stuck goal.
+In v4.3 Tony hit this directly — three stuck Upwork-automation goals had to
+be paused by hand-editing `~/.titan/goals.json` on Titan PC and restarting
+the gateway. That workflow is now a button.
+
+### Backend
+
+- `src/gateway/server.ts` — new `PATCH /api/goals/:id` endpoint. Accepts
+  any subset of `{title, description, status, priority, progress,
+  schedule, budgetLimit, tags}` and delegates to the existing
+  `updateGoal()` in `src/agent/goals.ts` (which has supported these fields
+  since v4.1). Returns the updated `{goal}`, or 404 if the ID is unknown.
+
+### UI
+
+- `ui/src/components/admin/WorkflowsPanel.tsx` — Active Goals rows now
+  show a Pause / Resume icon button next to Delete, for any goal that
+  isn't completed. One click flips `status` between `active` and
+  `paused` through the new endpoint.
+
+### Why
+
+Pause is a middle ground between "keep it running" and "delete it
+entirely." A user who queues an aspirational goal that isn't working
+should be able to shelve it without losing the record. The endpoint was
+already half-built — the function existed, the other PATCH pattern
+existed, the route was just missing — so this is a minor version bump.
+
+### Tests
+
+No behavioral test changes; version references updated across
+`tests/core.test.ts` + `tests/mission-control.test.ts`.
+
+---
+
 ## [4.3.0] — 2026-04-17 — Ollama native structured outputs
 
 Adopts Ollama's `format` parameter (JSON-schema-constrained generation) in

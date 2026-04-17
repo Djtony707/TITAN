@@ -71,7 +71,7 @@ import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemo
 import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
-import { listGoals, createGoal, getGoal, deleteGoal, completeSubtask, addSubtask } from '../agent/goals.js';
+import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
 import { getConsentUrl, exchangeCode, isGoogleConnected, getGoogleEmail, disconnectGoogle } from '../auth/google.js';
 import { createTeam, getTeam, listTeams, deleteTeam, updateTeam, addMember, removeMember, updateMemberRole, createInvite, acceptInvite, getEffectivePermissions, setRolePermissions, getTeamStats, isToolAllowed, getUserRole } from '../security/teams.js';
@@ -3157,6 +3157,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const deleted = deleteGoal(req.params.id);
     if (!deleted) { res.status(404).json({ error: 'Goal not found' }); return; }
     res.json({ deleted: true });
+  });
+
+  // v4.3.1: update a goal's top-level fields (status, priority, title, description, etc.).
+  // Previously the only way to pause a stuck goal was to hand-edit ~/.titan/goals.json and
+  // restart the gateway — which is what we did on Titan PC to clear 3 failed Upwork goals.
+  // This endpoint closes that gap so the UI "pause" action works end-to-end.
+  app.patch('/api/goals/:id', (req, res) => {
+    const updated = updateGoal(req.params.id, req.body || {});
+    if (!updated) { res.status(404).json({ error: 'Goal not found' }); return; }
+    res.json({ goal: updated });
   });
 
   app.post('/api/goals/:id/subtasks', (req, res) => {
