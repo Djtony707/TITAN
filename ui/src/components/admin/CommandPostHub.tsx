@@ -8,10 +8,13 @@ import {
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
   updateCPIssue, deleteCPIssue, getCPApprovals, approveCPApproval, rejectCPApproval,
-  getCPRuns, getCPBudgets, createCPBudget, deleteCPBudget, updateCPAgent,
-  listCompanies, createCompany, deleteCompany,
+  getCPRuns, getCPBudgets, createCPBudget, deleteCPBudget, updateCPBudget, updateCPAgent,
+  listCompanies, createCompany, deleteCompany, updateCompany,
+  getCPIssueDetail, addCPIssueComment,
+  type CPIssueComment,
 } from '@/api/client';
 import { apiFetch } from '@/api/client';
+import { InlineEditableField, ConfirmDialog, Modal } from '@/components/shared';
 import type {
   CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy,
   CPActivityEntry, GoalTreeNode, CPIssue, CPApproval, CPRun, OrgNode, StreamEvent,
@@ -117,6 +120,7 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [companyMission, setCompanyMission] = useState('');
+  const [confirmDeleteCompany, setConfirmDeleteCompany] = useState<{ id: string; name: string } | null>(null);
 
   const loadData = useCallback(() => {
     getCPOrg().then(setOrgTree).catch(() => {});
@@ -134,23 +138,75 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
     loadData();
   };
 
-  const handleDeleteCompany = async (id: string, name: string) => {
-    if (!confirm(`Delete company "${name}"?`)) return;
-    await deleteCompany(id);
+  const saveCompanyField = async (id: string, field: 'name' | 'mission', value: string) => {
+    try {
+      await updateCompany(id, { [field]: value });
+      loadData();
+    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+  };
+
+  const performDeleteCompany = async () => {
+    if (!confirmDeleteCompany) return;
+    await deleteCompany(confirmDeleteCompany.id);
+    setConfirmDeleteCompany(null);
     loadData();
   };
+
+  const saveAgentField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo', value: string) => {
+    try {
+      await updateCPAgent(agentId, { [field]: value || undefined });
+      loadData();
+    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+  };
+
+  const roles = ['ceo', 'manager', 'engineer', 'researcher', 'general'] as const;
 
   function renderNode(node: OrgNode, depth = 0): React.ReactNode {
     return (
       <div key={node.id} className={depth > 0 ? 'ml-8 border-l border-white/[0.06] pl-4' : ''}>
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-2 max-w-xs">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[13px] font-semibold text-white/90">{node.name}</span>
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-2 max-w-sm">
+          <div className="flex items-center justify-between mb-1 gap-2">
+            <span className="text-[13px] font-semibold text-white/90 min-w-0">
+              <InlineEditableField
+                value={node.name}
+                onSave={(v) => saveAgentField(node.id, 'name', v)}
+                placeholder="Agent name"
+              />
+            </span>
             <StatusBadge status={node.status} />
           </div>
           <div className="text-[10px] text-white/35 space-y-0.5">
-            {node.title && <div className="text-white/50">{node.title}</div>}
-            <div>Role: <span className="text-white/50 capitalize">{node.role}</span></div>
+            <div>Title:&nbsp;
+              <InlineEditableField
+                value={node.title || ''}
+                onSave={(v) => saveAgentField(node.id, 'title', v)}
+                placeholder="Add a title"
+                emptyLabel="(none)"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span>Role:</span>
+              <select
+                value={node.role}
+                onChange={(e) => saveAgentField(node.id, 'role', e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-1 py-0.5 text-[10px] text-white/50 capitalize focus:outline-none"
+              >
+                {roles.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <span>Reports to:</span>
+              <select
+                value={(agents.find(a => a.id === node.id)?.reportsTo) || ''}
+                onChange={(e) => saveAgentField(node.id, 'reportsTo', e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-1 py-0.5 text-[10px] text-white/50 focus:outline-none"
+              >
+                <option value="">—</option>
+                {agents.filter(a => a.id !== node.id).map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
             <div>Model: <span className="text-white/50">{node.model.split('/').pop()}</span></div>
           </div>
         </div>
@@ -167,8 +223,8 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
           {orgTree.length === 0 ? (
             <div className="text-center py-8">
               <Building2 size={24} className="mx-auto mb-2 text-white/10" />
-              <p className="text-[12px] text-white/25">No agents in org chart</p>
-              <p className="text-[10px] text-white/15 mt-1">Spawn agents and set reportsTo to build hierarchy</p>
+              <p className="text-[12px] text-white/25">No agents in org chart yet</p>
+              <p className="text-[10px] text-white/15 mt-1">Spawn agents from the Agents tab, then set "Reports to" on each to build the hierarchy.</p>
             </div>
           ) : orgTree.map(n => renderNode(n))}
         </div>
@@ -193,22 +249,44 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 
         <div className="divide-y divide-white/[0.03]">
           {companies.length === 0 ? (
-            <div className="py-6 text-center text-[12px] text-white/25">No companies created</div>
+            <div className="py-6 text-center text-[12px] text-white/25">No companies yet — click "+ New" to create one.</div>
           ) : companies.map((c) => (
             <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
               <Briefcase size={14} className="text-indigo-400 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <span className="text-[13px] text-white/80 font-medium">{c.name}</span>
-                {c.mission && <p className="text-[10px] text-white/30 truncate">{c.mission}</p>}
+              <div className="flex-1 min-w-0 space-y-0.5">
+                <div className="text-[13px] text-white/80 font-medium">
+                  <InlineEditableField
+                    value={c.name}
+                    onSave={(v) => saveCompanyField(c.id, 'name', v)}
+                    placeholder="Company name"
+                  />
+                </div>
+                <div className="text-[10px] text-white/30">
+                  <InlineEditableField
+                    value={c.mission || ''}
+                    onSave={(v) => saveCompanyField(c.id, 'mission', v)}
+                    placeholder="Add a mission"
+                    emptyLabel="(no mission — click to add)"
+                  />
+                </div>
               </div>
               <StatusBadge status={c.status || 'active'} />
-              <button onClick={() => handleDeleteCompany(c.id, c.name)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete company">
+              <button onClick={() => setConfirmDeleteCompany({ id: c.id, name: c.name })} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete company">
                 <Trash2 size={12} />
               </button>
             </div>
           ))}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmDeleteCompany}
+        title={`Delete company "${confirmDeleteCompany?.name || ''}"?`}
+        message="This removes the company record. Agents and goals linked to it stay; they just lose the company association. This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={performDeleteCompany}
+        onCancel={() => setConfirmDeleteCompany(null)}
+      />
     </div>
   );
 }
@@ -217,12 +295,14 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 // TAB: ISSUES
 // ═══════════════════════════════════════════════════════════════
 
-function IssuesTab() {
+function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
   const [issues, setIssues] = useState<CPIssue[]>([]);
   const [filter, setFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newPriority, setNewPriority] = useState<string>('medium');
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     getCPIssues(filter ? { status: filter } : undefined).then(setIssues).catch(() => {});
@@ -242,9 +322,16 @@ function IssuesTab() {
     load();
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this issue?')) return;
-    await deleteCPIssue(id);
+  const handleAssigneeChange = async (id: string, assigneeAgentId: string) => {
+    await updateCPIssue(id, { assigneeAgentId: assigneeAgentId || undefined });
+    load();
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmDeleteId) return;
+    await deleteCPIssue(confirmDeleteId);
+    setConfirmDeleteId(null);
+    if (detailId === confirmDeleteId) setDetailId(null);
     load();
   };
 
@@ -284,26 +371,242 @@ function IssuesTab() {
         <SectionHeader icon={Briefcase} title="Issues" count={issues.length} />
         <div className="divide-y divide-white/[0.03]">
           {issues.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">No issues found</div>
+            <div className="py-8 text-center text-[12px] text-white/25">No issues found — click "+ New Issue" to create one.</div>
           ) : issues.map(issue => (
             <div key={issue.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
               <span className="text-[10px] text-white/25 font-mono w-14">{issue.identifier}</span>
               <StatusBadge status={issue.priority || 'medium'} />
-              <span className="text-[12px] text-white/70 flex-1 truncate">{issue.title}</span>
-              {issue.assigneeAgentId && <span className="text-[10px] text-white/30">{issue.assigneeAgentId}</span>}
+              <button
+                onClick={() => setDetailId(issue.id)}
+                className="text-[12px] text-white/70 flex-1 truncate text-left hover:text-white/95 transition-colors"
+                title="Open details"
+              >
+                {issue.title}
+              </button>
+              <select
+                value={issue.assigneeAgentId || ''}
+                onChange={e => handleAssigneeChange(issue.id, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none max-w-[120px]"
+                title="Assignee"
+              >
+                <option value="">unassigned</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
               <select value={issue.status} onChange={e => handleStatusChange(issue.id, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none">
                 {statuses.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 <option value="cancelled">cancelled</option>
               </select>
-              <button onClick={() => handleDelete(issue.id)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete issue">
+              <button onClick={() => setConfirmDeleteId(issue.id)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete issue">
                 <Trash2 size={12} />
               </button>
             </div>
           ))}
         </div>
       </div>
+
+      {/* Detail modal */}
+      {detailId && (
+        <IssueDetailModal
+          issueId={detailId}
+          agents={agents}
+          onClose={() => { setDetailId(null); load(); }}
+          onRequestDelete={() => setConfirmDeleteId(detailId)}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete this issue?"
+        message="This can't be undone. The issue and all its comments will be removed."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
+  );
+}
+
+// Issue detail modal: inline-edit title/description/priority + comments thread
+function IssueDetailModal({
+  issueId,
+  agents,
+  onClose,
+  onRequestDelete,
+}: {
+  issueId: string;
+  agents: RegisteredAgent[];
+  onClose: () => void;
+  onRequestDelete: () => void;
+}) {
+  const [issue, setIssue] = useState<(CPIssue & { comments: CPIssueComment[] }) | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const detail = await getCPIssueDetail(issueId);
+      setIssue(detail);
+    } catch { /* ignore */ }
+  }, [issueId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const saveField = async (field: 'title' | 'description', value: string) => {
+    await updateCPIssue(issueId, { [field]: value });
+    reload();
+  };
+
+  const savePriority = async (priority: string) => {
+    await updateCPIssue(issueId, { priority: priority as CPIssue['priority'] });
+    reload();
+  };
+
+  const saveAssignee = async (assigneeAgentId: string) => {
+    await updateCPIssue(issueId, { assigneeAgentId: assigneeAgentId || undefined });
+    reload();
+  };
+
+  const postComment = async () => {
+    if (!commentDraft.trim()) return;
+    setPosting(true);
+    try {
+      await addCPIssueComment(issueId, commentDraft.trim(), { user: 'board' });
+      setCommentDraft('');
+      reload();
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} size="lg" title={issue ? `${issue.identifier}` : 'Loading…'}>
+      {!issue ? (
+        <div className="py-8 text-center text-[12px] text-white/40">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          {/* Title */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-1">Title</div>
+            <div className="text-[14px] text-white/90">
+              <InlineEditableField
+                value={issue.title}
+                onSave={(v) => saveField('title', v)}
+                placeholder="Issue title"
+              />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-1">Description</div>
+            <div className="text-[12px] text-white/70 whitespace-pre-wrap">
+              <InlineEditableField
+                value={issue.description || ''}
+                onSave={(v) => saveField('description', v)}
+                placeholder="Add a description…"
+                multiline
+                emptyLabel="(none — click to add)"
+              />
+            </div>
+          </div>
+
+          {/* Meta grid */}
+          <div className="grid grid-cols-3 gap-3 text-[11px]">
+            <div>
+              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Priority</div>
+              <select
+                value={issue.priority || 'medium'}
+                onChange={(e) => savePriority(e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none w-full"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div>
+              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Assignee</div>
+              <select
+                value={issue.assigneeAgentId || ''}
+                onChange={(e) => saveAssignee(e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none w-full"
+              >
+                <option value="">unassigned</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Status</div>
+              <div className="text-white/80 capitalize">{issue.status.replace(/_/g, ' ')}</div>
+            </div>
+          </div>
+
+          {/* Comments */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-2">
+              Comments ({issue.comments?.length || 0})
+            </div>
+            <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+              {(issue.comments || []).length === 0 ? (
+                <div className="text-[11px] text-white/30 italic">No comments yet.</div>
+              ) : (
+                issue.comments.map(c => (
+                  <div key={c.id} className="bg-white/[0.02] border border-white/[0.04] rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2 text-[10px] text-white/35 mb-1">
+                      <span className="text-white/60">{c.authorAgentId || c.authorUser || 'unknown'}</span>
+                      <span>·</span>
+                      <span>{timeSince(c.createdAt)} ago</span>
+                    </div>
+                    <div className="text-[12px] text-white/80 whitespace-pre-wrap">{c.body}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <input
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
+                placeholder="Add a comment — Enter to post"
+                disabled={posting}
+                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-3 py-1.5 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30"
+              />
+              <button
+                onClick={postComment}
+                disabled={posting || !commentDraft.trim()}
+                className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+
+          {/* Footer actions */}
+          <div className="flex justify-between items-center pt-2 border-t border-white/[0.06]">
+            <span className="text-[10px] text-white/30">Created {timeSince(issue.createdAt)} ago</span>
+            <div className="flex gap-2">
+              <button
+                onClick={onRequestDelete}
+                className="px-3 py-1.5 text-[11px] text-red-400 hover:bg-red-500/10 rounded"
+              >
+                Delete issue
+              </button>
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90 bg-white/[0.04] rounded"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -406,6 +709,30 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
 
 function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; runs: CPRun[]; onRefresh: () => void }) {
   const [expandedIdentity, setExpandedIdentity] = useState<string | null>(null);
+  const [confirmRemoveAgent, setConfirmRemoveAgent] = useState<RegisteredAgent | null>(null);
+
+  const saveField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo', value: string) => {
+    try {
+      await updateCPAgent(agentId, { [field]: value || undefined });
+      onRefresh();
+    } catch (e) {
+      alert(`Save failed: ${(e as Error).message}`);
+    }
+  };
+
+  const performRemove = async () => {
+    if (!confirmRemoveAgent) return;
+    try {
+      await apiFetch(`/api/command-post/agents/${confirmRemoveAgent.id}`, { method: 'DELETE' });
+      setConfirmRemoveAgent(null);
+      onRefresh();
+    } catch (e) {
+      alert(`Remove failed: ${(e as Error).message}`);
+    }
+  };
+
+  const roles = ['ceo', 'manager', 'engineer', 'researcher', 'general'] as const;
+
   return (
     <div className="space-y-4">
       <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
@@ -416,10 +743,23 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
           ) : agents.map(agent => (
             <div key={agent.id} className="px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold text-white/90">{agent.name}</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[13px] font-semibold text-white/90">
+                    <InlineEditableField
+                      value={agent.name}
+                      onSave={(v) => saveField(agent.id, 'name', v)}
+                      placeholder="Agent name"
+                    />
+                  </span>
                   <StatusBadge status={agent.status} />
-                  <span className="text-[10px] text-white/25 capitalize">{agent.role}</span>
+                  <select
+                    value={agent.role}
+                    onChange={(e) => saveField(agent.id, 'role', e.target.value)}
+                    className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 capitalize focus:outline-none"
+                    title="Role"
+                  >
+                    {roles.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
                   {agent.personaId && <span className="text-[10px] text-indigo-300/70">persona: {agent.personaId}</span>}
                   {agent.voiceId && <span className="text-[10px] text-pink-300/70">voice: {agent.voiceId}</span>}
                 </div>
@@ -434,14 +774,7 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                   <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
                   {agent.id !== 'default' && (
                     <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!confirm(`Remove agent "${agent.name}"?`)) return;
-                        try {
-                          await apiFetch(`/api/command-post/agents/${agent.id}`, { method: 'DELETE' });
-                          onRefresh();
-                        } catch { /* ignore */ }
-                      }}
+                      onClick={() => setConfirmRemoveAgent(agent)}
                       className="text-[10px] text-white/20 hover:text-error transition-colors"
                       title="Remove agent"
                     >
@@ -450,12 +783,31 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-4 text-[10px] text-white/35">
-                {agent.title && <span>{agent.title}</span>}
+              <div className="flex items-center gap-4 text-[10px] text-white/35 flex-wrap">
+                <span>Title:&nbsp;
+                  <InlineEditableField
+                    value={agent.title || ''}
+                    onSave={(v) => saveField(agent.id, 'title', v)}
+                    placeholder="Add a title"
+                    emptyLabel="(none)"
+                  />
+                </span>
                 <span>Model: {agent.model.split('/').pop()}</span>
                 <span>Tasks: {agent.totalTasksCompleted}</span>
                 <span>Cost: ${agent.totalCostUsd.toFixed(2)}</span>
-                {agent.reportsTo && <span>Reports to: {agent.reportsTo}</span>}
+                <span>Reports to:&nbsp;
+                  <select
+                    value={agent.reportsTo || ''}
+                    onChange={(e) => saveField(agent.id, 'reportsTo', e.target.value)}
+                    className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none"
+                    title="Reports to"
+                  >
+                    <option value="">—</option>
+                    {agents.filter(a => a.id !== agent.id).map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </span>
               </div>
               {agent.characterSummary && (
                 <div className="mt-1 text-[11px] text-white/50 italic">"{agent.characterSummary}"</div>
@@ -467,6 +819,15 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
           ))}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmRemoveAgent}
+        title={`Remove agent "${confirmRemoveAgent?.name || ''}"?`}
+        message="This deregisters the agent from Command Post. Its run history stays in the audit log. This can't be undone."
+        confirmLabel="Remove"
+        onConfirm={performRemove}
+        onCancel={() => setConfirmRemoveAgent(null)}
+      />
 
       {/* Runs */}
       <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
@@ -493,6 +854,28 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
 // ═══════════════════════════════════════════════════════════════
 // TAB: APPROVALS
 // ═══════════════════════════════════════════════════════════════
+
+function ApprovalPayloadViewer({ payload }: { payload: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false);
+  const hasContent = payload && Object.keys(payload).length > 0;
+  if (!hasContent) return null;
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-[10px] text-white/30 hover:text-white/60 transition-colors inline-flex items-center gap-1"
+      >
+        {open ? <ChevronRight size={10} className="rotate-90 transition-transform" /> : <ChevronRight size={10} />}
+        {open ? 'Hide' : 'Show'} full payload
+      </button>
+      {open && (
+        <pre className="mt-1 max-h-60 overflow-auto text-[10px] text-white/60 bg-black/30 border border-white/[0.05] rounded p-2 font-mono leading-relaxed">
+          {JSON.stringify(payload, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 function ApprovalsTab() {
   const [approvals, setApprovals] = useState<CPApproval[]>([]);
@@ -570,6 +953,9 @@ function ApprovalsTab() {
                 </div>
               )}
               {a.decidedBy && <div className="text-[10px] text-white/25 mt-1">{a.status} by {a.decidedBy}{a.decisionNote ? `: ${a.decisionNote}` : ''}</div>}
+              {/* v4.1: collapsible full-payload viewer — lets users inspect
+                  what's in any approval (especially non-proposal types) before deciding. */}
+              <ApprovalPayloadViewer payload={a.payload} />
             </div>
             );
           })}
@@ -584,12 +970,37 @@ function ApprovalsTab() {
 // ═══════════════════════════════════════════════════════════════
 
 function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: () => void }) {
+  const [editing, setEditing] = useState<BudgetPolicy | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<BudgetPolicy | null>(null);
+
+  const performDelete = async () => {
+    if (!confirmDelete) return;
+    await deleteCPBudget(confirmDelete.id);
+    setConfirmDelete(null);
+    onRefresh();
+  };
+
   return (
     <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-      <SectionHeader icon={DollarSign} title="Budget Policies" count={budgets.length} />
+      <SectionHeader
+        icon={DollarSign}
+        title="Budget Policies"
+        count={budgets.length}
+        action={
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"
+          >
+            <Plus size={10} /> New Budget
+          </button>
+        }
+      />
       <div className="p-4 space-y-3">
         {budgets.length === 0 ? (
-          <div className="text-center py-6 text-[12px] text-white/25">No budget policies</div>
+          <div className="text-center py-6 text-[12px] text-white/25">
+            No budget policies yet — click "+ New Budget" to set spending limits per agent, goal, or globally.
+          </div>
         ) : budgets.map(b => {
           const pct = b.limitUsd > 0 ? Math.min(100, (b.currentSpend / b.limitUsd) * 100) : 0;
           const color = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500';
@@ -600,6 +1011,23 @@ function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: 
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-white/30 capitalize">{b.scope.type}</span>
                   <span className="text-[10px] text-white/20">{b.period}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${b.enabled ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/30 bg-white/[0.04]'}`}>
+                    {b.enabled ? 'on' : 'off'}
+                  </span>
+                  <button
+                    onClick={() => setEditing(b)}
+                    className="text-[10px] text-white/40 hover:text-white/70 px-1"
+                    title="Edit budget"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(b)}
+                    className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="Delete budget"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
               <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
@@ -607,13 +1035,155 @@ function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: 
               </div>
               <div className="flex justify-between text-[10px] text-white/30">
                 <span>${b.currentSpend.toFixed(2)} spent</span>
-                <span>${b.limitUsd.toFixed(2)} limit ({b.action})</span>
+                <span>${b.limitUsd.toFixed(2)} limit · action: {b.action}</span>
               </div>
             </div>
           );
         })}
       </div>
+
+      {(creating || editing) && (
+        <BudgetFormModal
+          existing={editing}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); onRefresh(); }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Delete budget "${confirmDelete?.name || ''}"?`}
+        message="The policy and its spend history are removed. Agents/goals it covered will no longer be budget-enforced unless another policy applies."
+        confirmLabel="Delete"
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
+  );
+}
+
+function BudgetFormModal({
+  existing,
+  onClose,
+  onSaved,
+}: {
+  existing: BudgetPolicy | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = !!existing;
+  const [name, setName] = useState(existing?.name || '');
+  const [scopeType, setScopeType] = useState<'global' | 'agent' | 'goal'>((existing?.scope.type as 'global' | 'agent' | 'goal') || 'global');
+  const [scopeTargetId, setScopeTargetId] = useState(existing?.scope.targetId || '');
+  const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>((existing?.period as 'daily' | 'weekly' | 'monthly') || 'daily');
+  const [limitUsd, setLimitUsd] = useState(existing?.limitUsd?.toString() || '10');
+  const [warningThresholdPercent, setWarningThresholdPercent] = useState(existing?.warningThresholdPercent?.toString() || '80');
+  const [action, setAction] = useState<'warn' | 'pause' | 'stop'>((existing?.action as 'warn' | 'pause' | 'stop') || 'warn');
+  const [enabled, setEnabled] = useState(existing?.enabled ?? true);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: name.trim(),
+        scope: { type: scopeType, targetId: scopeType === 'global' ? undefined : (scopeTargetId || undefined) },
+        period,
+        limitUsd: Number(limitUsd) || 0,
+        warningThresholdPercent: Number(warningThresholdPercent) || 80,
+        action,
+        enabled,
+      };
+      if (isEdit && existing) {
+        await updateCPBudget(existing.id, payload);
+      } else {
+        await createCPBudget(payload);
+      }
+      onSaved();
+    } catch (e) {
+      alert(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      title={isEdit ? 'Edit Budget Policy' : 'New Budget Policy'}
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90">Cancel</button>
+          <button onClick={save} disabled={saving || !name.trim()} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50">
+            {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Create budget')}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-[12px]">
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-white/40">Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily global cap" className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Scope</label>
+            <select value={scopeType} onChange={(e) => setScopeType(e.target.value as typeof scopeType)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+              <option value="global">Global (all agents)</option>
+              <option value="agent">Per-agent</option>
+              <option value="goal">Per-goal</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Target ID</label>
+            <input
+              value={scopeTargetId}
+              onChange={(e) => setScopeTargetId(e.target.value)}
+              placeholder={scopeType === 'global' ? 'n/a' : scopeType === 'agent' ? 'agent-id' : 'goal-id'}
+              disabled={scopeType === 'global'}
+              className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none disabled:opacity-40"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Period</label>
+            <select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Limit (USD)</label>
+            <input type="number" step="0.01" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Warn at %</label>
+            <input type="number" min="1" max="100" value={warningThresholdPercent} onChange={(e) => setWarningThresholdPercent(e.target.value)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-white/40">Action at limit</label>
+            <select value={action} onChange={(e) => setAction(e.target.value as typeof action)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+              <option value="warn">Warn only</option>
+              <option value="pause">Pause agent</option>
+              <option value="stop">Stop agent</option>
+            </select>
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="flex items-center gap-2 text-white/70 cursor-pointer">
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="accent-indigo-500" />
+              <span>Enabled</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -912,7 +1482,7 @@ export default function CommandPostHub() {
         {/* Tab content */}
         {tab === 'Dashboard' && <DashboardTab d={d} activity={activity} />}
         {tab === 'Org Chart' && <OrgChartTab agents={d.agents} />}
-        {tab === 'Issues' && <IssuesTab />}
+        {tab === 'Issues' && <IssuesTab agents={d.agents} />}
         {tab === 'Agents' && <AgentsTab agents={d.agents} runs={runs} onRefresh={refresh} />}
         {tab === 'Approvals' && <ApprovalsTab />}
         {tab === 'Debates' && <DebatesTab />}

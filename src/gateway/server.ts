@@ -3173,6 +3173,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ completed: true });
   });
 
+  // v4.1: retry a failed subtask — resets status, clears error, zeros retries.
+  app.post('/api/goals/:id/subtasks/:sid/retry', async (req, res) => {
+    const { retrySubtask } = await import('../agent/goals.js');
+    const ok = retrySubtask(req.params.id, req.params.sid);
+    if (!ok) { res.status(404).json({ error: 'Goal or subtask not found' }); return; }
+    res.json({ retried: true });
+  });
+
+  // v4.1: edit a subtask's title/description.
+  app.patch('/api/goals/:id/subtasks/:sid', async (req, res) => {
+    const { updateSubtask } = await import('../agent/goals.js');
+    const { title, description } = req.body || {};
+    const ok = updateSubtask(req.params.id, req.params.sid, { title, description });
+    if (!ok) { res.status(404).json({ error: 'Goal or subtask not found' }); return; }
+    res.json({ updated: true });
+  });
+
   // ── Daemon API ────────────────────────────────────────────
 
   app.get('/api/daemon/status', (_req, res) => {

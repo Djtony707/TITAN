@@ -702,6 +702,26 @@ export async function deleteCPIssue(id: string): Promise<{ success: boolean }> {
   return request(`/api/command-post/issues/${id}`, { method: 'DELETE' });
 }
 
+export interface CPIssueComment {
+  id: string;
+  issueId: string;
+  authorAgentId?: string;
+  authorUser?: string;
+  body: string;
+  createdAt: string;
+}
+
+export async function getCPIssueDetail(issueId: string): Promise<CPIssue & { comments: CPIssueComment[] }> {
+  return request(`/api/command-post/issues/${issueId}`);
+}
+
+export async function addCPIssueComment(issueId: string, body: string, author: { agentId?: string; user?: string } = {}): Promise<CPIssueComment> {
+  return request(`/api/command-post/issues/${issueId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body, ...author }),
+  });
+}
+
 export async function checkoutCPIssue(issueId: string, agentId: string): Promise<CPIssue> {
   return request(`/api/command-post/issues/${issueId}/checkout`, {
     method: 'POST', body: JSON.stringify({ agentId }),
@@ -808,6 +828,13 @@ export async function listCompanies(): Promise<unknown[]> {
 
 export async function createCompany(opts: { name: string; mission?: string }): Promise<unknown> {
   return request('/api/companies', { method: 'POST', body: JSON.stringify(opts) });
+}
+
+export async function updateCompany(id: string, updates: { name?: string; mission?: string; status?: string }): Promise<unknown> {
+  return request(`/api/companies/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
 }
 
 export async function deleteCompany(id: string): Promise<{ success: boolean }> {

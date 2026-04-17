@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { apiFetch } from '@/api/client';
+import { InlineEditableField } from '@/components/shared';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -213,6 +214,22 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
     onRefresh();
   };
 
+  const handleRetrySubtask = async (goalId: string, subtaskId: string) => {
+    try {
+      await api(`/api/goals/${goalId}/subtasks/${subtaskId}/retry`, { method: 'POST' });
+      onRefresh();
+    } catch (e) { alert(`Retry failed: ${(e as Error).message}`); }
+  };
+
+  const handleEditSubtaskTitle = async (goalId: string, subtaskId: string, title: string) => {
+    try {
+      await api(`/api/goals/${goalId}/subtasks/${subtaskId}`, {
+        method: 'PATCH', body: JSON.stringify({ title }),
+      });
+      onRefresh();
+    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+  };
+
   const handleCompleteSubtask = async (goalId: string, subtaskId: string) => {
     await api(`/api/goals/${goalId}/subtasks/${subtaskId}/complete`, {
       method: 'POST',
@@ -329,9 +346,28 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
                       {goal.subtasks.map(st => (
                         <div key={st.id} className="flex items-center gap-2 py-1 px-2 rounded" style={{ backgroundColor: '#09090b' }}>
                           <SubtaskIcon status={st.status} />
-                          <span className="text-xs flex-1 truncate" style={{ color: st.status === 'done' ? '#52525b' : '#a1a1aa' }}>
-                            {st.title}
+                          <span className="text-xs flex-1 min-w-0" style={{ color: st.status === 'done' ? '#52525b' : '#a1a1aa' }}>
+                            <InlineEditableField
+                              value={st.title}
+                              onSave={(v) => handleEditSubtaskTitle(goal.id, st.id, v)}
+                              placeholder="Subtask title"
+                            />
                           </span>
+                          {st.status === 'failed' && st.error && (
+                            <span className="text-xs truncate max-w-40" title={st.error} style={{ color: '#ef4444' }}>
+                              {st.error}
+                            </span>
+                          )}
+                          {st.status === 'failed' && (
+                            <button
+                              onClick={() => handleRetrySubtask(goal.id, st.id)}
+                              className="text-xs px-2 py-0.5 rounded transition-colors hover:opacity-80"
+                              style={{ backgroundColor: '#27272a', color: '#fbbf24' }}
+                              title="Reset to pending, clear error, retry"
+                            >
+                              <RefreshCw className="w-3 h-3 inline" /> Retry
+                            </button>
+                          )}
                           {st.status === 'pending' && (
                             <button
                               onClick={() => handleCompleteSubtask(goal.id, st.id)}
@@ -340,11 +376,6 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
                             >
                               Done
                             </button>
-                          )}
-                          {st.status === 'failed' && st.error && (
-                            <span className="text-xs truncate max-w-32" title={st.error} style={{ color: '#ef4444' }}>
-                              {st.error}
-                            </span>
                           )}
                         </div>
                       ))}

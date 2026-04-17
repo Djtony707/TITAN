@@ -5,6 +5,106 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.1.0] — 2026-04-17 — Mission Control CRUD customization pass
+
+First release of the UI customization arc (v4.1 → v4.2 → v4.3). Wires
+frontend forms to every Command Post + Workflows backend endpoint that
+was already ready, closing ~80% of the read-only gaps in the UI.
+
+### New reusable components
+
+- `ui/src/components/shared/InlineEditableField.tsx` — click-to-edit
+  text cell. Supports single-line and multiline modes. Enter/Cmd+Enter
+  saves; Escape cancels. Used everywhere a field was previously
+  read-only despite an available PATCH endpoint.
+- `ui/src/components/shared/ConfirmDialog.tsx` — standardized
+  confirmation dialog for destructive actions. Replaces ad-hoc
+  `window.confirm()` calls across Command Post.
+
+### Command Post tab upgrades
+
+- **Issues tab:**
+  - Click any issue title → detail modal with inline-editable title +
+    description, priority/status/assignee dropdowns, live comments
+    thread (post, read, timestamps), Delete + Close actions.
+  - Row-level assignee dropdown picks any registered agent.
+  - Replaced `window.confirm` with `ConfirmDialog` for deletion.
+  - Empty state explains how to create the first issue.
+- **Agents tab:**
+  - Inline-editable name, title.
+  - Role dropdown (ceo/manager/engineer/researcher/general) inline.
+  - Reports-to dropdown (picks from other agents) inline.
+  - `ConfirmDialog` on agent removal instead of `window.confirm`.
+- **Org Chart tab:**
+  - Each node is fully editable in-place: name, title, role,
+    reports-to. Edits call `PATCH /api/command-post/agents/:id` and
+    refresh the tree live.
+  - Empty state guides the user to build hierarchy.
+- **Companies tab (in Org Chart):**
+  - Inline-editable name + mission per row.
+  - Edit next to the delete button.
+  - `ConfirmDialog` on deletion.
+  - New `updateCompany` helper in `ui/src/api/client.ts`.
+- **Costs tab:**
+  - New `+ New Budget` button in the section header.
+  - New `BudgetFormModal` with 8 fields (name, scope, target-id,
+    period, limit, warn %, action, enabled).
+  - Edit button per row opens the same form with pre-filled values.
+  - Delete button with `ConfirmDialog`.
+  - On/off pill on each policy row.
+- **Approvals tab:**
+  - New `ApprovalPayloadViewer` — collapsible "Show full payload" JSON
+    viewer on every approval. Lets operators inspect non-proposal
+    approval types (hire_agent, budget_override, custom) before
+    deciding.
+
+### Workflows panel
+
+- Per-subtask title is now inline-editable.
+- New "Retry" button on failed subtasks resets status to pending,
+  clears the error, and zeros the retry counter.
+- Existing "Done" button on pending subtasks preserved.
+
+### New backend endpoints
+
+- `POST /api/goals/:id/subtasks/:sid/retry` — wraps new
+  `retrySubtask()` in `src/agent/goals.ts`. Resets a failed subtask.
+- `PATCH /api/goals/:id/subtasks/:sid` — wraps new `updateSubtask()`.
+  Edits title/description.
+- `POST /api/command-post/issues/:id/comments` — already existed;
+  paired with new `getCPIssueDetail` + `addCPIssueComment` helpers in
+  the frontend client.
+
+### New client helpers
+
+- `getCPIssueDetail(id)` — full issue + comments inline.
+- `addCPIssueComment(id, body, author)` — post a comment.
+- `updateCompany(id, updates)` — PATCH company record.
+
+### No behavior changes for 22K users
+
+All changes are additive. Existing read paths preserved. No config
+migration. Existing `window.confirm` interactions replaced by
+equivalent `ConfirmDialog` flows — same user experience, prettier.
+
+### Browser-verified
+
+Preview tested end-to-end: Issue creation via form → row visible →
+click to open detail modal → 2 InlineEditableFields + assignee picker
++ comment input + Delete issue button. Budget form: 8 fields all
+present. Org Chart: editable name/title + role/reports-to dropdowns
+rendering on registered agent. CRUD flows confirmed with a real curl
+PATCH (TIT-1 issue created, appeared in list after refresh).
+
+### Plan reference
+
+See `~/.claude/plans/eventual-snuggling-storm.md` — this is v4.1 of
+the three-release UI arc. v4.2 adds missing-backend CRUD (cron,
+recipes, MCP config, memory wiki, drive weights). v4.3 ships the
+organic-biology Soma redesign + UX polish pass.
+
+---
+
 ## [4.0.6] — 2026-04-17 — Autopilot deadlock detector
 
 Bug fix. Observed in prod tonight on Tony's Titan PC: autopilot ran 5+

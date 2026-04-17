@@ -315,6 +315,39 @@ export function failSubtask(goalId: string, subtaskId: string, error: string): b
     return true;
 }
 
+/** Retry a subtask: reset to pending, clear error, zero retry counter.
+ *  v4.1: UI path for "Retry" button on failed subtasks in WorkflowsPanel. */
+export function retrySubtask(goalId: string, subtaskId: string): boolean {
+    const goal = getGoal(goalId);
+    if (!goal) return false;
+    const subtask = goal.subtasks.find(st => st.id === subtaskId);
+    if (!subtask) return false;
+    subtask.status = 'pending';
+    subtask.error = undefined;
+    subtask.retries = 0;
+    subtask.completedAt = undefined;
+    goal.updatedAt = new Date().toISOString();
+    saveGoals();
+    return true;
+}
+
+/** Update a subtask's title and/or description. */
+export function updateSubtask(
+    goalId: string,
+    subtaskId: string,
+    updates: { title?: string; description?: string },
+): boolean {
+    const goal = getGoal(goalId);
+    if (!goal) return false;
+    const subtask = goal.subtasks.find(st => st.id === subtaskId);
+    if (!subtask) return false;
+    if (typeof updates.title === 'string') subtask.title = updates.title;
+    if (typeof updates.description === 'string') subtask.description = updates.description;
+    goal.updatedAt = new Date().toISOString();
+    saveGoals();
+    return true;
+}
+
 /** Get the next ready subtasks across all active goals (sorted by priority) */
 export function getReadyTasks(): Array<{ goal: Goal; subtask: Subtask }> {
     const goals = loadGoals()

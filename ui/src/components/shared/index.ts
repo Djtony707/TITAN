@@ -13,3 +13,5 @@ export { QuickSwitcher } from './QuickSwitcher';
 export { DataTable } from './DataTable';
 export { CodeBlock } from './CodeBlock';
 export { StatCard } from './StatCard';
+export { InlineEditableField } from './InlineEditableField';
+export { ConfirmDialog } from './ConfirmDialog';
