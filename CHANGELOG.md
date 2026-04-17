@@ -5,6 +5,28 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.3.1] — 2026-04-16
+
+### Documentation
+
+README refresh. No code changes.
+
+- Stats: 142 → 137 skills, 5,389 → 5,399 tests (across 160 → 177 files)
+- Channels: 15 → 16 (Facebook Messenger added to table + architecture diagram)
+- Tool search: "9 core tools" → 20 (reflects actual `DEFAULT_CORE_TOOLS`),
+  progressive disclosure documented (new `tool_expand` meta-tool)
+- Mission Control: "142 loaded skills" → 137, "30+ panels" → 25
+- "Current (v3.0.0)" roadmap entry → "Current (v3.3.0)" with v3.1.x, v3.2.x
+  entries filled in
+- "What's New in v2.7.0 Hermes Suite" block → v3.3.0 Output Guardrails +
+  Model Probe content (the actual current release)
+- Email channel row notes `imapflow` as optional dep
+
+Published primarily to get the current README onto npm — the 3.3.0 package
+shipped with stale numbers.
+
+---
+
 ## [3.3.0] — 2026-04-16
 
 ### Added — Output Quality & Model Adaptation
