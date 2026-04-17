@@ -40,7 +40,9 @@ export default function BodyStateIndicator() {
 
     const fetchState = useCallback(async () => {
         try {
-            const r = await apiFetch('/api/soma/state') as unknown as SomaStateResponse;
+            const res = await apiFetch('/api/soma/state');
+            if (!res.ok) { setError(true); return; }
+            const r = await res.json() as SomaStateResponse;
             setState(r);
             setError(false);
         } catch {

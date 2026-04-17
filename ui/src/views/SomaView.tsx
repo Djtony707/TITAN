@@ -91,16 +91,25 @@ export default function SomaView() {
 
     const fetchAll = useCallback(async () => {
         try {
-            const s = await apiFetch('/api/soma/state') as unknown as SomaStateResponse;
-            setState(s);
+            const res = await apiFetch('/api/soma/state');
+            if (res.ok) {
+                const s = await res.json() as SomaStateResponse;
+                setState(s);
+            }
         } catch { /* ignore */ }
         try {
-            const h = await apiFetch('/api/soma/history?hours=24') as unknown as SomaHistoryResponse;
-            if (h.enabled) setHistory(h.history);
+            const res = await apiFetch('/api/soma/history?hours=24');
+            if (res.ok) {
+                const h = await res.json() as SomaHistoryResponse;
+                if (h.enabled) setHistory(h.history);
+            }
         } catch { /* ignore */ }
         try {
-            const a = await apiFetch('/api/command-post/approvals?status=pending') as unknown as PendingProposal[];
-            setProposals(a.filter(p => p.type === 'soma_proposal'));
+            const res = await apiFetch('/api/command-post/approvals?status=pending');
+            if (res.ok) {
+                const a = await res.json() as PendingProposal[];
+                setProposals(a.filter(p => p.type === 'soma_proposal'));
+            }
         } catch { /* ignore */ }
     }, []);
 
@@ -112,20 +121,24 @@ export default function SomaView() {
 
     const approve = async (id: string) => {
         try {
-            await apiFetch(`/api/command-post/approvals/${id}/approve`, {
+            const res = await apiFetch(`/api/command-post/approvals/${id}/approve`, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ decidedBy: 'board' }),
             });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
         } catch (e) { alert(`Approve failed: ${(e as Error).message}`); }
     };
 
     const reject = async (id: string) => {
         try {
-            await apiFetch(`/api/command-post/approvals/${id}/reject`, {
+            const res = await apiFetch(`/api/command-post/approvals/${id}/reject`, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ decidedBy: 'board' }),
             });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
         } catch (e) { alert(`Reject failed: ${(e as Error).message}`); }
     };
@@ -134,10 +147,12 @@ export default function SomaView() {
         if (!selectedDriveId || setpointOverride === null) return;
         setSaving(true);
         try {
-            await apiFetch('/api/soma/setpoints', {
+            const res = await apiFetch('/api/soma/setpoints', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ [selectedDriveId]: setpointOverride }),
             });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             setSetpointOverride(null);
             fetchAll();
         } catch (e) { alert(`Setpoint update failed: ${(e as Error).message}`); }

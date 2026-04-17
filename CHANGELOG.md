@@ -5,6 +5,38 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.1] — 2026-04-17 — Soma UI fetch fix
+
+Patch release. The v4.0.0 Soma UI treated `apiFetch` return values as
+parsed JSON, but `apiFetch` returns a raw `Response` object. Result:
+`SomaView.tsx` and `BodyStateIndicator.tsx` saw `state.enabled` as
+`undefined` and fell through to the disabled-state card even when
+organism was enabled.
+
+Caught by a live Mac behavioral test (anatomical layout never rendered;
+only the "Soma is not enabled" card showed up). Fixed by explicitly
+calling `.json()` on every `apiFetch` response in both components, plus
+setpoint save + approve/reject handlers in `SomaView.tsx`.
+
+Also bundle stale content-type headers on the POST endpoints that were
+missing from v4.0.0 (setpoints, approve, reject).
+
+No other behavior changes. Tests + backend unaffected.
+
+### Affected files
+- `ui/src/views/SomaView.tsx` — fetchAll + approve + reject + saveSetpoint
+- `ui/src/components/shell/BodyStateIndicator.tsx` — fetchState
+
+### Verified
+- Live behavioral test: `/soma` renders the full anatomical layout with
+  all 5 drive regions, drive summary cards, proposal queue, atmospheric
+  tint reflecting the dominant drive.
+- Header `BodyStateIndicator` continues to render 5 pips correctly
+  (unchanged behavior because its static DRIVE_ORDER array never needed
+  state to render the pip count).
+
+---
+
 ## [4.0.0] — 2026-04-17 — TITAN-Soma: The First Homeostatic Digital Organism
 
 This is a re-framing release, not a feature bundle. Every other agent framework
