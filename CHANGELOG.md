@@ -5,6 +5,41 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.6.0] — 2026-04-16
+
+### Added — Agent Debate (F3)
+
+New `agent_debate` skill. When 2-5 agents should weigh in on a contested
+question, run a structured multi-round debate and resolve via consensus
+vote, LLM synthesis, or impartial judge. Each round shows every
+participant the others' latest positions; guardrails strip
+chain-of-thought from each turn. Transcripts persist to
+`~/.titan/debates/<id>.json`.
+
+- `src/skills/builtin/agent_debate.ts` — orchestration (opening →
+  N rebuttal rounds → resolution), three resolution modes with fallback
+  chains, per-turn guardrails. Parallel execution within each round,
+  sequential across rounds so every turn sees the same peer snapshot.
+- `src/skills/registry.ts` — skill registered as `agent_debate`.
+- `GET /api/command-post/debates` — list transcripts (newest-first).
+- `GET /api/command-post/debates/:id` — full transcript.
+- Mission Control: new "Debates" tab with transcript drill-down
+  (collapsible rounds, highlighted winner, model + latency per turn).
+- Emits `debate_resolved` activity events via `titanEvents`.
+
+Differs from `mixture_of_agents` (parallel one-shot, independent
+positions) by letting participants update positions in response to
+peers. Use debate for disagreement resolution; MoA for diverse angles.
+
+### Tests
+- `tests/agentDebate.test.ts` — 18 tests covering orchestration
+  (N rounds, per-participant models, role uniquification, failure
+  isolation), guardrails, all three resolution modes with fallback
+  paths, JSON verdict parsing (clean, fenced, malformed), transcript
+  persistence, and read-side helpers.
+
+---
+
 ## [3.5.0] — 2026-04-16
 
 ### Added — Persistent Agent Identity (F2)

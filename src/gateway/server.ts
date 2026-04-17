@@ -3591,6 +3591,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(result);
   });
 
+  // ── F3: Debates ──────────────────────────────────────────
+  app.get('/api/command-post/debates', async (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const { listDebates } = await import('../skills/builtin/agent_debate.js');
+    res.json({ items: listDebates(limit) });
+  });
+
+  app.get('/api/command-post/debates/:id', async (req, res) => {
+    const { getDebate } = await import('../skills/builtin/agent_debate.js');
+    const debate = getDebate(req.params.id);
+    if (!debate) { res.status(404).json({ error: 'Debate not found' }); return; }
+    res.json(debate);
+  });
+
   // ── Paperclip: Runs ──────────────────────────────────────
   app.get('/api/command-post/runs', (req, res) => {
     const agentId = req.query.agentId as string | undefined;

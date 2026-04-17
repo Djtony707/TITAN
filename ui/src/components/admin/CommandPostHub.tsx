@@ -3,7 +3,7 @@ import {
   Building2, Users, Lock, DollarSign, GitBranch, Activity,
   ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
   MessageSquare, Send, StopCircle, Plus, Shield, Eye,
-  BarChart3, Briefcase, Play, Pause, Search, Trash2,
+  BarChart3, Briefcase, Play, Pause, Search, Trash2, Scale,
 } from 'lucide-react';
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
@@ -687,10 +687,139 @@ function ConsoleTab({ dashboard }: { dashboard: CommandPostDashboard }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TAB: DEBATES (F3)
+// ═══════════════════════════════════════════════════════════════
+
+interface DebateSummary {
+  id: string;
+  question: string;
+  resolution: 'vote' | 'synthesize' | 'judge';
+  rounds: number;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  winnerRole?: string;
+}
+
+interface DebateTurn {
+  round: number;
+  role: string;
+  model: string;
+  content: string;
+  durationMs: number;
+}
+
+interface DebateTranscript extends DebateSummary {
+  participants: Array<{ role: string; model?: string; position?: string }>;
+  turns: DebateTurn[];
+  winner?: { role: string; content: string; justification?: string };
+}
+
+function DebatesTab() {
+  const [debates, setDebates] = useState<DebateSummary[]>([]);
+  const [selected, setSelected] = useState<DebateTranscript | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiFetch('/api/command-post/debates') as unknown as { items: DebateSummary[] };
+      setDebates(r?.items || []);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const open = async (id: string) => {
+    try {
+      const t = await apiFetch(`/api/command-post/debates/${id}`) as unknown as DebateTranscript;
+      setSelected(t);
+    } catch { /* ignore */ }
+  };
+
+  if (selected) {
+    const rounds = new Map<number, DebateTurn[]>();
+    for (const t of selected.turns) {
+      const arr = rounds.get(t.round) || [];
+      arr.push(t);
+      rounds.set(t.round, arr);
+    }
+    return (
+      <div className="space-y-3">
+        <button onClick={() => setSelected(null)} className="text-[11px] text-white/40 hover:text-white/70">
+          ← Back to debates
+        </button>
+        <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl p-4">
+          <div className="text-[13px] font-semibold text-white/90 mb-1">{selected.question}</div>
+          <div className="text-[10px] text-white/35">
+            {selected.resolution} • {selected.rounds} round{selected.rounds === 1 ? '' : 's'} • {(selected.durationMs / 1000).toFixed(1)}s
+          </div>
+          {selected.winner && (
+            <div className="mt-3 p-3 bg-emerald-500/[0.06] border border-emerald-500/30 rounded-lg">
+              <div className="text-[11px] text-emerald-300/80 uppercase tracking-wider">Winner: {selected.winner.role}</div>
+              <div className="text-[12px] text-white/85 mt-1">{selected.winner.content}</div>
+              {selected.winner.justification && (
+                <div className="text-[10px] text-white/40 italic mt-2">{selected.winner.justification}</div>
+              )}
+            </div>
+          )}
+        </div>
+        {[...rounds.entries()].sort((a, b) => a[0] - b[0]).map(([r, turns]) => (
+          <div key={r} className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-white/[0.04] text-[11px] font-medium text-white/60 uppercase tracking-wider">
+              Round {r}
+            </div>
+            <div className="divide-y divide-white/[0.03]">
+              {turns.map((t, i) => (
+                <div key={i} className="px-4 py-3">
+                  <div className="text-[11px] font-semibold text-indigo-300/80 mb-1">{t.role}</div>
+                  <div className="text-[11px] text-white/75 whitespace-pre-wrap">{t.content}</div>
+                  <div className="text-[9px] text-white/25 mt-1">{t.model.split('/').pop()} • {t.durationMs}ms</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <SectionHeader icon={Scale} title="Debates" count={debates.length} />
+      <div className="divide-y divide-white/[0.03]">
+        {loading ? (
+          <div className="py-8 text-center text-[12px] text-white/25">Loading...</div>
+        ) : debates.length === 0 ? (
+          <div className="py-8 text-center text-[12px] text-white/25">No debates yet. Call the <code className="text-indigo-300/70">agent_debate</code> tool to start one.</div>
+        ) : debates.map(d => (
+          <button
+            key={d.id}
+            onClick={() => open(d.id)}
+            className="w-full text-left px-4 py-3 hover:bg-white/[0.03] transition-colors"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[12px] text-white/80 flex-1 truncate pr-2">{d.question}</div>
+              <span className="text-[10px] text-white/25 whitespace-nowrap">{timeSince(d.startedAt)} ago</span>
+            </div>
+            <div className="flex items-center gap-3 text-[10px] text-white/40">
+              <span>{d.resolution}</span>
+              <span>{d.rounds} round{d.rounds === 1 ? '' : 's'}</span>
+              <span>{(d.durationMs / 1000).toFixed(1)}s</span>
+              {d.winnerRole && <span className="text-emerald-300/70">winner: {d.winnerRole}</span>}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-const TABS = ['Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Costs', 'Console'] as const;
+const TABS = ['Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
 type Tab = typeof TABS[number];
 
 export default function CommandPostHub() {
@@ -772,6 +901,7 @@ export default function CommandPostHub() {
         {tab === 'Issues' && <IssuesTab />}
         {tab === 'Agents' && <AgentsTab agents={d.agents} runs={runs} onRefresh={refresh} />}
         {tab === 'Approvals' && <ApprovalsTab />}
+        {tab === 'Debates' && <DebatesTab />}
         {tab === 'Costs' && <CostsTab budgets={d.budgets} onRefresh={refresh} />}
         {tab === 'Console' && <ConsoleTab dashboard={d} />}
       </div>
