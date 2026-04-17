@@ -426,6 +426,12 @@ export interface RegisteredAgent {
   reportsTo?: string;
   role: 'ceo' | 'manager' | 'engineer' | 'researcher' | 'general';
   title?: string;
+  // F2: Persistent identity
+  voiceId?: string;
+  personaId?: string;
+  systemPromptOverride?: string;
+  memoryNamespace?: string;
+  characterSummary?: string;
 }
 
 export interface CPActivityEntry {

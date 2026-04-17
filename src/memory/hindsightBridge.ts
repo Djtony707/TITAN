@@ -45,19 +45,25 @@ type HindsightNetwork = 'experience' | 'world' | 'opinion' | 'observation';
 /**
  * Store a memory in Hindsight's episodic network.
  * Fire-and-forget — never throws.
+ *
+ * @param namespace Optional F2 agent scope. When set, the content is prefixed
+ *   with a `[ns:<namespace>]` tag so Hindsight recall keyed to the same
+ *   namespace will find it. Omitted → global scope (back-compat).
  */
 export async function retainToHindsight(
     content: string,
     network: HindsightNetwork = 'experience',
+    namespace?: string,
 ): Promise<void> {
     if (!isHindsightConnected()) return;
 
     const retain = findHindsightTool('retain');
     if (!retain) return;
 
+    const scoped = namespace ? `[ns:${namespace}]\n${content}` : content;
     try {
-        await retain({ content, network });
-        logger.debug(COMPONENT, `Retained ${network} memory (${content.length} chars)`);
+        await retain({ content: scoped, network });
+        logger.debug(COMPONENT, `Retained ${network} memory (${scoped.length} chars${namespace ? `, ns=${namespace}` : ''})`);
     } catch (e) {
         logger.warn(COMPONENT, `Retain failed: ${(e as Error).message}`);
     }
@@ -68,20 +74,30 @@ export async function retainToHindsight(
 /**
  * Recall memories from Hindsight related to a query.
  * Returns null if Hindsight isn't available or recall fails.
+ *
+ * @param namespace Optional F2 agent scope. When set, the query is prefixed
+ *   with `[ns:<namespace>]` and returned results are filtered to only those
+ *   containing the same tag, so each agent recalls from its own slice.
  */
-export async function recallFromHindsight(query: string): Promise<string | null> {
+export async function recallFromHindsight(query: string, namespace?: string): Promise<string | null> {
     if (!isHindsightConnected()) return null;
 
     const recall = findHindsightTool('recall');
     if (!recall) return null;
 
+    const scopedQuery = namespace ? `[ns:${namespace}] ${query}` : query;
     try {
-        const result = await recall({ query, limit: 3 });
-        if (result && result !== 'No output' && result.trim().length > 0) {
-            logger.debug(COMPONENT, `Recalled ${result.length} chars for query "${query.slice(0, 50)}"`);
-            return result;
+        const result = await recall({ query: scopedQuery, limit: 3 });
+        if (!result || result === 'No output' || result.trim().length === 0) return null;
+
+        // When scoped, drop entries that don't carry our namespace tag.
+        if (namespace) {
+            const tag = `[ns:${namespace}]`;
+            if (!result.includes(tag)) return null;
         }
-        return null;
+
+        logger.debug(COMPONENT, `Recalled ${result.length} chars for query "${query.slice(0, 50)}"${namespace ? ` (ns=${namespace})` : ''}`);
+        return result;
     } catch (e) {
         logger.warn(COMPONENT, `Recall failed: ${(e as Error).message}`);
         return null;
@@ -99,6 +115,7 @@ export async function retainStrategy(
     toolSequence: string[],
     successCount: number,
     pattern: string,
+    namespace?: string,
 ): Promise<void> {
     const content = [
         `Task type: ${taskType}`,
@@ -107,15 +124,15 @@ export async function retainStrategy(
         `Pattern: ${pattern.slice(0, 200)}`,
     ].join('\n');
 
-    await retainToHindsight(content, 'experience');
+    await retainToHindsight(content, 'experience', namespace);
 }
 
 /**
  * Query Hindsight for cross-session strategy hints.
  * Falls back to null if nothing relevant found or Hindsight unavailable.
  */
-export async function getHindsightHints(message: string): Promise<string | null> {
-    const result = await recallFromHindsight(`strategy for: ${message.slice(0, 150)}`);
+export async function getHindsightHints(message: string, namespace?: string): Promise<string | null> {
+    const result = await recallFromHindsight(`strategy for: ${message.slice(0, 150)}`, namespace);
     if (!result) return null;
 
     return `[Cross-session memory] ${result.slice(0, 500)}`;

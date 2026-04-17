@@ -353,6 +353,7 @@ export class OllamaProvider extends LLMProvider {
         // Cloud models (Ollama Pro): detect via -cloud suffix or :cloud tag
         const isCloudModel = model.includes('-cloud') || model.includes(':cloud');
         const hasTools = options.tools && options.tools.length > 0;
+        const hasToolRoleMessages = options.messages.some(m => m.role === 'tool');
 
         const body: Record<string, unknown> = {
             model,
@@ -423,6 +424,19 @@ export class OllamaProvider extends LLMProvider {
             body.think = false;
         }
         // Otherwise: omit body.think — let the model decide
+
+        // Per-turn override: when the conversation contains tool-role messages,
+        // force think=false regardless of caller intent. The GLM-family
+        // tool-call parser on the server (vLLM #39611, confirmed by Z.ai docs
+        // for GLM-5.1) silently drops tool results when enable_thinking=true,
+        // breaking the multi-turn tool loop. Z.ai's own guidance: disable
+        // thinking on tool-call turns. This keeps reasoning available for
+        // planning turns while preventing the drop on execution turns.
+        if (hasToolRoleMessages && body.think !== false) {
+            const priorIntent = body.think === undefined ? 'unset' : String(body.think);
+            body.think = false;
+            logger.info(COMPONENT, `[ToolTurnThinkOverride] Forcing think=false for ${model} (tool-role message present, caller intent=${priorIntent})`);
+        }
 
         if (options.tools && options.tools.length > 0) {
             body.tools = options.tools.map((t) => ({
@@ -573,6 +587,7 @@ export class OllamaProvider extends LLMProvider {
         // Cloud models (Ollama Pro): detect via -cloud suffix or :cloud tag
         const isCloudModel = model.includes('-cloud') || model.includes(':cloud');
         const hasTools = options.tools && options.tools.length > 0;
+        const hasToolRoleMessages = options.messages.some(m => m.role === 'tool');
 
         const body: Record<string, unknown> = {
             model,
@@ -619,6 +634,13 @@ export class OllamaProvider extends LLMProvider {
             body.think = true;
         } else if (isCloudModel && !caps.thinkingWithTools) {
             body.think = false;
+        }
+
+        // Per-turn override for tool-role turns (see chat() for rationale: vLLM #39611 / Z.ai docs).
+        if (hasToolRoleMessages && body.think !== false) {
+            const priorIntent = body.think === undefined ? 'unset' : String(body.think);
+            body.think = false;
+            logger.info(COMPONENT, `[ToolTurnThinkOverride] (stream) Forcing think=false for ${model} (tool-role message present, caller intent=${priorIntent})`);
         }
 
         if (hasTools) {

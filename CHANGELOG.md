@@ -5,6 +5,68 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.5.0] — 2026-04-16
+
+### Added — Persistent Agent Identity (F2)
+
+Each `RegisteredAgent` now carries continuous personality across restarts.
+Five new optional fields on the agent record:
+
+- `voiceId` — Orpheus voice name (TTS plumbing landing separately).
+- `personaId` — per-agent persona file stem; overrides `config.agent.persona`.
+- `systemPromptOverride` — text prepended to the system prompt when this
+  agent runs.
+- `memoryNamespace` — Hindsight network key; defaults to `agent:${id}`.
+- `characterSummary` — 1-3 sentence self-description surfaced in the
+  identity block of the system prompt.
+
+Wiring:
+
+- `src/agent/agent.ts` `buildSystemPrompt()` now takes an optional agentId
+  and overlays `personaId` + `systemPromptOverride` + `characterSummary`
+  on top of the global config.
+- `src/memory/hindsightBridge.ts` `retainToHindsight()` and
+  `recallFromHindsight()` accept an optional namespace. Retained content is
+  prefixed with `[ns:<namespace>]`; recall filters responses to matching
+  tags. Per-agent strategy scoping flows through `retainStrategy()` and
+  `getHindsightHints()`.
+- `src/agent/commandPost.ts` — new `updateAgentIdentity()`,
+  `getAgentMemoryNamespace()`, `getAgentVoice()`. Identity edits emit
+  `agent_status_change` activity entries with the changed field list.
+- `PATCH /api/command-post/agents/:id/identity` — admin endpoint accepting
+  any subset of the five fields; `null` clears.
+- Mission Control `AgentsTab` now has an inline "Identity" editor per
+  agent (voice, persona, prompt override, namespace, character summary).
+
+Voice-mode plumbing deferred — `voiceId` is stored and exposed via
+`getAgentVoice()` but TTS still uses `config.voice.ttsVoice`. Multi-agent
+voice sessions need their own design pass.
+
+### Tests
+
+- `tests/command-post.test.ts` +12 tests for identity CRUD.
+- `tests/hindsightBridge.test.ts` +5 tests for namespace scoping.
+
+### Fixed — GLM-5.1 Tool-Turn Thinking Drop
+
+Research-driven fix. vLLM #39611 and Z.ai's own docs confirm that
+GLM-family models silently drop `tool`-role messages when
+`enable_thinking=true` during tool-call turns. TITAN's global
+`think=false` fix in `fb_autopilot.ts` (2026-04-16) was too blunt — it
+disabled reasoning everywhere.
+
+- `src/providers/ollama.ts` — per-turn override: when the messages array
+  contains any `role: 'tool'` message, force `think=false` for that
+  request. Non-tool turns keep the caller's intent (or the model's
+  default). Override logs when it fires.
+- `src/agent/modelProbe.ts` — new `ProbeResult.toolRoleRoundTrip` field.
+  The probe now sends a follow-up turn containing a tool result and
+  asserts the model responds coherently about the echoed content. The
+  registry records this capability so future routing can prefer models
+  that round-trip cleanly.
+
+---
+
 ## [3.4.0] — 2026-04-16
 
 ### Added — Self-Directed Goal Proposal (F1)

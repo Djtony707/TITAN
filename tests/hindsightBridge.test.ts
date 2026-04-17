@@ -186,4 +186,85 @@ describe('Hindsight MCP Bridge', () => {
             expect(result).toBeNull();
         });
     });
+
+    // F2: Per-agent namespace scoping
+    describe('namespace scoping', () => {
+        it('retainToHindsight prefixes content with [ns:xxx] tag when namespace is set', async () => {
+            const mockRetain = vi.fn().mockResolvedValue('ok');
+            mockGetMcpConnections.mockReturnValue([
+                { server: { id: 'hindsight' } as any, status: 'connected', tools: [] },
+            ]);
+            mockGetRegisteredTools.mockReturnValue([
+                { name: 'mcp_hindsight_retain', description: '', parameters: {}, execute: mockRetain },
+            ]);
+
+            await retainToHindsight('some memory', 'experience', 'agent:alice');
+            expect(mockRetain).toHaveBeenCalledWith({
+                content: '[ns:agent:alice]\nsome memory',
+                network: 'experience',
+            });
+        });
+
+        it('retainToHindsight omits prefix when namespace is undefined (backcompat)', async () => {
+            const mockRetain = vi.fn().mockResolvedValue('ok');
+            mockGetMcpConnections.mockReturnValue([
+                { server: { id: 'hindsight' } as any, status: 'connected', tools: [] },
+            ]);
+            mockGetRegisteredTools.mockReturnValue([
+                { name: 'mcp_hindsight_retain', description: '', parameters: {}, execute: mockRetain },
+            ]);
+
+            await retainToHindsight('some memory');
+            expect(mockRetain).toHaveBeenCalledWith({
+                content: 'some memory',
+                network: 'experience',
+            });
+        });
+
+        it('recallFromHindsight prefixes query with [ns:xxx] and filters by tag', async () => {
+            const mockRecall = vi.fn().mockResolvedValue('[ns:agent:alice]\nAlice used web_search');
+            mockGetMcpConnections.mockReturnValue([
+                { server: { id: 'hindsight' } as any, status: 'connected', tools: [] },
+            ]);
+            mockGetRegisteredTools.mockReturnValue([
+                { name: 'mcp_hindsight_recall', description: '', parameters: {}, execute: mockRecall },
+            ]);
+
+            const result = await recallFromHindsight('search strategy', 'agent:alice');
+            expect(mockRecall).toHaveBeenCalledWith(expect.objectContaining({
+                query: expect.stringContaining('[ns:agent:alice]'),
+            }));
+            expect(result).toContain('Alice used web_search');
+        });
+
+        it('recallFromHindsight filters out results that lack the namespace tag', async () => {
+            // Mock returns data that matches the query but has no ns tag — must be filtered out.
+            const mockRecall = vi.fn().mockResolvedValue('Some memory without namespace tag');
+            mockGetMcpConnections.mockReturnValue([
+                { server: { id: 'hindsight' } as any, status: 'connected', tools: [] },
+            ]);
+            mockGetRegisteredTools.mockReturnValue([
+                { name: 'mcp_hindsight_recall', description: '', parameters: {}, execute: mockRecall },
+            ]);
+
+            const result = await recallFromHindsight('query', 'agent:alice');
+            expect(result).toBeNull();
+        });
+
+        it('retainStrategy passes namespace through to retainToHindsight', async () => {
+            const mockRetain = vi.fn().mockResolvedValue('ok');
+            mockGetMcpConnections.mockReturnValue([
+                { server: { id: 'hindsight' } as any, status: 'connected', tools: [] },
+            ]);
+            mockGetRegisteredTools.mockReturnValue([
+                { name: 'mcp_hindsight_retain', description: '', parameters: {}, execute: mockRetain },
+            ]);
+
+            await retainStrategy('research', ['web_search', 'web_fetch'], 1, 'research task', 'agent:bob');
+            expect(mockRetain).toHaveBeenCalledWith({
+                content: expect.stringContaining('[ns:agent:bob]'),
+                network: 'experience',
+            });
+        });
+    });
 });

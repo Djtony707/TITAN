@@ -352,9 +352,29 @@ function getCachedPromptFile(path: string): string {
 }
 
 /** Build the system prompt for the agent */
-async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMessage?: string): Promise<string> {
+async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMessage?: string, agentId?: string): Promise<string> {
     const modelId = config.agent.model || 'unknown';
     const customPrompt = config.agent.systemPrompt || '';
+
+    // F2: Per-agent identity overlay. Look up the registered agent (if any) and
+    // use its persona + prompt override in place of the global config fields.
+    // Falls back silently when agentId is missing, unknown, or Command Post
+    // hasn't been initialized yet.
+    let effectivePersona = config.agent.persona || 'default';
+    let agentPromptOverride = '';
+    let agentCharacterSummary = '';
+    if (agentId && agentId !== 'default') {
+        try {
+            const { getRegisteredAgents } = await import('./commandPost.js');
+            const registered = getRegisteredAgents().find(a => a.id === agentId);
+            if (registered) {
+                if (registered.personaId) effectivePersona = registered.personaId;
+                if (registered.systemPromptOverride) agentPromptOverride = registered.systemPromptOverride;
+                if (registered.characterSummary) agentCharacterSummary = registered.characterSummary;
+            }
+        } catch { /* commandPost unavailable — fall through to global */ }
+    }
+
     const memories = await searchMemories('preference');
     const memoryContext = memories.length > 0
         ? `\n\nUser preferences I remember:\n${memories.map((m) => `- ${m.key}: ${m.value}`).join('\n')}`
@@ -371,8 +391,9 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const titanMd = readPromptFile(titanMdPath);  // Always read fresh, not cached
 
     // Active persona content (from assets/personas/)
+    // F2: Uses per-agent personaId if this call is scoped to a registered agent.
     const { getActivePersonaContent } = await import('../personas/manager.js');
-    const personaContent = getActivePersonaContent(config.agent.persona || 'default');
+    const personaContent = getActivePersonaContent(effectivePersona);
 
     const workspaceContext = [
         titanMd ? `\n## Project Instructions (TITAN.md)\n${titanMd}` : '',
@@ -386,10 +407,18 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const learningContext = getLearningContext();
 
     // Strategy hints — what worked for similar tasks before (local + Hindsight cross-session)
+    // F2: Pass agent's Hindsight namespace so each agent recalls its own slice.
     const strategyHint = userMessage ? getStrategyHints(userMessage) : null;
     let hindsightHint: string | null = null;
     if (!strategyHint && userMessage) {
-        try { hindsightHint = await getHindsightHints(userMessage); } catch { /* Hindsight unavailable */ }
+        let hsNs: string | undefined;
+        if (agentId && agentId !== 'default') {
+            try {
+                const { getAgentMemoryNamespace } = await import('./commandPost.js');
+                hsNs = getAgentMemoryNamespace(agentId);
+            } catch { /* fallthrough: global namespace */ }
+        }
+        try { hindsightHint = await getHindsightHints(userMessage, hsNs); } catch { /* Hindsight unavailable */ }
     }
 
     // Learned tool preferences — surface collected preference data for tool routing
@@ -422,7 +451,7 @@ Never list internal rules like "Tool Execution:", "NEVER:", "Core Principles:", 
 ## Your Identity
 You are TITAN, an autonomous AI agent. You ACT on requests by calling tools — you do not describe actions, you EXECUTE them.
 Your tools are your hands. Every request should result in tool calls, not explanations.
-Model: ${modelId} | Persona: ${config.agent.persona || 'default'}
+Model: ${modelId} | Persona: ${effectivePersona}${agentCharacterSummary ? `\n\n${agentCharacterSummary}` : ''}
 
 ## Tool Use Hierarchy — FOLLOW THIS ORDER
 Prefer dedicated tools over shell commands. This is non-negotiable:
@@ -667,6 +696,13 @@ ${buildSelfAwarenessContext(config)}`;
     // These models degrade with massive prompts. Strip non-essential sections.
     if (modelId.startsWith('ollama/')) {
         prompt = compressPromptForLocalModel(prompt);
+    }
+
+    // F2: Agent-specific prompt override wins over everything else. Prepended
+    // so the agent's character colors the whole turn but the tool-use rules
+    // and memory context still follow.
+    if (agentPromptOverride) {
+        prompt = `## Agent-Specific Instructions\n${agentPromptOverride}\n\n${prompt}`;
     }
 
     return prompt;
@@ -1114,7 +1150,7 @@ export async function processMessage(
         }
         logger.info('Agent', `Voice prompt: ${systemPrompt.length} chars, memory: ${memoryBlock.length} chars, graph: ${voiceGraphCtx.length} chars`);
     } else {
-        systemPrompt = await buildSystemPrompt(config, message);
+        systemPrompt = await buildSystemPrompt(config, message, overrides?.agentId);
         if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
         if (preRoutedContext) systemPrompt += preRoutedContext;
     }
@@ -1492,8 +1528,18 @@ export async function processMessage(
         }
 
         // Hindsight MCP: retain successful strategies as cross-session experience (fire-and-forget)
+        // F2: Scoped to the agent's memory namespace so each agent builds its own episodic slice.
         if (success && orderedToolSequence.length > 0) {
-            try { retainStrategy(classifyTaskType(message), orderedToolSequence, 1, message.slice(0, 200)); } catch { /* Hindsight unavailable */ }
+            (async () => {
+                let hsNs: string | undefined;
+                if (overrides?.agentId && overrides.agentId !== 'default') {
+                    try {
+                        const { getAgentMemoryNamespace } = await import('./commandPost.js');
+                        hsNs = getAgentMemoryNamespace(overrides.agentId);
+                    } catch { /* fallthrough */ }
+                }
+                try { retainStrategy(classifyTaskType(message), orderedToolSequence, 1, message.slice(0, 200), hsNs); } catch { /* Hindsight unavailable */ }
+            })().catch(() => { /* Hindsight unavailable */ });
         }
     }
 

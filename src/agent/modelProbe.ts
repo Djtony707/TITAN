@@ -35,6 +35,11 @@ export interface ProbeResult {
     // Tool calling
     nativeToolCalls: boolean;
     toolCallFormat: ToolCallFormat;
+    /** True when a follow-up turn containing a tool-role message produces a
+     *  coherent non-empty assistant response. False when the server-side
+     *  tool-call parser silently drops the tool result (vLLM #39611 /
+     *  GLM-5.1 with enable_thinking=true). */
+    toolRoleRoundTrip: boolean;
 
     // Performance
     avgLatencyMs: number;
@@ -102,29 +107,36 @@ async function probeThinkingRouting(modelId: string): Promise<{
  * Probe 2: Native tool calling support.
  * Request a tool call and check whether the model returns tool_calls natively
  * or embeds them in the content (XML, JSON-in-text, etc.)
+ *
+ * If the model returns a native tool call, follow up with a tool-role result
+ * and check that the model responds coherently (round-trip). GLM-5.1 and
+ * other models with the vLLM#39611 behavior drop tool results when thinking
+ * is enabled; this probe catches that class of failure.
  */
 async function probeToolCalling(modelId: string): Promise<{
     native: boolean;
     format: ToolCallFormat;
+    toolRoleRoundTrip: boolean;
 }> {
+    const echoTool = {
+        type: 'function' as const,
+        function: {
+            name: 'echo',
+            description: 'Echoes a message back',
+            parameters: {
+                type: 'object',
+                properties: {
+                    message: { type: 'string', description: 'Message to echo' },
+                },
+                required: ['message'],
+            },
+        },
+    };
     try {
         const response = await chat({
             model: modelId,
             messages: [{ role: 'user', content: 'Call the echo tool with the message "hello probe".' }],
-            tools: [{
-                type: 'function',
-                function: {
-                    name: 'echo',
-                    description: 'Echoes a message back',
-                    parameters: {
-                        type: 'object',
-                        properties: {
-                            message: { type: 'string', description: 'Message to echo' },
-                        },
-                        required: ['message'],
-                    },
-                },
-            }],
+            tools: [echoTool],
             maxTokens: 200,
             temperature: 0,
             noFallback: true,
@@ -132,18 +144,57 @@ async function probeToolCalling(modelId: string): Promise<{
 
         // Check for native tool calls
         if (response.toolCalls && response.toolCalls.length > 0) {
-            return { native: true, format: 'native' };
+            // Round-trip test: feed the tool result back and verify a coherent
+            // assistant reply. A server-side parser that drops tool-role
+            // messages will return empty content or a "I don't have the
+            // result" style response.
+            let roundTrip = false;
+            try {
+                const tc = response.toolCalls[0];
+                const followUp = await chat({
+                    model: modelId,
+                    messages: [
+                        { role: 'user', content: 'Call the echo tool with the message "hello probe".' },
+                        {
+                            role: 'assistant',
+                            content: response.content || '',
+                            toolCalls: [tc],
+                        },
+                        {
+                            role: 'tool',
+                            name: tc.function.name,
+                            toolCallId: tc.id,
+                            content: '{"echoed":"hello probe"}',
+                        },
+                        { role: 'user', content: 'What did the echo tool return?' },
+                    ],
+                    tools: [echoTool],
+                    maxTokens: 120,
+                    temperature: 0,
+                    noFallback: true,
+                });
+                const fu = (followUp.content || '').trim();
+                // Coherent response: non-empty, mentions "hello probe" or "echo",
+                // and does not claim the tool result is missing.
+                const mentionsEcho = /hello probe|echoed|"echoed"|\becho\b/i.test(fu);
+                const denialPattern = /(don'?t have|no (tool )?(result|response|output)|cannot (see|find)|nothing was returned|missing)/i;
+                roundTrip = fu.length > 0 && mentionsEcho && !denialPattern.test(fu);
+            } catch (err) {
+                logger.warn(COMPONENT, `Tool-role round-trip probe follow-up failed for ${modelId}: ${(err as Error).message}`);
+                roundTrip = false;
+            }
+            return { native: true, format: 'native', toolRoleRoundTrip: roundTrip };
         }
 
         // Check content for XML-wrapped or JSON-in-text tool calls
         const content = (response.content || '').toLowerCase();
         if (/<function_calls|<invoke|<tool_call/.test(content)) {
-            return { native: false, format: 'xml' };
+            return { native: false, format: 'xml', toolRoleRoundTrip: false };
         }
         if (/^\s*\{\s*"(?:name|function|tool)"\s*:/.test(response.content || '')) {
-            return { native: false, format: 'json-text' };
+            return { native: false, format: 'json-text', toolRoleRoundTrip: false };
         }
-        return { native: false, format: 'none' };
+        return { native: false, format: 'none', toolRoleRoundTrip: false };
     } catch (err) {
         throw new Error(`tool calling probe failed: ${(err as Error).message}`);
     }
@@ -267,6 +318,7 @@ export async function probeModel(modelId: string): Promise<ProbeResult> {
         hasThinkingMode: false,
         nativeToolCalls: false,
         toolCallFormat: 'unknown',
+        toolRoleRoundTrip: false,
         avgLatencyMs: 0,
         samplesCount: 0,
         leaksChainOfThought: false,
@@ -296,6 +348,7 @@ export async function probeModel(modelId: string): Promise<ProbeResult> {
         const p = await probeToolCalling(modelId);
         result.nativeToolCalls = p.native;
         result.toolCallFormat = p.format;
+        result.toolRoleRoundTrip = p.toolRoleRoundTrip;
     } catch (err) {
         errors.push(`tools: ${(err as Error).message}`);
     }
@@ -329,7 +382,7 @@ export async function probeModel(modelId: string): Promise<ProbeResult> {
     result.probeDurationMs = Date.now() - start;
     result.errors = errors;
 
-    logger.info(COMPONENT, `Probed ${modelId} in ${result.probeDurationMs}ms — routing=${result.thinkingFieldRouting}, native_tools=${result.nativeToolCalls}, latency=${result.avgLatencyMs}ms, cot_leaks=${result.leaksChainOfThought}`);
+    logger.info(COMPONENT, `Probed ${modelId} in ${result.probeDurationMs}ms — routing=${result.thinkingFieldRouting}, native_tools=${result.nativeToolCalls}, tool_role_round_trip=${result.toolRoleRoundTrip}, latency=${result.avgLatencyMs}ms, cot_leaks=${result.leaksChainOfThought}`);
 
     return result;
 }
@@ -342,6 +395,7 @@ export function formatProbeResult(r: ProbeResult): string {
     if (r.needsExplicitThinkFalse) flags.push('NEEDS think:false');
     if (r.nativeToolCalls) flags.push('native-tools');
     else if (r.toolCallFormat === 'xml') flags.push('xml-tools');
+    if (r.nativeToolCalls && !r.toolRoleRoundTrip) flags.push('DROPS tool-role (force think:false on tool turns)');
     if (r.leaksChainOfThought) flags.push('CoT-leaks');
     if (!r.respectsSystemPrompt) flags.push('ignores-system');
 
@@ -349,7 +403,7 @@ export function formatProbeResult(r: ProbeResult): string {
         `${r.model}`,
         `  latency: ${r.avgLatencyMs}ms (${r.samplesCount} samples)`,
         `  thinking: routes to ${r.thinkingFieldRouting}${r.hasThinkingMode ? ' (has thinking)' : ''}`,
-        `  tools: ${r.toolCallFormat}`,
+        `  tools: ${r.toolCallFormat}  round-trip: ${r.toolRoleRoundTrip ? 'ok' : 'broken'}`,
         `  flags: [${flags.join(', ') || 'clean'}]`,
         r.errors.length > 0 ? `  errors: ${r.errors.join(', ')}` : '',
     ].filter(Boolean).join('\n');

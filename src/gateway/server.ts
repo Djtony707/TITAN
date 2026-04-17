@@ -3606,6 +3606,33 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(updated);
   });
 
+  // ── F2: Agent Identity (persistent personality) ──────────
+  // Pass a field as `null` to clear it. Fields absent from the body are left
+  // untouched. Validation is intentionally lenient — this is an admin
+  // surface and malformed data fails at the next LLM call, not here.
+  app.patch('/api/command-post/agents/:id/identity', async (req, res) => {
+    const { voiceId, personaId, systemPromptOverride, memoryNamespace, characterSummary } = req.body || {};
+    const coerce = (v: unknown): string | null | undefined => {
+      if (v === null) return null;
+      if (typeof v === 'string') return v;
+      if (v === undefined) return undefined;
+      res.status(400).json({ error: `Invalid identity field: expected string or null, got ${typeof v}` });
+      return undefined;
+    };
+    if (res.headersSent) return;
+    const { updateAgentIdentity } = await import('../agent/commandPost.js');
+    const updated = updateAgentIdentity(req.params.id, {
+      voiceId: coerce(voiceId),
+      personaId: coerce(personaId),
+      systemPromptOverride: coerce(systemPromptOverride),
+      memoryNamespace: coerce(memoryNamespace),
+      characterSummary: coerce(characterSummary),
+    });
+    if (res.headersSent) return;
+    if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
+    res.json(updated);
+  });
+
   // ── Wakeup System (async sub-agent delegation) ────────────
 
   app.get('/api/command-post/agents/:agentId/inbox', (req, res) => {

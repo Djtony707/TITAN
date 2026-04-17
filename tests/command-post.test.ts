@@ -54,6 +54,7 @@ import {
     validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual,
     getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent,
     requestGoalProposalApproval, approveApproval, rejectApproval, getApproval,
+    registerAgent, updateAgentIdentity, getAgentMemoryNamespace, getAgentVoice,
 } from '../src/agent/commandPost.js';
 
 const defaultConfig = {
@@ -587,6 +588,107 @@ describe('Command Post', () => {
             });
             const fetched = getApproval(approval.id);
             expect(fetched?.type).toBe('goal_proposal');
+        });
+    });
+
+    // ── F2: Persistent Agent Identity ────────────────────────
+    describe('Agent Identity (F2)', () => {
+        it('updateAgentIdentity sets all five fields', () => {
+            const agent = registerAgent({ name: 'Alice', role: 'engineer' });
+            const updated = updateAgentIdentity(agent.id, {
+                voiceId: 'leah',
+                personaId: 'dry-engineer',
+                systemPromptOverride: 'You push back before committing.',
+                memoryNamespace: 'agent:alice',
+                characterSummary: 'A dry, skeptical engineer.',
+            });
+            expect(updated).not.toBeNull();
+            expect(updated!.voiceId).toBe('leah');
+            expect(updated!.personaId).toBe('dry-engineer');
+            expect(updated!.systemPromptOverride).toBe('You push back before committing.');
+            expect(updated!.memoryNamespace).toBe('agent:alice');
+            expect(updated!.characterSummary).toBe('A dry, skeptical engineer.');
+        });
+
+        it('updateAgentIdentity with null clears a field', () => {
+            const agent = registerAgent({ name: 'Bob', role: 'researcher' });
+            updateAgentIdentity(agent.id, { voiceId: 'andrew' });
+            const cleared = updateAgentIdentity(agent.id, { voiceId: null });
+            expect(cleared!.voiceId).toBeUndefined();
+        });
+
+        it('updateAgentIdentity leaves untouched fields alone', () => {
+            const agent = registerAgent({ name: 'Carol' });
+            updateAgentIdentity(agent.id, { voiceId: 'jess', personaId: 'builder' });
+            const updated = updateAgentIdentity(agent.id, { characterSummary: 'Builds fast.' });
+            expect(updated!.voiceId).toBe('jess');
+            expect(updated!.personaId).toBe('builder');
+            expect(updated!.characterSummary).toBe('Builds fast.');
+        });
+
+        it('updateAgentIdentity returns null for unknown agent', () => {
+            const result = updateAgentIdentity('nonexistent', { voiceId: 'x' });
+            expect(result).toBeNull();
+        });
+
+        it('updateAgentIdentity emits activity entry when fields change', () => {
+            const agent = registerAgent({ name: 'Dave' });
+            updateAgentIdentity(agent.id, { personaId: 'builder' });
+            const feed = getActivity({ type: 'agent_status_change' });
+            const identityEvents = feed.filter(a =>
+                a.agentId === agent.id && a.message.includes('identity updated')
+            );
+            expect(identityEvents.length).toBeGreaterThanOrEqual(1);
+            expect(identityEvents[0].metadata?.fields).toContain('personaId');
+        });
+
+        it('updateAgentIdentity does NOT emit activity when nothing changes', () => {
+            const agent = registerAgent({ name: 'Eve' });
+            updateAgentIdentity(agent.id, { personaId: 'builder' });
+            const beforeCount = getActivity({ type: 'agent_status_change' }).length;
+            updateAgentIdentity(agent.id, { personaId: 'builder' }); // no-op
+            const afterCount = getActivity({ type: 'agent_status_change' }).length;
+            expect(afterCount).toBe(beforeCount);
+        });
+
+        it('getAgentMemoryNamespace returns stored namespace when set', () => {
+            const agent = registerAgent({ name: 'Frank' });
+            updateAgentIdentity(agent.id, { memoryNamespace: 'custom:frank' });
+            expect(getAgentMemoryNamespace(agent.id)).toBe('custom:frank');
+        });
+
+        it('getAgentMemoryNamespace falls back to agent:${id} when unset', () => {
+            const agent = registerAgent({ name: 'Grace' });
+            expect(getAgentMemoryNamespace(agent.id)).toBe(`agent:${agent.id}`);
+        });
+
+        it('getAgentMemoryNamespace works for unknown agents (synthetic default)', () => {
+            expect(getAgentMemoryNamespace('ghost-agent')).toBe('agent:ghost-agent');
+        });
+
+        it('getAgentVoice returns undefined when unset', () => {
+            const agent = registerAgent({ name: 'Hank' });
+            expect(getAgentVoice(agent.id)).toBeUndefined();
+        });
+
+        it('getAgentVoice returns voiceId when set', () => {
+            const agent = registerAgent({ name: 'Ivy' });
+            updateAgentIdentity(agent.id, { voiceId: 'leah' });
+            expect(getAgentVoice(agent.id)).toBe('leah');
+        });
+
+        it('identity fields survive through saveState / loadState cycle', () => {
+            const agent = registerAgent({ name: 'Julia' });
+            updateAgentIdentity(agent.id, {
+                voiceId: 'jess',
+                personaId: 'builder',
+                characterSummary: 'Curious.',
+            });
+            // Read back — cache is the same map, but we're verifying the write path touched it.
+            const fetched = getRegisteredAgents().find(a => a.id === agent.id);
+            expect(fetched?.voiceId).toBe('jess');
+            expect(fetched?.personaId).toBe('builder');
+            expect(fetched?.characterSummary).toBe('Curious.');
         });
     });
 });

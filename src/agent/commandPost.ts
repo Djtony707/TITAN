@@ -61,6 +61,18 @@ export interface RegisteredAgent {
     reportsTo?: string;
     role: 'ceo' | 'manager' | 'engineer' | 'researcher' | 'general';
     title?: string;
+    /** TITAN identity fields (F2). Optional — absent = fall back to global config.
+     *  When set, they give the agent a continuous personality across restarts. */
+    /** Orpheus voice name (e.g. 'leah', 'jess'). Falls back to config.voice.ttsVoice. */
+    voiceId?: string;
+    /** Persona file stem from assets/personas/. Falls back to config.agent.persona. */
+    personaId?: string;
+    /** Extra text prepended to the system prompt when this agent runs. */
+    systemPromptOverride?: string;
+    /** Hindsight memory network key. Defaults to `agent:${id}`. */
+    memoryNamespace?: string;
+    /** 1-3 sentence self-description. Seed for future relationship memory. */
+    characterSummary?: string;
 }
 
 export interface ActivityEntry {
@@ -1104,6 +1116,73 @@ export function getOrgTree(): OrgNode[] {
     }
 
     return buildTree(undefined);
+}
+
+/**
+ * Update an agent's persistent identity (F2). Any field omitted is left
+ * untouched; pass `null` to explicitly clear a field. Triggers an activity
+ * feed entry so the change is auditable.
+ */
+export function updateAgentIdentity(
+    agentId: string,
+    updates: {
+        voiceId?: string | null;
+        personaId?: string | null;
+        systemPromptOverride?: string | null;
+        memoryNamespace?: string | null;
+        characterSummary?: string | null;
+    },
+): RegisteredAgent | null {
+    const agent = registeredAgents.get(agentId);
+    if (!agent) return null;
+
+    const changed: string[] = [];
+    const apply = <K extends 'voiceId' | 'personaId' | 'systemPromptOverride' | 'memoryNamespace' | 'characterSummary'>(key: K) => {
+        const v = updates[key];
+        if (v === undefined) return;
+        const before = agent[key];
+        if (v === null) delete agent[key];
+        else agent[key] = v;
+        if (before !== agent[key]) changed.push(key);
+    };
+    apply('voiceId');
+    apply('personaId');
+    apply('systemPromptOverride');
+    apply('memoryNamespace');
+    apply('characterSummary');
+
+    if (changed.length === 0) return agent;
+
+    saveState();
+    addActivity({
+        type: 'agent_status_change',
+        agentId,
+        message: `Agent "${agent.name}" identity updated: ${changed.join(', ')}`,
+        metadata: { fields: changed },
+    });
+    return agent;
+}
+
+/**
+ * Resolve the effective Hindsight memory namespace for an agent.
+ * Defaults to `agent:${id}` when no explicit namespace is set.
+ */
+export function getAgentMemoryNamespace(agentId: string): string {
+    const agent = registeredAgents.get(agentId);
+    if (!agent) return `agent:${agentId}`;
+    return agent.memoryNamespace || `agent:${agent.id}`;
+}
+
+/**
+ * Resolve the effective TTS voice for an agent. Returns the agent's stored
+ * voiceId if set, otherwise undefined — callers should fall back to the
+ * global config.voice.ttsVoice. Voice-mode plumbing of this getter is
+ * tracked separately; F2 ships identity storage + agent.ts + Hindsight
+ * scoping only.
+ */
+export function getAgentVoice(agentId: string): string | undefined {
+    const agent = registeredAgents.get(agentId);
+    return agent?.voiceId;
 }
 
 export function updateRegisteredAgent(agentId: string, updates: Partial<Pick<RegisteredAgent, 'reportsTo' | 'role' | 'title' | 'name'>>): RegisteredAgent | null {

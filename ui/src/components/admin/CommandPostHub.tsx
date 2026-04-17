@@ -311,7 +311,101 @@ function IssuesTab() {
 // TAB: AGENTS
 // ═══════════════════════════════════════════════════════════════
 
+function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSaved: () => void }) {
+  const [voiceId, setVoiceId] = useState(agent.voiceId || '');
+  const [personaId, setPersonaId] = useState(agent.personaId || '');
+  const [systemPromptOverride, setSystemPromptOverride] = useState(agent.systemPromptOverride || '');
+  const [memoryNamespace, setMemoryNamespace] = useState(agent.memoryNamespace || '');
+  const [characterSummary, setCharacterSummary] = useState(agent.characterSummary || '');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/command-post/agents/${agent.id}/identity`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          voiceId: voiceId || null,
+          personaId: personaId || null,
+          systemPromptOverride: systemPromptOverride || null,
+          memoryNamespace: memoryNamespace || null,
+          characterSummary: characterSummary || null,
+        }),
+      });
+      onSaved();
+    } catch (e) {
+      alert(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-white/40 uppercase tracking-wider">Voice ID</label>
+          <input
+            value={voiceId}
+            onChange={(e) => setVoiceId(e.target.value)}
+            placeholder="leah, jess, andrew, ..."
+            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-white/40 uppercase tracking-wider">Persona ID</label>
+          <input
+            value={personaId}
+            onChange={(e) => setPersonaId(e.target.value)}
+            placeholder="default, builder, ..."
+            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Character Summary (1-3 sentences)</label>
+        <textarea
+          value={characterSummary}
+          onChange={(e) => setCharacterSummary(e.target.value)}
+          rows={2}
+          placeholder="A dry, skeptical engineer who pushes back before committing."
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none resize-none"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">System Prompt Override</label>
+        <textarea
+          value={systemPromptOverride}
+          onChange={(e) => setSystemPromptOverride(e.target.value)}
+          rows={3}
+          placeholder="Prepended to the base system prompt when this agent runs."
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none resize-none"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Memory Namespace (Hindsight)</label>
+        <input
+          value={memoryNamespace}
+          onChange={(e) => setMemoryNamespace(e.target.value)}
+          placeholder={`agent:${agent.id}`}
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+        />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="px-3 py-1 text-[10px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Identity'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; runs: CPRun[]; onRefresh: () => void }) {
+  const [expandedIdentity, setExpandedIdentity] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
@@ -326,8 +420,17 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                   <span className="text-[13px] font-semibold text-white/90">{agent.name}</span>
                   <StatusBadge status={agent.status} />
                   <span className="text-[10px] text-white/25 capitalize">{agent.role}</span>
+                  {agent.personaId && <span className="text-[10px] text-indigo-300/70">persona: {agent.personaId}</span>}
+                  {agent.voiceId && <span className="text-[10px] text-pink-300/70">voice: {agent.voiceId}</span>}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setExpandedIdentity(expandedIdentity === agent.id ? null : agent.id)}
+                    className="text-[10px] text-white/30 hover:text-white/60 transition-colors"
+                    title="Edit identity"
+                  >
+                    {expandedIdentity === agent.id ? 'Close' : 'Identity'}
+                  </button>
                   <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
                   {agent.id !== 'default' && (
                     <button
@@ -354,6 +457,12 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                 <span>Cost: ${agent.totalCostUsd.toFixed(2)}</span>
                 {agent.reportsTo && <span>Reports to: {agent.reportsTo}</span>}
               </div>
+              {agent.characterSummary && (
+                <div className="mt-1 text-[11px] text-white/50 italic">"{agent.characterSummary}"</div>
+              )}
+              {expandedIdentity === agent.id && (
+                <AgentIdentityEditor agent={agent} onSaved={() => { setExpandedIdentity(null); onRefresh(); }} />
+              )}
             </div>
           ))}
         </div>
