@@ -21,6 +21,12 @@ import { chat } from '../providers/router.js';
 import { processMessage } from '../agent/agent.js';
 import { TITAN_VERSION } from '../utils/constants.js';
 import logger from '../utils/logger.js';
+import {
+    extractAudioAttachments,
+    transcribeMessengerAudio,
+    sendVoiceReply,
+    f5ttsHealth,
+} from './messenger-voice.js';
 
 const COMPONENT = 'Messenger';
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
@@ -269,6 +275,10 @@ export class MessengerChannel extends ChannelAdapter {
     /** Message queue — if a message arrives while one is processing, queue it */
     private messageQueue = new Map<string, Array<string>>();
 
+    /** v4.3.2: owner voice replies (F5-TTS Andrew) — configurable per deploy */
+    private voiceRepliesEnabled = false;
+    private voiceName = 'andrew';
+
     async connect(): Promise<void> {
         const config = loadConfig();
         const channelConfig = (config.channels as Record<string, Record<string, unknown>>)?.messenger;
@@ -285,6 +295,20 @@ export class MessengerChannel extends ChannelAdapter {
         if (!this.pageToken || !this.pageId) {
             logger.info(COMPONENT, 'Messenger not configured — set FB_PAGE_ACCESS_TOKEN and FB_PAGE_ID');
             return;
+        }
+
+        // v4.3.2: voice replies — default ON for owners so Tony gets voice notes
+        // when he's on mobile. Can be toggled via channels.messenger.voiceReplies.
+        const voiceReplies = channelConfig?.voiceReplies as Record<string, unknown> | undefined;
+        this.voiceRepliesEnabled = voiceReplies?.enabled !== false; // default true
+        this.voiceName = (voiceReplies?.voice as string) || 'andrew';
+
+        // Probe F5-TTS at startup — log if it's not reachable but don't disable.
+        // The channel works fine with text-only; voice is a bonus.
+        if (this.voiceRepliesEnabled) {
+            f5ttsHealth().then(ok => {
+                logger.info(COMPONENT, `F5-TTS voice replies: ${ok ? 'ready' : 'server not reachable (text-only)'} (voice=${this.voiceName})`);
+            }).catch(() => {});
         }
 
         this.connected = true;
@@ -408,12 +432,26 @@ export class MessengerChannel extends ChannelAdapter {
                 // Skip echo messages (from the page itself)
                 if (message?.is_echo) continue;
 
-                // Skip if no text
-                const text = message?.text as string;
-                if (!text || !senderId) continue;
-
                 // Skip messages from the page itself
                 if (senderId === this.pageId) continue;
+                if (!senderId) continue;
+
+                // v4.3.2: audio attachments from Tony get transcribed to text
+                // and routed through the normal reply path. Only process audio
+                // if there's no text alongside it (text takes priority).
+                const textRaw = message?.text as string | undefined;
+                let text = textRaw || '';
+                const audios = extractAudioAttachments(message);
+                if (!text && audios.length > 0) {
+                    // Fire the transcription + reply in the background so we
+                    // don't block the webhook ACK (FB retries if we're slow).
+                    this.handleVoiceMessage(senderId, audios[0].url).catch(e =>
+                        logger.error(COMPONENT, `Voice message handling failed: ${(e as Error).message}`),
+                    );
+                    continue;
+                }
+
+                if (!text) continue;
 
                 logger.info(COMPONENT, `Incoming DM from ${senderId}: "${text.slice(0, 60)}..."`);
 
@@ -439,6 +477,46 @@ export class MessengerChannel extends ChannelAdapter {
                 );
             }
         }
+    }
+
+    /**
+     * v4.3.2: Handle an inbound Messenger voice note. Download the audio from
+     * FB's CDN, transcribe with local faster-whisper, and treat the transcript
+     * as if Tony had typed it — same queue, same admin path, same reply flow.
+     * For owners, the reply will be synthesized in Andrew's voice (see
+     * handleDirectReply). For non-owners we just let them know we heard them.
+     */
+    private async handleVoiceMessage(senderId: string, audioUrl: string): Promise<void> {
+        logger.info(COMPONENT, `Voice note from ${senderId} — transcribing`);
+        await this.sendTypingIndicator(senderId);
+
+        const transcript = await transcribeMessengerAudio(audioUrl);
+        if (!transcript) {
+            // Whisper unavailable or all failed — tell Tony directly so he's
+            // not left wondering whether the voice note landed.
+            if (this.ownerIds.has(senderId)) {
+                await this.send({
+                    channel: 'messenger',
+                    userId: senderId,
+                    content: "I got your voice note but couldn't transcribe it just now. Mind typing it? I'll keep my transcription pipeline warming up.",
+                }).catch(() => {});
+            }
+            return;
+        }
+
+        logger.info(COMPONENT, `Transcript: "${transcript.slice(0, 120)}"`);
+
+        // Route through the same queue as typed messages so out-of-order voice
+        // + text don't step on each other.
+        if (this.activeRequests.has(senderId)) {
+            const queue = this.messageQueue.get(senderId) || [];
+            const MAX_QUEUE_SIZE = 20;
+            if (queue.length >= MAX_QUEUE_SIZE) queue.shift();
+            queue.push(transcript);
+            this.messageQueue.set(senderId, queue);
+            return;
+        }
+        await this.processWithQueue(senderId, transcript);
     }
 
     /** Process a message, then drain any queued messages for this sender */
@@ -562,7 +640,18 @@ export class MessengerChannel extends ChannelAdapter {
             }
             this.pushHistory(senderId, 'user', userMessage);
             this.pushHistory(senderId, 'assistant', reply);
-            await this.send({ channel: 'messenger', userId: senderId, content: reply });
+
+            // v4.3.2: for owners, also send the reply as a voice note in the
+            // Andrew voice via F5-TTS. Text goes first so Tony always sees the
+            // reply even if TTS or the attachment upload fails. The voice note
+            // is a bonus, not a replacement.
+            const sendResult = this.send({ channel: 'messenger', userId: senderId, content: reply });
+            if (this.voiceRepliesEnabled) {
+                sendVoiceReply(senderId, reply, this.pageToken, this.voiceName).catch(e =>
+                    logger.warn(COMPONENT, `Voice reply failed, text already sent: ${(e as Error).message}`),
+                );
+            }
+            await sendResult;
             return;
         }
 

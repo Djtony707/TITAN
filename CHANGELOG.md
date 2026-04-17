@@ -5,6 +5,58 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.2] — 2026-04-17 — Messenger voice (Andrew, bidirectional)
+
+Tony asked for voice on Messenger end-to-end: "when I'm away from home I
+want TITAN to talk to me in Messenger with the Andrew voice" — and be
+able to receive voice notes back. This ships both directions:
+
+### Inbound — voice notes → transcripts
+- `src/channels/messenger-voice.ts` (new) — `extractAudioAttachments()`
+  pulls audio URLs from the webhook payload, `transcribeMessengerAudio()`
+  downloads the FB CDN audio to a tempfile and shells out to local
+  `faster-whisper` (installed into `~/.titan/voice-venv/`) for
+  transcription. Model defaults to `base.en`, overridable via
+  `WHISPER_MODEL` env var.
+- `src/channels/messenger.ts` — `handleWebhook()` now inspects
+  `message.attachments` for `type='audio'` entries. Text-only events
+  follow the old path; audio-only events get transcribed and re-queued
+  through the same reply pipeline as typed messages.
+
+### Outbound — replies synthesized in Andrew's voice
+- `synthesizeToWav()` POSTs to the existing F5-TTS GPU server at
+  `localhost:5006` (`scripts/f5-tts-gpu-server.py`) with
+  `voice='andrew'`, reference at `~/.titan/voices/andrew.wav`.
+- `uploadMessengerAttachment()` posts the WAV to Meta's
+  `/me/message_attachments` endpoint, gets back an `attachment_id`.
+- `sendAttachmentMessage()` sends a normal Messenger message with
+  `attachment.type='audio'` referencing that ID.
+- `handleDirectReply()` for owners: text reply goes first (always
+  delivered), voice reply fires in parallel as a best-effort bonus.
+  Text-only users are unaffected.
+
+### F5-TTS torchcodec fix
+- `scripts/f5-tts-gpu-server.py` — monkey-patches `torchaudio.load` to
+  route through `soundfile` at import time. torchaudio 2.5+'s default
+  torchcodec backend was failing on F5-TTS's internal tempfiles with
+  `Could not open input file` despite the file existing on disk. The
+  soundfile path bypasses torchcodec entirely. This unblocks the voice
+  pipeline end-to-end.
+
+### Config
+- `src/config/schema.ts` — new `MessengerChannelConfigSchema` extends
+  `ChannelConfigSchema` with `voiceReplies: {enabled, voice, maxChars}`.
+  `channels.messenger` now validates properly in config instead of
+  being an untyped passthrough.
+
+### What it means for Tony
+Sends a voice note from his phone → TITAN transcribes → thinks → replies
+in text + Andrew voice attachment, round-trip in ~5-10 seconds. All
+existing Messenger behavior preserved; any TTS/upload failure falls back
+to text silently so the channel never breaks.
+
+---
+
 ## [4.3.1] — 2026-04-17 — Goal pause/resume endpoint
 
 Closes a small but painful gap: there was no HTTP endpoint to update a

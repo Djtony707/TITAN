@@ -34,6 +34,35 @@ try:
 except ImportError:
     pass
 
+# ── torchaudio.load monkey-patch (v4.3.2+) ──────────────────────────
+# torchaudio 2.5+ routes .load() through torchcodec, which fails on
+# F5-TTS's internal tempfiles with "Could not open input file" even
+# though the file exists on disk. Route torchaudio.load through
+# soundfile directly, which is already a dependency of F5-TTS and
+# handles wav/mp3/flac reliably. This must run BEFORE f5_tts imports.
+try:
+    import torch
+    import torchaudio
+    import soundfile as _sf
+    _orig_torchaudio_load = torchaudio.load
+
+    def _load_via_soundfile(uri, *args, **kwargs):
+        try:
+            # soundfile handles str, Path, file-like objects and most common formats.
+            data, sr = _sf.read(str(uri), dtype="float32", always_2d=True)
+            # soundfile returns (frames, channels); torchaudio returns (channels, frames).
+            tensor = torch.from_numpy(data.T.copy())  # copy() guarantees contiguous
+            return tensor, sr
+        except Exception:
+            # Last-resort fallback to the original loader so we don't break
+            # callers that expect torchcodec features (e.g., mp4 video audio).
+            return _orig_torchaudio_load(uri, *args, **kwargs)
+
+    torchaudio.load = _load_via_soundfile
+    print("[VoiceClone] torchaudio.load patched → soundfile (bypasses torchcodec)")
+except Exception as _e:
+    print(f"[VoiceClone] torchaudio patch skipped: {_e}")
+
 VOICES_DIR = Path.home() / ".titan" / "voices"
 ENGINE = "f5-tts"
 SAMPLE_RATE = 24000

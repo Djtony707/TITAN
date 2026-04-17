@@ -41,6 +41,20 @@ export const ChannelConfigSchema = z.object({
     dmPolicy: z.enum(['pairing', 'open', 'closed']).default('pairing'),
 });
 
+/**
+ * v4.3.2: Messenger channel extends the base config with voice-reply options.
+ * When enabled, owner messages get synthesized in the configured voice via
+ * F5-TTS (default: Andrew). Falls back to text cleanly if TTS/upload fails.
+ */
+export const MessengerChannelConfigSchema = ChannelConfigSchema.extend({
+    voiceReplies: z.object({
+        enabled: z.boolean().default(true),
+        voice: z.string().default('andrew'),
+        /** Cap synthesized audio length to avoid huge uploads */
+        maxChars: z.number().default(1000),
+    }).default({ enabled: true, voice: 'andrew', maxChars: 1000 }),
+});
+
 export const SecurityConfigSchema = z.object({
     sandboxMode: z.enum(['host', 'docker', 'none']).default(DEFAULT_SANDBOX_MODE as 'host'),
     allowedTools: z.array(z.string()).default(ALLOWED_TOOLS_DEFAULT),
@@ -501,6 +515,15 @@ export const TitanConfigSchema = z.object({
         email_inbound: ChannelConfigSchema.default({}),
         line: ChannelConfigSchema.default({}),
         zulip: ChannelConfigSchema.default({}),
+        // v4.3.2: messenger defaults to enabled=true so env-var-configured
+        // Page tokens keep working without requiring a JSON toggle. Channel
+        // still self-disables at runtime when FB_PAGE_ACCESS_TOKEN is unset.
+        messenger: MessengerChannelConfigSchema.default({
+            enabled: true,
+            allowFrom: [],
+            dmPolicy: 'pairing',
+            voiceReplies: { enabled: true, voice: 'andrew', maxChars: 1000 },
+        }),
     }).default({}),
     gateway: GatewayConfigSchema.default({}),
     security: SecurityConfigSchema.default({}),
