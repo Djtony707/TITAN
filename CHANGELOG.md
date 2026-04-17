@@ -5,6 +5,23 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.0.4] — 2026-04-17 — Time awareness in every turn
+
+TITAN now injects current date, time, timezone, and UTC offset into
+every system prompt. Before this, asking "when will X happen" got
+answers in UTC — operators in other timezones had to mentally convert.
+
+- `src/agent/agent.ts` `buildSystemPrompt()` — new `## Current Date &
+  Time` block between Identity and Tool Use Hierarchy. Reads
+  `Intl.DateTimeFormat().resolvedOptions().timeZone` so the host TZ
+  drives it (Titan PC is `America/Los_Angeles`, reports as PDT).
+
+No config, no migration — the host's `timedatectl`/`TZ` env is the
+source of truth. If you want a specific timezone regardless of host,
+set the `TZ` env var on the gateway process.
+
+---
+
 ## [4.0.3] — 2026-04-17 — Soma nav link + FB autopilot cadence configurable
 
 ### UX fix: Soma was route-only, now in the nav
