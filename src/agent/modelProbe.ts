@@ -65,12 +65,15 @@ async function probeThinkingRouting(modelId: string): Promise<{
     hasThinking: boolean;
 }> {
     try {
-        // Call without think parameter — let the model's default kick in
+        // Call without think parameter — let the model's default kick in.
+        // noFallback: probes MUST hit the target model or fail cleanly. A silent
+        // fallback to a different model would poison the capabilities registry.
         const response = await chat({
             model: modelId,
             messages: [{ role: 'user', content: 'Say the word "PROBE_OK" and nothing else.' }],
             maxTokens: 50,
             temperature: 0,
+            noFallback: true,
         });
 
         const content = (response.content || '').trim();
@@ -124,6 +127,7 @@ async function probeToolCalling(modelId: string): Promise<{
             }],
             maxTokens: 200,
             temperature: 0,
+            noFallback: true,
         });
 
         // Check for native tool calls
@@ -161,6 +165,7 @@ async function probeLatency(modelId: string, samples = 3): Promise<{
                 messages: [{ role: 'user', content: 'Reply with one word.' }],
                 maxTokens: 10,
                 temperature: 0,
+                noFallback: true,
             });
             latencies.push(Date.now() - start);
         } catch {
@@ -188,6 +193,7 @@ async function probeCOT(modelId: string): Promise<{
             messages: [{ role: 'user', content: 'Output only the word YES. Nothing else.' }],
             maxTokens: 100,
             temperature: 0,
+            noFallback: true,
         });
 
         const content = (response.content || '').trim();
@@ -231,6 +237,7 @@ async function probeSystemPrompt(modelId: string): Promise<{
             ],
             maxTokens: 50,
             temperature: 0,
+            noFallback: true,
         });
 
         const content = ((response.content || '') + ((response as unknown as Record<string, unknown>).thinking as string || '')).trim();
@@ -268,14 +275,20 @@ export async function probeModel(modelId: string): Promise<ProbeResult> {
         errors: [],
     };
 
-    // Probe 1: Thinking routing
+    // Probe 1: Thinking routing. This is the first real call to the target
+    // model — if it fails with noFallback (target unreachable), abort the
+    // entire probe so we never save partial/misleading data to the registry.
     try {
         const p = await probeThinkingRouting(modelId);
         result.thinkingFieldRouting = p.routing;
         result.needsExplicitThinkFalse = p.needsExplicit;
         result.hasThinkingMode = p.hasThinking;
     } catch (err) {
-        errors.push(`thinking: ${(err as Error).message}`);
+        const msg = (err as Error).message;
+        if (/noFallback=true|Probe target .* unreachable/.test(msg)) {
+            throw new Error(`Probe aborted for ${modelId}: target unreachable (${msg}). Registry not updated.`);
+        }
+        errors.push(`thinking: ${msg}`);
     }
 
     // Probe 2: Tool calling

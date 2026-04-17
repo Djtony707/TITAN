@@ -717,6 +717,27 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 recordFailure(providerName);
             }
 
+            // noFallback: caller (e.g. ModelProbe) requires the target model to
+            // answer or the request to fail cleanly. Skip retries, fallback
+            // chain, mesh routing, and provider failover entirely — otherwise
+            // we would silently probe a different model and poison the caller's
+            // data with unrelated capabilities.
+            if (options.noFallback) {
+                const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
+                const noFallbackError = new Error(
+                    `Probe target ${providerName}/${model} unreachable (noFallback=true): ${errorMsg}`
+                );
+                Object.assign(noFallbackError, {
+                    status: classified.httpStatus,
+                    provider: providerName,
+                    model,
+                    cause: error,
+                    failoverReason: classified.reason,
+                    noFallback: true,
+                });
+                throw noFallbackError;
+            }
+
             // G2: Record rate-limit cooldown to prevent probe hammering
             if (classified.reason === FailoverReason.RATE_LIMIT) {
                 recordRateLimitCooldown(providerName);

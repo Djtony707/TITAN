@@ -46,6 +46,12 @@ export interface ChatOptions {
      *  Only set to true on the first round when the task clearly requires tool use.
      *  Subsequent rounds always use auto (model decides). */
     forceToolUse?: boolean;
+    /** Disable all fallback/failover behavior — fail the request if the resolved
+     *  target model/provider cannot serve it. Used by the empirical model probe,
+     *  which must hit the exact target model or report a clean failure. Without
+     *  this, a silent fallback would poison the capabilities registry with data
+     *  from whichever model happened to answer. */
+    noFallback?: boolean;
 }
 
 /** Response from a chat completion */
