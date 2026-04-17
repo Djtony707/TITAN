@@ -5,6 +5,46 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.0] — 2026-04-16
+
+### Added — Self-Directed Goal Proposal (F1)
+
+Registered agents can now propose new goals during the nightly dreaming
+cycle. Proposals land as pending Command Post approvals; once accepted,
+the existing `createGoal()` pipeline fires and Initiative picks up the
+work. First step in the "TITAN agents maintain themselves" roadmap.
+
+- `src/agent/goalProposer.ts` — single-shot JSON-returning LLM call,
+  guardrail-stripped for CoT leakage, rate-limited per agent.
+- `src/memory/dreaming.ts` — Phase 4 (Dream) added after Deep Sleep.
+- `src/agent/commandPost.ts` — new `CPApproval.type` `'goal_proposal'`,
+  `ActivityEntry.type` `'goal_proposal_requested'` and
+  `'goal_proposal_rejected'`, `requestGoalProposalApproval()` helper,
+  `approveApproval()` wired to `createGoal()` via dynamic import.
+- `src/config/schema.ts` — `agent.autoProposeGoals` (default `false`,
+  opt-in), `agent.proposalRateLimitPerDay` (default `3`),
+  `agent.proposalModel` (default `'fast'`).
+- Mission Control Approvals tab renders proposal title/description/
+  rationale/subtasks inline.
+- 19 new tests (13 proposer + 6 approval branch).
+
+### Fixed — ModelProbe Fallback Pollution
+
+Probing a model whose primary route fails (e.g. missing OpenRouter key
+for nemotron-3-super) silently fell back to a different model and
+recorded that model's capabilities under the probed model's name. Fixed
+by adding `ChatOptions.noFallback`; ModelProbe now passes
+`noFallback: true` on all four probe calls, so unreachable targets
+produce a clean error instead of a polluted registry entry.
+
+- `src/providers/base.ts` — `ChatOptions.noFallback` flag.
+- `src/providers/router.ts` — skips retry / fallback chain / mesh /
+  provider failover when the flag is set.
+- `src/agent/modelProbe.ts` — all probes opt in.
+- `tests/modelProbe.test.ts` — 4 new tests.
+
+---
+
 ## [3.3.1] — 2026-04-16
 
 ### Documentation
