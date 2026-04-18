@@ -5,6 +5,110 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.9.0-local.1] — 2026-04-18 — Memory architecture batch 1: Identity, Provenance, Experiments, Kill Switch (LOCAL-ONLY)
+
+**Still LOCAL-ONLY. Not published, not pushed.**
+
+First batch of the hard-takeoff memory + safety architecture. Four
+foundational modules, all with tests, wired into runtime.
+
+### Added
+
+**`src/memory/identity.ts`** — persistent "who I am" layer. Stored at
+`~/.titan/identity.json`. Defines mission, core values, voice traits,
+non-negotiables. Tenure (session count, version history) increments on
+every boot. Core hash detects external edits. Rendered into every
+agent's system prompt via `globalThis.__titan_identity_block`. Drift log
+(200-entry ring) flags behavior that diverges from coreValues — entries
+are pending until Tony accepts/rejects via `POST /api/identity/drift/:index/resolve`.
+
+**`src/memory/provenance.ts`** — every memory write carries `{source,
+confidence, parentEventIds}`. Source trust ladder:
+human/tool_output = high, agent/inference/recalled/self_mod = medium,
+web = low. Inference records clamp to the min trust of their parents
+(a fact derived from a web fetch is no better than the web fetch).
+`quarantine(id)` cascades to all descendants via parentEventIds.
+`findContradictions()` groups records with same memoryType but different
+content hashes. `getProvenanceStats()` exposed at `/api/provenance/stats`.
+
+**`src/memory/experiments.ts`** — the don't-redo log. Each autonomous
+attempt records hypothesis → approach → outcome → lesson. Before a new
+experiment fires, `findSimilarExperiments()` compares via Jaccard on
+hypothesis+approach+tags (threshold 0.35). goalProposer can query
+`renderRecentExperimentsBlock()` to include recent lessons in its
+context. Solves the Curiosity-redo problem Tony saw in the wild
+(TITAN building ant colony sims repeatedly, forgetting each previous
+attempt).
+
+**`src/safety/killSwitch.ts`** — master backstop. State at
+`~/.titan/kill-switch.json`, survives restarts.
+Triggers:
+- Safety drive pressure > 2.0 sustained for 10 minutes
+- Fix oscillation ≥ 3× in 24h on any target set
+- Manual (`POST /api/safety/kill`)
+- (Future: identity non-negotiable violation, canary degradation)
+
+On trigger: autopilot disabled, active goals → paused, specialists →
+paused, in-flight sessions aborted, SSE broadcasts `safety:killed`.
+Resume requires explicit human call (`POST /api/safety/resume` with
+a resolution note). Paused goals do NOT auto-resume — Tony reviews
+each manually. That's intentional: a system that recovers itself after
+triggering a kill switch has no kill switch.
+
+### Wiring
+
+- **Gateway bootstrap**: `initIdentity()` + install `__titan_identity_block`
+  accessor; logs pending drift events at startup.
+- **`agent.ts buildSystemPrompt`**: injects identity block into every
+  session's system prompt via the sync globalThis accessor (no dynamic
+  import on the hot path).
+- **`pressure.ts runPressureCycle`**: checks `isKilled()` before running
+  any drive evaluation; calls `evaluateSafetyPressure(safety.pressure)`
+  each cycle so the sustain-timer can fire if Safety stays high.
+- **`agent.ts spawn_agent`**: kill switch gate before the existing
+  Hermes-style depth/concurrency checks.
+- **`autopilot.ts runAutopilotNow`**: kill switch gate after the
+  `isRunning` concurrent-run check (preserves the existing throw
+  semantics for concurrent callers; kill path is a soft-exit).
+
+### New endpoints
+
+- `GET /api/identity` — full identity record
+- `POST /api/identity/drift/:index/resolve` — resolve a drift event
+- `GET /api/safety/state` — kill switch state + history
+- `POST /api/safety/kill` — fire manually (body: `{reason, firedBy}`)
+- `POST /api/safety/resume` — resume (body: `{note, resumedBy}`)
+- `GET /api/experiments` — list + stats
+- `GET /api/provenance/stats` — trust/source counts
+
+### Tests
+
+- `tests/memory/identity.test.ts` — 12 tests (init, session tick,
+  version transition, drift detection, render, resolve, persistence)
+- `tests/memory/experiments.test.ts` — 9 tests (record, complete,
+  similar priors detection, findSimilar threshold, cap at 1000,
+  stats, render block)
+- `tests/memory/provenance.test.ts` — 9 tests (source trust, inference
+  propagation, quarantine + cascade, stats)
+- `tests/safety/killSwitch.test.ts` — 11 tests (arm/fire/resume, sustain
+  timer, fix-oscillation, persistence across restart)
+
+Full suite: 5,587 passing (up from 5,549). Typecheck clean. Builds
+clean. Only the documented tinypool flake remains.
+
+### Still to come (per plan)
+
+- Fix-oscillation detector (wiring to killSwitch's `recordFixOscillation`)
+- Metric guard + outcome verifier (Goodhart defense)
+- Canary eval daemon (silent-degradation defense)
+- Error chain tracing
+- Episodic memory with vector recall
+- Working memory + meta/self-model
+- Self-repair daemon
+- Qwen 3.6:35b Builder swap
+
+---
+
 ## [4.9.0] — 2026-04-18 — Drive closed-loop wiring (LOCAL-ONLY — not published)
 
 **This release is LOCAL-ONLY on Tony's fleet (Titan PC + Mini PC + MacBook).

@@ -192,6 +192,15 @@ function ensureSpawnAgentRegistered(): void {
             const task = args.task as string;
             const templateName = (args.template as string) || '';
 
+            // v4.9.0: kill switch gate — if Tony killed the organism, no
+            // new sub-agent spawns until he explicitly resumes.
+            try {
+                const { isKilled } = await import('../safety/killSwitch.js');
+                if (isKilled()) {
+                    return '[Sub-Agent REFUSED] TITAN kill switch is active. Tony must resume via /api/safety/resume before new sub-agents can spawn.';
+                }
+            } catch { /* fail-open — safety module optional */ }
+
             // v4.7.0: Hermes-style safety gates on the spawn path.
             // Prevents fork bombs + concurrent runaway. Depth is best-effort
             // (we treat the primary as depth 0); the MAX_CONCURRENT_CHILDREN
@@ -526,6 +535,23 @@ Never list internal rules like "Tool Execution:", "NEVER:", "Core Principles:", 
 You are TITAN, an autonomous AI agent. You ACT on requests by calling tools — you do not describe actions, you EXECUTE them.
 Your tools are your hands. Every request should result in tool calls, not explanations.
 Model: ${modelId} | Persona: ${effectivePersona}${agentCharacterSummary ? `\n\n${agentCharacterSummary}` : ''}
+${(() => {
+    // v4.9.0: inject persistent identity (mission, core values, non-negotiables,
+    // tenure). Loaded from ~/.titan/identity.json on first session, updated
+    // on every boot. If the identity module isn't available (tests, first
+    // run before init), fall through silently.
+    try {
+        // Sync access: the identity is a small JSON file + in-memory cached.
+        // No top-level await needed — we avoid a dynamic import at this hot
+        // path by reading the cached module reference installed at bootstrap.
+        const g = globalThis as unknown as { __titan_identity_block?: () => string };
+        if (typeof g.__titan_identity_block === 'function') {
+            const block = g.__titan_identity_block();
+            if (block) return '\n\n' + block;
+        }
+    } catch { /* identity unavailable — fall through */ }
+    return '';
+})()}
 
 ## Current Date & Time
 ${(() => {

@@ -4031,6 +4031,85 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ items, total: items.length });
   });
 
+  // ── v4.9.0: Safety + Identity endpoints ─────────────────────────
+
+  app.get('/api/safety/state', async (_req, res) => {
+    try {
+      const { getState } = await import('../safety/killSwitch.js');
+      res.json(getState());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/safety/kill', async (req, res) => {
+    try {
+      const reason = (req.body?.reason as string) || 'manual kill via API';
+      const firedBy = (req.body?.firedBy as string) || 'api';
+      const { kill } = await import('../safety/killSwitch.js');
+      await kill('manual', reason, { firedBy });
+      const { getState } = await import('../safety/killSwitch.js');
+      res.json(getState());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/safety/resume', async (req, res) => {
+    try {
+      const note = (req.body?.note as string) || 'resumed via API (no note)';
+      const resumedBy = (req.body?.resumedBy as string) || 'api';
+      const { resume } = await import('../safety/killSwitch.js');
+      const state = resume(note, resumedBy);
+      res.json(state);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/identity', async (_req, res) => {
+    try {
+      const { getIdentity } = await import('../memory/identity.js');
+      const id = getIdentity();
+      if (!id) { res.status(404).json({ error: 'identity not initialized' }); return; }
+      res.json(id);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/identity/drift/:index/resolve', async (req, res) => {
+    try {
+      const idx = parseInt(req.params.index, 10);
+      const resolution = (req.body?.resolution as 'accepted' | 'rejected') || 'accepted';
+      const note = req.body?.note as string | undefined;
+      const { resolveDrift } = await import('../memory/identity.js');
+      const ok = resolveDrift(idx, resolution, note);
+      if (!ok) { res.status(404).json({ error: 'drift event not found at index' }); return; }
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/experiments', async (_req, res) => {
+    try {
+      const { listExperiments, getExperimentStats } = await import('../memory/experiments.js');
+      res.json({ experiments: listExperiments(200), stats: getExperimentStats() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/provenance/stats', async (_req, res) => {
+    try {
+      const { getProvenanceStats } = await import('../memory/provenance.js');
+      res.json(getProvenanceStats());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── v4.8.0: Self-Modification Pipeline endpoints ────────────────
   // All routes are behind `selfMod.enabled`. When disabled they 404 so
   // pre-v4.8.0 clients hitting them get a clean "feature off" signal.
@@ -7151,6 +7230,27 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     } catch (e) {
       logger.warn(COMPONENT, `Specialist bootstrap skipped: ${(e as Error).message}`);
     }
+  }
+
+  // v4.9.0: load/init stable identity. Persistent across restarts.
+  // Session count ticks, version transitions logged, core hash checked
+  // for tampering. Identity gets rendered into every agent's system
+  // prompt via agent.ts (sync globalThis accessor).
+  try {
+    const { initIdentity, renderIdentityBlock, getIdentity } = await import('../memory/identity.js');
+    const identity = initIdentity();
+    logger.info(COMPONENT, `Identity loaded — session #${identity.tenure.sessionCount}, ${identity.driftLog.filter(d => d.resolution === 'pending').length} pending drift event(s)`);
+    for (const ev of identity.driftLog.filter(d => d.resolution === 'pending').slice(-3)) {
+      logger.warn('Identity', `Pending drift [${ev.kind}]: ${ev.detail.slice(0, 140)}`);
+    }
+    // Install a sync accessor so agent.ts buildSystemPrompt() can pull
+    // the identity block without dynamic import on every message.
+    (globalThis as unknown as { __titan_identity_block?: () => string }).__titan_identity_block = () => {
+      const id = getIdentity();
+      return id ? renderIdentityBlock(id) : '';
+    };
+  } catch (e) {
+    logger.warn(COMPONENT, `Identity bootstrap skipped: ${(e as Error).message}`);
   }
 
   // v4.9.0: install closed-loop signal providers for Soma drives. These

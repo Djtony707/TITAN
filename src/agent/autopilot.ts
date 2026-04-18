@@ -231,6 +231,25 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
     }
 
     isRunning = true;
+
+    // v4.9.0: kill switch gate. When Tony kills the organism, autopilot
+    // must refuse to run until he resumes. Placed after the isRunning
+    // check so "concurrent run" still throws for the caller — the kill
+    // path is a soft-exit for the scheduled cadence.
+    try {
+        const { isKilled } = await import('../safety/killSwitch.js');
+        if (isKilled()) {
+            isRunning = false;
+            return {
+                success: false,
+                timestamp: new Date().toISOString(),
+                duration: 0,
+                summary: 'Autopilot paused by kill switch — awaiting human resume',
+                cost: 0,
+                tokensUsed: 0,
+            } as unknown as AutopilotResult;
+        }
+    } catch { /* fail-open — safety optional */ }
     const startTime = Date.now();
     const config = loadConfig();
     const configDryRun = (config.autopilot as Record<string, unknown>).dryRun === true;

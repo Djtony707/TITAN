@@ -133,6 +133,35 @@ export async function runPressureCycle(
             skipped: 'organism.enabled=false',
         };
     }
+
+    // v4.9.0: if the kill switch fired, refuse to run the pressure cycle.
+    // Goals + specialists already got paused by the kill sequence; we
+    // must not propose more work until Tony resumes.
+    try {
+        const { isKilled } = await import('../safety/killSwitch.js');
+        if (isKilled()) {
+            const reading = computePressureReading(drives);
+            return {
+                fired: false,
+                reading,
+                decision: {
+                    should: false, totalPressure: reading.totalPressure, threshold: 0,
+                    dominantDrives: reading.dominantDrives, reason: 'kill switch active',
+                },
+                skipped: 'kill switch active — awaiting human resume',
+            };
+        }
+    } catch { /* safety module unavailable — continue */ }
+
+    // v4.9.0: evaluate sustained Safety pressure so the kill switch
+    // can fire if Safety stays > 2.0 for 10 minutes. Best-effort.
+    try {
+        const safety = drives.find(d => d.id === 'safety');
+        if (safety) {
+            const { evaluateSafetyPressure } = await import('../safety/killSwitch.js');
+            evaluateSafetyPressure(safety.pressure);
+        }
+    } catch { /* ok */ }
     const threshold = organism.pressureThreshold ?? 1.2;
     const decision = evaluatePressure(drives, threshold);
     const reading = computePressureReading(drives);
