@@ -7153,6 +7153,63 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     }
   }
 
+  // v4.9.0: install closed-loop signal providers for Soma drives. These
+  // let the drive layer read live VRAM / telemetry / learning state via
+  // a synchronous call without pulling in the whole dependency graph.
+  try {
+    const { getVRAMOrchestrator } = await import('../vram/orchestrator.js');
+    const { getMetricsSummary } = await import('./metrics.js');
+    const { getLearningStats } = await import('../memory/learning.js');
+
+    // VRAM: refresh happens on the orchestrator's 10s cadence; we just
+    // peek at the last known GPU state. If there's no GPU, the peeker
+    // returns nothing and the drive treats that as "no signal."
+    const g = globalThis as unknown as {
+      __titan_vram_last?: { totalMB: number; freeMB: number; usedMB: number };
+      __titan_metrics_summary?: () => { totalRequests: number; errorRate: number } | null;
+      __titan_unresolved_error_patterns?: () => number;
+    };
+    setInterval(() => {
+      (async () => {
+        try {
+          const orch = getVRAMOrchestrator();
+          const snap = await orch.getSnapshot();
+          if (snap?.gpu && typeof snap.gpu.totalMB === 'number' && snap.gpu.totalMB > 0) {
+            g.__titan_vram_last = {
+              totalMB: snap.gpu.totalMB,
+              freeMB: snap.gpu.freeMB,
+              usedMB: snap.gpu.usedMB ?? (snap.gpu.totalMB - snap.gpu.freeMB),
+            };
+          } else {
+            g.__titan_vram_last = undefined;
+          }
+        } catch { /* best-effort */ }
+      })();
+    }, 15_000).unref?.();
+
+    // Metrics: cheap synchronous read.
+    g.__titan_metrics_summary = () => {
+      try {
+        const s = getMetricsSummary();
+        return { totalRequests: s.totalRequests, errorRate: s.errorRate };
+      } catch { return null; }
+    };
+
+    // Unresolved error patterns from the learning KB.
+    g.__titan_unresolved_error_patterns = () => {
+      try {
+        const stats = getLearningStats();
+        // getLearningStats returns total pattern count; the drive uses
+        // that directly — "unresolved" is a safe upper bound here.
+        return stats.errorPatterns ?? 0;
+      } catch { return 0; }
+    };
+
+    logger.info(COMPONENT, 'Drive signal providers installed (VRAM, metrics, learning)');
+  } catch (e) {
+    logger.warn(COMPONENT, `Drive signal bootstrap skipped: ${(e as Error).message}`);
+  }
+
   // v4.8.0: Self-Modification Pipeline — auto-review newly captured
   // proposals and poll open PRs for merge/close outcomes.
   try {

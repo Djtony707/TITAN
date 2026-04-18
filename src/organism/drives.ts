@@ -49,6 +49,24 @@ export interface DriveSnapshot {
     agents: RegisteredAgent[];
     /** Last 100 trajectory entries. */
     trajectories: TaskTrajectory[];
+    /**
+     * v4.9.0: fraction of GPU VRAM in use (0–1). Undefined when no GPU
+     * is attached or the orchestrator hasn't refreshed yet.
+     */
+    vramSaturation?: number;
+    /**
+     * v4.9.0: error rate across recent LLM / tool calls from the
+     * gateway metrics layer (0–1). Undefined when metrics are unavailable.
+     */
+    telemetryErrorRate?: number;
+    /** v4.9.0: total LLM + tool-call requests since gateway start. */
+    telemetryTotalRequests?: number;
+    /**
+     * v4.9.0: count of error patterns the learning layer has accumulated
+     * but not yet resolved. High count pulls Curiosity toward an
+     * investigate/improve proposal.
+     */
+    unresolvedErrorPatterns?: number;
 }
 
 export interface DriveDefinition {
@@ -201,7 +219,19 @@ const CURIOSITY: DriveDefinition = {
         const coverage = clamp01(typeCount / 5);
         const counts = Object.values(typeCounts);
         const balance = typeCount <= 1 ? 0 : clamp01(1 - gini(counts));
-        const satisfaction = typeCount <= 1 ? coverage : Math.min(coverage, balance);
+        const diversitySat = typeCount <= 1 ? coverage : Math.min(coverage, balance);
+
+        // v4.9.0: unresolved error patterns are a form of "task-type
+        // novelty the organism hasn't figured out yet." More than a
+        // handful of unresolved patterns pulls Curiosity toward an
+        // investigate-and-improve proposal (feeds Self-Improve pipeline).
+        // Scales 0→10+ patterns linearly.
+        let errorPatternSat = 1;
+        if (typeof snap.unresolvedErrorPatterns === 'number' && snap.unresolvedErrorPatterns > 2) {
+            errorPatternSat = clamp01(1 - (snap.unresolvedErrorPatterns - 2) / 10);
+        }
+
+        const satisfaction = Math.min(diversitySat, errorPatternSat);
         return {
             satisfaction,
             inputs: {
@@ -209,11 +239,15 @@ const CURIOSITY: DriveDefinition = {
                 taskTypes: typeCount,
                 coverage: Math.round(coverage * 100) / 100,
                 balance: Math.round(balance * 100) / 100,
+                unresolvedErrorPatterns: snap.unresolvedErrorPatterns ?? 0,
+                errorPatternSat: Math.round(errorPatternSat * 100) / 100,
             },
         };
     },
     describe: (s, inputs) => {
         const types = (inputs?.taskTypes as number) ?? 0;
+        const patterns = (inputs?.unresolvedErrorPatterns as number) ?? 0;
+        if (patterns >= 5) return `${patterns} unresolved error patterns — needs investigation`;
         if (s < 0.3) return `stuck in ${types} task type(s) — stale`;
         if (s < 0.6) return `${types} task type(s) — could use novelty`;
         return `${types} distinct task type(s) — engaged`;
@@ -243,20 +277,52 @@ const SAFETY: DriveDefinition = {
             const errors = recent.filter(r => r.status === 'error' || r.status === 'failed').length;
             errorSatisfaction = clamp01(1 - errors / recent.length);
         }
-        const satisfaction = Math.min(budgetSatisfaction, errorSatisfaction);
+
+        // v4.9.0: VRAM saturation above 85% presses Safety. Below 85%,
+        // saturation has no effect. Scales linearly 85%–100% → sat 1→0.
+        let vramSatisfaction = 1;
+        if (snap.vramSaturation !== undefined) {
+            if (snap.vramSaturation > 0.85) {
+                vramSatisfaction = clamp01(1 - (snap.vramSaturation - 0.85) / 0.15);
+            }
+        }
+
+        // v4.9.0: gateway-level telemetry error rate (LLM/tool calls).
+        // Independent of CPRun error rate — catches tool failures that
+        // never bubbled up to Command Post.
+        let telemetrySatisfaction = 1;
+        if (snap.telemetryErrorRate !== undefined) {
+            telemetrySatisfaction = clamp01(1 - snap.telemetryErrorRate * 2);
+        }
+
+        // Safety is a min-aggregate — the weakest link dominates.
+        const satisfaction = Math.min(
+            budgetSatisfaction,
+            errorSatisfaction,
+            vramSatisfaction,
+            telemetrySatisfaction,
+        );
         return {
             satisfaction,
             inputs: {
                 budgetSatisfaction: Math.round(budgetSatisfaction * 100) / 100,
                 errorSatisfaction: Math.round(errorSatisfaction * 100) / 100,
+                vramSatisfaction: Math.round(vramSatisfaction * 100) / 100,
+                telemetrySatisfaction: Math.round(telemetrySatisfaction * 100) / 100,
                 recentRunCount: recent.length,
+                vramSaturationPct: snap.vramSaturation !== undefined ? Math.round(snap.vramSaturation * 100) : null,
+                telemetryErrorRatePct: snap.telemetryErrorRate !== undefined ? Math.round(snap.telemetryErrorRate * 100) : null,
             },
         };
     },
     describe: (s, inputs) => {
         const budget = (inputs?.budgetSatisfaction as number) ?? 1;
         const errors = (inputs?.errorSatisfaction as number) ?? 1;
+        const vram = (inputs?.vramSatisfaction as number) ?? 1;
+        const tel = (inputs?.telemetrySatisfaction as number) ?? 1;
         if (budget < 0.2) return 'budget runway critical';
+        if (vram < 0.4) return `VRAM saturated (${inputs?.vramSaturationPct}%) — spawns at risk`;
+        if (tel < 0.5) return `gateway error rate elevated (${inputs?.telemetryErrorRatePct}%)`;
         if (errors < 0.5) return 'elevated error rate in recent runs';
         if (s < 0.6) return 'safety posture weakening';
         return 'safety posture healthy';
@@ -310,6 +376,32 @@ export function buildSnapshot(): DriveSnapshot {
     try { recentRuns = listRuns(undefined, 100); } catch { /* empty */ }
     let trajectories: TaskTrajectory[] = [];
     try { trajectories = getRecentTrajectories(100); } catch { /* empty */ }
+
+    // v4.9.0 — pull optional closed-loop signals. Each wrapped in try so
+    // drive tick never fails if a downstream module is missing or throws.
+
+    let vramSaturation: number | undefined;
+    try {
+        const vr = readCachedVRAMSignal();
+        if (vr !== null) vramSaturation = vr;
+    } catch { /* no signal */ }
+
+    let telemetryErrorRate: number | undefined;
+    let telemetryTotalRequests: number | undefined;
+    try {
+        const metrics = readCachedTelemetrySignal();
+        if (metrics) {
+            telemetryErrorRate = metrics.errorRate;
+            telemetryTotalRequests = metrics.totalRequests;
+        }
+    } catch { /* no signal */ }
+
+    let unresolvedErrorPatterns: number | undefined;
+    try {
+        const patterns = readUnresolvedErrorPatternCount();
+        if (patterns !== null) unresolvedErrorPatterns = patterns;
+    } catch { /* no signal */ }
+
     return {
         now: Date.now(),
         goals,
@@ -318,7 +410,70 @@ export function buildSnapshot(): DriveSnapshot {
         budgets,
         agents,
         trajectories,
+        vramSaturation,
+        telemetryErrorRate,
+        telemetryTotalRequests,
+        unresolvedErrorPatterns,
     };
+}
+
+// ── v4.9.0 signal readers ──────────────────────────────────────────
+
+/**
+ * Reads the VRAM orchestrator's last cached snapshot (no refresh) and
+ * returns used/total saturation as 0–1. Returns null when no GPU is
+ * attached or the orchestrator hasn't polled yet.
+ *
+ * Synchronous: buildSnapshot() is called in the drive-tick hot path
+ * every 60s, and we don't want to add an async nvidia-smi probe on
+ * top of the existing 10s VRAM refresh.
+ */
+function readCachedVRAMSignal(): number | null {
+    try {
+        // Dynamic require-like import from the already-loaded module
+        // singleton. If VRAM module hasn't been initialized (e.g., in
+        // tests), just return null.
+        const mod = (globalThis as unknown as { __titan_vram_last?: { freeMB?: number; totalMB?: number; usedMB?: number } }).__titan_vram_last;
+        if (!mod) return null;
+        const total = mod.totalMB ?? 0;
+        if (!Number.isFinite(total) || total <= 0) return null;
+        const used = Number.isFinite(mod.usedMB) ? mod.usedMB! : (total - (mod.freeMB ?? total));
+        const pct = used / total;
+        if (!Number.isFinite(pct)) return null;
+        return Math.max(0, Math.min(1, pct));
+    } catch {
+        return null;
+    }
+}
+
+/** Reads the gateway metrics layer's summary (sync, in-memory). */
+function readCachedTelemetrySignal(): { errorRate: number; totalRequests: number } | null {
+    try {
+        // Using require-style resolve so tests that mock the drives
+        // module don't pull in the metrics graph.
+        const mod = (globalThis as unknown as { __titan_metrics_summary?: () => { totalRequests?: number; errorRate?: number } | null }).__titan_metrics_summary;
+        if (typeof mod !== 'function') return null;
+        const s = mod();
+        if (!s || typeof s.totalRequests !== 'number' || typeof s.errorRate !== 'number') return null;
+        // Only treat the signal as meaningful once we have enough samples.
+        if (s.totalRequests < 10) return null;
+        return { errorRate: s.errorRate, totalRequests: s.totalRequests };
+    } catch {
+        return null;
+    }
+}
+
+/** Reads count of unresolved error patterns from the learning layer. */
+function readUnresolvedErrorPatternCount(): number | null {
+    try {
+        const mod = (globalThis as unknown as { __titan_unresolved_error_patterns?: () => number }).__titan_unresolved_error_patterns;
+        if (typeof mod !== 'function') return null;
+        const n = mod();
+        if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+        return n;
+    } catch {
+        return null;
+    }
 }
 
 // ── Drive state computation ──────────────────────────────────────

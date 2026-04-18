@@ -5,6 +5,81 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.9.0] — 2026-04-18 — Drive closed-loop wiring (LOCAL-ONLY — not published)
+
+**This release is LOCAL-ONLY on Tony's fleet (Titan PC + Mini PC + MacBook).
+Not published to npm, not pushed to public GitHub. Part of the "local hard
+takeoff" work where TITAN develops novel autonomous behavior before any
+public release.**
+
+### What's wired in this drop
+
+Closed-loop signals from runtime state → Soma drive layer. Before this,
+Soma only read goals, runs, budgets, agents, and trajectories. Now it
+also sees VRAM saturation, gateway telemetry error rate, and learning-
+layer unresolved error patterns — so when TITAN's own system is unhealthy,
+the drives notice and press Safety / Curiosity accordingly.
+
+### Added
+
+- **`DriveSnapshot.vramSaturation?`** (0–1). Populated from the VRAM
+  orchestrator's cached GPU state (refreshed every 15s). Undefined when
+  no GPU is attached.
+- **`DriveSnapshot.telemetryErrorRate?`** + **`telemetryTotalRequests?`**.
+  Populated from the gateway metrics layer (in-memory prometheus-style
+  counters). Requires ≥10 requests before the signal is considered
+  meaningful.
+- **`DriveSnapshot.unresolvedErrorPatterns?`**. Count of error patterns
+  the learning KB has accumulated.
+- **Gateway bootstrap** wires three sync readers onto `globalThis.__titan_*`
+  so `drives.ts` can pull the signals without importing the whole graph.
+
+### Changed drive compute
+
+**Safety** now aggregates four sub-signals (was two):
+- budget runway satisfaction (existing)
+- CPRun error satisfaction (existing)
+- **VRAM satisfaction**: 1.0 below 85% saturation, scales linearly to
+  0.0 at 100%. Result: sub-agent spawns that would push us near the
+  edge raise Safety pressure _before_ they actually fail.
+- **Gateway telemetry satisfaction**: 1 − errorRate × 2. 10% error rate
+  → sat 0.8; 50% → sat 0.0.
+- Final = min of all four (weakest-link aggregation)
+- New `describe()` surfaces "VRAM saturated (X%)" and "gateway error
+  rate elevated" separately.
+
+**Curiosity** now also reads unresolved error-pattern count:
+- Below 3 patterns → no impact
+- 3+ patterns → satisfaction drops linearly. 12 patterns → 0.0.
+- `describe()` surfaces "N unresolved error patterns — needs investigation"
+  when dominant.
+- This is the feed for the Self-Improve auto-trigger: when Curiosity
+  pressure crosses Soma's threshold, the goalProposer sees the pattern
+  count in `consolidationNotes` and naturally proposes an investigation
+  goal.
+
+### Tests
+
+- `tests/organism/drives.test.ts` — 4 new tests for the v4.9 signals
+  (VRAM > 85%, VRAM < 85%, absent signal, telemetry high error rate).
+- Full suite: 5,549 passing, only the documented tinypool flake. Typecheck
+  clean. Both backend + UI builds clean.
+
+### Not breaking
+
+- All new fields are optional. Existing code paths that don't populate
+  them behave identically to v4.8.4.
+- Drives without a signal contribute no pressure from that dimension
+  (satisfaction = 1 for that sub-input).
+- No config schema changes, no API surface changes, no UI changes yet.
+
+### Intentionally deferred to later v4.9.x
+
+- Channel health → Social drive (needs a channel health tracker module).
+- Qwen 3.6:35b Builder specialist swap (model is pulling on Titan PC).
+
+---
+
 ## [4.8.4] — 2026-04-18 — UI hardening pass: 13 root-cause fixes across every admin panel
 
 Tony ran the local preview and walked every route. Found a grab bag of

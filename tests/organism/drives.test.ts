@@ -156,6 +156,37 @@ describe('drives', () => {
             const safety = drives.find(d => d.id === 'safety')!;
             expect(safety.satisfaction).toBeLessThan(0.6);
         });
+
+        // v4.9.0: VRAM + telemetry signals
+        it('elevated when VRAM > 85% saturated', () => {
+            const drives = computeAllDrives(makeSnapshot({ vramSaturation: 0.95 }));
+            const safety = drives.find(d => d.id === 'safety')!;
+            expect(safety.satisfaction).toBeLessThan(0.5);
+            expect(safety.pressure).toBeGreaterThan(0);
+            expect(safety.description).toContain('VRAM saturated');
+        });
+
+        it('NOT elevated by VRAM when saturation < 85%', () => {
+            const drives = computeAllDrives(makeSnapshot({ vramSaturation: 0.5 }));
+            const safety = drives.find(d => d.id === 'safety')!;
+            expect(safety.satisfaction).toBe(1);
+        });
+
+        it('ignored entirely when VRAM signal is absent', () => {
+            const drives = computeAllDrives(makeSnapshot({}));
+            const safety = drives.find(d => d.id === 'safety')!;
+            expect(safety.satisfaction).toBe(1);
+        });
+
+        it('elevated when telemetry error rate is high', () => {
+            const drives = computeAllDrives(makeSnapshot({
+                telemetryErrorRate: 0.3,
+                telemetryTotalRequests: 100,
+            }));
+            const safety = drives.find(d => d.id === 'safety')!;
+            expect(safety.satisfaction).toBeLessThan(0.5);
+            expect(safety.description).toContain('gateway error rate');
+        });
     });
 
     describe('Social', () => {
