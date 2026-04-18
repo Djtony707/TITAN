@@ -5,6 +5,21 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.8.2] — 2026-04-18 — v4.8.1 hotfix: heal path never ran for already-registered specialists
+
+v4.8.1 put the heal logic inside `forceRegisterSpecialist`, but
+`ensureSpecialistsRegistered` short-circuited with `continue` for
+specialists that already existed, so the heal never actually ran on
+boot. After v4.8.1 deploy, the 4 specialists were still stuck in
+`error`.
+
+### Fixed
+
+- **`src/agent/specialists.ts ensureSpecialistsRegistered`** — always
+  call `forceRegisterSpecialist`; it's idempotent on create and now
+  self-heals on the existing-agent path. Logs `Healed N specialist(s)`
+  when a previously-stuck specialist is reset to `idle`.
+
 ## [4.8.1] — 2026-04-18 — Specialist "error" false positive + Social drive false alarm
 
 Tony spotted the Command Post → Agents tab showing all four v4.7.0 specialists

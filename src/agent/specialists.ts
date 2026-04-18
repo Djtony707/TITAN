@@ -128,10 +128,14 @@ export async function ensureSpecialistsRegistered(): Promise<void> {
         const cp = await import('./commandPost.js');
         const existing = cp.getRegisteredAgents();
         let created = 0;
+        let healed = 0;
         for (const sp of SPECIALISTS) {
-            if (existing.some(a => a.id === sp.id)) continue;
-            // Use the registered-agent internal map directly so we can
-            // pin a stable ID (registerAgent auto-generates random IDs).
+            const already = existing.find(a => a.id === sp.id);
+            // v4.8.1: always call forceRegisterSpecialist — it's idempotent
+            // AND it self-heals specialists stuck in 'error' from the
+            // pre-v4.8.1 stale-heartbeat bug. Short-circuiting on `already`
+            // skipped the heal path.
+            const wasErrored = already?.status === 'error';
             cp.forceRegisterSpecialist({
                 id: sp.id,
                 name: sp.name,
@@ -140,9 +144,11 @@ export async function ensureSpecialistsRegistered(): Promise<void> {
                 model: sp.model,
                 reportsTo: sp.reportsTo,
             });
-            created += 1;
+            if (!already) created += 1;
+            else if (wasErrored) healed += 1;
         }
         if (created > 0) logger.info(COMPONENT, `Registered ${created} specialist(s): ${SPECIALISTS.map(s => s.name).join(', ')}`);
+        if (healed > 0) logger.info(COMPONENT, `Healed ${healed} specialist(s) from stuck 'error' state → 'idle'`);
     } catch (err) {
         logger.warn(COMPONENT, `Specialist registration failed: ${(err as Error).message}`);
     }
