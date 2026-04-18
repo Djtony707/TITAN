@@ -5,6 +5,55 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.9.0-local.2] — 2026-04-18 — Safety batch 2: Fix Oscillation + Metric Guard (LOCAL-ONLY)
+
+### Added
+
+**`src/safety/fixOscillation.ts`** — "the fix that made it worse" detector.
+Every mutation on a file / goal / drive / prompt / config records a
+fix event. A SECOND event on the same target within 24h is an
+oscillation — fed into kill switch (≥3 oscillations in 24h → kill).
+Targets are normalized so variants of the same path collapse.
+Append-only log at `~/.titan/fix-events.jsonl` bounded at 5k lines.
+
+**`src/safety/metricGuard.ts`** — Goodhart defense. Gates every drive
+satisfaction event through `gateSatisfactionEvent({drive, rawDelta,
+reason, source, payload})`:
+  - Per-event delta capped at 5% (Safety 8%) — prevents burst gaming
+  - Reason-prefix verifier required for any credit; unverified = 0
+  - Tracks verified vs unverified counts → integrity ratio (Safety
+    drive input in a later batch)
+  - All satisfaction events logged for audit
+
+Verifier model: each subsystem that produces "satisfaction events"
+registers a verifier for its reason prefix via `registerVerifier()`.
+Default is fail-safe — no verifier = no credit. Forces every drive-
+satisfaction path to declare what "verified outcome" means for it.
+
+### Wiring
+
+- **`toolRunner.ts`**: write_file/edit_file/append_file/apply_patch
+  now call `recordFixEvent({kind: 'file', target: path, ...})`.
+  Best-effort — never blocks the write.
+
+### Tests
+
+- `tests/safety/fixOscillation.test.ts` — 7 tests (single vs second
+  event, cross-kind isolation, normalization, filters, sort)
+- `tests/safety/metricGuard.test.ts` — 9 tests (unverified zero,
+  verified cap, negative deltas, integrity ratio, failing/throwing
+  verifiers, stats)
+
+Full suite: 5,602 passing (up from 5,587). Typecheck clean. Builds
+clean.
+
+### Still LOCAL ONLY
+
+Not published to npm, not pushed to public GitHub. Titan PC + Mini PC
++ MacBook only.
+
+---
+
 ## [4.9.0-local.1] — 2026-04-18 — Memory architecture batch 1: Identity, Provenance, Experiments, Kill Switch (LOCAL-ONLY)
 
 **Still LOCAL-ONLY. Not published, not pushed.**

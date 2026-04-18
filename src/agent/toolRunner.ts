@@ -287,6 +287,22 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             snapshotBeforeWrite(handler.name, filePath).catch(err =>
                 logger.debug(COMPONENT, `Shadow checkpoint skipped: ${(err as Error).message}`),
             );
+            // v4.9.0: fix-oscillation tracker. Same file written/edited
+            // twice within 24h flags as oscillation, which feeds the
+            // kill switch (3+ oscillations → kill). Best-effort — never
+            // blocks the write.
+            (async () => {
+                try {
+                    const { recordFixEvent } = await import('../safety/fixOscillation.js');
+                    recordFixEvent({
+                        target: filePath,
+                        kind: 'file',
+                        detail: `${handler.name} via ${channel ?? 'unknown'}`,
+                    });
+                } catch (err) {
+                    logger.debug(COMPONENT, `Fix-oscillation skipped: ${(err as Error).message}`);
+                }
+            })();
         }
         // v4.8.0: self-proposal capture — if this write is happening inside
         // an autonomous Soma-driven session, stash a copy for specialist
