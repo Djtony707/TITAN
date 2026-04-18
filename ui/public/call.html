@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Call TITAN</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #0a0a0a;
+    color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 24px);
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px 16px;
+  }
+  .title { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
+  .status {
+    font-size: 12px;
+    color: #888;
+    padding: 4px 10px;
+    background: #1a1a1a;
+    border-radius: 999px;
+  }
+  .status.active { color: #4ade80; background: #052e16; }
+  .status.speaking { color: #60a5fa; background: #172554; }
+  .status.thinking { color: #fbbf24; background: #451a03; }
+  .status.error { color: #f87171; background: #450a0a; }
+  .orb-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .orb {
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #6366f1 0%, #4338ca 45%, #1e1b4b 100%);
+    box-shadow: 0 0 80px rgba(99, 102, 241, 0.5), inset 0 0 80px rgba(255, 255, 255, 0.1);
+    animation: breathe 4s ease-in-out infinite;
+    transition: all 0.3s ease;
+  }
+  .orb.listening {
+    animation: pulse 1.5s ease-in-out infinite;
+    background: radial-gradient(circle at 35% 35%, #4ade80 0%, #16a34a 45%, #052e16 100%);
+    box-shadow: 0 0 100px rgba(74, 222, 128, 0.7), inset 0 0 80px rgba(255, 255, 255, 0.15);
+  }
+  .orb.thinking {
+    animation: think 1.2s ease-in-out infinite;
+    background: radial-gradient(circle at 35% 35%, #fbbf24 0%, #d97706 45%, #451a03 100%);
+    box-shadow: 0 0 100px rgba(251, 191, 36, 0.6), inset 0 0 80px rgba(255, 255, 255, 0.15);
+  }
+  .orb.speaking {
+    animation: speak 0.6s ease-in-out infinite;
+    background: radial-gradient(circle at 35% 35%, #60a5fa 0%, #2563eb 45%, #172554 100%);
+    box-shadow: 0 0 120px rgba(96, 165, 250, 0.8), inset 0 0 80px rgba(255, 255, 255, 0.2);
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+  @keyframes think {
+    0%, 100% { transform: scale(1) rotate(0deg); }
+    50% { transform: scale(1.04) rotate(3deg); }
+  }
+  @keyframes speak {
+    0%, 100% { transform: scale(1); }
+    25% { transform: scale(1.08); }
+    50% { transform: scale(1.02); }
+    75% { transform: scale(1.06); }
+  }
+  .transcript {
+    min-height: 80px;
+    padding: 16px 12px;
+    text-align: center;
+    font-size: 15px;
+    line-height: 1.4;
+    color: #d4d4d8;
+    opacity: 0.9;
+  }
+  .transcript .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #71717a;
+    margin-bottom: 6px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    padding: 8px 4px 0;
+  }
+  button {
+    flex: 1;
+    padding: 18px;
+    border: none;
+    border-radius: 14px;
+    background: #1f2937;
+    color: #fafafa;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button.primary {
+    background: #16a34a;
+    color: white;
+    flex: 2;
+  }
+  button.primary.active {
+    background: #dc2626;
+  }
+  button.primary.active::before {
+    content: '⏸ ';
+  }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .debug {
+    font-size: 10px;
+    color: #52525b;
+    padding: 8px 4px 0;
+    font-family: ui-monospace, monospace;
+    word-break: break-all;
+    max-height: 60px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="title">🎙️ Live Call with TITAN</div>
+    <div class="status" id="status">idle</div>
+  </div>
+  <div class="orb-container">
+    <div class="orb" id="orb"></div>
+  </div>
+  <div class="transcript" id="transcript">
+    <div class="label">Tap Start, then talk</div>
+    <div id="transcript-text">—</div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="btn-toggle">Start Call</button>
+    <button id="btn-text" title="Type instead">Type</button>
+  </div>
+  <div class="debug" id="debug"></div>
+</div>
+
+<audio id="audio" preload="auto" playsinline></audio>
+
+<script>
+(() => {
+  const orb = document.getElementById('orb');
+  const status = document.getElementById('status');
+  const transcriptText = document.getElementById('transcript-text');
+  const btnToggle = document.getElementById('btn-toggle');
+  const btnText = document.getElementById('btn-text');
+  const audio = document.getElementById('audio');
+  const debug = document.getElementById('debug');
+
+  let isCallActive = false;
+  let isListening = false;
+  let isSpeaking = false;
+  let recognition = null;
+  let sessionId = null;
+
+  const log = (m) => {
+    debug.textContent = `[${new Date().toLocaleTimeString()}] ${m}`;
+    console.log(m);
+  };
+
+  const setStatus = (cls, text) => {
+    status.className = 'status ' + cls;
+    status.textContent = text;
+    orb.className = 'orb ' + (cls === 'active' ? 'listening' : cls);
+  };
+
+  // ── Authentication: pick up ?token=... or login if needed ──
+  let authToken = new URLSearchParams(location.search).get('token') || localStorage.getItem('titan_token') || '';
+
+  async function ensureAuth() {
+    if (authToken) return true;
+    const pw = prompt('TITAN password:');
+    if (!pw) return false;
+    try {
+      const r = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (!r.ok) { alert('Wrong password'); return false; }
+      const { token } = await r.json();
+      authToken = token;
+      localStorage.setItem('titan_token', token);
+      return true;
+    } catch (e) { alert('Login failed: ' + e.message); return false; }
+  }
+
+  // ── Speech Recognition ──
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function startRecognition() {
+    if (!SR) {
+      alert('Speech recognition not supported. Tap "Type" to chat with TITAN by text instead.');
+      return false;
+    }
+    if (recognition) try { recognition.stop(); } catch {}
+    recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+      isListening = true;
+      setStatus('active', 'listening…');
+      log('recognition started');
+    };
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const r = event.results[i];
+        if (r.isFinal) finalTranscript += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      transcriptText.textContent = (finalTranscript + interim) || '—';
+    };
+
+    recognition.onerror = (e) => {
+      log('recognition error: ' + e.error);
+      if (e.error === 'no-speech' || e.error === 'aborted') {
+        // Restart silently
+        if (isCallActive && !isSpeaking) setTimeout(startRecognition, 200);
+      } else {
+        setStatus('error', e.error);
+      }
+    };
+
+    recognition.onend = async () => {
+      isListening = false;
+      log('recognition ended, final="' + finalTranscript + '"');
+      const text = finalTranscript.trim();
+      if (text && isCallActive) {
+        await respondTo(text);
+      } else if (isCallActive && !isSpeaking) {
+        // Nothing said — restart listening
+        setTimeout(startRecognition, 200);
+      }
+    };
+
+    try { recognition.start(); return true; }
+    catch (e) { log('start failed: ' + e.message); return false; }
+  }
+
+  // ── Send to TITAN + play voice reply ──
+  async function respondTo(userText) {
+    if (!userText) return;
+    transcriptText.textContent = 'You: ' + userText;
+    setStatus('thinking', 'thinking…');
+
+    try {
+      const body = {
+        content: userText,
+        sessionId: sessionId || undefined,
+      };
+      const r = await fetch('/api/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + authToken,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(`api/message ${r.status}: ${errText.slice(0, 80)}`);
+      }
+      const data = await r.json();
+      sessionId = data.sessionId || sessionId;
+      const reply = (data.content || '').trim();
+      transcriptText.textContent = 'TITAN: ' + reply;
+      log('reply: ' + reply.slice(0, 60));
+
+      await speak(reply);
+    } catch (e) {
+      log('err: ' + e.message);
+      setStatus('error', 'failed');
+      if (isCallActive) setTimeout(startRecognition, 2000);
+    }
+  }
+
+  async function speak(text) {
+    if (!text) return;
+    setStatus('speaking', 'speaking…');
+    isSpeaking = true;
+    try {
+      const url = `/api/voice/tts?voice=andrew&format=mp3&token=${encodeURIComponent(authToken)}&text=${encodeURIComponent(text.slice(0, 900))}`;
+      audio.src = url;
+      await audio.play();
+      await new Promise(res => { audio.onended = res; audio.onerror = res; });
+    } catch (e) {
+      log('playback: ' + e.message);
+    } finally {
+      isSpeaking = false;
+      if (isCallActive) {
+        setStatus('active', 'listening…');
+        setTimeout(startRecognition, 400);
+      } else {
+        setStatus('idle', 'idle');
+      }
+    }
+  }
+
+  // ── Controls ──
+  btnToggle.addEventListener('click', async () => {
+    if (isCallActive) {
+      isCallActive = false;
+      if (recognition) try { recognition.stop(); } catch {}
+      if (!audio.paused) audio.pause();
+      btnToggle.textContent = 'Start Call';
+      btnToggle.classList.remove('active');
+      setStatus('idle', 'ended');
+      return;
+    }
+    if (!(await ensureAuth())) return;
+    isCallActive = true;
+    btnToggle.textContent = 'End Call';
+    btnToggle.classList.add('active');
+
+    // Greet on first connect
+    await speak("Hey Tony, I'm here. What's up?");
+  });
+
+  btnText.addEventListener('click', async () => {
+    const t = prompt('Type your message:');
+    if (!t) return;
+    if (!(await ensureAuth())) return;
+    await respondTo(t);
+  });
+
+  // iOS unlock: some iOS versions need a user-gesture'd audio.play() call
+  // for the audio element to be unlocked. The btnToggle click suffices.
+
+  log('ready. sr=' + !!SR);
+})();
+</script>
+</body>
+</html>

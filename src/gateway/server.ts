@@ -5098,6 +5098,60 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // v4.3.3: simple GET TTS used by the /call live-voice page.
+  // Query: text=..., voice=andrew, format=mp3, token=<bearer>
+  // Returns: raw audio bytes. Designed for <audio src="..."> tag usage so
+  // the browser can stream + play without a fetch() + Blob dance.
+  app.get('/api/voice/tts', async (req, res) => {
+    try {
+      const text = (req.query.text as string || '').slice(0, 2000);
+      const voice = (req.query.voice as string) || 'andrew';
+      const format = ((req.query.format as string) || 'mp3').toLowerCase();
+      if (!text.trim()) { res.status(400).json({ error: 'text required' }); return; }
+
+      // Prefer the F5-TTS server (supports Andrew reference). Fall back to
+      // the generic voice.ttsUrl (Orpheus) if the user requested an Orpheus
+      // voice or F5 is down.
+      const cfg = loadConfig();
+      const f5Url = 'http://localhost:5006';
+      const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
+
+      const callF5 = async () => fetch(`${f5Url}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: text, voice, response_format: format }),
+        signal: AbortSignal.timeout(180_000),
+      });
+
+      let ttsRes = await callF5().catch(() => null);
+      if (!ttsRes || !ttsRes.ok) {
+        // Orpheus fallback (default voice will apply; Andrew not available on Orpheus)
+        try {
+          ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: text, voice: 'tara', response_format: format }),
+            signal: AbortSignal.timeout(180_000),
+          });
+        } catch { /* nothing else to try */ }
+      }
+
+      if (!ttsRes || !ttsRes.ok) {
+        res.status(502).json({ error: 'tts backends unavailable' });
+        return;
+      }
+
+      const contentType = ttsRes.headers.get('content-type') || (format === 'wav' ? 'audio/wav' : 'audio/mpeg');
+      const buf = Buffer.from(await ttsRes.arrayBuffer());
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', String(buf.length));
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(buf);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   // ── Orpheus TTS Auto-Installer ─────────────────────────────
   app.get('/api/voice/orpheus/status', async (_req, res) => {
     const cfg = loadConfig();
