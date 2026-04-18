@@ -15,6 +15,7 @@ import {
 } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import { InlineEditableField, ConfirmDialog, Modal } from '@/components/shared';
+import { ApprovalProgressPanel } from '@/components/admin/ApprovalProgressPanel';
 import type {
   CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy,
   CPActivityEntry, GoalTreeNode, CPIssue, CPApproval, CPRun, OrgNode, StreamEvent,
@@ -161,12 +162,16 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 
   const roles = ['ceo', 'manager', 'engineer', 'researcher', 'general'] as const;
 
+  // v4.5.5: wider cards, two-column label/value layout, hide empty model.
   function renderNode(node: OrgNode, depth = 0): React.ReactNode {
+    const reportsToValue = agents.find(a => a.id === node.id)?.reportsTo || '';
+    const modelShort = node.model ? node.model.split('/').pop() : '';
     return (
-      <div key={node.id} className={depth > 0 ? 'ml-8 border-l border-white/[0.06] pl-4' : ''}>
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-2 max-w-sm">
-          <div className="flex items-center justify-between mb-1 gap-2">
-            <span className="text-[13px] font-semibold text-white/90 min-w-0">
+      <div key={node.id} className={depth > 0 ? 'ml-6 border-l border-white/[0.06] pl-4' : ''}>
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3.5 mb-2 max-w-lg">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <span className="text-[14px] font-semibold text-white/95 min-w-0">
               <InlineEditableField
                 value={node.name}
                 onSave={(v) => saveAgentField(node.id, 'name', v)}
@@ -175,39 +180,45 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
             </span>
             <StatusBadge status={node.status} />
           </div>
-          <div className="text-[10px] text-white/35 space-y-0.5">
-            <div>Title:&nbsp;
+          {/* Two-col details grid */}
+          <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-1.5 text-[11px]">
+            <span className="text-white/30">Title</span>
+            <span className="text-white/65 min-w-0">
               <InlineEditableField
                 value={node.title || ''}
                 onSave={(v) => saveAgentField(node.id, 'title', v)}
                 placeholder="Add a title"
-                emptyLabel="(none)"
+                emptyLabel="—"
               />
-            </div>
-            <div className="flex items-center gap-1">
-              <span>Role:</span>
-              <select
-                value={node.role}
-                onChange={(e) => saveAgentField(node.id, 'role', e.target.value)}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-1 py-0.5 text-[10px] text-white/50 capitalize focus:outline-none"
-              >
-                {roles.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>Reports to:</span>
-              <select
-                value={(agents.find(a => a.id === node.id)?.reportsTo) || ''}
-                onChange={(e) => saveAgentField(node.id, 'reportsTo', e.target.value)}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-1 py-0.5 text-[10px] text-white/50 focus:outline-none"
-              >
-                <option value="">—</option>
-                {agents.filter(a => a.id !== node.id).map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>Model: <span className="text-white/50">{node.model.split('/').pop()}</span></div>
+            </span>
+
+            <span className="text-white/30">Role</span>
+            <select
+              value={node.role}
+              onChange={(e) => saveAgentField(node.id, 'role', e.target.value)}
+              className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[11px] text-white/65 capitalize focus:outline-none focus:border-indigo-500/30 justify-self-start"
+            >
+              {roles.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+
+            <span className="text-white/30">Reports to</span>
+            <select
+              value={reportsToValue}
+              onChange={(e) => saveAgentField(node.id, 'reportsTo', e.target.value)}
+              className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[11px] text-white/65 focus:outline-none focus:border-indigo-500/30 justify-self-start"
+            >
+              <option value="">— nobody</option>
+              {agents.filter(a => a.id !== node.id).map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+
+            {modelShort && (
+              <>
+                <span className="text-white/30">Model</span>
+                <span className="text-white/55 font-mono text-[10px]">{modelShort}</span>
+              </>
+            )}
           </div>
         </div>
         {node.reports.map(r => renderNode(r, depth + 1))}
@@ -880,6 +891,9 @@ function ApprovalPayloadViewer({ payload }: { payload: Record<string, unknown> }
 function ApprovalsTab() {
   const [approvals, setApprovals] = useState<CPApproval[]>([]);
   const [filter, setFilter] = useState('');
+  // v4.5.5: click-to-drill-in on any approval → slide-over showing the
+  // linked goal's live subtask statuses (polls every 5s).
+  const [selectedApproval, setSelectedApproval] = useState<CPApproval | null>(null);
 
   const load = useCallback(() => {
     getCPApprovals(filter || undefined).then(setApprovals).catch(() => {});
@@ -915,7 +929,12 @@ function ApprovalsTab() {
             const proposalRationale = isProposal && typeof pp.rationale === 'string' ? pp.rationale : null;
             const proposalSubtasks = isProposal && Array.isArray(pp.subtasks) ? pp.subtasks as Array<{ title?: string }> : null;
             return (
-            <div key={a.id} className="px-4 py-3">
+            <div
+              key={a.id}
+              className="px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+              onClick={() => setSelectedApproval(a)}
+              title="Click to see live progress"
+            >
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={a.status} />
@@ -947,7 +966,7 @@ function ApprovalsTab() {
                 </div>
               )}
               {a.status === 'pending' && (
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => handleApprove(a.id)} className="px-3 py-1 text-[10px] bg-green-600 text-white rounded-lg hover:bg-green-500">Approve</button>
                   <button onClick={() => handleReject(a.id)} className="px-3 py-1 text-[10px] bg-red-600/80 text-white rounded-lg hover:bg-red-500">Reject</button>
                 </div>
@@ -955,12 +974,33 @@ function ApprovalsTab() {
               {a.decidedBy && <div className="text-[10px] text-white/25 mt-1">{a.status} by {a.decidedBy}{a.decisionNote ? `: ${a.decisionNote}` : ''}</div>}
               {/* v4.1: collapsible full-payload viewer — lets users inspect
                   what's in any approval (especially non-proposal types) before deciding. */}
-              <ApprovalPayloadViewer payload={a.payload} />
+              <div onClick={(e) => e.stopPropagation()}>
+                <ApprovalPayloadViewer payload={a.payload} />
+              </div>
+              {/* v4.5.5: subtle "click for progress" hint when approved */}
+              {a.status === 'approved' && Boolean((a.payload as Record<string, unknown>)?.goalId) && (
+                <div className="text-[10px] text-indigo-300/50 mt-1 italic">
+                  Click to see live progress →
+                </div>
+              )}
             </div>
             );
           })}
         </div>
       </div>
+
+      {/* Live-progress slide-over */}
+      <ApprovalProgressPanel
+        open={selectedApproval !== null}
+        approval={selectedApproval ? {
+          id: selectedApproval.id,
+          title: (selectedApproval.payload as Record<string, unknown>)?.title as string | undefined,
+          status: selectedApproval.status,
+          payload: selectedApproval.payload as Record<string, unknown>,
+          createdAt: selectedApproval.createdAt,
+        } : null}
+        onClose={() => setSelectedApproval(null)}
+      />
     </div>
   );
 }
