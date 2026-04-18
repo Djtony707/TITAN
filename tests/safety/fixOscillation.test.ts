@@ -80,8 +80,11 @@ describe('fix oscillation detector', () => {
         expect(xs).toHaveLength(2);
     });
 
-    it('getAllRecentEvents returns events sorted newest first', () => {
+    it('getAllRecentEvents returns events sorted newest first', async () => {
         recordFixEvent({ target: '/1', kind: 'file', detail: 'first' });
+        // Millisecond-resolution timestamps — wait one tick so the second
+        // event strictly sorts after the first.
+        await new Promise(r => setTimeout(r, 2));
         recordFixEvent({ target: '/2', kind: 'file', detail: 'second' });
         const all = getAllRecentEvents();
         expect(all[0].target).toBe('/2');

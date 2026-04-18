@@ -13,16 +13,24 @@
  * (c) default options land inside the documented safe ranges
  * (d) caller-supplied options override defaults (clamped to bounds)
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { getGlobalDispatcher } from 'undici';
 import { installGlobalHttpPool, __resetHttpPoolForTests } from '../src/utils/httpPool.js';
 
 describe('httpPool — Hunt Finding #29', () => {
-    beforeEach(() => {
-        // Each test starts with a clean "installed" flag so we can re-install.
-        // Note: we don't uninstall the actual dispatcher — it's fine for it to
-        // persist across tests since every install overwrites the previous.
-        __resetHttpPoolForTests();
+    beforeEach(async () => {
+        // Reset install flag AND close prior agent so the new install
+        // creates a fresh Agent. Without closing, the old agent's
+        // keep-alive timers leak and the vitest worker can't exit
+        // cleanly at suite end.
+        await __resetHttpPoolForTests();
+    });
+
+    afterAll(async () => {
+        // Final cleanup so the worker can exit. The agent's internal
+        // keep-alive + connection-pool timers hold the event loop open
+        // until close() returns.
+        await __resetHttpPoolForTests();
     });
 
     it('installs an undici dispatcher as the global dispatcher', () => {

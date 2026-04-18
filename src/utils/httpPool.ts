@@ -25,12 +25,13 @@
  * Tunable via config.gateway.httpPool.{connections,keepAliveTimeoutMs}
  * for operators who need to go higher or lower than the defaults.
  */
-import { Agent, setGlobalDispatcher } from 'undici';
+import { Agent, setGlobalDispatcher, getGlobalDispatcher } from 'undici';
 import logger from './logger.js';
 
 const COMPONENT = 'HttpPool';
 
 let installed = false;
+let currentAgent: Agent | null = null;
 
 export interface HttpPoolOptions {
     /** Max in-flight + idle connections per origin. Default 16. */
@@ -72,6 +73,7 @@ export function installGlobalHttpPool(opts: HttpPoolOptions = {}): boolean {
     });
 
     setGlobalDispatcher(agent);
+    currentAgent = agent;
     installed = true;
     logger.info(
         COMPONENT,
@@ -80,7 +82,17 @@ export function installGlobalHttpPool(opts: HttpPoolOptions = {}): boolean {
     return true;
 }
 
-/** For tests: reset the "installed" flag. Does NOT uninstall the agent. */
-export function __resetHttpPoolForTests(): void {
+/**
+ * For tests: close the current agent + reset the "installed" flag so
+ * the next call to installGlobalHttpPool creates a fresh Agent. Without
+ * this, each test that installs a new pool leaks the old undici Agent's
+ * timers + sockets, preventing the vitest worker from exiting cleanly
+ * at suite end ("Worker exited unexpectedly" flake).
+ */
+export async function __resetHttpPoolForTests(): Promise<void> {
+    if (currentAgent) {
+        try { await currentAgent.close(); } catch { /* best-effort */ }
+        currentAgent = null;
+    }
     installed = false;
 }
