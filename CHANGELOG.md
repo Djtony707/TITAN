@@ -5,6 +5,38 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.6] — 2026-04-17 — mDNS actually works now (bonjour-service external)
+
+Follow-up to 4.3.5. After shipping the robust constructor lookup the log
+shifted from *"Bonjour constructor not found"* to *"Dynamic require of
+'os' is not supported"* — because `bonjour-service` internally does
+`require('os')` at runtime, which esbuild can't polyfill in bundled ESM
+output.
+
+Real fix: added `bonjour-service` to tsup's `external` list so it
+loads from `node_modules` at runtime (where Node's own `require` works
+as-is). Verified: `[MeshDiscovery] mDNS discovery active` on the next
+tick after deploy; warnings stopped.
+
+---
+
+## [4.3.5] — 2026-04-17 — Silence the mDNS constructor-not-found spam
+
+Every 5 minutes the log was printing:
+> `WARN [MeshDiscovery] mDNS unavailable (install bonjour-service for LAN discovery): bonjour-service module loaded but Bonjour constructor not found`
+
+Real fix, not suppression: the `bonjour-service` module has a mixed
+ESM/CJS shape, and after tsup runs it through `__toESM` at bundle time,
+the `Bonjour` constructor can land at any of three positions on the
+imported namespace — `m.Bonjour`, `m.default`, or `m.default.Bonjour`.
+The pre-v4.3.5 lookup only checked the first two, so the bundled build
+fell through to the warning every mDNS tick.
+
+`src/mesh/discovery.ts` — constructor lookup now walks all three
+positions and picks the first one that is `typeof === 'function'`.
+
+---
+
 ## [4.3.4] — 2026-04-17 — "No pending file edit task" bug killed
 
 Fixes the persistent bug where Messenger voice notes like "fix your voice"
