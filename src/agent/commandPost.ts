@@ -596,7 +596,18 @@ export function forceRegisterSpecialist(opts: {
     reportsTo?: string;
 }): RegisteredAgent {
     const existing = registeredAgents.get(opts.id);
-    if (existing) return existing;
+    if (existing) {
+        // v4.8.1: heal specialists stuck in 'error' from the v4.7.0 /
+        // pre-v4.8.1 stale-heartbeat bug. A specialist that never did work
+        // got flagged as errored after 120s, but it should have stayed
+        // 'idle'. On boot we reset it to idle so the registry UI is clean.
+        if (existing.status === 'error' && (existing.totalTasksCompleted ?? 0) === 0) {
+            existing.status = 'idle';
+            existing.lastHeartbeat = new Date().toISOString();
+            saveState();
+        }
+        return existing;
+    }
     const agent: RegisteredAgent = {
         id: opts.id,
         name: opts.name,
@@ -667,6 +678,12 @@ function checkStaleHeartbeats(): void {
 
     for (const [id, agent] of registeredAgents) {
         if (agent.status === 'stopped' || agent.status === 'paused') continue;
+        // v4.8.1: idle agents that have never been assigned work shouldn't
+        // be flagged as error for not heartbeating — they have nothing to
+        // heartbeat about. Applies to freshly-registered specialists
+        // (Scout/Builder/Writer/Analyst at gateway boot). Once an agent
+        // has done at least one task, normal stale detection resumes.
+        if (agent.status === 'idle' && (agent.totalTasksCompleted ?? 0) === 0) continue;
         const lastBeat = new Date(agent.lastHeartbeat).getTime();
         if (now - lastBeat > threshold && agent.status !== 'error') {
             agent.status = 'error';

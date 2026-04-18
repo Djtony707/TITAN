@@ -269,17 +269,21 @@ const SOCIAL: DriveDefinition = {
     defaultSetpoint: 0.7,
     weight: 0.7,
     compute: (snap) => {
-        if (snap.agents.length === 0) {
-            return { satisfaction: 0.9, inputs: { totalAgents: 0, staleAgents: 0 } };
+        // v4.8.1: ignore specialists that were registered but never given
+        // work (`totalTasksCompleted === 0`). They have nothing to heartbeat
+        // about; counting them as "unresponsive" was a false negative.
+        const eligible = snap.agents.filter(a => (a.totalTasksCompleted ?? 0) > 0 || a.status === 'active');
+        if (eligible.length === 0) {
+            return { satisfaction: 0.9, inputs: { totalAgents: snap.agents.length, staleAgents: 0 } };
         }
         const hourMs = 3_600_000;
-        const stale = snap.agents.filter(a =>
+        const stale = eligible.filter(a =>
             snap.now - new Date(a.lastHeartbeat).getTime() > hourMs,
         ).length;
-        const satisfaction = clamp01(1 - stale / snap.agents.length);
+        const satisfaction = clamp01(1 - stale / eligible.length);
         return {
             satisfaction,
-            inputs: { totalAgents: snap.agents.length, staleAgents: stale },
+            inputs: { totalAgents: eligible.length, staleAgents: stale },
         };
     },
     describe: (_s, inputs) => {

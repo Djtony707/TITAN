@@ -5,6 +5,46 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.8.1] — 2026-04-18 — Specialist "error" false positive + Social drive false alarm
+
+Tony spotted the Command Post → Agents tab showing all four v4.7.0 specialists
+(Scout, Builder, Writer, Analyst) in red **`error`** state even though no work
+had actually failed. Their `lastError` was `None` and their `lastHeartbeat`
+was stuck at the exact second they were registered at gateway boot.
+
+**Root cause:** `checkStaleHeartbeats()` flagged any agent without a fresh
+heartbeat as `error` after 2× the heartbeat interval (120s). Specialists
+that haven't been given work have nothing to heartbeat about — their stale
+heartbeat is normal, not a failure. The check was flipping `idle`-never-used
+specialists to `error` 2 minutes after boot.
+
+Same pattern bit the Social drive: it read the same stale heartbeats and
+reported "4/5 agents unresponsive," dragging Social satisfaction to 0.20
+and adding false Social pressure to the proposal system.
+
+### Fixed
+
+- **`src/agent/commandPost.ts` `checkStaleHeartbeats`** — skip agents that are
+  `idle` AND have `totalTasksCompleted === 0`. Once an agent has done at
+  least one task, normal stale detection resumes (it will heartbeat during
+  work, so a gap means something really went wrong).
+- **`src/agent/commandPost.ts` `forceRegisterSpecialist`** — self-heal: on
+  boot, if a specialist is stuck in `error` with 0 tasks completed, reset
+  it to `idle`. Fixes the already-broken state on installs that ran
+  v4.7.0 or v4.8.0.
+- **`src/organism/drives.ts` Social drive** — only counts never-used-yet
+  specialists against total if they're actually active. Removes false
+  "4/5 agents unresponsive" reading.
+
+### Not breaking
+
+- Pure bug fixes, no new surface area.
+- Existing healthy specialists (any with `totalTasksCompleted > 0`) keep
+  their normal heartbeat monitoring.
+- No schema changes, no config changes.
+
+---
+
 ## [4.8.0] — 2026-04-18 — Self-Modification Pipeline: TITAN proposes its own improvements
 
 Tony asked: *"I want to allow the outputs to feed back in, that would be
