@@ -16,6 +16,7 @@ import {
 import { apiFetch } from '@/api/client';
 import { InlineEditableField, ConfirmDialog, Modal } from '@/components/shared';
 import { ApprovalProgressPanel } from '@/components/admin/ApprovalProgressPanel';
+import { useWatchStream } from '@/hooks/useWatchStream';
 import type {
   CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy,
   CPActivityEntry, GoalTreeNode, CPIssue, CPApproval, CPRun, OrgNode, StreamEvent,
@@ -69,9 +70,17 @@ function SectionHeader({ icon: Icon, title, count, action }: { icon: typeof Shie
 // ═══════════════════════════════════════════════════════════════
 
 function DashboardTab({ d, activity }: { d: CommandPostDashboard; activity: CPActivityEntry[] }) {
+  void activity; // legacy prop — live events come from useWatchStream now
   // Also show on Org Chart tab
   const showCrew = d.agents.length > 0;
   const budgetPct = d.budgetUtilization ?? 0;
+
+  // v4.6.1: Real-time event feed wired directly to /api/watch/stream
+  // via useWatchStream. Replaces the polled commandpost:activity feed
+  // with humanized events from the unified bus (drives, soma, tools,
+  // goals, channels, initiative, memory, health, alerts).
+  const { events: liveEvents } = useWatchStream();
+
   return (
     <div className="space-y-4">
       {/* Metrics */}
@@ -92,17 +101,32 @@ function DashboardTab({ d, activity }: { d: CommandPostDashboard; activity: CPAc
       {/* Pixel Office Crew */}
       <PixelOfficeCrew agents={d.agents} activity={activity} />
 
-      {/* Activity */}
+      {/* Live Activity (v4.6.1) */}
       <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-        <SectionHeader icon={Activity} title="Recent Activity" count={activity.length} />
-        <div className="max-h-64 overflow-y-auto divide-y divide-white/[0.03]">
-          {activity.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">No activity yet</div>
-          ) : [...activity].reverse().slice(0, 20).map((e, i) => (
-            <div key={`${e.timestamp}-${i}`} className="flex items-start gap-2.5 py-2 px-4">
-              <Activity size={12} className="text-white/20 mt-0.5" />
-              <span className="text-[11px] text-white/60 flex-1">{e.message}</span>
-              <span className="text-[10px] text-white/20">{timeSince(e.timestamp)}</span>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]">
+          <div className="flex items-center gap-2">
+            <Activity size={14} className="text-indigo-400" />
+            <span className="text-[13px] text-white/80 font-medium">Recent Activity</span>
+            <span className="text-[10px] text-white/30 tabular-nums">{liveEvents.length}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            live
+          </div>
+        </div>
+        <div className="max-h-80 overflow-y-auto divide-y divide-white/[0.03]">
+          {liveEvents.length === 0 ? (
+            <div className="py-8 text-center text-[12px] text-white/25">Listening for TITAN to do something…</div>
+          ) : liveEvents.slice(0, 30).map((e) => (
+            <div key={e.id} className="flex items-start gap-2.5 py-2 px-4 hover:bg-white/[0.02]">
+              <span className="text-[13px] w-5 text-center mt-0.5 flex-shrink-0">{e.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] text-white/75 leading-snug">{e.captionTitan}</div>
+                {e.detail && <div className="text-[10px] text-white/35 mt-0.5">{e.detail}</div>}
+              </div>
+              <span className="text-[10px] text-white/25 flex-shrink-0 tabular-nums whitespace-nowrap mt-0.5">
+                {timeSince(new Date(e.timestamp).toISOString())}
+              </span>
             </div>
           ))}
         </div>

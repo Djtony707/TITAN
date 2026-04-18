@@ -3,6 +3,17 @@ import { MessageSquarePlus, PanelLeftClose, PanelLeft, Trash2, Pencil, Check, X,
 import { useSSE } from '@/hooks/useSSE';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { getSessions, getSessionMessages, deleteSession, renameSession, getAgents, abortSession, createSession } from '@/api/client';
+import { isInternalChannel } from '@/components/admin/SessionsTab';
+
+/**
+ * v4.6.1: filter out TITAN's internal sessions from the chat drawer so
+ * autopilot runs, initiative-verify loops, deliberation plans, sub-agent
+ * delegations etc. don't clutter Tony's user-chat sidebar. Internal
+ * sessions remain visible in the Command Post → Sessions tab.
+ */
+function filterUserSessions<T extends { channel?: string }>(sessions: readonly T[]): T[] {
+    return sessions.filter((s): boolean => !s.channel || !isInternalChannel(s.channel));
+}
 import type { ChatMessage, Session, AgentInfo, AgentEvent } from '@/api/types';
 import { useConfig } from '@/hooks/useConfig';
 import { MessageBubble } from './MessageBubble';
@@ -111,9 +122,10 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   useEffect(() => {
     getSessions()
       .then((data) => {
-        setSessions(data);
-        if (data.length > 0) {
-          const latest = data[0];
+        const filtered = filterUserSessions(data);
+        setSessions(filtered);
+        if (filtered.length > 0) {
+          const latest = filtered[0];
           setCurrentSessionId(latest.id);
           return getSessionMessages(latest.id);
         }
@@ -143,7 +155,7 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   useEffect(() => {
     const refreshSessions = async () => {
       try {
-        const updated = await getSessions();
+        const updated = filterUserSessions(await getSessions());
         setSessions(updated);
       } catch { /* non-critical */ }
     };
@@ -182,7 +194,7 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
     setMobileSidebarOpen(false);
     setSidebarOpen(false);
     // Refresh session list
-    getSessions().then(setSessions).catch(() => {});
+    getSessions().then(d => setSessions(filterUserSessions(d))).catch(() => {});
   }, []);
 
   const handleDeleteSession = useCallback(
@@ -240,7 +252,7 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
         setMessages((prev) => [...prev, assistantMessage]);
 
         try {
-          const updated = await getSessions();
+          const updated = filterUserSessions(await getSessions());
           setSessions(updated);
           if (!currentSessionId && updated.length > 0) {
             setCurrentSessionId(updated[0].id);

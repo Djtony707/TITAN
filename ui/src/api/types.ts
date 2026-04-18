@@ -70,6 +70,15 @@ export interface Session {
   createdAt: string;
   messageCount: number;
   lastMessage?: string;
+  // v4.6.1: channel identifies whether the session is a user chat
+  // ('webchat', 'messenger-admin', 'twilio-admin'...) or an internal
+  // thought-train ('initiative', 'deliberation', etc.). Used by
+  // ChatView to hide internal sessions from the drawer.
+  channel?: string;
+  userId?: string;
+  agentId?: string;
+  status?: string;
+  lastActive?: string;
 }
 
 // ---- Config ----
