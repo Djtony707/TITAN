@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ExternalLink } from 'lucide-react';
+import { X, ExternalLink, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 
 interface Props {
@@ -307,7 +307,7 @@ function GoalProgress({ goal }: { goal: Goal }) {
                 <Section label="Subtasks">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {subtasks.map(st => (
-                            <SubtaskRow key={st.id} subtask={st} />
+                            <SubtaskRow key={st.id} goalId={goal.id} subtask={st} />
                         ))}
                     </div>
                 </Section>
@@ -316,9 +316,30 @@ function GoalProgress({ goal }: { goal: Goal }) {
     );
 }
 
-function SubtaskRow({ subtask }: { subtask: Subtask }) {
+function SubtaskRow({ goalId, subtask }: { goalId: string; subtask: Subtask }) {
     const color = statusColor(subtask.status);
     const pulse = subtask.status === 'running';
+    const [busy, setBusy] = useState(false);
+
+    const retry = async () => {
+        setBusy(true);
+        try {
+            await apiFetch(`/api/goals/${goalId}/subtasks/${subtask.id}/retry`, { method: 'POST' });
+        } catch (e) { alert(`Retry failed: ${(e as Error).message}`); }
+        setBusy(false);
+    };
+    const markDone = async () => {
+        setBusy(true);
+        try {
+            await apiFetch(`/api/goals/${goalId}/subtasks/${subtask.id}/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ result: 'Marked complete from Command Post' }),
+            });
+        } catch (e) { alert(`Mark-done failed: ${(e as Error).message}`); }
+        setBusy(false);
+    };
+
     return (
         <div style={{
             padding: '10px 12px',
@@ -338,6 +359,29 @@ function SubtaskRow({ subtask }: { subtask: Subtask }) {
                 <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4 }}>
                     {subtask.title}
                 </span>
+                {/* v4.6.2: per-subtask actions */}
+                {subtask.status === 'failed' && (
+                    <button
+                        onClick={retry}
+                        disabled={busy}
+                        title="Reset + retry"
+                        style={{
+                            background: 'transparent', border: 0, padding: 4, borderRadius: 4,
+                            color: '#fbbf24', cursor: 'pointer', opacity: busy ? 0.4 : 0.8,
+                        }}
+                    ><RotateCcw size={12} /></button>
+                )}
+                {subtask.status === 'pending' && (
+                    <button
+                        onClick={markDone}
+                        disabled={busy}
+                        title="Mark done"
+                        style={{
+                            background: 'transparent', border: 0, padding: 4, borderRadius: 4,
+                            color: '#34d399', cursor: 'pointer', opacity: busy ? 0.4 : 0.8,
+                        }}
+                    ><CheckCircle2 size={12} /></button>
+                )}
                 <span style={{
                     fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
                     color: color, fontWeight: 600, flexShrink: 0,
