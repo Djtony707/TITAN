@@ -110,18 +110,36 @@ function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?:
 // Checks whether the agent actually completed the requested task.
 // Inspired by vercel-labs/ralph-loop-agent outer verification pattern.
 
-function verifyTaskCompletion(
+/**
+ * Exported for regression testing in tests/agent-verify.test.ts.
+ * The v4.3.4 fix narrowed its pattern matching; easy to break
+ * if someone generalizes the regex again without a test.
+ */
+export function verifyTaskCompletion(
     message: string,
     toolsUsed: string[],
     response: string,
 ): { complete: boolean; reason: string } {
     const lower = message.toLowerCase();
 
-    // Check: user asked to edit/fix/write/create but no write tool was called
-    const askedToWrite = /\b(edit|fix|change|modify|update|add|write|create|improve|rewrite|save|implement|patch)\b/i.test(lower)
-        && /\b(file|code|page|dashboard|html|css|js|function|component|config)\b/i.test(lower);
+    // v4.3.4: conversational asides shouldn't trigger a "you must edit_file"
+    // enforcement loop. Tony's voice notes on Messenger like
+    // "fix your voice" or "fix the way you respond" would match the
+    // edit|fix regex + "file"/"files" (because the voice note transcript
+    // often contains the word "files") and trip the Ralph Loop, which
+    // then injects a stale "pending file edit task" prompt and the
+    // LLM hallucinates back "I don't have a pending file edit task."
+    // Two narrowings:
+    //   1. Don't count `shell` as a file read. The verifier was using it
+    //      as a proxy for read_file but any `ls`/`pwd` call tripped it.
+    //   2. Require an EXPLICIT file path or filename token (e.g. ".ts",
+    //      ".py", "/path/", "src/", etc.) rather than the bare word
+    //      "file"/"files" which appears constantly in natural speech.
+    const verbMatch = /\b(edit|fix|change|modify|update|add|write|create|improve|rewrite|save|implement|patch)\b/i.test(lower);
+    const hasFilePath = /[\w-]+\.(ts|tsx|js|jsx|py|md|json|yaml|yml|html|css|sh|txt|rs|go|java|cpp|c|h)\b|\bsrc\/|\bpath:|\/[a-z]+\//i.test(lower);
+    const askedToWrite = verbMatch && hasFilePath;
     const didWrite = toolsUsed.some(t => ['write_file', 'edit_file', 'append_file'].includes(t));
-    const didRead = toolsUsed.includes('read_file') || toolsUsed.includes('shell');
+    const didRead = toolsUsed.includes('read_file');
 
     if (askedToWrite && !didWrite && didRead) {
         return {

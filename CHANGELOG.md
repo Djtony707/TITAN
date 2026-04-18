@@ -5,6 +5,58 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.3.4] — 2026-04-17 — "No pending file edit task" bug killed
+
+Fixes the persistent bug where Messenger voice notes like "fix your voice"
+or "what are you up to" got a reply like *"I don't have a pending file
+edit task — there's no previous read_file call in this conversation."*
+
+### Root cause
+
+`verifyTaskCompletion()` in `src/agent/agent.ts` (the outer Ralph Loop
+completion check) matched far too broadly:
+
+```js
+askedToWrite = /edit|fix|change|.../.test(msg) && /file|code|.../.test(msg)
+didRead = toolsUsed.includes('read_file') || toolsUsed.includes('shell')
+```
+
+Any voice-note transcript containing the word "fix" + "file"/"files"
+matched `askedToWrite` (conversational asides qualified). And ANY shell
+call (`ls`, `pwd`, `ps`) counted as "reading a file". So every turn
+where Tony said something like "fix your voice, permission to edit your
+files" + TITAN did an `ls /tmp`, the verifier fired and injected a
+`[TASK INCOMPLETE] You have the file content from your previous
+read_file call.` user message. The LLM then hallucinated the
+"no pending file edit task" reply because the forced prompt referenced
+a read_file that never happened.
+
+### Fix
+
+- `askedToWrite` now requires an explicit file-path token
+  (`.ts`/`.py`/`.json`/etc., or `src/`, or `/absolute/path/`) — the bare
+  word "file" no longer qualifies.
+- `didRead` dropped `shell`. Only real `read_file` counts as having read
+  a file. Shell commands are no longer a proxy for file reads.
+- `verifyTaskCompletion` now exported + 10-case regression suite at
+  `tests/agent-verify.test.ts` locks in the narrow semantics.
+
+### Not a bandaid
+
+Previous conversation considered gating the Ralph Loop for
+conversational channels (messenger-admin, webchat). That was a
+workaround — kept as a git diff note, reverted. The real fix is in the
+verifier's pattern matching itself, so every channel benefits and
+legitimate edit-file requests still trigger the loop correctly.
+
+### Verified
+
+- `npm test` — 70 relevant tests pass (60 existing + 10 new)
+- Pattern audit of last 3 Messenger sessions with the bug: every one of
+  the trigger cases now returns `complete: true`.
+
+---
+
 ## [4.3.3] — 2026-04-17 — Andrew-voice pitch fix + remote approval protocol + owner whitelist
 
 Tony reported the Andrew voice coming through "high pitch and fast sometimes"
