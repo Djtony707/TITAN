@@ -420,6 +420,19 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     const allTools = getToolDefinitions();
 
     const canNest = currentDepth + 1 < maxDepth; // Allow spawn_agent only if depth allows
+
+    // v4.7.0: Hermes-style blocked-for-children tool list. Regardless of
+    // template, children never get: spawn_agent, memory_store/write,
+    // send_message variants, outbound-publisher tools, or code_exec.
+    // Protects against prompt-injection → memory corruption +
+    // child-posts-as-Tony side channels.
+    let blockedForChildren: Set<string> = new Set();
+    try {
+        const safety = await import('./subagentSafety.js');
+        blockedForChildren = safety.BLOCKED_CHILD_TOOLS;
+    } catch { /* optional */ }
+    const isChild = currentDepth > 0; // top-level sub-agent = depth 0, but this is the sub-agent itself
+
     if (config.tools && config.tools.length > 0) {
         const toolSet = new Set(config.tools);
         if (!canNest) toolSet.delete('spawn_agent');
@@ -428,6 +441,14 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         availableTools = allTools.filter(t => toolSet.has(t.function.name));
     } else {
         availableTools = allTools.filter(t => canNest || t.function.name !== 'spawn_agent');
+    }
+
+    // v4.7.0: apply blocklist to whatever tools survived template filtering.
+    // Primary agent (not a sub-agent) is never filtered. This is the last
+    // line of defense — even if a template accidentally includes a
+    // dangerous tool, children won't get it.
+    if (isChild && blockedForChildren.size > 0) {
+        availableTools = availableTools.filter(t => !blockedForChildren.has(t.function.name));
     }
 
     // Build system prompt: base template + persona overlay

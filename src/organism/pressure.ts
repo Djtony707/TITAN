@@ -30,6 +30,16 @@ const COMPONENT = 'Pressure';
  */
 const lastFireByDrive = new Map<string, number>();
 
+/**
+ * Test-only hook: clear the per-drive damping memory so unit tests that
+ * exercise consecutive `runPressureCycle` calls on the same drive don't
+ * leak state across `beforeEach` boundaries. Not part of the public API
+ * for runtime callers — production never needs to reset this.
+ */
+export function _resetPressureDampingForTests(): void {
+    lastFireByDrive.clear();
+}
+
 // ── Types ────────────────────────────────────────────────────────
 
 export interface PressureReading {

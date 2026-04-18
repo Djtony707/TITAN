@@ -6988,6 +6988,15 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     initCommandPost(config.commandPost);
     initWakeupSystem();
     logger.info(COMPONENT, 'Command Post governance layer initialized (wakeup system active)');
+
+    // v4.7.0: bootstrap specialist pool (Scout, Builder, Writer, Analyst)
+    // once Command Post is up. Idempotent — safe to call every boot.
+    try {
+      const { ensureSpecialistsRegistered } = await import('../agent/specialists.js');
+      await ensureSpecialistsRegistered();
+    } catch (e) {
+      logger.warn(COMPONENT, `Specialist bootstrap skipped: ${(e as Error).message}`);
+    }
   }
 
   // ── Daemon — persistent agent awareness loop ────────────────

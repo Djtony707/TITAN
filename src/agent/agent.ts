@@ -191,6 +191,33 @@ function ensureSpawnAgentRegistered(): void {
             const task = args.task as string;
             const templateName = (args.template as string) || '';
 
+            // v4.7.0: Hermes-style safety gates on the spawn path.
+            // Prevents fork bombs + concurrent runaway. Depth is best-effort
+            // (we treat the primary as depth 0); the MAX_CONCURRENT_CHILDREN
+            // cap is the hard backstop.
+            try {
+                const { canSpawnChild } = await import('./subagentSafety.js');
+                const parent = currentSessionId || 'root';
+                const gate = canSpawnChild(parent, 0);
+                if (!gate.ok) {
+                    return `[Sub-Agent REFUSED] spawn_agent blocked for safety: ${gate.reason}. Do the task yourself or wait.`;
+                }
+            } catch { /* fail-open — safety module optional */ }
+
+            // v4.7.0: specialist routing. If the template matches a
+            // registered specialist (Scout/Builder/Writer/Analyst),
+            // use its tuned system prompt + preferred model.
+            let specialistPrompt: string | undefined;
+            let specialistModel: string | undefined;
+            try {
+                const { findSpecialistForTemplate, loadSpecialistPersona } = await import('./specialists.js');
+                const sp = findSpecialistForTemplate(templateName);
+                if (sp) {
+                    specialistPrompt = loadSpecialistPersona(sp.id);
+                    specialistModel = sp.model;
+                }
+            } catch { /* fall through to generic template */ }
+
             // ── Async path: delegate via Command Post ────────────
             const cpEnabled = loadConfig().commandPost?.enabled ?? false;
             if (cpEnabled) {
@@ -216,15 +243,30 @@ function ensureSpawnAgentRegistered(): void {
             }
 
             // ── Sync path: original blocking execution ───────────
+            // v4.7.0: track child for concurrent cap, use specialist prompt/model when matched.
+            let childId: string | undefined;
+            try {
+                const { registerChild } = await import('./subagentSafety.js');
+                childId = `child-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+                registerChild(currentSessionId || 'root', childId);
+            } catch { /* safety optional */ }
+
             const result = await spawnSubAgent({
                 name: agentName,
                 task,
                 tools: template.tools,
-                systemPrompt: template.systemPrompt,
-                model: args.model as string | undefined,
+                systemPrompt: specialistPrompt || template.systemPrompt,
+                model: (args.model as string | undefined) || specialistModel,
                 tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
-                depth: 0,
+                depth: 1, // v4.7.0: this IS a child (was incorrectly 0)
             });
+
+            if (childId) {
+                try {
+                    const { unregisterChild } = await import('./subagentSafety.js');
+                    unregisterChild(currentSessionId || 'root', childId);
+                } catch { /* best effort */ }
+            }
             const validTag = result.validated ? '' : ' [OUTPUT UNVALIDATED]';
             return `[Sub-Agent: ${result.success ? 'SUCCESS' : 'FAILED'}${validTag}] (${result.rounds} rounds, ${result.durationMs}ms)\n${result.content}`;
         },

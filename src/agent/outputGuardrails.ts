@@ -104,8 +104,11 @@ const META_PREAMBLE_PATTERNS: RegExp[] = [
     /^(?:Looking at\s+[^.]*\.\s*)/i,
     // "Based on my analysis/research, ..." — unnecessary preamble (only strip up to the comma)
     /^(?:Based on\s+(?:my|the|this)\s+\w+[^,]*,\s*)/i,
-    // "Here's what I found:" — meta-introduction
-    /^(?:Here(?:'s| is) (?:what|the|my)\s+[^:]*:\s*)/i,
+    // "Here's what I found:" — meta-introduction.
+    // `[^:{}]*` excludes braces so we don't accidentally eat into leaked
+    // tool JSON like `Here is the answer. {"name": ...}` and strip the
+    // real answer along with it (Hunt 2026-04-17).
+    /^(?:Here(?:'s| is) (?:what|the|my)\s+[^:{}\n]*:\s*)/i,
     // "Actually, ..." — model self-correcting out loud
     /^(?:Actually,?\s+)/i,
 ];

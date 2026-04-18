@@ -581,6 +581,40 @@ export function syncAgentRegistry(): void {
     saveState();
 }
 
+/**
+ * v4.7.0: register a specialist with a PINNED stable ID (not the usual
+ * auto-generated `agent-xxx`). Used by the specialist bootstrap so Scout,
+ * Builder, Writer, Analyst have reliable IDs across restarts.
+ * Idempotent — returns existing agent if already registered.
+ */
+export function forceRegisterSpecialist(opts: {
+    id: string;
+    name: string;
+    role: RegisteredAgent['role'];
+    title: string;
+    model: string;
+    reportsTo?: string;
+}): RegisteredAgent {
+    const existing = registeredAgents.get(opts.id);
+    if (existing) return existing;
+    const agent: RegisteredAgent = {
+        id: opts.id,
+        name: opts.name,
+        model: opts.model,
+        status: 'idle',
+        lastHeartbeat: new Date().toISOString(),
+        totalTasksCompleted: 0,
+        totalCostUsd: 0,
+        createdAt: new Date().toISOString(),
+        role: opts.role,
+        title: opts.title,
+        reportsTo: opts.reportsTo,
+    };
+    registeredAgents.set(opts.id, agent);
+    saveState();
+    return agent;
+}
+
 export function reportHeartbeat(agentId: string): boolean {
     const agent = registeredAgents.get(agentId);
     if (!agent) return false;

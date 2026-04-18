@@ -23,7 +23,7 @@ vi.mock('../../src/agent/commandPost.js', () => ({
     attachShadowVerdictToApproval: mockAttachShadow,
 }));
 
-import { computePressureReading, evaluatePressure, runPressureCycle } from '../../src/organism/pressure.js';
+import { computePressureReading, evaluatePressure, runPressureCycle, _resetPressureDampingForTests } from '../../src/organism/pressure.js';
 import type { DriveState } from '../../src/organism/drives.js';
 
 function makeDrive(id: string, pressure: number): DriveState {
@@ -36,6 +36,7 @@ function makeDrive(id: string, pressure: number): DriveState {
 describe('pressure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        _resetPressureDampingForTests();
         mockLoadConfig.mockReturnValue({
             organism: { enabled: true, pressureThreshold: 1.2, shadowEnabled: true, shadowModel: 'fast' },
             agent: { modelAliases: { fast: 'openai/gpt-4o-mini' } },

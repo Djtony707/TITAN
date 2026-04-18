@@ -255,20 +255,30 @@ async function startMdns(nodeId: string, port: number, autoApprove: boolean): Pr
     mdnsAutoApprove = autoApprove;
 
     try {
-        // v4.3.5: robust Bonjour constructor lookup — the module ships with a
+        // v4.3.5+: robust Bonjour constructor lookup — the module ships with a
         // mixed ESM/CJS shape, and after tsup bundles it through __toESM the
         // runtime shape can have the constructor at any of:
         //   • m.Bonjour                 (named ESM export)
         //   • m.default                 (CJS `module.exports = Bonjour`)
         //   • m.default.Bonjour         (CJS `module.exports.Bonjour = ...`)
-        // The pre-v4.3.5 lookup only checked the first two and tripped on the
-        // third in the bundled build, so the warning ran every 5 min.
+        //
+        // v4.7.0: wrap each property access in its own try/catch. Under
+        // strict ESM (and under vitest's module-mock namespace) reading a
+        // key that isn't exported throws instead of returning undefined.
+        // Swallowing the read errors individually lets the fallback chain
+        // keep probing instead of collapsing to the outer catch.
         const m = await import('bonjour-service') as Record<string, unknown>;
-        const d = m.default as Record<string, unknown> | undefined;
+        const safeGet = (obj: Record<string, unknown> | undefined, key: string): unknown => {
+            if (!obj) return undefined;
+            try { return obj[key]; } catch { return undefined; }
+        };
+        const mBonjour = safeGet(m, 'Bonjour');
+        const mDefault = safeGet(m, 'default') as Record<string, unknown> | undefined;
+        const dBonjour = safeGet(mDefault, 'Bonjour');
         const candidate =
-            (typeof m.Bonjour === 'function' ? m.Bonjour : undefined)
-            ?? (typeof d === 'function' ? d : undefined)
-            ?? (d && typeof d.Bonjour === 'function' ? d.Bonjour : undefined);
+            (typeof mBonjour === 'function' ? mBonjour : undefined)
+            ?? (typeof mDefault === 'function' ? mDefault : undefined)
+            ?? (typeof dBonjour === 'function' ? dBonjour : undefined);
         if (typeof candidate !== 'function') {
             throw new Error('bonjour-service module loaded but Bonjour constructor not found');
         }

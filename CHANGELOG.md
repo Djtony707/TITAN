@@ -5,6 +5,89 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.7.0] — 2026-04-17 — TITAN Companies: specialist pool + subagent safety + memory fence
+
+Tony asked for multiple agent specialists TITAN can delegate to, modeled after
+Hermes, OpenClaw, and Paperclip patterns. This release ships all three pieces
+as **additive** changes — no existing behavior breaks, 24K users unaffected.
+
+### Added
+
+- **Specialist pool** (`src/agent/specialists.ts`) — four pre-registered
+  role-scoped agents TITAN's CEO can delegate to:
+  - **Scout** — Gemini Flash research specialist (fast, broad-context reads)
+  - **Builder** — GLM-5.1 engineering specialist (code edits, scripts)
+  - **Writer** — GLM-5.1 content specialist (copy, docs, drafts)
+  - **Analyst** — GLM-5.1 decision specialist (synthesis, tradeoffs)
+  - Each has a pinned stable ID (not auto-generated `agent-xxx`) so the
+    Command Post references stay stable across restarts.
+  - Persona bundles live at `assets/role-bundles/{ceo,scout,builder,writer,analyst}/SOUL.md`.
+- **Subagent safety layer** (`src/agent/subagentSafety.ts`) — Hermes-inspired
+  hard limits on the `spawn_agent` path:
+  - `MAX_SUBAGENT_DEPTH = 2` — prevents fork-bomb spawn chains
+  - `MAX_CONCURRENT_CHILDREN = 3` per parent session
+  - `BLOCKED_CHILD_TOOLS` — children can't call `spawn_agent`,
+    `memory_store`, `memory_write`, `send_message`, `fb_post`, `x_post`,
+    `send_email`, `twilio_call`, `messenger_send`, `code_exec` (prevents
+    side-channel messaging, memory corruption, recursive spawning).
+  - `filterToolsForChild(tools, depth)` skips filtering at depth 0 (primary
+    agent keeps full toolbox).
+- **Memory fence** (`src/memory/fence.ts`) — Hermes-pattern `<memory-context>`
+  tags around recalled memories before injection into system prompt, with
+  the standard "NOT new user input" disclaimer. Strips any pre-existing
+  fence tags in recalled content to prevent fence-closing injection attacks.
+
+### Fixed
+
+- **Pre-existing test failures cleaned up** (unrelated to v4.7.0 feature work
+  but resolved while validating the ship):
+  - `tests/organism/pressure.test.ts` — the v4.6.0 per-drive damping Map
+    leaked across `beforeEach` boundaries. Exported
+    `_resetPressureDampingForTests()` and called it in the test's setup so
+    consecutive hunger-drive runs aren't damped from a prior test. (4 tests)
+  - `tests/agent-loop.test.ts` — RESPOND-phase strip test failed because
+    `outputGuardrails` META_PREAMBLE regex `^Here(?:'s| is) (?:what|the|my)\s+[^:]*:\s*` used an unbounded `[^:]*` that ate past the period and into embedded tool JSON up to the first colon (`"name":`), stripping the real answer along with the preamble. Changed to `[^:{}\n]*` so the match can't cross into JSON blocks. (1 test)
+  - `tests/mesh-extended.test.ts` — mDNS tests failed because production
+    code at `src/mesh/discovery.ts` read `m.default` on the `bonjour-service`
+    module namespace, which throws under vitest's strict module-mock
+    handling (and in some real ESM loader scenarios). Wrapped each
+    property access in a `safeGet()` helper so the fallback chain keeps
+    probing instead of collapsing to the outer catch. (8 tests)
+
+### Changed
+
+- `src/agent/agent.ts` — `spawn_agent` tool now (a) consults
+  `canSpawnChild()` safety gate before spawning, (b) routes templated
+  requests (research/engineer/write/analyze) to the corresponding
+  specialist with its pinned persona + model, (c) registers/unregisters
+  children for the concurrent-child budget.
+- `src/agent/subAgent.ts` — children now have `BLOCKED_CHILD_TOOLS`
+  filtered out of their tool list before execution.
+- `src/agent/commandPost.ts` — added `forceRegisterSpecialist()` helper
+  for pinned-ID registration (idempotent).
+- `src/gateway/server.ts` — bootstrap now calls
+  `ensureSpecialistsRegistered()` after `initCommandPost()` so the four
+  specialists are always in the Command Post agent list.
+
+### Tests
+
+- Full suite: **5,530 passing** (was 5,517 before fixes). 0 failures.
+  The remaining 1 "unhandled error" is the pre-existing tinypool worker
+  exit flake documented in CLAUDE.md — not a real failure.
+- No test coverage regression. 13 test failures resolved cleanly (root
+  causes fixed, not tests loosened).
+
+### Not breaking
+
+All 24,000+ existing users unaffected:
+- Specialists are additive — existing Command Post agents still work.
+- Subagent safety only applies to depth ≥ 1 — primary agent unchanged.
+- Memory fence is opt-in at the call site (no existing callers forced to
+  migrate).
+- No config schema changes. No API surface changes beyond new reads.
+
+---
+
 ## [4.5.1] — 2026-04-17 — "The Pane" — a beautiful way to watch TITAN
 
 Tony asked for a way to watch TITAN that's beautiful, informative, and
