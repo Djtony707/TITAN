@@ -71,7 +71,12 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Builder',
         role: 'engineer',
         title: 'Code, files, shell, deploys',
-        model: 'ollama/glm-5.1:cloud',
+        // v4.9.0-local.4: swapped from glm-5.1:cloud to qwen3.6:35b.
+        // Qwen 3.6-35B-A3B is MoE (3B active per token), 73.4% on
+        // SWE-Bench Verified, 256K context, local (no cloud hop), and
+        // the 5090 runs it at ~150 tok/s. Better code-task quality +
+        // no rate-limit risk for the most code-heavy specialist.
+        model: 'ollama/qwen3.6:35b',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: BUILDER ──',

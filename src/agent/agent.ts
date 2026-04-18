@@ -544,11 +544,22 @@ ${(() => {
         // Sync access: the identity is a small JSON file + in-memory cached.
         // No top-level await needed — we avoid a dynamic import at this hot
         // path by reading the cached module reference installed at bootstrap.
-        const g = globalThis as unknown as { __titan_identity_block?: () => string };
+        const g = globalThis as unknown as {
+            __titan_identity_block?: () => string;
+            __titan_self_model_block?: () => string;
+        };
+        const parts: string[] = [];
         if (typeof g.__titan_identity_block === 'function') {
             const block = g.__titan_identity_block();
-            if (block) return '\n\n' + block;
+            if (block) parts.push(block);
         }
+        // v4.9.0-local.4: self-model — what TITAN knows about itself
+        // (track record, strengths, weaknesses, integrity). Cached 60s.
+        if (typeof g.__titan_self_model_block === 'function') {
+            const block = g.__titan_self_model_block();
+            if (block) parts.push(block);
+        }
+        if (parts.length > 0) return '\n\n' + parts.join('\n\n');
     } catch { /* identity unavailable — fall through */ }
     return '';
 })()}

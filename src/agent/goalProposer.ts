@@ -48,6 +48,12 @@ export interface GoalProposerContext {
     failedSubtasks?: string[];
     /** Free-form notes from the dreaming consolidation log. */
     consolidationNotes?: string;
+    /**
+     * v4.9.0-local.4: extra prompt blocks (episodic recall, experiment
+     * history, identity) pre-loaded by the caller. Keeps buildPrompt
+     * synchronous.
+     */
+    extraBlocks?: string[];
 }
 
 interface RateLimitState {
@@ -122,6 +128,19 @@ function buildPrompt(agentId: string, slotsLeft: number, ctx: GoalProposerContex
         sections.push('## Memory Consolidation Notes');
         sections.push(ctx.consolidationNotes);
         sections.push('');
+    }
+
+    // v4.9.0-local.4: extra memory blocks (episodic, experiments,
+    // identity) pre-loaded by the async caller and passed through ctx.
+    // Keeps buildPrompt synchronous while still giving the proposer
+    // full context of what TITAN has already done + who it is.
+    if (ctx.extraBlocks && ctx.extraBlocks.length > 0) {
+        for (const block of ctx.extraBlocks) {
+            if (block && block.trim()) {
+                sections.push(block);
+                sections.push('');
+            }
+        }
     }
 
     sections.push('## Output Format');
@@ -268,7 +287,38 @@ export async function generateGoalProposals(
     const modelAlias = config.agent.proposalModel || 'fast';
     const model = config.agent.modelAliases[modelAlias] || modelAlias;
 
-    const prompt = buildPrompt(agentId, slotsLeft, ctx);
+    // v4.9.0-local.4: pre-load extra memory blocks (episodic, experiments,
+    // identity) before building the proposer prompt. Closes the repeat-
+    // task feedback loop — the proposer now sees what TITAN has recently
+    // done and won't re-propose the same ant colony sim three times.
+    // Each block is best-effort; silent fallthrough if a module isn't
+    // available at proposer time.
+    const extraBlocks: string[] = [];
+    try {
+        const { renderRecallBlock } = await import('../memory/episodic.js');
+        const block = renderRecallBlock({ limit: 12, windowHours: 72 });
+        if (block) extraBlocks.push(block);
+    } catch { /* ok */ }
+    try {
+        const { renderRecentExperimentsBlock } = await import('../memory/experiments.js');
+        const block = renderRecentExperimentsBlock(8);
+        if (block) extraBlocks.push(block);
+    } catch { /* ok */ }
+    try {
+        const { getIdentity } = await import('../memory/identity.js');
+        const id = getIdentity();
+        if (id) {
+            extraBlocks.push([
+                '## Your identity (persistent)',
+                `Mission: ${id.core.mission}`,
+                `Non-negotiables: ${id.core.nonNegotiables.slice(0, 3).join('; ')}`,
+                'Propose ONLY goals that align with the mission and never violate a non-negotiable.',
+            ].join('\n'));
+        }
+    } catch { /* ok */ }
+
+    const ctxWithBlocks: GoalProposerContext = { ...ctx, extraBlocks };
+    const prompt = buildPrompt(agentId, slotsLeft, ctxWithBlocks);
 
     // Only Ollama honours the `format` JSON-schema constraint today.
     // Other providers would either ignore it or error, so we gate on provider.

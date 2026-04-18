@@ -7253,6 +7253,41 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.warn(COMPONENT, `Identity bootstrap skipped: ${(e as Error).message}`);
   }
 
+  // v4.9.0-local.4: install the self-model provider. The self-model
+  // synthesizes identity + recent performance + strengths/weaknesses
+  // + integrity into a compact block injected into every system prompt.
+  // Cached for 60s inside the module — the sync accessor returns the
+  // cached block (falling through to empty when cache is cold).
+  try {
+    const { getSelfModel, renderSelfModelBlock } = await import('../memory/meta.js');
+    let cachedBlock = '';
+    let cachedAt = 0;
+    const refresh = () => {
+      (async () => {
+        try {
+          cachedBlock = await renderSelfModelBlock();
+          cachedAt = Date.now();
+        } catch { /* ok */ }
+      })();
+    };
+    refresh();
+    setInterval(refresh, 60_000).unref?.();
+    (globalThis as unknown as { __titan_self_model_block?: () => string }).__titan_self_model_block = () => {
+      // If cache is stale (> 2 min) return the old block anyway — the
+      // async refresh runs out-of-band. Never blocks the prompt path.
+      if (Date.now() - cachedAt > 120_000 && cachedBlock === '') {
+        // First call before refresh finishes — do nothing.
+        return '';
+      }
+      return cachedBlock;
+    };
+    // Also prime the self-model so the first agent turn has something.
+    await getSelfModel();
+    logger.info(COMPONENT, 'Self-model provider installed (60s refresh)');
+  } catch (e) {
+    logger.warn(COMPONENT, `Self-model bootstrap skipped: ${(e as Error).message}`);
+  }
+
   // v4.9.0: install closed-loop signal providers for Soma drives. These
   // let the drive layer read live VRAM / telemetry / learning state via
   // a synchronous call without pulling in the whole dependency graph.
@@ -7308,6 +7343,51 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.info(COMPONENT, 'Drive signal providers installed (VRAM, metrics, learning)');
   } catch (e) {
     logger.warn(COMPONENT, `Drive signal bootstrap skipped: ${(e as Error).message}`);
+  }
+
+  // v4.9.0-local.4: register the self-repair daemon watcher. Runs every
+  // 5 minutes; sweeps for stuck drives, stalled goals, episodic
+  // anomalies, integrity dips, stale working-memory sessions. Files
+  // 'self_repair' approvals for new findings. Human-in-the-loop: the
+  // daemon proposes, Tony approves (or rejects).
+  try {
+    const { registerWatcher } = await import('../agent/daemon.js');
+    const { runSelfRepairSweep } = await import('../safety/selfRepair.js');
+    registerWatcher('self-repair', async () => {
+      try { await runSelfRepairSweep(); } catch (e) { logger.debug(COMPONENT, `self-repair sweep: ${(e as Error).message}`); }
+    }, 300_000);
+    logger.info(COMPONENT, 'Self-repair daemon registered (5 min cadence)');
+  } catch (e) {
+    logger.warn(COMPONENT, `Self-repair daemon skipped: ${(e as Error).message}`);
+  }
+
+  // v4.9.0-local.4: register the working-memory retire watcher. Every
+  // hour, sweeps for in-flight sessions that haven't touched
+  // lastActiveAt in > 24h and archives them to episodic as abandoned.
+  try {
+    const { registerWatcher } = await import('../agent/daemon.js');
+    const { retireStaleSessions } = await import('../memory/workingMemory.js');
+    registerWatcher('working-memory-retire', async () => {
+      try { retireStaleSessions(); } catch (e) { logger.debug(COMPONENT, `working-memory retire: ${(e as Error).message}`); }
+    }, 3_600_000);
+  } catch (e) {
+    logger.warn(COMPONENT, `Working-memory retire watcher skipped: ${(e as Error).message}`);
+  }
+
+  // v4.9.0-local.4: canary eval daemon. Runs the fixed golden-set
+  // every 24h; if any task drops > 15% vs 7-day baseline, a
+  // canary_regression approval fires for Tony to review. Defends
+  // against silent quality degradation from model drift, context
+  // bloat, or prompt accretion.
+  try {
+    const { registerWatcher } = await import('../agent/daemon.js');
+    const { runCanarySweep } = await import('../safety/canaryEval.js');
+    registerWatcher('canary-eval', async () => {
+      try { await runCanarySweep(); } catch (e) { logger.debug(COMPONENT, `canary sweep: ${(e as Error).message}`); }
+    }, 24 * 60 * 60 * 1000);
+    logger.info(COMPONENT, 'Canary eval daemon registered (24h cadence)');
+  } catch (e) {
+    logger.warn(COMPONENT, `Canary eval daemon skipped: ${(e as Error).message}`);
   }
 
   // v4.8.0: Self-Modification Pipeline — auto-review newly captured

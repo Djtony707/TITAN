@@ -5,6 +5,123 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.9.0-local.4] — 2026-04-18 — Memory + safety architecture COMPLETE (LOCAL-ONLY)
+
+**LOCAL ONLY. Not published, not pushed.**
+
+Hard-takeoff foundation complete. Every remaining module from the plan
+is now built, wired, deployed. The organism has: persistent identity,
+episodic memory with semantic recall, structured working memory,
+self-model injected into every prompt, error chain tracing, canary
+eval daemon (silent-degradation defense), self-repair daemon that
+proposes (but never executes) fixes, initiative-prompt routing fixed,
+Qwen 3.6:35b for Builder, goal-reset script ready.
+
+### Added — memory
+
+- **`src/memory/episodic.ts`** — "what did I do" layer. Appends to
+  `~/.titan/episodic.jsonl`; pushes into graph + vector store via
+  existing infra. `recallSimilarEpisodes()` does semantic recall via
+  Ollama `nomic-embed-text`, lexical fallback otherwise.
+  `renderRecallBlock()` is what goalProposer now reads.
+- **`src/memory/workingMemory.ts`** — per-session structured state.
+  Sessions auto-retire after 24h idle (archived to episodic as
+  `goal_abandoned`). Mid-work kill + resume preserves decisions + open
+  questions + artifacts + notes.
+- **`src/memory/meta.ts`** — self-model synthesizer. Identity + recent
+  performance + strengths/weaknesses + integrity ratio + kill-switch
+  history → compact block injected into every agent system prompt
+  (via `globalThis.__titan_self_model_block`, 60s refresh).
+
+### Added — safety
+
+- **`src/safety/errorChain.ts`** — compounding-error defense.
+  `recordTraceEvent` breadcrumbs; `ChainedError` carries a
+  `traceChain[]`; `getTrace(id)` walks backward to root.
+- **`src/safety/canaryEval.ts`** — silent-degradation defense. 5
+  canary tasks run daily (factual recall, math, code snippet,
+  exact-instruction-follow, persona stability). ≥15% drop vs 7-day
+  baseline → `canary_regression` approval fires.
+- **`src/safety/selfRepair.ts`** — meta-watcher daemon. Sweeps every
+  5min: drives stuck >6h, goals active >24h w/ 0 progress, episodic
+  anomalies (≥10 goal_failed/24h), integrity <0.5, stale working-
+  memory sessions. Each new finding → `self_repair` approval. **Never
+  auto-executes a fix — human-in-the-loop preserved.**
+
+### Changed — wiring
+
+- **goalProposer** now loads episodic recall + experiment history +
+  identity into extra prompt blocks before firing. Closes the
+  repeat-task loop — proposer sees what TITAN already tried.
+- **Gateway bootstrap** registers: self-repair watcher (5min), working-
+  memory retire (1h), canary eval (24h), installs self-model block
+  accessor on globalThis.
+- **Agent system prompt** renders self-model alongside identity at
+  top of every prompt.
+
+### Changed — specialists
+
+- **Builder**: `ollama/glm-5.1:cloud` → `ollama/qwen3.6:35b`. Qwen
+  3.6-35B-A3B (MoE, 3B active per token, 73.4% SWE-Bench Verified,
+  256K context, pulled on Titan PC, ~150 tok/s on the 5090). Fully
+  local — no rate-limit risk on the most code-heavy specialist.
+
+### Fixed — initiative prompt routing
+
+- `buildSmartPrompt` no longer hardcodes "WRITE CODE NOW using
+  write_file" for every subtask. Uses existing `isAnalyticalSubtask`
+  classifier:
+  - analytical verbs (research/explore/investigate/analyze) →
+    "RESEARCH + REPORT via web_search/web_fetch/memory/goal_list;
+    short report at docs/research/ OR respond directly. Do NOT
+    invent standalone code artifacts."
+  - code-signal verbs (write/create/implement +file/component/func) →
+    existing WRITE CODE NOW path
+  - ambiguous → implementation (safer default)
+  Fixes the Watch-page "WRITE CODE NOW" + "Stalled on that — taking
+  a breath" flood Tony saw. Curiosity-driven "explore novel stimuli"
+  now routes to research rather than building more ant colony sims.
+
+### New scripts
+
+- `scripts/reset-titan-goals.sh <remote>` — soft goal reset.
+  Archives goals.json + approvals + activity + proposer/initiative
+  state to `~/.titan/archive-<ts>/`, clears active lists, keeps
+  identity + graph + learning + drive-state, restarts titan service.
+
+### Tests
+
+- `tests/memory/episodic.test.ts` — 8 tests.
+- Full suite: **5,610 passing**. Typecheck clean. Only the documented
+  agent.test.ts OOM remains.
+
+### Complete state of the organism
+
+| Layer | Status |
+|---|---|
+| Identity | ✓ persistent; session #N ticks; drift detection + human resolution |
+| Memory — graph | ✓ (existing, unchanged) |
+| Memory — vectors | ✓ enabled, nomic-embed-text |
+| Memory — provenance | ✓ source + confidence + cascade quarantine |
+| Memory — experiments | ✓ don't-redo detector |
+| Memory — episodic | ✓ semantic recall via vectors, feeds proposer |
+| Memory — working | ✓ per-session state, auto-retires |
+| Memory — meta (self-model) | ✓ injected into every prompt |
+| Soma — drives | ✓ closed-loop: VRAM + telemetry + error patterns |
+| Soma — proposer | ✓ reads episodic + experiments + identity |
+| Safety — kill switch | ✓ armed, /api/safety/* endpoints |
+| Safety — fix oscillation | ✓ feeds kill switch |
+| Safety — metric guard | ✓ Goodhart defense (verifier-required) |
+| Safety — error chain | ✓ traceable breadcrumbs |
+| Safety — canary eval | ✓ daily golden-set |
+| Safety — self-repair | ✓ 5min sweeps, proposes fixes |
+| Specialists | ✓ Scout/Builder(qwen3.6)/Writer/Analyst |
+| Initiative prompting | ✓ routed by subtask type |
+
+Ready to observe autonomous behavior with all feedback loops closed.
+
+---
+
 ## [4.9.0-local.3] — 2026-04-18 — Safety batch 2 + test infra cleanup (LOCAL-ONLY)
 
 **Still LOCAL ONLY — not published, not pushed.**
