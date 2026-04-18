@@ -5,6 +5,47 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.8.3] — 2026-04-18 — Specialist-invocation prompt + spawn_agent tool description rewrite
+
+TITAN Primary has had access to `spawn_agent` since v4.7.0 but has been
+doing everything itself on `glm-5.1:cloud` — never actually delegating.
+Root cause: the tool description and system-prompt delegation section
+were written before the v4.7.0 specialist pool existed, so they talked
+about generic "explorer"/"coder"/"browser"/"analyst" templates without
+mentioning Scout/Builder/Writer/Analyst as persistent role-scoped team
+members.
+
+### Changed
+
+- **`src/agent/agent.ts` `spawn_agent` tool description** — rewritten
+  to explicitly name the four specialists, their strengths, and their
+  role-tuned models. Parameters' descriptions now prefer
+  `scout`/`builder`/`writer`/`analyst` while still accepting legacy
+  aliases (explorer/coder/browser/etc).
+- **`src/agent/agent.ts` primary system prompt "Task Delegation"
+  section** — rewritten from 4 generic bullet points into a
+  directive "delegate aggressively" guide with concrete WHEN-to-DELEGATE
+  patterns per specialist. Added the Writer specialist (was missing
+  entirely). Added a concrete `spawn_agent({template, task})` example.
+  Explicitly ties back to the Social drive ("idle specialists bring
+  the whole organism down").
+
+### Expected effect
+
+Next autonomous run should see `spawn_agent({template: "scout", ...})`
+calls in the log when research is involved, `spawn_agent({template: "builder", ...})`
+for code changes, etc. Specialists' `totalTasksCompleted` should start
+incrementing away from 0, and their status will transition `idle → active →
+idle` as they pick up and finish work.
+
+### Not breaking
+
+- Tool signature unchanged.
+- Legacy template names still route correctly.
+- No config/schema changes.
+
+---
+
 ## [4.8.2] — 2026-04-18 — v4.8.1 hotfix: heal path never ran for already-registered specialists
 
 v4.8.1 put the heal logic inside `forceRegisterSpecialist`, but
