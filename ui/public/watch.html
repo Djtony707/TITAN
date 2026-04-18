@@ -448,9 +448,15 @@
     } catch (e) { alert('Login failed: ' + e.message); return false; }
   }
 
-  // ── Time-ago formatter
+  // ── Time-ago formatter (NaN-safe — accepts number or ISO string)
   function timeAgo(ts) {
-    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    let t;
+    if (typeof ts === 'number' && !isNaN(ts) && ts > 0) t = ts;
+    else if (typeof ts === 'string') {
+      const p = Date.parse(ts);
+      t = isNaN(p) ? Date.now() : p;
+    } else t = Date.now();
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
     if (s < 10) return 'just now';
     if (s < 60) return s + 's ago';
     const m = Math.floor(s / 60);
@@ -485,19 +491,32 @@
   }
 
   // ── Update focus card based on most recent meaningful event
+  // Prefer "focus-worthy" topics, but fall back to newest event of any
+  // kind so the card doesn't sit on "Standing by" when only background
+  // chatter is flowing through.
+  const FOCUS_PROMOTE = new Set([
+    'soma:proposal', 'turn:pre', 'turn:post', 'tool:call',
+    'goal:subtask:ready', 'goal:created', 'goal:completed',
+    'initiative:start', 'initiative:complete', 'initiative:round',
+    'pressure:threshold', 'hormone:update',
+    'commandpost:task:checkout', 'commandpost:task:checkin',
+    'dreaming:consolidated', 'alert',
+  ]);
   function updateFocus(evt) {
-    // Promote certain events to the focus card
-    const promote = new Set([
-      'soma:proposal', 'turn:pre', 'turn:post', 'tool:call',
-      'goal:subtask:ready', 'initiative:start', 'initiative:complete',
-      'pressure:threshold',
-    ]);
-    if (!promote.has(evt.topic)) return;
+    // If it's a "focus-worthy" topic, always update.
+    // Otherwise update if we have nothing else yet (idle start).
+    const shouldUpdate = FOCUS_PROMOTE.has(evt.topic) || !focusText.dataset.hasEvent;
+    if (!shouldUpdate) return;
+    focusText.dataset.hasEvent = '1';
     focusText.style.opacity = '0';
     setTimeout(() => {
       focusText.textContent = voice === 'titan' ? evt.captionTitan : evt.captionControl;
-      const t = new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      focusMeta.innerHTML = `<span>Just now · ${t}</span>`;
+      let t = '';
+      try {
+        const ts = typeof evt.timestamp === 'number' ? evt.timestamp : Date.parse(evt.timestamp);
+        if (!isNaN(ts)) t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch {}
+      focusMeta.innerHTML = t ? `<span>${timeAgo(evt.timestamp)} · ${t}</span>` : `<span>${timeAgo(evt.timestamp)}</span>`;
       focusText.style.opacity = '1';
     }, 200);
     activityBoostUntil = Date.now() + 10_000;

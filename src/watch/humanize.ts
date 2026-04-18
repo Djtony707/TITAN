@@ -440,6 +440,18 @@ function capitalize(s: string): string {
 
 // ── Public API ─────────────────────────────────────────────────
 
+/** Coerce a timestamp field to a number (ms since epoch).
+ *  Accepts number, ISO string, or undefined. Falls back to Date.now(). */
+function coerceTimestamp(raw: unknown): number {
+    if (typeof raw === 'number' && !Number.isNaN(raw) && raw > 0) return raw;
+    if (typeof raw === 'string') {
+        const parsed = Date.parse(raw);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    if (raw instanceof Date) return raw.getTime();
+    return Date.now();
+}
+
 /** Humanize a raw event. Returns a WatchEvent or null if we choose to skip. */
 export function humanize(
     topic: string,
@@ -453,7 +465,10 @@ export function humanize(
         || topic === 'soul:heartbeat') return null;
 
     const fn = H[topic];
-    const ts = (payload.timestamp as number) || Date.now();
+    // v4.5.2: timestamps come as numbers most places but some emitters
+    // (initiative.ts:158 et al.) send ISO strings. Coerce defensively
+    // so the UI doesn't render "NaNd ago".
+    const ts = coerceTimestamp(payload.timestamp);
 
     if (fn) {
         const { titan, control, kind, icon, detail } = fn(payload);

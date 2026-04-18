@@ -170,6 +170,21 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         );
         const verified = wroteFiles ? verifyDeliverables(result.content, subtask.description) : false;
 
+        // v4.5.2: non-coding subtasks (analytical, exploratory, memory-based)
+        // don't need files as evidence of work. Detect by description verbs +
+        // require meaningful text + at least one information-gathering tool.
+        // Without this, Soma-proposed goals like "Select a biological model"
+        // run successfully (TITAN thinks + responds with substance) but get
+        // auto-failed after 3 empty-output cycles because no file was written.
+        const subtaskIsAnalytical = isAnalyticalSubtask(subtask.title + ' ' + (subtask.description || ''));
+        const hasSubstantiveText = (result.content || '').trim().length >= 200;
+        const usedInfoTools = toolsUsed.some(t =>
+            t === 'memory_store' || t === 'memory_recall' || t === 'memory_search'
+            || t === 'web_search' || t === 'web_fetch' || t === 'shell'
+            || t === 'goals_list' || t === 'read_file' || t === 'system_info',
+        );
+        const analyticalComplete = subtaskIsAnalytical && hasSubstantiveText && (usedInfoTools || toolsUsed.length === 0);
+
         if (wroteFiles && verified) {
             // Gap 2: Run build verification — retry up to 3 times within this session
             let buildOk = false;
@@ -230,17 +245,34 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
                 reason: 'write_file called but files not verified on disk',
                 timestamp: new Date().toISOString(),
             });
+        } else if (analyticalComplete) {
+            // v4.5.2: analytical subtask completed with meaningful text + info-gathering tools.
+            // Accept as done even without file writes.
+            completeSubtask(goal.id, subtask.id, result.content.slice(0, 500));
+            logger.info(COMPONENT, `✅ Subtask ANALYTICAL COMPLETE: "${subtask.title}" (${result.content.length} chars, tools: ${toolsUsed.join(', ') || 'none'})`);
+            consecutiveFailures = 0;
+            clearState();
+            titanEvents.emit('initiative:complete', {
+                goalId: goal.id, subtaskTitle: subtask.title,
+                toolsUsed, summary: result.content.slice(0, 300),
+                timestamp: new Date().toISOString(),
+            });
         } else {
-            logger.warn(COMPONENT, `⚠️ Subtask "${subtask.title}" — no files written (tools: ${toolsUsed.join(', ')})`);
+            const why = subtaskIsAnalytical
+                ? `analytical task but content too thin (${(result.content || '').length} chars) — needs >=200`
+                : toolsUsed.length === 0
+                    ? 'No tools used'
+                    : `Used ${toolsUsed.join(', ')} but no files written`;
+            logger.warn(COMPONENT, `⚠️ Subtask "${subtask.title}" — ${why}`);
             saveState({
                 lastSubtask: subtask.title, lastGoal: goal.title,
-                attemptCount, lastError: 'No write_file calls made',
+                attemptCount, lastError: why,
                 filesCreated: [], timestamp: new Date().toISOString(),
             });
             consecutiveFailures++;
             titanEvents.emit('initiative:no_progress', {
                 goalId: goal.id, subtaskTitle: subtask.title,
-                reason: toolsUsed.length === 0 ? 'No tools used' : `Used ${toolsUsed.join(', ')} but no files written`,
+                reason: why,
                 timestamp: new Date().toISOString(),
             });
         }
@@ -356,6 +388,29 @@ async function runBuildVerification(
         logger.warn(COMPONENT, `[BuildVerify] Failed: ${(err as Error).message}`);
         return false; // Build verification failed — don't mark subtask complete
     }
+}
+
+/**
+ * v4.5.2: Classify a subtask as "analytical" (conceptual / research /
+ * memory-based) vs "coding" (writes files). Coding tasks require
+ * write_file+build verification; analytical tasks complete when TITAN
+ * produces substantive text content backed by info-gathering tools.
+ *
+ * Without this split, Soma-proposed goals like "Select a biological
+ * model" or "Correlate research with system capabilities" were running
+ * successfully but getting auto-failed because they don't produce files.
+ */
+function isAnalyticalSubtask(text: string): boolean {
+    const lower = text.toLowerCase();
+    // Strong coding signals — short-circuit to coding
+    if (/\b(write|create|build|implement|code|generate)\b.*\b(file|component|function|module|script|endpoint|api|page|class|test)\b/.test(lower)) return false;
+    if (/\b(\.ts|\.tsx|\.js|\.jsx|\.py|\.html|\.css|\.md|\.json|\.yaml|\.sh)\b/.test(lower)) return false;
+    if (/\b(edit|modify|refactor|fix|patch)\b.*\b(file|code|component|function)\b/.test(lower)) return false;
+    // Analytical verbs
+    const analyticalVerbs = /\b(select|choose|identify|determine|decide|analyze|assess|evaluate|research|explore|investigate|study|examine|map|correlate|synthesize|summarize|compare|contrast|classify|categorize|outline|propose|consider|review|audit|plan|define|define|describe|characterize|diagnose|observe|monitor|measure|count|list|tally|track)\b/;
+    if (analyticalVerbs.test(lower)) return true;
+    // Default: require files (safer for mystery tasks)
+    return false;
 }
 
 // ── Filesystem verification ───────────────────────────────────

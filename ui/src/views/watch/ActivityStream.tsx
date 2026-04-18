@@ -13,6 +13,7 @@ import { timeAgo } from './types';
 interface Props {
     events: WatchEvent[];
     voice: WatchVoice;
+    onEventClick?: (event: WatchEvent) => void;
 }
 
 const KIND_COLORS: Record<WatchKind, string> = {
@@ -27,7 +28,7 @@ const KIND_COLORS: Record<WatchKind, string> = {
     system: '#9ca3af',
 };
 
-export function ActivityStream({ events, voice }: Props) {
+export function ActivityStream({ events, voice, onEventClick }: Props) {
     // Force re-render every 20s so the "time ago" labels stay fresh
     const [, setTick] = useState(0);
     useEffect(() => {
@@ -70,6 +71,7 @@ export function ActivityStream({ events, voice }: Props) {
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 4 }}
                             transition={{ duration: 0.35, ease: 'easeOut' }}
+                            onClick={() => onEventClick?.(evt)}
                             style={{
                                 display: 'flex',
                                 alignItems: 'flex-start',
@@ -82,9 +84,16 @@ export function ActivityStream({ events, voice }: Props) {
                                 borderLeft: `2px solid ${leftColor}`,
                                 fontSize: 13,
                                 lineHeight: 1.35,
-                                transition: 'background 0.3s',
+                                transition: 'background 0.2s, transform 0.15s',
+                                cursor: onEventClick ? 'pointer' : 'default',
                             }}
-                            title={evt.topic}
+                            onMouseEnter={(e) => {
+                                if (onEventClick) e.currentTarget.style.background = `${leftColor}22`;
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isNewest ? `${leftColor}14` : 'rgba(255, 255, 255, 0.015)';
+                            }}
+                            title={`Click for details · ${evt.topic}`}
                         >
                             <div style={{
                                 fontSize: 15,

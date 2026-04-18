@@ -16,7 +16,9 @@ interface Props {
 }
 
 function pickFocus(events: WatchEvent[]): WatchEvent | null {
-    // Newest event whose topic deserves promotion. Falls back to newest of any kind.
+    // Prefer the newest event whose topic is "focus-worthy" (a real thing
+    // TITAN is doing). Fall back to the newest event of ANY kind so the
+    // card always has something to say rather than sitting on "Standing by."
     for (const e of events) {
         if (FOCUS_TOPICS.has(e.topic)) return e;
     }

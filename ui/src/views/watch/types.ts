@@ -90,9 +90,16 @@ export const FOCUS_TOPICS = new Set([
     'goal:completed',
 ]);
 
-/** Format a short relative time ("just now", "12s ago", "4m ago") */
-export function timeAgo(ts: number, now: number = Date.now()): string {
-    const s = Math.max(0, Math.floor((now - ts) / 1000));
+/** Format a short relative time ("just now", "12s ago", "4m ago").
+ *  Returns "now" for NaN / invalid timestamps instead of "NaNd ago". */
+export function timeAgo(ts: number | string | undefined, now: number = Date.now()): string {
+    let t: number;
+    if (typeof ts === 'number' && !Number.isNaN(ts) && ts > 0) t = ts;
+    else if (typeof ts === 'string') {
+        const parsed = Date.parse(ts);
+        t = Number.isNaN(parsed) ? now : parsed;
+    } else t = now;
+    const s = Math.max(0, Math.floor((now - t) / 1000));
     if (s < 10) return 'just now';
     if (s < 60) return `${s}s ago`;
     const m = Math.floor(s / 60);

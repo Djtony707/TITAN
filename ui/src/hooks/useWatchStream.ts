@@ -27,7 +27,17 @@ interface UseWatchStreamReturn {
 }
 
 function getToken(): string {
-    try { return localStorage.getItem('titan_token') || ''; } catch { return ''; }
+    // v4.5.2: the app's auth context stores under "titan-token" (hyphen).
+    // The standalone /watch.html uses "titan_token" (underscore). Accept
+    // both so the React view works whether the user came via the SPA or
+    // pre-auth URL.
+    try {
+        return (
+            localStorage.getItem('titan-token')
+            || localStorage.getItem('titan_token')
+            || ''
+        );
+    } catch { return ''; }
 }
 
 export function useWatchStream(): UseWatchStreamReturn {
@@ -93,6 +103,36 @@ export function useWatchStream(): UseWatchStreamReturn {
                     if (msg.topic === 'drive:tick') {
                         const rawDrives = (msg.raw?.drives as unknown) ?? [];
                         applyDrives(rawDrives);
+                        setLastActivity(Date.now());
+                        return;
+                    }
+                    // v4.5.3: initiative:round fires once per tool-call cycle
+                    // (often 5-15 times in a single minute). Dedupe by
+                    // subtask — keep only the NEWEST round for that subtask
+                    // in the feed so users see "Thinking (round 9/15)"
+                    // replacing earlier rounds instead of 9 separate rows.
+                    if (msg.topic === 'initiative:round') {
+                        const subtask = msg.raw?.subtaskTitle as string | undefined;
+                        const evt: WatchEvent = {
+                            id: msg.id,
+                            timestamp: msg.timestamp,
+                            topic: msg.topic,
+                            kind: msg.kind,
+                            icon: msg.icon,
+                            captionTitan: msg.captionTitan,
+                            captionControl: msg.captionControl,
+                            detail: msg.detail,
+                            raw: msg.raw,
+                        };
+                        setEvents((prev) => {
+                            // Drop any prior round-row for the same subtask
+                            const filtered = subtask
+                                ? prev.filter(e => !(e.topic === 'initiative:round' && (e.raw?.subtaskTitle as string) === subtask))
+                                : prev.filter(e => e.topic !== 'initiative:round');
+                            const next = [evt, ...filtered];
+                            if (next.length > MAX_EVENTS) next.length = MAX_EVENTS;
+                            return next;
+                        });
                         setLastActivity(Date.now());
                         return;
                     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Building2, Users, Lock, DollarSign, GitBranch, Activity,
   ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
@@ -1573,11 +1573,17 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-const TABS = ['Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
+const TABS = ['Watch', 'Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
 type Tab = typeof TABS[number];
 
+// v4.5.2: lazy-load the Watch view so the WatchView+Canvas chunk only loads
+// when the user actually clicks the tab.
+const WatchViewLazy = lazy(() => import('@/views/WatchView'));
+
 export default function CommandPostHub() {
-  const [tab, setTab] = useState<Tab>('Dashboard');
+  // v4.5.2: Watch is the first tab — it's the glanceable "living" view
+  // Tony asked for. The rest are the operator panels.
+  const [tab, setTab] = useState<Tab>('Watch');
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
   const [runs, setRuns] = useState<CPRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1650,6 +1656,16 @@ export default function CommandPostHub() {
         </div>
 
         {/* Tab content */}
+        {tab === 'Watch' && (
+          // v4.5.3: hard height (not min-height) so WatchView's internal
+          // grid + overflow-y on the activity panel actually scroll. The
+          // negative margins bleed the Pane edge-to-edge inside CP.
+          <div className="-mx-6 -mb-6" style={{ height: 'calc(100vh - 200px)', overflow: 'hidden' }}>
+            <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-white/40">Opening the Pane…</div>}>
+              <WatchViewLazy />
+            </Suspense>
+          </div>
+        )}
         {tab === 'Dashboard' && <DashboardTab d={d} activity={activity} />}
         {tab === 'Org Chart' && <OrgChartTab agents={d.agents} />}
         {tab === 'Issues' && <IssuesTab agents={d.agents} />}

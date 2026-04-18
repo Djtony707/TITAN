@@ -694,8 +694,17 @@ export class MessengerChannel extends ChannelAdapter {
         }
     }
 
-    /** Cloud model for Messenger admin interactions — GLM-5.1 is newest agentic flagship, SOTA SWE-Bench Pro */
-    private readonly MESSENGER_MODEL = 'ollama/glm-5.1:cloud';
+    /**
+     * Cloud model for Messenger admin interactions.
+     *
+     * v4.5.2: dropped GLM-5.1:cloud in favor of Gemini Flash. GLM-5.1
+     * was consistently taking 20-90s per turn which triggered the
+     * 120s timeout and showed Tony "that one took too long" on
+     * Messenger every morning. Gemini 3 Flash preview typically
+     * replies in 2-5s — matches Twilio voice expectations and keeps
+     * the conversation snappy. Overridable via env var.
+     */
+    private readonly MESSENGER_MODEL = process.env.MESSENGER_MODEL || 'ollama/gemini-3-flash-preview:cloud';
 
     /** Generate a reply for Tony — ALL messages go through processMessage with local model override */
     private async generateAdminReply(
@@ -744,11 +753,14 @@ His message: `;
         try {
             logger.info(COMPONENT, `Admin request — ${this.MESSENGER_MODEL} agent (${TIMEOUT_MS / 1000}s timeout)`);
 
+            // v4.5.2: strategy='direct' forced so conversational questions
+            // ("what's up", "what are you working on") don't trigger the
+            // explore branch (30s+ deep research). Tools still available.
             const agentPromise = processMessage(
                 adminPrompt + userMessage,
                 'messenger-admin',
                 'tony-admin',
-                { model: this.MESSENGER_MODEL },
+                { model: this.MESSENGER_MODEL, strategy: 'direct' },
                 undefined,
                 AbortSignal.timeout(TIMEOUT_MS),
             );

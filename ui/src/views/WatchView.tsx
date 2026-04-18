@@ -19,14 +19,16 @@ import { useWatchStream } from '@/hooks/useWatchStream';
 import { FocusCard } from '@/views/watch/FocusCard';
 import { ActivityStream } from '@/views/watch/ActivityStream';
 import { OrganismCanvas } from '@/views/watch/OrganismCanvas';
+import { EventDetailPanel } from '@/views/watch/EventDetailPanel';
 import { driveColor } from '@/views/watch/types';
-import type { WatchVoice } from '@/views/watch/types';
+import type { WatchVoice, WatchEvent } from '@/views/watch/types';
 
 export default function WatchView() {
     const [params] = useSearchParams();
     const kiosk = params.get('kiosk') === '1';
     const initialVoice = (params.get('voice') as WatchVoice) === 'control' ? 'control' : 'titan';
     const [voice, setVoice] = useState<WatchVoice>(initialVoice);
+    const [selectedEvent, setSelectedEvent] = useState<WatchEvent | null>(null);
 
     const { drives, events, connected, reconnecting, lastActivity } = useWatchStream();
 
@@ -283,11 +285,14 @@ export default function WatchView() {
                             WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
                             paddingRight: 4,
                         }}>
-                            <ActivityStream events={events} voice={voice} />
+                            <ActivityStream events={events} voice={voice} onEventClick={setSelectedEvent} />
                         </div>
                     </Panel>
                 </main>
             </div>
+
+            {/* Click-to-drill-in detail panel */}
+            <EventDetailPanel event={selectedEvent} voice={voice} onClose={() => setSelectedEvent(null)} />
 
             {/* CSS keyframes + responsive grid fallback */}
             <style>{`
