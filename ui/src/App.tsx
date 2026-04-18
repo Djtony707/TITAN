@@ -37,6 +37,7 @@ const LogsPanel = lazy(() => import('@/components/admin/LogsPanel'));
 const MeshPanel = lazy(() => import('@/components/admin/MeshPanel'));
 const LearningPanel = lazy(() => import('@/components/admin/LearningPanel'));
 const AutopilotPanel = lazy(() => import('@/components/admin/AutopilotPanel'));
+const SelfProposalsPanel = lazy(() => import('@/components/admin/SelfProposalsPanel'));
 const SecurityPanel = lazy(() => import('@/components/admin/SecurityPanel'));
 const WorkflowsPanel = lazy(() => import('@/components/admin/WorkflowsPanel'));
 const MemoryGraphPanel = lazy(() => import('@/components/admin/MemoryGraphPanel'));
@@ -121,6 +122,7 @@ function AuthenticatedApp() {
             <Route path="/mesh" element={<AdminPage><MeshPanel /></AdminPage>} />
             <Route path="/learning" element={<AdminPage><LearningPanel /></AdminPage>} />
             <Route path="/autopilot" element={<AdminPage><AutopilotPanel /></AdminPage>} />
+            <Route path="/self-proposals" element={<AdminPage><SelfProposalsPanel /></AdminPage>} />
             <Route path="/security" element={<AdminPage><SecurityPanel /></AdminPage>} />
             <Route path="/workflows" element={<AdminPage><WorkflowsPanel /></AdminPage>} />
             <Route path="/memory-graph" element={<AdminPage><MemoryGraphPanel /></AdminPage>} />

@@ -4,7 +4,7 @@ import {
   MessageSquare, Activity, Users, ScrollText, Settings,
   Radio, Wrench, BarChart3, Network, Brain, Zap, Shield,
   GitBranch, Plug, FlaskConical, UserCircle, Bot, Eye,
-  ClipboardList, Cable, Cpu, FolderOpen, Search,
+  ClipboardList, Cable, Cpu, FolderOpen, Search, GitPullRequest,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -24,6 +24,7 @@ const PANELS: PanelEntry[] = [
   { path: '/telemetry', label: 'Telemetry', icon: <BarChart3 size={16} />, group: 'Dashboard' },
   { path: '/logs', label: 'Logs', icon: <ScrollText size={16} />, group: 'Dashboard' },
   { path: '/autopilot', label: 'Autopilot', icon: <Zap size={16} />, group: 'Agent' },
+  { path: '/self-proposals', label: 'Self-Proposals', icon: <GitPullRequest size={16} />, group: 'Agent' },
   { path: '/daemon', label: 'Daemon', icon: <Bot size={16} />, group: 'Agent' },
   { path: '/command-post', label: 'Command Post', icon: <ClipboardList size={16} />, group: 'Agent' },
   { path: '/workflows', label: 'Workflows', icon: <GitBranch size={16} />, group: 'Agent' },

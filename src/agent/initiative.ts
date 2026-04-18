@@ -162,7 +162,32 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
             },
         };
 
-        const result = await processMessage(prompt, 'initiative', 'default', undefined, streamCallbacks);
+        // v4.8.0: pass goal context through so self-mod capture can link
+        // autonomous writes back to the originating drive. processMessage
+        // sets the session→goal map right after the session ID is known.
+        const somaTag = (goal.tags || []).find(t => t.startsWith('soma:')) || null;
+        const overrides = somaTag ? {
+            goalContext: {
+                goalId: goal.id,
+                goalTitle: goal.title,
+                proposedBy: somaTag,
+            },
+        } : undefined;
+
+        let result;
+        try {
+            result = await processMessage(prompt, 'initiative', 'default', overrides, streamCallbacks);
+        } finally {
+            // v4.8.0: release the session→goal attribution map so we don't
+            // leak entries on long-running daemons. The next initiative run
+            // would overwrite anyway, but explicit clear is cleaner.
+            if (somaTag) {
+                const { clearSessionGoal } = await import('./autonomyContext.js');
+                const { getCurrentSessionId } = await import('./agent.js');
+                const sid = getCurrentSessionId();
+                if (sid) clearSessionGoal(sid);
+            }
+        }
 
         const toolsUsed = result.toolsUsed || [];
         const wroteFiles = toolsUsed.some(t =>

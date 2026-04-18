@@ -972,11 +972,20 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
             // Dynamic import to avoid circular dependency (goals.ts imports commandPost types)
             import('./goals.js').then(({ createGoal }) => {
                 try {
+                    // v4.8.0: preserve proposer provenance on the goal so the
+                    // self-mod pipeline can trace goal → drive → proposal.
+                    // Uses `soma:<drive>` tag convention already established
+                    // by pressure.ts.
+                    const enrichedTags = [...(payload.tags || [])];
+                    if (approval.requestedBy && approval.requestedBy.startsWith('soma:')
+                        && !enrichedTags.includes(approval.requestedBy)) {
+                        enrichedTags.push(approval.requestedBy);
+                    }
                     const goal = createGoal({
                         title: payload.title!,
                         description: payload.description!,
                         priority: payload.priority,
-                        tags: payload.tags,
+                        tags: enrichedTags,
                         parentGoalId: payload.parentGoalId,
                         subtasks: payload.subtasks,
                     });

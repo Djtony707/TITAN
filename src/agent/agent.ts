@@ -166,6 +166,7 @@ export function verifyTaskCompletion(
 // ── Current session context for spawn_agent async delegation ─────
 let currentSessionId: string | null = null;
 export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
+export function getCurrentSessionId(): string | null { return currentSessionId; }
 
 // ── Register spawn_agent tool ────────────────────────────────────
 let spawnAgentRegistered = false;
@@ -939,7 +940,17 @@ export async function processMessage(
     message: string,
     channel: string = 'cli',
     userId: string = 'default',
-    overrides?: { model?: string; systemPrompt?: string; agentId?: string; sessionId?: string; strategy?: 'direct' | 'explore' | 'plan' | 'delegate' },
+    overrides?: {
+        model?: string;
+        systemPrompt?: string;
+        agentId?: string;
+        sessionId?: string;
+        strategy?: 'direct' | 'explore' | 'plan' | 'delegate';
+        /** v4.8.0: attribution for autonomous goal-driven work — links
+         *  tool outputs back to the originating Soma drive for the
+         *  self-modification pipeline. */
+        goalContext?: { goalId: string; goalTitle: string; proposedBy: string };
+    },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
 ): Promise<AgentResponse> {
@@ -953,6 +964,13 @@ export async function processMessage(
     const session = overrides?.sessionId
         ? getOrCreateSessionById(overrides.sessionId, channel, userId, overrides?.agentId || 'default')
         : getOrCreateSession(channel, userId, overrides?.agentId || 'default');
+
+    // v4.8.0: wire session → goal attribution for self-mod capture. Cleared
+    // in the finally block at the end of this function.
+    if (overrides?.goalContext) {
+        const { setSessionGoal } = await import('./autonomyContext.js');
+        setSessionGoal(session.id, overrides.goalContext);
+    }
     const trace = startTrace(session.id, message);
     // v4.4.5: accept a caller-provided strategy override. Phone calls
     // force 'direct' so vague conversational questions like "what are

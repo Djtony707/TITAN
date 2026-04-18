@@ -454,11 +454,26 @@ export const OrganismConfigSchema = z.object({
     tickIntervalMs: z.number().min(10_000).max(3_600_000).default(60_000).describe('Drive tick cadence in ms. Default 60s; minimum 10s to prevent self-DoS.'),
 });
 
+/**
+ * Self-Modification pipeline (v4.8.0+) — captures autonomous write_file
+ * outputs from Soma-driven goals, reviews them through the specialist
+ * panel, and opens GitHub PRs for human merge. OFF by default so
+ * existing users are unaffected. Tony flips `enabled: true` explicitly.
+ */
+export const SelfModConfigSchema = z.object({
+    enabled: z.boolean().default(false).describe('Master switch. When false, no autonomous writes are captured and no PRs are opened.'),
+    autoReview: z.boolean().default(true).describe('When a proposal is captured, automatically queue the specialist panel. Disable for manual-only review.'),
+    autoPR: z.boolean().default(false).describe('When specialists all approve, automatically open the PR. When false, Tony must click "Create PR" in the UI.'),
+    maxPRsPerDrivePer48h: z.number().min(1).max(20).default(1).describe('Rate limit — how many self-proposal PRs a single drive can generate in a rolling 48h window.'),
+    pollIntervalMs: z.number().min(60_000).max(3_600_000).default(300_000).describe('How often to poll GitHub for merge/close status on open PRs. 5 min default.'),
+});
+
 export const TitanConfigSchema = z.object({
     /** Whether the user has completed the web onboarding wizard */
     onboarded: z.boolean().default(false),
     agent: AgentConfigSchema.default({}),
     organism: OrganismConfigSchema.default({}),
+    selfMod: SelfModConfigSchema.default({}),
     providers: z.object({
         anthropic: ProviderConfigSchema.default({}),
         openai: ProviderConfigSchema.default({}),

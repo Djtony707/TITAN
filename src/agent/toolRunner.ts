@@ -19,6 +19,8 @@ import { isToolSkillEnabled } from '../skills/registry.js';
 import { getCachedToolResult, cacheToolResult } from './trajectoryCompressor.js';
 import { classifyProviderError, FailoverReason } from '../providers/errorTaxonomy.js';
 import { snapshotBeforeWrite } from './shadowGit.js';
+import { captureWrite, shouldCapture } from './selfProposals.js';
+import { getSessionGoal } from './autonomyContext.js';
 
 const COMPONENT = 'ToolRunner';
 
@@ -286,6 +288,12 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.debug(COMPONENT, `Shadow checkpoint skipped: ${(err as Error).message}`),
             );
         }
+        // v4.8.0: self-proposal capture — if this write is happening inside
+        // an autonomous Soma-driven session, stash a copy for specialist
+        // review. Fire-and-forget — never blocks tool execution.
+        captureSelfProposalIfApplicable(handler.name, args).catch(err =>
+            logger.debug(COMPONENT, `Self-proposal capture skipped: ${(err as Error).message}`),
+        );
     }
 
     // Per-tool timeout lookup
@@ -422,4 +430,42 @@ export async function executeTools(toolCalls: ToolCall[], channel?: string): Pro
         success: !pr.content.startsWith('Error:'),
         durationMs: 0,
     }));
+}
+
+// ── Self-proposal capture helper (v4.8.0) ────────────────────────────────
+
+/**
+ * If the current write is happening in an autonomous, Soma-driven session,
+ * stash a copy of the written content for specialist review. Silent no-op
+ * in all other cases (user-driven edits, non-autonomous mode, or when
+ * selfMod.enabled is false in config).
+ */
+async function captureSelfProposalIfApplicable(
+    toolName: string,
+    args: Record<string, unknown>,
+): Promise<void> {
+    // Resolve what we can from the current autonomous context
+    const { getCurrentSessionId } = await import('./agent.js').catch(() => ({ getCurrentSessionId: () => null }));
+    const sessionId: string | null = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+    const sessionGoal = getSessionGoal(sessionId);
+    const config = loadConfig();
+    const autonomous = (config.autonomy?.mode === 'autonomous');
+    const goalProposedBy = sessionGoal?.proposedBy ?? null;
+
+    if (!shouldCapture({ toolName, autonomous, goalProposedBy })) return;
+
+    const filePath = (args.path || args.file_path || args.filePath) as string | undefined;
+    const content = (args.content || args.new_text || args.data) as string | undefined;
+    if (!filePath || !content) return;
+
+    captureWrite({
+        toolName,
+        filePath,
+        content,
+        sessionId,
+        agentId: null, // filled by downstream if needed
+        goalId: sessionGoal?.goalId ?? null,
+        goalTitle: sessionGoal?.goalTitle ?? null,
+        goalProposedBy,
+    });
 }

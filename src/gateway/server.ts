@@ -3960,6 +3960,89 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ items, total: items.length });
   });
 
+  // ── v4.8.0: Self-Modification Pipeline endpoints ────────────────
+  // All routes are behind `selfMod.enabled`. When disabled they 404 so
+  // pre-v4.8.0 clients hitting them get a clean "feature off" signal.
+
+  app.get('/api/self-proposals', async (_req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { listProposals } = await import('../agent/selfProposals.js');
+      res.json({ proposals: listProposals(200) });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/self-proposals/:id', async (req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { getProposal } = await import('../agent/selfProposals.js');
+      const p = getProposal(req.params.id);
+      if (!p) { res.status(404).json({ error: 'Proposal not found' }); return; }
+      res.json(p);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/self-proposals/:id/files/:path(*)', async (req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { getProposalFileContent } = await import('../agent/selfProposals.js');
+      const content = getProposalFileContent(req.params.id, req.params.path);
+      if (content === null) { res.status(404).json({ error: 'File not found' }); return; }
+      res.type('text/plain').send(content);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/self-proposals/:id/review', async (req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { reviewProposal } = await import('../agent/selfProposalReview.js');
+      const result = await reviewProposal(req.params.id);
+      if (!result) { res.status(404).json({ error: 'Proposal not found' }); return; }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/self-proposals/:id/open-pr', async (req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { createProposalPR } = await import('../agent/selfProposalPR.js');
+      const result = await createProposalPR(req.params.id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/self-proposals/:id/dismiss', async (req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as { selfMod?: { enabled?: boolean } };
+      if (!cfg.selfMod?.enabled) { res.status(404).json({ error: 'selfMod disabled' }); return; }
+      const { updateStatus } = await import('../agent/selfProposals.js');
+      const reason = (req.body?.reason as string | undefined) || 'dismissed by user';
+      const result = updateStatus(req.params.id, 'rejected', {
+        rejectedAt: new Date().toISOString(),
+        rejectionReason: reason,
+      });
+      if (!result) { res.status(404).json({ error: 'Proposal not found' }); return; }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.post('/api/command-post/wakeup', (req, res) => {
     const { issueId, agentId, agentName, task, templateName } = req.body;
     if (!issueId || !agentId || !task) {
@@ -6997,6 +7080,58 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     } catch (e) {
       logger.warn(COMPONENT, `Specialist bootstrap skipped: ${(e as Error).message}`);
     }
+  }
+
+  // v4.8.0: Self-Modification Pipeline — auto-review newly captured
+  // proposals and poll open PRs for merge/close outcomes.
+  try {
+    const selfModCfg = (config as unknown as { selfMod?: {
+      enabled?: boolean;
+      autoReview?: boolean;
+      autoPR?: boolean;
+      pollIntervalMs?: number;
+    } }).selfMod;
+    if (selfModCfg?.enabled) {
+      logger.info(COMPONENT, 'Self-Modification Pipeline: enabled');
+      const { pollOpenProposals } = await import('../agent/selfProposalLearning.js');
+      const pollMs = selfModCfg.pollIntervalMs ?? 300_000;
+      const pollTimer = setInterval(() => {
+        pollOpenProposals().catch((e: Error) => logger.debug(COMPONENT, `selfMod poll: ${e.message}`));
+      }, pollMs);
+      (pollTimer as unknown as { unref?: () => void }).unref?.();
+
+      // Auto-review: watch soma:proposal events for self-mod captures and
+      // kick off specialist review when a new proposal has enough files.
+      if (selfModCfg.autoReview !== false) {
+        const { on: subscribeTrace } = await import('../substrate/traceBus.js');
+        subscribeTrace('soma:proposal', async (payload) => {
+          try {
+            const pb = (payload as { proposedBy?: string }).proposedBy || '';
+            if (!pb.startsWith('self-mod:')) return;
+            const proposalId = (payload as { approvalId?: string }).approvalId;
+            if (!proposalId) return;
+            // Debounce: wait 2s for additional files in same session before reviewing
+            setTimeout(async () => {
+              try {
+                const { reviewProposal } = await import('../agent/selfProposalReview.js');
+                const reviewed = await reviewProposal(proposalId);
+                // Auto-PR if configured + approved
+                if (reviewed?.status === 'approved' && selfModCfg.autoPR) {
+                  const { createProposalPR } = await import('../agent/selfProposalPR.js');
+                  await createProposalPR(proposalId);
+                }
+              } catch (e) {
+                logger.warn(COMPONENT, `selfMod auto-review failed: ${(e as Error).message}`);
+              }
+            }, 2000);
+          } catch (e) {
+            logger.debug(COMPONENT, `selfMod subscribe handler: ${(e as Error).message}`);
+          }
+        });
+      }
+    }
+  } catch (e) {
+    logger.warn(COMPONENT, `selfMod bootstrap skipped: ${(e as Error).message}`);
   }
 
   // ── Daemon — persistent agent awareness loop ────────────────

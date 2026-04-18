@@ -5,6 +5,135 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.8.0] — 2026-04-18 — Self-Modification Pipeline: TITAN proposes its own improvements
+
+Tony asked: *"I want to allow the outputs to feed back in, that would be
+interesting to see if it could make itself better all the time, and create new
+stuff for itself."* Plus: *"keep the human in the loop for sure."*
+
+This ships a complete review-gated self-improvement loop. TITAN can now
+capture its own autonomous outputs, have its v4.7.0 specialist pool review
+them, and open GitHub PRs — but **Tony is always the merge gate**. No PR
+ever merges without his explicit click on GitHub.
+
+### How it works
+
+```
+  Soma drive fires → goal → autopilot → agent writes file
+                                             ↓
+                          [v4.8.0 capture hook in toolRunner]
+                                             ↓
+                      <TITAN_HOME>/self-proposals/<id>/
+                                             ↓
+                [Analyst + Builder + Writer specialists review]
+                                             ↓
+                    all approve → open PR      any reject → archived
+                                             ↓
+                    Tony reviews PR on GitHub → merge OR close
+                                             ↓
+             [drive learning: merged reinforces the drive;
+              closed-unmerged dampens it for 24h]
+```
+
+### Added
+
+- **`src/agent/selfProposals.ts`** — capture + storage layer. Writes that
+  happen in autonomous Soma-driven sessions are copied to
+  `<TITAN_HOME>/self-proposals/<id>/` with metadata (drive, goal, session,
+  sha256, line count).
+- **`src/agent/selfProposalReview.ts`** — specialist panel orchestrator.
+  All three specialists run in parallel with distinct review criteria:
+  - **Analyst** — "Is this useful? Does it address a real TITAN gap?"
+  - **Builder** — "Is the code plausibly correct? Any obvious bugs?"
+  - **Writer** — "Can this be described in a PR? Drafts the title + body."
+  Review prompts request structured JSON so verdicts parse deterministically.
+  Memory-fence (v4.7.0) wraps the file samples so reviewing specialists
+  treat them as data, not instructions.
+- **`src/agent/selfProposalPR.ts`** — git + `gh` PR creator. Detects
+  git-checkout presence at runtime; degrades to "export bundle" mode
+  when running from an npm-installed TITAN with no `.git` sibling.
+  Branch names are always `self/<drive>-<slug>-<shortId>` so self-mod
+  PRs are unmistakable. Refuses to run from a dirty working tree.
+  Never merges anything.
+- **`src/agent/selfProposalLearning.ts`** — drive feedback loop. When
+  Tony merges a self-proposal PR, the originating drive gets
+  satisfaction +0.05 (gentle reinforcement). When Tony closes unmerged,
+  that drive is dampened ×1.5 for 24h (linear decay back to 1.0).
+  Polls GitHub every 5 min (configurable) for merge/close status.
+- **`src/agent/autonomyContext.ts`** — small in-memory registry mapping
+  session → goal → drive so downstream hooks can attribute outputs.
+- **Safety blocklist** — PRs touching `src/gateway/server.ts`,
+  `src/agent/agent.ts`, `src/agent/agentLoop.ts`, `src/config/schema.ts`,
+  `src/auth/`, `src/providers/router.ts`, `.github/workflows/`,
+  `package.json`, anything matching `/\.env|credentials|secret/i` are
+  auto-rejected pre-review. Cannot be overridden from within TITAN.
+- **Gateway endpoints** (all gated on `selfMod.enabled`):
+  - `GET /api/self-proposals` — list
+  - `GET /api/self-proposals/:id` — one
+  - `GET /api/self-proposals/:id/files/*` — captured file content
+  - `POST /api/self-proposals/:id/review` — trigger specialist panel
+  - `POST /api/self-proposals/:id/open-pr` — open GitHub PR
+  - `POST /api/self-proposals/:id/dismiss` — manual reject
+- **UI panel** (`ui/src/components/admin/SelfProposalsPanel.tsx`) — list
+  view with expandable rows showing specialist verdicts, captured files,
+  and action buttons (Review / Open PR / Dismiss). Gracefully shows a
+  "disabled" message when `selfMod.enabled: false`.
+- **Config schema** (`selfMod` section in `src/config/schema.ts`):
+  - `enabled: false` (default — OFF for all 24K users unless opted in)
+  - `autoReview: true` — auto-trigger panel after capture
+  - `autoPR: false` — require explicit click to open PR
+  - `maxPRsPerDrivePer48h: 1` — rate limit
+  - `pollIntervalMs: 300_000` — merge-status polling cadence
+
+### Changed
+
+- **`src/agent/commandPost.ts`** — when a Soma-proposed approval creates
+  a goal, we now tag the goal with the proposer (`soma:<drive>`). Lets the
+  self-mod pipeline trace outputs back to the drive without schema changes.
+- **`src/agent/agent.ts`** — `processMessage` gained an optional
+  `goalContext` override. When set, it registers the session → goal
+  mapping before the agent loop runs so tool-time hooks can read it.
+  Also exported `getCurrentSessionId()`.
+- **`src/agent/initiative.ts`** — passes the originating goal's Soma tag
+  through as `goalContext` so self-mod capture can attribute writes.
+- **`src/agent/toolRunner.ts`** — post-execution capture hook fires
+  alongside the existing shadow-git snapshot. Fire-and-forget; never
+  blocks tool execution.
+- **Version bumped** 4.7.0 → 4.8.0.
+
+### Not breaking
+
+Additive. 24K users unaffected:
+- `selfMod.enabled: false` by default. Zero runtime overhead when off.
+- Clients on pre-v4.8 gateways hitting the new endpoints get a clean 404.
+- No schema changes to existing goals/approvals/agents.
+- Goal tagging is purely additive (existing goals keep their current tags).
+- `getCurrentSessionId()` is a new export, doesn't change existing behavior.
+
+### Safety rails summary
+
+1. `enabled: false` default — explicit opt-in per install.
+2. Pre-review blocklist catches PRs touching auth / gateway / schema.
+3. Specialist panel votes must all be `approve` to advance.
+4. PRs open on `self/*` branches — never on main.
+5. Refuses to operate on dirty working trees.
+6. Never merges — Tony's click on GitHub is the final gate.
+7. Rate-limited to 1 PR per drive per 48h.
+8. CI must pass before merge is even offered.
+9. Rollback is `git revert` — nothing auto-activates.
+10. File capture lands in `self-proposals/<id>/` staging — even if
+    merged, files don't auto-wire into `src/`. Tony moves them
+    deliberately in a follow-up PR.
+
+### Tests
+
+- `tests/agent/selfProposals.test.ts` — 13 tests covering shouldCapture
+  gates, drive attribution, file capture + dedupe, path-traversal guard,
+  and isReadyForPR quorum logic.
+- Existing suite: 5,530 passing, unchanged. Typecheck clean.
+
+---
+
 ## [4.7.0] — 2026-04-17 — TITAN Companies: specialist pool + subagent safety + memory fence
 
 Tony asked for multiple agent specialists TITAN can delegate to, modeled after
