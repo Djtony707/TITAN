@@ -307,12 +307,31 @@ export async function generateGoalProposals(
         if (proposals.length >= slotsLeft) break;
     }
 
+    // v4.5.6: dedupe against active goals so Soma doesn't spawn
+    // "Satiate hunger" × 3 and "Explore novel X" × 4 variations.
+    // If an active goal with a title within 72% similarity already
+    // exists, skip the proposal silently — the existing goal will
+    // satisfy the drive once its subtasks complete.
+    let existingActiveTitles: string[] = [];
+    try {
+        const { listGoals } = await import('./goals.js');
+        existingActiveTitles = listGoals()
+            .filter(g => g.status === 'active' || g.status === 'paused')
+            .map(g => g.title);
+    } catch { /* best-effort */ }
+
     const approvals: CPApproval[] = [];
     for (const proposal of proposals) {
+        const dup = existingActiveTitles.find(t => titleSimilarity(t, proposal.title) >= 0.72);
+        if (dup) {
+            logger.info(COMPONENT, `Agent ${agentId} skipped duplicate proposal "${proposal.title}" (matches active goal "${dup}")`);
+            continue;
+        }
         try {
             const approval = requestGoalProposalApproval(agentId, proposal);
             approvals.push(approval);
             recordProposal(agentId);
+            existingActiveTitles.push(proposal.title); // prevent intra-batch dupes too
             logger.info(COMPONENT, `Agent ${agentId} filed proposal "${proposal.title}" (approval ${approval.id})`);
         } catch (err) {
             logger.warn(COMPONENT, `Failed to file proposal "${proposal.title}": ${(err as Error).message}`);
@@ -321,6 +340,33 @@ export async function generateGoalProposals(
 
     return approvals;
 }
+
+/**
+ * v4.5.6: simple title similarity for dedupe. Normalizes case, strips
+ * filler words, compares token overlap (Jaccard). 0.72 threshold catches
+ * "Satiate Hunger" vs "Satiate hunger" vs "Satiate hunger backlog"
+ * but not "Satiate Purpose" vs "Satiate hunger" — which is what we want.
+ */
+function titleSimilarity(a: string, b: string): number {
+    const tokenize = (s: string) => new Set(
+        s.toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2 && !STOP_WORDS.has(w))
+    );
+    const ta = tokenize(a);
+    const tb = tokenize(b);
+    if (ta.size === 0 || tb.size === 0) return 0;
+    let intersection = 0;
+    for (const t of ta) if (tb.has(t)) intersection++;
+    const union = ta.size + tb.size - intersection;
+    return union === 0 ? 0 : intersection / union;
+}
+
+const STOP_WORDS = new Set([
+    'the', 'and', 'for', 'with', 'new', 'novel', 'build', 'using', 'from',
+    'into', 'over', 'onto', 'that', 'this', 'some', 'any',
+]);
 
 // ── Context Helpers ──────────────────────────────────────────────
 

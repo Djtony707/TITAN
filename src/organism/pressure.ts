@@ -22,6 +22,14 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'Pressure';
 
+/**
+ * v4.6.0: per-drive fire history. Used to damp consecutive proposals for
+ * the same drive so we don't spawn duplicate "Satiate hunger" goals every
+ * tick. Reset on process restart (not persisted — fine, the worst case
+ * after restart is one extra proposal which dedupe will catch anyway).
+ */
+const lastFireByDrive = new Map<string, number>();
+
 // ── Types ────────────────────────────────────────────────────────
 
 export interface PressureReading {
@@ -123,6 +131,41 @@ export async function runPressureCycle(
         return { fired: false, reading, decision };
     }
 
+    // v4.6.0: per-drive backoff + satiation damping.
+    // If the dominant drive already fired within the last 30 minutes, OR
+    // it already has active goals pursuing it, skip this tick — the
+    // organism is already working on that drive, piling on just proliferates
+    // duplicates without helping the drive get satiated faster.
+    const dominantId = decision.dominantDrives[0];
+    if (dominantId) {
+        const now = Date.now();
+        const last = lastFireByDrive.get(dominantId) || 0;
+        const DAMPING_MS = 30 * 60 * 1000; // 30 min
+        if (now - last < DAMPING_MS) {
+            return {
+                fired: false, reading, decision,
+                skipped: `drive ${dominantId} fired ${Math.round((now - last) / 60_000)}m ago — damping until 30m elapsed`,
+            };
+        }
+        // Check if the drive already has active goals in flight. If N ≥ 2,
+        // give existing work more time before stacking on more.
+        try {
+            const { listGoals } = await import('../agent/goals.js');
+            const activeForDrive = listGoals().filter(g => {
+                if (g.status !== 'active') return false;
+                const tags = g.tags || [];
+                const text = `${g.title} ${g.description || ''}`.toLowerCase();
+                return tags.includes(`soma:${dominantId}`) || text.includes(dominantId);
+            }).length;
+            if (activeForDrive >= 2) {
+                return {
+                    fired: false, reading, decision,
+                    skipped: `drive ${dominantId} already has ${activeForDrive} active goals — letting existing work complete`,
+                };
+            }
+        } catch { /* best-effort */ }
+    }
+
     emit('pressure:threshold', {
         timestamp: new Date().toISOString(),
         totalPressure: decision.totalPressure,
@@ -217,6 +260,10 @@ export async function runPressureCycle(
         // Quiet the 'unused' check on getApproval — we may use it for logging.
         void getApproval;
         void requestGoalProposalApproval;
+
+        // v4.6.0: record fire timestamp for per-drive damping on next tick.
+        if (dominantId) lastFireByDrive.set(dominantId, Date.now());
+
         logger.info(COMPONENT, `Soma fired ${approvals.length} proposal(s), primary=${primary.id}: ${decision.reason}`);
         return { fired: true, reading, decision, approvalId, shadow };
     } catch (err) {

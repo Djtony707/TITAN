@@ -1613,12 +1613,14 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-const TABS = ['Watch', 'Dashboard', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
+const TABS = ['Watch', 'Work', 'Dashboard', 'Sessions', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
 type Tab = typeof TABS[number];
 
-// v4.5.2: lazy-load the Watch view so the WatchView+Canvas chunk only loads
-// when the user actually clicks the tab.
+// v4.5.2/v4.6.0: lazy-load heavier tab views so their chunks only
+// download when the user opens the tab.
 const WatchViewLazy = lazy(() => import('@/views/WatchView'));
+const WorkTabLazy = lazy(() => import('@/components/admin/WorkTab'));
+const SessionsTabLazy = lazy(() => import('@/components/admin/SessionsTab'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
@@ -1705,6 +1707,16 @@ export default function CommandPostHub() {
               <WatchViewLazy />
             </Suspense>
           </div>
+        )}
+        {tab === 'Work' && (
+          <Suspense fallback={<div className="py-12 text-center text-sm text-white/40">Loading work…</div>}>
+            <WorkTabLazy />
+          </Suspense>
+        )}
+        {tab === 'Sessions' && (
+          <Suspense fallback={<div className="py-12 text-center text-sm text-white/40">Loading sessions…</div>}>
+            <SessionsTabLazy />
+          </Suspense>
         )}
         {tab === 'Dashboard' && <DashboardTab d={d} activity={activity} />}
         {tab === 'Org Chart' && <OrgChartTab agents={d.agents} />}
