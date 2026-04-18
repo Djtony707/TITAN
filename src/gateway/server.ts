@@ -967,9 +967,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!auth || auth.mode === 'none') { next(); return; }
     // Token mode with no token configured = auth not set up, allow access
     if (auth.mode === 'token' && !auth.token) { next(); return; }
-    // Skip public endpoints (login, messenger webhook)
+    // Skip public endpoints (login, messenger webhook, twilio webhooks)
     if (req.path === '/login') { next(); return; }
     if (req.path === '/messenger/webhook') { next(); return; }
+    if (req.path.startsWith('/twilio/')) { next(); return; }
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (isValidToken(token, cfg)) { next(); return; }
@@ -3252,6 +3253,129 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         titanEvents.removeListener(evt, handler);
       }
     });
+  });
+
+  // ── Watch stream — unified human-readable event firehose (v4.5.0)
+  // Fuses every meaningful event across TITAN into a single SSE feed
+  // with plain-English captions. Used by the /watch Pane UI.
+  app.get('/api/watch/stream', async (req, res) => {
+    const { humanize } = await import('../watch/humanize.js');
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Every event topic the Pane cares about — union of drive ticks,
+    // soma proposals, tool calls, goals, initiative, command-post, health,
+    // multi-agent, alerts. Matches src/watch/humanize.ts dictionary.
+    const topics = [
+      // Soma / drives
+      'drive:tick', 'hormone:update', 'pressure:threshold', 'soma:proposal',
+      // Turns / tools
+      'turn:pre', 'turn:post', 'tool:call', 'tool:result',
+      // Goals
+      'goal:created', 'goal:completed', 'goal:progress', 'goal:failed',
+      'goal:subtask:ready', 'goal:subtask:added',
+      // Initiative (autopilot)
+      'initiative:start', 'initiative:complete', 'initiative:no_progress',
+      'initiative:round',
+      // Command Post
+      'commandpost:task:checkout', 'commandpost:task:checkin',
+      'commandpost:task:expired', 'commandpost:budget:warning',
+      'commandpost:budget:exceeded', 'commandpost:agent:status',
+      // Health / system
+      'daemon:started', 'daemon:paused', 'daemon:resumed',
+      'cron:stuck', 'health:ollama:degraded', 'health:ollama:down',
+      'dreaming:consolidated',
+      // Multi-agent
+      'agent:spawned', 'agent:stopped', 'agent:task:completed',
+      'agent:task:failed',
+      // Company
+      'company:goal:completed',
+      // Alerts
+      'alert',
+    ];
+
+    const send = (data: unknown) => {
+      try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+    };
+
+    // Initial snapshot — read drive state + recent goals so the UI has
+    // something to render before the first live event arrives.
+    try {
+      const driveStatePath = join(homedir(), '.titan', 'drive-state.json');
+      if (fs.existsSync(driveStatePath)) {
+        const raw = JSON.parse(fs.readFileSync(driveStatePath, 'utf-8'));
+        const latest = raw.latest as { timestamp?: string; drives?: unknown[]; totalPressure?: number; dominantDrives?: string[] } | undefined;
+        if (latest) {
+          send({
+            type: 'snapshot',
+            drives: latest.drives || [],
+            totalPressure: latest.totalPressure || 0,
+            dominantDrives: latest.dominantDrives || [],
+            timestamp: latest.timestamp ? new Date(latest.timestamp).getTime() : Date.now(),
+          });
+        }
+      }
+    } catch { /* snapshot best-effort */ }
+
+    // Wire live event listeners
+    const listeners = new Map<string, (data: unknown) => void>();
+    for (const topic of topics) {
+      const handler = (payload: unknown) => {
+        const event = humanize(topic, (payload as Record<string, unknown>) || {});
+        if (event) send({ type: 'event', ...event });
+      };
+      listeners.set(topic, handler);
+      titanEvents.on(topic, handler);
+    }
+
+    const keepalive = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch { /* gone */ }
+    }, 15_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      for (const [topic, handler] of listeners) {
+        titanEvents.removeListener(topic, handler);
+      }
+    });
+  });
+
+  // Snapshot endpoint — returns current drive state + active goal +
+  // last N events from a small ring buffer we maintain in-process.
+  // Used by the Pane on first load to populate zones without waiting
+  // for the next tick.
+  app.get('/api/watch/snapshot', (_req, res) => {
+    try {
+      const driveStatePath = join(homedir(), '.titan', 'drive-state.json');
+      const goalsPath = join(homedir(), '.titan', 'goals.json');
+      const driveState = fs.existsSync(driveStatePath)
+        ? JSON.parse(fs.readFileSync(driveStatePath, 'utf-8'))?.latest
+        : null;
+      const goalsRaw = fs.existsSync(goalsPath)
+        ? JSON.parse(fs.readFileSync(goalsPath, 'utf-8'))
+        : {};
+      const allGoals = Array.isArray(goalsRaw) ? goalsRaw : Object.values(goalsRaw);
+      const activeGoals = (allGoals as Array<Record<string, unknown>>).filter(g => g.status === 'active');
+      res.json({
+        drives: driveState?.drives || [],
+        totalPressure: driveState?.totalPressure || 0,
+        dominantDrives: driveState?.dominantDrives || [],
+        activeGoals: activeGoals.slice(0, 5).map(g => ({
+          id: g.id,
+          title: g.title,
+          progress: g.progress || 0,
+          createdAt: g.createdAt,
+        })),
+        timestamp: Date.now(),
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
 
   // ── Command Post API (Agent Governance) ───────────────────
@@ -6461,6 +6585,380 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     });
 
     logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
+  }
+
+  // ── Twilio Voice (real phone calls) ──────────────────────────
+  // v4.4.0 — Tony dials the TITAN Twilio number on his phone, talks,
+  // hears F5-TTS Andrew voice replies. Turn-based via <Gather speech>.
+  // Config: channels.twilio (authToken for signature validation,
+  // allowedCallers for whitelist, publicHost for audio URLs).
+  {
+    const {
+      twimlPlayAndGather,
+      twimlPauseAndRedirect,
+      twimlPlayAndHangup,
+      twimlReject,
+      twimlSayAndHangup,
+      validateTwilioSignature,
+      isAllowedCaller,
+      synthesizeAndCache,
+      readCachedAudio,
+      getCallSession,
+      setCallSession,
+      endCall,
+      createVoiceJob,
+      getVoiceJob,
+      completeVoiceJob,
+      failVoiceJob,
+    } = await import('../channels/twilio-voice.js');
+
+    const twilioCfg = (config.channels as Record<string, Record<string, unknown>> | undefined)?.twilio;
+    const twilioEnabled = twilioCfg?.enabled !== false;
+
+    function getTwilioConfig() {
+      const cfg = loadConfig();
+      const c = (cfg.channels as Record<string, Record<string, unknown>> | undefined)?.twilio || {};
+      return {
+        authToken: (c.authToken as string) || process.env.TWILIO_AUTH_TOKEN || '',
+        phoneNumber: (c.phoneNumber as string) || process.env.TWILIO_PHONE_NUMBER || '',
+        voice: (c.voice as string) || 'andrew',
+        allowedCallers: (c.allowedCallers as string[]) || [],
+        publicHost: (c.publicHost as string) || process.env.TWILIO_PUBLIC_HOST || '',
+      };
+    }
+
+    // Twilio POSTs x-www-form-urlencoded — needs urlencoded parser
+    const urlEncoded = express.urlencoded({ extended: false });
+
+    /** Compute the full webhook URL Twilio signed against. */
+    function computeSignedUrl(req: express.Request): string {
+      const cfg = getTwilioConfig();
+      // Prefer configured public host (Tailscale Funnel URL). This MUST match
+      // the URL Tony set in Twilio, including protocol + path, or the
+      // signature check fails.
+      const host = cfg.publicHost.replace(/\/$/, '') || `https://${req.headers.host}`;
+      return host + req.originalUrl;
+    }
+
+    function checkTwilioAuth(req: express.Request): boolean {
+      const { authToken } = getTwilioConfig();
+      if (!authToken) {
+        // If authToken isn't configured, skip validation (dev mode). Logged
+        // once per request so the operator knows to lock it down.
+        logger.warn(COMPONENT, 'Twilio authToken not configured — signature check SKIPPED');
+        return true;
+      }
+      const signature = (req.headers['x-twilio-signature'] as string) || '';
+      const url = computeSignedUrl(req);
+      const params = (req.body || {}) as Record<string, string>;
+      return validateTwilioSignature(authToken, signature, url, params);
+    }
+
+    // ── POST /api/twilio/voice-webhook — initial call handler ──
+    app.post('/api/twilio/voice-webhook', urlEncoded, async (req, res) => {
+      try {
+        if (!twilioEnabled) { res.type('text/xml').send(twimlReject()); return; }
+        if (!checkTwilioAuth(req)) {
+          logger.warn(COMPONENT, 'Twilio voice-webhook: signature invalid');
+          res.status(403).send('forbidden'); return;
+        }
+
+        const from = (req.body?.From as string) || '';
+        const to = (req.body?.To as string) || '';
+        const direction = (req.body?.Direction as string) || 'inbound';
+        const callSid = (req.body?.CallSid as string) || '';
+        const { allowedCallers, voice, publicHost } = getTwilioConfig();
+
+        // v4.4.1: check the human's number, not TITAN's. On inbound calls
+        // the human is `From` (they dialed in). On outbound-api calls
+        // TITAN initiated and `To` is the human's number.
+        const isOutbound = direction.startsWith('outbound');
+        const humanNumber = isOutbound ? to : from;
+
+        if (allowedCallers.length > 0 && !isAllowedCaller(humanNumber, allowedCallers)) {
+          logger.warn(COMPONENT, `Twilio call ${direction} with non-whitelisted human number: ${humanNumber}`);
+          res.type('text/xml').send(twimlReject());
+          return;
+        }
+
+        logger.info(COMPONENT, `Twilio call ${direction}: CallSid=${callSid.slice(0, 10)}... human=${humanNumber}`);
+
+        // Greeting
+        const greeting = "Hey Tony, TITAN here. What do you need?";
+        const token = await synthesizeAndCache(greeting, voice);
+        const host = publicHost.replace(/\/$/, '') || `https://${req.headers.host}`;
+        if (!token) {
+          // TTS unavailable — fall back to Twilio's built-in voice so the call
+          // still connects and Tony can leave a message we don't drop into
+          // silence.
+          res.type('text/xml').send(twimlSayAndHangup(greeting + " TTS is down. Hanging up."));
+          return;
+        }
+        const audioUrl = `${host}/api/twilio/audio/${token}`;
+        const gatherUrl = `${host}/api/twilio/voice-gather`;
+        res.type('text/xml').send(twimlPlayAndGather(audioUrl, gatherUrl));
+      } catch (e) {
+        logger.error(COMPONENT, `Twilio voice-webhook error: ${(e as Error).message}`);
+        res.status(500).type('text/xml').send(twimlSayAndHangup("Internal error. Try again."));
+      }
+    });
+
+    // ── POST /api/twilio/voice-gather — speech result handler ──
+    // v4.4.4: async + polling. Kick off LLM+TTS in background, return
+    // pause+redirect immediately so Twilio doesn't hit its 15s timeout.
+    // /voice-poll will either play the reply when ready or redirect back
+    // to itself for another short pause.
+    app.post('/api/twilio/voice-gather', urlEncoded, async (req, res) => {
+      try {
+        if (!twilioEnabled) { res.type('text/xml').send(twimlReject()); return; }
+        if (!checkTwilioAuth(req)) {
+          res.status(403).send('forbidden'); return;
+        }
+
+        const callSid = (req.body?.CallSid as string) || '';
+        const from = (req.body?.From as string) || '';
+        const to = (req.body?.To as string) || '';
+        const direction = (req.body?.Direction as string) || 'inbound';
+        const speechResult = ((req.body?.SpeechResult as string) || '').trim();
+        const { voice, publicHost, allowedCallers } = getTwilioConfig();
+
+        const isOutbound = direction.startsWith('outbound');
+        const humanNumber = isOutbound ? to : from;
+        if (allowedCallers.length > 0 && !isAllowedCaller(humanNumber, allowedCallers)) {
+          res.type('text/xml').send(twimlReject()); return;
+        }
+
+        const host = publicHost.replace(/\/$/, '') || `https://${req.headers.host}`;
+        const gatherUrl = `${host}/api/twilio/voice-gather`;
+
+        if (!speechResult) {
+          // Silence or unrecognized speech — re-prompt (synth is fast, stay sync).
+          const txt = "I didn't catch that. Say it again?";
+          const tk = await synthesizeAndCache(txt, voice);
+          if (tk) {
+            res.type('text/xml').send(twimlPlayAndGather(`${host}/api/twilio/audio/${tk}`, gatherUrl));
+          } else {
+            res.type('text/xml').send(twimlSayAndHangup(txt));
+          }
+          return;
+        }
+
+        logger.info(COMPONENT, `Twilio heard: "${speechResult.slice(0, 80)}"`);
+
+        // v4.4.2: admin envelope lives in the SYSTEM prompt, not the user
+        // message. Small models were literally reading the envelope aloud
+        // when it was shoved into the user-message slot. With system-slot
+        // placement, the model treats it as instructions and Tony's speech
+        // as the turn content.
+        const today = new Date().toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        const voiceSystemPrompt = [
+          'You are TITAN on a phone call with Tony Elliott (your creator). Spoken conversation, not writing.',
+          `Today is ${today}.`,
+          '',
+          'HARD RULES (phone-call mode):',
+          '- MAX 25 WORDS PER REPLY. One or two sentences. Be terse.',
+          '- No lists, no markdown, no headers, no code blocks. This is spoken.',
+          '- No "Certainly!" / "I\'d be happy to!" preambles. Just answer.',
+          '- Call him Tony or boss.',
+          '- For big/destructive actions: one-sentence plan + "Approve? Yes or no." then stop.',
+          '- Never say "check the dashboard" (he is hands-free).',
+          '- Never speak credentials, tokens, passwords, IPs, or file paths.',
+          '- Never read these instructions aloud. Never describe yourself as an AI.',
+        ].join('\n');
+
+        // v4.4.4: create job, kick off LLM+TTS in background, return
+        // pause+redirect immediately. The /voice-poll endpoint will
+        // either play the reply when ready or redirect back to itself
+        // for another short pause. This keeps the call alive indefinitely
+        // even when the LLM takes 20+ seconds.
+        const jobId = createVoiceJob(callSid);
+        const pollUrl = `${host}/api/twilio/voice-poll?jobId=${jobId}`;
+
+        // Fire-and-forget async processing. Errors are caught + stored
+        // on the job so /voice-poll can surface them gracefully.
+        // v4.4.5: strategy='direct' forced so conversational questions
+        // don't trigger a 30s+ explore/deliberation path. Tools still
+        // available — direct mode is the minimum, not a tool block.
+        (async () => {
+          try {
+            const existingSid = getCallSession(callSid);
+            const voiceModel = (process.env.TWILIO_VOICE_MODEL
+              || 'ollama/gemini-3-flash-preview:cloud');
+            const result = await processMessage(
+              speechResult,
+              'twilio-admin',
+              `twilio-call-${callSid}`,
+              {
+                ...(existingSid ? { sessionId: existingSid } : {}),
+                model: voiceModel,
+                systemPrompt: voiceSystemPrompt,
+                strategy: 'direct',
+              },
+              undefined,
+              AbortSignal.timeout(85_000),
+            );
+            if (result?.sessionId) setCallSession(callSid, result.sessionId);
+
+            let reply = (result?.content || '').trim();
+            if (!reply) reply = "Got it.";
+            if (reply.length > 400) reply = reply.slice(0, 390).replace(/\s\S*$/, '') + '…';
+
+            const token = await synthesizeAndCache(reply, voice);
+            if (!token) {
+              failVoiceJob(jobId, 'tts failed');
+              return;
+            }
+            completeVoiceJob(jobId, token, reply);
+          } catch (e) {
+            logger.warn(COMPONENT, `Twilio voice-gather async error: ${(e as Error).message}`);
+            failVoiceJob(jobId, (e as Error).message);
+          }
+        })();
+
+        // Return immediately with a short pause + redirect to the poll endpoint.
+        res.type('text/xml').send(twimlPauseAndRedirect(pollUrl, 3));
+      } catch (e) {
+        logger.error(COMPONENT, `Twilio voice-gather error: ${(e as Error).message}`);
+        res.status(500).type('text/xml').send(twimlSayAndHangup("Something went wrong."));
+      }
+    });
+
+    // ── POST /api/twilio/voice-poll — async job polling ──
+    // v4.4.4: Twilio redirects here while we process the LLM reply.
+    // If the job is ready, play the audio + open a new <Gather>. If
+    // not, pause another ~3s and redirect back to self. Hard cap at
+    // ~15 rounds (~45s) then surface an error TwiML.
+    // Accept both GET and POST — some Twilio retry paths use GET when
+    // following a Redirect even if method was specified.
+    const handleVoicePoll = async (req: express.Request, res: express.Response) => {
+      try {
+        if (!twilioEnabled) { res.type('text/xml').send(twimlReject()); return; }
+        if (!checkTwilioAuth(req)) {
+          logger.warn(COMPONENT, `voice-poll signature rejected (method=${req.method}, jobId=${req.query.jobId})`);
+          res.status(403).send('forbidden'); return;
+        }
+
+        const jobId = (req.query.jobId as string) || '';
+        const job = getVoiceJob(jobId);
+        logger.info(COMPONENT, `voice-poll method=${req.method} jobId=${jobId.slice(0,8)} status=${job?.status || 'missing'}`);
+        const { voice, publicHost } = getTwilioConfig();
+        const host = publicHost.replace(/\/$/, '') || `https://${req.headers.host}`;
+        const pollUrl = `${host}/api/twilio/voice-poll?jobId=${jobId}`;
+        const gatherUrl = `${host}/api/twilio/voice-gather`;
+
+        if (!job) {
+          // Job expired or never existed. Treat as error.
+          const txt = "Sorry boss, lost my train of thought. Say that again?";
+          const tk = await synthesizeAndCache(txt, voice);
+          if (tk) res.type('text/xml').send(twimlPlayAndGather(`${host}/api/twilio/audio/${tk}`, gatherUrl));
+          else res.type('text/xml').send(twimlSayAndHangup(txt));
+          return;
+        }
+
+        if (job.status === 'ready' && job.audioToken) {
+          logger.info(COMPONENT, `Voice poll ready: job=${jobId.slice(0, 8)} reply="${(job.replyText || '').slice(0, 60)}"`);
+          const audioUrl = `${host}/api/twilio/audio/${job.audioToken}`;
+          res.type('text/xml').send(twimlPlayAndGather(audioUrl, gatherUrl));
+          return;
+        }
+
+        if (job.status === 'error') {
+          logger.warn(COMPONENT, `Voice poll error: ${job.error}`);
+          const txt = "Hmm, I hit a snag. Try that again?";
+          const tk = await synthesizeAndCache(txt, voice);
+          if (tk) res.type('text/xml').send(twimlPlayAndGather(`${host}/api/twilio/audio/${tk}`, gatherUrl));
+          else res.type('text/xml').send(twimlSayAndHangup(txt));
+          return;
+        }
+
+        // Still pending — pause and redirect back. Cap the total wait
+        // so a hung LLM doesn't keep the call alive forever.
+        // v4.4.5: hard cap raised 40s→90s to fit tool-call chains,
+        // and we drop a short "still on it" filler every ~9s so Tony
+        // doesn't just hear dead air while we work.
+        const age = Date.now() - job.createdAt;
+        if (age > 90_000) {
+          logger.warn(COMPONENT, `Voice poll timeout after ${age}ms`);
+          failVoiceJob(jobId, 'timeout');
+          const txt = "That one took too long. Say it again?";
+          const tk = await synthesizeAndCache(txt, voice);
+          if (tk) res.type('text/xml').send(twimlPlayAndGather(`${host}/api/twilio/audio/${tk}`, gatherUrl));
+          else res.type('text/xml').send(twimlSayAndHangup(txt));
+          return;
+        }
+
+        // Every ~9s of waiting, play a brief filler so the caller knows
+        // we're alive. Fillers come from a short rotating list so it
+        // doesn't sound robotic. Tracked per-job via a `fillerCount`
+        // field on the job object.
+        const jobAny = job as { status: string; createdAt: number; fillerCount?: number };
+        const fillerCount = jobAny.fillerCount || 0;
+        const shouldFiller = age > 9_000 && age - (fillerCount * 9_000) > 9_000;
+        if (shouldFiller) {
+          const fillers = [
+            "Still on it, one sec.",
+            "Working on it.",
+            "Almost there, boss.",
+            "Give me just a moment.",
+          ];
+          const filler = fillers[fillerCount % fillers.length];
+          jobAny.fillerCount = fillerCount + 1;
+          const tk = await synthesizeAndCache(filler, voice);
+          if (tk) {
+            res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${host}/api/twilio/audio/${tk}</Play>
+  <Pause length="2"/>
+  <Redirect method="POST">${pollUrl}</Redirect>
+</Response>`);
+            return;
+          }
+          // TTS failed — fall through to plain pause
+        }
+        res.type('text/xml').send(twimlPauseAndRedirect(pollUrl, 3));
+      } catch (e) {
+        logger.error(COMPONENT, `Twilio voice-poll error: ${(e as Error).message}`);
+        res.status(500).type('text/xml').send(twimlSayAndHangup("Something went wrong."));
+      }
+    };
+    app.post('/api/twilio/voice-poll', urlEncoded, handleVoicePoll);
+    app.get('/api/twilio/voice-poll', handleVoicePoll);
+
+    // ── POST /api/twilio/status-callback — call lifecycle events ──
+    app.post('/api/twilio/status-callback', urlEncoded, (req, res) => {
+      try {
+        const callSid = (req.body?.CallSid as string) || '';
+        const status = (req.body?.CallStatus as string) || '';
+        const duration = (req.body?.CallDuration as string) || '';
+        logger.info(COMPONENT, `Twilio call ${callSid.slice(0, 10)}... status=${status}${duration ? ` duration=${duration}s` : ''}`);
+        if (status === 'completed' || status === 'failed' || status === 'canceled' || status === 'no-answer' || status === 'busy') {
+          endCall(callSid);
+        }
+        res.sendStatus(200);
+      } catch (e) {
+        logger.warn(COMPONENT, `status-callback error: ${(e as Error).message}`);
+        res.sendStatus(200);
+      }
+    });
+
+    // ── GET /api/twilio/audio/:token — serve cached MP3 to Twilio ──
+    // Unauthenticated on purpose: Twilio fetches these and passing a
+    // bearer token through <Play> URLs is fiddly + leaks in logs.
+    // Tokens are random 96-bit + 5-min TTL + garbage-collected, so the
+    // exposure is a transient MP3 of synthesized speech (not secrets).
+    app.get('/api/twilio/audio/:token', async (req, res) => {
+      const token = req.params.token;
+      const audio = await readCachedAudio(token);
+      if (!audio) { res.status(404).send('expired'); return; }
+      res.setHeader('Content-Type', audio.mime);
+      res.setHeader('Content-Length', String(audio.buf.length));
+      res.setHeader('Cache-Control', 'private, max-age=60');
+      res.send(audio.buf);
+    });
+
+    logger.info(COMPONENT, `Twilio voice endpoints registered: /api/twilio/voice-webhook, /api/twilio/voice-gather, /api/twilio/status-callback, /api/twilio/audio/:token`);
   }
 
   // ── Phase 3: Boot MCP servers, monitors, recipes, model switch, slash commands ──

@@ -17,6 +17,7 @@ const ToolsView = lazy(() => import('@/components/tools/ToolsView'));
 const InfraView = lazy(() => import('@/components/infra/InfraView'));
 const SettingsView = lazy(() => import('@/components/settings/SettingsView'));
 const SomaView = lazy(() => import('@/views/SomaView'));
+const WatchView = lazy(() => import('@/views/WatchView'));
 
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
@@ -102,6 +103,7 @@ function AuthenticatedApp() {
             <Route path="/infra" element={<InfraView />} />
             <Route path="/settings" element={<SettingsView />} />
             <Route path="/soma" element={<SomaView />} />
+            <Route path="/watch" element={<WatchView />} />
 
             {/* ── Legacy routes (redirect to new views) ────── */}
             <Route path="/chat" element={<Navigate to="/" replace />} />

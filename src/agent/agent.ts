@@ -897,7 +897,7 @@ export async function processMessage(
     message: string,
     channel: string = 'cli',
     userId: string = 'default',
-    overrides?: { model?: string; systemPrompt?: string; agentId?: string; sessionId?: string },
+    overrides?: { model?: string; systemPrompt?: string; agentId?: string; sessionId?: string; strategy?: 'direct' | 'explore' | 'plan' | 'delegate' },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
 ): Promise<AgentResponse> {
@@ -912,7 +912,10 @@ export async function processMessage(
         ? getOrCreateSessionById(overrides.sessionId, channel, userId, overrides?.agentId || 'default')
         : getOrCreateSession(channel, userId, overrides?.agentId || 'default');
     const trace = startTrace(session.id, message);
-    const soulState = initSoulState(session.id, message);
+    // v4.4.5: accept a caller-provided strategy override. Phone calls
+    // force 'direct' so vague conversational questions like "what are
+    // you up to?" don't trigger the explore deep-research branch.
+    const soulState = initSoulState(session.id, message, overrides?.strategy);
 
     logger.info(COMPONENT, `Processing message in session ${session.id} (${channel}/${userId}) trace=${trace.traceId} strategy=${soulState.strategy}`);
 

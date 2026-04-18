@@ -5,6 +5,172 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.5.1] — 2026-04-17 — "The Pane" — a beautiful way to watch TITAN
+
+Tony asked for a way to watch TITAN that's beautiful, informative, and
+jargon-free — something you can leave on a TV or glance at from your phone
+and instantly understand what TITAN is up to. Built the entire stack.
+
+### Concept
+
+Four zones on a single page at `/watch`:
+
+1. **Focus card** — one sentence of what TITAN is doing right now, in
+   plain English ("Decided to try exploring novel information synthesis
+   patterns" instead of `soma:proposal{approvalId:10f5deea}`).
+2. **Organism canvas** — 5 breathing drive-organelles (Purpose, Hunger,
+   Curiosity, Safety, Social) on a Canvas 2D renderer. Each pulses at a
+   rate proportional to its pressure; hormone particles drift toward the
+   core when a drive is pressed; gentle heartbeat ripple every 20s.
+3. **Activity stream** — scrolling plain-English feed of everything
+   TITAN does, newest first. Color-coded left-border per event kind.
+   Staggered motion/react slide-in when new events arrive.
+4. **Ambient background** — subtle noise + radial gradient. Intensifies
+   when activity is recent ("excited" state).
+
+**Two voices** toggleable in the header:
+- **TITAN** (first-person, default) — "I'm curious, looking for something new."
+- **Mission** (neutral control-room) — "Curiosity pressure 0.17, threshold crossed."
+
+**Kiosk mode** — `/watch?kiosk=1` hides shell chrome, enlarges typography
+for 10-foot viewing, requests `navigator.wakeLock` so TVs don't sleep.
+
+**Mobile responsive** — stacks to single column below 820px.
+
+### Backend
+
+- `src/watch/humanize.ts` (new, ~450 lines) — translates 40+ typed
+  event topics into plain-English captions for both voices. Drive
+  events, turn lifecycle, tool calls, goals, initiative runs, Command
+  Post activity, daemon health, multi-agent, alerts. Unknown topics
+  get a graceful fallback so the feed never goes silent on novel events.
+- `GET /api/watch/stream` (SSE) — subscribes to `titanEvents` for the
+  full event list, humanizes on the fly, streams JSON frames. Includes
+  an initial `snapshot` frame so the UI has drive state before the
+  first tick.
+- `GET /api/watch/snapshot` — REST snapshot of drive state + active
+  goals. Used on initial page load.
+
+### Frontend
+
+- `ui/src/views/WatchView.tsx` (new) — the React page, wired into the
+  app router at `/watch`.
+- `ui/src/views/watch/OrganismCanvas.tsx` — Canvas 2D renderer. Zero
+  dependency, runs everywhere, respects `prefers-reduced-motion`.
+- `ui/src/views/watch/ActivityStream.tsx` — motion/react animated feed.
+- `ui/src/views/watch/FocusCard.tsx` — animated focus typography.
+- `ui/src/hooks/useWatchStream.ts` — SSE hook. Handles reconnect, parses
+  events, debounces drive-tick updates so they don't spam the feed.
+- `ui/public/watch.html` — **standalone kiosk page** (no React bundle,
+  no auth ceremony). Useful for TVs or Raspberry Pi wall displays
+  without the full SPA. Accepts `?token=<session>` for pre-auth.
+
+### Soma tuning (earlier this session, documented here)
+
+- `organism.pressureThreshold` lowered 1.2 → 0.15 (autonomy dial).
+- `organism.driveSetpoints.curiosity` raised 0.50 → 0.75 (demands variety).
+- `organism.driveSetpoints.purpose` raised 0.70 → 0.85 (demands priority-1 work).
+
+With these tweaks, Curiosity drive pressure hovers around 0.17 and fires
+proposals into the Command Post approval queue on schedule — exactly what
+the Watch view now lets Tony see in real time.
+
+### Upgrade path
+
+v4.5.1 will replace the Canvas 2D organism with a WebGL metaball shader
+(the v4.3 organic Soma canvas plan fully realized). The current Canvas 2D
+implementation is beautiful and ships today; the shader upgrade is a drop-in
+replacement when bundle size and hardware allow.
+
+---
+
+## [4.4.0] — 2026-04-17 — Real phone calls (Twilio + F5-TTS Andrew)
+
+Tony can now dial a TITAN Twilio number on any phone and have a real
+voice conversation — no browser, no app, no Wi-Fi. Picks up the phone,
+hears Andrew greet him, talks, hears Andrew reply, hangs up when done.
+
+### Flow
+
+1. Tony dials → Twilio → `POST /api/twilio/voice-webhook`
+2. TITAN returns TwiML: `<Play>{F5-TTS Andrew greeting}</Play><Gather input="speech">`
+3. Tony speaks → Twilio STT → `POST /api/twilio/voice-gather` with transcript
+4. Admin envelope wraps the transcript (same persona as Messenger), runs
+   through `processMessage()`, gets a reply
+5. Reply synthesized via F5-TTS (same Andrew reference as Messenger) and
+   cached on disk with a random 96-bit token
+6. TwiML returns `<Play>https://.../api/twilio/audio/{token}</Play><Gather>`
+   — Twilio fetches the MP3, plays it, then listens again
+7. Loop until hangup. `POST /api/twilio/status-callback` cleans up
+   session state on `completed`/`failed`/`canceled`
+
+### Security
+
+- X-Twilio-Signature validated on every inbound webhook (HMAC-SHA1 over
+  URL + sorted form params, constant-time compared). Requires Twilio
+  `authToken` in config. If unset, a WARN is logged on every request
+  and the check is skipped (dev mode).
+- Caller whitelist: `channels.twilio.allowedCallers` (E.164 phone
+  numbers). Unlisted callers get a "this number is private" TwiML
+  reject. Empty list = allow all (dev mode — lock it down with your
+  cell number before leaving the Twilio number out in public).
+- Audio cache tokens are 96 bits of entropy with a 5-min TTL and GC'd
+  on every new insert. Cached files live in `/tmp/titan-tts-cache/`.
+
+### Admin envelope parity
+
+Phone calls go through the same admin prompt as Messenger: Tony is
+recognized as CREATOR & OWNER, full tool access, remote-approval
+protocol (describe destructive actions + ask "Approve? Yes or no."),
+never "check the dashboard." Replies capped at 40 words / 600 chars
+because spoken replies get sluggish otherwise.
+
+### Session continuity
+
+Twilio `CallSid` maps to a TITAN `sessionId`, so every turn within one
+phone call shares context. Cleared on call-end callback.
+
+### New files
+
+- `src/channels/twilio-voice.ts` — TwiML builders, signature validation,
+  caller whitelist, audio cache, call-session map
+- Endpoints in `src/gateway/server.ts`:
+  - `POST /api/twilio/voice-webhook` — initial ring
+  - `POST /api/twilio/voice-gather` — per-utterance turn
+  - `POST /api/twilio/status-callback` — lifecycle events
+  - `GET /api/twilio/audio/:token` — serve cached MP3 (unauthed, short TTL)
+
+### Config
+
+New schema `channels.twilio`:
+```
+{
+  "enabled": true,
+  "accountSid": "AC...",
+  "authToken": "...",
+  "phoneNumber": "+1...",
+  "voice": "andrew",
+  "allowedCallers": ["+1..."],
+  "publicHost": "https://<tailscale-funnel>.tail57901.ts.net"
+}
+```
+
+Env var fallbacks also accepted: `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`,
+`TWILIO_PUBLIC_HOST`.
+
+### What Tony needs to do
+
+1. In Twilio console, update the three webhook URLs from
+   `titan-wsl.tail57901.ts.net` (doesn't resolve) to the actual Funnel
+   URL (`dj-z690-steel-legend-d5.tail57901.ts.net` or whatever is
+   configured).
+2. Copy the Twilio Auth Token into `channels.twilio.authToken` (or set
+   `TWILIO_AUTH_TOKEN` env var).
+3. Add his cell number to `channels.twilio.allowedCallers` (E.164).
+4. Dial the Twilio number. Say hi.
+
+---
+
 ## [4.3.6] — 2026-04-17 — mDNS actually works now (bonjour-service external)
 
 Follow-up to 4.3.5. After shipping the robust constructor lookup the log

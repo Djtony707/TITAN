@@ -1,0 +1,153 @@
+/**
+ * TITAN — useWatchStream (v4.5.0)
+ *
+ * React hook that connects to /api/watch/stream (SSE) and exposes:
+ *   - drives (current live state)
+ *   - events (rolling list, newest first)
+ *   - connected (connection status)
+ *   - lastActivity (timestamp of last event — for ambient "excited" state)
+ *
+ * Uses EventSource with the auth token appended as ?token=; the gateway's
+ * auth middleware accepts that pattern already.
+ */
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { WatchEvent, WatchDrive, WatchSnapshot } from '@/views/watch/types';
+import { DRIVE_LABELS } from '@/views/watch/types';
+
+const MAX_EVENTS = 100;
+
+interface UseWatchStreamReturn {
+    drives: WatchDrive[];
+    events: WatchEvent[];
+    connected: boolean;
+    reconnecting: boolean;
+    lastActivity: number;
+    snapshot: WatchSnapshot | null;
+    reconnect: () => void;
+}
+
+function getToken(): string {
+    try { return localStorage.getItem('titan_token') || ''; } catch { return ''; }
+}
+
+export function useWatchStream(): UseWatchStreamReturn {
+    const [drives, setDrives] = useState<WatchDrive[]>([]);
+    const [events, setEvents] = useState<WatchEvent[]>([]);
+    const [connected, setConnected] = useState(false);
+    const [reconnecting, setReconnecting] = useState(false);
+    const [lastActivity, setLastActivity] = useState(0);
+    const [snapshot, setSnapshot] = useState<WatchSnapshot | null>(null);
+    const esRef = useRef<EventSource | null>(null);
+
+    const applyDrives = useCallback((raw: unknown) => {
+        if (!Array.isArray(raw)) return;
+        const mapped = (raw as Array<Record<string, unknown>>).map((d) => ({
+            id: d.id as string,
+            label: (d.label as string) || DRIVE_LABELS[(d.id as string)?.toLowerCase()] || (d.id as string),
+            satisfaction: (d.satisfaction as number) ?? 1,
+            setpoint: (d.setpoint as number) ?? 0.7,
+            pressure: (d.pressure as number) ?? 0,
+            weight: d.weight as number | undefined,
+            description: d.description as string | undefined,
+        }));
+        setDrives(mapped);
+    }, []);
+
+    const connect = useCallback(() => {
+        if (esRef.current) esRef.current.close();
+        const token = getToken();
+        const url = `/api/watch/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+        const es = new EventSource(url);
+        esRef.current = es;
+        setReconnecting(true);
+
+        es.onopen = () => {
+            setConnected(true);
+            setReconnecting(false);
+        };
+
+        es.onerror = () => {
+            setConnected(false);
+            setReconnecting(true);
+            // EventSource auto-reconnects; we don't close
+        };
+
+        es.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data);
+
+                if (msg.type === 'snapshot') {
+                    setSnapshot({
+                        drives: msg.drives || [],
+                        totalPressure: msg.totalPressure || 0,
+                        dominantDrives: msg.dominantDrives || [],
+                        timestamp: msg.timestamp || Date.now(),
+                    });
+                    applyDrives(msg.drives);
+                    return;
+                }
+
+                if (msg.type === 'event') {
+                    // drive:tick updates the live state but doesn't crowd the
+                    // activity feed (60/hr otherwise).
+                    if (msg.topic === 'drive:tick') {
+                        const rawDrives = (msg.raw?.drives as unknown) ?? [];
+                        applyDrives(rawDrives);
+                        setLastActivity(Date.now());
+                        return;
+                    }
+                    const evt: WatchEvent = {
+                        id: msg.id,
+                        timestamp: msg.timestamp,
+                        topic: msg.topic,
+                        kind: msg.kind,
+                        icon: msg.icon,
+                        captionTitan: msg.captionTitan,
+                        captionControl: msg.captionControl,
+                        detail: msg.detail,
+                        raw: msg.raw,
+                    };
+                    setEvents((prev) => {
+                        const next = [evt, ...prev];
+                        if (next.length > MAX_EVENTS) next.length = MAX_EVENTS;
+                        return next;
+                    });
+                    setLastActivity(Date.now());
+                }
+            } catch { /* bad JSON; skip */ }
+        };
+    }, [applyDrives]);
+
+    const reconnect = useCallback(() => {
+        if (esRef.current) esRef.current.close();
+        connect();
+    }, [connect]);
+
+    // Pull initial snapshot via REST so the UI isn't blank before the
+    // first tick/event.
+    useEffect(() => {
+        const token = getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        fetch('/api/watch/snapshot', { headers })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (data && !data.error) {
+                    setSnapshot(data);
+                    applyDrives(data.drives);
+                }
+            })
+            .catch(() => {});
+    }, [applyDrives]);
+
+    // Main connection lifecycle
+    useEffect(() => {
+        connect();
+        return () => {
+            esRef.current?.close();
+            esRef.current = null;
+        };
+    }, [connect]);
+
+    return { drives, events, connected, reconnecting, lastActivity, snapshot, reconnect };
+}

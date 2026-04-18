@@ -91,12 +91,25 @@ export interface Heartbeat {
 
 const sessionStates: Map<string, SoulState> = new Map();
 
-/** Initialize or reset soul state for a session */
-export function initSoulState(sessionId: string, message: string): SoulState {
+/**
+ * Initialize or reset soul state for a session.
+ *
+ * v4.4.5: `strategyOverride` lets callers force a specific strategy
+ * instead of the regex-based `inferStrategy()`. Phone calls use
+ * `strategyOverride='direct'` because any conversational "what are
+ * you up to?" utterance would otherwise trip the explore branch,
+ * which triggers 30+ second deep-research flows — fatal for a
+ * real-time voice call.
+ */
+export function initSoulState(
+    sessionId: string,
+    message: string,
+    strategyOverride?: Strategy,
+): SoulState {
     const state: SoulState = {
         taskUnderstanding: inferTaskUnderstanding(message),
         confidence: 'medium',
-        strategy: inferStrategy(message),
+        strategy: strategyOverride ?? inferStrategy(message),
         attempts: [],
         insights: [],
         round: 0,

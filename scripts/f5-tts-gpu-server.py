@@ -70,9 +70,11 @@ SAMPLE_RATE = 24000
 # inference produced audible pitch wobble ("chipmunk for a few words, then
 # normal") especially on short utterances. 32 is the F5-TTS reference default.
 STEPS = 32
-# v4.3.3: neutral speed. Previous 0.87 slowed slightly but also sometimes
-# triggered timing artifacts mid-sentence. 1.0 is pass-through.
-SPEED = 1.0
+# v4.3.3: neutral speed was 1.0 (pass-through). Tony reports on phone
+# calls that's still too fast. v4.4.6: 0.90 = 10% slower, keeps pitch
+# natural (F5-TTS scales time, not pitch). Re-raise to 0.95 if clips
+# start sounding stretched.
+SPEED = 0.90
 CFG_STRENGTH = 1.5
 SEED = 42
 # v4.3.3: output format + playback-safe sample rate for Messenger. Messenger

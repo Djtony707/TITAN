@@ -524,6 +524,29 @@ export const TitanConfigSchema = z.object({
             dmPolicy: 'pairing',
             voiceReplies: { enabled: true, voice: 'andrew', maxChars: 1000 },
         }),
+        // v4.4.0: Twilio voice — real phone calls. Tony dials the Twilio
+        // number, talks, hears F5-TTS Andrew reply. Extends the base channel
+        // schema so other code that iterates channels (doctor, selfHeal,
+        // sandbox) sees the shared fields (enabled/token/apiKey/dmPolicy).
+        twilio: ChannelConfigSchema.extend({
+            accountSid: z.string().optional(),
+            authToken: z.string().optional(),
+            phoneNumber: z.string().optional(),
+            voice: z.string().default('andrew'),
+            /** E.164 numbers allowed to reach the agent. Everyone else gets
+             *  a polite "wrong number" and hangup. */
+            allowedCallers: z.array(z.string()).default([]),
+            /** Public HTTPS hostname for audio playback URLs sent to
+             *  Twilio. Should be a Tailscale Funnel or equivalent. */
+            publicHost: z.string().default(''),
+        }).default({
+            enabled: true,
+            allowFrom: [],
+            dmPolicy: 'pairing',
+            voice: 'andrew',
+            allowedCallers: [],
+            publicHost: '',
+        }),
     }).default({}),
     gateway: GatewayConfigSchema.default({}),
     security: SecurityConfigSchema.default({}),

@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>Watch TITAN</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #05060a;
+    --bg-2: #0a0c14;
+    --panel: rgba(20, 24, 36, 0.6);
+    --panel-border: rgba(80, 90, 120, 0.25);
+    --text: #f8f9fc;
+    --text-muted: #9099b4;
+    --text-dim: #5a6280;
+    --purpose: #a78bfa; /* violet */
+    --hunger: #fbbf24;  /* amber */
+    --curiosity: #22d3ee; /* cyan */
+    --safety: #34d399;  /* emerald */
+    --social: #f472b6;  /* pink */
+    --system: #a1a1aa;
+    --tool: #60a5fa;
+    --goal: #34d399;
+    --soma: #a78bfa;
+    --channel: #fb7185;
+    --agent: #c084fc;
+    --health: #fbbf24;
+    --memory: #e879f9;
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Ambient background — slow gradient, reacts to activity */
+  .ambient {
+    position: fixed;
+    inset: -10%;
+    background:
+      radial-gradient(ellipse at 20% 30%, rgba(167, 139, 250, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(34, 211, 238, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(52, 211, 153, 0.04) 0%, transparent 60%),
+      var(--bg);
+    animation: drift 60s ease-in-out infinite alternate;
+    z-index: -2;
+  }
+  .ambient.excited { animation-duration: 20s; filter: saturate(1.3); }
+  @keyframes drift {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(2%, -1%) scale(1.05); }
+    100% { transform: translate(-1%, 2%) scale(1.02); }
+  }
+  .noise {
+    position: fixed; inset: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: -1;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)' opacity='0.8'/></svg>");
+  }
+
+  .wrap {
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 0;
+    padding: env(safe-area-inset-top, 20px) 24px env(safe-area-inset-bottom, 20px);
+  }
+
+  /* ── Header ───────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0 16px;
+    font-size: 13px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+  }
+  .brand-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 10px #34d399;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .brand-dot.stale { background: #f59e0b; animation-duration: 1s; box-shadow: 0 0 10px #f59e0b; }
+  .brand-dot.dead  { background: #ef4444; animation-duration: 0.6s; box-shadow: 0 0 10px #ef4444; }
+  @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.6; transform:scale(0.85); } }
+
+  .voice-toggle {
+    display: flex; gap: 2px;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 999px; padding: 2px; font-size: 11px;
+    color: var(--text-muted);
+  }
+  .voice-toggle button {
+    background: transparent; border: 0; color: inherit;
+    padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
+    transition: all 0.15s;
+  }
+  .voice-toggle button.active {
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  /* ── Main grid ────────────────────────────────────────── */
+  main {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.1fr) minmax(320px, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "focus activity"
+      "organism activity";
+    gap: 20px;
+    min-height: 0;
+  }
+  @media (max-width: 820px) {
+    main {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr;
+      grid-template-areas:
+        "focus"
+        "organism"
+        "activity";
+      gap: 14px;
+    }
+  }
+
+  /* ── Zone: current focus ──────────────────────────────── */
+  .focus {
+    grid-area: focus;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 22px 24px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+  }
+  .focus::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), transparent 60%);
+    pointer-events: none;
+  }
+  .focus-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--text-dim); margin-bottom: 10px; font-weight: 600;
+  }
+  .focus-text {
+    font-size: clamp(18px, 2.4vw, 24px);
+    font-weight: 500; line-height: 1.35;
+    color: var(--text);
+    min-height: 2.4em;
+    transition: opacity 0.4s;
+  }
+  .focus-meta {
+    display: flex; gap: 16px; margin-top: 12px;
+    font-size: 11px; color: var(--text-dim);
+  }
+
+  /* ── Zone: organism ───────────────────────────────────── */
+  .organism {
+    grid-area: organism;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 340px;
+  }
+  .organism-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--text-dim); font-weight: 600;
+  }
+  #organism-canvas {
+    flex: 1;
+    width: 100%;
+    min-height: 260px;
+  }
+  .organism-legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+    font-size: 11px;
+  }
+  .drive-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    cursor: default;
+    transition: background 0.2s;
+  }
+  .drive-chip.pressed {
+    background: rgba(251, 191, 36, 0.08);
+    border-color: rgba(251, 191, 36, 0.3);
+  }
+  .drive-chip-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .drive-chip-label {
+    font-weight: 500; color: var(--text-muted);
+    flex: 1;
+  }
+  .drive-chip-val {
+    color: var(--text-dim); font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Zone: activity stream ────────────────────────────── */
+  .activity {
+    grid-area: activity;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .activity-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .activity-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--text-dim); font-weight: 600;
+  }
+  .activity-count {
+    font-size: 11px; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .activity-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* hide scrollbar but allow scroll */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    mask-image: linear-gradient(to bottom, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
+  }
+  .activity-list::-webkit-scrollbar { width: 4px; }
+  .activity-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+  .row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.015);
+    border-left: 2px solid transparent;
+    font-size: 13px;
+    line-height: 1.35;
+    animation: slide-in 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background 0.2s;
+  }
+  .row:hover { background: rgba(255, 255, 255, 0.04); }
+  .row.kind-drive { border-left-color: var(--purpose); }
+  .row.kind-soma { border-left-color: var(--soma); }
+  .row.kind-tool { border-left-color: var(--tool); }
+  .row.kind-goal { border-left-color: var(--goal); }
+  .row.kind-channel { border-left-color: var(--channel); }
+  .row.kind-agent { border-left-color: var(--agent); }
+  .row.kind-health { border-left-color: var(--health); }
+  .row.kind-memory { border-left-color: var(--memory); }
+  .row.kind-system { border-left-color: var(--system); }
+
+  .row-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; margin-top: 1px; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-caption { color: var(--text); }
+  .row-detail { color: var(--text-dim); font-size: 11px; margin-top: 2px; line-height: 1.3; }
+  .row-time { color: var(--text-dim); font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; white-space: nowrap; margin-top: 1px; }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .row.new {
+    background: rgba(167, 139, 250, 0.06);
+  }
+  .row.new:nth-child(1) {
+    background: rgba(167, 139, 250, 0.08);
+  }
+
+  /* ── Footer ──────────────────────────────────────────── */
+  footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 14px; font-size: 11px; color: var(--text-dim);
+  }
+  footer .hint { font-style: italic; opacity: 0.7; }
+  footer a { color: var(--text-muted); text-decoration: none; }
+  footer a:hover { color: var(--text); }
+
+  /* ── Kiosk mode (full-screen TV) ───────────────────────── */
+  body.kiosk header,
+  body.kiosk footer { display: none; }
+  body.kiosk .wrap { padding: 30px 40px; }
+  body.kiosk main { gap: 30px; }
+  body.kiosk .focus-text { font-size: clamp(24px, 3vw, 34px); }
+  body.kiosk .organism { min-height: 400px; }
+  body.kiosk .row { font-size: 16px; padding: 14px 16px; }
+  body.kiosk .row-icon { font-size: 20px; width: 26px; }
+
+  /* Reduced motion: kill the drift animation + slide-in */
+  @media (prefers-reduced-motion: reduce) {
+    .ambient { animation: none; }
+    .row { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="ambient" id="ambient"></div>
+<div class="noise"></div>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-dot" id="live-dot"></div>
+      <span>TITAN</span>
+      <span style="opacity:0.4;">·</span>
+      <span id="live-status">connecting…</span>
+    </div>
+    <div class="voice-toggle">
+      <button data-voice="titan" class="active" onclick="setVoice('titan')">TITAN</button>
+      <button data-voice="control" onclick="setVoice('control')">Mission</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="focus">
+      <div class="focus-label">What I'm doing</div>
+      <div class="focus-text" id="focus-text">Standing by.</div>
+      <div class="focus-meta" id="focus-meta"></div>
+    </section>
+
+    <section class="organism">
+      <div class="organism-label">How I'm feeling</div>
+      <canvas id="organism-canvas"></canvas>
+      <div class="organism-legend" id="legend"></div>
+    </section>
+
+    <section class="activity">
+      <div class="activity-header">
+        <div class="activity-label">Recent activity</div>
+        <div class="activity-count" id="activity-count">0 events</div>
+      </div>
+      <div class="activity-list" id="activity-list">
+        <div class="row kind-system">
+          <div class="row-icon">•</div>
+          <div class="row-main"><div class="row-caption" style="color:var(--text-dim);">Waiting for TITAN to do something…</div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span class="hint">Live feed · updates in real time</span>
+    <span><a href="/" target="_blank">Mission Control →</a></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const kiosk = params.get('kiosk') === '1';
+  if (kiosk) document.body.classList.add('kiosk');
+
+  let authToken = params.get('token') || localStorage.getItem('titan_token') || '';
+  let voice = 'titan';
+  let events = []; // newest first
+  const MAX_EVENTS = 80;
+
+  // ── Elements
+  const focusText = document.getElementById('focus-text');
+  const focusMeta = document.getElementById('focus-meta');
+  const activityList = document.getElementById('activity-list');
+  const activityCount = document.getElementById('activity-count');
+  const legend = document.getElementById('legend');
+  const liveDot = document.getElementById('live-dot');
+  const liveStatus = document.getElementById('live-status');
+  const ambient = document.getElementById('ambient');
+  const canvas = document.getElementById('organism-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // ── Drive palette
+  const DRIVE_COLORS = {
+    purpose: '#a78bfa', hunger: '#fbbf24', curiosity: '#22d3ee',
+    safety: '#34d399', social: '#f472b6',
+  };
+  const DRIVE_LABELS = {
+    purpose: 'Purpose', hunger: 'Hunger', curiosity: 'Curiosity',
+    safety: 'Safety', social: 'Social',
+  };
+
+  // ── State
+  let drives = [];
+  let activityBoostUntil = 0;
+
+  // ── Voice toggle
+  window.setVoice = (v) => {
+    voice = v;
+    document.querySelectorAll('.voice-toggle button').forEach(b => {
+      b.classList.toggle('active', b.dataset.voice === v);
+    });
+    renderActivity();
+  };
+
+  // ── Ensure auth token
+  async function ensureAuth() {
+    if (authToken) return true;
+    const pw = prompt('TITAN password:');
+    if (!pw) return false;
+    try {
+      const r = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (!r.ok) { alert('Wrong password'); return false; }
+      const { token } = await r.json();
+      authToken = token;
+      localStorage.setItem('titan_token', token);
+      return true;
+    } catch (e) { alert('Login failed: ' + e.message); return false; }
+  }
+
+  // ── Time-ago formatter
+  function timeAgo(ts) {
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 10) return 'just now';
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+
+  // ── Render activity list
+  function renderActivity() {
+    activityCount.textContent = events.length + ' events';
+    if (events.length === 0) return;
+    const html = events.slice(0, MAX_EVENTS).map((e, i) => {
+      const caption = voice === 'titan' ? e.captionTitan : e.captionControl;
+      return `
+        <div class="row kind-${e.kind}${i === 0 ? ' new' : ''}" title="${e.topic}">
+          <div class="row-icon">${e.icon}</div>
+          <div class="row-main">
+            <div class="row-caption">${escapeHtml(caption)}</div>
+            ${e.detail ? `<div class="row-detail">${escapeHtml(e.detail)}</div>` : ''}
+          </div>
+          <div class="row-time">${timeAgo(e.timestamp)}</div>
+        </div>
+      `;
+    }).join('');
+    activityList.innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  // ── Update focus card based on most recent meaningful event
+  function updateFocus(evt) {
+    // Promote certain events to the focus card
+    const promote = new Set([
+      'soma:proposal', 'turn:pre', 'turn:post', 'tool:call',
+      'goal:subtask:ready', 'initiative:start', 'initiative:complete',
+      'pressure:threshold',
+    ]);
+    if (!promote.has(evt.topic)) return;
+    focusText.style.opacity = '0';
+    setTimeout(() => {
+      focusText.textContent = voice === 'titan' ? evt.captionTitan : evt.captionControl;
+      const t = new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      focusMeta.innerHTML = `<span>Just now · ${t}</span>`;
+      focusText.style.opacity = '1';
+    }, 200);
+    activityBoostUntil = Date.now() + 10_000;
+  }
+
+  // ── Receive snapshot (initial state)
+  function applySnapshot(snap) {
+    drives = (snap.drives || []).map(d => ({
+      id: d.id, label: d.label || DRIVE_LABELS[d.id] || d.id,
+      satisfaction: d.satisfaction ?? 1,
+      setpoint: d.setpoint ?? 0.7,
+      pressure: d.pressure ?? 0,
+    }));
+    renderLegend();
+  }
+
+  function renderLegend() {
+    legend.innerHTML = drives.map(d => `
+      <div class="drive-chip${d.pressure > 0.01 ? ' pressed' : ''}" title="${d.label}: satisfaction ${d.satisfaction.toFixed(2)}, setpoint ${d.setpoint.toFixed(2)}">
+        <div class="drive-chip-dot" style="background:${DRIVE_COLORS[d.id] || '#999'}; box-shadow: 0 0 8px ${DRIVE_COLORS[d.id] || '#999'}"></div>
+        <div class="drive-chip-label">${d.label}</div>
+        <div class="drive-chip-val">${Math.round(d.satisfaction * 100)}%</div>
+      </div>
+    `).join('');
+  }
+
+  // ── SSE stream
+  let eventSource = null;
+  async function connect() {
+    if (!(await ensureAuth())) return;
+    const url = '/api/watch/stream?token=' + encodeURIComponent(authToken);
+    liveStatus.textContent = 'connecting…';
+    liveDot.className = 'brand-dot stale';
+
+    // Use fetch+reader for EventSource-like behavior (EventSource doesn't support auth headers easily)
+    // But our endpoint accepts ?token= so plain EventSource works.
+    eventSource = new EventSource(url);
+
+    eventSource.onopen = () => {
+      liveStatus.textContent = 'live';
+      liveDot.className = 'brand-dot';
+    };
+
+    eventSource.onerror = () => {
+      liveStatus.textContent = 'reconnecting…';
+      liveDot.className = 'brand-dot dead';
+      // EventSource reconnects automatically
+    };
+
+    eventSource.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'snapshot') {
+          applySnapshot(msg);
+        } else if (msg.type === 'event') {
+          // drive:tick updates drives state + legend, doesn't add a row (too spammy)
+          if (msg.topic === 'drive:tick') {
+            const raw = msg.raw || {};
+            if (Array.isArray(raw.drives)) {
+              drives = raw.drives.map(d => ({
+                id: d.id, label: DRIVE_LABELS[d.id] || d.id,
+                satisfaction: d.satisfaction, setpoint: d.setpoint, pressure: d.pressure,
+              }));
+              renderLegend();
+            }
+            return;
+          }
+          events.unshift(msg);
+          if (events.length > MAX_EVENTS) events.pop();
+          renderActivity();
+          updateFocus(msg);
+          activityBoostUntil = Date.now() + 8_000;
+        }
+      } catch {}
+    };
+  }
+
+  // ── Pull initial snapshot from the REST endpoint (reliable)
+  async function loadSnapshot() {
+    if (!(await ensureAuth())) return;
+    try {
+      const r = await fetch('/api/watch/snapshot', {
+        headers: { Authorization: 'Bearer ' + authToken },
+      });
+      if (r.ok) applySnapshot(await r.json());
+    } catch {}
+  }
+
+  // ── Organism canvas (Canvas 2D breathing blobs)
+  function setupCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+  }
+
+  function drawOrganism() {
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    if (W < 10 || H < 10) return;
+    const cx = W / 2, cy = H / 2;
+    const baseRadius = Math.min(W, H) * 0.18;
+    const t = performance.now() / 1000;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Central "core" — ambient organism glow
+    const coreR = baseRadius * 0.6 * (1 + 0.05 * Math.sin(t * 0.6));
+    const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2);
+    coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+    coreGrad.addColorStop(0.4, 'rgba(167, 139, 250, 0.08)');
+    coreGrad.addColorStop(1, 'rgba(167, 139, 250, 0)');
+    ctx.fillStyle = coreGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 5 organelles in a pentagon
+    const N = Math.max(drives.length, 5);
+    const orbitR = Math.min(W, H) * 0.32;
+
+    for (let i = 0; i < drives.length; i++) {
+      const d = drives[i];
+      const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+      const ox = cx + Math.cos(angle) * orbitR;
+      const oy = cy + Math.sin(angle) * orbitR;
+
+      // Size modulates with (1 - satisfaction). More pressure = bigger, more urgent pulse.
+      const unmet = Math.max(0, d.setpoint - d.satisfaction);
+      const pressureMod = Math.min(1, d.pressure * 3);
+      const breathSpeed = 0.35 + pressureMod * 1.5;
+      const pulseAmp = 0.04 + pressureMod * 0.15;
+      const radius = baseRadius * (0.75 + pulseAmp * Math.sin(t * breathSpeed + i));
+
+      const color = DRIVE_COLORS[d.id] || '#a78bfa';
+
+      // Outer glow
+      const glowR = radius * 2.5;
+      const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, glowR);
+      grad.addColorStop(0, hexToRgba(color, 0.35));
+      grad.addColorStop(0.3, hexToRgba(color, 0.18));
+      grad.addColorStop(1, hexToRgba(color, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(ox, oy, glowR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core organelle — soft disc with a gentle highlight
+      const coreGrad2 = ctx.createRadialGradient(ox - radius * 0.3, oy - radius * 0.3, 0, ox, oy, radius);
+      coreGrad2.addColorStop(0, hexToRgba(color, 0.95));
+      coreGrad2.addColorStop(0.5, hexToRgba(color, 0.6));
+      coreGrad2.addColorStop(1, hexToRgba(color, 0.25));
+      ctx.fillStyle = coreGrad2;
+      ctx.beginPath();
+      ctx.arc(ox, oy, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label under organelle
+      ctx.font = '500 10px -apple-system, system-ui';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.label.toUpperCase(), ox, oy + radius + 16);
+
+      // Hormone particle — emit if pressure, flow toward core along bezier
+      if (pressureMod > 0.05) {
+        const phase = (t * 0.3 + i * 0.5) % 1;
+        const px = ox + (cx - ox) * phase;
+        const py = oy + (cy - oy) * phase - Math.sin(phase * Math.PI) * 20;
+        ctx.fillStyle = hexToRgba(color, 1 - phase);
+        ctx.beginPath();
+        ctx.arc(px, py, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Heartbeat ripple — once every ~20 seconds, a single soft wave
+    const heartPeriod = 20;
+    const heartPhase = (t % heartPeriod) / heartPeriod;
+    if (heartPhase < 0.15) {
+      const r = baseRadius + heartPhase * Math.min(W, H) * 2;
+      const op = (1 - heartPhase / 0.15) * 0.15;
+      ctx.strokeStyle = `rgba(167, 139, 250, ${op})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function hexToRgba(hex, a) {
+    const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return `rgba(160, 160, 160, ${a})`;
+    return `rgba(${parseInt(m[1],16)}, ${parseInt(m[2],16)}, ${parseInt(m[3],16)}, ${a})`;
+  }
+
+  // ── Animation loop
+  function loop() {
+    drawOrganism();
+    // Excited ambient class if we saw activity recently
+    ambient.classList.toggle('excited', Date.now() < activityBoostUntil);
+    requestAnimationFrame(loop);
+  }
+
+  // ── Time-ago refresher (every 20s)
+  setInterval(() => { if (events.length) renderActivity(); }, 20_000);
+
+  // ── Kick it all off
+  setupCanvas();
+  loop();
+  (async () => {
+    await loadSnapshot();
+    await connect();
+  })();
+
+  // Wake lock (kiosk mode — prevent screen sleeping)
+  if (kiosk && 'wakeLock' in navigator) {
+    try { navigator.wakeLock.request('screen'); } catch {}
+  }
+})();
+</script>
+</body>
+</html>

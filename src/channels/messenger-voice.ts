@@ -130,17 +130,41 @@ export async function transcribeMessengerAudio(url: string): Promise<string> {
 }
 
 /**
+ * Rewrite text for better F5-TTS pronunciation. The Andrew voice reads
+ * certain proper nouns / jargon unexpectedly — most notably "TITAN" comes
+ * out as "TEE-tan" instead of "TIE-tan" because F5-TTS normalizes based
+ * on letter frequency patterns from training data, not English phonology.
+ *
+ * Respellings are chosen empirically: "Tightan" makes F5-TTS reliably
+ * produce the "TIE-tan" pronunciation Tony wants. Case-insensitive; all
+ * replacements preserve the word as a single TTS token (no hyphens — F5
+ * breaks on hyphens).
+ */
+export function rewriteForTts(text: string): string {
+    let out = text;
+    // "TITAN" → "Tightan" (the G is silent, the 'igh' fixes the I-sound).
+    // Applied case-insensitively. The replacement preserves no
+    // dashes/spaces to keep F5 treating it as one word.
+    out = out.replace(/\bTITAN\b/gi, 'Tightan');
+    return out;
+}
+
+/**
  * Synthesize text via F5-TTS GPU server. Returns { buf, mime, ext } or null.
  *
  * v4.3.3: switched from WAV 24kHz → MP3 44.1kHz because Messenger's audio
  * player was misinterpreting the 24kHz WAV as 16kHz and playing back 1.5×
  * fast + high-pitched (chipmunk Andrew). MP3 embeds unambiguous sample-rate
  * metadata that every player respects.
+ *
+ * v4.4.3: applies `rewriteForTts()` before synthesis to fix "TEE-tan"
+ * mispronunciation of TITAN.
  */
 export async function synthesizeAudio(
-    text: string,
+    textRaw: string,
     voice = 'andrew',
 ): Promise<{ buf: Buffer; mime: string; ext: string } | null> {
+    const text = rewriteForTts(textRaw);
     try {
         const res = await fetch(`${F5_TTS_URL}/v1/audio/speech`, {
             method: 'POST',
