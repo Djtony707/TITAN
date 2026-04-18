@@ -334,7 +334,20 @@ function buildSmartPrompt(
 ): string {
     const parts: string[] = [];
 
-    parts.push('WRITE CODE NOW using write_file. Do NOT research or browse.');
+    // v4.9.0-local.4: route the opening directive based on whether the
+    // subtask is analytical/exploratory or implementation. Previous
+    // behavior hardcoded "WRITE CODE NOW using write_file. Do NOT research
+    // or browse." for EVERY subtask — which forced Curiosity-driven
+    // "explore novel stimuli" tasks into building random code artifacts
+    // (e.g. the ant colony sim proliferation Tony saw) when the goal was
+    // actually to research + report. Rule: code-signal verbs → implementation
+    // directive; analytical verbs → research directive; ambiguous → neutral.
+    const analytical = isAnalyticalSubtask(subtaskTitle + ' ' + description);
+    if (analytical) {
+        parts.push('RESEARCH + REPORT. Use web_search / web_fetch / memory / goal_list to gather signal, then write a short report (≤400 words) via write_file at docs/research/ OR respond directly with the synthesis. Do NOT invent standalone code artifacts unless the subtask explicitly asks for one.');
+    } else {
+        parts.push('WRITE CODE NOW using write_file / edit_file. Do NOT research or browse unless the task clearly requires external information.');
+    }
     parts.push('');
     parts.push(`${subtaskTitle}: ${description}`);
     parts.push('');
