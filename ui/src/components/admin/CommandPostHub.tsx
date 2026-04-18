@@ -824,7 +824,7 @@ function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; run
                     value={agent.title || ''}
                     onSave={(v) => saveField(agent.id, 'title', v)}
                     placeholder="Add a title"
-                    emptyLabel="(none)"
+                    emptyLabel="—"
                   />
                 </span>
                 <span>Model: {agent.model.split('/').pop()}</span>

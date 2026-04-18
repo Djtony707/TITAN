@@ -41,7 +41,34 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   const scrollRef = useRef<HTMLDivElement>(null);
   const [watcherOpen, setWatcherOpen] = useState(false);
   const { isStreaming, streamingContent, activeTools, agentEvents, send, cancel } = useSSE();
-  const { voiceAvailable } = useConfig();
+  const { voiceAvailable, config } = useConfig();
+  const [toolCount, setToolCount] = useState<number | null>(null);
+  const [providerCount, setProviderCount] = useState<number | null>(null);
+
+  // Fetch live tool + provider counts so the empty state shows real
+  // numbers instead of stale hardcoded values. Retries on 4s config
+  // refresh tick implicitly via useConfig.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/api/client');
+        const [toolsRes, modelsRes] = await Promise.all([
+          apiFetch('/api/tools').then(r => r.ok ? r.json() : null).catch(() => null),
+          apiFetch('/api/models').then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (toolsRes && Array.isArray(toolsRes.tools)) setToolCount(toolsRes.tools.length);
+        else if (toolsRes && typeof toolsRes.count === 'number') setToolCount(toolsRes.count);
+        if (modelsRes && typeof modelsRes === 'object') {
+          setProviderCount(Object.keys(modelsRes).filter(k => Array.isArray((modelsRes as Record<string, unknown>)[k])).length);
+        }
+      } catch { /* fall through to fallback render */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const activeModel = config?.agent?.model?.split('/').pop() ?? 'loading…';
 
   // Initiative streaming state — shows live thinking/tool activity
   const [initiativeActive, setInitiativeActive] = useState(false);
@@ -359,7 +386,13 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
         <img src="/titan-logo.png" alt="TITAN" className="w-10 h-10 rounded-xl ring-1 ring-white/10 mx-auto mb-3" />
       </div>
       <h2 className="text-lg font-semibold text-text mb-1">How can I help?</h2>
-      <p className="text-xs text-text-muted mb-6">209 tools · 36 providers · gemma4:31b</p>
+      <p className="text-xs text-text-muted mb-6">
+        {toolCount !== null ? `${toolCount} tools` : '…'}
+        {' · '}
+        {providerCount !== null ? `${providerCount} providers` : '…'}
+        {' · '}
+        {activeModel}
+      </p>
 
       {/* Quick action grid */}
       <QuickActions onSelectAction={handleSend} onVoiceOpen={onVoiceOpen} visible={true} />

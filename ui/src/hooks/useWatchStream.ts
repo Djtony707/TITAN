@@ -15,6 +15,13 @@ import type { WatchEvent, WatchDrive, WatchSnapshot } from '@/views/watch/types'
 import { DRIVE_LABELS } from '@/views/watch/types';
 
 const MAX_EVENTS = 100;
+// v4.8.4: don't declare "reconnecting" until the first error fires AND
+// at least 500ms have passed since the EventSource was created.
+// Previously we flashed "reconnecting..." on every mount before the
+// first onopen — which looked permanent because React StrictMode
+// double-mounts in dev, and the server can take ~200ms to send the
+// first snapshot.
+const RECONNECT_DISPLAY_DELAY_MS = 500;
 
 interface UseWatchStreamReturn {
     drives: WatchDrive[];
@@ -69,7 +76,7 @@ export function useWatchStream(): UseWatchStreamReturn {
         const url = `/api/watch/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
         const es = new EventSource(url);
         esRef.current = es;
-        setReconnecting(true);
+        const openedAt = Date.now();
 
         es.onopen = () => {
             setConnected(true);
@@ -78,7 +85,14 @@ export function useWatchStream(): UseWatchStreamReturn {
 
         es.onerror = () => {
             setConnected(false);
-            setReconnecting(true);
+            // Only surface the "reconnecting..." banner once we've been
+            // trying long enough that the user would actually notice the
+            // connection is unhealthy. Otherwise, StrictMode's double-
+            // mount + the server's brief initial-snapshot latency flash
+            // the banner on every successful mount.
+            if (Date.now() - openedAt > RECONNECT_DISPLAY_DELAY_MS) {
+                setReconnecting(true);
+            }
             // EventSource auto-reconnects; we don't close
         };
 

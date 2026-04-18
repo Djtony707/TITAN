@@ -1470,6 +1470,77 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Homelab machine health (v4.8.4) ───────────────────────────
+  // Server-side health check for homelab machines. Done server-side
+  // instead of browser-side because:
+  //   (1) CORS and self-signed HTTPS certs block browser fetches to
+  //       other homelab IPs;
+  //   (2) Using `http://<ip>/` (port 80) was the prior workaround and
+  //       returned false "offline" for TITAN installs that only open
+  //       the gateway port (48420).
+  // Configured via `config.homelab.machines`; falls back to a sensible
+  // default set if not configured.
+  app.get('/api/homelab/machines', async (_req, res) => {
+    try {
+      const cfg = loadConfig() as unknown as {
+        homelab?: { machines?: Array<{ name: string; ip: string; role?: string; port?: number; protocol?: 'http' | 'https'; path?: string }> };
+      };
+      const machines = cfg.homelab?.machines ?? [
+        { name: 'Titan PC', ip: '192.168.1.11', role: 'Primary GPU (RTX 5090)', port: 48420, protocol: 'https' as const, path: '/api/health' },
+        { name: 'Mini PC', ip: '192.168.1.95', role: 'Docker Host', port: 48420, protocol: 'https' as const, path: '/api/health' },
+        { name: 'T610 Server', ip: '192.168.1.67', role: 'Always-on Backbone', port: 48420, protocol: 'https' as const, path: '/api/health' },
+      ];
+      // Use Node's built-in https/http to bypass self-signed cert
+      // verification (homelab machines use self-signed certs).
+      const https = await import('https');
+      const http = await import('http');
+      const probe = (protocol: 'http' | 'https', ip: string, port: number, path: string): Promise<{ ok: boolean; body: string; latencyMs: number }> => {
+        return new Promise((resolve, reject) => {
+          const started = Date.now();
+          const lib = protocol === 'https' ? https : http;
+          const req = lib.request({
+            host: ip,
+            port,
+            path,
+            method: 'GET',
+            timeout: 3000,
+            // Self-signed certs are the norm on TITAN installs — don't
+            // refuse to talk to them. We're not transmitting secrets
+            // here, just asking for a health ping.
+            ...(protocol === 'https' ? { rejectUnauthorized: false } : {}),
+          }, (r) => {
+            let body = '';
+            r.on('data', (c) => body += c);
+            r.on('end', () => resolve({ ok: (r.statusCode ?? 0) >= 200 && (r.statusCode ?? 0) < 400, body, latencyMs: Date.now() - started }));
+          });
+          req.on('timeout', () => { req.destroy(new Error('timeout')); });
+          req.on('error', reject);
+          req.end();
+        });
+      };
+      const results = await Promise.all(machines.map(async (m) => {
+        const protocol = m.protocol ?? 'https';
+        const port = m.port ?? 48420;
+        const path = m.path ?? '/api/health';
+        const started = Date.now();
+        try {
+          const r = await probe(protocol, m.ip, port, path);
+          let version: string | undefined;
+          try {
+            const parsed = JSON.parse(r.body) as { version?: string };
+            version = parsed?.version;
+          } catch { /* not JSON — still online */ }
+          return { name: m.name, ip: m.ip, role: m.role ?? '', online: r.ok, latencyMs: r.latencyMs, version };
+        } catch (err) {
+          return { name: m.name, ip: m.ip, role: m.role ?? '', online: false, latencyMs: Date.now() - started, error: (err as Error).message };
+        }
+      }));
+      res.json({ machines: results });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── VRAM API ────────────────────────────────────────────────
   app.get('/api/vram', async (_req, res) => {
     try {

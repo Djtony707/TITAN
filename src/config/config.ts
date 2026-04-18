@@ -40,6 +40,24 @@ export function loadConfig(): TitanConfig {
     // Apply environment variables
     applyEnvOverrides(rawConfig);
 
+    // v4.8.4: migrate a top-level `auth` block to `gateway.auth`. The
+    // documented path has always been `gateway.auth`, but users (and
+    // Claude) naturally try `auth` at the root. Rather than strip it
+    // silently and warn, move it to the canonical location and continue.
+    if (rawConfig && typeof rawConfig === 'object' && 'auth' in rawConfig) {
+        const raw = rawConfig as Record<string, unknown>;
+        const topAuth = raw.auth as Record<string, unknown> | undefined;
+        if (topAuth && typeof topAuth === 'object') {
+            const gateway = (raw.gateway as Record<string, unknown> | undefined) ?? {};
+            const gatewayAuth = (gateway.auth as Record<string, unknown> | undefined) ?? {};
+            // gateway.auth wins if both are set — explicit nested wins
+            // over migrated top-level.
+            raw.gateway = { ...gateway, auth: { ...topAuth, ...gatewayAuth } };
+            delete raw.auth;
+            logger.info(COMPONENT, 'Migrated top-level `auth` → `gateway.auth`. Update titan.json to nest it under `gateway` to silence this notice.');
+        }
+    }
+
     // Detect unknown top-level keys BEFORE Zod strips them.
     // Hunt Finding #1 (2026-04-14): `facebook: {...}` was silently stripped because
     // the key wasn't in TitanConfigSchema. Users editing their config saw no effect.

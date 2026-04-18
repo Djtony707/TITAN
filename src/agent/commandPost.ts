@@ -559,6 +559,11 @@ export function syncAgentRegistry(): void {
     const liveAgents = listAgents();
     for (const agent of liveAgents) {
         if (!registeredAgents.has(agent.id)) {
+            // v4.8.4: the default primary agent is CEO-level (orchestrates
+            // the whole org). Everyone else defaults to general. Specialists
+            // register with their own explicit role via forceRegisterSpecialist.
+            const defaultRole: RegisteredAgent['role'] =
+                agent.id === 'default' ? 'ceo' : 'general';
             registeredAgents.set(agent.id, {
                 id: agent.id,
                 name: agent.name,
@@ -568,14 +573,21 @@ export function syncAgentRegistry(): void {
                 totalTasksCompleted: 0,
                 totalCostUsd: 0,
                 createdAt: agent.createdAt,
-                role: 'general',
+                role: defaultRole,
+                title: agent.id === 'default' ? 'Primary orchestrator' : undefined,
             });
         } else {
-            // Update live status
+            // Update live status + heal prior mis-tagged CEO role.
             const reg = registeredAgents.get(agent.id)!;
             reg.model = agent.model;
             if (agent.status === 'running') reg.status = 'active';
             else if (agent.status === 'stopped') reg.status = 'stopped';
+            // v4.8.4: if `default` is still tagged 'general' from a prior
+            // install, upgrade it to 'ceo' (the intended role).
+            if (agent.id === 'default' && reg.role === 'general') {
+                reg.role = 'ceo';
+                if (!reg.title) reg.title = 'Primary orchestrator';
+            }
         }
     }
     saveState();

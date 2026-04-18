@@ -10,7 +10,11 @@ interface MetricsSummary {
   topTools?: Array<{ tool: string; count: number }>;
   errorRate?: number;
   totalErrors?: number;
-  totalTokens?: number;
+  /**
+   * Backend returns { prompt, completion, total }. Keep the tolerant
+   * type so older gateways that return a bare number still render.
+   */
+  totalTokens?: number | { prompt?: number; completion?: number; total?: number };
 }
 
 function TelemetryPanel() {
@@ -79,7 +83,15 @@ function TelemetryPanel() {
         />
         <StatCard
           title="Total Tokens"
-          value={metrics?.totalTokens?.toLocaleString() ?? '0'}
+          value={(() => {
+            const t = metrics?.totalTokens;
+            if (typeof t === 'number') return t.toLocaleString();
+            if (t && typeof t === 'object') {
+              const total = t.total ?? ((t.prompt ?? 0) + (t.completion ?? 0));
+              return total.toLocaleString();
+            }
+            return '0';
+          })()}
           icon={<Cpu className="h-5 w-5" />}
         />
       </div>

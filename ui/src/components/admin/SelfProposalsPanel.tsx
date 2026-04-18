@@ -132,7 +132,11 @@ export default function SelfProposalsPanel() {
   if (disabled) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Self-Proposals" breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Agent'}, {label:'Self-Proposals'}]} />
+        <PageHeader
+          title="Self-Proposals"
+          subtitle="Autonomous outputs captured for human-gated merge"
+          breadcrumbs={[{ label: 'Admin', href: '/overview' }, { label: 'Agent' }]}
+        />
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-6">
           <p className="text-[var(--text)] font-medium mb-2">Self-Modification is off.</p>
           <p className="text-sm text-[var(--text-muted)]">

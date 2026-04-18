@@ -229,7 +229,18 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         ctx.fillStyle = state === 'stopped' ? '#3f3f46' : '#71717a';
         ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
-        const label = agent.name.length > 10 ? agent.name.slice(0, 9) + '...' : agent.name;
+        // v4.8.4: fit the agent's name into the desk width by measuring,
+        // rather than always chopping at 10 chars. "TITAN Primary" fit
+        // fine on a slightly wider desk; chopping produced "TITAN Pri…".
+        const maxLabelWidth = Math.max(44, deskW + 14);
+        let label = agent.name;
+        if (ctx.measureText(label).width > maxLabelWidth) {
+            // Shorten progressively until it fits, then add an ellipsis.
+            while (label.length > 1 && ctx.measureText(label + '…').width > maxLabelWidth) {
+                label = label.slice(0, -1);
+            }
+            label = label.trimEnd() + '…';
+        }
         ctx.fillText(label, cx, deskY + deskH + 24);
 
         // Role badge

@@ -460,6 +460,22 @@ export const OrganismConfigSchema = z.object({
  * panel, and opens GitHub PRs for human merge. OFF by default so
  * existing users are unaffected. Tony flips `enabled: true` explicitly.
  */
+/**
+ * Homelab (v4.8.4+) — list of machines the Homelab panel should poll
+ * for health. Defaults to Tony's 3-machine setup when omitted.
+ */
+export const HomelabMachineSchema = z.object({
+    name: z.string(),
+    ip: z.string(),
+    role: z.string().default(''),
+    port: z.number().int().min(1).max(65535).default(48420),
+    protocol: z.enum(['http', 'https']).default('https'),
+    path: z.string().default('/api/health'),
+});
+export const HomelabConfigSchema = z.object({
+    machines: z.array(HomelabMachineSchema).optional().describe('Machines listed on the Homelab panel. If omitted, a sensible default homelab set is used.'),
+});
+
 export const SelfModConfigSchema = z.object({
     enabled: z.boolean().default(false).describe('Master switch. When false, no autonomous writes are captured and no PRs are opened.'),
     autoReview: z.boolean().default(true).describe('When a proposal is captured, automatically queue the specialist panel. Disable for manual-only review.'),
@@ -474,6 +490,7 @@ export const TitanConfigSchema = z.object({
     agent: AgentConfigSchema.default({}),
     organism: OrganismConfigSchema.default({}),
     selfMod: SelfModConfigSchema.default({}),
+    homelab: HomelabConfigSchema.default({}),
     providers: z.object({
         anthropic: ProviderConfigSchema.default({}),
         openai: ProviderConfigSchema.default({}),

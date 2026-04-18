@@ -5,6 +5,121 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.8.4] — 2026-04-18 — UI hardening pass: 13 root-cause fixes across every admin panel
+
+Tony ran the local preview and walked every route. Found a grab bag of
+real bugs + inconsistencies. Fixed each at the root, not with a patch.
+
+### Fixed
+
+1. **Sidebar tooltip stuck visible on every admin panel.**
+   `ui/src/components/shell/IconRail.tsx` — the custom `absolute left-12 z-50`
+   tooltip div showed on hover via `group-hover:opacity-100`, but in headless
+   browsers + for the active icon (where the cursor lingered after click)
+   it sat permanently on top of panel content. Replaced the custom overlay
+   with native `title` + `aria-label`. Browser-managed hover delay, no
+   overlap, a11y gets proper labels.
+
+2. **Homelab machine health was lying.** Titan PC was shown "Offline"
+   despite being reachable. Root cause: client-side `fetch(http://<ip>/)`
+   with `mode: 'no-cors'` was checking port 80, not the TITAN gateway port.
+   Opaque responses make the check practically always succeed OR always
+   fail depending on the machine. Moved the check server-side as
+   `GET /api/homelab/machines` that does HTTPS probes with
+   `rejectUnauthorized: false` to the configured gateway port + health
+   path. Added `HomelabConfigSchema` so the machine list is config-driven.
+
+3. **Homelab VRAM showed `NaN MB / NaN MB (NaN%)` when no GPU present.**
+   The orchestrator returns `{ error: 'GPU state unavailable' }` on
+   hostless installs; truthy but missing the numeric fields. UI now
+   explicitly validates `totalVRAM > 0` and `Number.isFinite(usedVRAM)`
+   before rendering the progress bar. Falls back to a clear "No GPU
+   detected on this gateway host" message.
+
+4. **Homelab "Active Sessions" stat rendered blank.** `stats.activeSessions`
+   could be undefined on fresh installs. Added `?? 0` fallback to all stat
+   renders in the panel.
+
+5. **Telemetry "Total Tokens: [object Object]".** Backend
+   `getMetricsSummary()` returned `totalTokens: { prompt, completion }` but
+   the UI called `.toLocaleString()` on the object, which stringifies to
+   `[object Object]`. Fixed on BOTH sides: backend now returns
+   `totalTokens: { prompt, completion, total }` (adds `total`), UI handles
+   both the legacy number shape AND the object shape with `.total` /
+   `.prompt + .completion` fallback.
+
+6. **"reconnecting..." flashed permanently on the Watch page.**
+   `ui/src/hooks/useWatchStream.ts` — the SSE hook set
+   `setReconnecting(true)` immediately when an EventSource was created,
+   and React StrictMode's dev-mount/unmount fired that before `onopen`
+   could unset it. Now the banner only shows after 500ms of unhealthy
+   connection, so the user sees "reconnecting" only when genuine
+   connection trouble occurs.
+
+7. **Mission chat empty state hardcoded `209 tools · 36 providers · gemma4:31b`.**
+   `ui/src/components/chat/ChatView.tsx` — now fetches `/api/tools` +
+   `/api/models` and reads the active model from `useConfig()`, so the
+   subtitle reflects the actual install.
+
+8. **Self-Improve "Best Val Score" rendered `+-78.0 from 78 baseline`.**
+   The literal `+` was prepended next to a negative delta without stripping
+   the duplicate sign. Now uses computed sign + conditional success/error
+   color.
+
+9. **Tools → Skills category filter was only `All` / `Other` for 143
+   skills.** Root cause: `SkillMeta` had no `category` field and most
+   skills never set one. Added `category?: string` to `SkillMeta` and a
+   `deriveSkillCategory()` heuristic in the registry that maps skill
+   names/descriptions to real categories (Filesystem, Web & Browser,
+   Memory & Knowledge, Agents & Delegation, Goals & Autopilot, Home
+   Assistant, Communication, Voice & Speech, GPU & Training, Integrations,
+   Diagnostics, Research & Planning, etc.). Backend-side change = every
+   skill in the registry now reports a category, UI sees it automatically.
+
+10. **Dashboard pixel-art truncated `TITAN Primary` → `TITAN Pri...`.**
+    `ui/src/components/command-post/PixelOfficeCrew.tsx` — the label was
+    hard-chopped at 10 chars. Now uses `ctx.measureText()` to shrink to
+    fit the actual desk width.
+
+11. **TITAN Primary role was `general` (same dropdown value as Writer).**
+    `src/agent/commandPost.ts syncAgentRegistry` — the default agent now
+    registers with role `ceo` and title `"Primary orchestrator"`. Existing
+    installs where `default` is still `general` self-heal on next boot.
+
+12. **TITAN Primary Title showed `(none)` in Agents tab, `—` in Org Chart.**
+    `ui/src/components/admin/CommandPostHub.tsx` — standardized both to
+    `—`. Matches the Org Chart convention.
+
+13. **Config warning: "unknown top-level keys that will be stripped: auth".**
+    Root cause: `auth` is under `gateway.auth` in the schema, but every
+    doc said "auth.mode=token" without specifying the nesting. Rather than
+    fight the natural expectation, `loadConfig()` now migrates a top-level
+    `auth` block to `gateway.auth` at load time and logs an info line
+    (not a warning). Explicit `gateway.auth` still wins if both are
+    present.
+
+14. **Self-Proposals panel breadcrumb duplicated the title.** Minor polish
+    — removed the redundant last breadcrumb and added a meaningful
+    subtitle.
+
+### Added (backing changes)
+
+- `GET /api/homelab/machines` endpoint — server-side health check for
+  configured machines (see #2).
+- `src/config/schema.ts HomelabConfigSchema` with a `machines` array.
+  Defaults to Tony's 3-machine setup when not configured.
+- `src/skills/registry.ts deriveSkillCategory()` heuristic + `SkillMeta.category`.
+
+### Not breaking
+
+- All changes are additive at the schema / API level; old clients get
+  the same shapes plus new optional fields.
+- `totalTokens` backend response gained `.total` — the `.prompt` and
+  `.completion` fields are unchanged.
+- Top-level `auth` migration is silent-with-info; no user action needed.
+
+---
+
 ## [4.8.3] — 2026-04-18 — Specialist-invocation prompt + spawn_agent tool description rewrite
 
 TITAN Primary has had access to `spawn_agent` since v4.7.0 but has been

@@ -247,7 +247,11 @@ export function getMetricsSummary(): {
   topTools: Array<{ tool: string; count: number }>;
   errorRate: number;
   totalErrors: number;
-  totalTokens: { prompt: number; completion: number };
+  /**
+   * Token counts. The dashboard displays `.total`; `.prompt` + `.completion`
+   * are kept for per-bucket breakdowns and Prometheus label parity.
+   */
+  totalTokens: { prompt: number; completion: number; total: number };
 } {
   // Total requests
   let totalRequests = 0;
@@ -282,6 +286,6 @@ export function getMetricsSummary(): {
     topTools: toolEntries,
     errorRate: Math.round(errorRate * 10000) / 10000,
     totalErrors,
-    totalTokens: { prompt: promptTokens, completion: completionTokens },
+    totalTokens: { prompt: promptTokens, completion: completionTokens, total: promptTokens + completionTokens },
   };
 }

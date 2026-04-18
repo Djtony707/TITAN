@@ -503,9 +503,14 @@ function SelfImprovePanel() {
             <p className="text-xs text-text-muted">Best Val Score</p>
           </div>
           <p className="text-2xl font-bold text-warning">{arPerf?.bestScore || '—'}</p>
-          {arPerf && arPerf.baseline > 0 && (
-            <p className="text-[10px] text-success mt-0.5">+{(arPerf.bestScore - arPerf.baseline).toFixed(1)} from {arPerf.baseline} baseline</p>
-          )}
+          {arPerf && arPerf.baseline > 0 && (() => {
+            const delta = arPerf.bestScore - arPerf.baseline;
+            const sign = delta >= 0 ? '+' : ''; // negatives already carry '-'
+            const tone = delta >= 0 ? 'text-success' : 'text-error';
+            return (
+              <p className={`text-[10px] mt-0.5 ${tone}`}>{sign}{delta.toFixed(1)} from {arPerf.baseline} baseline</p>
+            );
+          })()}
         </div>
         <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">
@@ -513,7 +518,7 @@ function SelfImprovePanel() {
             <p className="text-xs text-text-muted">Success Rate</p>
           </div>
           <p className="text-2xl font-bold text-info">{successRate}%</p>
-          <p className="text-[10px] text-text-muted mt-0.5">avg improvement: +{avgImprovement}</p>
+          <p className="text-[10px] text-text-muted mt-0.5">avg improvement: {Number(avgImprovement) >= 0 ? '+' : ''}{avgImprovement}</p>
         </div>
         <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4">
           <div className="flex items-center gap-2 mb-1">

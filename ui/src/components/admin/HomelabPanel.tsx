@@ -113,7 +113,10 @@ interface PeerData {
 
 // ── Constants ──────────────────────────────────────────────────
 
-const MACHINES: MachineInfo[] = [
+// Default machines — used only until the backend /api/homelab/machines
+// endpoint returns. Actual list comes from server (config.homelab.machines
+// or built-in default) so the panel isn't hardcoded to Tony's setup.
+const PLACEHOLDER_MACHINES: MachineInfo[] = [
   { name: 'Titan PC', ip: '192.168.1.11', role: 'Primary GPU (RTX 5090)', online: null },
   { name: 'Mini PC', ip: '192.168.1.95', role: 'Docker Host', online: null },
   { name: 'T610 Server', ip: '192.168.1.67', role: 'Always-on Backbone', online: null },
@@ -179,7 +182,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon: typeof 
 
 function HomelabPanel() {
   const [loading, setLoading] = useState(true);
-  const [machines, setMachines] = useState<MachineInfo[]>(MACHINES);
+  const [machines, setMachines] = useState<MachineInfo[]>(PLACEHOLDER_MACHINES);
   const [vram, setVram] = useState<VramData | null>(null);
   const [stats, setStats] = useState<StatsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -192,24 +195,14 @@ function HomelabPanel() {
 
   const fetchAll = useCallback(async () => {
     try {
-      // Ping machines
-      const machineResults = await Promise.all(
-        MACHINES.map(async (m) => {
-          try {
-            const ctrl = new AbortController();
-            setTimeout(() => ctrl.abort(), 3000);
-            await fetch(`http://${m.ip}`, { mode: 'no-cors', signal: ctrl.signal });
-            return { ...m, online: true };
-          } catch {
-            return { ...m, online: false };
-          }
-        })
-      );
-      setMachines(machineResults);
-
-      // Fetch all TITAN APIs in parallel
-      const [vramRes, statsRes, summaryRes, agentsRes, issuesRes, activityRes, budgetsRes, peersRes] =
+      // v4.8.4: server-side machine health check. The previous
+      // browser-side `fetch(http://<ip>/)` with `no-cors` was fooled
+      // by any port-80 server (including none) because `no-cors`
+      // treats opaque responses as success. Server-side, we can use
+      // HTTPS + self-signed certs on the real gateway port.
+      const [machinesRes, vramRes, statsRes, summaryRes, agentsRes, issuesRes, activityRes, budgetsRes, peersRes] =
         await Promise.all([
+          apiFetch('/api/homelab/machines').then(r => r.ok ? r.json() : null).catch(() => null),
           apiFetch('/api/vram').then(r => r.ok ? r.json() : null).catch(() => null),
           apiFetch('/api/stats').then(r => r.ok ? r.json() : null).catch(() => null),
           apiFetch('/api/activity/summary').then(r => r.ok ? r.json() : null).catch(() => null),
@@ -220,6 +213,14 @@ function HomelabPanel() {
           apiFetch('/api/mesh/peers').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
 
+      if (Array.isArray(machinesRes?.machines)) {
+        setMachines(machinesRes.machines.map((m: Record<string, unknown>) => ({
+          name: String(m.name ?? 'Unknown'),
+          ip: String(m.ip ?? ''),
+          role: String(m.role ?? ''),
+          online: m.online === true,
+        })));
+      }
       if (vramRes) setVram(vramRes);
       if (statsRes) setStats(statsRes);
       if (summaryRes) setSummary(summaryRes);
@@ -252,7 +253,15 @@ function HomelabPanel() {
     );
   }
 
-  const vramPct = vram ? Math.round((vram.usedVRAM / (vram.totalVRAM || 1)) * 100) : 0;
+  // v4.8.4: valid VRAM data requires both totals be real positive numbers.
+  // On machines without a CUDA GPU (e.g., running TITAN on a Mac), the
+  // orchestrator returns `{ error: 'GPU state unavailable' }` which is
+  // truthy but has no fields — guard explicitly before rendering.
+  const vramValid =
+    !!vram
+    && typeof vram.totalVRAM === 'number' && Number.isFinite(vram.totalVRAM) && vram.totalVRAM > 0
+    && typeof vram.usedVRAM === 'number' && Number.isFinite(vram.usedVRAM);
+  const vramPct = vramValid ? Math.round((vram!.usedVRAM / vram!.totalVRAM) * 100) : 0;
   const issuesByStatus = (s: string) => issues.filter(i => i.status === s);
 
   return (
@@ -276,9 +285,9 @@ function HomelabPanel() {
       {/* Top Stats Row */}
       {stats && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard title="Uptime" value={formatUptime(stats.uptime)} icon={<Clock className="h-4 w-4" />} />
-          <StatCard title="Total Requests" value={stats.totalRequests.toLocaleString()} icon={<Zap className="h-4 w-4" />} />
-          <StatCard title="Active Sessions" value={stats.activeSessions} icon={<MessageSquare className="h-4 w-4" />} />
+          <StatCard title="Uptime" value={formatUptime(stats.uptime ?? 0)} icon={<Clock className="h-4 w-4" />} />
+          <StatCard title="Total Requests" value={(stats.totalRequests ?? 0).toLocaleString()} icon={<Zap className="h-4 w-4" />} />
+          <StatCard title="Active Sessions" value={stats.activeSessions ?? 0} icon={<MessageSquare className="h-4 w-4" />} />
           <StatCard
             title="Active Model"
             value={stats.model?.split('/').pop() ?? 'unknown'}
@@ -313,14 +322,14 @@ function HomelabPanel() {
 
         {/* GPU / VRAM */}
         <Section title="GPU / VRAM" icon={HardDrive}>
-          {vram ? (
+          {vramValid ? (
             <div className="rounded-xl border border-border bg-bg-secondary p-4 space-y-3">
               {/* VRAM Bar */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-text-secondary">VRAM Usage</span>
                   <span className="text-text-muted">
-                    {formatBytes(vram.usedVRAM)} / {formatBytes(vram.totalVRAM)} ({vramPct}%)
+                    {formatBytes(vram!.usedVRAM)} / {formatBytes(vram!.totalVRAM)} ({vramPct}%)
                   </span>
                 </div>
                 <div className="h-3 rounded-full bg-bg-tertiary overflow-hidden">
@@ -362,7 +371,7 @@ function HomelabPanel() {
             </div>
           ) : (
             <div className="rounded-xl border border-border bg-bg-secondary p-4 text-center text-xs text-text-muted">
-              VRAM data unavailable
+              No GPU detected on this gateway host. VRAM orchestration is inactive.
             </div>
           )}
         </Section>
