@@ -104,20 +104,31 @@ async function checkDrivesStuckHigh(out: SelfRepairFinding[]): Promise<void> {
     try {
         const { loadDriveHistory } = await import('../organism/drives.js');
         const hist = loadDriveHistory();
-        if (!hist || !hist.history || hist.history.length < 72) return; // need ≥6h history @ 5min cadence
-        // Look at last 6 hours — 72 ticks at 5 min cadence.
-        const recent = hist.history.slice(-72);
+        if (!hist || !hist.history || hist.history.length < 30) return;
+        // v4.9.0-local.5: filter by TIMESTAMP, not by count. A restart
+        // that preserves the history file would otherwise make the check
+        // re-read hours-old ticks as if they were recent. Use last 6h
+        // by wall clock — tick cadence is 60s so that's ~360 ticks ideally,
+        // but we accept any that fall in the window. Require ≥ 30
+        // samples in the window to avoid false-positives right after
+        // a restart where new ticks haven't accumulated yet.
+        const windowStart = Date.now() - 6 * 60 * 60 * 1000;
+        const recent = hist.history.filter(h => {
+            const t = h.timestamp ? new Date(h.timestamp).getTime() : 0;
+            return t >= windowStart;
+        });
+        if (recent.length < 30) return;
         for (const driveId of ['curiosity', 'hunger', 'purpose', 'safety', 'social'] as const) {
             const sats = recent
                 .map(h => (h.satisfactions as Record<string, number>)[driveId])
                 .filter((s): s is number => typeof s === 'number');
-            if (sats.length < 50) continue;
+            if (sats.length < 30) continue;
             // Under 0.3 consistently = stuck high pressure
             const stuck = sats.every(s => s < 0.3);
             if (!stuck) continue;
             out.push({
                 kind: 'drive_stuck_high',
-                reason: `${driveId} drive satisfaction < 0.3 across all ${sats.length} recent ticks`,
+                reason: `${driveId} drive satisfaction < 0.3 across all ${sats.length} ticks in the last 6h`,
                 evidence: { driveId, avgSatisfaction: Math.round((sats.reduce((a, b) => a + b, 0) / sats.length) * 100) / 100, sampleCount: sats.length },
                 suggestedAction: `Temporarily dampen ${driveId} drive (lower its weight to 0.5× or disable for 24h) and investigate why satisfaction can't recover.`,
                 firstSeenAt: new Date().toISOString(),
@@ -212,6 +223,27 @@ async function checkWorkingMemoryStale(out: SelfRepairFinding[]): Promise<void> 
 async function fileRepairApproval(finding: SelfRepairFinding): Promise<void> {
     try {
         const cp = await import('../agent/commandPost.js');
+
+        // v4.9.0-local.5: cross-restart dedupe. The in-memory findingsByKey
+        // Map resets on restart, so a finding that already exists as a
+        // pending approval would get re-filed. Before creating a new
+        // approval, scan the approval queue for an existing pending
+        // self_repair approval with the same finding kind + evidence.
+        try {
+            const approvals = cp.listApprovals?.() ?? [];
+            const duplicate = approvals.find((a: { status?: string; type?: string; payload?: Record<string, unknown>; createdAt?: string }) =>
+                a.status === 'pending'
+                && a.type === 'custom'
+                && a.payload?.kind === 'self_repair'
+                && a.payload?.finding === finding.kind
+                && JSON.stringify(a.payload?.evidence) === JSON.stringify(finding.evidence),
+            );
+            if (duplicate) {
+                logger.debug(COMPONENT, `Skipping duplicate self_repair approval for ${finding.kind} (existing approval is already pending)`);
+                return;
+            }
+        } catch { /* fall through — if listApprovals fails, still try to create */ }
+
         cp.createApproval({
             type: 'custom',
             requestedBy: 'self-repair-daemon',
