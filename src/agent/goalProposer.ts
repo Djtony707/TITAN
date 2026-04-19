@@ -67,7 +67,16 @@ function loadRateState(): RateLimitState {
     if (!existsSync(RATE_STATE_PATH)) return { proposalsByAgent: {} };
     try {
         const raw = readFileSync(RATE_STATE_PATH, 'utf-8');
-        return JSON.parse(raw) as RateLimitState;
+        const parsed = JSON.parse(raw) as Partial<RateLimitState>;
+        // v4.9.0-local.6: defensive normalize. A prior bug (+ the goal-
+        // reset script) can write `{}` to this file, losing the
+        // `proposalsByAgent` key. Without this, every
+        // `state.proposalsByAgent[agentId]` access crashes with
+        // "Cannot read properties of undefined (reading '<agent>')"
+        // and proposals silently fail for hours.
+        return {
+            proposalsByAgent: parsed?.proposalsByAgent ?? {},
+        };
     } catch {
         return { proposalsByAgent: {} };
     }
