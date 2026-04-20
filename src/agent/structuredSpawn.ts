@@ -16,6 +16,7 @@ import logger from '../utils/logger.js';
 import { spawnSubAgent } from './subAgent.js';
 import { resolveSpecialist } from './specialistRouter.js';
 import { getSessionGoal } from './autonomyContext.js';
+import { chat } from '../providers/router.js';
 import type {
     StructuredSpawnResult,
     StructuredSpawnStatus,
@@ -23,6 +24,35 @@ import type {
 } from './structuredSpawnTypes.js';
 
 const COMPONENT = 'StructuredSpawn';
+
+/**
+ * JSON schema that matches StructuredSpawnResult. Used as Ollama's native
+ * `format` constraint in the reformat pass — forces the model to output
+ * valid JSON matching this shape or fail the request (no prose slipping
+ * through). Only the Ollama provider honours this today.
+ */
+const STRUCTURED_SPAWN_JSON_SCHEMA: Record<string, unknown> = {
+    type: 'object',
+    required: ['status', 'artifacts', 'questions', 'confidence', 'reasoning'],
+    properties: {
+        status: { type: 'string', enum: ['done', 'failed', 'needs_info', 'blocked'] },
+        artifacts: {
+            type: 'array',
+            items: {
+                type: 'object',
+                required: ['type', 'ref'],
+                properties: {
+                    type: { type: 'string', enum: ['file', 'url', 'fact', 'report'] },
+                    ref: { type: 'string' },
+                    description: { type: 'string' },
+                },
+            },
+        },
+        questions: { type: 'array', items: { type: 'string' } },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        reasoning: { type: 'string' },
+    },
+};
 
 export interface StructuredSpawnOpts {
     specialistId: string; // 'scout' | 'builder' | 'writer' | 'analyst' | 'default'
@@ -351,7 +381,51 @@ export async function structuredSpawn(opts: StructuredSpawnOpts): Promise<Struct
         });
 
         const raw = result?.content || '';
-        const parsed = parseStructuredResponse(raw);
+        let parsed = parseStructuredResponse(raw);
+
+        // v4.13 reformat pass. If the specialist returned valid prose but
+        // no parseable JSON, and the model is Ollama-compatible, do ONE
+        // extra chat call with format: json_schema to coerce the prose
+        // into the required shape. The sub-agent loop can't pass `format`
+        // itself (it conflicts with tool calling) — this runs after the
+        // tool loop ends, when the response is prose-only.
+        //
+        // Skipped when: model isn't Ollama (other providers ignore
+        // format), the response is empty, or the parser already extracted
+        // valid JSON.
+        const parseFailed = typeof parsed.parseError === 'string' && parsed.parseError.length > 0;
+        const isOllama = model.startsWith('ollama/') || model.includes(':cloud');
+        if (parseFailed && isOllama && raw.trim().length > 0) {
+            try {
+                logger.info(COMPONENT, `Reformat pass for ${opts.specialistId} (model=${model}, parseError=${parsed.parseError})`);
+                const reformatted = await chat({
+                    model,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a JSON reformatter. The user message is an assistant response that was supposed to end with a structured JSON block but did not. Output ONLY the JSON object that best summarizes the response. No prose, no markdown, no code fences — just the JSON object.',
+                        },
+                        { role: 'user', content: raw.slice(0, 8000) },
+                    ],
+                    format: STRUCTURED_SPAWN_JSON_SCHEMA,
+                    temperature: 0.1,
+                    maxTokens: 2048,
+                });
+                const reformatRaw = reformatted.content?.trim() || '';
+                if (reformatRaw) {
+                    const reparsed = parseStructuredResponse(reformatRaw);
+                    if (!reparsed.parseError) {
+                        logger.info(COMPONENT, `Reformat succeeded: status=${reparsed.status} confidence=${reparsed.confidence.toFixed(2)}`);
+                        parsed = reparsed;
+                    } else {
+                        logger.warn(COMPONENT, `Reformat failed to produce parseable JSON: ${reparsed.parseError}`);
+                    }
+                }
+            } catch (err) {
+                logger.warn(COMPONENT, `Reformat pass threw: ${(err as Error).message} — keeping original prose-fallback verdict`);
+            }
+        }
+
         const durationMs = Date.now() - startedAt;
         const full: StructuredSpawnResult = {
             ...parsed,
