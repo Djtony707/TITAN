@@ -148,6 +148,16 @@ export interface SanitizeResult {
  * @param context - Where this is being posted (for logging)
  * @param fallback - Optional safe fallback message if content is rejected
  */
+/**
+ * Maximum input length to run through the full regex pipeline. Crafted
+ * pathological inputs can make the COT/PII regexes spin for seconds on
+ * large blobs. Cap first, run regexes second. Legitimate LLM responses
+ * that exceed this are rare; if one does, we still pass through the
+ * thinking-tag + tool-JSON stripping (cheap, no backtracking) and skip
+ * the leak/PII scans — a bounded risk is better than a DoS.
+ */
+const SANITIZER_MAX_INPUT_BYTES = 64 * 1024;
+
 export function sanitizeOutbound(
     text: string,
     context: string = 'unknown',
@@ -155,6 +165,11 @@ export function sanitizeOutbound(
 ): SanitizeResult {
     const issues: string[] = [];
     let cleaned = text;
+
+    // Oversized-input guard: run the cheap structural strips first; if
+    // the result is still too large, skip the expensive pattern scans
+    // and flag the issue instead of spinning.
+    const oversized = cleaned.length > SANITIZER_MAX_INPUT_BYTES;
 
     // 1. Strip thinking tags
     cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -174,19 +189,23 @@ export function sanitizeOutbound(
     // 3. Strip markdown plan headers
     cleaned = cleaned.replace(/^##\s+Plan[\s\S]*$/gm, '').trim();
 
-    // 4. Check for instruction leaks (CRITICAL — this is what caused the Facebook incident)
-    for (const pattern of INSTRUCTION_LEAK_PATTERNS) {
-        if (pattern.test(cleaned)) {
-            const match = cleaned.match(pattern);
-            issues.push(`instruction_leak: ${match?.[0]?.slice(0, 40) || 'pattern matched'}`);
+    if (oversized || cleaned.length > SANITIZER_MAX_INPUT_BYTES) {
+        issues.push(`oversized_input: ${cleaned.length} bytes — skipped leak/PII scans`);
+    } else {
+        // 4. Check for instruction leaks (CRITICAL — this is what caused the Facebook incident)
+        for (const pattern of INSTRUCTION_LEAK_PATTERNS) {
+            if (pattern.test(cleaned)) {
+                const match = cleaned.match(pattern);
+                issues.push(`instruction_leak: ${match?.[0]?.slice(0, 40) || 'pattern matched'}`);
+            }
         }
-    }
 
-    // 5. Check for PII
-    for (const pattern of PII_PATTERNS) {
-        if (pattern.test(cleaned)) {
-            const match = cleaned.match(pattern);
-            issues.push(`pii: ${match?.[0]?.slice(0, 20) || 'pattern matched'}`);
+        // 5. Check for PII
+        for (const pattern of PII_PATTERNS) {
+            if (pattern.test(cleaned)) {
+                const match = cleaned.match(pattern);
+                issues.push(`pii: ${match?.[0]?.slice(0, 20) || 'pattern matched'}`);
+            }
         }
     }
 
