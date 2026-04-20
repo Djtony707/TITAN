@@ -230,8 +230,8 @@ function extractProposalArray(raw: string): unknown[] {
 function normalizeProposal(raw: unknown): ProposedGoal | null {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
-    const title = typeof r.title === 'string' ? r.title.trim() : '';
-    const description = typeof r.description === 'string' ? r.description.trim() : '';
+    let title = typeof r.title === 'string' ? r.title.trim() : '';
+    let description = typeof r.description === 'string' ? r.description.trim() : '';
     const rationale = typeof r.rationale === 'string' ? r.rationale.trim() : '';
     if (!title || !description || !rationale) return null;
     if (title.length > 200 || description.length > 2000 || rationale.length > 2000) return null;
@@ -239,7 +239,7 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
     const priority = typeof r.priority === 'number' && r.priority >= 1 && r.priority <= 5
         ? Math.floor(r.priority)
         : undefined;
-    const tags = Array.isArray(r.tags)
+    let tags: string[] | undefined = Array.isArray(r.tags)
         ? r.tags.filter((t): t is string => typeof t === 'string' && t.length < 40).slice(0, 6)
         : undefined;
     const parentGoalId = typeof r.parentGoalId === 'string' ? r.parentGoalId : undefined;
@@ -251,16 +251,80 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
         for (const s of r.subtasks) {
             if (!s || typeof s !== 'object') continue;
             const rec = s as Record<string, unknown>;
-            const t = typeof rec.title === 'string' ? rec.title.trim() : '';
-            const d = typeof rec.description === 'string' ? rec.description.trim() : '';
+            let t = typeof rec.title === 'string' ? rec.title.trim() : '';
+            let d = typeof rec.description === 'string' ? rec.description.trim() : '';
             if (!t || !d) continue;
             const deps = Array.isArray(rec.dependsOn)
                 ? rec.dependsOn.filter((x): x is string => typeof x === 'string')
                 : undefined;
+            // Subtask-level rewrite happens after we know the parent goal's
+            // self-mod status (below), so stash refs.
+            void t; void d;
             collected.push({ title: t, description: d, dependsOn: deps });
             if (collected.length >= 12) break;
         }
         if (collected.length > 0) subtasks = collected;
+    }
+
+    // v4.9.0-local.8: self-mod disambiguation. When the proposer emits a
+    // goal that sounds like it wants to modify "the framework" / "core" /
+    // etc, the specialist picking it up historically interpreted this as
+    // "build something under ~/titan-saas" because that's where Next.js
+    // project scaffolding lives. We close the ambiguity at creation time:
+    //
+    //   1. Detect self-mod trigger words in title + description + tags
+    //   2. If matched, ensure tags include 'self-mod' so the toolRunner
+    //      scope-lock + staging gate activates for work on this goal
+    //   3. Append an explicit scope-lock note to the description pointing
+    //      at the actual target path
+    //   4. Rewrite common ambiguous phrases in subtasks to spell out the
+    //      target path
+    const selfModTriggers = [
+        /\bself[\s-]?heal/i,
+        /\bself[\s-]?repair/i,
+        /\bself[\s-]?mod/i,
+        /\bcore[\s-]framework/i,
+        /\bTITAN['’]?s?\s+(own|core|framework|architecture|source|runtime)/i,
+        /\bframework\s+(component|module|core|runtime)/i,
+    ];
+    const selfModTagValues = new Set([
+        'self-healing', 'self-repair', 'self-mod', 'self-modification',
+        'core-framework', 'framework', 'architecture', 'core', 'autonomy',
+    ]);
+    const tagsLower = new Set((tags || []).map(t => t.toLowerCase()));
+    const haystack = `${title}\n${description}\n${(tags || []).join(' ')}`;
+    const matchedByText = selfModTriggers.some(re => re.test(haystack));
+    const matchedByTag = [...tagsLower].some(t => selfModTagValues.has(t));
+    const isSelfMod = matchedByText || matchedByTag;
+
+    if (isSelfMod) {
+        const target = '/opt/TITAN'; // TODO: read from config.autonomy.selfMod.target
+        // Ensure the canonical 'self-mod' tag is present so toolRunner sees it
+        tags = tags ? [...tags] : [];
+        if (!tagsLower.has('self-mod')) tags.push('self-mod');
+        tags = tags.slice(0, 6);
+
+        // Append an unmistakable scope-lock note to the description — the
+        // specialist reading this goal sees the target path explicitly
+        // instead of having to infer "the framework" from context.
+        const scopeNote = `\n\n[SCOPE-LOCK] This is a self-modification goal. All file writes MUST target ${target} (TITAN's own source tree). Writes to any other path will be refused by the toolRunner scope-lock. When staging is enabled, writes are diverted to ${target}/../self-mod-staging/<goalId>/ and surface as a self_mod_pr approval for human review before applying.`;
+        if (!/\[SCOPE-LOCK\]/.test(description)) {
+            description = (description + scopeNote).slice(0, 2000);
+        }
+
+        // Rewrite common ambiguous phrases in title/subtasks so the
+        // specialist-level prompt mentions the target explicitly.
+        const rewrite = (s: string): string => s
+            .replace(/\b(the\s+)?core\s+framework\b/gi, `${target} (TITAN core framework)`)
+            .replace(/\b(the\s+)?(TITAN\s+)?framework\b(?!\s+component)/gi, `${target} (TITAN framework)`);
+        title = rewrite(title).slice(0, 200);
+        if (subtasks) {
+            subtasks = subtasks.map(s => ({
+                title: rewrite(s.title).slice(0, 200),
+                description: rewrite(s.description).slice(0, 2000),
+                dependsOn: s.dependsOn,
+            }));
+        }
     }
 
     return { title, description, rationale, priority, tags, parentGoalId, subtasks };

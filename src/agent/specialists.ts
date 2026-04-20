@@ -54,7 +54,14 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Scout',
         role: 'researcher',
         title: 'Web research, monitoring, fact-checking',
-        model: 'ollama/gemini-3-flash-preview:cloud',
+        // v4.10.0-local: switched off gemini-3-flash-preview:cloud —
+        // Ollama's Gemini-compat proxy has a bug where it strips the
+        // `name` field from tool messages, causing HTTP 400
+        // "function_response.name: Name cannot be empty" on every
+        // multi-turn tool run. glm-5.1:cloud is proven reliable with
+        // tool calls (same as Writer/Analyst) and still fast/free on
+        // the OpenRouter bypass path.
+        model: 'ollama/glm-5.1:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: SCOUT ──',
@@ -122,6 +129,29 @@ export const SPECIALISTS: Specialist[] = [
         templateMatches: ['analyst', 'deliberator', 'reasoner'],
         reportsTo: 'default',
     },
+    {
+        id: 'sage',
+        name: 'Sage',
+        role: 'researcher',
+        title: 'Reviewer + critic',
+        // Previously used claude-code/sonnet-4.5 (MAX plan). Switched to
+        // glm-5.1:cloud after autonomous fallback paths burned interactive
+        // Claude Code credits. Claude Code is now opt-in only — explicit
+        // user requests through the UI, never from autopilot / goal driver
+        // / self-mod review.
+        model: 'ollama/glm-5.1:cloud',
+        systemPromptSuffix: [
+            '',
+            '── SPECIALIST: SAGE ──',
+            'You are Sage — TITAN\'s reviewer + critic specialist, powered by Claude.',
+            'Your strengths: code review, catching subtle bugs, verifying that integrations are actually wired, spotting regressions.',
+            'You are NOT the generator — Builder writes code, Sage judges it. Be rigorous: flag missing error handling, unchecked null/undefined, off-by-one, forgotten imports, stale comments.',
+            'When reviewing a file, also check: does it get imported/used elsewhere? If not, it\'s dead code — say so.',
+            'Prefer concrete suggestions ("add try/catch around the fetch on line 42") over vague ones ("improve error handling").',
+        ].join('\n'),
+        templateMatches: ['sage', 'reviewer', 'critic', 'claude'],
+        reportsTo: 'default',
+    },
 ];
 
 /**
@@ -169,9 +199,34 @@ export function findSpecialistForTemplate(template: string | undefined): Special
     return SPECIALISTS.find(s => s.templateMatches.some(m => m === t)) || null;
 }
 
-/** Given a specialist id, return it (or null). */
+/**
+ * Given a specialist id, return it (or null). Applies the user's
+ * config-level model override if one is set — lets the UI swap a
+ * specialist's model without editing code (e.g. switch Sage off
+ * Claude Code when MAX credits are exhausted).
+ */
 export function getSpecialist(id: string): Specialist | null {
-    return SPECIALISTS.find(s => s.id === id) || null;
+    const base = SPECIALISTS.find(s => s.id === id);
+    if (!base) return null;
+    try {
+        // Dynamic import to avoid config → specialists circular load on bootstrap
+        /* eslint-disable @typescript-eslint/no-require-imports */
+        const { loadConfig } = require('../config/config.js') as typeof import('../config/config.js');
+        const cfg = loadConfig();
+        const override = cfg?.specialists?.overrides?.[id];
+        if (override?.model && override.model !== base.model) {
+            return { ...base, model: override.model };
+        }
+    } catch { /* config not ready yet — return base */ }
+    return base;
+}
+
+/**
+ * List all specialists with any user overrides applied. Used by the
+ * Specialists admin UI.
+ */
+export function listSpecialists(): Specialist[] {
+    return SPECIALISTS.map(s => getSpecialist(s.id)!).filter(Boolean);
 }
 
 /**

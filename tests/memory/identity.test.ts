@@ -18,7 +18,7 @@ const { tmpHome } = vi.hoisted(() => {
 
 vi.mock('../../src/utils/constants.js', async (orig) => {
     const actual = await orig<typeof import('../../src/utils/constants.js')>();
-    return { ...actual, TITAN_HOME: tmpHome, TITAN_VERSION: '4.9.0' };
+    return { ...actual, TITAN_HOME: tmpHome, TITAN_VERSION: '4.10.0' };
 });
 
 vi.mock('../../src/utils/logger.js', () => ({
@@ -46,7 +46,7 @@ describe('identity', () => {
             expect(id.core.coreValues.length).toBeGreaterThanOrEqual(3);
             expect(id.core.nonNegotiables.length).toBeGreaterThanOrEqual(3);
             expect(id.tenure.sessionCount).toBe(1);
-            expect(id.tenure.currentVersion).toBe('4.9.0');
+            expect(id.tenure.currentVersion).toBe('4.10.0');
             expect(id.coreHash).toMatch(/^sha256:/);
             expect(id.driftLog).toHaveLength(0);
         });
@@ -68,7 +68,7 @@ describe('identity', () => {
             require('fs').writeFileSync(path, JSON.stringify(raw, null, 2), 'utf-8');
             const afterUpgrade = initIdentity();
             expect(afterUpgrade.tenure.versionHistory).toHaveLength(2);
-            expect(afterUpgrade.tenure.currentVersion).toBe('4.9.0');
+            expect(afterUpgrade.tenure.currentVersion).toBe('4.10.0');
         });
 
         it('detects core-hash change when identity.json is edited externally', () => {

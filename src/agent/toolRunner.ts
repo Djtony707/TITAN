@@ -281,7 +281,93 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
 
     // Shadow git checkpoint — snapshot files before mutation (fire-and-forget)
     const MUTATING_TOOLS = new Set(['write_file', 'edit_file', 'append_file', 'apply_patch']);
+
+    // v4.9.0-local.7: kill-switch gate for file mutations. If the kill switch
+    // is engaged, refuse write/edit/append/apply_patch so the initiative loop
+    // can't keep accumulating fix-oscillations while the human hasn't resumed.
+    // This closes the gap where `spawn_agent`, `autopilot`, and the pressure
+    // cycle were gated but the main agent's tool path was not — meaning
+    // initiative could keep rewriting the same files for hours after a kill.
+    // See kill-switch.json `history` for the trigger; resume via
+    // POST /api/safety/resume.
     if (MUTATING_TOOLS.has(handler.name)) {
+        try {
+            const { isKilled, getState } = await import('../safety/killSwitch.js');
+            if (isKilled()) {
+                const state = getState();
+                const lastReason = state?.lastEvent?.reason ?? 'kill switch engaged';
+                logger.warn(COMPONENT, `[KillSwitch] Refusing ${handler.name} — ${lastReason}`);
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: `Error: File mutation refused — kill switch is engaged (${lastReason}). ` +
+                        `Resume via POST /api/safety/resume after investigating the trigger, ` +
+                        `then retry. Do NOT retry this tool call until resumed.`,
+                    success: false,
+                    durationMs: Date.now() - startTime,
+                };
+            }
+        } catch { /* kill switch module unavailable — fall through (fail-open on infra error) */ }
+    }
+
+    // v4.9.0-local.8: Self-mod scope lock + staging.
+    //
+    // Three-layer policy when the active session has a goal tagged as
+    // self-modifying (see config.autonomy.selfMod.tags):
+    //   1. Writes to paths OUTSIDE config.autonomy.selfMod.target are refused
+    //      (prevents LARPing self-improvement by writing to ~/titan-saas etc)
+    //   2. When staging is enabled, writes INSIDE target are diverted to a
+    //      per-goal staging directory and a `self_mod_pr` approval is filed
+    //   3. The original path is stored as `targetPath` on the staging entry
+    //      so the human sees what would land where if they approve the PR
+    //
+    // This is the deeper fix for the pattern observed 2026-04-18 where a
+    // "self-healing framework" goal completed 100% by writing to an unrelated
+    // Next.js app.
+    let stagedRedirect: { stagedPath: string; targetPath: string } | null = null;
+    if (MUTATING_TOOLS.has(handler.name)) {
+        const rawFilePath = (args.path || args.file_path || args.filePath) as string | undefined;
+        if (rawFilePath) {
+            try {
+                const { getCurrentSessionId } = await import('./agent.js');
+                const { decideScope } = await import('./selfModStaging.js');
+                const sid: string | null = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+                const decision = decideScope(sid, rawFilePath);
+                if (decision.action === 'reject') {
+                    logger.warn(COMPONENT, `[ScopeLock] Refusing ${handler.name}: ${decision.reason}`);
+                    return {
+                        toolCallId: toolCall.id,
+                        name: handler.name,
+                        content: `Error: ${decision.reason}\n\nRewrite the path to live inside the self-mod target, OR retag the goal to remove self-mod tags, OR pause the goal and create a properly-scoped one.`,
+                        success: false,
+                        durationMs: Date.now() - startTime,
+                    };
+                }
+                if (decision.action === 'stage' && decision.stagedPath && decision.targetPath) {
+                    stagedRedirect = { stagedPath: decision.stagedPath, targetPath: decision.targetPath };
+                    // Rewrite the tool args so the handler writes to staging.
+                    // Preserve both `path` and `file_path` variants since
+                    // different tools use different field names.
+                    if (args.path !== undefined) args.path = decision.stagedPath;
+                    if (args.file_path !== undefined) args.file_path = decision.stagedPath;
+                    if (args.filePath !== undefined) args.filePath = decision.stagedPath;
+                    // Ensure the staged parent dir exists; write_file may not
+                    // mkdir -p on all code paths.
+                    try {
+                        const { mkdirSync } = await import('fs');
+                        const { dirname } = await import('path');
+                        mkdirSync(dirname(decision.stagedPath), { recursive: true });
+                    } catch { /* best-effort */ }
+                    logger.info(COMPONENT, `[SelfModStaging] Diverting ${handler.name} → ${decision.stagedPath} (would land at ${decision.targetPath} on approval)`);
+                }
+            } catch (err) {
+                logger.debug(COMPONENT, `[ScopeLock] check failed (fail-open): ${(err as Error).message}`);
+            }
+        }
+    }
+
+    if (MUTATING_TOOLS.has(handler.name)) {
+        // Use the (potentially rewritten) path for shadow-git + fix-oscillation
         const filePath = (args.path || args.file_path || args.filePath) as string;
         if (filePath) {
             snapshotBeforeWrite(handler.name, filePath).catch(err =>
@@ -365,10 +451,33 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             // Cache the result for read-only tools (helper self-gates)
             cacheToolResult(handler.name, cacheArgKey, finalContent);
 
+            // v4.9.0-local.8: if this write was diverted to staging, record
+            // it in the self_mod_pr bundle. Fire-and-forget — must NOT block
+            // the tool's return value or the agent loop.
+            if (stagedRedirect) {
+                (async () => {
+                    try {
+                        const { getCurrentSessionId } = await import('./agent.js');
+                        const { recordStagedWrite } = await import('./selfModStaging.js');
+                        const sid: string | null = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+                        await recordStagedWrite({
+                            sessionId: sid,
+                            toolName: handler.name,
+                            stagedPath: stagedRedirect!.stagedPath,
+                            targetPath: stagedRedirect!.targetPath,
+                        });
+                    } catch (err) {
+                        logger.debug(COMPONENT, `[SelfModStaging] recordStagedWrite failed: ${(err as Error).message}`);
+                    }
+                })();
+            }
+
             return {
                 toolCallId: toolCall.id,
                 name: handler.name,
-                content: finalContent,
+                content: stagedRedirect
+                    ? `${finalContent}\n\n[SelfModStaging] Diverted to staging: ${stagedRedirect.stagedPath}. A human approval is pending before this lands at ${stagedRedirect.targetPath}.`
+                    : finalContent,
                 success: true,
                 durationMs,
                 retryCount: attempt,

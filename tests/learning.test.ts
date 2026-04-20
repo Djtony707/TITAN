@@ -184,6 +184,105 @@ describe('Learning Engine', () => {
             const stats = mod.getLearningStats();
             expect(stats.toolsTracked).toBe(1);
         });
+
+        // v4.9.0-local.9: error-pattern file-content filter
+        describe('file-content filter (v4.9.0-local.9)', () => {
+            it('collapses "File: /path (N lines) --- ..." dumps to one rollup per file', async () => {
+                const mod = await freshLearning();
+                mod.initLearning();
+                // Three "errors" that are actually the same file sliced at different offsets
+                mod.recordToolResult('edit_file', false, undefined, 'File: /home/dj/titan-saas/src/app/page.tsx (77 lines) --- 1: import { A } from "next";');
+                mod.recordToolResult('edit_file', false, undefined, 'File: /home/dj/titan-saas/src/app/page.tsx (102 lines) --- 1: import type { B } from "next";');
+                mod.recordToolResult('edit_file', false, undefined, 'File: /home/dj/titan-saas/src/app/page.tsx (16 lines) --- 1: import { C } from "react";');
+
+                const stats = mod.getLearningStats();
+                expect(stats.errorPatterns).toBe(1); // collapsed to one rollup
+            });
+
+            it('dedupes import blocks into a single rollup entry', async () => {
+                const mod = await freshLearning();
+                mod.initLearning();
+                mod.recordToolResult('build', false, undefined, 'import { A } from "a";\nimport { B } from "b";\nimport { C } from "c";\nconst x = 1;');
+                mod.recordToolResult('build', false, undefined, 'import { D } from "d";\nimport { E } from "e";\nimport { F } from "f";\nconst y = 2;');
+                const stats = mod.getLearningStats();
+                expect(stats.errorPatterns).toBe(1);
+            });
+
+            it('preserves short real error messages', async () => {
+                const mod = await freshLearning();
+                mod.initLearning();
+                mod.recordToolResult('shell', false, undefined, 'ENOENT: no such file');
+                mod.recordToolResult('shell', false, undefined, 'EACCES: permission denied');
+                const stats = mod.getLearningStats();
+                expect(stats.errorPatterns).toBe(2); // both kept distinct
+            });
+
+            it('caps oversized errors without blowing up pattern count', async () => {
+                const mod = await freshLearning();
+                mod.initLearning();
+                const big = 'Compilation failed with many errors: ' + 'x'.repeat(2000);
+                mod.recordToolResult('build', false, undefined, big);
+                mod.recordToolResult('build', false, undefined, big + 'Z'); // same prefix, different tail
+                const stats = mod.getLearningStats();
+                expect(stats.errorPatterns).toBe(1); // bucketed by 60-char signature
+            });
+        });
+    });
+
+    describe('pruneFileContentErrorPatterns', () => {
+        it('collapses existing file-dump entries into rollup counts', async () => {
+            // Pre-seed a knowledge.json containing the pre-fix noise pattern
+            mockFiles['/tmp/titan-test-learning/knowledge.json'] = JSON.stringify({
+                entries: [],
+                toolSuccessRates: {},
+                errorPatterns: {
+                    'File: /home/dj/titan-saas/foo.ts (77 lines) --- 1: import { A }': { count: 25, lastSeen: '2026-04-18T00:00:00Z' },
+                    'File: /home/dj/titan-saas/foo.ts (102 lines) --- 1: import type { B }': { count: 15, lastSeen: '2026-04-18T01:00:00Z' },
+                    'File: /home/dj/titan-saas/bar.ts (50 lines) --- 1: import { C }': { count: 7, lastSeen: '2026-04-18T02:00:00Z' },
+                    'ENOENT: no such file or directory': { count: 3, lastSeen: '2026-04-18T03:00:00Z' },
+                },
+                strategies: {},
+                preferences: {},
+                successPatterns: [],
+            });
+            const mod = await freshLearning();
+            mod.initLearning();
+            const before = mod.getLearningStats().errorPatterns;
+            expect(before).toBe(4);
+
+            const result = mod.pruneFileContentErrorPatterns();
+            expect(result.removed).toBe(3);
+            expect(result.collapsedInto).toBe(2); // foo.ts + bar.ts rollups
+
+            const after = mod.getLearningStats().errorPatterns;
+            // 4 original − 3 removed + 2 rollups = 3 total (foo rollup, bar rollup, ENOENT preserved)
+            expect(after).toBe(3);
+        });
+
+        it('preserves resolutions from the largest original entry', async () => {
+            mockFiles['/tmp/titan-test-learning/knowledge.json'] = JSON.stringify({
+                entries: [],
+                toolSuccessRates: {},
+                errorPatterns: {
+                    'File: /home/dj/x/foo.ts (10 lines) --- 1: import': { count: 5, lastSeen: '2026-04-18T00:00:00Z', resolution: 'fix imports' },
+                    'File: /home/dj/x/foo.ts (20 lines) --- 1: import type': { count: 3, lastSeen: '2026-04-18T01:00:00Z' },
+                },
+                strategies: {},
+                preferences: {},
+                successPatterns: [],
+            });
+            const mod = await freshLearning();
+            mod.initLearning();
+            const result = mod.pruneFileContentErrorPatterns();
+            expect(result.collapsedInto).toBe(1);
+
+            const raw = mockFiles['/tmp/titan-test-learning/knowledge.json'];
+            const parsed = JSON.parse(raw);
+            const rollup = parsed.errorPatterns['build-dumped-source:foo.ts'];
+            expect(rollup).toBeDefined();
+            expect(rollup.count).toBe(8); // 5 + 3
+            expect(rollup.resolution).toBe('fix imports');
+        });
     });
 
     // ── recordSuccessPattern ─────────────────────────────────────────

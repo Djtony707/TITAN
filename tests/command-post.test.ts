@@ -41,10 +41,14 @@ vi.mock('../src/utils/helpers.js', () => ({
     ensureDir: vi.fn(),
 }));
 
-vi.mock('../src/utils/constants.js', () => ({
-    TITAN_MD_FILENAME: 'TITAN.md',
-    TITAN_HOME: '/tmp/titan-test',
-}));
+vi.mock('../src/utils/constants.js', async (orig) => {
+    const actual = await orig<typeof import('../src/utils/constants.js')>();
+    return {
+        ...actual,
+        TITAN_MD_FILENAME: 'TITAN.md',
+        TITAN_HOME: '/tmp/titan-test',
+    };
+});
 
 import {
     initCommandPost, shutdownCommandPost, checkoutTask, checkinTask,

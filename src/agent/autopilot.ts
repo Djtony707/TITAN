@@ -488,17 +488,26 @@ async function runGoalBasedAutopilot(config: TitanConfig, startTime: number, dry
             return { run, delivered: false };
         }
 
-        // Delegate to the initiative system which uses processMessage()
-        // (primary agent, full round budget, all tools, proper validation)
-        const { checkInitiative } = await import('./initiative.js');
-        const initiativeResult = await checkInitiative();
+        // v4.10.0-local (Phase A): delegate to the Goal Driver via the
+        // scheduler instead of the passive initiative check. The scheduler
+        // tracks driver state across ticks, so a single autopilot cron
+        // firing just ensures drivers are running — each driver owns its
+        // goal end-to-end via the phase state machine (plan → delegate →
+        // observe → iterate → verify → report).
+        const { ensureDrivers } = await import('./driverScheduler.js');
+        const schedResult = await ensureDrivers();
 
-        // Build a compatible result for the autopilot run record
+        // Report is now coarse — "N drivers active" rather than "one
+        // subtask completed." The per-goal progress lives in driver-state.
         const result = {
-            success: initiativeResult.acted,
-            content: initiativeResult.result || initiativeResult.proposed || 'No output',
+            success: schedResult.active > 0 || schedResult.started > 0,
+            content: `Drivers: ${schedResult.active} active, ${schedResult.started} started this tick, ${schedResult.total} active goals total`,
             toolsUsed: [] as string[],
         };
+        // Compat shim so the deadlock detector + run-record logic below
+        // still has a valid shape — but the Driver's own state machine
+        // handles deadlocks internally via retry caps + budget exhaustion.
+        const initiativeResult = { acted: result.success, result: result.content, proposed: '' as string };
 
         // v4.0.6: detect Initiative deadlock (acted=false + empty result + empty
         // proposed = Initiative's internal rate-limit / backoff / consecutiveFailures
@@ -808,7 +817,14 @@ export function initAutopilot(config: TitanConfig): void {
 
     cronTask = cron.schedule(schedule, () => {
         runAutopilotNow().catch(e => {
-            logger.error(COMPONENT, `Scheduled autopilot run failed: ${(e as Error).message}`);
+            const msg = (e as Error).message;
+            // "already in progress" is expected when a long goal overruns
+            // the cron interval — not an error. Downgrade to info.
+            if (/already in progress/i.test(msg)) {
+                logger.info(COMPONENT, `Skipping scheduled autopilot tick: previous run still active`);
+            } else {
+                logger.error(COMPONENT, `Scheduled autopilot run failed: ${msg}`);
+            }
         });
     });
 

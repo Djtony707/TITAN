@@ -23,6 +23,15 @@ target/
 # Benchmark results (raw data) — committed: MODEL_COMPARISON.md
 benchmarks/results.json
 benchmarks/runs/
+benchmarks/eval-results/
+benchmarks/gaia-results/
+
+# Playwright / vitest artifacts
+test-results/
+playwright-report/
+
+# Local deploy marker
+.last-ui-deploy
 
 # Personal skills — private, never committed
 src/skills/personal/

@@ -17,6 +17,22 @@ vi.mock('../src/config/config.js', async (importOriginal) => {
     };
 });
 
+// Kill-switch module — mocked so tests control `isKilled()` return value
+// without touching the real ~/.titan/kill-switch.json. The dynamic import
+// path inside toolRunner is '../safety/killSwitch.js' (relative to
+// src/agent), which resolves to the same module id as this mock path.
+vi.mock('../src/safety/killSwitch.js', () => ({
+    isKilled: vi.fn(() => false),
+    getState: vi.fn(() => ({
+        status: 'killed',
+        history: [],
+        recentOscillations: [],
+        updatedAt: new Date().toISOString(),
+        lastEvent: { at: new Date().toISOString(), trigger: 'manual', reason: 'test-kill', firedBy: 'test' },
+    })),
+}));
+import { isKilled as mockedIsKilled } from '../src/safety/killSwitch.js';
+
 import {
     registerTool, unregisterTool, getRegisteredTools, getToolDefinitions, executeTool,
 } from '../src/agent/toolRunner.js';
@@ -223,6 +239,53 @@ describe('ToolRunner', () => {
     it('executeTool has durationMs >= 0', async () => {
         const result = await executeTool(makeCall(ECHO, { msg: 'timing' }));
         expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    // v4.9.0-local.7: kill-switch must gate file-mutating tools so initiative
+    // can't keep rewriting the same files for hours after a kill-switch fire.
+    // This closes the gap observed on Titan PC (Apr 18–19): kill fired at
+    // 22:27 UTC but write_file events kept accumulating until 00:59 UTC.
+    describe('kill switch gate on mutating tools', () => {
+        const WRITE_FILE = 'write_file';
+
+        beforeEach(() => {
+            registerTool({
+                name: WRITE_FILE,
+                description: 'Test stub for write_file (normally provided by filesystem skill)',
+                parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } } },
+                execute: async () => 'wrote file',
+            });
+        });
+
+        afterEach(() => {
+            unregisterTool(WRITE_FILE);
+            vi.mocked(mockedIsKilled).mockReturnValue(false);
+        });
+
+        it('blocks write_file when kill switch is engaged', async () => {
+            vi.mocked(mockedIsKilled).mockReturnValue(true);
+            const result = await executeTool(makeCall(WRITE_FILE, { path: '/tmp/x', content: 'y' }));
+            expect(result.success).toBe(false);
+            expect(result.content).toMatch(/kill switch/i);
+            expect(result.content).toMatch(/resume/i);
+            // Should include the reason from lastEvent so Tony can see WHY it's blocked
+            expect(result.content).toMatch(/test-kill/);
+        });
+
+        it('allows write_file when kill switch is armed (not killed)', async () => {
+            vi.mocked(mockedIsKilled).mockReturnValue(false);
+            const result = await executeTool(makeCall(WRITE_FILE, { path: '/tmp/x', content: 'y' }));
+            expect(result.success).toBe(true);
+            expect(result.content).toBe('wrote file');
+        });
+
+        it('does NOT gate non-mutating tools when killed (reads still work)', async () => {
+            // A killed TITAN can still READ to diagnose itself — only writes are refused.
+            vi.mocked(mockedIsKilled).mockReturnValue(true);
+            const result = await executeTool(makeCall(ECHO, { msg: 'hi' }));
+            expect(result.success).toBe(true);
+            expect(result.content).toBe('echo:hi');
+        });
     });
 
     it('registering same tool name overwrites previous', () => {

@@ -124,6 +124,59 @@ export function initLearning(): void {
     logger.info(COMPONENT, `Learning engine initialized (${kb?.entries.length ?? 0} knowledge entries)`);
 }
 
+/**
+ * v4.9.0-local.9: detect "error" strings that are actually file content
+ * echoed back as context (common when build tools dump failing source).
+ * The pre-.9 behavior was to slice(0, 200) and dedupe on that prefix,
+ * which made the same file show up many times and inflated Curiosity's
+ * "unresolved patterns" count by ~5-10x. Observed on 2026-04-18: 327
+ * total patterns, of which >50% were just slices of titan-saas source.
+ *
+ * Heuristic: if the string looks like source code being printed back,
+ * don't record it as a distinct error pattern. Specifically:
+ *   - starts with "File: /path/to/..." (compiler output convention)
+ *   - contains "--- 1:" or "--- 2:" etc. (line-numbered code dumps)
+ *   - is >1200 chars (real error strings are usually short; anything
+ *     longer is almost always dumped source)
+ *   - is an entire TypeScript/JS import block (≥3 `import ` lines)
+ *
+ * When detected, we record a GENERIC rollup pattern ("build-dumped-source:
+ * <basename>") instead of the raw content, so Curiosity sees one entry per
+ * file instead of N copies of the same file's content.
+ */
+function classifyErrorPattern(error: string): { pattern: string; isFileDump: boolean } {
+    const trimmed = error.trim();
+    const basename = (m: RegExpMatchArray | null): string => {
+        const path = m?.[1] ?? '';
+        return path.split('/').pop() ?? 'unknown';
+    };
+
+    // "File: /path/to/foo.ts (N lines) --- ..."
+    const fileHeaderMatch = trimmed.match(/^File:\s+(\S+)\s+\(\d+\s+lines\)/);
+    if (fileHeaderMatch) {
+        return { pattern: `build-dumped-source:${basename(fileHeaderMatch)}`, isFileDump: true };
+    }
+
+    // Multi-line numbered code dump ("--- 1: ... --- 2: ...")
+    if (/---\s*\d+:/.test(trimmed) && /---\s*2:/.test(trimmed)) {
+        return { pattern: 'build-dumped-source:numbered-code-block', isFileDump: true };
+    }
+
+    // Import blocks (TypeScript/JS) — ≥3 import lines → probably source
+    const importLines = (trimmed.match(/^import\s+/gm) || []).length;
+    if (importLines >= 3) {
+        return { pattern: 'build-dumped-source:import-block', isFileDump: true };
+    }
+
+    // Too long to be a useful signature
+    if (trimmed.length > 1200) {
+        return { pattern: 'oversized-error:' + trimmed.slice(0, 60).replace(/\s+/g, ' '), isFileDump: true };
+    }
+
+    // Normal short error — keep the original 200-char slice behavior
+    return { pattern: trimmed.slice(0, 200), isFileDump: false };
+}
+
 /** Record a tool execution result for learning */
 export function recordToolResult(toolName: string, success: boolean, context?: string, error?: string): void {
     const k = loadKnowledgeBase();
@@ -137,9 +190,9 @@ export function recordToolResult(toolName: string, success: boolean, context?: s
         k.toolSuccessRates[toolName].success++;
     } else {
         k.toolSuccessRates[toolName].fail++;
-        // Track error patterns
+        // Track error patterns — with file-content detection (v4.9.0-local.9)
         if (error) {
-            const pattern = error.slice(0, 200);
+            const { pattern } = classifyErrorPattern(error);
             if (!k.errorPatterns[pattern]) {
                 k.errorPatterns[pattern] = { count: 0, lastSeen: '' };
             }
@@ -150,6 +203,9 @@ export function recordToolResult(toolName: string, success: boolean, context?: s
 
     debouncedSave();
 }
+
+// Exposed for tests + one-time migration tooling
+export { classifyErrorPattern };
 
 /** Record a successful interaction pattern */
 export function recordSuccessPattern(pattern: {
@@ -305,6 +361,54 @@ export function verifyMemoryStaleness(): { pruned: number; decayed: number } {
     return { pruned, decayed };
 }
 
+/**
+ * v4.9.0-local.9: one-time cleanup of "error patterns" that are actually
+ * file content dumps. Retroactively applies the same classifyErrorPattern
+ * logic that now runs on record. Collapses dozens of sliced file-content
+ * entries into a single rollup per file.
+ *
+ * Returns { removed, collapsedInto } where `removed` is the number of raw
+ * entries deleted and `collapsedInto` is how many rollup entries were
+ * produced (usually much smaller).
+ */
+export function pruneFileContentErrorPatterns(): { removed: number; collapsedInto: number } {
+    const k = loadKnowledgeBase();
+    const rollup = new Map<string, { count: number; lastSeen: string; resolution?: string }>();
+    const keep: Record<string, { count: number; lastSeen: string; resolution?: string }> = {};
+    let removed = 0;
+
+    for (const [pattern, info] of Object.entries(k.errorPatterns)) {
+        const { pattern: canonical, isFileDump } = classifyErrorPattern(pattern);
+        if (isFileDump) {
+            // Collapse into the rollup bucket
+            const existing = rollup.get(canonical);
+            if (existing) {
+                existing.count += info.count;
+                if (info.lastSeen > existing.lastSeen) existing.lastSeen = info.lastSeen;
+                if (!existing.resolution && info.resolution) existing.resolution = info.resolution;
+            } else {
+                rollup.set(canonical, { count: info.count, lastSeen: info.lastSeen, resolution: info.resolution });
+            }
+            removed++;
+        } else {
+            keep[pattern] = info;
+        }
+    }
+    // Merge rollups back in (they may collide with real entries — count-sum if so)
+    for (const [canonical, info] of rollup) {
+        if (keep[canonical]) {
+            keep[canonical].count += info.count;
+            if (info.lastSeen > keep[canonical].lastSeen) keep[canonical].lastSeen = info.lastSeen;
+        } else {
+            keep[canonical] = info;
+        }
+    }
+    k.errorPatterns = keep;
+    doSave();
+    logger.info(COMPONENT, `[PrunePatterns] removed ${removed} file-content entries, collapsed into ${rollup.size} rollup entries`);
+    return { removed, collapsedInto: rollup.size };
+}
+
 /** Get learning summary for the system prompt */
 export function getLearningContext(): string {
     const k = loadKnowledgeBase();
@@ -388,16 +492,25 @@ export function getLearningStats(): {
     knowledgeEntries: number;
     toolsTracked: number;
     errorPatterns: number;
+    /**
+     * v4.10.0-local fix: true count of UNRESOLVED patterns, used by the
+     * curiosity drive. Prior behavior was to report `errorPatterns` (total)
+     * as if it were unresolved — meaning marking patterns as resolved did
+     * nothing to the drive signal. Now separate field.
+     */
+    unresolvedErrorPatterns: number;
     corrections: number;
     insights: number;
     strategies: number;
     taskTypes: number;
 } {
     const k = loadKnowledgeBase();
+    const unresolvedErrorPatterns = Object.values(k.errorPatterns).filter(v => !v.resolution).length;
     return {
         knowledgeEntries: k.entries.length,
         toolsTracked: Object.keys(k.toolSuccessRates).length,
         errorPatterns: Object.keys(k.errorPatterns).length,
+        unresolvedErrorPatterns,
         corrections: k.userCorrections.length,
         insights: k.conversationInsights.length,
         strategies: k.strategies.length,

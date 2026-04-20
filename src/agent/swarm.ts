@@ -153,6 +153,9 @@ export async function runSubAgent(
             for (const result of toolResults) {
                 messages.push({
                     role: 'tool',
+                    // Include name — Gemini's Ollama adapter rejects
+                    // function_response with empty name (HTTP 400).
+                    name: result.name,
                     content: result.content,
                     toolCallId: result.toolCallId,
                 });

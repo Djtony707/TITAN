@@ -5,6 +5,224 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.11.0] — 2026-04-19 — Goal Driver + Claude Code hardening
+
+Ships the v4.10.0 Goal Driver architecture (previously local-only) plus
+a hard gate on Claude Code CLI usage and nine root-cause fixes to the
+goal driver uncovered in the first day of autonomous operation.
+
+### Claude Code provider gate
+
+- **`ChatOptions.allowClaudeCode`** — Claude Code provider now hard-
+  rejects any call without `allowClaudeCode: true`. All autonomous paths
+  (autopilot, goal driver, specialists, graph extraction, self-mod
+  review) leave this unset, so Claude Code cannot be hit autonomously.
+- **`/api/message` opt-in** — gateway sets `allowClaudeCode: true` only
+  when the caller explicitly picks a `claude-code/*` model. Threaded
+  through `routeMessage → processMessage → runAgentLoop` to both the
+  think + respond `chatOptions` and the empty-response recovery retry.
+- **Sage specialist default** moved from `claude-code/sonnet-4.5` to
+  `ollama/glm-5.1:cloud`. Self-mod reviewer disabled + switched to the
+  same local model. Removed claude-code entries from all four
+  `fallbackChain.ts` ladders.
+- Quota watchdog (60% throttle / 100% hard-block) still live at
+  `~/.titan/claude-code-budget.json` as a second line of defense.
+
+### Goal driver: 9 root-cause fixes
+
+- **A — stall-loop detector** (`goalDriver.ts`) — 3 identical
+  `lastError` fingerprints in a row → fail the subtask instead of
+  burning the entire goal.
+- **B — per-subtask attempt cap** (`goalDriverTypes.ts`, `goalDriver.ts`)
+  — new `maxAttempts: 5` cap per subtask, separate from the goal-level
+  `maxRetries: 10`. No more full-goal burn on one bad subtask.
+- **C — durable deadlock recovery** (`goalDriver.ts`) —
+  `pickNextReadySubtask` now async, awaits `failSubtask` before skipping.
+- **D — verifier escape hatch** (`verifier.ts`) — confidence ≥ 0.85 +
+  ≥1 artifact passes verification, rescuing terse-but-correct
+  specialist outputs.
+- **E — artifact-verb classifier** (`subtaskTaxonomy.ts`) — “Design X
+  dashboard” is now routed as code, not analysis.
+- **F — stale block auto-unblock** (`goalDriver.ts`) — blocked goals
+  auto-unblock after 10 min with no live approval.
+- **G — ladder exhaustion → failSubtask** (`goalDriver.ts`) — verified
+  path, no more goals stuck mid-cascade.
+- **Fix 8** — `tickObserving` no-op guard; removed double-count in
+  `tickIterating`; strict whole-goal pass check.
+- **Fix 9** — lazy classification; only runs when needed.
+
+All 9 covered by unit tests in `tests/goalDriver.test.ts` (57 tests).
+
+### Per-specialist model selector UI
+
+- `GET /api/specialists` + `PATCH /api/specialists/:id` — read/update
+  per-specialist model overrides at `config.specialists.overrides[id]`.
+- `specialists.ts:getSpecialist` reads override before returning the
+  base specialist so the change applies without a restart.
+- Mission Control **Agents** page: new Specialists table under the
+  running-agents list, with inline editable "Active model" field and a
+  datalist autocomplete of all 502 discovered models.
+- `commandPost.ts:requestGoalProposalApproval` now dedupes by title
+  (was filing 3× the same goal from different specialists).
+
+### Icon rail polish
+
+- New Agents icon, replaced Zap placeholder with the TITAN logo.
+- 3-group layout (primary / ops / admin) with Settings + Infra pinned
+  to the bottom via `mt-auto`.
+- Hover tooltips with slide-in pill, active state has gradient bar +
+  glowing ring + icon scale-up.
+
+### Test fixes (swept through during the session)
+
+- `tests/initiative.test.ts` — `getCurrentSessionId` mock.
+- `tests/selfModStaging.test.ts` — opusReview mock with auto-approve.
+- `tests/new-providers.test.ts` — 37 providers (5 core + 32 compat).
+- Removed dead-code `bundlePath` calc in `selfModStaging.ts` (Hunt #18).
+
+### Known deferred
+
+- `tests/critical-bugfixes.test.ts` rate-limit leak between tests —
+  pre-existing flake, not caused by this release.
+- Monitoring sidebar (`Sidebar.tsx`) is orphaned; either wire it in or
+  delete.
+- User-UI Command Post agents tab still shows model as static text;
+  can be wired to the same `updateSpecialistModel` endpoint next.
+
+---
+
+## [4.10.0] — 2026-04-19 — Goal Driver architecture
+
+The HOW layer. SOMA was the heart (drives, pressure, proposer) but TITAN
+had no hands — goals would get proposed + approved, then bounce between
+`in_progress → todo` via a passive 5-min autopilot cron that picked one
+subtask per tick. No component *owned* a goal from "active" to "done."
+
+v4.10.0 adds that missing body. Across 5 phases:
+
+### Phase A — Core driver (the HOW)
+
+- **`src/agent/goalDriver.ts`** — phase state machine (planning →
+  delegating → observing → iterating → verifying → reporting | blocked |
+  done | failed | cancelled). State persisted per goal at
+  `~/.titan/driver-state/<goalId>.json`. Restart-safe.
+- **`src/agent/driverScheduler.ts`** — replaces `checkInitiative` as the
+  goal-execution entry. Runs every 10s. `maxConcurrent=5`. On boot,
+  `resumeDriversAfterRestart()` picks up any non-terminal drivers.
+- **`src/agent/subtaskTaxonomy.ts`** — classifies each subtask into
+  `research | code | write | analysis | verify | shell | report` via
+  keyword heuristics. Drives routing + verification.
+- **`src/agent/specialistRouter.ts`** — table-driven mapping from kind
+  → specialist (scout/builder/writer/analyst) + tool allowlists.
+- **`src/agent/fallbackChain.ts`** — retry strategies. Scout → Explorer,
+  Builder → fallback model, etc. Adjusts prompt based on error class
+  (rate-limit, context overflow, timeout).
+- **`src/agent/verifier.ts`** — per-kind verification. `code` runs
+  `npm run typecheck`; `research` requires ≥2 source markers; `write`
+  uses rubric + confidence check; etc. Fixes the "I don't know → marked
+  done" failure mode from 2026-04-18.
+- **`src/agent/structuredSpawn.ts`** — wraps `spawn_agent` to force
+  structured JSON output. Tolerant parser falls back to `needs_info` on
+  malformed output. Driver reads status as a boolean, not prose.
+- **`src/agent/somaFeedback.ts`** — closes SOMA's loop. Goal completion
+  updates drive satisfactions via `metricGuard.gateSatisfactionEvent`
+  (verifier-required). Goal failure rises curiosity (something to
+  investigate) + safety (instability signal). Registered verifier
+  requires the goal to actually exist + driver to have reached terminal.
+- **`src/agent/budgetEnforcer.ts`** — per-goal caps on tokens/cost/time/
+  retries. At 80% → suggests degradation (downgrade model, reduce
+  scope). At 100% → driver blocks for human approval to extend.
+- **`src/agent/rollbackGoal.ts`** — one-click shadow-git revert of every
+  file a goal touched. Mark goal closed + episode. API at
+  `POST /api/drivers/:goalId/rollback`.
+- **API**: `/api/drivers` (list, get, pause, resume, cancel,
+  reprioritize, rollback, tick).
+- **Integration**: `autopilot.ts` goal-based mode calls
+  `ensureDrivers()` instead of `checkInitiative()`. Server bootstrap
+  starts scheduler + registers SOMA verifier.
+
+**5 failure modes from the 2026-04-18 audit all addressed:**
+(a) "I don't know → done" — now blocked by verifyResearch/verifyWrite
+(b) Subtask bouncing — driver always transitions to definite state
+(c) initiative-verify scope bypass — all writes flow through scope-lock
+(d) Kill-refused subagents counted as done — structured status distinguishes
+(e) "failed No output" in 2ms — autopilot no longer reports bogus runs
+
+### Phase B — Operational layer
+
+- **`src/agent/retrospectives.ts`** — every goal completion/failure
+  writes to `experiments.ts` (what worked, what didn't, specialists,
+  lessons). Future similar goals read these via
+  `findSimilarExperiments()` for don't-redo logic.
+- **`src/agent/dailyDigest.ts`** — 9am PDT cron (+ on boot) generates
+  TL;DR: goals done/failed/blocked, drive state, pending approvals by
+  urgency, highlights. Surfaced via `GET /api/digest/today` + SSE
+  broadcast on `digest:daily`.
+- **Approval categorization** (`commandPost.listCategorizedApprovals`)
+  — buckets by type (driver_blocked, self_mod_pr, self_repair, etc.)
+  with urgency sorting. `driver_blocked` always rises to top.
+- **`src/agent/driverAwareChat.ts`** — system-prompt block injected into
+  `processMessage`. When Tony asks "what are you working on?", the
+  agent responds with real driver phase + progress, not hallucinated
+  recall. Accessible via `__titan_driver_status_block` global.
+- **`src/agent/notificationThrottle.ts`** — rate-limits SSE broadcasts
+  (1/60s per topic+key) + approval creation (1/5min per goalId+kind).
+  Prevents a looping driver from spawning 10 identical approvals.
+- **Drive trend API** — `GET /api/drives/history?hours=24` exposes the
+  `drive-state.json` history ring for UI charts.
+
+### Phase C — Missions + fleet + cleanup
+
+- **`src/agent/missionDriver.ts`** — driver-of-drivers. Creates child
+  goals + coordinates them. `dependsOn` for sequencing. Aggregates
+  artifacts into a mission report. Phase: planning → executing →
+  aggregating → reporting → done/failed.
+- **`src/agent/machineRouter.ts`** — capability-based routing across
+  the 3-machine fleet (Titan PC / Mini PC / MacBook). `gpu-heavy` tag
+  → Titan PC, `edge`/`homeassistant` → Mini PC. Falls back when the
+  best machine is offline.
+- **Cleanup**: `daemon.ts`'s `GoalWatcher` no longer calls
+  `checkInitiative` — delegates to `ensureDrivers` instead. Legacy
+  `initiative.ts` stays for emergency fallback but is not the primary
+  execution path.
+
+### Phase D — Playbooks + scanners + voice
+
+- **`src/agent/playbooks.ts`** — after 3+ similar successful goals
+  (matched by signature: normalized title tokens + tags, ≥40% overlap),
+  abstracts a reusable template. Stored at
+  `~/.titan/playbooks/<signatureHash>.json`. `findPlaybookForGoal`
+  lookup for planning phase.
+- **`src/agent/stagingScanners.ts`** — scans staged self-mod PR
+  bundles before apply. Detects 15+ secret patterns (API keys, private
+  keys, TITAN's own gateway password) + 4 license patterns (AGPL, GPL
+  strict, Commons Clause, non-commercial). High-severity findings
+  BLOCK the apply + surface in the approval rejection reason.
+- **`POST /api/voice/ask`** — voice chat endpoint. Wraps processMessage
+  (which now includes the driver-status block) + optional TTS URL via
+  F5-TTS server. Single endpoint for LiveKit / voice clients.
+
+### Phase E — Stability
+
+- 279 tests passing across 11 files (added `goalDriver.test.ts`,
+  `goalDriverExtended.test.ts`).
+- Version bumped to 4.10.0 across `package.json`, `constants.ts`, test
+  version pins.
+- Deferred: `agent.ts` modularization for the remaining test flake
+  (not in this build).
+
+### What this changes in practice
+
+- Goal completion rate: expected jump from ~30% (passive model) to
+  80%+ (actively-driven model).
+- "Silent stall" gone: every tick ends in a definite state transition.
+- SOMA's drive-satisfaction loop closes: hunger actually drops when
+  work lands, safety recovers when failures are investigated.
+- `/api/drivers/:goalId/rollback` — one click to undo a bad goal instead
+  of SSH-debugging.
+
+---
+
 ## [4.9.0-local.4] — 2026-04-18 — Memory + safety architecture COMPLETE (LOCAL-ONLY)
 
 **LOCAL ONLY. Not published, not pushed.**

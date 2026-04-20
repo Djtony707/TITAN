@@ -298,6 +298,29 @@ export async function stopAgent(id: string): Promise<void> {
   });
 }
 
+// ---- Specialists (per-agent model config) ----
+
+export interface SpecialistInfo {
+  id: string;
+  name: string;
+  role: string;
+  title: string;
+  defaultModel: string;
+  activeModel: string;
+  overridden: boolean;
+}
+
+export async function getSpecialists(): Promise<{ specialists: SpecialistInfo[] }> {
+  return request('/api/specialists');
+}
+
+export async function updateSpecialistModel(id: string, model: string | null): Promise<void> {
+  await request(`/api/specialists/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ model: model ?? '' }),
+  });
+}
+
 // ---- Skills ----
 
 export async function getSkills(): Promise<SkillInfo[]> {

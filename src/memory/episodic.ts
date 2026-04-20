@@ -32,7 +32,7 @@
  *   landed a lexical Jaccard version of this; episodic memory upgrades
  *   to semantic recall + broadens the event surface beyond experiments.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { TITAN_HOME } from '../utils/constants.js';
@@ -117,8 +117,9 @@ function appendLine(ep: Episode): void {
     const line = JSON.stringify(ep) + '\n';
     try {
         // Append for efficiency; bounded file rewriting handled below.
-        const fs = require('fs') as typeof import('fs');
-        fs.appendFileSync(EPISODIC_PATH, line, 'utf-8');
+        // v4.10.0-local fix: use ESM import, not require() — the bundle is
+        // ESM and `require('fs')` throws "Dynamic require not supported".
+        appendFileSync(EPISODIC_PATH, line, 'utf-8');
     } catch (err) {
         logger.warn(COMPONENT, `append failed: ${(err as Error).message}`);
     }

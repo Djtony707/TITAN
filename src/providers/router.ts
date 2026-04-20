@@ -12,6 +12,7 @@
 import { LLMProvider, type ChatOptions, type ChatResponse, type ChatStreamChunk } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
+import { ClaudeCodeProvider } from './claudeCode.js';
 import { GoogleProvider } from './google.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAICompatProvider, PROVIDER_PRESETS } from './openai_compat.js';
@@ -117,6 +118,10 @@ function initProviders(): void {
     for (const preset of PROVIDER_PRESETS) {
         providers.set(preset.name, new OpenAICompatProvider(preset));
     }
+    // v4.10.0-local polish: Claude Code CLI subprocess provider. Uses
+    // Tony's MAX plan OAuth (not metered API). Requires `claude` CLI
+    // installed and `claude login` run on the TITAN host.
+    providers.set('claude-code', new ClaudeCodeProvider());
     initialized = true;
 }
 

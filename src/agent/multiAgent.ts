@@ -147,6 +147,7 @@ export async function routeMessage(
     signal?: AbortSignal,
     sessionId?: string,
     modelOverride?: string,
+    allowClaudeCode?: boolean,
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
     let agent = resolveAgent(channel, userId);
 
@@ -189,6 +190,7 @@ export async function routeMessage(
         systemPrompt: agent.systemPrompt,
         agentId: agent.id,
         sessionId,
+        allowClaudeCode,
     }, streamCallbacks, signal);
 
     return {

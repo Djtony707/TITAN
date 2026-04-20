@@ -15,6 +15,7 @@ import {
 } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import { InlineEditableField, ConfirmDialog, Modal } from '@/components/shared';
+import { extractApprovalHeadline, approvalUrgencyColor } from '@/lib/approvalHeadline';
 import { ApprovalProgressPanel } from '@/components/admin/ApprovalProgressPanel';
 import { useWatchStream } from '@/hooks/useWatchStream';
 import type {
@@ -952,6 +953,10 @@ function ApprovalsTab() {
             const proposalDesc = isProposal && typeof pp.description === 'string' ? pp.description : null;
             const proposalRationale = isProposal && typeof pp.rationale === 'string' ? pp.rationale : null;
             const proposalSubtasks = isProposal && Array.isArray(pp.subtasks) ? pp.subtasks as Array<{ title?: string }> : null;
+            // v4.10.0-local: human-readable headline for every approval,
+            // not just proposals. Fixes blank cards where the user couldn't
+            // tell what they were approving without opening the raw payload.
+            const info = extractApprovalHeadline(a);
             return (
             <div
               key={a.id}
@@ -960,13 +965,27 @@ function ApprovalsTab() {
               title="Click to see live progress"
             >
               <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide ${approvalUrgencyColor(info.urgency)}`}>
+                    {info.kindLabel}
+                  </span>
                   <StatusBadge status={a.status} />
-                  <span className="text-[12px] text-white/70 capitalize">{a.type.replace(/_/g, ' ')}</span>
                   <span className="text-[10px] text-white/25">by {a.requestedBy}</span>
                 </div>
                 <span className="text-[10px] text-white/20">{timeSince(a.createdAt)}</span>
               </div>
+              {!isProposal && (
+                <div className="mt-1 mb-1.5">
+                  <div className="text-[13px] text-white/85 leading-snug">
+                    {info.headline}
+                  </div>
+                  {info.detail && (
+                    <div className="text-[11px] text-white/55 mt-0.5 leading-snug">
+                      {info.detail}
+                    </div>
+                  )}
+                </div>
+              )}
               {isProposal && proposalTitle && (
                 <div className={`mt-1 mb-2 pl-2 border-l-2 ${isSoma ? 'border-indigo-500/50' : 'border-emerald-500/40'}`}>
                   <div className="text-[13px] text-white/90 font-medium flex items-center gap-2">
@@ -1637,7 +1656,7 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-const TABS = ['Watch', 'Work', 'Dashboard', 'Sessions', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Debates', 'Costs', 'Console'] as const;
+const TABS = ['Watch', 'Work', 'Dashboard', 'Digest', 'Voice', 'Sessions', 'Drivers', 'Missions', 'Drives', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Files', 'Debates', 'Costs', 'Console'] as const;
 type Tab = typeof TABS[number];
 
 // v4.5.2/v4.6.0: lazy-load heavier tab views so their chunks only
@@ -1645,6 +1664,13 @@ type Tab = typeof TABS[number];
 const WatchViewLazy = lazy(() => import('@/views/WatchView'));
 const WorkTabLazy = lazy(() => import('@/components/admin/WorkTab'));
 const SessionsTabLazy = lazy(() => import('@/components/admin/SessionsTab'));
+// v4.10.0-local: Files + Drivers + Digest + DriveTrends + Missions panels
+const CPFilesLazy = lazy(() => import('@/components/command-post/CPFiles'));
+const CPDriversLazy = lazy(() => import('@/components/command-post/CPDrivers'));
+const CPDigestLazy = lazy(() => import('@/components/command-post/CPDigest'));
+const CPDriveTrendsLazy = lazy(() => import('@/components/command-post/CPDriveTrends'));
+const CPMissionsLazy = lazy(() => import('@/components/command-post/CPMissions'));
+const CPVoiceLazy = lazy(() => import('@/components/command-post/CPVoice'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
@@ -1747,6 +1773,36 @@ export default function CommandPostHub() {
         {tab === 'Issues' && <IssuesTab agents={d.agents} />}
         {tab === 'Agents' && <AgentsTab agents={d.agents} runs={runs} onRefresh={refresh} />}
         {tab === 'Approvals' && <ApprovalsTab />}
+        {tab === 'Files' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading files…</div>}>
+            <CPFilesLazy />
+          </Suspense>
+        )}
+        {tab === 'Drivers' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading drivers…</div>}>
+            <CPDriversLazy />
+          </Suspense>
+        )}
+        {tab === 'Digest' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading digest…</div>}>
+            <CPDigestLazy />
+          </Suspense>
+        )}
+        {tab === 'Drives' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading drive trends…</div>}>
+            <CPDriveTrendsLazy />
+          </Suspense>
+        )}
+        {tab === 'Missions' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading missions…</div>}>
+            <CPMissionsLazy />
+          </Suspense>
+        )}
+        {tab === 'Voice' && (
+          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading voice…</div>}>
+            <CPVoiceLazy />
+          </Suspense>
+        )}
         {tab === 'Debates' && <DebatesTab />}
         {tab === 'Costs' && <CostsTab budgets={d.budgets} onRefresh={refresh} />}
         {tab === 'Console' && <ConsoleTab dashboard={d} />}

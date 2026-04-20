@@ -118,6 +118,25 @@ export function createGoal(options: {
 }): Goal {
     const goals = loadGoals();
 
+    // v4.10.0-local: title-based dedupe. Multiple callers (goalProposer,
+    // missionDriver, cron-triggered initiative, autopilot) can propose the
+    // same goal in the same tick. Previously that produced duplicate
+    // active goals with identical titles (saw two "Implement safety drive
+    // satisfaction monitoring" created 4 seconds apart). Policy: if an
+    // ACTIVE goal with the exact same title already exists, return it
+    // instead of creating a new one. Completed/failed goals don't block
+    // — re-propose is legitimate after an old one closed out.
+    const existingActive = goals.find(g =>
+        g.status === 'active' && g.title.trim() === options.title.trim()
+    );
+    if (existingActive) {
+        logger.info(
+            COMPONENT,
+            `createGoal dedupe: "${options.title}" already active as ${existingActive.id} — returning existing`,
+        );
+        return existingActive;
+    }
+
     const subtasks: Subtask[] = (options.subtasks || []).map((st, i) => ({
         id: `st-${i + 1}`,
         title: st.title,

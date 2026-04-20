@@ -20,6 +20,13 @@ export interface SessionGoalContext {
     goalTitle: string;
     /** The `requestedBy` of the originating approval — e.g. 'soma:curiosity'. */
     proposedBy: string;
+    /**
+     * v4.9.0-local.8: the goal's tags, used by the scope-lock in toolRunner
+     * to decide whether file writes must land inside `autonomy.selfMod.target`.
+     * Always populated (empty array when goal has no tags) so downstream
+     * consumers can assume an iterable.
+     */
+    tags: string[];
     startedAt: string;
 }
 
@@ -27,9 +34,14 @@ const sessionGoals = new Map<string, SessionGoalContext>();
 
 export function setSessionGoal(
     sessionId: string,
-    ctx: Omit<SessionGoalContext, 'startedAt'>,
+    ctx: Omit<SessionGoalContext, 'startedAt' | 'tags'> & { tags?: string[] },
 ): void {
-    sessionGoals.set(sessionId, { ...ctx, startedAt: new Date().toISOString() });
+    // Tags default to empty array so scope-lock doesn't crash on undefined.
+    sessionGoals.set(sessionId, {
+        ...ctx,
+        tags: ctx.tags ?? [],
+        startedAt: new Date().toISOString(),
+    });
 }
 
 export function getSessionGoal(sessionId: string | null): SessionGoalContext | null {

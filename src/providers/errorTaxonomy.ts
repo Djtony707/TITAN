@@ -297,6 +297,18 @@ export function classifyProviderError(error: unknown): ClassifiedError {
     // Timeout patterns
     if (lowerMsg.includes('timed out') || lowerMsg.includes('timeout') ||
         lowerMsg.includes('etimedout') || lowerMsg.includes('aborted')) {
+        // v4.10.0-local (cost cap): claude-code timeouts are NOT retryable.
+        // Each retry burns another ~2 min of MAX plan quota on what is
+        // probably a stuck tool loop; better to fail fast and let the
+        // fallback-ladder try a cheaper model.
+        if (lowerMsg.includes('claude cli') || lowerMsg.includes('claude-code')) {
+            return {
+                ...buildResult(FailoverReason.TIMEOUT, status, msg),
+                retryable: false,
+                shouldFallback: true,
+                cooldownMs: 0,
+            };
+        }
         return buildResult(FailoverReason.TIMEOUT, status, msg);
     }
 

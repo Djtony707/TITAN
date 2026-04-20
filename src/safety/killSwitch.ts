@@ -178,19 +178,33 @@ export async function kill(trigger: KillTrigger, reason: string, opts: {
  */
 export function resume(resolutionNote: string, resumedBy: string): KillSwitchState {
     const state = load();
-    if (state.status === 'armed') {
-        logger.info(COMPONENT, 'Resume called but kill switch already armed — no-op');
-        return state;
+    const wasKilled = state.status === 'killed';
+    // v4.9.0-local.7: always clear recentOscillations on resume. The human
+    // has seen the evidence, acknowledged the pattern, and resumed — fresh
+    // slate. Without this clear, the next same-file-write-twice would instantly
+    // re-kill because the 24h window still contains the trigger events.
+    // NEW oscillations occurring after resume are the real signal we want
+    // to catch — not the ones that already caused the kill.
+    const clearedCount = state.recentOscillations.length;
+    state.recentOscillations = [];
+    // Also clear safetyHighSince — the drive pressure that triggered this
+    // may have resolved in the meantime; if not, the detector will re-arm it.
+    delete state.safetyHighSince;
+    if (wasKilled) {
+        state.status = 'armed';
+        state.history.push({
+            at: new Date().toISOString(),
+            trigger: 'manual',
+            reason: `resumed by ${resumedBy}: ${resolutionNote}`,
+            firedBy: resumedBy,
+        });
+        logger.info(COMPONENT, `Kill switch armed again by ${resumedBy}: ${resolutionNote} (cleared ${clearedCount} prior oscillations)`);
+    } else if (clearedCount > 0) {
+        logger.info(COMPONENT, `Kill switch already armed; cleared ${clearedCount} recent oscillations by ${resumedBy}: ${resolutionNote}`);
+    } else {
+        logger.info(COMPONENT, 'Resume called but kill switch already armed and oscillations empty — no-op');
     }
-    state.status = 'armed';
-    state.history.push({
-        at: new Date().toISOString(),
-        trigger: 'manual',
-        reason: `resumed by ${resumedBy}: ${resolutionNote}`,
-        firedBy: resumedBy,
-    });
     save();
-    logger.info(COMPONENT, `Kill switch armed again by ${resumedBy}: ${resolutionNote}`);
     return { ...state };
 }
 

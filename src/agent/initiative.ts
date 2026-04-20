@@ -165,23 +165,31 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         // v4.8.0: pass goal context through so self-mod capture can link
         // autonomous writes back to the originating drive. processMessage
         // sets the session→goal map right after the session ID is known.
+        // v4.9.0-local.8: ALWAYS pass goalContext (not only soma-tagged).
+        // The scope-lock in toolRunner needs the tags field on every
+        // autonomous run to decide whether writes must land in the self-mod
+        // target. Previously only soma-tagged goals flowed, leaving the
+        // proposer-approved "self-healing framework" goals with no tag
+        // signal — which is exactly how TITAN ended up LARPing self-mods
+        // into /home/dj/titan-saas all afternoon.
         const somaTag = (goal.tags || []).find(t => t.startsWith('soma:')) || null;
-        const overrides = somaTag ? {
+        const overrides = {
             goalContext: {
                 goalId: goal.id,
                 goalTitle: goal.title,
-                proposedBy: somaTag,
+                proposedBy: somaTag ?? (goal.tags?.[0] ? `tag:${goal.tags[0]}` : 'initiative'),
+                tags: goal.tags || [],
             },
-        } : undefined;
+        };
 
         let result;
         try {
             result = await processMessage(prompt, 'initiative', 'default', overrides, streamCallbacks);
         } finally {
-            // v4.8.0: release the session→goal attribution map so we don't
-            // leak entries on long-running daemons. The next initiative run
-            // would overwrite anyway, but explicit clear is cleaner.
-            if (somaTag) {
+            // Release the session→goal attribution map so we don't leak
+            // entries on long-running daemons. Next initiative run would
+            // overwrite anyway, but explicit clear is cleaner.
+            {
                 const { clearSessionGoal } = await import('./autonomyContext.js');
                 const { getCurrentSessionId } = await import('./agent.js');
                 const sid = getCurrentSessionId();

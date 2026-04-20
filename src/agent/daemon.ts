@@ -134,19 +134,21 @@ async function goalWatcher(): Promise<void> {
         logger.info(COMPONENT, `[GoalWatcher] Ready subtask: "${subtask.title}" (goal: ${goal.title})`);
         titanEvents.emit('goal:subtask:ready', { goalId: goal.id, subtaskId: subtask.id, title: subtask.title });
 
-        // In autonomous mode, execute the subtask via the initiative system
+        // v4.10.0-local (Phase C): delegate to driver scheduler instead of
+        // the legacy initiative path. The scheduler's tick loop picks up
+        // active goals on its own cadence; here we just nudge it.
         if (isAutonomous) {
             try {
-                const { checkInitiative } = await import('./initiative.js');
-                const result = await checkInitiative();
-                if (result.acted) {
-                    logger.info(COMPONENT, `[GoalWatcher] Initiative acted on: "${subtask.title}"`);
+                const { ensureDrivers } = await import('./driverScheduler.js');
+                const result = await ensureDrivers();
+                if (result.started > 0 || result.active > 0) {
+                    logger.info(COMPONENT, `[GoalWatcher] Ensured drivers: started=${result.started}, active=${result.active}`);
                     recordAction('goal', true);
                 } else {
-                    recordAction('goal', true); // Detection still counts as an action
+                    recordAction('goal', true);
                 }
             } catch (err) {
-                logger.error(COMPONENT, `[GoalWatcher] Initiative failed: ${(err as Error).message}`);
+                logger.error(COMPONENT, `[GoalWatcher] ensureDrivers failed: ${(err as Error).message}`);
                 recordAction('goal', false);
             }
         } else {

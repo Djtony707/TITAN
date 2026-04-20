@@ -18,6 +18,10 @@ vi.mock('../src/agent/goals.js', () => ({
 }));
 vi.mock('../src/agent/agent.js', () => ({
     processMessage: mockProcessMessage,
+    // initiative.ts now dynamically imports getCurrentSessionId for the
+    // session→goal attribution cleanup. Provide a stub so the mock doesn't
+    // throw "No export is defined" when initiative runs its finally block.
+    getCurrentSessionId: vi.fn(() => 'test-session'),
 }));
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -38,6 +42,7 @@ describe('Initiative', () => {
         }));
         vi.doMock('../src/agent/agent.js', () => ({
             processMessage: mockProcessMessage,
+            getCurrentSessionId: vi.fn(() => 'test-session'),
         }));
         vi.doMock('../src/utils/logger.js', () => ({
             default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },

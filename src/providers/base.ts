@@ -56,6 +56,17 @@ export interface ChatOptions {
      *  model's output to match it, or the string 'json' for loose JSON mode.
      *  Only the Ollama provider honours this today — other providers ignore it. */
     format?: Record<string, unknown> | 'json';
+    /**
+     * Explicit opt-in for Claude Code CLI usage. Must be `true` for
+     * ClaudeCodeProvider to accept a call — all autonomous paths
+     * (autopilot, goal driver, specialists, graph extraction, self-repair,
+     * self-mod review) leave it unset, which means Claude Code rejects
+     * the call. Only user-initiated UI / API chat requests should set
+     * this flag after the user explicitly picks a claude-code model.
+     * Protects the interactive Claude Code quota from runaway autonomous
+     * burn.
+     */
+    allowClaudeCode?: boolean;
 }
 
 /** Response from a chat completion */

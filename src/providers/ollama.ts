@@ -400,7 +400,13 @@ export class OllamaProvider extends LLMProvider {
             options: {
                 // Auto-configure context window per model's known maximum.
                 // getModelCtx() returns the correct num_ctx for each cloud/local model.
-                num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384),
+                // v4.10.0-local (cost cap): capped cloud num_predict to 8K
+                // (was 32K). OpenRouter's paid models reject requests whose
+                // max_tokens exceeds the remaining credit, even though most
+                // responses don't come close to that. 8K is plenty for any
+                // single turn and keeps us from getting HTTP 402s when
+                // credit runs low.
+                num_predict: options.maxTokens || (isCloudModel ? 8192 : 16384),
                 num_ctx: getModelCtx(model),
                 temperature: options.temperature ?? 0.7,
             },
@@ -623,7 +629,8 @@ export class OllamaProvider extends LLMProvider {
             stream: true,
             keep_alive: '30m',
             options: {
-                num_predict: options.maxTokens || (isCloudModel ? 32768 : 16384),
+                // v4.10.0-local (cost cap): 8K cloud cap matches non-stream path
+                num_predict: options.maxTokens || (isCloudModel ? 8192 : 16384),
                 num_ctx: getModelCtx(model),
                 temperature: options.temperature ?? 0.7,
             },

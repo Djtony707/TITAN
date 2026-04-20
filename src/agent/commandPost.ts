@@ -17,6 +17,7 @@ import { stopAgent, listAgents, type AgentInstance } from './multiAgent.js';
 import { listGoals, type Goal } from './goals.js';
 import logger from '../utils/logger.js';
 import type { CommandPostConfig } from '../config/schema.js';
+import { loadConfig } from '../config/config.js';
 
 const COMPONENT = 'CommandPost';
 const STATE_PATH = join(TITAN_HOME, 'command-post.json');
@@ -691,11 +692,14 @@ function checkStaleHeartbeats(): void {
     for (const [id, agent] of registeredAgents) {
         if (agent.status === 'stopped' || agent.status === 'paused') continue;
         // v4.8.1: idle agents that have never been assigned work shouldn't
-        // be flagged as error for not heartbeating — they have nothing to
-        // heartbeat about. Applies to freshly-registered specialists
-        // (Scout/Builder/Writer/Analyst at gateway boot). Once an agent
-        // has done at least one task, normal stale detection resumes.
-        if (agent.status === 'idle' && (agent.totalTasksCompleted ?? 0) === 0) continue;
+        // be flagged as error for not heartbeating.
+        // v4.10.0-local: BROADENED — specialists (Scout/Builder/Writer/Analyst)
+        // don't self-heartbeat; they only beat when running a task. So ANY
+        // specialist with `totalTasksCompleted === 0` should be skipped,
+        // regardless of status. Previously status='active' + 0 tasks →
+        // immediately marked as error, even though that's the normal
+        // resting state for a fresh specialist after unpause.
+        if ((agent.totalTasksCompleted ?? 0) === 0) continue;
         const lastBeat = new Date(agent.lastHeartbeat).getTime();
         if (now - lastBeat > threshold && agent.status !== 'error') {
             agent.status = 'error';
@@ -705,6 +709,15 @@ function checkStaleHeartbeats(): void {
                 message: `Agent "${agent.name}" heartbeat stale — marked as error`,
             });
             titanEvents.emit('commandpost:agent:status', { agentId: id, prev: 'active', status: 'error' });
+        }
+    }
+    // v4.10.0-local: also self-heal specialists currently stuck in 'error'
+    // state with zero completed tasks (means they never actually ran — the
+    // stale-heartbeat check put them there). Reset to 'idle' so they're
+    // ready to pick up new work.
+    for (const [, agent] of registeredAgents) {
+        if (agent.status === 'error' && (agent.totalTasksCompleted ?? 0) === 0) {
+            agent.status = 'idle';
         }
     }
     saveState();
@@ -1033,11 +1046,73 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
                 logger.error('CommandPost', `[GoalProposal] Failed to load goals module: ${(err as Error).message}`);
             });
         }
+    } else if (
+        approval.type === 'custom'
+        && (approval.payload as Record<string, unknown>)?.kind === 'self_mod_pr'
+    ) {
+        // v4.9.0-local.8: apply the staged self-modification PR. Fire-and-forget
+        // so the approval call returns immediately; errors land in logs + a
+        // follow-up activity entry.
+        const payload = approval.payload as Record<string, unknown>;
+        const goalId = payload.goalId as string | undefined;
+        if (goalId) {
+            (async () => {
+                try {
+                    const { applyStagedPR } = await import('./selfModStaging.js');
+                    const result = await applyStagedPR(goalId);
+                    const { recordEpisode } = await import('../memory/episodic.js');
+                    // v4.10.0-local polish: surface Opus verdict in activity + episode
+                    const opusNote = result.opusReview
+                        ? ` · Opus ${result.opusReview.verdict} (conf ${result.opusReview.confidence.toFixed(2)})`
+                        : '';
+                    if (result.blockedByReview && result.opusReview) {
+                        recordEpisode({
+                            kind: 'self_mod_pr_rejected',
+                            summary: `Self-mod PR BLOCKED by Opus review (goal ${goalId}): ${result.opusReview.reasoning}`,
+                            detail: `Verdict: ${result.opusReview.verdict}\nConcerns:\n${result.opusReview.concerns.join('\n- ')}\nSuggestions:\n${result.opusReview.suggestions.join('\n- ')}`,
+                            tags: ['self-mod', 'pr-blocked-by-review', goalId],
+                        });
+                        addActivity({
+                            type: 'error',
+                            message: `Self-mod PR blocked by Opus review for goal ${goalId}: ${result.opusReview.reasoning.slice(0, 120)}`,
+                            metadata: { approvalId: id, goalId, opusReview: result.opusReview },
+                        });
+                        return;
+                    }
+                    recordEpisode({
+                        kind: 'self_mod_pr_merged',
+                        summary: `Self-mod PR applied: ${result.applied.length} file(s) landed, ${result.failed.length} failed (goal ${goalId})${opusNote}`,
+                        detail: `Applied: ${result.applied.join(', ')}\nFailed: ${result.failed.map(f => `${f.path} (${f.error})`).join(', ') || 'none'}\n${result.opusReview ? `Opus reasoning: ${result.opusReview.reasoning}` : ''}`,
+                        tags: ['self-mod', 'pr-merged', goalId],
+                    });
+                    addActivity({
+                        type: 'goal_completed',
+                        message: `Self-mod PR applied for goal ${goalId}: ${result.applied.length} file(s) → ${resolveSelfModTargetSafe()}, ${result.failed.length} failures${opusNote}`,
+                        metadata: { approvalId: id, goalId, applied: result.applied, failed: result.failed, opusReview: result.opusReview },
+                    });
+                } catch (err) {
+                    logger.warn('CommandPost', `[SelfModApply] Failed: ${(err as Error).message}`);
+                    addActivity({ type: 'error', message: `Self-mod PR apply failed for goal ${goalId}: ${(err as Error).message}`, metadata: { approvalId: id, goalId } });
+                }
+            })();
+        }
+        addActivity({ type: 'goal_completed', message: `Self-mod PR approved by ${decidedBy} — applying…`, metadata: { approvalId: id, goalId } });
     } else {
         addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
     }
 
     return approval;
+}
+
+// Small helper so the async apply block can log the resolved target without
+// threading loadConfig through — silently falls back to the default if the
+// config isn't loaded yet for any reason.
+function resolveSelfModTargetSafe(): string {
+    try {
+        const c = loadConfig();
+        const sm = (c.autonomy as unknown as { selfMod?: { target?: string } }).selfMod;
+        return sm?.target ?? '/opt/TITAN';
+    } catch { return '/opt/TITAN'; }
 }
 
 /**
@@ -1080,6 +1155,33 @@ export function rejectApproval(id: string, decidedBy: string, note?: string): CP
     const activityType: ActivityEntry['type'] =
         approval.type === 'goal_proposal' ? 'goal_proposal_rejected' : 'error';
     addActivity({ type: activityType, message: `Approval ${approval.type} rejected by ${decidedBy}${note ? `: ${note}` : ''}`, metadata: { approvalId: id, proposedBy: approval.requestedBy } });
+
+    // v4.9.0-local.8: when a self_mod_pr is rejected, archive the staging
+    // bundle so the files don't silently linger. Fire-and-forget.
+    if (
+        approval.type === 'custom'
+        && (approval.payload as Record<string, unknown>)?.kind === 'self_mod_pr'
+    ) {
+        const payload = approval.payload as Record<string, unknown>;
+        const goalId = payload.goalId as string | undefined;
+        if (goalId) {
+            (async () => {
+                try {
+                    const { rejectStagedPR } = await import('./selfModStaging.js');
+                    const r = rejectStagedPR(goalId, note ?? 'rejected without note');
+                    const { recordEpisode } = await import('../memory/episodic.js');
+                    recordEpisode({
+                        kind: 'self_mod_pr_rejected',
+                        summary: `Self-mod PR rejected for goal ${goalId}${note ? `: ${note}` : ''}`,
+                        detail: `Bundle archived: ${r.archived}`,
+                        tags: ['self-mod', 'pr-rejected', goalId],
+                    });
+                } catch (err) {
+                    logger.warn('CommandPost', `[SelfModReject] Failed: ${(err as Error).message}`);
+                }
+            })();
+        }
+    }
     return approval;
 }
 
@@ -1117,6 +1219,20 @@ export function requestGoalProposalApproval(
         subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
     },
 ): CPApproval {
+    // Dedupe: if a pending proposal with the same title already exists
+    // (regardless of which agent proposed it), return the existing one
+    // instead of filing a duplicate. Multiple specialists running the
+    // proposer concurrently were producing 3× the same goals every tick.
+    const normalizedTitle = proposal.title.trim().toLowerCase();
+    for (const existing of approvals.values()) {
+        if (existing.status !== 'pending') continue;
+        if (existing.type !== 'goal_proposal') continue;
+        const existingTitle = ((existing.payload as { title?: string })?.title || '').trim().toLowerCase();
+        if (existingTitle && existingTitle === normalizedTitle) {
+            logger.debug(COMPONENT, `goal_proposal dedupe: "${proposal.title}" already pending (approval ${existing.id}) — returning existing`);
+            return existing;
+        }
+    }
     const approval = createApproval({
         type: 'goal_proposal',
         requestedBy,
@@ -1139,6 +1255,86 @@ export function listApprovals(status?: string): CPApproval[] {
 
 export function getApproval(id: string): CPApproval | null {
     return approvals.get(id) || null;
+}
+
+// ─── v4.10.0-local (Phase B): approval categorization ─────────────
+
+export type ApprovalUrgency = 'high' | 'medium' | 'low';
+export type ApprovalCategory =
+    | 'driver_blocked'        // driver needs human input RIGHT NOW
+    | 'self_mod_pr'           // code change to TITAN awaiting review
+    | 'self_repair'           // self-repair daemon proposal
+    | 'goal_proposal'         // SOMA/proposer wants a new goal active
+    | 'hire_agent'            // create a new agent
+    | 'budget_override'       // spend more / continue past limit
+    | 'canary_regression'     // model quality drift detected
+    | 'other';
+
+export interface CategorizedApproval extends CPApproval {
+    category: ApprovalCategory;
+    urgency: ApprovalUrgency;
+    ageMins: number;
+    summary: string;
+}
+
+export function categorizeApproval(a: CPApproval): CategorizedApproval {
+    const payload = a.payload as Record<string, unknown>;
+    const kind = payload?.kind as string | undefined;
+    // Category
+    let category: ApprovalCategory = 'other';
+    if (kind === 'driver_blocked') category = 'driver_blocked';
+    else if (kind === 'self_mod_pr') category = 'self_mod_pr';
+    else if (kind === 'self_repair') category = 'self_repair';
+    else if (a.type === 'goal_proposal' || a.type === 'soma_proposal') category = 'goal_proposal';
+    else if (a.type === 'hire_agent') category = 'hire_agent';
+    else if (a.type === 'budget_override') category = 'budget_override';
+    else if (kind === 'canary_regression') category = 'canary_regression';
+
+    // Urgency
+    let urgency: ApprovalUrgency = 'low';
+    if (category === 'driver_blocked' || category === 'canary_regression') urgency = 'high';
+    else if (category === 'self_mod_pr' || category === 'self_repair' || category === 'hire_agent') urgency = 'medium';
+    // Explicit payload override wins
+    if (payload?.urgency === 'high') urgency = 'high';
+    if (payload?.urgency === 'medium' && urgency === 'low') urgency = 'medium';
+
+    // Summary line for the UI/digest
+    const summary =
+        (payload?.question as string) ||
+        (payload?.title as string) ||
+        (payload?.goalTitle as string) ||
+        (payload?.reason as string) ||
+        a.type;
+
+    return {
+        ...a,
+        category,
+        urgency,
+        ageMins: Math.round((Date.now() - new Date(a.createdAt).getTime()) / 60_000),
+        summary: String(summary).slice(0, 200),
+    };
+}
+
+export function listCategorizedApprovals(status: string = 'pending'): {
+    approvals: CategorizedApproval[];
+    byCategory: Record<ApprovalCategory, number>;
+    byUrgency: Record<ApprovalUrgency, number>;
+} {
+    const cats = listApprovals(status).map(categorizeApproval);
+    // Sort: urgency desc, age desc
+    const urgOrder: Record<ApprovalUrgency, number> = { high: 3, medium: 2, low: 1 };
+    cats.sort((a, b) => (urgOrder[b.urgency] - urgOrder[a.urgency]) || (b.ageMins - a.ageMins));
+
+    const byCategory: Record<ApprovalCategory, number> = {
+        driver_blocked: 0, self_mod_pr: 0, self_repair: 0, goal_proposal: 0,
+        hire_agent: 0, budget_override: 0, canary_regression: 0, other: 0,
+    };
+    const byUrgency: Record<ApprovalUrgency, number> = { high: 0, medium: 0, low: 0 };
+    for (const a of cats) {
+        byCategory[a.category]++;
+        byUrgency[a.urgency]++;
+    }
+    return { approvals: cats, byCategory, byUrgency };
 }
 
 // ─── Paperclip: Run Tracking ─────────────────────────────────────────────

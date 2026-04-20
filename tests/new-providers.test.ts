@@ -654,9 +654,11 @@ describe('Router — New Provider Aliases', () => {
     });
 
     describe('getAllProviders()', () => {
-        it('should return 35 total providers (4 core + 31 compat)', () => {
+        // v4.10.0-local: added claude-code (5th core provider). Total
+        // is now 37 (5 core + 32 compat).
+        it('should return 37 total providers (5 core + 32 compat)', () => {
             const all = getAllProviders();
-            expect(all.size).toBe(36);
+            expect(all.size).toBe(37);
         });
 
         it('should include venice, bedrock, and litellm in the provider map', () => {

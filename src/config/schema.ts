@@ -488,6 +488,18 @@ export const TitanConfigSchema = z.object({
     /** Whether the user has completed the web onboarding wizard */
     onboarded: z.boolean().default(false),
     agent: AgentConfigSchema.default({}),
+    /**
+     * Per-specialist model overrides. Keys are specialist ids
+     * (scout/builder/writer/analyst/sage). Values override the hardcoded
+     * default model from specialists.ts. Editable via the UI so the user
+     * can swap specialist models without a code change (e.g. point Sage
+     * at a local model when Claude Code is unavailable).
+     */
+    specialists: z.object({
+        overrides: z.record(z.string(), z.object({
+            model: z.string().optional(),
+        })).default({}),
+    }).default({}),
     organism: OrganismConfigSchema.default({}),
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
@@ -674,6 +686,88 @@ export const TitanConfigSchema = z.object({
         initiativeIntervalMs: z.number().default(60000),
         /** Enable event-driven proactive initiative (follow-ups, monitoring) */
         proactiveInitiative: z.boolean().default(false),
+        /**
+         * v4.9.0-local.8: self-modification scope & staging.
+         *
+         * When a goal has a tag that matches `tags`, any file-mutating
+         * tool call (write_file, edit_file, append_file, apply_patch)
+         * MUST target a path inside `target`. Writes to any other path
+         * are rejected by the toolRunner scope-lock. This stops the
+         * "TITAN hallucinates self-modifying its own framework but
+         * actually writes to /home/dj/titan-saas or /home/titan/"
+         * pattern observed 2026-04-18.
+         *
+         * When `staging` is enabled, writes to `target` are redirected
+         * to a per-goal staging directory and surface as `self_mod_pr`
+         * approvals — the human applies or rejects the diff.
+         */
+        selfMod: z.object({
+            /**
+             * Absolute path where self-modification is allowed to land.
+             * Defaults to the TITAN deployment root on Titan PC.
+             */
+            target: z.string().default('/opt/TITAN'),
+            /**
+             * Goal tags that activate scope-lock. If the active session's
+             * goal has ANY of these tags, writes are scope-locked to `target`.
+             */
+            tags: z.array(z.string()).default([
+                'self-healing', 'self-repair', 'self-mod', 'self-modification',
+                'core-framework', 'framework', 'architecture',
+                'core', 'autonomy',
+            ]),
+            /**
+             * When true, writes to `target` go through a human-approval PR
+             * gate (staged → approved → applied). When false, writes land
+             * directly (scope-lock still enforces target prefix).
+             */
+            staging: z.boolean().default(true),
+            /**
+             * Directory for staged self-mod bundles. Each approved goal
+             * gets its own subdir. Relative paths resolve under TITAN_HOME.
+             */
+            stagingDir: z.string().default('self-mod-staging'),
+            /**
+             * v4.10.0-local polish: Opus review gate. Before an approved
+             * self_mod_pr's files land in `target`, send the bundle to
+             * a strong reviewer model (Claude Opus via OpenRouter by
+             * default) for one final correctness + integration check.
+             * Local LLMs write the code; Opus reviews it.
+             */
+            reviewer: z.object({
+                enabled: z.boolean().default(true),
+                /**
+                 * Default: Claude Code CLI with Sonnet 4.5. Routes through
+                 * the `claude` CLI subprocess which uses Tony's MAX plan
+                 * OAuth — so effectively free for this use case (MAX is
+                 * ~$100/month flat with generous caps, not metered).
+                 *
+                 * DIFFERENT FAMILY than Builder (Qwen) = no correlated bugs.
+                 * Claude family is historically strongest at CRITIQUE.
+                 *
+                 * Setup (one-time on TITAN host):
+                 *   npm install -g @anthropic-ai/claude-code
+                 *   claude login   (signs in w/ MAX account; OAuth in ~/.claude/)
+                 *
+                 * Fallback alternatives:
+                 *   'openrouter/qwen/qwen3.6-plus'          (free on OpenRouter but same family as Builder)
+                 *   'openrouter/anthropic/claude-sonnet-4.6' (paid, ~$0.02/review)
+                 *   'openrouter/anthropic/claude-opus-4.6'   (paid, ~$0.15/review)
+                 *
+                 * If `claude` CLI isn't installed on TITAN host, reviewer
+                 * returns 'skipped' and the apply proceeds (fail-open).
+                 */
+                model: z.string().default('claude-code/sonnet-4.5'),
+                maxDiffChars: z.number().default(50_000),
+                blockOnReject: z.boolean().default(true),
+                /** v4.10.0-local polish: cost caps. Qwen3.6-plus is free so these
+                 *  rarely bite; but if reviewer model is ever switched to a paid
+                 *  one, these prevent runaway bills. Current: $9.54 OpenRouter budget. */
+                maxPerReviewUsd: z.number().default(0.25),
+                maxDailyUsd: z.number().default(1.50),
+                maxMonthlyUsd: z.number().default(5.00),
+            }).default({}),
+        }).default({}),
     }).default({}),
     subAgents: z.object({
         /** Enable sub-agent spawning */

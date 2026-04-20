@@ -53,8 +53,22 @@ export interface SelfRepairFinding {
 
 const findingsByKey = new Map<string, SelfRepairFinding>();
 
+/**
+ * Build a stable dedupe key for a finding. Uses stable identity fields
+ * only — driveId / goalId — since the full evidence includes ticking
+ * counters like `sampleCount` and rounding-prone numbers like
+ * `avgSatisfaction` that make every sweep look like a new finding.
+ *
+ * Matches the stable-key logic in fileRepairApproval so in-memory
+ * dedupe and approval-queue dedupe stay aligned.
+ */
 function findingKey(f: Pick<SelfRepairFinding, 'kind' | 'evidence'>): string {
-    return `${f.kind}:${JSON.stringify(f.evidence)}`;
+    const ev = (f.evidence || {}) as Record<string, unknown>;
+    const id = (ev.driveId as string | undefined)
+        ?? (ev.goalId as string | undefined)
+        ?? (ev.patternId as string | undefined)
+        ?? '';
+    return `${f.kind}:${id}`;
 }
 
 // ── The watcher ──────────────────────────────────────────────────
@@ -229,17 +243,29 @@ async function fileRepairApproval(finding: SelfRepairFinding): Promise<void> {
         // pending approval would get re-filed. Before creating a new
         // approval, scan the approval queue for an existing pending
         // self_repair approval with the same finding kind + evidence.
+        // v4.10.0-local: tighter dedupe. Earlier we deep-compared `evidence`,
+        // but evidence contains `sampleCount` which ticks upward (360 → 364 →
+        // 366) — so the "same" finding generated a fresh approval every sweep.
+        // Now we match on stable identity fields only: finding.kind + driveId
+        // (for drive-stuck findings) OR finding.kind + goalId (for goal-stuck)
+        // OR just finding.kind otherwise.
         try {
             const approvals = cp.listApprovals?.() ?? [];
-            const duplicate = approvals.find((a: { status?: string; type?: string; payload?: Record<string, unknown>; createdAt?: string }) =>
-                a.status === 'pending'
-                && a.type === 'custom'
-                && a.payload?.kind === 'self_repair'
-                && a.payload?.finding === finding.kind
-                && JSON.stringify(a.payload?.evidence) === JSON.stringify(finding.evidence),
-            );
+            const ourEvidence = finding.evidence as Record<string, unknown>;
+            const stableKey =
+                (ourEvidence.driveId as string | undefined) ??
+                (ourEvidence.goalId as string | undefined) ??
+                '';
+            const duplicate = approvals.find((a: { status?: string; type?: string; payload?: Record<string, unknown>; createdAt?: string }) => {
+                if (a.status !== 'pending' || a.type !== 'custom') return false;
+                if (a.payload?.kind !== 'self_repair') return false;
+                if (a.payload?.finding !== finding.kind) return false;
+                const ev = (a.payload?.evidence as Record<string, unknown>) || {};
+                const theirKey = (ev.driveId as string | undefined) ?? (ev.goalId as string | undefined) ?? '';
+                return theirKey === stableKey;
+            });
             if (duplicate) {
-                logger.debug(COMPONENT, `Skipping duplicate self_repair approval for ${finding.kind} (existing approval is already pending)`);
+                logger.debug(COMPONENT, `Skipping duplicate self_repair approval for ${finding.kind}/${stableKey} (existing approval ${(duplicate as { id?: string }).id ?? 'unknown'} pending)`);
                 return;
             }
         } catch { /* fall through — if listApprovals fails, still try to create */ }

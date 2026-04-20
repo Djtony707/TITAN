@@ -1819,6 +1819,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
+    // User-initiated opt-in for Claude Code. The provider hard-rejects any
+    // call without this flag to protect the CLI quota from autonomous burn.
+    // Only set it here when the caller explicitly picked a claude-code model.
+    const allowClaudeCode = typeof requestedModel === 'string' && requestedModel.startsWith('claude-code/');
+
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
 
@@ -1940,7 +1945,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           onRound: (round, maxRounds) => {
             safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
           },
-        }, agentId, abortController.signal, requestedSessionId, requestedModel);
+        }, agentId, abortController.signal, requestedSessionId, requestedModel, allowClaudeCode);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -1969,7 +1974,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId, requestedModel);
+        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId, requestedModel, allowClaudeCode);
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -3990,10 +3995,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Paperclip: Agent Updates (org chart fields) ──────────
-  app.patch('/api/command-post/agents/:id', (req, res) => {
-    const { reportsTo, role, title, name } = req.body;
+  app.patch('/api/command-post/agents/:id', async (req, res) => {
+    const { reportsTo, role, title, name, status } = req.body;
     const updated = updateRegisteredAgent(req.params.id, { reportsTo, role, title, name });
     if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
+    // v4.10.0-local polish: also allow status changes via PATCH so the
+    // UI + API can pause/resume agents. Valid statuses enforced by the
+    // updateAgentStatus impl.
+    if (status && typeof status === 'string') {
+      try {
+        const { updateAgentStatus } = await import('../agent/commandPost.js');
+        updateAgentStatus(req.params.id, status as 'active' | 'idle' | 'paused' | 'error' | 'stopped');
+      } catch { /* ok */ }
+    }
     res.json(updated);
   });
 
@@ -4055,6 +4069,102 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // v4.10.0-local polish: reviewer budget — shows cost spent + caps
+  app.get('/api/safety/reviewer-budget', async (_req, res) => {
+    try {
+      const { getReviewerBudget } = await import('../safety/opusReview.js');
+      res.json(getReviewerBudget());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v4.10.0-local polish: Claude Code quota watchdog snapshot.
+  // Used by Settings UI + diagnostics to see how close we are to the
+  // MAX-plan interactive quota throttle (default 60%) and whether a
+  // rate-limit backoff is active. Protects interactive quota from
+  // automated burn by Sage/reviewer/external adapters.
+  app.get('/api/providers/claude-code/budget', async (_req, res) => {
+    try {
+      const { getSnapshot } = await import('../providers/claudeCodeBudget.js');
+      res.json(getSnapshot());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Manual clear of rate-limit backoff (diagnostics / ops)
+  app.post('/api/providers/claude-code/clear-rate-limit', async (_req, res) => {
+    try {
+      const { clearRateLimit, getSnapshot } = await import('../providers/claudeCodeBudget.js');
+      clearRateLimit();
+      res.json({ ok: true, snapshot: getSnapshot() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Specialists (per-agent model config) ─────────────────────
+  // Returns all specialists with their effective model (base + any
+  // user override from config.specialists.overrides). The UI uses this
+  // to render a per-specialist model selector.
+  app.get('/api/specialists', async (_req, res) => {
+    try {
+      const { listSpecialists, SPECIALISTS } = await import('../agent/specialists.js');
+      const resolved = listSpecialists();
+      const { loadConfig } = await import('../config/config.js');
+      const overrides = loadConfig().specialists?.overrides ?? {};
+      res.json({
+        specialists: resolved.map(s => {
+          const base = SPECIALISTS.find(b => b.id === s.id);
+          return {
+            id: s.id,
+            name: s.name,
+            role: s.role,
+            title: s.title,
+            defaultModel: base?.model ?? s.model,
+            activeModel: s.model,
+            overridden: !!overrides[s.id]?.model,
+          };
+        }),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Update a specialist's model. Pass `{ model: null }` or `{ model: '' }`
+  // to clear the override and revert to the hardcoded default.
+  app.patch('/api/specialists/:id', async (req, res) => {
+    try {
+      const specialistId = req.params.id;
+      const { SPECIALISTS } = await import('../agent/specialists.js');
+      const exists = SPECIALISTS.some(s => s.id === specialistId);
+      if (!exists) {
+        res.status(404).json({ error: `Unknown specialist: ${specialistId}` });
+        return;
+      }
+      const newModel = typeof req.body?.model === 'string' ? req.body.model.trim() : null;
+      const { loadConfig, saveConfig } = await import('../config/config.js');
+      const cfg = loadConfig();
+      const overrides = { ...(cfg.specialists?.overrides ?? {}) };
+      if (!newModel) {
+        delete overrides[specialistId];
+      } else {
+        overrides[specialistId] = { model: newModel };
+      }
+      const nextCfg = {
+        ...cfg,
+        specialists: { overrides },
+      };
+      saveConfig(nextCfg);
+      logger.info(COMPONENT, `Specialist model updated: ${specialistId} → ${newModel || '(default)'}`);
+      res.json({ ok: true, id: specialistId, model: newModel || null });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.post('/api/safety/resume', async (req, res) => {
     try {
       const note = (req.body?.note as string) || 'resumed via API (no note)';
@@ -4062,6 +4172,440 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { resume } = await import('../safety/killSwitch.js');
       const state = resume(note, resumedBy);
       res.json(state);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── v4.10.0-local (Phase A): Goal Driver API ─────────────────
+  // List active drivers (non-terminal phases)
+  app.get('/api/drivers', async (_req, res) => {
+    try {
+      const { listActiveDrivers } = await import('../agent/goalDriver.js');
+      const { getSchedulerStats } = await import('../agent/driverScheduler.js');
+      res.json({
+        drivers: listActiveDrivers(),
+        scheduler: getSchedulerStats(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Driver state detail
+  app.get('/api/drivers/:goalId', async (req, res) => {
+    try {
+      const { getDriverState } = await import('../agent/goalDriver.js');
+      const s = getDriverState(req.params.goalId);
+      if (!s) { res.status(404).json({ error: 'No driver for goal' }); return; }
+      res.json(s);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Pause a driver (skips ticks until resumed)
+  app.post('/api/drivers/:goalId/pause', async (req, res) => {
+    try {
+      const { pauseDriver } = await import('../agent/goalDriver.js');
+      const ok = pauseDriver(req.params.goalId);
+      if (!ok) { res.status(404).json({ error: 'No driver for goal' }); return; }
+      res.json({ status: 'paused' });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Resume a paused driver
+  app.post('/api/drivers/:goalId/resume', async (req, res) => {
+    try {
+      const { resumeDriverControl } = await import('../agent/goalDriver.js');
+      const ok = resumeDriverControl(req.params.goalId);
+      if (!ok) { res.status(404).json({ error: 'No driver for goal' }); return; }
+      res.json({ status: 'resumed' });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Cancel a driver (hard stop — driver transitions to cancelled on next tick)
+  app.post('/api/drivers/:goalId/cancel', async (req, res) => {
+    try {
+      const { cancelDriver } = await import('../agent/goalDriver.js');
+      const ok = cancelDriver(req.params.goalId);
+      if (!ok) { res.status(404).json({ error: 'No driver for goal' }); return; }
+      res.json({ status: 'cancel-requested' });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v4.10.0-local: force-unblock a driver stuck on a machine-level error
+  // (parse failure, bogus auto-generated needs_info). Auto-rejects the
+  // approval and transitions the driver to 'iterating' so it retries.
+  app.post('/api/drivers/:goalId/unblock', async (req, res) => {
+    try {
+      const { forceUnblockDriver } = await import('../agent/goalDriver.js');
+      const note = (req.body?.note as string) || 'manual force-unblock';
+      const ok = await forceUnblockDriver(req.params.goalId, note);
+      if (!ok) { res.status(404).json({ error: 'No blocked driver for goal' }); return; }
+      res.json({ status: 'unblocked' });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Bulk: unblock every driver currently blocked on a parse-error / bogus
+  // approval. Matches drivers whose blockedReason.question starts with
+  // "No structured JSON" or contains generic "what is your status".
+  app.post('/api/drivers/unblock-parse-errors', async (_req, res) => {
+    try {
+      const { listAllDrivers, forceUnblockDriver } = await import('../agent/goalDriver.js');
+      const drivers = listAllDrivers();
+      const unblocked: string[] = [];
+      for (const d of drivers) {
+        if (d.phase !== 'blocked') continue;
+        const q = d.blockedReason?.question || '';
+        // Match all machine-level JSON/parse failures across the three
+        // code paths that can produce them (extractJsonBlock miss,
+        // JSON.parse throw, sub-agent circuit-breaker bubble-up).
+        if (/no structured json|what is your status|parser could not|could not parse response json|expected property|unexpected token|json\.parse/i.test(q)) {
+          const ok = await forceUnblockDriver(d.goalId, 'bulk parse-error unblock');
+          if (ok) unblocked.push(d.goalId);
+        }
+      }
+      res.json({ count: unblocked.length, unblocked });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Bulk: unblock every driver stuck on budget exhaustion. Halves the
+  // retry counter so the driver has headroom to retry with whatever
+  // underlying fix was just deployed (new model, new verifier, etc.).
+  app.post('/api/drivers/unblock-budget', async (_req, res) => {
+    try {
+      const { listAllDrivers, forceUnblockDriver } = await import('../agent/goalDriver.js');
+      const drivers = listAllDrivers();
+      const unblocked: string[] = [];
+      for (const d of drivers) {
+        if (d.phase !== 'blocked') continue;
+        const q = d.blockedReason?.question || '';
+        const kind = d.blockedReason?.kind || '';
+        if (kind === 'budget_exceeded' || /budget.*exceed|retries exceed/i.test(q)) {
+          const ok = await forceUnblockDriver(d.goalId, 'bulk budget unblock');
+          if (ok) unblocked.push(d.goalId);
+        }
+      }
+      res.json({ count: unblocked.length, unblocked });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Change priority (1 = highest, 5 = lowest). Scheduler honors on next tick.
+  app.post('/api/drivers/:goalId/reprioritize', async (req, res) => {
+    try {
+      const priority = Number(req.body?.priority) as 1 | 2 | 3 | 4 | 5;
+      if (![1, 2, 3, 4, 5].includes(priority)) {
+        res.status(400).json({ error: 'priority must be 1-5' }); return;
+      }
+      const { reprioritizeDriver } = await import('../agent/goalDriver.js');
+      const ok = reprioritizeDriver(req.params.goalId, priority);
+      if (!ok) { res.status(404).json({ error: 'No driver for goal' }); return; }
+      res.json({ status: 'reprioritized', priority });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Rollback — one-click shadow-git revert of all writes attributed to the goal
+  app.post('/api/drivers/:goalId/rollback', async (req, res) => {
+    try {
+      const { rollbackGoal } = await import('../agent/rollbackGoal.js');
+      const result = await rollbackGoal(req.params.goalId);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Force-tick a driver (for debugging + external UI "advance now")
+  app.post('/api/drivers/:goalId/tick', async (req, res) => {
+    try {
+      const { tickDriver } = await import('../agent/goalDriver.js');
+      const phase = await tickDriver(req.params.goalId);
+      res.json({ phase });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: daily digest ─────────────────────────────────────
+  app.get('/api/digest/today', async (_req, res) => {
+    try {
+      const { getLatestDigest } = await import('../agent/dailyDigest.js');
+      const d = getLatestDigest();
+      if (!d) { res.status(404).json({ error: 'No digest generated yet' }); return; }
+      res.json(d);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/digest/:date', async (req, res) => {
+    try {
+      const { getDigestByDate } = await import('../agent/dailyDigest.js');
+      const d = getDigestByDate(req.params.date);
+      if (!d) { res.status(404).json({ error: 'No digest for that date' }); return; }
+      res.json(d);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/digest/generate', async (_req, res) => {
+    try {
+      const { generateDigest } = await import('../agent/dailyDigest.js');
+      const d = await generateDigest();
+      res.json(d);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: categorized approval list ─────────────────────────
+  app.get('/api/approvals/categorized', async (req, res) => {
+    try {
+      const { listCategorizedApprovals } = await import('../agent/commandPost.js');
+      const status = (req.query.status as string) || 'pending';
+      res.json(listCategorizedApprovals(status));
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: drive trend API ─────────────────────────────────
+  app.get('/api/drives/history', async (req, res) => {
+    try {
+      const hours = Number(req.query.hours) || 24;
+      const { readFileSync, existsSync } = await import('fs');
+      const { join } = await import('path');
+      const { TITAN_HOME } = await import('../utils/constants.js');
+      const path = join(TITAN_HOME, 'drive-state.json');
+      if (!existsSync(path)) { res.status(404).json({ error: 'No drive state file' }); return; }
+      const state = JSON.parse(readFileSync(path, 'utf-8'));
+      const history = (state.history || []) as Array<{ timestamp: string; satisfactions?: Record<string, number>; pressures?: Record<string, number> }>;
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
+      const filtered = history.filter(h => {
+        const t = h.timestamp ? new Date(h.timestamp).getTime() : 0;
+        return t >= cutoff;
+      });
+      res.json({ hours, count: filtered.length, history: filtered });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: retrospectives (listing experiments from the driver) ──
+  app.get('/api/retrospectives', async (_req, res) => {
+    try {
+      const { listExperiments } = await import('../memory/experiments.js');
+      const all = listExperiments(200).filter(e => (e.tags || []).includes('goal-driver'));
+      res.json({ count: all.length, retrospectives: all });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: throttle stats (diagnostic) ───────────────────────
+  app.get('/api/drivers/throttle/stats', async (_req, res) => {
+    try {
+      const { getThrottleStats } = await import('../agent/notificationThrottle.js');
+      res.json(getThrottleStats());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase C: missions ─────────────────────────────────────────
+  app.get('/api/missions', async (_req, res) => {
+    try {
+      const { listActiveMissions } = await import('../agent/missionDriver.js');
+      res.json({ missions: listActiveMissions() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/missions', async (req, res) => {
+    try {
+      const { title, description, children, tags } = req.body as {
+        title: string; description: string; requestedBy?: string;
+        children?: Array<{ goalId: string; title: string; dependsOn?: string[] }>;
+        tags?: string[];
+      };
+      if (!title || !description) {
+        res.status(400).json({ error: 'title + description required' }); return;
+      }
+      const { createMission } = await import('../agent/missionDriver.js');
+      const mission = createMission({
+        title,
+        description,
+        requestedBy: req.body?.requestedBy || 'api',
+        children,
+        tags,
+      });
+      res.json(mission);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/missions/:id', async (req, res) => {
+    try {
+      const { getMissionState } = await import('../agent/missionDriver.js');
+      const m = getMissionState(req.params.id);
+      if (!m) { res.status(404).json({ error: 'Mission not found' }); return; }
+      res.json(m);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/missions/:id/tick', async (req, res) => {
+    try {
+      const { tickMission } = await import('../agent/missionDriver.js');
+      res.json({ phase: await tickMission(req.params.id) });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/missions/:id/cancel', async (req, res) => {
+    try {
+      const { cancelMission } = await import('../agent/missionDriver.js');
+      const ok = cancelMission(req.params.id);
+      if (!ok) { res.status(404).json({ error: 'Mission not found' }); return; }
+      res.json({ status: 'cancelled' });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase C: fleet status + routing preview ──────────────────
+  app.get('/api/fleet', async (_req, res) => {
+    try {
+      const { getFleetState } = await import('../agent/machineRouter.js');
+      res.json({ fleet: getFleetState() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/fleet/route', async (req, res) => {
+    try {
+      const tags = (req.body?.tags as string[]) || [];
+      const { routeGoalToMachine } = await import('../agent/machineRouter.js');
+      res.json(routeGoalToMachine(tags));
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── v4.10.0-local polish: Edited Files + Research (for Command Post UI) ──
+  app.get('/api/files/edited', async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 200, 1000);
+      const { listEditedFiles } = await import('../agent/editedFiles.js');
+      res.json({ files: listEditedFiles(limit) });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/files/content', async (req, res) => {
+    try {
+      const path = (req.query.path as string) || '';
+      if (!path) { res.status(400).json({ error: 'path query param required' }); return; }
+      const { readEditedFileContent } = await import('../agent/editedFiles.js');
+      const result = readEditedFileContent(path);
+      if ('error' in result) { res.status(403).json(result); return; }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/research/recent', async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 30, 200);
+      const { listResearch } = await import('../agent/editedFiles.js');
+      res.json({ research: listResearch(limit) });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase D: playbooks ──────────────────────────────────────
+  app.get('/api/playbooks', async (_req, res) => {
+    try {
+      const { listPlaybooks } = await import('../agent/playbooks.js');
+      res.json({ playbooks: listPlaybooks() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/playbooks/refresh', async (_req, res) => {
+    try {
+      const { refreshPlaybooks } = await import('../agent/playbooks.js');
+      res.json(await refreshPlaybooks());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/playbooks/match', async (req, res) => {
+    try {
+      const { title, tags } = req.body as { title: string; tags?: string[] };
+      if (!title) { res.status(400).json({ error: 'title required' }); return; }
+      const { findPlaybookForGoal } = await import('../agent/playbooks.js');
+      const pb = findPlaybookForGoal(title, tags);
+      if (!pb) { res.status(404).json({ match: null }); return; }
+      res.json({ match: pb });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase D: voice chat endpoint ─────────────────────────────
+  // POST /api/voice/ask
+  // Body: { question: string, voice?: string, speak?: boolean }
+  // Returns: { answer: string, ttsUrl?: string, activeDrivers: number }
+  // Wraps processMessage so voice clients (LiveKit / F5-TTS front-ends)
+  // get a single endpoint that knows about drivers (via driverAwareChat
+  // system prompt block) and optionally returns a TTS URL.
+  app.post('/api/voice/ask', async (req, res) => {
+    try {
+      const { question, voice, speak } = req.body as { question: string; voice?: string; speak?: boolean };
+      if (!question || typeof question !== 'string') {
+        res.status(400).json({ error: 'question required' }); return;
+      }
+      const { processMessage } = await import('../agent/agent.js');
+      const result = await processMessage(question, 'voice', 'voice-user', {
+        strategy: 'direct',
+      });
+      const { listActiveDrivers } = await import('../agent/goalDriver.js');
+      const activeDrivers = listActiveDrivers().length;
+      const answer = result.content || 'I don\'t have an answer right now.';
+      // Optional TTS URL — F5-TTS server runs on port 5006 on Titan PC.
+      // If speak is true, include a URL the client can call; we don't
+      // synthesize server-side to avoid double-handling large audio blobs.
+      const ttsUrl = speak
+        ? `http://localhost:5006/tts?voice=${encodeURIComponent(voice || 'default')}&text=${encodeURIComponent(answer.slice(0, 500))}`
+        : undefined;
+      res.json({ answer, ttsUrl, activeDrivers, sessionId: result.sessionId });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -7288,6 +7832,19 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.warn(COMPONENT, `Self-model bootstrap skipped: ${(e as Error).message}`);
   }
 
+  // v4.10.0-local (Phase B): install driver-status provider. Appends
+  // live driver phase + blocked questions into the agent's system prompt,
+  // so "what are you working on?" gets a real answer.
+  try {
+    const { renderDriverStatusBlock } = await import('../agent/driverAwareChat.js');
+    (globalThis as unknown as { __titan_driver_status_block?: () => string | null }).__titan_driver_status_block = () => {
+      try { return renderDriverStatusBlock(); } catch { return null; }
+    };
+    logger.info(COMPONENT, 'Driver-aware chat provider installed');
+  } catch (e) {
+    logger.warn(COMPONENT, `Driver-aware chat skipped: ${(e as Error).message}`);
+  }
+
   // v4.9.0: install closed-loop signal providers for Soma drives. These
   // let the drive layer read live VRAM / telemetry / learning state via
   // a synchronous call without pulling in the whole dependency graph.
@@ -7331,12 +7888,13 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     };
 
     // Unresolved error patterns from the learning KB.
+    // v4.10.0-local fix: use the new `unresolvedErrorPatterns` field that
+    // filters by !resolution. Prior behavior used total count, which meant
+    // marking patterns resolved didn't relieve curiosity drive pressure.
     g.__titan_unresolved_error_patterns = () => {
       try {
         const stats = getLearningStats();
-        // getLearningStats returns total pattern count; the drive uses
-        // that directly — "unresolved" is a safe upper bound here.
-        return stats.errorPatterns ?? 0;
+        return stats.unresolvedErrorPatterns ?? stats.errorPatterns ?? 0;
       } catch { return 0; }
     };
 
@@ -7359,6 +7917,49 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.info(COMPONENT, 'Self-repair daemon registered (5 min cadence)');
   } catch (e) {
     logger.warn(COMPONENT, `Self-repair daemon skipped: ${(e as Error).message}`);
+  }
+
+  // v4.10.0-local (Phase A): start the Goal Driver scheduler. This replaces
+  // the passive "initiative picks one subtask per 5-min autopilot tick"
+  // model with a persistent phase state machine per goal. Restart-safe:
+  // resumes any non-terminal drivers from ~/.titan/driver-state/.
+  try {
+    const { registerSomaVerifier } = await import('../agent/somaFeedback.js');
+    registerSomaVerifier();
+    const { startDriverScheduler, resumeDriversAfterRestart } = await import('../agent/driverScheduler.js');
+    const resumed = await resumeDriversAfterRestart();
+    logger.info(COMPONENT, `Goal Driver resume: ${resumed.resumed} drivers re-activated, ${resumed.cancelled} cancelled (goal no longer active)`);
+    startDriverScheduler(10_000, 5); // 10s tick, max 5 concurrent drivers
+  } catch (e) {
+    logger.warn(COMPONENT, `Goal Driver scheduler bootstrap skipped: ${(e as Error).message}`);
+  }
+
+  // v4.10.0-local (Phase B): daily digest cron. Generates a TL;DR at 9am
+  // PDT + on every restart (so /api/digest/today always has fresh data).
+  try {
+    const { startDailyDigestCron } = await import('../agent/dailyDigest.js');
+    startDailyDigestCron();
+  } catch (e) {
+    logger.warn(COMPONENT, `Daily digest cron skipped: ${(e as Error).message}`);
+  }
+
+  // v4.10.0-local (Phase C): mission scheduler — ticks active missions
+  // (driver-of-drivers) every 15s. Missions coordinate multi-goal projects.
+  try {
+    const { listActiveMissions, tickMission } = await import('../agent/missionDriver.js');
+    const missionTimer = setInterval(() => {
+      void (async () => {
+        try {
+          for (const m of listActiveMissions()) {
+            try { await tickMission(m.missionId); } catch { /* ok */ }
+          }
+        } catch { /* ok */ }
+      })();
+    }, 15_000);
+    missionTimer.unref?.();
+    logger.info(COMPONENT, 'Mission scheduler started (15s cadence)');
+  } catch (e) {
+    logger.warn(COMPONENT, `Mission scheduler skipped: ${(e as Error).message}`);
   }
 
   // v4.9.0-local.4: register the working-memory retire watcher. Every

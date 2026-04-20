@@ -547,6 +547,7 @@ ${(() => {
         const g = globalThis as unknown as {
             __titan_identity_block?: () => string;
             __titan_self_model_block?: () => string;
+            __titan_driver_status_block?: () => string | null;
         };
         const parts: string[] = [];
         if (typeof g.__titan_identity_block === 'function') {
@@ -557,6 +558,12 @@ ${(() => {
         // (track record, strengths, weaknesses, integrity). Cached 60s.
         if (typeof g.__titan_self_model_block === 'function') {
             const block = g.__titan_self_model_block();
+            if (block) parts.push(block);
+        }
+        // v4.10.0-local (Phase B): driver status — real current state so
+        // "what are you up to?" gets a truthful answer from live data.
+        if (typeof g.__titan_driver_status_block === 'function') {
+            const block = g.__titan_driver_status_block();
             if (block) parts.push(block);
         }
         if (parts.length > 0) return '\n\n' + parts.join('\n\n');
@@ -997,6 +1004,9 @@ export async function processMessage(
          *  tool outputs back to the originating Soma drive for the
          *  self-modification pipeline. */
         goalContext?: { goalId: string; goalTitle: string; proposedBy: string };
+        /** Explicit opt-in for Claude Code CLI usage. Only set by user-initiated
+         *  UI/API chat when the requested model is a `claude-code/*` id. */
+        allowClaudeCode?: boolean;
     },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
@@ -1593,6 +1603,7 @@ export async function processMessage(
         completionStrategy: pipelineCompletionStrategy,
         pipelineType,
         minRounds: pipelineMinRounds,
+        allowClaudeCode: overrides?.allowClaudeCode,
     });
 
     // Unpack results
@@ -1654,6 +1665,7 @@ export async function processMessage(
                 isKimiSwarm,
                 selfHealEnabled: false,
                 thinkingOverride: session.thinkingOverride,
+                allowClaudeCode: overrides?.allowClaudeCode,
             });
 
             if (retryResult.content) finalContent = retryResult.content;
