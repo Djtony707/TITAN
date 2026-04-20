@@ -81,7 +81,7 @@ function matchesAny(err: string, patterns: RegExp[]): boolean {
 const CODE_MODEL_LADDER = [
     undefined, // primary — Builder's qwen3-coder-next:cloud
     'ollama/glm-5:cloud',
-    'ollama/gemma4:31b',
+    'ollama/gemma4:31b-cloud',
     'ollama/gemma4:31b', // local fallback if Ollama cloud is down
 ];
 
@@ -93,14 +93,14 @@ const RESEARCH_MODEL_LADDER = [
 ];
 
 const WRITE_MODEL_LADDER = [
-    undefined, // primary — Writer's gemma4:cloud
+    undefined, // primary — Writer's gemma4:31b-cloud
     'ollama/gemini-3-flash-preview:cloud',
     'ollama/glm-5:cloud',
     'ollama/gemma4:31b', // local fallback
 ];
 
 const ANALYSIS_MODEL_LADDER = [
-    undefined, // primary — Analyst's qwen3.5:cloud
+    undefined, // primary — Analyst's qwen3.5:397b-cloud
     'ollama/glm-5:cloud',
     'ollama/nemotron-3-super:cloud',
     'ollama/gemma4:31b', // local fallback
