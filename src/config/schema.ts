@@ -31,6 +31,15 @@ export const ProviderConfigSchema = z.object({
     rotationStrategy: z.enum(['priority', 'round-robin', 'least-used']).default('priority'),
     /** Cooldown duration in ms when a credential is exhausted (default: 60s) */
     credentialCooldownMs: z.number().default(60000),
+    /**
+     * Ollama-only: when true, transparently re-route `ollama/*:cloud` model
+     * requests to OpenRouter for parallel processing. Added when Ollama
+     * cloud's proxy was single-connection; now obsolete on the Pro/Max
+     * plans which support concurrent sessions. Default false — user's
+     * `ollama/*:cloud` requests hit Ollama, as expected. Set true only if
+     * you specifically want the OpenRouter fallback.
+     */
+    cloudBypass: z.boolean().default(false),
 });
 
 export const ChannelConfigSchema = z.object({

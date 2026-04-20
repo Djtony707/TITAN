@@ -1748,7 +1748,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           providers: {
             ...cfg.providers,
             openrouter: {
-              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [], rotationStrategy: 'priority' as const, credentialCooldownMs: 60000 }),
+              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [], rotationStrategy: 'priority' as const, credentialCooldownMs: 60000, cloudBypass: false }),
               apiKey: openrouterKey,
               baseUrl: cloudApi + '/api/v1',
             }

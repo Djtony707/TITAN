@@ -149,10 +149,13 @@ function resolveAlias(modelId: string): string {
     return modelId;
 }
 
-// ── Cloud model → OpenRouter bypass ──────────────────────────────────
-// Ollama's cloud proxy is single-connection (sequential). When multiple agents
-// send requests simultaneously, they queue. Bypass by routing :cloud models
-// directly to OpenRouter for parallel processing.
+// ── Cloud model → OpenRouter bypass (opt-in, v4.13+) ─────────────────
+// Historical context: Ollama's free/Pro-tier cloud proxy was single-
+// connection (sequential). When multiple agents sent requests, they queued,
+// so this bypass re-routed :cloud models to OpenRouter for parallelism.
+// Ollama's Max plan now supports 10 concurrent sessions — the bypass is no
+// longer needed for that tier and actively misdirects paid Ollama quota to
+// OpenRouter. Gated on config.providers.ollama.cloudBypass (default false).
 const CLOUD_TO_OPENROUTER: Record<string, string> = {
     'qwen3-coder-next:cloud': 'qwen/qwen3-coder',
     'qwen3.5:397b-cloud': 'qwen/qwen-3.5-397b',
@@ -174,15 +177,25 @@ export function resolveModel(modelId: string): { provider: LLMProvider; model: s
     const { provider: rawProviderName, model } = LLMProvider.parseModelId(resolved);
 
     // ── Cloud bypass: route :cloud models to OpenRouter for parallel processing ──
+    // Opt-in via providers.ollama.cloudBypass (default false) — preserves
+    // the user's intent when they pick an Ollama cloud model.
     if ((model.includes(':cloud') || model.includes('-cloud')) && rawProviderName === 'ollama') {
-        const orProvider = providers.get('openrouter');
-        const orModel = CLOUD_TO_OPENROUTER[model];
-        if (orProvider && orModel) {
-            logger.info(COMPONENT, `[CloudBypass] ${model} → openrouter/${orModel} (parallel-capable)`);
-            return { provider: orProvider, model: orModel };
+        let bypassEnabled = false;
+        try {
+            const cfg = loadConfig();
+            bypassEnabled = Boolean(
+                (cfg.providers?.ollama as unknown as { cloudBypass?: boolean } | undefined)?.cloudBypass,
+            );
+        } catch { /* config unavailable — default to no bypass */ }
+        if (bypassEnabled) {
+            const orProvider = providers.get('openrouter');
+            const orModel = CLOUD_TO_OPENROUTER[model];
+            if (orProvider && orModel) {
+                logger.info(COMPONENT, `[CloudBypass] ${model} → openrouter/${orModel} (opt-in enabled)`);
+                return { provider: orProvider, model: orModel };
+            }
+            logger.debug(COMPONENT, `[CloudBypass] No OpenRouter mapping for ${model}, keeping on Ollama`);
         }
-        // Fallback: unknown cloud model, keep on Ollama
-        logger.debug(COMPONENT, `[CloudBypass] No OpenRouter mapping for ${model}, keeping on Ollama`);
     }
 
     // Normalize provider name (e.g. "grok" → "xai", "local" → "ollama")
