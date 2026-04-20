@@ -44,8 +44,7 @@ export class EmailInboundChannel extends ChannelAdapter {
             const pass = channelConfig.apiKey;
             if (!pass) throw new Error('IMAP password not configured (set channels.email_inbound.apiKey)');
 
-            // TODO: Install imapflow: npm install imapflow
-            // @ts-expect-error — imapflow is an optional dependency
+            // imapflow is an optional dependency — resolved dynamically at runtime
             const { ImapFlow } = await import('imapflow');
             const client = new ImapFlow({
                 host,

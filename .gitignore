@@ -40,5 +40,10 @@ src/skills/personal/
 **/voices/*.wav
 **/voices/*.txt
 
-# Handoff documents — local-only, never committed
+# Handoff + audit documents — local-only, never committed
 HANDOFF*.md
+AUDIT*.md
+
+# Stray scratch files — keep out of commits
+ai_poem.txt
+pingpong.py

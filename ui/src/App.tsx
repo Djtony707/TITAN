@@ -6,6 +6,7 @@ import { ToastProvider } from '@/components/shared/Toast';
 import { LoginPage } from '@/components/LoginPage';
 import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { FirstRunBanner } from '@/components/FirstRunBanner';
+import { OpenAuthBanner } from '@/components/OpenAuthBanner';
 import { apiFetch } from '@/api/client';
 import AppShell from '@/components/shell/AppShell';
 
@@ -141,6 +142,7 @@ function AuthenticatedApp() {
         </Routes>
       </Suspense>
 
+      <OpenAuthBanner />
       <FirstRunBanner />
 
       {/* Voice overlay — rendered outside shell so it covers everything */}

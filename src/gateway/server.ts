@@ -393,6 +393,28 @@ function safeCompare(a: string, b: string): boolean {
     return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
+/**
+ * Validate a URL before accepting it in config. Only http(s) schemes are
+ * allowed — rejects file://, javascript:, data:, etc. which could be abused
+ * via SSRF-style tricks in config-update payloads. Empty strings pass (they
+ * unset the field). Returns the trimmed URL if valid, throws with a message
+ * suitable for the API error response otherwise.
+ */
+function validateConfigUrl(value: unknown, fieldName: string): string {
+    const s = typeof value === 'string' ? value.trim() : '';
+    if (!s) return '';
+    let parsed: URL;
+    try {
+        parsed = new URL(s);
+    } catch {
+        throw new Error(`Validation error: ${fieldName} is not a valid URL`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(`Validation error: ${fieldName} must be http or https (got ${parsed.protocol})`);
+    }
+    return s;
+}
+
 /** Check if a request token is valid */
 function isValidToken(token: string | undefined, config: ReturnType<typeof loadConfig>): boolean {
   const auth = config.gateway.auth;
@@ -965,8 +987,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const cfg = loadConfig();
     const auth = cfg.gateway.auth;
     if (!auth || auth.mode === 'none') { next(); return; }
-    // Token mode with no token configured = auth not set up, allow access
-    if (auth.mode === 'token' && !auth.token) { next(); return; }
+    // Token mode with no token configured = bootstrap mode. Allow loopback
+    // only (so the first-run setup wizard can save a token). Remote callers
+    // get a clear 503 telling them to configure auth or opt into open access.
+    if (auth.mode === 'token' && !auth.token) {
+      const ip = req.ip || req.socket.remoteAddress || '';
+      const isLoopback =
+        ip === '127.0.0.1' ||
+        ip === '::1' ||
+        ip === '::ffff:127.0.0.1' ||
+        ip.startsWith('127.');
+      if (isLoopback) { next(); return; }
+      res.status(503).json({
+        error: 'gateway_auth_not_configured',
+        message:
+          'Gateway auth is not configured. Set gateway.auth.token in config to ' +
+          'enable token auth, or explicitly set gateway.auth.mode to "none" to ' +
+          'allow open access. Remote requests are denied until one of these is set.',
+      });
+      return;
+    }
     // Skip public endpoints (login, messenger webhook, twilio webhooks)
     if (req.path === '/login') { next(); return; }
     if (req.path === '/messenger/webhook') { next(); return; }
@@ -2183,7 +2223,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       gateway: {
         port: cfg.gateway.port,
         host: cfg.gateway.host,
-        auth: { mode: cfg.gateway.auth.mode },
+        auth: {
+          mode: cfg.gateway.auth.mode,
+          // True when auth.mode='token' but no token is configured — remote
+          // requests are 503'd; localhost bypass allows first-run wizard. UI
+          // uses this to render a loud banner so deployers notice.
+          openAccess:
+            cfg.gateway.auth.mode === 'none' ||
+            (cfg.gateway.auth.mode === 'token' && !cfg.gateway.auth.token),
+          tokenConfigured: Boolean(cfg.gateway.auth.token),
+        },
       },
       logging: cfg.logging,
       providers: {
@@ -2281,7 +2330,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (body.anthropicKey !== undefined) { draft.providers.anthropic.apiKey = body.anthropicKey as string; changedFields.push('providers.anthropic.apiKey'); }
       if (body.openaiKey !== undefined) { draft.providers.openai.apiKey = body.openaiKey as string; changedFields.push('providers.openai.apiKey'); }
       if (body.googleKey !== undefined) { draft.providers.google.apiKey = body.googleKey as string; changedFields.push('providers.google.apiKey'); }
-      if (body.ollamaUrl !== undefined) { draft.providers.ollama.baseUrl = body.ollamaUrl as string; changedFields.push('providers.ollama.baseUrl'); }
+      if (body.ollamaUrl !== undefined) { draft.providers.ollama.baseUrl = validateConfigUrl(body.ollamaUrl, 'providers.ollama.baseUrl'); changedFields.push('providers.ollama.baseUrl'); }
       if (body.groqKey !== undefined) { draft.providers.groq.apiKey = body.groqKey as string; changedFields.push('providers.groq.apiKey'); }
       if (body.mistralKey !== undefined) { draft.providers.mistral.apiKey = body.mistralKey as string; changedFields.push('providers.mistral.apiKey'); }
       if (body.openrouterKey !== undefined) { draft.providers.openrouter.apiKey = body.openrouterKey as string; changedFields.push('providers.openrouter.apiKey'); }
@@ -2319,20 +2368,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (body.voice !== undefined && typeof body.voice === 'object') {
         const v = body.voice as Record<string, unknown>;
         if (v.enabled !== undefined) draft.voice.enabled = Boolean(v.enabled);
-        if (v.livekitUrl !== undefined) draft.voice.livekitUrl = String(v.livekitUrl);
+        if (v.livekitUrl !== undefined) draft.voice.livekitUrl = validateConfigUrl(v.livekitUrl, 'voice.livekitUrl');
         if (v.livekitApiKey !== undefined) draft.voice.livekitApiKey = String(v.livekitApiKey);
         if (v.livekitApiSecret !== undefined) draft.voice.livekitApiSecret = String(v.livekitApiSecret);
-        if (v.agentUrl !== undefined) draft.voice.agentUrl = String(v.agentUrl);
+        if (v.agentUrl !== undefined) draft.voice.agentUrl = validateConfigUrl(v.agentUrl, 'voice.agentUrl');
         if (v.ttsVoice !== undefined) draft.voice.ttsVoice = String(v.ttsVoice);
         if (v.ttsEngine !== undefined) draft.voice.ttsEngine = String(v.ttsEngine) as typeof draft.voice.ttsEngine;
-        if (v.ttsUrl !== undefined) draft.voice.ttsUrl = String(v.ttsUrl);
-        if (v.sttUrl !== undefined) draft.voice.sttUrl = String(v.sttUrl);
+        if (v.ttsUrl !== undefined) draft.voice.ttsUrl = validateConfigUrl(v.ttsUrl, 'voice.ttsUrl');
+        if (v.sttUrl !== undefined) draft.voice.sttUrl = validateConfigUrl(v.sttUrl, 'voice.sttUrl');
         if (v.sttEngine !== undefined) draft.voice.sttEngine = String(v.sttEngine) as typeof draft.voice.sttEngine;
         if (v.model !== undefined) (draft.voice as Record<string, unknown>).model = String(v.model) || undefined;
         changedFields.push('voice');
       }
       // Home Assistant
-      if (body.homeAssistantUrl !== undefined) { draft.homeAssistant.url = body.homeAssistantUrl as string; changedFields.push('homeAssistant.url'); }
+      if (body.homeAssistantUrl !== undefined) { draft.homeAssistant.url = validateConfigUrl(body.homeAssistantUrl, 'homeAssistant.url'); changedFields.push('homeAssistant.url'); }
       if (body.homeAssistantToken !== undefined) { draft.homeAssistant.token = body.homeAssistantToken as string; changedFields.push('homeAssistant.token'); }
       // Channels
       if (body.channels !== undefined && typeof body.channels === 'object') {
