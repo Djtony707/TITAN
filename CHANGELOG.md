@@ -5,7 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [4.11.0] — 2026-04-19 — Goal Driver + Claude Code hardening
+## [4.11.1] — 2026-04-19 — Security patch + auth hardening
+
+Patch release on top of 4.11.0 (never shipped — 4.11.0 content is
+included here). Security + hygiene fixes from the inside-out audit:
+
+### Security
+
+- **npm audit: 9 → 0 vulnerabilities** via overrides:
+  - `protobufjs ^7.5.5` — RCE (GHSA-xq3m-2v4x-88gg), transitive via
+    `@whiskeysockets/baileys`.
+  - `basic-ftp ^5.3.0` — unbounded-memory DoS (GHSA-rp42-5vxx-qpwr).
+  - `hono ^4.12.14` — JSX SSR HTML injection (GHSA-458j-xx4x-4375).
+  - `langsmith ^0.5.19` — streaming token redaction bypass
+    (GHSA-rr7j-v2q5-chgv).
+
+- **Auth footgun closed.** When `gateway.auth.mode='token'` with no
+  token configured, non-loopback requests now get a clear 503 instead
+  of an open API. Loopback bypass keeps the first-run wizard working.
+  `GET /api/config` exposes `gateway.auth.openAccess` +
+  `tokenConfigured`, and the new **OpenAuthBanner** in Mission Control
+  renders a persistent red alert when the footgun applies (amber for
+  intentional `auth.mode='none'`). Both link to Settings.
+
+- **Config-update URL validation.** `POST /api/config` URL fields
+  (`ollamaUrl`, `homeAssistantUrl`, `voice.livekitUrl`, `agentUrl`,
+  `ttsUrl`, `sttUrl`) now go through `validateConfigUrl()` — rejects
+  non-http(s) schemes with a 400. RFC1918 addresses still accepted
+  (homelabs need them).
+
+### Concurrency
+
+- **Interval `.unref()` unconditional.** Dropped optional-chained
+  `.unref?.()` at four sites (self-model refresh, VRAM poller, mission
+  scheduler, selfMod poll). Missing unref was silently blocking
+  graceful shutdown → systemd restart timeouts.
+
+- **SSE listener leak fixed.** All four SSE handlers
+  (`/api/events`, `/api/watch`, `/api/soma/stream`,
+  `/api/deliberation/stream`) now wrap
+  `titanEvents.removeListener()` in try/catch. Previously a throw
+  inside `req.on('close')` would leave the listener attached and
+  multiply under load.
+
+### Cleanup
+
+- `.gitignore` excludes `ai_poem.txt`, `pingpong.py` stray files.
+- Removed unused `@ts-expect-error` in `src/channels/email_inbound.ts`.
+
+---
+
+## [4.11.0] — 2026-04-19 — Goal Driver + Claude Code hardening (not released)
+
+This version was tagged locally but never pushed or published. Its
+contents shipped as part of 4.11.1. Keeping the entry so the history
+is readable.
 
 Ships the v4.10.0 Goal Driver architecture (previously local-only) plus
 a hard gate on Claude Code CLI usage and nine root-cause fixes to the
