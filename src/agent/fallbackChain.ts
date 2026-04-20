@@ -81,7 +81,7 @@ function matchesAny(err: string, patterns: RegExp[]): boolean {
 const CODE_MODEL_LADDER = [
     undefined, // primary — Builder's qwen3-coder-next:cloud
     'ollama/glm-5:cloud',
-    'ollama/gemma4:cloud',
+    'ollama/gemma4:31b',
     'ollama/gemma4:31b', // local fallback if Ollama cloud is down
 ];
 

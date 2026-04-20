@@ -378,18 +378,26 @@ export class OllamaProvider extends LLMProvider {
                         } catch {
                             logger.warn(COMPONENT, `Malformed tool arguments for ${tc.function.name}, using empty args`);
                         }
+                        // v4.13: Gemini's Ollama-compat adapter rejects
+                        // function_call.name === ''. Some models emit empty
+                        // names for tool_calls when the call is malformed;
+                        // stamp a placeholder so the whole turn isn't
+                        // rejected with HTTP 400 "Name cannot be empty".
+                        const fnName = (tc.function.name || '').trim() || 'unknown_tool';
                         return {
                             function: {
-                                name: tc.function.name,
+                                name: fnName,
                                 arguments: parsedArgs,
                             },
                         };
                     });
                 }
                 if (m.toolCallId) msg.tool_call_id = m.toolCallId;
-                // Cloud models (Gemini API) require function_response.name to be non-empty
+                // Cloud models (Gemini API) require function_response.name to be non-empty.
+                // Guarantee a non-empty name on every tool-role message.
                 if (m.role === 'tool') {
-                    msg.name = m.name || 'tool';
+                    const toolName = (m.name || '').trim() || 'tool';
+                    msg.name = toolName;
                 } else if (m.name) {
                     msg.name = m.name;
                 }
