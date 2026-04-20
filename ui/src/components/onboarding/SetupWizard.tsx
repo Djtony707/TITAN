@@ -90,6 +90,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [persona, setPersona] = useState('default');
   const [personas, setPersonas] = useState<PersonaMeta[]>([]);
   const [saving, setSaving] = useState(false);
+  const [completed, setCompleted] = useState(false);
   const [error, setError] = useState('');
   const [pillsVisible, setPillsVisible] = useState(false);
   const [cloudMode, setCloudMode] = useState(false);
@@ -199,7 +200,11 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           // Non-fatal — user can flip the switch in Settings later.
         }
       }
-      onComplete();
+      // Show the success screen briefly so the user has a clear handoff
+      // from wizard → dashboard (instead of a blank screen while the chat
+      // view lazy-loads). onComplete() mounts the main app.
+      setCompleted(true);
+      setTimeout(onComplete, 1400);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
       setSaving(false);
@@ -560,6 +565,25 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     ? ['Welcome', 'Model', 'Profile', 'Soma', 'Launch']
     : ['Welcome', 'Provider', 'Model', 'Profile', 'Soma', 'Launch'];
   const isLast = step === steps.length - 1;
+
+  if (completed) {
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-bg"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
+        <div className="relative z-10 flex flex-col items-center gap-4 text-center">
+          <div className="w-16 h-16 rounded-full bg-accent/20 ring-2 ring-accent flex items-center justify-center text-accent text-3xl">
+            ✓
+          </div>
+          <div className="text-2xl font-semibold text-text">{agentName} is ready</div>
+          <div className="text-sm text-text-muted">Opening your dashboard…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-bg">
