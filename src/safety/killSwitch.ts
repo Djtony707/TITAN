@@ -36,6 +36,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
+import { logAudit } from '../security/auditLog.js';
 
 const COMPONENT = 'KillSwitch';
 const STATE_PATH = join(TITAN_HOME, 'kill-switch.json');
@@ -161,6 +162,14 @@ export async function kill(trigger: KillTrigger, reason: string, opts: {
     save();
 
     logger.error(COMPONENT, `🛑 KILL SWITCH FIRED — ${trigger}: ${reason}`);
+    try {
+        logAudit('security_alert', opts.firedBy ?? 'system', {
+            action: 'kill_switch_fired',
+            trigger,
+            reason,
+            firstTime: !alreadyKilled,
+        });
+    } catch { /* audit unavailable — never block the kill path */ }
 
     if (alreadyKilled) return; // side effects only fire once
 
@@ -199,6 +208,13 @@ export function resume(resolutionNote: string, resumedBy: string): KillSwitchSta
             firedBy: resumedBy,
         });
         logger.info(COMPONENT, `Kill switch armed again by ${resumedBy}: ${resolutionNote} (cleared ${clearedCount} prior oscillations)`);
+        try {
+            logAudit('security_alert', resumedBy, {
+                action: 'kill_switch_resumed',
+                resolutionNote,
+                clearedOscillations: clearedCount,
+            });
+        } catch { /* audit unavailable — never block resume */ }
     } else if (clearedCount > 0) {
         logger.info(COMPONENT, `Kill switch already armed; cleared ${clearedCount} recent oscillations by ${resumedBy}: ${resolutionNote}`);
     } else {
