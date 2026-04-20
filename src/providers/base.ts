@@ -101,17 +101,29 @@ export interface ChatResponse {
     model: string;
 }
 
-/** Streaming chunk from a chat completion */
-export interface ChatStreamChunk {
-    type: 'text' | 'tool_call' | 'done' | 'error' | 'failover';
-    content?: string;
-    toolCall?: ToolCall;
-    error?: string;
-    /** Present on 'failover' chunks — the original provider that failed */
-    originalProvider?: string;
-    /** Present on 'failover' chunks — the original model that failed */
-    originalModel?: string;
-}
+/**
+ * Streaming chunk from a chat completion.
+ *
+ * Discriminated union keyed on `type` (v4.12). Consumers switch on `type`
+ * and TypeScript narrows the shape — no more optional-everything objects
+ * where you have to remember which fields exist for which variant.
+ */
+export type ChatStreamChunk =
+    | { type: 'text'; content: string }
+    | { type: 'tool_call'; toolCall: ToolCall }
+    | { type: 'done' }
+    | { type: 'error'; error: string }
+    | {
+        type: 'failover';
+        /** The provider that the request fell over to. */
+        content?: string;
+        /** The original provider that failed before failover. */
+        originalProvider: string;
+        /** The original model that failed before failover. */
+        originalModel: string;
+        /** The error message from the original provider. */
+        error?: string;
+    };
 
 /** Abstract LLM Provider interface */
 export abstract class LLMProvider {
