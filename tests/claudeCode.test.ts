@@ -12,6 +12,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 import { ClaudeCodeProvider } from '../src/providers/claudeCode.js';
+import { isClaudeCodeAllowed, type ChatOptions } from '../src/providers/base.js';
 
 describe('ClaudeCodeProvider', () => {
     const provider = new ClaudeCodeProvider();
@@ -40,5 +41,72 @@ describe('ClaudeCodeProvider', () => {
         // Either way, healthCheck must not throw.
         const healthy = await provider.healthCheck();
         expect(typeof healthy).toBe('boolean');
+    });
+});
+
+// Regression tests for the v4.11.0 autonomous-burn gate.
+// Autonomous paths MUST NOT set the flag; user-initiated chat MAY.
+// The gate moved from ChatOptions.allowClaudeCode to
+// ChatOptions.providerOptions.allowClaudeCode in v4.12 with a
+// deprecation period; isClaudeCodeAllowed() reads both.
+describe('isClaudeCodeAllowed (v4.11 gate)', () => {
+    const baseOpts: ChatOptions = { messages: [] };
+
+    it('rejects an empty options object', () => {
+        expect(isClaudeCodeAllowed(baseOpts)).toBe(false);
+    });
+
+    it('accepts the preferred v4.12 providerOptions.allowClaudeCode=true', () => {
+        expect(isClaudeCodeAllowed({
+            ...baseOpts,
+            providerOptions: { allowClaudeCode: true },
+        })).toBe(true);
+    });
+
+    it('accepts the deprecated top-level allowClaudeCode=true (back-compat)', () => {
+        expect(isClaudeCodeAllowed({ ...baseOpts, allowClaudeCode: true })).toBe(true);
+    });
+
+    it('rejects providerOptions without the flag', () => {
+        expect(isClaudeCodeAllowed({
+            ...baseOpts,
+            providerOptions: { something: 'else' },
+        })).toBe(false);
+    });
+
+    it('rejects providerOptions.allowClaudeCode set to non-true values', () => {
+        expect(isClaudeCodeAllowed({
+            ...baseOpts,
+            providerOptions: { allowClaudeCode: 'yes' },
+        })).toBe(false);
+        expect(isClaudeCodeAllowed({
+            ...baseOpts,
+            providerOptions: { allowClaudeCode: 1 },
+        })).toBe(false);
+    });
+
+    it('rejects when providerOptions is null', () => {
+        expect(isClaudeCodeAllowed({
+            ...baseOpts,
+            providerOptions: null as unknown as Record<string, unknown>,
+        })).toBe(false);
+    });
+});
+
+describe('Claude Code gate — spawnStream rejects without the flag', () => {
+    const provider = new ClaudeCodeProvider() as unknown as {
+        chat(opts: ChatOptions): Promise<unknown>;
+    };
+
+    it('throws on chat() without allowClaudeCode', async () => {
+        await expect(
+            provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+        ).rejects.toThrow(/Claude Code blocked for autonomous use/);
+    });
+
+    it('throws with the new providerOptions guidance in the error message', async () => {
+        await expect(
+            provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+        ).rejects.toThrow(/providerOptions\.allowClaudeCode/);
     });
 });
