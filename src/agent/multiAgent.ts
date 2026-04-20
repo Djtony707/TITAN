@@ -137,18 +137,28 @@ export function resolveAgent(channel: string, userId: string): AgentInstance {
     return defaultAgent;
 }
 
+/** Options for routeMessage — grew to 9 positional args in v4.11; v4.12 consolidated to this bag. */
+export interface RouteMessageOptions {
+    streamCallbacks?: StreamCallbacks;
+    /** Override the default agent for this message. */
+    overrideAgentId?: string;
+    signal?: AbortSignal;
+    sessionId?: string;
+    /** Override the agent's default model for this call only. */
+    modelOverride?: string;
+    /** Provider-specific opt-ins (e.g. allowClaudeCode). Forwarded to ChatOptions. */
+    providerOptions?: Record<string, unknown>;
+}
+
 /** Route a message to the appropriate agent and process it */
 export async function routeMessage(
     message: string,
     channel: string,
     userId: string,
-    streamCallbacks?: StreamCallbacks,
-    overrideAgentId?: string,
-    signal?: AbortSignal,
-    sessionId?: string,
-    modelOverride?: string,
-    allowClaudeCode?: boolean,
+    options: RouteMessageOptions = {},
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
+    const { streamCallbacks, overrideAgentId, signal, sessionId, modelOverride, providerOptions } = options;
+
     let agent = resolveAgent(channel, userId);
 
     // If a specific agent was requested and exists, use it instead
@@ -190,7 +200,7 @@ export async function routeMessage(
         systemPrompt: agent.systemPrompt,
         agentId: agent.id,
         sessionId,
-        allowClaudeCode,
+        providerOptions,
     }, streamCallbacks, signal);
 
     return {

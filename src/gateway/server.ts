@@ -1970,22 +1970,29 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         };
 
         const response = await routeMessage(content, channel, safeUserId, {
-          onToken: (token) => {
-            safeWrite(`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`);
+          streamCallbacks: {
+            onToken: (token) => {
+              safeWrite(`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`);
+            },
+            onToolCall: (name, args) => {
+              safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args, timestamp: Date.now() })}\n\n`);
+            },
+            onToolResult: (name, result, durationMs, success) => {
+              safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, timestamp: Date.now() })}\n\n`);
+            },
+            onThinking: () => {
+              safeWrite(`event: thinking\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
+            },
+            onRound: (round, maxRounds) => {
+              safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
+            },
           },
-          onToolCall: (name, args) => {
-            safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args, timestamp: Date.now() })}\n\n`);
-          },
-          onToolResult: (name, result, durationMs, success) => {
-            safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, timestamp: Date.now() })}\n\n`);
-          },
-          onThinking: () => {
-            safeWrite(`event: thinking\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
-          },
-          onRound: (round, maxRounds) => {
-            safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
-          },
-        }, agentId, abortController.signal, requestedSessionId, requestedModel, allowClaudeCode);
+          overrideAgentId: agentId,
+          signal: abortController.signal,
+          sessionId: requestedSessionId,
+          modelOverride: requestedModel,
+          providerOptions: allowClaudeCode ? { allowClaudeCode: true } : undefined,
+        });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -2014,7 +2021,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try { res.end(); } catch { /* client gone */ }
         }
       } else {
-        const response = await routeMessage(content, channel, safeUserId, undefined, agentId, abortController.signal, requestedSessionId, requestedModel, allowClaudeCode);
+        const response = await routeMessage(content, channel, safeUserId, {
+          overrideAgentId: agentId,
+          signal: abortController.signal,
+          sessionId: requestedSessionId,
+          modelOverride: requestedModel,
+          providerOptions: allowClaudeCode ? { allowClaudeCode: true } : undefined,
+        });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
           for (const tool of response.toolsUsed) titanToolCallsTotal.increment({ tool });
@@ -5838,7 +5851,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     try {
       const response = await routeMessage(content, channel, userId, {
-        onToken: (token) => {
+        signal: abortController.signal,
+        streamCallbacks: {
+          onToken: (token) => {
           if (clientDisconnected) return;
           tokenBuffer += token;
 
@@ -5906,11 +5921,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             }
           }
         },
-        onToolCall: (name) => {
-          // Notify client that tools are running (shows "Thinking..." state)
-          safeWrite(`event: tool\ndata: ${JSON.stringify({ name })}\n\n`);
+          onToolCall: (name) => {
+            // Notify client that tools are running (shows "Thinking..." state)
+            safeWrite(`event: tool\ndata: ${JSON.stringify({ name })}\n\n`);
+          },
         },
-      }, undefined, abortController.signal);
+      });
 
       // Flush remaining buffer
       if (tokenBuffer.trim()) {
@@ -7299,15 +7315,17 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
 
             try {
               const response = await routeMessage(data.content, 'webchat', chatUserId, {
-                onToken: (token) => {
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'token', data: token }));
-                  }
-                },
-                onToolCall: (name, args) => {
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'tool_call', name, args }));
-                  }
+                streamCallbacks: {
+                  onToken: (token) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({ type: 'token', data: token }));
+                    }
+                  },
+                  onToolCall: (name, args) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({ type: 'tool_call', name, args }));
+                    }
+                  },
                 },
               });
               // Send done event to the originating client

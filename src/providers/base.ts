@@ -57,16 +57,34 @@ export interface ChatOptions {
      *  Only the Ollama provider honours this today — other providers ignore it. */
     format?: Record<string, unknown> | 'json';
     /**
-     * Explicit opt-in for Claude Code CLI usage. Must be `true` for
-     * ClaudeCodeProvider to accept a call — all autonomous paths
-     * (autopilot, goal driver, specialists, graph extraction, self-repair,
-     * self-mod review) leave it unset, which means Claude Code rejects
-     * the call. Only user-initiated UI / API chat requests should set
-     * this flag after the user explicitly picks a claude-code model.
-     * Protects the interactive Claude Code quota from runaway autonomous
-     * burn.
+     * Provider-specific options bag. Keeps ChatOptions slim while letting
+     * individual providers accept flags without bloating the shared type.
+     * Each provider documents which keys it reads.
+     *
+     * Known keys today:
+     *   - `allowClaudeCode: boolean` — required true for ClaudeCodeProvider
+     *     to accept a call. All autonomous paths (autopilot, goal driver,
+     *     specialists, self-mod) leave it unset; Claude Code rejects
+     *     anything without it. Only user-initiated UI/API chat should set
+     *     it, after the user explicitly picks a claude-code model.
+     */
+    providerOptions?: Record<string, unknown>;
+
+    /**
+     * @deprecated v4.12 — use `providerOptions.allowClaudeCode` instead.
+     * Read as a fallback for one release cycle; will be removed in v5.0.
      */
     allowClaudeCode?: boolean;
+}
+
+/**
+ * Read the Claude Code opt-in flag from either the new providerOptions
+ * bag (preferred) or the deprecated top-level allowClaudeCode field.
+ */
+export function isClaudeCodeAllowed(options: ChatOptions): boolean {
+    const po = options.providerOptions;
+    if (po && typeof po === 'object' && po.allowClaudeCode === true) return true;
+    return options.allowClaudeCode === true;
 }
 
 /** Response from a chat completion */

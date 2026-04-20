@@ -1004,9 +1004,9 @@ export async function processMessage(
          *  tool outputs back to the originating Soma drive for the
          *  self-modification pipeline. */
         goalContext?: { goalId: string; goalTitle: string; proposedBy: string };
-        /** Explicit opt-in for Claude Code CLI usage. Only set by user-initiated
-         *  UI/API chat when the requested model is a `claude-code/*` id. */
-        allowClaudeCode?: boolean;
+        /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions
+         *  (e.g. `{ allowClaudeCode: true }` when user selected claude-code/*). */
+        providerOptions?: Record<string, unknown>;
     },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
@@ -1603,7 +1603,7 @@ export async function processMessage(
         completionStrategy: pipelineCompletionStrategy,
         pipelineType,
         minRounds: pipelineMinRounds,
-        allowClaudeCode: overrides?.allowClaudeCode,
+        providerOptions: overrides?.providerOptions,
     });
 
     // Unpack results
@@ -1665,7 +1665,7 @@ export async function processMessage(
                 isKimiSwarm,
                 selfHealEnabled: false,
                 thinkingOverride: session.thinkingOverride,
-                allowClaudeCode: overrides?.allowClaudeCode,
+                providerOptions: overrides?.providerOptions,
             });
 
             if (retryResult.content) finalContent = retryResult.content;

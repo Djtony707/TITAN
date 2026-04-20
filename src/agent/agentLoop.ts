@@ -361,10 +361,11 @@ export interface LoopContext {
      *  persisted history. Use for RAG injection, summarization, dynamic token budgeting.
      *  Receives a COPY of messages; return modified copy for the LLM call. */
     beforeModelCall?: (messages: ChatMessage[], round: number) => ChatMessage[];
-    /** Explicit opt-in for Claude Code CLI usage. Set by user-initiated UI/API
-     *  chat when the requested model is a `claude-code/*` id. All autonomous
-     *  paths leave this unset so ClaudeCodeProvider rejects the call. */
-    allowClaudeCode?: boolean;
+    /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions.
+     *  For claude-code/* models, user-initiated chat paths set
+     *  `{ allowClaudeCode: true }` here so ClaudeCodeProvider will accept
+     *  the call. All autonomous paths leave this unset. */
+    providerOptions?: Record<string, unknown>;
 }
 
 /** Everything processMessage needs back from the loop */
@@ -969,7 +970,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         && phase === 'think'
                         && ctx.activeTools.length > 0
                         && detectToolUseIntent(ctx.message || '')),
-                allowClaudeCode: ctx.allowClaudeCode,
+                providerOptions: ctx.providerOptions,
             };
             if (forceWriteOnNextThink) {
                 forceWriteOnNextThink = false; // Reset after use
@@ -1881,7 +1882,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 temperature: ctx.config.agent.temperature,
                 thinking: ctx.voiceFastPath ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
-                allowClaudeCode: ctx.allowClaudeCode,
+                providerOptions: ctx.providerOptions,
             };
 
             let response: ChatResponse;
@@ -1973,7 +1974,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         messages: retryMessages,
                         temperature: 0.7,
                         maxTokens: 300,
-                        allowClaudeCode: ctx.allowClaudeCode,
+                        providerOptions: ctx.providerOptions,
                     });
                     const retryContent = (retryResponse.content || '').trim();
                     if (retryContent && retryContent.length > 10) {

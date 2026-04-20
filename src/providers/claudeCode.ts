@@ -20,7 +20,7 @@ import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 import logger from '../utils/logger.js';
-import { LLMProvider } from './base.js';
+import { LLMProvider, isClaudeCodeAllowed } from './base.js';
 import type { ChatOptions, ChatResponse, ChatStreamChunk } from './base.js';
 import {
     checkBudget, recordSpend, recordRateLimitHit,
@@ -257,14 +257,15 @@ export class ClaudeCodeProvider extends LLMProvider {
      */
     private async *spawnStream(options: ChatOptions & ClaudeCodeExtras): AsyncGenerator<StreamEvent> {
         // Hard gate: autonomous paths must NOT call Claude Code. Only
-        // user-initiated UI/API chat requests (which set allowClaudeCode)
-        // are accepted. This protects the interactive Claude Code quota
-        // from runaway autonomous burn — autopilot, goal driver, specialists,
-        // graph extraction, self-mod review, and every other internal path
-        // leaves the flag unset and gets rejected here.
-        if (!options.allowClaudeCode) {
+        // user-initiated UI/API chat requests (which set the flag via
+        // providerOptions.allowClaudeCode) are accepted. This protects
+        // the interactive Claude Code quota from runaway autonomous burn —
+        // autopilot, goal driver, specialists, graph extraction, self-mod
+        // review, and every other internal path leaves the flag unset and
+        // gets rejected here.
+        if (!isClaudeCodeAllowed(options)) {
             throw new Error(
-                'Claude Code blocked for autonomous use. Set ChatOptions.allowClaudeCode=true ' +
+                'Claude Code blocked for autonomous use. Set ChatOptions.providerOptions.allowClaudeCode=true ' +
                 'only from user-initiated chat endpoints after explicit model selection.',
             );
         }

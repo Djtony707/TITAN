@@ -276,7 +276,7 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
             // ── Multi-agent path: route through the full agent system ──
             logger.info(COMPONENT, `[Wakeup] Multi-agent delegation to "${req.agentName}" (${req.agentId})`);
             const startMs = Date.now();
-            const agentResponse = await routeMessage(req.task, 'delegation', req.agentId, undefined, req.agentId);
+            const agentResponse = await routeMessage(req.task, 'delegation', req.agentId, { overrideAgentId: req.agentId });
             result = {
                 content: agentResponse.content,
                 toolsUsed: agentResponse.toolsUsed || [],
