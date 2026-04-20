@@ -15,6 +15,7 @@ export type DriverPhase =
     | 'verifying'     // run per-kind verifier
     | 'reporting'     // mark done + SOMA feedback + retrospective
     | 'blocked'       // needs human input (approval pending)
+    | 'escalated'     // v4.10.0-local: systematic infrastructure failure (all specialists failed)
     | 'done'
     | 'failed'
     | 'cancelled';
@@ -43,7 +44,7 @@ export interface DriverBlockedReason {
     question: string;
     approvalId: string;
     sinceAt: string;
-    /** 'needs_info' | 'budget_exceeded' | 'verify_fail' | 'kill_switch' */
+    /** 'needs_info' | 'budget_exceeded' | 'verify_fail' | 'kill_switch' | 'infrastructure_failure' */
     kind: string;
 }
 

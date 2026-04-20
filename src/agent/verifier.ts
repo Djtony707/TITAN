@@ -69,6 +69,25 @@ function hasGiveUpPhrase(text: string): boolean {
     return giveups.some(g => lowered.includes(g));
 }
 
+// v4.10.0-local fix: Detect "thinking" prose that indicates the specialist
+// is starting work but didn't follow JSON output instructions. These patterns
+// ("Now let me check...", "Let me analyze...") should trigger retry, not block.
+function hasThinkingPattern(text: string): boolean {
+    const trimmed = text.trim();
+    const patterns = [
+        /^now let me /i,
+        /^let me /i,
+        /^i will /i,
+        /^i'll /i,
+        /^first,? let me /i,
+        /^ok, let me /i,
+        /^okay, let me /i,
+        /^sure,? let me /i,
+        /^alright,? let me /i,
+    ];
+    return patterns.some(p => p.test(trimmed));
+}
+
 // ── Per-kind verifiers ───────────────────────────────────────────
 
 async function verifyCode(input: VerificationInput): Promise<VerificationResult> {
@@ -139,6 +158,15 @@ function verifyResearch(input: VerificationInput): VerificationResult {
             passed: false,
             reason: "Specialist gave up (give-up phrase detected)",
             verifier: 'verifyResearch',
+        };
+    }
+    // v4.10.0-local fix: catch thinking patterns that indicate JSON parsing failed
+    if (hasThinkingPattern(text)) {
+        return {
+            passed: false,
+            reason: "Specialist returned thinking prose instead of structured JSON — needs retry",
+            verifier: 'verifyResearch',
+            details: `Raw (200 chars): ${text.slice(0, 200)}`,
         };
     }
     // v4.10.0-local (post-deploy, Fix D): confidence+artifact escape hatch.
@@ -217,6 +245,15 @@ async function verifyWrite(input: VerificationInput): Promise<VerificationResult
     if (hasGiveUpPhrase(text)) {
         return { passed: false, reason: 'Specialist gave up', verifier: 'verifyWrite' };
     }
+    // v4.10.0-local fix: catch thinking patterns that indicate JSON parsing failed
+    if (hasThinkingPattern(text)) {
+        return {
+            passed: false,
+            reason: 'Specialist returned thinking prose instead of structured JSON — needs retry',
+            verifier: 'verifyWrite',
+            details: `Raw (200 chars): ${text.slice(0, 200)}`,
+        };
+    }
     // v4.10.0-local (post-deploy, Fix D): confidence+artifact escape hatch.
     // See verifyResearch for rationale. Gated on artifact count.
     if (input.spawnResult.status === 'done'
@@ -261,6 +298,15 @@ function verifyAnalysis(input: VerificationInput): VerificationResult {
     const text = input.spawnResult.reasoning || input.spawnResult.rawResponse;
     if (hasGiveUpPhrase(text)) {
         return { passed: false, reason: 'Specialist gave up', verifier: 'verifyAnalysis' };
+    }
+    // v4.10.0-local fix: catch thinking patterns that indicate JSON parsing failed
+    if (hasThinkingPattern(text)) {
+        return {
+            passed: false,
+            reason: 'Specialist returned thinking prose instead of structured JSON — needs retry',
+            verifier: 'verifyAnalysis',
+            details: `Raw (200 chars): ${text.slice(0, 200)}`,
+        };
     }
     // v4.10.0-local (post-deploy, Fix D): confidence+artifact escape hatch.
     // Parallel to verifyResearch/verifyWrite. Sits below the existing

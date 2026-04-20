@@ -43,6 +43,7 @@ function describePhase(phase: DriverState['phase']): string {
         verifying: '✅ verifying',
         reporting: '📝 reporting',
         blocked: '⏸️ BLOCKED on you',
+        escalated: '🚨 ESCALATED — infrastructure failure, needs you',
         done: '✓ done',
         failed: '✗ failed',
         cancelled: '⊘ cancelled',

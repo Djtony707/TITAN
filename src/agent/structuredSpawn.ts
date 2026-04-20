@@ -124,6 +124,11 @@ function sanitizeArtifact(raw: unknown): StructuredArtifact | null {
  * that the work is either (a) demonstrably done (file paths, URLs, clear
  * completion phrases) or (b) demonstrably failed. Otherwise we still fall
  * through to needs_info so the human gets asked.
+ *
+ * v4.10.0-local fix: Added "thinking" pattern detection. When specialists
+ * (especially local Ollama models like glm-5.1) return "Now let me check..."
+ * prose, this indicates they're starting work, not failing. Treat as failed
+ * with a retry signal so the driver can respawn rather than blocking forever.
  */
 function proseFallback(raw: string): Omit<StructuredSpawnResult, 'rawResponse'> | null {
     const lower = raw.toLowerCase();
@@ -144,6 +149,33 @@ function proseFallback(raw: string): Omit<StructuredSpawnResult, 'rawResponse'> 
             confidence: 0.2,
             reasoning: `Prose-fallback: specialist gave up. ${raw.slice(0, 200)}`,
             parseError: 'prose-fallback:give-up',
+        };
+    }
+
+    // v4.10.0-local fix: "Thinking" patterns indicate the model is starting
+    // work but hasn't produced JSON yet. Treat as failed with retry signal.
+    // This handles Ollama models (glm-5.1, qwen3.6) that emit "Now let me..."
+    // instead of following the JSON tail instruction.
+    const thinkingPatterns = [
+        /^now let me /i,
+        /^let me /i,
+        /^i will /i,
+        /^i'll /i,
+        /^first,? let me /i,
+        /^ok, let me /i,
+        /^okay, let me /i,
+        /^sure,? let me /i,
+        /^alright,? let me /i,
+    ];
+    const isThinking = thinkingPatterns.some(p => p.test(raw.trim()));
+    if (isThinking) {
+        return {
+            status: 'failed',
+            artifacts: [],
+            questions: [],
+            confidence: 0,
+            reasoning: `Prose-fallback: specialist returned thinking prose instead of JSON. Treating as retryable. Raw: ${raw.slice(0, 200)}`,
+            parseError: 'prose-fallback:thinking',
         };
     }
 

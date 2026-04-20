@@ -260,7 +260,11 @@ export function evaluateSafetyPressure(safetyPressure: number): void {
 
 /**
  * Record a fix-oscillation event (same target fixed twice within 24h).
- * Fires kill when ≥3 events land in the rolling 24h window.
+ * Fires kill when ≥2 oscillations on the SAME target within 24h window.
+ *
+ * v4.10.0-local fix: Changed from "3 total events anywhere" to
+ * "2+ events on same target" — prevents false positives when editing
+ * different files (3 files each edited twice is not oscillation).
  */
 export function recordFixOscillation(target: string): void {
     const state = load();
@@ -270,10 +274,29 @@ export function recordFixOscillation(target: string): void {
         now - new Date(o.at).getTime() < FIX_OSCILLATION_WINDOW_MS,
     );
     save();
-    if (state.recentOscillations.length >= FIX_OSCILLATION_COUNT_THRESHOLD && state.status === 'armed') {
-        const targets = [...new Set(state.recentOscillations.map(o => o.target))];
+
+    // Count oscillations per target (need ≥2 on same target to fire)
+    const targetCounts = new Map<string, number>();
+    for (const o of state.recentOscillations) {
+        targetCounts.set(o.target, (targetCounts.get(o.target) || 0) + 1);
+    }
+
+    // Find any target with ≥2 oscillations
+    let maxCount = 0;
+    let worstTarget = '';
+    for (const [t, count] of targetCounts) {
+        if (count > maxCount) {
+            maxCount = count;
+            worstTarget = t;
+        }
+    }
+
+    // Fire only if same target hit 2+ times AND we have armed status
+    if (maxCount >= 2 && state.status === 'armed') {
+        const totalEvents = state.recentOscillations.length;
+        const uniqueTargets = targetCounts.size;
         void kill('fix_oscillation',
-            `${state.recentOscillations.length} fix-oscillation events in 24h across ${targets.length} target(s): ${targets.slice(0, 3).join(', ')}`,
+            `Target "${worstTarget.slice(0, 60)}" oscillated ${maxCount}× in 24h (${totalEvents} total events across ${uniqueTargets} target(s))`,
             { firedBy: 'fix-oscillation-detector' });
     }
 }

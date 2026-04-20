@@ -85,6 +85,27 @@ function appendHistory(state: DriverState, phase: DriverPhase, note: string): vo
     if (state.history.length > 200) state.history = state.history.slice(-200);
 }
 
+// ── Infrastructure failure detection ──────────────────────────────
+
+/**
+ * Detect systematic infrastructure failures that warrant human escalation.
+ * Returns true if the error indicates all specialists are failing to produce
+ * structured JSON output (thinking patterns, parse errors).
+ */
+function isInfrastructureFailure(error: string | undefined): boolean {
+    if (!error) return false;
+    const e = error.toLowerCase();
+    // JSON parse failures from structuredSpawn
+    const parseFailurePatterns = [
+        'parser could not extract json',
+        'no json block found',
+        'json.parse failure',
+        'prose-fallback:thinking',
+        'thinking prose instead of structured json',
+    ];
+    return parseFailurePatterns.some(p => e.includes(p));
+}
+
 // ── Init / creation ──────────────────────────────────────────────
 
 function freshDriverState(goal: Goal): DriverState {
@@ -230,7 +251,23 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
     // the final (claude-code MAX) tier before declaring exhaustion.
     const strategy = nextFallback(subState.kind, subState.attempts - 1, subState.lastError, cap);
     if (!strategy) {
-        // Exhausted retries for this subtask
+        // v4.10.0-local fix: Check if exhaustion is due to infrastructure failure
+        // (systematic JSON parse errors). If so, escalate to human instead of
+        // silently failing the subtask.
+        if (isInfrastructureFailure(subState.lastError)) {
+            state.phase = 'escalated';
+            state.blockedReason = {
+                question: `All specialists failed to produce structured JSON output. This indicates a systematic infrastructure failure (likely model configuration issue). Please check model availability or switch to a JSON-compliant model tier.`,
+                approvalId: '',
+                sinceAt: new Date().toISOString(),
+                kind: 'infrastructure_failure',
+            };
+            appendHistory(state, 'escalated', `Subtask ${next.id}: infrastructure failure — all specialists failed JSON output`);
+            await fileBlockedApproval(state, goal, [state.blockedReason.question]);
+            return;
+        }
+
+        // Exhausted retries for this subtask (normal failure)
         subState.verificationResult = {
             passed: false,
             reason: 'Max retries exhausted',
@@ -596,6 +633,51 @@ async function tickBlocked(goal: Goal, state: DriverState): Promise<void> {
     } catch { /* ok */ }
 }
 
+async function tickEscalated(goal: Goal, state: DriverState): Promise<void> {
+    // v4.10.0-local: Escalated phase handles systematic infrastructure failures.
+    // Similar to blocked, but specifically for JSON parse failures that indicate
+    // model tier issues. Requires human intervention to fix infrastructure.
+
+    const approvalId = state.blockedReason?.approvalId;
+    const sinceAt = state.blockedReason?.sinceAt;
+    const sinceMs = sinceAt ? Date.now() - new Date(sinceAt).getTime() : 0;
+
+    // Check if the escalation approval has been decided
+    if (!approvalId) return;
+    try {
+        const { getApproval } = await import('./commandPost.js');
+        const approval = getApproval(approvalId);
+        if (!approval) return;
+        if (approval.status === 'pending') return; // still waiting
+
+        if (approval.status === 'approved') {
+            // Human acknowledged the infrastructure issue and wants to retry
+            // Reset the subtask attempts to give it another go with potentially
+            // new model configuration
+            const currentId = state.currentSubtaskId;
+            if (currentId) {
+                const subState = state.subtaskStates[currentId];
+                subState.attempts = 0; // Reset to allow fresh attempts
+                subState.consecutiveIdenticalErrors = 0;
+                subState.lastError = undefined;
+                subState.lastErrorFingerprint = undefined;
+            }
+            state.blockedReason = undefined;
+            state.phase = 'delegating';
+            appendHistory(state, 'delegating', `Escalation resolved by human — retrying subtask ${currentId} with fresh attempts`);
+            return;
+        }
+
+        if (approval.status === 'rejected') {
+            // Human decided to fail the goal rather than retry
+            state.phase = 'failed';
+            appendHistory(state, 'failed', `Infrastructure escalation rejected — goal failed`);
+            await onGoalFailed(goal, state, 'infrastructure escalation rejected by human');
+            return;
+        }
+    } catch { /* ok */ }
+}
+
 async function tickFailed(goal: Goal, state: DriverState): Promise<void> {
     const durationMs = Date.now() - new Date(state.startedAt).getTime();
     state.retrospective = {
@@ -763,6 +845,7 @@ export async function tickDriver(goalId: string): Promise<DriverPhase> {
             case 'verifying':   await tickVerifying(goal, state); break;
             case 'reporting':   await tickReporting(goal, state); break;
             case 'blocked':     await tickBlocked(goal, state); break;
+            case 'escalated':   await tickEscalated(goal, state); break;
             case 'failed':      await tickFailed(goal, state); break;
             case 'done':
             case 'cancelled':
@@ -787,7 +870,7 @@ export async function driveGoal(goalId: string, maxTicks = 200): Promise<DriverP
     let last: DriverPhase = 'planning';
     for (let i = 0; i < maxTicks; i++) {
         last = await tickDriver(goalId);
-        if (last === 'done' || last === 'failed' || last === 'cancelled' || last === 'blocked') break;
+        if (last === 'done' || last === 'failed' || last === 'cancelled' || last === 'blocked' || last === 'escalated') break;
         // Mini-delay between ticks to let IO + timers run
         await new Promise(res => setTimeout(res, 50));
     }

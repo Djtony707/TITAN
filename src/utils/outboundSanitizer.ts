@@ -157,6 +157,8 @@ export interface SanitizeResult {
  * the leak/PII scans — a bounded risk is better than a DoS.
  */
 const SANITIZER_MAX_INPUT_BYTES = 64 * 1024;
+// v4.10.0-local fix: Absolute max before ANY processing (defense in depth)
+const SANITIZER_ABSOLUTE_MAX_BYTES = 256 * 1024;
 
 export function sanitizeOutbound(
     text: string,
@@ -165,6 +167,14 @@ export function sanitizeOutbound(
 ): SanitizeResult {
     const issues: string[] = [];
     let cleaned = text;
+
+    // v4.10.0-local fix: Early rejection of absurdly large inputs before ANY processing.
+    // This prevents memory pressure from pathological inputs that could cause issues
+    // even in the "cheap" structural strips.
+    if (cleaned.length > SANITIZER_ABSOLUTE_MAX_BYTES) {
+        logger.warn(COMPONENT, `[${context}] Input too large (${cleaned.length} bytes) — rejecting outright`);
+        return { text: fallback || '', hadIssues: true, issues: [`input_too_large: ${cleaned.length} bytes (max ${SANITIZER_ABSOLUTE_MAX_BYTES})`] };
+    }
 
     // Oversized-input guard: run the cheap structural strips first; if
     // the result is still too large, skip the expensive pattern scans
