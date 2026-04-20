@@ -99,6 +99,18 @@ let activeLlmRequests = 0;
 let maxConcurrentOverride: number | null = null;
 
 /**
+ * Decrement activeLlmRequests with a floor at 0. Guards against counter
+ * drift if a path ever double-decrements (e.g. two finallys firing from
+ * nested try/finally reforms). Drift would eventually deadlock the
+ * concurrency guard; this prevents that class of bug outright.
+ */
+function releaseLlmSlot(): void {
+    if (activeLlmRequests > 0) activeLlmRequests--;
+    else activeLlmRequests = 0;
+    titanActiveSessions.dec();
+}
+
+/**
  * Classify a chat error into a structured response that the React UI can render
  * as an actionable banner. Without this, every failure shows up as a generic 500
  * with a stack trace that means nothing to a non-developer.
@@ -367,13 +379,29 @@ const sessionAbortTimes = new Map<string, number>();
 const sessionOwners = new Map<string, string>();
 
 // R8: Periodic cleanup of orphaned abort controllers (TTL 5 min)
+// v4.12: also prunes sessionOwners for the same ids so that map doesn't grow
+// unbounded. Hard cap on sessionOwners as a safety net — evicts oldest when
+// it crosses 10k entries (eviction via Map insertion order).
+const SESSION_OWNERS_HARD_CAP = 10_000;
 setInterval(() => {
     const now = Date.now();
     for (const [id, controller] of sessionAborts) {
         if (controller.signal.aborted || (now - (sessionAbortTimes.get(id) || 0)) > 300_000) {
             sessionAborts.delete(id);
             sessionAbortTimes.delete(id);
+            sessionOwners.delete(id);
         }
+    }
+    // Safety net: if sessionOwners has outgrown the cap (e.g. session IDs
+    // that never went through /api/message), evict oldest until under cap.
+    if (sessionOwners.size > SESSION_OWNERS_HARD_CAP) {
+        const excess = sessionOwners.size - SESSION_OWNERS_HARD_CAP;
+        const victims: string[] = [];
+        for (const key of sessionOwners.keys()) {
+            victims.push(key);
+            if (victims.length >= excess) break;
+        }
+        for (const k of victims) sessionOwners.delete(k);
     }
 }, 60_000).unref();
 
@@ -2067,8 +2095,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.status(structured.status).json(structured);
       }
     } finally {
-      activeLlmRequests--;
-      titanActiveSessions.dec();
+      releaseLlmSlot();
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
       if (requestedSessionId) sessionAborts.delete(requestedSessionId);
@@ -6017,8 +6044,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     } finally {
       clearInterval(heartbeat);
-      activeLlmRequests--;
-      titanActiveSessions.dec();
+      releaseLlmSlot();
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
       if (requestedSessionId) sessionAborts.delete(requestedSessionId);
