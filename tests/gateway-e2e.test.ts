@@ -246,13 +246,10 @@ describe('Gateway E2E — /api/message lifecycle', () => {
                 headers: jsonHeaders,
                 body: JSON.stringify({ content: 'hi', channel: 'discord', userId: 'user-456' }),
             });
+            // v4.12: options consolidated into the 4th arg.
             expect(mockRouteMessage).toHaveBeenCalledWith(
                 'hi', 'discord', 'user-456',
-                undefined, // no callbacks for JSON
-                undefined, // no agentId
-                expect.anything(), // AbortSignal
-                undefined, // sessionId
-                undefined, // modelOverride
+                expect.objectContaining({ signal: expect.anything() }),
             );
         });
     });
@@ -270,7 +267,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit token events via onToken callback', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_content: string, _channel: string, _userId: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_content: string, _channel: string, _userId: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onToken?.('Hello');
                 callbacks?.onToken?.(' world');
                 return defaultRouteResponse({ content: 'Hello world' });
@@ -291,7 +289,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit tool_call event via onToolCall callback', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onToolCall?.('shell', { command: 'ls' });
                 return defaultRouteResponse({ toolsUsed: ['shell'] });
             });
@@ -309,7 +308,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit tool_end event via onToolResult callback', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onToolResult?.('shell', 'file1.txt\nfile2.txt', 100, true);
                 return defaultRouteResponse({ toolsUsed: ['shell'] });
             });
@@ -329,7 +329,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit thinking event via onThinking callback', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onThinking?.();
                 return defaultRouteResponse();
             });
@@ -346,7 +347,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit round event via onRound callback', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onRound?.(1, 10);
                 callbacks?.onRound?.(2, 10);
                 return defaultRouteResponse();
@@ -365,7 +367,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit done event as final event with full payload', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onToken?.('Hi');
                 return defaultRouteResponse({ content: 'Hi', toolsUsed: ['shell'] });
             });
@@ -386,7 +389,8 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         });
 
         it('should emit all event types in correct order', async () => {
-            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementationOnce(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 callbacks?.onRound?.(1, 5);
                 callbacks?.onThinking?.();
                 callbacks?.onToken?.('Let me check');
@@ -418,11 +422,10 @@ describe('Gateway E2E — /api/message lifecycle', () => {
                 headers: jsonHeaders,
                 body: JSON.stringify({ content: 'follow up', sessionId: 'sess-existing' }),
             });
-            // sessionId is now passed directly to routeMessage
+            // v4.12: sessionId is inside the options bag.
             expect(mockRouteMessage).toHaveBeenCalledWith(
                 'follow up', 'api', 'api-user',
-                undefined, undefined, expect.anything(), 'sess-existing',
-                undefined, // modelOverride
+                expect.objectContaining({ sessionId: 'sess-existing' }),
             );
         });
 

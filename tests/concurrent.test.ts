@@ -261,7 +261,8 @@ describe('Concurrent Requests', () => {
         });
 
         it('should not corrupt SSE when multiple streams are active', async () => {
-            mockRouteMessage.mockImplementation(async (_c: string, _ch: string, _u: string, callbacks: Record<string, Function>) => {
+            mockRouteMessage.mockImplementation(async (_c: string, _ch: string, _u: string, options: { streamCallbacks?: Record<string, Function> }) => {
+                const callbacks = options?.streamCallbacks;
                 await new Promise(r => setTimeout(r, 50));
                 callbacks?.onToken?.('Hello');
                 await new Promise(r => setTimeout(r, 50));
@@ -317,13 +318,10 @@ describe('Concurrent Requests', () => {
 
             // May be rate-limited if too many requests in window
             if (res.status === 200) {
+                // v4.12: options consolidated into the 4th arg.
                 expect(mockRouteMessage).toHaveBeenCalledWith(
                     'hi', 'api', 'api-user',
-                    undefined,
-                    'agent-research',
-                    expect.anything(),
-                    undefined,
-                    undefined, // modelOverride
+                    expect.objectContaining({ overrideAgentId: 'agent-research' }),
                 );
             } else {
                 expect(res.status).toBe(429);

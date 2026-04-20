@@ -159,7 +159,7 @@ vi.mock('../src/providers/router.js', () => ({
 }));
 
 vi.mock('../src/utils/updater.js', () => ({
-    getUpdateInfo: vi.fn().mockResolvedValue({ current: '4.11.1', latest: '4.11.1', upToDate: true }),
+    getUpdateInfo: vi.fn().mockResolvedValue({ current: '4.12.0', latest: '4.12.0', upToDate: true }),
 }));
 
 vi.mock('../src/skills/registry.js', () => ({
@@ -283,7 +283,7 @@ describe('Mission Control v2', () => {
             expect(res.status).toBe(200);
             const body = await res.json() as any;
             expect(body.status).toBe('ok');
-            expect(body.version).toBe('4.11.1');
+            expect(body.version).toBe('4.12.0');
             expect(typeof body.uptime).toBe('number');
         });
 
@@ -291,7 +291,7 @@ describe('Mission Control v2', () => {
             const res = await fetch(`${BASE}/api/stats`);
             expect(res.status).toBe(200);
             const body = await res.json() as any;
-            expect(body.version).toBe('4.11.1');
+            expect(body.version).toBe('4.12.0');
             expect(typeof body.uptime).toBe('number');
         });
     });
@@ -316,7 +316,7 @@ describe('Mission Control v2', () => {
             const res = await fetch(`${BASE}/api/update`);
             expect(res.status).toBe(200);
             const body = await res.json() as any;
-            expect(body.current).toBe('4.11.1');
+            expect(body.current).toBe('4.12.0');
         });
     });
 
@@ -442,12 +442,13 @@ describe('Mission Control v2', () => {
             expect(body[0]).toHaveProperty('name');
         });
 
-        it('GET /api/tools → array of tools', async () => {
+        it('GET /api/tools → { total, count, tools[] } (v4.12 shape)', async () => {
             const res = await fetch(`${BASE}/api/tools`);
             expect(res.status).toBe(200);
-            const body = await res.json() as any;
-            expect(Array.isArray(body)).toBe(true);
-            expect(body[0]).toHaveProperty('name');
+            const body = await res.json() as { total: number; count: number; tools: Array<{ name: string }> };
+            expect(body).toHaveProperty('total');
+            expect(Array.isArray(body.tools)).toBe(true);
+            expect(body.tools[0]).toHaveProperty('name');
         });
 
         it('POST /api/skills/:name/toggle → toggles skill', async () => {

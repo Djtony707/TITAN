@@ -5,6 +5,92 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.12.0] — 2026-04-19 — API refactor + concurrency hardening
+
+Follow-up to v4.11.1. All v4.11.1 fixes are included; this release
+adds the breaking API changes that v4.11.1 couldn't ship as a patch,
+plus concurrency and discovery improvements.
+
+### Breaking changes (migration required)
+
+- **`routeMessage()` signature** — positional args 4-9 are gone:
+  ```ts
+  // before (v4.11)
+  routeMessage(message, channel, userId, streamCallbacks, overrideAgentId, signal, sessionId, modelOverride, allowClaudeCode)
+  // after (v4.12)
+  routeMessage(message, channel, userId, options)
+  //                                     ↑ { streamCallbacks?, overrideAgentId?, signal?, sessionId?, modelOverride?, providerOptions? }
+  ```
+  This replaces a 9-positional-arg signature that grew one arg at a
+  time and was getting worse with every provider-specific feature.
+
+- **`ChatOptions.providerOptions`** — new bag for provider-specific
+  flags (`{ allowClaudeCode: true }` is the first resident).
+  `ChatOptions.allowClaudeCode` still works as a deprecated fallback
+  for this release; **will be removed in v5.0**. Migration:
+  ```ts
+  // before
+  { model, messages, allowClaudeCode: true }
+  // after
+  { model, messages, providerOptions: { allowClaudeCode: true } }
+  ```
+
+- **`ChatStreamChunk` is now a discriminated union** keyed on `type`.
+  TypeScript narrows the shape automatically when consumers switch on
+  `type`, so consumer code that was reading optional fields manually
+  will work unchanged; code that was constructing chunks with the old
+  "all fields optional" shape needs updating.
+
+- **`GET /api/tools`** now returns `{ total, count, offset, tools }`
+  instead of a bare array. Add search/pagination support:
+  `?q=search`, `?skill=name`, `?include=schema`, `?limit=N&offset=N`.
+
+### Concurrency + security hardening
+
+- **`activeLlmRequests` floor** — new `releaseLlmSlot()` helper
+  prevents negative drift if a finally path ever double-decrements.
+  Drift would eventually deadlock the concurrency guard.
+- **`sessionOwners` TTL + hard cap** — the map now prunes alongside
+  `sessionAborts` on the 5-min TTL, with a 10k hard cap as a safety
+  net. Previously grew unbounded.
+- **Outbound sanitizer input cap** — 64KB cap on inputs before running
+  the instruction-leak / PII regex pipeline. Prevents regex-DoS on
+  crafted inputs.
+
+### Discovery + testing
+
+- **11 regression tests** for the Claude Code autonomous-burn gate
+  (up from 3). Covers providerOptions path, deprecated fallback,
+  negative cases, and provider.chat() error message.
+- **`GET /api/tools`** exposes skill attribution + optional parameter
+  schema so a Mission Control Tools panel can build without
+  round-tripping the skill registry.
+
+### Closed as false alarms
+
+Three audit findings were investigated and closed without changes:
+- Shell-command regex `/tmp` boundary: already correctly blocks
+  `rm -rf /tmp` while allowing `/tmpfoo`. Verified with a round-trip
+  test in the audit session.
+- Session IDs are already cryptographic (`uuid.v4()` via the `uuid`
+  package).
+- Mesh HMAC timestamp is computed server-side from `Date.now()`, not
+  trusted from client query. The audit's claim that the client
+  timestamp was used as crypto material was a misread.
+
+### Deferred to v4.13 or later
+
+- HTTP status-code sweep (200-with-error-body sites) — touches ~30
+  handlers; bundled release.
+- ToolDefinition validator on skill load — needs schema design.
+- OpenAPI spec auto-gen — better as a dedicated release.
+- Thread errorTaxonomy through `classifyChatError` — cross-provider
+  refactor.
+- Goal Driver A-G regression tests — 57 exist; need targeted ones
+  for fixes C/D/F/G specifically.
+
+---
+
 ## [4.11.1] — 2026-04-19 — Security patch + auth hardening
 
 Patch release on top of 4.11.0 (never shipped — 4.11.0 content is

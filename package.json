@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "4.11.1",
+  "version": "4.12.0",
   "description": "TITAN \u2014 Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 16 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, TITAN-Soma homeostatic drives, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {

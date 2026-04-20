@@ -21,14 +21,15 @@ vi.mock('../src/agent/multiAgent.js', async (importOriginal) => {
     const actual = await importOriginal<any>();
     return {
         ...actual,
-        routeMessage: vi.fn().mockImplementation(async (_msg: string, _ch: string, _uid: string, streamCallbacks?: any) => {
-            // Simulate streaming tokens if callbacks provided
-            if (streamCallbacks?.onToken) {
-                streamCallbacks.onToken('Hello');
-                streamCallbacks.onToken(' world');
+        routeMessage: vi.fn().mockImplementation(async (_msg: string, _ch: string, _uid: string, options?: any) => {
+            // v4.12: streamCallbacks moved inside the options bag.
+            const cbs = options?.streamCallbacks;
+            if (cbs?.onToken) {
+                cbs.onToken('Hello');
+                cbs.onToken(' world');
             }
-            if (streamCallbacks?.onToolCall) {
-                streamCallbacks.onToolCall('shell', { command: 'ls' });
+            if (cbs?.onToolCall) {
+                cbs.onToolCall('shell', { command: 'ls' });
             }
             return {
                 content: 'Hello world',
