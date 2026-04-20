@@ -1482,12 +1482,48 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
 
-  app.get('/api/tools', (_req, res) => {
-    const tools = getRegisteredTools().map((t) => ({
-      name: t.name,
-      description: t.description,
-    }));
-    res.json(tools);
+  /**
+   * GET /api/tools — tool discovery.
+   * Query params:
+   *   - `q` or `search`: case-insensitive substring match against name + description.
+   *   - `skill`: filter to tools belonging to the named skill.
+   *   - `include`: comma-separated extras — `schema` adds the input
+   *      parameter schema (can be large; opt-in to keep default
+   *      response small).
+   *   - `limit`/`offset`: pagination (defaults unlimited).
+   * Response: { total, count, tools: [{name, description, skill?, parameters?}] }
+   */
+  app.get('/api/tools', (req, res) => {
+    const q = ((req.query.q ?? req.query.search) as string | undefined)?.toLowerCase().trim();
+    const skillFilter = (req.query.skill as string | undefined)?.trim();
+    const include = new Set(((req.query.include as string | undefined) || '').split(',').map((s) => s.trim()).filter(Boolean));
+    const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit as string, 10) || 0) : undefined;
+    const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset as string, 10) || 0) : 0;
+
+    // Build a name -> skill lookup once.
+    const toolToSkill = new Map<string, string>();
+    for (const skill of getSkills()) {
+      for (const tn of getSkillTools(skill.name)) toolToSkill.set(tn, skill.name);
+    }
+
+    let all = getRegisteredTools();
+    if (skillFilter) all = all.filter((t) => toolToSkill.get(t.name) === skillFilter);
+    if (q) all = all.filter((t) => t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+
+    const total = all.length;
+    const paged = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
+
+    const tools = paged.map((t) => {
+      const base: Record<string, unknown> = {
+        name: t.name,
+        description: t.description,
+        skill: toolToSkill.get(t.name),
+      };
+      if (include.has('schema')) base.parameters = t.parameters;
+      return base;
+    });
+
+    res.json({ total, count: tools.length, offset, tools });
   });
 
   app.get('/api/channels', (_req, res) => {

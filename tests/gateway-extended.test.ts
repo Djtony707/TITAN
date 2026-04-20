@@ -163,6 +163,8 @@ vi.mock('../src/skills/registry.js', () => ({
         { name: 'shell', description: 'Run shell commands', parameters: [] },
         { name: 'read_file', description: 'Read files', parameters: [] },
     ]),
+    getSkillTools: vi.fn().mockReturnValue([]),
+    toggleSkill: vi.fn(),
 }));
 
 vi.mock('../src/mcp/registry.js', () => ({
@@ -300,16 +302,36 @@ describe('Gateway Extended', () => {
     // ── API Routes: Tools ────────────────────────────────────────────
 
     describe('Tools route', () => {
-        it('GET /api/tools should return array of tool descriptors', async () => {
+        it('GET /api/tools should return paginated tool descriptors (v4.12 shape)', async () => {
             const res = await fetch(`${BASE}/api/tools`);
             expect(res.status).toBe(200);
-            const body = await res.json() as any;
-            expect(Array.isArray(body)).toBe(true);
-            // Each tool should have name and description
-            if (body.length > 0) {
-                expect(body[0]).toHaveProperty('name');
-                expect(body[0]).toHaveProperty('description');
+            const body = await res.json() as { total: number; count: number; offset: number; tools: Array<{ name: string; description: string; skill?: string; parameters?: unknown }> };
+            expect(body).toHaveProperty('total');
+            expect(body).toHaveProperty('count');
+            expect(Array.isArray(body.tools)).toBe(true);
+            if (body.tools.length > 0) {
+                expect(body.tools[0]).toHaveProperty('name');
+                expect(body.tools[0]).toHaveProperty('description');
+                // Parameters schema NOT included by default — opt-in via ?include=schema.
+                expect(body.tools[0]).not.toHaveProperty('parameters');
             }
+        });
+
+        it('GET /api/tools?include=schema returns parameter schema', async () => {
+            const res = await fetch(`${BASE}/api/tools?include=schema&limit=1`);
+            expect(res.status).toBe(200);
+            const body = await res.json() as { tools: Array<{ name: string; parameters?: unknown }> };
+            if (body.tools.length > 0) {
+                expect(body.tools[0]).toHaveProperty('parameters');
+            }
+        });
+
+        it('GET /api/tools?q=search filters by name/description', async () => {
+            const res = await fetch(`${BASE}/api/tools?q=zzznomatchxyz`);
+            expect(res.status).toBe(200);
+            const body = await res.json() as { total: number; count: number; tools: Array<unknown> };
+            expect(body.total).toBe(0);
+            expect(body.tools.length).toBe(0);
         });
     });
 
