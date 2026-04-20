@@ -3375,7 +3375,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [evt, handler] of listeners) {
-        titanEvents.removeListener(evt, handler);
+        try { titanEvents.removeListener(evt, handler); } catch { /* listener already gone */ }
       }
     });
   });
@@ -3465,7 +3465,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [topic, handler] of listeners) {
-        titanEvents.removeListener(topic, handler);
+        try { titanEvents.removeListener(topic, handler); } catch { /* listener already gone */ }
       }
     });
   });
@@ -3725,7 +3725,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [evt, handler] of listeners) {
-        titanEvents.removeListener(evt, handler);
+        try { titanEvents.removeListener(evt, handler); } catch { /* listener already gone */ }
       }
     });
   });
@@ -3750,7 +3750,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     req.on('close', () => {
       clearInterval(keepalive);
-      titanEvents.removeListener('plan:event', handler);
+      try { titanEvents.removeListener('plan:event', handler); } catch { /* listener already gone */ }
     });
   });
 
@@ -7864,7 +7864,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       })();
     };
     refresh();
-    setInterval(refresh, 60_000).unref?.();
+    setInterval(refresh, 60_000).unref();
     (globalThis as unknown as { __titan_self_model_block?: () => string }).__titan_self_model_block = () => {
       // If cache is stale (> 2 min) return the old block anyway — the
       // async refresh runs out-of-band. Never blocks the prompt path.
@@ -7926,7 +7926,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
           }
         } catch { /* best-effort */ }
       })();
-    }, 15_000).unref?.();
+    }, 15_000).unref();
 
     // Metrics: cheap synchronous read.
     g.__titan_metrics_summary = () => {
@@ -8005,7 +8005,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         } catch { /* ok */ }
       })();
     }, 15_000);
-    missionTimer.unref?.();
+    missionTimer.unref();
     logger.info(COMPONENT, 'Mission scheduler started (15s cadence)');
   } catch (e) {
     logger.warn(COMPONENT, `Mission scheduler skipped: ${(e as Error).message}`);
@@ -8056,7 +8056,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       const pollTimer = setInterval(() => {
         pollOpenProposals().catch((e: Error) => logger.debug(COMPONENT, `selfMod poll: ${e.message}`));
       }, pollMs);
-      (pollTimer as unknown as { unref?: () => void }).unref?.();
+      pollTimer.unref();
 
       // Auto-review: watch soma:proposal events for self-mod captures and
       // kick off specialist review when a new proposal has enough files.
