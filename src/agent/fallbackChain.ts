@@ -65,37 +65,45 @@ function matchesAny(err: string, patterns: RegExp[]): boolean {
 
 // ── Model fallback ladders (per kind) ────────────────────────────
 
-// Ladders try free options only — local Ollama first, then free
-// OpenRouter models. Previously claude-code/sonnet-4.5 was the final
-// tier, but it burned significant tokens (500K+ input per stuck spawn)
-// when subtasks cascaded through the ladder. Claude Code is now reserved
+// Ladders try Ollama cloud models first (covered by the user's Max
+// plan), then local Ollama, then OpenRouter as a last resort if both
+// Ollama tiers are unreachable. Previously claude-code/sonnet-4.5 was
+// the final tier but it burned significant tokens (500K+ input per
+// stuck spawn) when subtasks cascaded — Claude Code is now reserved
 // exclusively for explicit specialist roles (Sage reviewer, self-mod
-// apply gate) where its cost is bounded by explicit caps — never used
-// as a generic fallback.
+// apply gate) with bounded caps.
+//
+// v4.13: rebalanced to match the new specialist defaults
+// (qwen3-coder-next, kimi-k2.5, gemma4, qwen3.5, glm-5). The ladder
+// entries are DIFFERENT models from the primary so a rotation actually
+// tries a different approach instead of re-hitting the same failure.
 
 const CODE_MODEL_LADDER = [
-    undefined, // primary — Builder's qwen3.6:35b
-    'ollama/glm-5.1:cloud',
-    'ollama/gemma4:31b',
-    'ollama/qwen3-coder-next:cloud', // free on OpenRouter (via cloud bypass)
+    undefined, // primary — Builder's qwen3-coder-next:cloud
+    'ollama/glm-5:cloud',
+    'ollama/gemma4:cloud',
+    'ollama/gemma4:31b', // local fallback if Ollama cloud is down
 ];
 
 const RESEARCH_MODEL_LADDER = [
-    undefined, // primary — Scout's glm-5.1:cloud
-    'ollama/gemma4:31b',
-    'openrouter/qwen/qwen3-coder', // free on OpenRouter
+    undefined, // primary — Scout's kimi-k2.5:cloud
+    'ollama/glm-5:cloud',
+    'ollama/qwen3.5:cloud',
+    'ollama/gemma4:31b', // local fallback
 ];
 
 const WRITE_MODEL_LADDER = [
-    undefined, // primary — Writer's glm-5.1:cloud
-    'ollama/gemma4:31b',
-    'openrouter/qwen/qwen3-coder', // free on OpenRouter
+    undefined, // primary — Writer's gemma4:cloud
+    'ollama/gemini-3-flash-preview:cloud',
+    'ollama/glm-5:cloud',
+    'ollama/gemma4:31b', // local fallback
 ];
 
 const ANALYSIS_MODEL_LADDER = [
-    undefined, // primary — Analyst's glm-5.1:cloud
-    'ollama/gemma4:31b',
-    'openrouter/qwen/qwen3-coder', // free on OpenRouter
+    undefined, // primary — Analyst's qwen3.5:cloud
+    'ollama/glm-5:cloud',
+    'ollama/nemotron-3-super:cloud',
+    'ollama/gemma4:31b', // local fallback
 ];
 
 function modelLadderFor(kind: SubtaskKind): Array<string | undefined> {
