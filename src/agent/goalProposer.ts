@@ -19,6 +19,7 @@ import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
 import { loadConfig } from '../config/config.js';
 import { chat } from '../providers/router.js';
+import { auxChat, resolveAuxiliaryModel } from '../providers/auxiliary.js';
 import { applyOutputGuardrails } from './outputGuardrails.js';
 import { getActivity, requestGoalProposalApproval, type CPApproval } from './commandPost.js';
 import { listGoals } from './goals.js';
@@ -342,6 +343,7 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
 export async function generateGoalProposals(
     agentId: string,
     ctx: GoalProposerContext,
+    type: 'goal_proposal' | 'soma_proposal' = 'goal_proposal'
 ): Promise<CPApproval[]> {
     const config = loadConfig();
     const enabled = config.agent.autoProposeGoals;
@@ -393,23 +395,39 @@ export async function generateGoalProposals(
     const ctxWithBlocks: GoalProposerContext = { ...ctx, extraBlocks };
     const prompt = buildPrompt(agentId, slotsLeft, ctxWithBlocks);
 
-    // Only Ollama honours the `format` JSON-schema constraint today.
-    // Other providers would either ignore it or error, so we gate on provider.
-    const isOllama = model.toLowerCase().startsWith('ollama/');
+    // v4.13 ancestor-extraction: route goal-proposal JSON extraction through
+    // the auxiliary model client. The main agent model (gemma4:31b on the
+    // Titan PC default) produces empty arrays for structured JSON tasks; a
+    // dedicated fast+cheap model (minimax-m2.7:cloud) reliably produces valid
+    // proposals. Falls back to the main `model` when no auxiliary is
+    // configured.
+    const auxModel = resolveAuxiliaryModel('json_extraction');
+    const effectiveModel = auxModel || model;
+    const isOllamaEffective = effectiveModel.toLowerCase().startsWith('ollama/');
 
     let rawContent: string;
     try {
-        const response = await chat({
-            model,
-            messages: [
-                { role: 'system', content: 'You are a careful autonomous agent proposing new work. Output ONLY valid JSON. No explanation, no prose.' },
-                { role: 'user', content: prompt },
-            ],
-            temperature: 0.4,
-            maxTokens: 1500,
-            ...(isOllama ? { format: PROPOSAL_ARRAY_SCHEMA } : {}),
-        });
+        const response = await auxChat(
+            'json_extraction',
+            {
+                messages: [
+                    { role: 'system', content: 'You are a careful autonomous agent proposing new work. Output ONLY valid JSON. No explanation, no prose.' },
+                    { role: 'user', content: prompt },
+                ],
+                temperature: 0.4,
+                maxTokens: 1500,
+                ...(isOllamaEffective ? { format: PROPOSAL_ARRAY_SCHEMA } : {}),
+            },
+            model, // fallback to main agent model if no aux is configured
+        );
+        if (!response) {
+            logger.warn(COMPONENT, `Auxiliary call returned null for agent ${agentId} — treating as no proposals`);
+            return [];
+        }
         rawContent = response.content || '';
+        if (auxModel && auxModel !== model) {
+            logger.info(COMPONENT, `Agent ${agentId} goal-proposal routed via auxiliary model ${auxModel} (main: ${model})`);
+        }
     } catch (err) {
         logger.warn(COMPONENT, `LLM call failed for agent ${agentId}: ${(err as Error).message}`);
         return [];
@@ -451,7 +469,7 @@ export async function generateGoalProposals(
             continue;
         }
         try {
-            const approval = requestGoalProposalApproval(agentId, proposal);
+            const approval = requestGoalProposalApproval(agentId, proposal, type);
             approvals.push(approval);
             recordProposal(agentId);
             existingActiveTitles.push(proposal.title); // prevent intra-batch dupes too

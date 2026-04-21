@@ -119,11 +119,18 @@ describe('kill switch', () => {
         expect(getState().safetyHighSince).toBeUndefined();
     });
 
-    it('fix oscillation ≥ 3× in 24h fires the kill', async () => {
-        recordFixOscillation('src/agent/goals.ts');
-        recordFixOscillation('src/gateway/server.ts');
+    it('fix oscillation ≥ 5× on same target within 1h fires the kill', async () => {
+        // v4.13 ancestor-extraction (Sprint B): threshold was retuned from
+        // 2/24h per-target to 5/1h per-target. Real oscillation is fast-
+        // repeating pathology, not slow replaying. Test verifies the new
+        // threshold — 5 writes to the SAME non-exempt target.
+        const target = 'src/agent/goals.ts';
+        recordFixOscillation(target);
+        recordFixOscillation(target);
+        recordFixOscillation(target);
+        recordFixOscillation(target);
         expect(isKilled()).toBe(false);
-        recordFixOscillation('src/organism/pressure.ts');
+        recordFixOscillation(target);
         await new Promise(r => setTimeout(r, 30));
         expect(isKilled()).toBe(true);
         expect(getState().lastEvent?.trigger).toBe('fix_oscillation');

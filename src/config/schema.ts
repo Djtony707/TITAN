@@ -192,6 +192,14 @@ export const AgentConfigSchema = z.object({
         smartRouting: z.boolean().default(true),
         contextSummarization: z.boolean().default(true),
         dailyBudgetUsd: z.number().optional(),
+        /**
+         * v4.13 ancestor-extraction (Hermes smart_model_routing): dedicated
+         * model for ultra-simple turns ("hi", "what time is it?", "who made
+         * you?"). When set, TITAN's simple-turn detector routes these
+         * messages here regardless of tier analysis. Leave empty to disable.
+         * Example: "ollama/minimax-m2.7:cloud" (fast + coherent on Titan PC).
+         */
+        simpleTurnModel: z.string().optional(),
     }).optional(),
     /** Restrict which models users can select via /model. Empty = all allowed. Supports wildcards: "openai/*" */
     allowedModels: z.array(z.string()).default([]),
@@ -924,6 +932,85 @@ export const TitanConfigSchema = z.object({
     }).default({}),
 
     /** Command Post — agent governance layer (Paperclip-inspired) */
+    /**
+     * v4.13 ancestor-extraction (OpenClaw agent-scope): config-driven agents.
+     * Declare a custom agent in titan.json:
+     *
+     *   "agents": {
+     *     "defaults": { "model": "ollama/minimax-m2.7:cloud", "maxRounds": 15 },
+     *     "entries": {
+     *       "coder-rust": {
+     *         "name": "Rust Coder",
+     *         "template": "builder",
+     *         "model": "ollama/glm-5.1:cloud",
+     *         "skillsFilter": ["shell","read_file","write_file","edit_file"],
+     *         "tags": ["code","rust"]
+     *       }
+     *     }
+     *   }
+     *
+     * Built-in specialists (scout/builder/writer/analyst/sage) from
+     * src/agent/specialists.ts still work as defaults; config-defined
+     * agents layer on top.
+     */
+    agents: z.object({
+        defaults: z.object({
+            model: z.string().optional(),
+            modelFallbacks: z.array(z.string()).default([]),
+            skillsFilter: z.array(z.string()).default([]),
+            persona: z.string().optional(),
+            maxRounds: z.number().optional(),
+            maxTokens: z.number().optional(),
+            systemPromptOverride: z.string().optional(),
+        }).default({}),
+        entries: z.record(z.string(), z.object({
+            name: z.string().optional(),
+            description: z.string().optional(),
+            model: z.string().optional(),
+            modelFallbacks: z.array(z.string()).optional(),
+            skillsFilter: z.array(z.string()).optional(),
+            persona: z.string().optional(),
+            systemPromptOverride: z.string().optional(),
+            template: z.string().optional(),
+            maxRounds: z.number().optional(),
+            maxTokens: z.number().optional(),
+            workspaceDir: z.string().optional(),
+            tags: z.array(z.string()).default([]),
+            enabled: z.boolean().default(true),
+        })).default({}),
+    }).default({}),
+
+    /**
+     * Auxiliary model for side tasks — goal-proposal JSON extraction, session
+     * title generation, graph entity extraction, structured-spawn reformat,
+     * classification, short summaries.
+     *
+     * Ported from Hermes `agent/auxiliary_client.py` — main agent models
+     * (esp. gemma4:31b) are tuned for long reasoning + tool use and often
+     * produce empty arrays or prose instead of strict JSON. Routing side
+     * tasks to a dedicated fast+cheap model (minimax-m2.7 is proven on
+     * Titan PC) makes the autonomous cycle actually produce work.
+     *
+     * See: src/providers/auxiliary.ts
+     */
+    auxiliary: z.object({
+        /** Explicit model. Wins over preferFamilies. Ex: "ollama/minimax-m2.7:cloud" */
+        model: z.string().optional(),
+        /** Family-preference order when `model` is unset. Default optimised for Titan PC. */
+        preferFamilies: z.array(z.string()).default(['minimax', 'glm', 'qwen', 'nemotron', 'gemma']),
+        /** Per-task model overrides. Key = task kind. */
+        perTask: z.object({
+            json_extraction: z.string().optional(),
+            classification: z.string().optional(),
+            title: z.string().optional(),
+            summary: z.string().optional(),
+            reformat: z.string().optional(),
+            humanize: z.string().optional(),
+        }).default({}),
+        /** Kill-switch for auxiliary routing — fall back to main model always. */
+        disabled: z.boolean().default(false),
+    }).default({}),
+
     commandPost: z.object({
         /** Enable the Command Post governance layer */
         enabled: z.boolean().default(false),
@@ -935,6 +1022,29 @@ export const TitanConfigSchema = z.object({
         checkoutTimeoutMs: z.number().default(1800000),
         /** Activity feed buffer size */
         activityBufferSize: z.number().default(500),
+        /**
+         * Gap 4 (plan-this-logical-ocean): path-scoped auto-approval.
+         * When enabled, approvals whose (type, payload.kind, payload.path)
+         * match an allowlisted rule are short-circuited to status='approved'
+         * by the system, instead of landing in the human queue. Off by
+         * default — Tony governance preference is opt-in for anything that
+         * bypasses his eyes. See src/agent/approvalClassifier.ts for the
+         * built-in rule defaults (read-only reads under Desktop/opt/tmp).
+         */
+        autoApprove: z.object({
+            enabled: z.boolean().default(false),
+            /** Additional user-defined rules layered on top of the built-in defaults. */
+            rules: z.array(z.object({
+                /** Approval type this rule matches, or '*' for any type */
+                type: z.string().default('*'),
+                /** payload.kind this rule matches, or '*' for any */
+                kind: z.string().default('*'),
+                /** Path prefix payload.path must start with (optional) */
+                pathPrefix: z.string().optional(),
+                /** 'auto' short-circuits to approved; 'require' forces human approval even if a broader default would auto-approve */
+                action: z.enum(['auto', 'require']).default('auto'),
+            })).default([]),
+        }).default({}),
     }).default({}),
 
     /**

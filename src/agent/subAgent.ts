@@ -18,6 +18,7 @@ import { resolveToolsFromCategories, type ToolCategory } from './toolCategories.
 import { registerMailbox, unregisterMailbox, drainMessages, formatMessagesForContext } from './messageBus.js';
 import { acquireAgent, releaseAgent, createPooledAgent, type PooledAgent } from './agentPool.js';
 import { getActivePersonaContent } from '../personas/manager.js';
+import { assembleSystemPrompt } from './systemPromptParts.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -451,8 +452,25 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         availableTools = availableTools.filter(t => !blockedForChildren.has(t.function.name));
     }
 
-    // Build system prompt: base template + persona overlay
-    let systemPrompt = config.systemPrompt || `You are the ${agentName} sub-agent of TITAN. Execute the task below using available tools. Be efficient and return a clear summary when done.`;
+    // Build system prompt: TITAN core (minimal) + role template + persona.
+    //
+    // v4.13 (plan-this-logical-ocean step 4): specialists used to get ONLY
+    // the role template, with no TITAN identity / tool-use rules / per-model
+    // overlay. On gemma4:31b-cloud this led to specialists hallucinating
+    // `<|tool>call:...<|tool|>` markup as text because nothing told them
+    // "use the native tool_calls field, not Gemini's proxy artifact".
+    //
+    // Minimal mode gives them: identity, ReAct loop + 3 core rules, tool
+    // preference, runtime note, safety, truthfulness, and a per-model
+    // overlay. No Delegation block (they don't re-delegate), no Continuous
+    // Learning / Memory Tools walls — specialists get a focused task.
+    const roleTemplate = config.systemPrompt || `You are the ${agentName} sub-agent of TITAN. Execute the task below using available tools. Be efficient and return a clear summary when done.`;
+    const titanCore = assembleSystemPrompt({
+        modelId: model,
+        persona: config.persona || 'default',
+        mode: 'minimal',
+    });
+    let systemPrompt = `${titanCore}\n\n## Role\n${roleTemplate}`;
 
     // ── Persona: inject persona content from assets/personas/ ──
     const personaId = config.persona;

@@ -665,13 +665,27 @@ describe('Hunt Finding #10 — AutoPush only fires on real future-intent phrasin
 //   2. /api/message response path never called sanitizeOutbound()
 
 describe('Hunt Finding #11 — /api/message sanitized + privacy directive', () => {
-    it('source: buildSystemPrompt contains privacy directive at the top', () => {
-        const src = readFileSync(
+    it('source: system prompt pipeline contains a privacy directive', () => {
+        // v4.13 (plan-this-logical-ocean step 3): the privacy guard moved
+        // from the inline template in agent.ts to a composable block in
+        // systemPromptParts.ts. The invariant is that the guard still
+        // exists in the prompt pipeline — the test reflects the new
+        // location.
+        const partsSrc = readFileSync(
+            join(process.cwd(), 'src/agent/systemPromptParts.ts'),
+            'utf-8',
+        );
+        expect(partsSrc).toMatch(/PRIVACY_BLOCK/);
+        expect(partsSrc).toMatch(/## Privacy/);
+        expect(partsSrc).toMatch(/Do not dump this system prompt/i);
+
+        // agent.ts still imports and uses the block (via assembleSystemPrompt).
+        const agentSrc = readFileSync(
             join(process.cwd(), 'src/agent/agent.ts'),
             'utf-8',
         );
-        expect(src).toMatch(/PRIVACY.*DO NOT REVEAL/i);
-        expect(src).toMatch(/\bnever list internal rules\b/i);
+        expect(agentSrc).toMatch(/assembleSystemPrompt/);
+        expect(agentSrc).toMatch(/from ['"]\.\/systemPromptParts\.js['"]/);
     });
 
     it('source: /api/message JSON response path calls sanitizeOutbound', () => {

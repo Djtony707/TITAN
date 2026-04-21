@@ -18,6 +18,7 @@ import { listGoals, type Goal } from './goals.js';
 import logger from '../utils/logger.js';
 import type { CommandPostConfig } from '../config/schema.js';
 import { loadConfig } from '../config/config.js';
+import { shouldAutoApprove, type ApprovalRule } from './approvalClassifier.js';
 
 const COMPONENT = 'CommandPost';
 const STATE_PATH = join(TITAN_HOME, 'command-post.json');
@@ -272,17 +273,62 @@ export function getActivity(opts?: { limit?: number; type?: string }): ActivityE
 
 // ─── Task Checkout (Atomic Locking) ──────────────────────────────────────
 
+/**
+ * Gap 3 (plan-this-logical-ocean): stale-lock adoption threshold.
+ * If the lock-holding agent hasn't heartbeat in this long, a different agent
+ * is allowed to adopt the lock instead of being blocked by it. Default 5 min
+ * picks up abandoned runs quickly without stealing from agents that are just
+ * doing long work (checkoutTimeoutMs default is 30 min — sweep handles those).
+ */
+const STALE_LOCK_ADOPTION_MS = 5 * 60 * 1000;
+
 export function checkoutTask(goalId: string, subtaskId: string, agentId: string): TaskCheckout | null {
     // Atomic: single-threaded Node.js event loop = synchronous check-and-lock
     const existing = checkouts.get(subtaskId);
     if (existing && existing.status === 'locked') {
-        // Already locked by another agent
-        if (existing.agentId !== agentId) return null;
         // Same agent re-checking out — adopt (Paperclip dual-run pattern)
-        existing.checkedOutAt = new Date().toISOString();
-        existing.expiresAt = new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString();
+        if (existing.agentId === agentId) {
+            existing.checkedOutAt = new Date().toISOString();
+            existing.expiresAt = new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString();
+            saveState();
+            return existing;
+        }
+        // Gap 3: different agent — check if the lock-holder is stale.
+        // Previously we returned null here, which meant a crashed agent
+        // would zombie the subtask for up to checkoutTimeoutMs (30 min)
+        // before the sweep cleared it. Now, if the lock-holder's heartbeat
+        // is older than STALE_LOCK_ADOPTION_MS, let the new agent take
+        // over with a fresh runId. If the holder is not in the agent
+        // registry at all (never heartbeat, possibly a test caller or an
+        // old persisted checkout), we conservatively treat them as STILL
+        // HOLDING — the sweep will clean the lock up after checkoutTimeoutMs.
+        // This preserves the existing safety invariant that two different
+        // agents can't hold the same subtask simultaneously.
+        const holder = registeredAgents.get(existing.agentId);
+        if (!holder) return null;
+        const holderLastBeat = new Date(holder.lastHeartbeat).getTime();
+        const holderStale = Date.now() - holderLastBeat > STALE_LOCK_ADOPTION_MS;
+        if (!holderStale) return null;
+
+        const adopted: TaskCheckout = {
+            ...existing,
+            agentId,
+            runId: uuid().slice(0, 8),
+            checkedOutAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString(),
+            status: 'locked',
+        };
+        checkouts.set(subtaskId, adopted);
         saveState();
-        return existing;
+        addActivity({
+            type: 'task_checkout',
+            agentId,
+            goalId,
+            message: `Agent "${agentId}" adopted stale lock on ${subtaskId} (prev holder "${existing.agentId}" heartbeat ${holder ? Math.round((Date.now() - holderLastBeat) / 1000) + 's ago' : 'missing'})`,
+            metadata: { runId: adopted.runId, adoptedFrom: existing.agentId, previousRunId: existing.runId },
+        });
+        titanEvents.emit('commandpost:task:checkout', adopted);
+        return adopted;
     }
 
     const checkout: TaskCheckout = {
@@ -935,10 +981,84 @@ export function getIssueComments(issueId: string): CPComment[] {
 
 // ─── Paperclip: Approval System ──────────────────────────────────────────
 
+/**
+ * v4.13 coalescing key — generates a stable signature for an approval so
+ * autonomous producers that fire on a cron can reuse a pending approval
+ * for the same concern instead of piling up duplicates. Keyed on
+ * (type, requestedBy, payload.kind, and either goalId or model — the
+ * fields that are identity-like for the concern being raised).
+ */
+function coalesceKey(opts: {
+    type: CPApproval['type']; requestedBy: string; payload: Record<string, unknown>;
+}): string {
+    const kind = typeof opts.payload.kind === 'string' ? opts.payload.kind : '';
+    const goalId = typeof opts.payload.goalId === 'string' ? opts.payload.goalId : '';
+    const model = typeof opts.payload.model === 'string' ? opts.payload.model : '';
+    const title = typeof opts.payload.title === 'string' ? opts.payload.title : '';
+    // Prefer goalId/model when available, otherwise fall back to title. Title-less
+    // concerns (e.g. repeating self_repair) get coalesced by (type, requestedBy, kind).
+    const identity = goalId || model || title;
+    return `${opts.type}|${opts.requestedBy}|${kind}|${identity}`;
+}
+
 export function createApproval(opts: {
     type: CPApproval['type']; requestedBy: string; payload: Record<string, unknown>;
     linkedIssueIds?: string[];
 }): CPApproval {
+    // Gap 4 (plan-this-logical-ocean): path-scoped auto-approval.
+    // Before filing, classify the intent. If the configured autoApprove
+    // rules say 'auto', short-circuit to an already-approved CPApproval
+    // so the thing never reaches the human queue. Off by default — the
+    // (config as any).autoApprove check keeps legacy callers happy
+    // before the config schema is loaded.
+    try {
+        const auto = (config as unknown as { autoApprove?: { enabled?: boolean; rules?: unknown[] } })?.autoApprove;
+        if (auto?.enabled) {
+            const rules = (auto.rules as ApprovalRule[]) || [];
+            if (shouldAutoApprove({ type: opts.type, payload: opts.payload }, { enabled: true, rules })) {
+                const approved: CPApproval = {
+                    id: uuid().slice(0, 8),
+                    type: opts.type,
+                    status: 'approved',
+                    requestedBy: opts.requestedBy,
+                    payload: opts.payload,
+                    decidedBy: 'auto:path-classifier',
+                    decidedAt: new Date().toISOString(),
+                    decisionNote: 'Auto-approved by path-scoped classifier',
+                    linkedIssueIds: opts.linkedIssueIds || [],
+                    createdAt: new Date().toISOString(),
+                };
+                approvals.set(approved.id, approved);
+                saveState();
+                addActivity({
+                    type: 'goal_created',
+                    message: `Approval auto-approved: ${approved.type} (${opts.payload.kind ?? '-'}) from ${opts.requestedBy}`,
+                    metadata: { approvalId: approved.id, auto: true, path: opts.payload.path ?? null },
+                });
+                return approved;
+            }
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Auto-approval classifier error, falling through to human queue: ${(err as Error).message}`);
+    }
+
+    // Coalesce: if a pending approval already exists for the same concern,
+    // update its payload + timestamp and return it instead of filing a new
+    // one. Stops autonomous producers (canary-eval, self-repair daemon,
+    // auto-heal runner) from flooding the queue with dupes while a human
+    // hasn't decided the first one yet.
+    const key = coalesceKey(opts);
+    for (const existing of approvals.values()) {
+        if (existing.status !== 'pending') continue;
+        if (coalesceKey({ type: existing.type, requestedBy: existing.requestedBy, payload: existing.payload as Record<string, unknown> }) === key) {
+            existing.payload = opts.payload;
+            existing.createdAt = new Date().toISOString();
+            saveState();
+            logger.debug(COMPONENT, `Approval coalesced into ${existing.id} (key=${key})`);
+            return existing;
+        }
+    }
+
     const approval: CPApproval = {
         id: uuid().slice(0, 8),
         type: opts.type,
@@ -962,7 +1082,7 @@ export function createApproval(opts: {
     return approval;
 }
 
-export function approveApproval(id: string, decidedBy: string, note?: string): CPApproval | null {
+export async function approveApproval(id: string, decidedBy: string, note?: string): Promise<CPApproval | null> {
     const approval = approvals.get(id);
     if (!approval || approval.status !== 'pending') return null;
     approval.status = 'approved';
@@ -1001,6 +1121,37 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
         // Resume paused agent
         updateAgentStatus(approval.payload.agentId as string, 'active');
         addActivity({ type: 'goal_completed', message: `Budget override approved for ${approval.payload.agentId} by ${decidedBy}`, metadata: { approvalId: id } });
+    } else if (approval.type === 'custom' && (approval.payload as { kind?: string }).kind === 'restart_titan') {
+        // v4.13: approval-gated restart. When approved, audit-log the
+        // decision THEN async-exec systemctl restart. The current process
+        // will die; next boot writes a 'restart_completed' audit entry.
+        const reason = (approval.payload as { reason?: string }).reason || 'no reason given';
+        try {
+            const { logAudit } = await import('../security/auditLog.js');
+            logAudit('security_alert', decidedBy, {
+                action: 'restart_titan_approved',
+                approvalId: id,
+                reason,
+                requestedBy: approval.requestedBy,
+            });
+        } catch { /* audit unavailable — still proceed, restart is more important */ }
+        logger.info('CommandPost', `[RestartApproval] TITAN restart approved by ${decidedBy}: ${reason}`);
+        addActivity({ type: 'goal_completed', message: `Restart approved by ${decidedBy}: ${reason}`, metadata: { approvalId: id } });
+        // Fire-and-forget so the approval response returns before systemctl
+        // kills this process. The 1500ms delay gives Express time to flush
+        // the /api/command-post/approvals/:id/approve response.
+        setTimeout(() => {
+            try {
+                const { spawn } = require('child_process');
+                const proc = spawn('sudo', ['-n', 'systemctl', 'restart', 'titan.service'], {
+                    detached: true,
+                    stdio: 'ignore',
+                });
+                proc.unref();
+            } catch (err) {
+                logger.error('CommandPost', `[RestartApproval] systemctl restart failed: ${(err as Error).message}`);
+            }
+        }, 1500).unref();
     } else if (approval.type === 'goal_proposal' || approval.type === 'soma_proposal') {
         const payload = approval.payload as {
             title?: string; description?: string; priority?: number;
@@ -1218,6 +1369,7 @@ export function requestGoalProposalApproval(
         parentGoalId?: string;
         subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
     },
+    type: 'goal_proposal' | 'soma_proposal' = 'goal_proposal'
 ): CPApproval {
     // Dedupe: if a pending proposal with the same title already exists
     // (regardless of which agent proposed it), return the existing one
@@ -1226,15 +1378,15 @@ export function requestGoalProposalApproval(
     const normalizedTitle = proposal.title.trim().toLowerCase();
     for (const existing of approvals.values()) {
         if (existing.status !== 'pending') continue;
-        if (existing.type !== 'goal_proposal') continue;
+        if (existing.type !== type) continue;
         const existingTitle = ((existing.payload as { title?: string })?.title || '').trim().toLowerCase();
         if (existingTitle && existingTitle === normalizedTitle) {
-            logger.debug(COMPONENT, `goal_proposal dedupe: "${proposal.title}" already pending (approval ${existing.id}) — returning existing`);
+            logger.debug(COMPONENT, `${type} dedupe: "${proposal.title}" already pending (approval ${existing.id}) — returning existing`);
             return existing;
         }
     }
     const approval = createApproval({
-        type: 'goal_proposal',
+        type,
         requestedBy,
         payload: proposal,
     });

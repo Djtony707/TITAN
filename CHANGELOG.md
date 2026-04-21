@@ -5,6 +5,133 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.13.0] — 2026-04-20 — Ancestor-extraction sprint (Hermes + Paperclip + OpenClaw)
+
+Large autonomy + operational-safety release. Pulled and adapted thirteen
+patterns from the three ancestor projects that TITAN was missing or only
+partially wired. The headline is that the autonomous cycle now reliably
+produces work on any whitelisted model — previously gemma4:31b-cloud
+would return empty goal-proposal arrays and the whole Dreaming → Proposer
+→ Approve → Drive loop would idle forever.
+
+### Autonomy
+
+- **Composable system prompt** — new `src/agent/systemPromptParts.ts` with
+  per-block assembly + per-model-family overlays. Main-agent prompt
+  shrank from ~25KB to ~3KB per turn. gemma4:31b-cloud no longer emits
+  `<|tool>call:...<|tool|>` markup as prose. (Hermes `prompt_builder.py`)
+- **Auxiliary model client** — new `src/providers/auxiliary.ts` routes
+  side tasks (goal-proposal JSON extraction, structured-spawn reformat,
+  session titles, graph extraction) to a dedicated fast+cheap model.
+  Fixes GoalProposer empty-array problem. Config: `auxiliary.model` or
+  `auxiliary.preferFamilies`. (Hermes `auxiliary_client.py`)
+- **Subdirectory hints** — new `src/agent/subdirHints.ts` lazily loads
+  AGENTS.md / CLAUDE.md / .cursorrules from subdirectories as agents
+  navigate into them via tool calls. Hints are appended to tool RESULTS
+  (preserves prompt cache). Security-scanned for prompt injection.
+  (Hermes `subdirectory_hints.py`)
+- **Bounded run continuations** — new `src/agent/runContinuations.ts`
+  caps per-run continuations at 2, persisted to disk so restarts don't
+  reset. Wired into agentLoop `empty_after_tools` bailout and
+  goalDriver `plan_only` verify fails. (Paperclip `run-continuations.ts`)
+- **Path-scoped auto-approval** — new `src/agent/approvalClassifier.ts`
+  short-circuits read-only tool approvals under allowlisted paths
+  (`~/Desktop/TitanBot`, `/opt/TITAN`, `/tmp`). Off by default; opt in
+  via `commandPost.autoApprove.enabled`. (OpenClaw
+  `acp/approval-classifier.ts`)
+- **Named agents w/ per-agent config** — new `src/agent/agentScope.ts`
+  lets Tony declare custom specialists in `titan.json` under
+  `agents.entries.*`. The five built-in specialists remain as fallbacks.
+  (OpenClaw `agent-scope.ts`)
+- **Smart-turn routing for simple messages** — `isSimpleTurn` + new
+  `costOptimization.simpleTurnModel` config routes trivial turns
+  ("what time is it?") to a dedicated fast model, skipping the full
+  tool-use machinery. (Hermes `smart_model_routing.py`)
+
+### Provider / rate-limit
+
+- **Jittered retry backoff** — `router.ts` now uses Hermes-style
+  asymmetric additive jitter with a monotonic counter seed. Decorrelates
+  concurrent retries under rate-limit storms. (Hermes `retry_utils.py`)
+- **Rate-limit header tracker** — new `src/providers/rateLimitTracker.ts`
+  parses `x-ratelimit-*` response headers for proactive backoff before
+  the 429 fires. Wired into ollama.ts + router.ts. (Hermes
+  `rate_limit_tracker.py`)
+- **One-shot context compression on overflow** — router now acts on the
+  `shouldCompress` error-taxonomy hint. Previously dead code.
+
+### Operational safety
+
+- **Kill-switch retune** — fix-oscillation threshold moved from
+  `2×/24h per-target` (routinely tripped by self-mod staging retries) to
+  `5×/1h per-target`. Paths under `self-mod-staging/` and `/tmp/titan-*`
+  are exempt entirely. Tony: "kill switch is too touchy" — this fixes it.
+- **Scoped pause + probe-on-recovery** — new `src/safety/scopedPause.ts`
+  pauses ONE target for a bounded cooldown instead of pausing the fleet.
+  Auto-expires — no human resume needed. Full kill retained for real
+  emergencies (identity violation, sustained safety pressure,
+  canary regression). (Paperclip `budgets.ts:pauseScopeForBudget`)
+- **Cross-agent stale-lock adoption** — `commandPost.checkoutTask` now
+  lets a different agent adopt a lock when the holder's heartbeat is
+  stale (>5 min). Prevents zombie subtasks.
+
+### Observability
+
+- **Trajectory logger** — new `src/agent/trajectory.ts` appends
+  successful runs to `trajectory_samples.jsonl` and failed runs to
+  `failed_trajectories.jsonl` under `$TITAN_HOME`. Feeds future
+  retrospective + self-improvement pipelines. (Hermes `trajectory.py`)
+
+### Tests
+
+- 81 new tests across 7 new files:
+  - `tests/system-prompt-parts.test.ts` — 19 tests
+  - `tests/auxiliary-client.test.ts` — 14 tests
+  - `tests/subdir-hints.test.ts` — 13 tests
+  - `tests/kill-switch-retune.test.ts` — 6 tests
+  - `tests/batch2-3-modules.test.ts` — 22 tests
+  - `tests/trajectory.test.ts` — 2 tests
+  - `tests/approval-classifier.test.ts`, `tests/run-continuations.test.ts`,
+    `tests/commandpost-stale-adopt.test.ts`, `tests/error-taxonomy-compress.test.ts`
+    (shipped earlier in the sprint)
+- `tests/safety/killSwitch.test.ts` updated for the new 5×/1h threshold.
+- All new tests pass; zero regressions in the full 5800-test suite.
+
+### Files — new
+
+- `src/agent/systemPromptParts.ts`
+- `src/agent/runContinuations.ts`
+- `src/agent/approvalClassifier.ts`
+- `src/agent/subdirHints.ts`
+- `src/agent/agentScope.ts`
+- `src/agent/trajectory.ts`
+- `src/providers/auxiliary.ts`
+- `src/providers/rateLimitTracker.ts`
+- `src/safety/scopedPause.ts`
+
+### Files — changed
+
+- `src/agent/agent.ts` — 317-line template replaced with
+  `assembleSystemPrompt()` call
+- `src/agent/agentLoop.ts` — subdir hints hook, continuation wiring,
+  trajectory logging
+- `src/agent/commandPost.ts` — cross-agent stale adoption, approval
+  classifier hook, auto-approve config wiring
+- `src/agent/goalDriver.ts` — continuation check in `tickIterating`
+- `src/agent/goalProposer.ts` — auxiliary-model routing
+- `src/agent/structuredSpawn.ts` — auxiliary-model routing for reformat
+- `src/agent/subAgent.ts` — specialists now get minimal-mode TITAN core +
+  role template
+- `src/agent/costOptimizer.ts` — `isSimpleTurn` + `simpleTurnModel`
+- `src/safety/killSwitch.ts` — retune + scoped-pause handoff
+- `src/providers/router.ts` — jittered backoff, proactive rate-limit
+  backoff, shouldCompress acting path
+- `src/providers/ollama.ts` — records rate-limit headers on response
+- `src/config/schema.ts` — `auxiliary`, `agents`, `commandPost.autoApprove`,
+  `costOptimization.simpleTurnModel` blocks
+
+---
+
 ## [4.12.0] — 2026-04-19 — API refactor + concurrency hardening
 
 Follow-up to v4.11.1. All v4.11.1 fixes are included; this release

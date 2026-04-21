@@ -361,10 +361,7 @@ export interface LoopContext {
      *  persisted history. Use for RAG injection, summarization, dynamic token budgeting.
      *  Receives a COPY of messages; return modified copy for the LLM call. */
     beforeModelCall?: (messages: ChatMessage[], round: number) => ChatMessage[];
-    /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions.
-     *  For claude-code/* models, user-initiated chat paths set
-     *  `{ allowClaudeCode: true }` here so ClaudeCodeProvider will accept
-     *  the call. All autonomous paths leave this unset. */
+    /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions. */
     providerOptions?: Record<string, unknown>;
 }
 
@@ -1303,6 +1300,27 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // No stall detected — bail out after 3 [NoTools] rounds in a row
                     // to prevent the model spinning forever returning text instead of tools
                     if (noToolsRetryCount >= 3) {
+                        // Gap 2 (plan-this-logical-ocean): if this run DID execute
+                        // tools earlier and is now stuck in no-tools land, check
+                        // the bounded continuation counter before bailing. This
+                        // is the "empty_after_tools" signal — the model forgot
+                        // what it was doing mid-task. One continuation nudge is
+                        // cheap; the counter persists across process restarts so
+                        // we can't loop forever.
+                        const didUseTools = result.toolsUsed.length > 0;
+                        if (didUseTools) {
+                            const { shouldContinue } = await import('./runContinuations.js');
+                            if (shouldContinue(ctx.sessionId, 'empty_after_tools')) {
+                                logger.warn(COMPONENT, `[Continuation] empty_after_tools — nudging once more (session ${ctx.sessionId})`);
+                                ctx.messages.push({
+                                    role: 'user',
+                                    content: '[SYSTEM] You started calling tools but stopped before finishing. Continue the work you started — call the next tool you need, or if you genuinely are done, write the final answer in plain text now.',
+                                });
+                                noToolsRetryCount = 0; // fresh window after the continuation
+                                round++;
+                                continue;
+                            }
+                        }
                         logger.warn(COMPONENT, `[NoTools] Bailing after ${noToolsRetryCount} consecutive no-tool rounds — accepting text response`);
                         result.content = stripToolJson(response.content || pendingAssistantContent || 'I was unable to make progress using tools.');
                         phase = 'done';
@@ -1447,6 +1465,30 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     tr.name, tr.content.slice(0, 500), tr.durationMs || 0,
                     !tr.content.toLowerCase().includes('error'),
                 );
+            }
+
+            // v4.13 ancestor-extraction (Hermes subdirectory_hints): for each
+            // tool call that touched a new directory, append any AGENTS.md /
+            // CLAUDE.md / .cursorrules from that directory + its ancestors to
+            // the tool RESULT (not the system prompt — we keep prompt cache
+            // stable). Guarded by try/catch so hint discovery can never break
+            // tool execution.
+            try {
+                const { getSubdirTracker } = await import('./subdirHints.js');
+                const tracker = getSubdirTracker(ctx.sessionId);
+                for (let i = 0; i < toolResults.length; i++) {
+                    const tr = toolResults[i];
+                    const tc = pendingToolCalls[i];
+                    if (!tc) continue;
+                    let args: Record<string, unknown> = {};
+                    try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* non-fatal */ }
+                    const hints = tracker.checkToolCall(tr.name, args);
+                    if (hints) {
+                        tr.content = `${tr.content}\n\n${hints}`;
+                    }
+                }
+            } catch (err) {
+                logger.debug(COMPONENT, `[SubdirHints] skipped: ${(err as Error).message}`);
             }
 
             // Sub-agent shortcut: force immediate summary
@@ -2020,6 +2062,27 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         result.content = 'I reached the maximum number of tool rounds without a complete answer. Please try again with a more specific request.';
         result.budgetExhausted = true;
     }
+
+    // v4.13 ancestor-extraction (Hermes trajectory): append this run's full
+    // ChatML transcript to disk for future retrospective / fine-tuning. Guarded
+    // try/catch — trajectory I/O failures never affect the user response.
+    try {
+        const { saveTrajectory } = await import('./trajectory.js');
+        const completed = !result.budgetExhausted && !!result.content && result.content.length > 0;
+        saveTrajectory({
+            conversations: ctx.messages,
+            model: activeModel,
+            completed,
+            sessionId: ctx.sessionId,
+            toolsUsed: result.toolsUsed,
+            reason: result.budgetExhausted ? 'budget_exhausted' : (completed ? 'done' : 'empty'),
+            metrics: {
+                rounds: round,
+                promptTokens: result.promptTokens ?? 0,
+                completionTokens: result.completionTokens ?? 0,
+            },
+        });
+    } catch { /* trajectory save is best-effort */ }
 
     return result;
 }
