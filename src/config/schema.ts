@@ -31,15 +31,6 @@ export const ProviderConfigSchema = z.object({
     rotationStrategy: z.enum(['priority', 'round-robin', 'least-used']).default('priority'),
     /** Cooldown duration in ms when a credential is exhausted (default: 60s) */
     credentialCooldownMs: z.number().default(60000),
-    /**
-     * Ollama-only: when true, transparently re-route `ollama/*:cloud` model
-     * requests to OpenRouter for parallel processing. Added when Ollama
-     * cloud's proxy was single-connection; now obsolete on the Pro/Max
-     * plans which support concurrent sessions. Default false — user's
-     * `ollama/*:cloud` requests hit Ollama, as expected. Set true only if
-     * you specifically want the OpenRouter fallback.
-     */
-    cloudBypass: z.boolean().default(false),
 });
 
 export const ChannelConfigSchema = z.object({
@@ -180,27 +171,36 @@ export const AgentConfigSchema = z.object({
     // overrides on top of the built-ins.
     modelAliases: z.record(z.string(), z.string())
         .default({
-            fast: 'openai/gpt-4o-mini',
-            smart: 'anthropic/claude-sonnet-4-20250514',
-            reasoning: 'openai/o3-mini',
-            cheap: 'google/gemini-2.0-flash',
+            fast: 'ollama/qwen3.5:cloud',
+            smart: 'ollama/glm-5:cloud',
+            reasoning: 'ollama/kimi-k2.6:cloud',
+            cheap: 'ollama/qwen3.5:cloud',
             local: 'ollama/qwen3.5:4b',
-            cloud: 'ollama/qwen3.5:397b-cloud',
+            cloud: 'ollama/kimi-k2.6:cloud',
         })
         .transform((userAliases): Record<string, string> => ({
-            // README-promised built-ins (always present as a floor)
-            fast: 'openai/gpt-4o-mini',
-            smart: 'anthropic/claude-sonnet-4-20250514',
-            cheap: 'google/gemini-2.0-flash',
-            reasoning: 'openai/o3-mini',
+            // Ollama cloud-first built-ins (always present as a floor)
+            fast: 'ollama/qwen3.5:cloud',
+            smart: 'ollama/glm-5:cloud',
+            cheap: 'ollama/qwen3.5:cloud',
+            reasoning: 'ollama/kimi-k2.6:cloud',
             local: 'ollama/qwen3.5:4b',
-            // User overrides win (and may add aliases like 'cloud')
+            cloud: 'ollama/kimi-k2.6:cloud',
+            // User overrides win
             ...userAliases,
         })),
     costOptimization: z.object({
         smartRouting: z.boolean().default(true),
         contextSummarization: z.boolean().default(true),
         dailyBudgetUsd: z.number().optional(),
+        /**
+         * v4.13 ancestor-extraction (Hermes smart_model_routing): dedicated
+         * model for ultra-simple turns ("hi", "what time is it?", "who made
+         * you?"). When set, TITAN's simple-turn detector routes these
+         * messages here regardless of tier analysis. Leave empty to disable.
+         * Example: "ollama/minimax-m2.7:cloud" (fast + coherent on Titan PC).
+         */
+        simpleTurnModel: z.string().optional(),
     }).optional(),
     /** Restrict which models users can select via /model. Empty = all allowed. Supports wildcards: "openai/*" */
     allowedModels: z.array(z.string()).default([]),
@@ -332,11 +332,11 @@ export const VoiceConfigSchema = z.object({
     /** URL of the voice agent (for health checks) */
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */
-    ttsVoice: z.string().default('tara'),
-    /** TTS engine: orpheus | f5-tts | fish-speech | edge | browser */
-    ttsEngine: z.enum(['orpheus', 'f5-tts', 'qwen3-tts', 'fish-speech', 'edge', 'browser']).default('orpheus'),
-    /** TTS server URL (Orpheus: 5005) */
-    ttsUrl: z.string().default('http://localhost:5005'),
+    ttsVoice: z.string().default('andrew'),
+    /** TTS engine: f5-tts only */
+    ttsEngine: z.enum(['f5-tts']).default('f5-tts'),
+    /** TTS server URL (F5-TTS: 5006) */
+    ttsUrl: z.string().default('http://localhost:5006'),
     /** STT engine: faster-whisper | nemotron-asr | openai */
     sttEngine: z.enum(['faster-whisper', 'nemotron-asr', 'openai']).default('faster-whisper'),
     /** STT server URL (e.g. faster-whisper) */
@@ -449,10 +449,17 @@ export const CapsolverConfigSchema = z.object({
 });
 
 /** Soma organism layer — homeostatic drives, hormonal broadcasts, shadow
- *  rehearsal. Disabled by default so v4.0 is bit-identical to v3.6 for
- *  existing users. Opt in by setting `organism.enabled: true` in titan.json. */
+ *  rehearsal.
+ *
+ *  v5.0 "Spacewalk" flips `enabled` to true by default. Tony's ask
+ *  ("SOMA should be enabled by a flip of a switch") — new installs get
+ *  Soma on out of the box with the SettingsWizard surfacing the toggle,
+ *  and the Soma widget ships with a one-click master switch so anyone
+ *  can flip it off at any time. Existing users keep whatever value is
+ *  already in their titan.json; only brand-new installs without the
+ *  field defaulted to false historically. */
 export const OrganismConfigSchema = z.object({
-    enabled: z.boolean().default(false).describe('Master switch. When false, Soma is inert: driveTick watcher is not registered, no drive state files are written, and hormone prompt injection is skipped.'),
+    enabled: z.boolean().default(true).describe('Master switch. When true (default for v5.0+), Soma registers driveTick, writes drive state, and injects the hormonal ambient-state block into the system prompt. Flip via titan.json, Soma widget header, or Settings.'),
     hormonesInPrompt: z.boolean().default(true).describe('Include hormonal ambient-state block in the system prompt when Soma is enabled.'),
     pressureThreshold: z.number().min(0).max(5).default(1.2).describe('Combined drive pressure above which Soma fires a proposal. Raise to make Soma more conservative.'),
     driveSetpoints: z.record(z.string(), z.number().min(0).max(1)).optional().describe('Per-drive setpoint overrides: { purpose: 0.7, hunger: 0.6, ... }'),
@@ -933,6 +940,85 @@ export const TitanConfigSchema = z.object({
     }).default({}),
 
     /** Command Post — agent governance layer (Paperclip-inspired) */
+    /**
+     * v4.13 ancestor-extraction (OpenClaw agent-scope): config-driven agents.
+     * Declare a custom agent in titan.json:
+     *
+     *   "agents": {
+     *     "defaults": { "model": "ollama/minimax-m2.7:cloud", "maxRounds": 15 },
+     *     "entries": {
+     *       "coder-rust": {
+     *         "name": "Rust Coder",
+     *         "template": "builder",
+     *         "model": "ollama/glm-5.1:cloud",
+     *         "skillsFilter": ["shell","read_file","write_file","edit_file"],
+     *         "tags": ["code","rust"]
+     *       }
+     *     }
+     *   }
+     *
+     * Built-in specialists (scout/builder/writer/analyst/sage) from
+     * src/agent/specialists.ts still work as defaults; config-defined
+     * agents layer on top.
+     */
+    agents: z.object({
+        defaults: z.object({
+            model: z.string().optional(),
+            modelFallbacks: z.array(z.string()).default([]),
+            skillsFilter: z.array(z.string()).default([]),
+            persona: z.string().optional(),
+            maxRounds: z.number().optional(),
+            maxTokens: z.number().optional(),
+            systemPromptOverride: z.string().optional(),
+        }).default({}),
+        entries: z.record(z.string(), z.object({
+            name: z.string().optional(),
+            description: z.string().optional(),
+            model: z.string().optional(),
+            modelFallbacks: z.array(z.string()).optional(),
+            skillsFilter: z.array(z.string()).optional(),
+            persona: z.string().optional(),
+            systemPromptOverride: z.string().optional(),
+            template: z.string().optional(),
+            maxRounds: z.number().optional(),
+            maxTokens: z.number().optional(),
+            workspaceDir: z.string().optional(),
+            tags: z.array(z.string()).default([]),
+            enabled: z.boolean().default(true),
+        })).default({}),
+    }).default({}),
+
+    /**
+     * Auxiliary model for side tasks — goal-proposal JSON extraction, session
+     * title generation, graph entity extraction, structured-spawn reformat,
+     * classification, short summaries.
+     *
+     * Ported from Hermes `agent/auxiliary_client.py` — main agent models
+     * (esp. gemma4:31b) are tuned for long reasoning + tool use and often
+     * produce empty arrays or prose instead of strict JSON. Routing side
+     * tasks to a dedicated fast+cheap model (minimax-m2.7 is proven on
+     * Titan PC) makes the autonomous cycle actually produce work.
+     *
+     * See: src/providers/auxiliary.ts
+     */
+    auxiliary: z.object({
+        /** Explicit model. Wins over preferFamilies. Ex: "ollama/minimax-m2.7:cloud" */
+        model: z.string().optional(),
+        /** Family-preference order when `model` is unset. Default optimised for Titan PC. */
+        preferFamilies: z.array(z.string()).default(['minimax', 'glm', 'qwen', 'nemotron', 'gemma']),
+        /** Per-task model overrides. Key = task kind. */
+        perTask: z.object({
+            json_extraction: z.string().optional(),
+            classification: z.string().optional(),
+            title: z.string().optional(),
+            summary: z.string().optional(),
+            reformat: z.string().optional(),
+            humanize: z.string().optional(),
+        }).default({}),
+        /** Kill-switch for auxiliary routing — fall back to main model always. */
+        disabled: z.boolean().default(false),
+    }).default({}),
+
     commandPost: z.object({
         /** Enable the Command Post governance layer */
         enabled: z.boolean().default(false),
@@ -944,6 +1030,31 @@ export const TitanConfigSchema = z.object({
         checkoutTimeoutMs: z.number().default(1800000),
         /** Activity feed buffer size */
         activityBufferSize: z.number().default(500),
+        /**
+         * Gap 4 (plan-this-logical-ocean): path-scoped auto-approval.
+         * When enabled, approvals whose (type, payload.kind, payload.path)
+         * match an allowlisted rule are short-circuited to status='approved'
+         * by the system, instead of landing in the human queue. Off by
+         * default — Tony governance preference is opt-in for anything that
+         * bypasses his eyes. See src/agent/approvalClassifier.ts for the
+         * built-in rule defaults (read-only reads under Desktop/opt/tmp).
+         */
+        autoApprove: z.object({
+            enabled: z.boolean().default(false),
+            /** Additional user-defined rules layered on top of the built-in defaults. */
+            rules: z.array(z.object({
+                /** Approval type this rule matches, or '*' for any type */
+                type: z.string().default('*'),
+                /** payload.kind this rule matches, or '*' for any */
+                kind: z.string().default('*'),
+                /** Path prefix payload.path must start with (optional) */
+                pathPrefix: z.string().optional(),
+                /** 'auto' short-circuits to approved; 'require' forces human approval even if a broader default would auto-approve */
+                action: z.enum(['auto', 'require']).default('auto'),
+            })).default([]),
+        }).default({}),
+        /** Auto-purge approvals older than N days (0 = disabled). Default 7 days. */
+        approvalRetentionDays: z.number().min(0).default(7),
     }).default({}),
 
     /**
@@ -994,9 +1105,57 @@ export const TitanConfigSchema = z.object({
         /** Log violations only, don't block */
         logOnly: z.boolean().default(false),
     }).default({}),
+
+    /**
+     * Telemetry — opt-in local-only event collection for product improvement.
+     * Events are stored locally in ~/.titan/telemetry-events.jsonl and never
+     * sent to external servers unless explicitly configured.
+     */
+    telemetry: z.object({
+        /**
+         * Master switch. Default **false** — no data leaves the user's machine
+         * until they explicitly opt in. Must stay false to respect existing
+         * installs that never agreed to telemetry.
+         */
+        enabled: z.boolean().default(false),
+        /** Storage mode: local = disk only; remote = POST to remoteUrl when enabled */
+        mode: z.enum(['local', 'remote', 'local_with_share']).default('remote'),
+        /** Max events to retain on disk before rotation */
+        maxEvents: z.number().default(10000),
+        /** Days to retain local telemetry events */
+        retentionDays: z.number().default(90),
+        /**
+         * Default remote endpoint. When `enabled=true`, system_profile /
+         * heartbeat / error events get POSTed here. The TITAN project's
+         * default collector is fronted by Tailscale Funnel pointing at the
+         * Titan PC (SQLite-backed aggregation service under Tony's control).
+         * Override with your own collector URL for self-hosting, or set to
+         * empty string to disable remote send (events stay local only).
+         */
+        remoteUrl: z.string().default('https://dj-z690-steel-legend-d5.tail57901.ts.net/events'),
+        /** Send crash reports (uncaught exceptions, unhandled rejections). */
+        crashReports: z.boolean().default(true),
+        /**
+         * PostHog Cloud project API key (e.g. phc_...).
+         * When set, telemetry events are ALSO sent to PostHog in addition
+         * to any custom remoteUrl. This lets you try PostHog's dashboards
+         * without dismantling your existing collector.
+         */
+        posthogApiKey: z.string().optional(),
+        /**
+         * PostHog ingest host. Default is PostHog Cloud US.
+         * Use 'https://eu.i.posthog.com' for EU data residency.
+         */
+        posthogHost: z.string().default('https://us.i.posthog.com'),
+        /** ISO timestamp of consent (set by SetupWizard when user opts in). */
+        consentedAt: z.string().optional(),
+        /** Which TITAN version the user was on when they consented. */
+        consentedVersion: z.string().optional(),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;
+export type TelemetryConfig = z.infer<typeof TitanConfigSchema>['telemetry'];
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;

@@ -3,6 +3,8 @@
  * Executes tool calls from the LLM with sandboxing, timeouts, and result formatting.
  */
 import type { ToolCall, ToolDefinition } from '../providers/base.js';
+import { appendFileSync } from 'fs';
+import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
 import { runPreTool, runPostTool } from '../plugins/contextEngine.js';
 import type { ContextEnginePlugin } from '../plugins/contextEngine.js';
@@ -472,6 +474,23 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 })();
             }
 
+            // Fire-and-forget telemetry
+            (async () => {
+                const cfg = loadConfig();
+                if (cfg.telemetry?.enabled) {
+                    try {
+                        appendFileSync(TELEMETRY_EVENTS_PATH, JSON.stringify({
+                            event: 'tool_called',
+                            properties: { toolName: handler.name, success: true, durationMs, channel: channel ?? 'unknown' },
+                            timestamp: new Date().toISOString(),
+                        }) + '\n', 'utf-8');
+                    } catch { /* non-critical */ }
+                }
+                // Remote analytics (PostHog + custom collector)
+                const { trackToolCall } = await import('../analytics/featureTracker.js');
+                trackToolCall(handler.name, true, durationMs);
+            })();
+
             return {
                 toolCallId: toolCall.id,
                 name: handler.name,
@@ -508,6 +527,23 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     const errorMsg = lastError?.message || 'Unknown error';
     const retryCount = attempt; // actual number of retries performed (matches success path)
     logger.error(COMPONENT, `Tool ${handler.name} failed (${lastErrorClass}${retryCount > 0 ? `, ${retryCount} retries` : ''}): ${errorMsg}`);
+
+    // Fire-and-forget telemetry
+    (async () => {
+        const cfg = loadConfig();
+        if (cfg.telemetry?.enabled) {
+            try {
+                appendFileSync(TELEMETRY_EVENTS_PATH, JSON.stringify({
+                    event: 'tool_called',
+                    properties: { toolName: handler.name, success: false, durationMs, errorClass: lastErrorClass, channel: channel ?? 'unknown' },
+                    timestamp: new Date().toISOString(),
+                }) + '\n', 'utf-8');
+            } catch { /* non-critical */ }
+        }
+        // Remote analytics (PostHog + custom collector)
+        const { trackToolCall } = await import('../analytics/featureTracker.js');
+        trackToolCall(handler.name, false, durationMs, lastErrorClass);
+    })();
 
     return {
         toolCallId: toolCall.id,

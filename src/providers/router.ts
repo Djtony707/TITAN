@@ -12,7 +12,6 @@
 import { LLMProvider, type ChatOptions, type ChatResponse, type ChatStreamChunk } from './base.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
-import { ClaudeCodeProvider } from './claudeCode.js';
 import { GoogleProvider } from './google.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAICompatProvider, PROVIDER_PRESETS } from './openai_compat.js';
@@ -25,6 +24,8 @@ import { randomBytes } from 'crypto';
 import { sleep } from '../utils/helpers.js';
 import { classifyProviderError, shouldAffectCircuitBreaker, FailoverReason } from './errorTaxonomy.js';
 import { getExistingPool } from './credentialPool.js';
+import { buildSmartContext } from '../agent/contextManager.js';
+import { shouldBackOff } from './rateLimitTracker.js';
 
 const COMPONENT = 'Router';
 
@@ -118,10 +119,6 @@ function initProviders(): void {
     for (const preset of PROVIDER_PRESETS) {
         providers.set(preset.name, new OpenAICompatProvider(preset));
     }
-    // v4.10.0-local polish: Claude Code CLI subprocess provider. Uses
-    // Tony's MAX plan OAuth (not metered API). Requires `claude` CLI
-    // installed and `claude login` run on the TITAN host.
-    providers.set('claude-code', new ClaudeCodeProvider());
     initialized = true;
 }
 
@@ -149,25 +146,6 @@ function resolveAlias(modelId: string): string {
     return modelId;
 }
 
-// ── Cloud model → OpenRouter bypass (opt-in, v4.13+) ─────────────────
-// Historical context: Ollama's free/Pro-tier cloud proxy was single-
-// connection (sequential). When multiple agents sent requests, they queued,
-// so this bypass re-routed :cloud models to OpenRouter for parallelism.
-// Ollama's Max plan now supports 10 concurrent sessions — the bypass is no
-// longer needed for that tier and actively misdirects paid Ollama quota to
-// OpenRouter. Gated on config.providers.ollama.cloudBypass (default false).
-const CLOUD_TO_OPENROUTER: Record<string, string> = {
-    'qwen3-coder-next:cloud': 'qwen/qwen3-coder',
-    'qwen3.5:397b-cloud': 'qwen/qwen-3.5-397b',
-    'nemotron-3-super:cloud': 'nvidia/nemotron-3-super',
-    'deepseek-v3.1:671b-cloud': 'deepseek/deepseek-chat-v3-0324',
-    'deepseek-v3.2:671b-cloud': 'deepseek/deepseek-chat-v3-0324',
-    'devstral-2:cloud': 'mistralai/devstral-2',
-    'glm-5:cloud': 'thudm/glm-4-32b',
-    'kimi-k2.5:cloud': 'moonshotai/kimi-k2',
-    'gpt-oss:120b-cloud': 'openai/gpt-4.1',
-    // minimax-m2.7:cloud stays on Ollama — no matching OpenRouter model
-};
 
 /** Resolve the provider and model from a model ID like "anthropic/claude-3" or alias like "fast" */
 export function resolveModel(modelId: string): { provider: LLMProvider; model: string } {
@@ -176,27 +154,6 @@ export function resolveModel(modelId: string): { provider: LLMProvider; model: s
     const resolved = resolveAlias(modelId);
     const { provider: rawProviderName, model } = LLMProvider.parseModelId(resolved);
 
-    // ── Cloud bypass: route :cloud models to OpenRouter for parallel processing ──
-    // Opt-in via providers.ollama.cloudBypass (default false) — preserves
-    // the user's intent when they pick an Ollama cloud model.
-    if ((model.includes(':cloud') || model.includes('-cloud')) && rawProviderName === 'ollama') {
-        let bypassEnabled = false;
-        try {
-            const cfg = loadConfig();
-            bypassEnabled = Boolean(
-                (cfg.providers?.ollama as unknown as { cloudBypass?: boolean } | undefined)?.cloudBypass,
-            );
-        } catch { /* config unavailable — default to no bypass */ }
-        if (bypassEnabled) {
-            const orProvider = providers.get('openrouter');
-            const orModel = CLOUD_TO_OPENROUTER[model];
-            if (orProvider && orModel) {
-                logger.info(COMPONENT, `[CloudBypass] ${model} → openrouter/${orModel} (opt-in enabled)`);
-                return { provider: orProvider, model: orModel };
-            }
-            logger.debug(COMPONENT, `[CloudBypass] No OpenRouter mapping for ${model}, keeping on Ollama`);
-        }
-    }
 
     // Normalize provider name (e.g. "grok" → "xai", "local" → "ollama")
     const providerName = normalizeProvider(rawProviderName);
@@ -308,6 +265,17 @@ const CIRCUIT_BREAKER_CONFIG = {
 
 /** Track circuit breaker state per provider */
 const circuitBreakers = new Map<string, CircuitBreakerState>();
+
+// Prune stale closed circuit breakers every 5 minutes to prevent unbounded growth
+setInterval(() => {
+    const now = Date.now();
+    for (const [name, state] of circuitBreakers) {
+        if (state.state === 'closed' && state.lastFailureTime && now - state.lastFailureTime > 600_000) {
+            circuitBreakers.delete(name);
+        }
+    }
+}, 300_000);
+
 
 /**
  * G2: Cooldown-aware probe throttling (OpenClaw pattern).
@@ -459,6 +427,15 @@ export function __resetCircuitBreakers__(): void {
     lastFallbackEvent = null;
 }
 
+export function resetCircuitBreaker(providerName: string): void {
+    const cb = circuitBreakers.get(providerName);
+    if (cb) {
+        cb.state = 'closed';
+        cb.failureCount = 0;
+        cb.openSince = null;
+    }
+}
+
 // ── Fallback chain state ─────────────────────────────────────────
 /** Tracks the most recent fallback event for dashboard display */
 let lastFallbackEvent: { primary: string; active: string; reason: string; timestamp: number } | null = null;
@@ -482,21 +459,53 @@ const RETRY_CONFIG = {
 };
 
 /**
- * Calculate delay with exponential backoff and optional jitter.
- * delay = min(initialDelay * multiplier^attempt, maxDelay)
+ * Monotonic counter seed for decorrelated jitter. Without this, two retries
+ * triggered in the same millisecond can receive identical Math.random() values
+ * if V8 happens to share a seed under load — that's exactly the thundering
+ * herd we're trying to avoid.
+ */
+let _jitterCounter = 0;
+
+/**
+ * Calculate delay with exponential backoff + asymmetric additive jitter.
+ *
+ * Ported from Hermes `agent/retry_utils.py:jittered_backoff` — proven to
+ * decorrelate concurrent retries across multiple sessions hitting the same
+ * rate-limited provider simultaneously.
+ *
+ * Formula:
+ *   base_delay = min(initial * multiplier^attempt, max)
+ *   jitter     = random_uniform(0, jitter_ratio * base_delay)
+ *   final      = base_delay + jitter
+ *
+ * Key difference from the previous TITAN implementation:
+ *   - Old: jitter was ±20% centered on base (could reduce delay below base)
+ *   - New: jitter is 0..+50% of base (only extends delay, never shortens)
+ * This matters for rate-limit recovery — we never want to retry EARLIER than
+ * the exponential schedule intended.
+ *
+ * The counter-seeded PRNG guarantees two concurrent retries get different
+ * jitter values even in the same millisecond.
  */
 function calculateBackoffDelay(attempt: number): number {
     const exponentialDelay = RETRY_CONFIG.initialDelayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
     const cappedDelay = Math.min(exponentialDelay, RETRY_CONFIG.maxDelayMs);
 
-    if (RETRY_CONFIG.jitter) {
-        // Add random jitter (±20%) to prevent thundering herd
-        const jitterRange = cappedDelay * 0.4;
-        const jitter = jitterRange * (Math.random() - 0.5);
-        return Math.max(100, cappedDelay + jitter);
-    }
+    if (!RETRY_CONFIG.jitter) return cappedDelay;
 
-    return cappedDelay;
+    // Counter-seeded jitter — decorrelates concurrent callers.
+    _jitterCounter = (_jitterCounter + 1) >>> 0;
+    const seed = (Date.now() ^ (_jitterCounter * 0x9e3779b9)) >>> 0;
+    // Simple xorshift from the seed — fast, good enough for jitter.
+    let s = seed || 1;
+    s ^= s << 13; s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5; s >>>= 0;
+    const rand01 = (s >>> 0) / 0xffffffff; // [0, 1)
+
+    const jitterRatio = 0.5; // up to +50% of base
+    const jitter = rand01 * jitterRatio * cappedDelay;
+    return cappedDelay + jitter;
 }
 
 /** Parse retry-after header value (seconds or HTTP date) */
@@ -658,6 +667,11 @@ async function meshChat(peer: MeshPeer, modelId: string, message: string): Promi
     if (result.error) {
         throw new Error(`Mesh peer error: ${result.error}`);
     }
+    // Fire-and-forget analytics
+    (async () => {
+        const { trackModelUsage } = await import('../analytics/featureTracker.js');
+        trackModelUsage(modelId, 'mesh', true);
+    })().catch(() => {});
     return result as unknown as ChatResponse;
 }
 
@@ -704,6 +718,25 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
     let lastError: Error | null = null;
     const maxRetries = RETRY_CONFIG.maxRetries;
 
+    // Gap 1 (plan-this-logical-ocean): one-shot compression on CONTEXT_OVERFLOW.
+    // The error taxonomy classifies overflows and sets `shouldCompress: true`,
+    // but nothing used to act on it — the hint was dead code. Now we compact
+    // options.messages via buildSmartContext and retry the SAME provider once
+    // before falling through to model fallback / cross-provider failover.
+    let compressionRetried = false;
+
+    // v4.13 ancestor-extraction (Hermes rate_limit_tracker): proactive backoff
+    // before even sending the request. If the last response from this provider
+    // indicated the quota window is nearly depleted, hold off briefly instead
+    // of firing the request and getting a 429.
+    try {
+        const backoff = shouldBackOff(providerName);
+        if (backoff) {
+            logger.info(COMPONENT, `[RateLimit] Proactive backoff on ${providerName}: ${backoff.reason} — waiting ${Math.round(backoff.backoffMs)}ms`);
+            await sleep(backoff.backoffMs);
+        }
+    } catch { /* never block on tracker errors */ }
+
     // Attempt request with retry logic
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
@@ -722,6 +755,12 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
             if (attempt > 0) {
                 logger.info(COMPONENT, `${provider.displayName}/${model} recovered after ${attempt} retry attempt(s)`);
             }
+
+            // Fire-and-forget analytics
+            (async () => {
+                const { trackModelUsage } = await import('../analytics/featureTracker.js');
+                trackModelUsage(model, providerName, true);
+            })().catch(() => {});
 
             return result;
         } catch (error) {
@@ -771,6 +810,36 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                     if (lastUsed) {
                         pool.exhaust(lastUsed.name, classified.cooldownMs || 60000);
                     }
+                }
+            }
+
+            // Gap 1: act on shouldCompress hint BEFORE generic retry/fallback.
+            // On CONTEXT_OVERFLOW (or any future reason that sets shouldCompress),
+            // compact options.messages via buildSmartContext and retry the same
+            // provider+model once. Only fires on the FIRST such error per call —
+            // if the compacted request still overflows, we drop through to the
+            // normal retry/fallback ladder instead of shrinking forever.
+            if (classified.shouldCompress && !compressionRetried && Array.isArray(options.messages)) {
+                compressionRetried = true;
+                const beforeCount = options.messages.length;
+                // Conservative target — most of the whitelisted Ollama cloud
+                // models have >=32K context; 24K leaves headroom for the
+                // completion itself and any tool schemas the provider adds.
+                const compactTokens = 24000;
+                try {
+                    const compacted = buildSmartContext(options.messages, compactTokens);
+                    if (compacted.length > 0 && compacted.length <= beforeCount) {
+                        options = { ...options, messages: compacted };
+                        logger.info(
+                            COMPONENT,
+                            `[Router] ${classified.reason} — compacted context ${beforeCount}→${compacted.length} msgs, retrying ${providerName}/${model}`,
+                        );
+                        // Retry immediately — no backoff needed, we changed the input
+                        continue;
+                    }
+                    logger.warn(COMPONENT, `[Router] Compression produced empty/larger output — skipping compress retry`);
+                } catch (compErr) {
+                    logger.warn(COMPONENT, `[Router] Compression failed: ${(compErr as Error).message} — falling through`);
                 }
             }
 
@@ -870,6 +939,11 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                         logger.warn(COMPONENT, `Failing over from ${providerName}/${model} → ${fallbackName}/${fbModelName}`);
                         const result = await fallback.chat({ ...options, model: fbModelName });
                         recordSuccess(fallbackName); // Record success for the fallback provider
+                        // Fire-and-forget analytics
+                        (async () => {
+                            const { trackModelUsage } = await import('../analytics/featureTracker.js');
+                            trackModelUsage(fbModelName, fallbackName, true);
+                        })().catch(() => {});
                         return result;
                     } catch (fallbackErr) {
                         recordFailure(fallbackName); // Record failure for the fallback provider too
@@ -893,6 +967,12 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 error: (error as Error).message,
                 reason: classified.reason,
             });
+
+            // Fire-and-forget analytics
+            (async () => {
+                const { trackModelUsage } = await import('../analytics/featureTracker.js');
+                trackModelUsage(model, providerName, false);
+            })().catch(() => {});
 
             // All recovery options exhausted, throw enhanced error
             const attemptSummary = fallbackAttempts.length > 1
