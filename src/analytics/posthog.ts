@@ -12,7 +12,7 @@ const COMPONENT = 'PostHog';
 let cachedKey: string | undefined;
 let cachedHost: string | undefined;
 
-function getPostHogConfig(): { apiKey?: string; host: string } | undefined {
+function getPostHogConfig(): { apiKey: string; host: string } | undefined {
     const cfg = loadConfig();
     const tel = cfg.telemetry as Record<string, unknown> | undefined;
     if (!tel?.enabled) return undefined;
@@ -106,6 +106,7 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
             ? payload.collectedAt
             : undefined;
 
+    const ts = timestamp || new Date().toISOString();
     try {
         if (type === 'system_profile') {
             // Hardware specs become person properties so we can segment by GPU, OS, etc.
@@ -118,13 +119,13 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
             for (const key of allowlist) {
                 if (key in payload) personProps[key] = payload[key];
             }
-            await identify(apiKey, host, distinctId, personProps, timestamp);
+            await identify(apiKey, host, distinctId, personProps, ts);
 
             // Also fire a lightweight system_profile event for funnels
             await capture(apiKey, host, distinctId, 'system_profile', {
                 version: payload.version,
                 installMethod: payload.installMethod,
-            }, timestamp);
+            }, ts);
         } else if (type === 'heartbeat') {
             const props: Record<string, unknown> = {
                 uptime_seconds: payload.uptimeSeconds,
@@ -138,23 +139,23 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
                     props[`feature_${k}`] = v;
                 }
             }
-            await capture(apiKey, host, distinctId, 'heartbeat', props, timestamp);
+            await capture(apiKey, host, distinctId, 'heartbeat', props, ts);
         } else if (type === 'install' || type === 'update') {
             await capture(apiKey, host, distinctId, type, {
                 version: payload.version,
                 from_version: payload.fromVersion,
                 install_method: payload.installMethod,
-            }, timestamp);
+            }, ts);
         } else if (type === 'error') {
             await capture(apiKey, host, distinctId, 'error', {
                 error_type: payload.errorType,
                 message: payload.message,
                 version: payload.version,
-            }, timestamp);
+            }, ts);
         } else {
             // Passthrough for any future event types
             const { type: _type, installId: _installId, ...rest } = payload;
-            await capture(apiKey, host, distinctId, type, rest, timestamp);
+            await capture(apiKey, host, distinctId, type, rest, ts);
         }
 
         status.sentCount += 1;

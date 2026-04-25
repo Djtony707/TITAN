@@ -9402,7 +9402,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       const cfg = loadConfig();
       if (!cfg.telemetry?.enabled) return;
       if (!(cfg.telemetry as unknown as { crashReports?: boolean })?.crashReports) return;
-      if (!(cfg.telemetry as unknown as { consentedAt?: string })?.consentedAt) return;
+      // v5.0.1: removed consentedAt gate so users upgrading from 4.x keep crash
+      // reporting without re-running onboarding. The SetupWizard still stamps
+      // consentedAt for new installs; we simply don't require it here.
       const { sendRemoteAnalytics } = await import('../analytics/collector.js');
       const { getOrCreateNodeId } = await import('../mesh/identity.js');
       const home = homedir();
@@ -9496,6 +9498,22 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.info(COMPONENT, `\nChannels: ${Array.from(channels.values()).map((c) => `${c.displayName} (${c.getStatus().connected ? '✅' : '❌'})`).join(', ')}`);
     logger.info(COMPONENT, `Skills: ${getSkills().length} loaded`);
     logger.info(COMPONENT, `Tools: ${getRegisteredTools().length} registered`);
+
+    // Friendly update notice for upgraders
+    try {
+      const { readFileSync, existsSync } = require('fs');
+      const { join } = require('path');
+      const { homedir } = require('os');
+      const markerPath = join(homedir(), '.titan', 'install-marker.json');
+      if (existsSync(markerPath)) {
+        const marker = JSON.parse(readFileSync(markerPath, 'utf-8'));
+        if (marker.previousVersion && marker.previousVersion !== TITAN_VERSION) {
+          logger.info(COMPONENT, `\n🚀 Welcome to TITAN v${TITAN_VERSION}! Upgraded from v${marker.previousVersion}.`);
+          logger.info(COMPONENT, `   What's new: PostHog analytics (opt-in), enriched telemetry, secret-scrubbed crash reports.`);
+          logger.info(COMPONENT, `   Your config and settings are untouched. See PRIVACY.md for details.\n`);
+        }
+      }
+    } catch { /* non-critical */ }
 
     // Start Cloudflare Tunnel if enabled
     if (config.tunnel?.enabled) {
