@@ -47,6 +47,7 @@ import { createOpenAICompatRouter } from '../gateway/openai-compat.js';
 import type { ChannelAdapter, InboundMessage } from '../channels/base.js';
 import logger, { initFileLogger } from '../utils/logger.js';
 import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/constants.js';
+import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
 import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
 import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal } from './metrics.js';
@@ -54,7 +55,7 @@ import { initSlashCommands, handleSlashCommand } from './slashCommands.js';
 import { initMcpServers, listMcpServers, addMcpServer, removeMcpServer, setMcpServerEnabled, getMcpStatus, BUILTIN_PRESETS } from '../mcp/registry.js';
 import { connectMcpServer, testMcpServer } from '../mcp/client.js';
 import { mountMcpHttpEndpoints, getMcpServerStatus } from '../mcp/server.js';
-import { initMonitors, setMonitorTriggerHandler } from '../agent/monitor.js';
+import { initMonitors, setMonitorTriggerHandler, listMonitors, addMonitor, removeMonitor, getMonitorEvents } from '../agent/monitor.js';
 import { seedBuiltinRecipes, listRecipes, getRecipe, saveRecipe, deleteRecipe, getBuiltinRecipes, importRecipeYaml } from '../recipes/store.js';
 import { parseSlashCommand, runRecipe } from '../recipes/runner.js';
 import { getCostStatus } from '../agent/costOptimizer.js';
@@ -68,7 +69,7 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, replyToApproval, snoozeApproval, unsnoozeApproval, batchApprove, batchReject, getAgentMessages, markAgentMessageRead, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask } from '../agent/goals.js';
@@ -95,19 +96,53 @@ let httpServer: ReturnType<typeof createServer> | null = null;
 let tokenCleanupInterval: ReturnType<typeof setInterval> | null = null;
 let rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null;
 let healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
+let sessionAbortCleanupInterval: ReturnType<typeof setInterval> | null = null;
+let unsubscribeAgentEvents: (() => void) | null = null;
 let activeLlmRequests = 0;
 let maxConcurrentOverride: number | null = null;
 
-/**
- * Decrement activeLlmRequests with a floor at 0. Guards against counter
- * drift if a path ever double-decrements (e.g. two finallys firing from
- * nested try/finally reforms). Drift would eventually deadlock the
- * concurrency guard; this prevents that class of bug outright.
- */
-function releaseLlmSlot(): void {
-    if (activeLlmRequests > 0) activeLlmRequests--;
-    else activeLlmRequests = 0;
-    titanActiveSessions.dec();
+// ── Module-level constants (avoid per-request allocation) ──────────
+const VOICE_POISON_PATTERNS = [
+    /i completed the tool operations/i,
+    /i wasn't able to execute tools/i,
+    /i completed the operations/i,
+    /let me know if you need anything else\.?\s*$/i,
+];
+const F5_TTS_DEFAULT_VOICES = ['andrew'];
+const DAEMON_SSE_EVENTS = ['daemon:started', 'daemon:stopped', 'daemon:paused', 'daemon:resumed',
+    'daemon:heartbeat', 'goal:subtask:ready', 'health:ollama:down',
+    'health:ollama:degraded', 'cron:stuck',
+    'initiative:start', 'initiative:complete', 'initiative:no_progress',
+    'initiative:tool_call', 'initiative:tool_result', 'initiative:round'];
+const PANE_SSE_TOPICS = [
+    // Soma / drives
+    'drive:tick', 'hormone:update', 'pressure:threshold', 'soma:proposal',
+    // Turns / tools
+    'turn:pre', 'turn:post', 'tool:call', 'tool:result',
+    // Goals
+    'goal:create', 'goal:complete', 'goal:fail', 'goal:cancel', 'goal:update',
+    // Command Post
+    'cp:activity', 'cp:proposal', 'cp:approval', 'cp:rejection',
+    // Health
+    'health:up', 'health:down', 'health:degraded',
+    // Multi-agent
+    'agent:spawn', 'agent:kill', 'agent:message',
+    // Alerts
+    'alert:warning', 'alert:critical',
+];
+const CP_SSE_EVENTS = [
+    'commandpost:activity', 'commandpost:task:checkout', 'commandpost:task:checkin',
+    'commandpost:task:expired', 'commandpost:budget:warning', 'commandpost:budget:exceeded',
+    'commandpost:agent:heartbeat', 'commandpost:agent:status',
+];
+const ALLOWED_ORIGINS = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^https?:\/\/\[::1\](:\d+)?$/,
+    /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,      // LAN
+];
+function isAllowedOrigin(origin: string): boolean {
+    return ALLOWED_ORIGINS.some(re => re.test(origin));
 }
 
 /**
@@ -280,6 +315,8 @@ export function stopGateway(): Promise<void> {
         if (tokenCleanupInterval) { clearInterval(tokenCleanupInterval); tokenCleanupInterval = null; }
         if (rateLimitCleanupInterval) { clearInterval(rateLimitCleanupInterval); rateLimitCleanupInterval = null; }
         if (healthMonitorInterval) { clearInterval(healthMonitorInterval); healthMonitorInterval = null; }
+        if (sessionAbortCleanupInterval) { clearInterval(sessionAbortCleanupInterval); sessionAbortCleanupInterval = null; }
+        if (unsubscribeAgentEvents) { unsubscribeAgentEvents(); unsubscribeAgentEvents = null; }
 
         if (httpServer) {
             // Force-close open connections after 3 seconds (SSE/WebSocket keep-alives block shutdown)
@@ -357,8 +394,45 @@ function trackUsage(model: string, tokenUsage: { prompt?: number; completion?: n
   if (usageLog.length > MAX_USAGE_LOG) usageLog.splice(0, usageLog.length - MAX_USAGE_LOG);
 }
 
-/** Active session tokens (in-memory, cleared on restart) */
-const authTokens = new Map<string, { createdAt: number; userId: string }>();
+/** Active session tokens (persisted to disk so they survive restarts) */
+const AUTH_TOKENS_PATH = join(TITAN_HOME, 'auth-tokens.json');
+
+function loadAuthTokens(): Map<string, { createdAt: number; userId: string }> {
+    const map = new Map<string, { createdAt: number; userId: string }>();
+    try {
+        if (fs.existsSync(AUTH_TOKENS_PATH)) {
+            const raw = JSON.parse(fs.readFileSync(AUTH_TOKENS_PATH, 'utf-8'));
+            if (Array.isArray(raw)) {
+                const ttlMs = 24 * 60 * 60 * 1000;
+                const now = Date.now();
+                for (const item of raw) {
+                    if (item && typeof item.token === 'string' && typeof item.createdAt === 'number' && typeof item.userId === 'string') {
+                        if (now - item.createdAt <= ttlMs) {
+                            map.set(item.token, { createdAt: item.createdAt, userId: item.userId });
+                        }
+                    }
+                }
+            }
+        }
+    } catch {
+        // Best-effort: if file is corrupt, start fresh
+    }
+    return map;
+}
+
+function saveAuthTokens(): void {
+    try {
+        const entries = [];
+        for (const [token, entry] of authTokens) {
+            entries.push({ token, createdAt: entry.createdAt, userId: entry.userId });
+        }
+        fs.writeFileSync(AUTH_TOKENS_PATH, JSON.stringify(entries, null, 2));
+    } catch {
+        // Best-effort persistence
+    }
+}
+
+const authTokens = loadAuthTokens();
 
 /** S3: Get userId from request auth token */
 function getUserIdFromReq(req: { headers: { authorization?: string } }): string {
@@ -379,11 +453,7 @@ const sessionAbortTimes = new Map<string, number>();
 const sessionOwners = new Map<string, string>();
 
 // R8: Periodic cleanup of orphaned abort controllers (TTL 5 min)
-// v4.12: also prunes sessionOwners for the same ids so that map doesn't grow
-// unbounded. Hard cap on sessionOwners as a safety net — evicts oldest when
-// it crosses 10k entries (eviction via Map insertion order).
-const SESSION_OWNERS_HARD_CAP = 10_000;
-setInterval(() => {
+sessionAbortCleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [id, controller] of sessionAborts) {
         if (controller.signal.aborted || (now - (sessionAbortTimes.get(id) || 0)) > 300_000) {
@@ -392,18 +462,8 @@ setInterval(() => {
             sessionOwners.delete(id);
         }
     }
-    // Safety net: if sessionOwners has outgrown the cap (e.g. session IDs
-    // that never went through /api/message), evict oldest until under cap.
-    if (sessionOwners.size > SESSION_OWNERS_HARD_CAP) {
-        const excess = sessionOwners.size - SESSION_OWNERS_HARD_CAP;
-        const victims: string[] = [];
-        for (const key of sessionOwners.keys()) {
-            victims.push(key);
-            if (victims.length >= excess) break;
-        }
-        for (const k of victims) sessionOwners.delete(k);
-    }
-}, 60_000).unref();
+}, 60_000);
+sessionAbortCleanupInterval.unref();
 
 // Clean expired tokens every 10 minutes
 tokenCleanupInterval = setInterval(() => {
@@ -412,6 +472,7 @@ tokenCleanupInterval = setInterval(() => {
     for (const [tok, entry] of authTokens) {
         if (now - entry.createdAt > ttlMs) authTokens.delete(tok);
     }
+    saveAuthTokens();
 }, 600_000);
 tokenCleanupInterval.unref();
 
@@ -419,28 +480,6 @@ tokenCleanupInterval.unref();
 function safeCompare(a: string, b: string): boolean {
     if (a.length !== b.length) return false;
     return timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
-
-/**
- * Validate a URL before accepting it in config. Only http(s) schemes are
- * allowed — rejects file://, javascript:, data:, etc. which could be abused
- * via SSRF-style tricks in config-update payloads. Empty strings pass (they
- * unset the field). Returns the trimmed URL if valid, throws with a message
- * suitable for the API error response otherwise.
- */
-function validateConfigUrl(value: unknown, fieldName: string): string {
-    const s = typeof value === 'string' ? value.trim() : '';
-    if (!s) return '';
-    let parsed: URL;
-    try {
-        parsed = new URL(s);
-    } catch {
-        throw new Error(`Validation error: ${fieldName} is not a valid URL`);
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new Error(`Validation error: ${fieldName} must be http or https (got ${parsed.protocol})`);
-    }
-    return s;
 }
 
 /** Check if a request token is valid */
@@ -462,6 +501,7 @@ function isValidToken(token: string | undefined, config: ReturnType<typeof loadC
     const ttlMs = 24 * 60 * 60 * 1000; // 24 hours
     if (Date.now() - entry.createdAt > ttlMs) {
         authTokens.delete(token);
+        saveAuthTokens();
         return false;
     }
     return true;
@@ -561,7 +601,7 @@ function broadcast(data: Record<string, unknown>, userId?: string): void {
 }
 
 // Sub-agent event bridge: forward agent bus events to SSE broadcast
-onAgentEvent((event) => {
+unsubscribeAgentEvents = onAgentEvent((event) => {
     const sseType = event.type === 'tool_call' ? 'tool_call' : event.type === 'tool_end' ? 'tool_end' : event.type;
     broadcast({ type: sseType, ...event.data, agentName: event.agentName, agentId: event.agentId, isSubAgent: true, timestamp: event.timestamp });
 });
@@ -706,7 +746,7 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     });
   } catch (error) {
     logger.error(COMPONENT, `Error processing message: ${(error as Error).message}`);
-    broadcast({ type: 'error', message: (error as Error).message });
+    broadcast({ type: 'error', message: 'TITAN ran into a problem handling that message. Please try again.' });
   }
 }
 
@@ -767,6 +807,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       process.exit(1);
     }
     logger.info(COMPONENT, `Provider check passed: ${usable.details}`);
+  }
+
+  // ── Production safety warning ─────────────────────────────────────
+  if (config.autonomy?.mode === 'autonomous') {
+    logger.warn(COMPONENT, '⚠️  AUTONOMY MODE IS "autonomous" — all tools run without approval. Safe for personal use, DANGEROUS for multi-user deployments.');
+    logger.warn(COMPONENT, '   Set autonomy.mode to "supervised" in titan.json if exposing to external users.');
+  }
+  if (config.commandPost?.enabled) {
+    logger.info(COMPONENT, '✅ Command Post governance is active — approvals route through CP queue');
+  } else {
+    logger.warn(COMPONENT, '⚠️  Command Post is DISABLED — no approval queue, no budget enforcement, no agent registry');
+  }
+  if (config.selfMod?.enabled) {
+    logger.info(COMPONENT, '✅ Self-modification is active — writes are staged for human review');
   }
 
   // ── Stale session cleanup: mark orphaned active sessions as idle ──
@@ -910,10 +964,83 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Create Express app
   const app = express();
+
+  // ── Serve React SPA static assets FIRST ───────────────────
+  // Static files (JS, CSS, images) should bypass JSON parsing,
+  // request logging, and auth middleware for efficiency.
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const uiDistPath = join(__dirname, '../../ui/dist');
+  const uiIndexPath = join(uiDistPath, 'index.html');
+  const hasReactUI = fs.existsSync(uiIndexPath);
+  let cachedIndexHtml: string | null = null;
+  if (hasReactUI) {
+    // Cache index.html in memory to avoid sync file reads on every request
+    cachedIndexHtml = fs.readFileSync(uiIndexPath, 'utf8');
+    app.use(express.static(uiDistPath, { index: false }));
+    // Hot-reload the cache when the file changes (dev rebuilds)
+    fs.watchFile(uiIndexPath, { interval: 1000 }, () => {
+      try {
+        cachedIndexHtml = fs.readFileSync(uiIndexPath, 'utf8');
+      } catch { /* ignore read errors during write */ }
+    });
+  }
+
   app.use(express.json({ limit: '1mb' }));
+
+  // Request logging middleware (skips static assets served above)
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      logger.info(COMPONENT, `${req.method} ${req.path} → ${res.statusCode} (${duration}ms)`);
+    });
+    next();
+  });
 
   // OpenAI API compatibility layer (/v1/models, /v1/chat/completions, /v1/embeddings)
   app.use('/v1', createOpenAICompatRouter());
+
+  // Ollama native API proxy (/ollama/* → configured Ollama server)
+  // The UI's titan2/llm/ollama.ts hits /ollama/api/chat and /ollama/api/generate
+  app.all('/ollama/*', async (req: Request, res: Response) => {
+    const cfg = loadConfig();
+    const ollamaBase = cfg.providers?.ollama?.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
+    const targetPath = req.path.replace(/^\/ollama/, '');
+    const targetUrl = `${ollamaBase}${targetPath}`;
+
+    try {
+      const upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers: {
+          'Content-Type': req.headers['content-type'] || 'application/json',
+          Accept: req.headers['accept'] || '*/*',
+        },
+        body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
+      });
+
+      res.status(upstream.status);
+      upstream.headers.forEach((value, key) => {
+        // Don't forward content-encoding; Node will handle compression itself
+        if (key.toLowerCase() !== 'content-encoding') {
+          res.setHeader(key, value);
+        }
+      });
+
+      if (upstream.body) {
+        const reader = upstream.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+      }
+      res.end();
+    } catch (err) {
+      logger.error(COMPONENT, `Ollama proxy error: ${(err as Error).message}`);
+      res.status(502).json({ error: 'Ollama proxy error', message: (err as Error).message });
+    }
+  });
 
   // Handle JSON parse errors and payload too large
   app.use((err: Error & { type?: string; status?: number }, req: Request, res: Response, next: NextFunction) => {
@@ -936,12 +1063,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       res.setHeader('Content-Security-Policy', [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline'",
+          // Sandbox widget iframes use new Function() for code evaluation.
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
           "style-src 'self' 'unsafe-inline'",
           "connect-src 'self' ws: wss: https: http:",
           "media-src 'self' blob: mediastream:",
           "img-src 'self' data: blob:",
           "font-src 'self' data:",
+          // Canvas AI-generated widgets run in a sandboxed iframe whose
+          // source is a blob: URL built by ui/src/titan2/sandbox/SandboxRuntime.
+          // Without `frame-src blob:` the browser shows:
+          //   "This content is blocked. Contact the site owner to fix the issue."
+          // worker-src + child-src are included as safety fallbacks for
+          // older engines that don't honor frame-src directly.
+          "frame-src 'self' blob: data:",
+          "child-src 'self' blob: data:",
+          "worker-src 'self' blob:",
       ].join('; '));
       res.removeHeader('X-Powered-By');
       next();
@@ -998,6 +1135,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!valid) { res.status(401).json({ error: 'Invalid password' }); return; }
     const token = randomBytes(32).toString('hex');
     authTokens.set(token, { createdAt: Date.now(), userId: `user-${token.slice(0, 8)}` });
+    saveAuthTokens();
     res.json({ token });
   });
 
@@ -1015,26 +1153,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const cfg = loadConfig();
     const auth = cfg.gateway.auth;
     if (!auth || auth.mode === 'none') { next(); return; }
-    // Token mode with no token configured = bootstrap mode. Allow loopback
-    // only (so the first-run setup wizard can save a token). Remote callers
-    // get a clear 503 telling them to configure auth or opt into open access.
-    if (auth.mode === 'token' && !auth.token) {
-      const ip = req.ip || req.socket.remoteAddress || '';
-      const isLoopback =
-        ip === '127.0.0.1' ||
-        ip === '::1' ||
-        ip === '::ffff:127.0.0.1' ||
-        ip.startsWith('127.');
-      if (isLoopback) { next(); return; }
-      res.status(503).json({
-        error: 'gateway_auth_not_configured',
-        message:
-          'Gateway auth is not configured. Set gateway.auth.token in config to ' +
-          'enable token auth, or explicitly set gateway.auth.mode to "none" to ' +
-          'allow open access. Remote requests are denied until one of these is set.',
-      });
-      return;
-    }
+    // Token mode with no token configured = auth not set up, allow access
+    if (auth.mode === 'token' && !auth.token) { next(); return; }
     // Skip public endpoints (login, messenger webhook, twilio webhooks)
     if (req.path === '/login') { next(); return; }
     if (req.path === '/messenger/webhook') { next(); return; }
@@ -1045,16 +1165,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.status(401).json({ error: 'Unauthorized' });
   });
 
-  // ── Serve React SPA (Mission Control v2) ──────────────────
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  const uiDistPath = join(__dirname, '../../ui/dist');
-  const uiIndexPath = join(uiDistPath, 'index.html');
-  const hasReactUI = fs.existsSync(uiIndexPath);
-  if (hasReactUI) {
-    app.use(express.static(uiDistPath, { index: false }));
-  }
-
   // Legacy dashboard (kept during migration, also fallback if React UI not built)
   app.get('/legacy', (_req, res) => {
     res.setHeader('Content-Type', 'text/html');
@@ -1063,8 +1173,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Root route: React SPA or legacy dashboard
   app.get('/', (_req, res) => {
-    if (hasReactUI) {
-      res.sendFile(uiIndexPath);
+    if (hasReactUI && cachedIndexHtml) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.send(cachedIndexHtml);
     } else {
       res.setHeader('Content-Type', 'text/html');
       res.send(getMissionControlHTML());
@@ -1077,6 +1190,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const cfg = loadConfig();
     const activeModel = cfg.agent.model || '';
     const mem = process.memoryUsage();
+    const activeAgents = listAgents().filter(a => a.status === 'running').length;
+    const activeSessions = listSessions().length;
     res.json({
       ...usage,
       version: TITAN_VERSION,
@@ -1100,7 +1215,86 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         memoryUsageMB: Math.round(mem.heapUsed / 1024 / 1024),
         activeLlmRequests,
       },
+      activeAgents,
+      activeSessions,
     });
+  });
+
+  // ── Dependency Scan API ────────────────────────────────────────
+  app.get('/api/dependencies/scan', async (_req, res) => {
+    try {
+      const reportPath = join(TITAN_WORKSPACE, 'dependency-scan-report.json');
+      if (fs.existsSync(reportPath)) {
+        const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+        res.json(report);
+      } else {
+        res.status(404).json({ error: 'No scan report found. Run a scan first.' });
+      }
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/dependencies/scan', async (req, res) => {
+    try {
+      const { fix = false } = req.body;
+      const scriptPath = join(dirname(fileURLToPath(import.meta.url)), '../../scripts/dependency-scan.cjs');
+
+      // Run scan in background
+      const proc = spawn('node', [scriptPath, ...(fix ? ['--fix'] : [])], {
+        cwd: TITAN_WORKSPACE,
+        stdio: 'pipe',
+        detached: false,
+      });
+
+      let output = '';
+      proc.stdout?.on('data', (data) => { output += data.toString(); });
+      proc.stderr?.on('data', (data) => { output += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          logger.info(COMPONENT, 'Dependency scan completed successfully');
+        } else {
+          logger.warn(COMPONENT, `Dependency scan exited with code ${code}`);
+        }
+      });
+
+      res.json({ success: true, message: 'Dependency scan started in background' });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/dependencies/status', (_req, res) => {
+    try {
+      const reportPath = join(TITAN_WORKSPACE, 'dependency-scan-report.json');
+      if (fs.existsSync(reportPath)) {
+        const stats = fs.statSync(reportPath);
+        const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+
+        const summary = {
+          lastScan: report.timestamp,
+          lastScanAge: Date.now() - new Date(report.timestamp).getTime(),
+          vulnerabilities: report.vulnerabilities.total,
+          critical: report.vulnerabilities.critical,
+          high: report.vulnerabilities.high,
+          outdated: report.outdated?.length || 0,
+          deprecated: report.deprecated?.length || 0,
+          licenseIssues: report.licenseIssues?.length || 0,
+          health: report.vulnerabilities.critical === 0 && report.vulnerabilities.high === 0 ? 'healthy' : 'warning',
+        };
+
+        res.json(summary);
+      } else {
+        res.json({
+          lastScan: null,
+          health: 'unknown',
+          message: 'No scan has been run yet',
+        });
+      }
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
   });
 
   // ── Tracing API ─────────────────────────────────────────────────
@@ -1156,7 +1350,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const companies = listCompanies(includeArchived);
       const runners = getActiveRunners();
       res.json({ companies: companies.map(c => ({ ...c, runnerActive: runners.includes(c.id) })) });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/companies', async (req, res) => {
@@ -1173,7 +1367,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const company = getCompany(req.params.id);
       if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
       res.json({ ...company, runnerActive: isRunnerActive(company.id) });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.patch('/api/companies/:id', async (req, res) => {
@@ -1182,7 +1376,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const company = updateCompany(req.params.id, req.body);
       if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
       res.json(company);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.delete('/api/companies/:id', async (req, res) => {
@@ -1191,7 +1385,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       stopCompanyRunner(req.params.id);
       const ok = deleteCompany(req.params.id);
       res.json({ success: ok });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Start/stop company heartbeat runner
@@ -1201,7 +1395,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const interval = parseInt(req.body?.intervalMs || '60000', 10);
       const ok = startCompanyRunner(req.params.id, interval);
       res.json({ success: ok, message: ok ? 'Runner started' : 'Already running or company not active' });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/companies/:id/stop', async (req, res) => {
@@ -1209,7 +1403,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { stopCompanyRunner } = await import('../agent/company.js');
       const ok = stopCompanyRunner(req.params.id);
       res.json({ success: ok });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Add agent/goal to company
@@ -1219,7 +1413,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const agent = addAgentToCompany(req.params.id, req.body);
       if (!agent) { res.status(404).json({ error: 'Company not found' }); return; }
       res.json(agent);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/companies/:id/goals', async (req, res) => {
@@ -1228,7 +1422,42 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const goal = addGoalToCompany(req.params.id, req.body);
       if (!goal) { res.status(404).json({ error: 'Company not found' }); return; }
       res.json(goal);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  // ── Company Portability (Export/Import) ───────────────────────
+  app.post('/api/companies/:id/export', async (req, res) => {
+    try {
+      const { getCompany } = await import('../agent/company.js');
+      const { writeCompanyPackage } = await import('../agent/companyPortability.js');
+      const company = getCompany(req.params.id);
+      if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
+      const outPath = writeCompanyPackage(company, req.body?.outDir);
+      res.json({ success: true, path: outPath, name: company.name });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  app.get('/api/companies/exports', async (_req, res) => {
+    try {
+      const { listExportedPackages } = await import('../agent/companyPortability.js');
+      res.json(listExportedPackages());
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  app.post('/api/companies/import', async (req, res) => {
+    try {
+      const { importCompanyFromDirectory, importCompanyFromMarkdown } = await import('../agent/companyPortability.js');
+      const { createCompany } = await import('../agent/company.js');
+      let imported = null;
+      if (req.body?.packagePath) {
+        imported = importCompanyFromDirectory(req.body.packagePath);
+      } else if (req.body?.markdown) {
+        imported = importCompanyFromMarkdown(req.body.markdown);
+      }
+      if (!imported) { res.status(400).json({ error: 'Invalid import. Provide packagePath or markdown.' }); return; }
+      const company = createCompany(imported);
+      res.json({ success: true, company });
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
 
   // ── Soul API ──────────────────────────────────────────────────
@@ -1280,7 +1509,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const session = createNewSession(channel, userId);
       res.json({ id: session.id, channel: session.channel, userId: session.userId });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1352,7 +1581,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const history = getHistory(sessionId);
       res.json(history);
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1373,7 +1602,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       res.json(messages);
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1382,7 +1611,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       closeSession(req.params.id);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1391,7 +1620,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       closeSession(req.params.id);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1406,7 +1635,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (!ok) { res.status(404).json({ error: 'Session not found' }); return; }
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -1426,13 +1655,67 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ─── Specialists API (v4.13) ─────────────────────────────────────
+  // List the specialist pool + any model overrides. The specialists
+  // themselves are defined in code (src/agent/specialists.ts); this
+  // endpoint merges their defaults with per-id overrides from
+  // config.specialists.overrides so a UI can show "active model".
+  app.get('/api/specialists', async (_req, res) => {
+    try {
+      const { SPECIALISTS } = await import('../agent/specialists.js');
+      const cfg = loadConfig();
+      const overrides = (cfg as unknown as { specialists?: { overrides?: Record<string, { model?: string }> } }).specialists?.overrides || {};
+      const out = SPECIALISTS.map((s) => ({
+        id: s.id,
+        name: s.name,
+        role: s.role,
+        title: s.title,
+        defaultModel: s.model,
+        activeModel: overrides[s.id]?.model || s.model,
+        overridden: Boolean(overrides[s.id]?.model && overrides[s.id].model !== s.model),
+        templateMatches: s.templateMatches,
+        reportsTo: s.reportsTo,
+      }));
+      res.json(out);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // Update a specialist's active model. Body: { model: string | null }
+  // model=null clears the override (reverts to specialist default).
+  app.patch('/api/specialists/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { model } = (req.body || {}) as { model?: string | null };
+      const { SPECIALISTS } = await import('../agent/specialists.js');
+      const specialist = SPECIALISTS.find((s) => s.id === id);
+      if (!specialist) { res.status(404).json({ error: `Unknown specialist: ${id}` }); return; }
+      const cfg = loadConfig();
+      const cfgAny = cfg as unknown as { specialists?: { overrides?: Record<string, { model?: string }> } };
+      const overrides = { ...(cfgAny.specialists?.overrides || {}) };
+      if (model === null || model === '' || model === undefined) {
+        delete overrides[id];
+      } else if (typeof model === 'string') {
+        overrides[id] = { model };
+      } else {
+        res.status(400).json({ error: 'model must be a string or null' });
+        return;
+      }
+      updateConfig({ specialists: { overrides } } as unknown as Parameters<typeof updateConfig>[0]);
+      res.json({ ok: true, id, activeModel: overrides[id]?.model || specialist.model });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
   // ─── Marketplace API ──────────────────────────────────────────
   app.get('/api/marketplace', async (_req, res) => {
     try {
       const skills = await listMarketplaceSkills();
       const installed = listInstalledMarketplace();
       res.json({ skills: skills.map(s => ({ ...s, installed: installed.includes(s.file.replace('.js', '')) })), installed });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/marketplace/search', async (req, res) => {
@@ -1441,7 +1724,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const results = await marketplaceSearch(q, 50);
       const installed = listInstalledMarketplace();
       res.json({ ...results, skills: results.skills.map(s => ({ ...s, installed: installed.includes(s.file.replace('.js', '')) })) });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/marketplace/install', async (req, res): Promise<void> => {
@@ -1450,7 +1733,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (!skill) { res.status(400).json({ error: 'Missing "skill" field' }); return; }
       const result = await installSkill(skill);
       res.json(result);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/marketplace/uninstall', (req, res): void => {
@@ -1459,7 +1742,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (!skill) { res.status(400).json({ error: 'Missing "skill" field' }); return; }
       const result = uninstallSkill(skill);
       res.json(result);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // ── Personas ──────────────────────────────────────────────────
@@ -1467,7 +1750,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const cfg = loadConfig();
       res.json({ personas: listPersonas(), active: cfg.agent.persona || 'default' });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/persona/switch', (req, res): void => {
@@ -1479,51 +1762,42 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       updateConfig({ agent: { ...cfg.agent, persona } });
       invalidatePersonaCache();
       res.json({ ok: true, active: persona });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
-  /**
-   * GET /api/tools — tool discovery.
-   * Query params:
-   *   - `q` or `search`: case-insensitive substring match against name + description.
-   *   - `skill`: filter to tools belonging to the named skill.
-   *   - `include`: comma-separated extras — `schema` adds the input
-   *      parameter schema (can be large; opt-in to keep default
-   *      response small).
-   *   - `limit`/`offset`: pagination (defaults unlimited).
-   * Response: { total, count, tools: [{name, description, skill?, parameters?}] }
-   */
   app.get('/api/tools', (req, res) => {
-    const q = ((req.query.q ?? req.query.search) as string | undefined)?.toLowerCase().trim();
-    const skillFilter = (req.query.skill as string | undefined)?.trim();
-    const include = new Set(((req.query.include as string | undefined) || '').split(',').map((s) => s.trim()).filter(Boolean));
-    const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit as string, 10) || 0) : undefined;
-    const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset as string, 10) || 0) : 0;
+    const includeSchema = req.query.include === 'schema';
+    const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase() : '';
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 1000);
+    const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
 
-    // Build a name -> skill lookup once.
-    const toolToSkill = new Map<string, string>();
-    for (const skill of getSkills()) {
-      for (const tn of getSkillTools(skill.name)) toolToSkill.set(tn, skill.name);
-    }
-
-    let all = getRegisteredTools();
-    if (skillFilter) all = all.filter((t) => toolToSkill.get(t.name) === skillFilter);
-    if (q) all = all.filter((t) => t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
-
-    const total = all.length;
-    const paged = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
-
-    const tools = paged.map((t) => {
-      const base: Record<string, unknown> = {
+    let tools = getRegisteredTools().map((t) => {
+      const item: Record<string, unknown> = {
         name: t.name,
         description: t.description,
-        skill: toolToSkill.get(t.name),
       };
-      if (include.has('schema')) base.parameters = t.parameters;
-      return base;
+      if (includeSchema) {
+        item.parameters = t.parameters;
+      }
+      return item;
     });
 
-    res.json({ total, count: tools.length, offset, tools });
+    if (q) {
+      tools = tools.filter((t) =>
+        (t.name as string).toLowerCase().includes(q) ||
+        (t.description as string).toLowerCase().includes(q),
+      );
+    }
+
+    const total = tools.length;
+    const paginated = tools.slice(offset, offset + limit);
+
+    res.json({
+      total,
+      count: paginated.length,
+      offset,
+      tools: paginated,
+    });
   });
 
   app.get('/api/channels', (_req, res) => {
@@ -1544,6 +1818,349 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.get('/api/health', (_req, res) => {
     const cfg = loadConfig();
     res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded });
+  });
+
+  // ── Docker Sandbox Execution ─────────────────────────────────
+  app.post('/api/sandbox/execute', async (req, res) => {
+    try {
+      const { code, language, timeoutMs } = req.body;
+      if (!code || typeof code !== 'string') {
+        res.status(400).json({ error: 'code is required' });
+        return;
+      }
+      const { executeInSandbox } = await import('../agent/sandbox.js');
+      const result = await executeInSandbox(code, language || 'javascript', timeoutMs || 60000);
+      res.json(result);
+    } catch (err) {
+      logger.error(COMPONENT, `Sandbox execute error: ${(err as Error).message}`);
+      res.status(500).json({ error: 'Sandbox execution failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/sandbox/status', async (_req, res) => {
+    try {
+      const { getSandboxStatus } = await import('../agent/sandbox.js');
+      res.json(getSandboxStatus());
+    } catch (err) {
+      res.status(500).json({ error: 'Sandbox status unavailable', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/health/deep', async (_req, res) => {
+    const checks: Record<string, { status: 'ok' | 'degraded' | 'down'; detail?: string }> = {};
+    let overall: 'ok' | 'degraded' | 'down' = 'ok';
+
+    // Memory subsystem
+    try {
+      const { getDb } = await import('../memory/memory.js');
+      const db = getDb();
+      checks.memory = { status: 'ok', detail: `${db.memories.length} memories, ${db.sessions.length} sessions` };
+    } catch (e) {
+      checks.memory = { status: 'down', detail: (e as Error).message };
+      overall = 'down';
+    }
+
+    // Graph
+    try {
+      const { getGraphStats } = await import('../memory/graph.js');
+      const stats = getGraphStats();
+      checks.graph = { status: 'ok', detail: `${stats.episodeCount} episodes, ${stats.entityCount} entities` };
+    } catch (e) {
+      checks.graph = { status: 'down', detail: (e as Error).message };
+      overall = 'down';
+    }
+
+    // Vectors
+    try {
+      const { isVectorSearchAvailable } = await import('../memory/vectors.js');
+      checks.vectors = { status: isVectorSearchAvailable() ? 'ok' : 'degraded', detail: isVectorSearchAvailable() ? 'ready' : 'disabled or unavailable' };
+      if (!isVectorSearchAvailable() && overall === 'ok') overall = 'degraded';
+    } catch (e) {
+      checks.vectors = { status: 'down', detail: (e as Error).message };
+      overall = 'down';
+    }
+
+    // Providers
+    try {
+      const providerHealth = await healthCheckAll();
+      const entries = Object.entries(providerHealth);
+      const healthyProviders = entries.filter(([, healthy]) => healthy).length;
+      checks.providers = { status: healthyProviders > 0 ? 'ok' : 'down', detail: `${healthyProviders}/${entries.length} healthy` };
+      if (healthyProviders === 0) overall = 'down';
+    } catch (e) {
+      checks.providers = { status: 'down', detail: (e as Error).message };
+      overall = 'down';
+    }
+
+    // Channels
+    try {
+      const connected = Array.from(channels.values()).filter((c) => c.getStatus().connected).length;
+      checks.channels = { status: connected > 0 ? 'ok' : 'degraded', detail: `${connected}/${channels.size} connected` };
+      if (connected === 0 && overall === 'ok') overall = 'degraded';
+    } catch (e) {
+      checks.channels = { status: 'down', detail: (e as Error).message };
+      overall = 'down';
+    }
+
+    // Event loop lag (approximate via setImmediate)
+    const start = process.hrtime.bigint();
+    await new Promise((resolve) => setImmediate(resolve));
+    const lagNs = Number(process.hrtime.bigint() - start);
+    const lagMs = lagNs / 1_000_000;
+    checks.eventLoop = { status: lagMs < 100 ? 'ok' : lagMs < 500 ? 'degraded' : 'down', detail: `${lagMs.toFixed(2)}ms lag` };
+    if (lagMs >= 500) overall = 'down';
+    else if (lagMs >= 100 && overall === 'ok') overall = 'degraded';
+
+    res.status(overall === 'ok' ? 200 : overall === 'degraded' ? 200 : 503).json({
+      status: overall,
+      version: TITAN_VERSION,
+      uptime: process.uptime(),
+      checks,
+    });
+  });
+
+  // ── Monitors API ─────────────────────────────────────────────────
+  app.get('/api/monitors', (_req, res) => {
+    try {
+      res.json({ monitors: listMonitors(), events: getMonitorEvents().slice(-50) });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/monitors', (req, res) => {
+    try {
+      const { name, prompt, triggerType, intervalMinutes } = req.body;
+      if (!name || !prompt) { res.status(400).json({ error: 'name and prompt are required' }); return; }
+      const monitor = addMonitor({ name, prompt, triggerType: triggerType || 'interval', intervalMinutes: intervalMinutes || 60 } as any);
+      res.status(201).json(monitor);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.delete('/api/monitors/:id', (req, res) => {
+    try {
+      removeMonitor(req.params.id);
+      res.json({ ok: true });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // ── Test Health API ──────────────────────────────────────────────
+  app.get('/api/test/health', async (_req, res) => {
+    try {
+      const { getTestHealthSummary } = await import('../testing/testHealthMonitor.js');
+      const summary = getTestHealthSummary();
+      res.json(summary);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/test/stats', async (_req, res) => {
+    try {
+      const { getTestHealth } = await import('../testing/testHealthMonitor.js');
+      const stats = getTestHealth();
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/test/failing', async (_req, res) => {
+    try {
+      const { getFailingTests } = await import('../testing/testHealthMonitor.js');
+      const failing = getFailingTests();
+      res.json(failing);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/test/flaky', async (_req, res) => {
+    try {
+      const { getFlakyTests } = await import('../testing/testHealthMonitor.js');
+      const threshold = _req.query.threshold ? parseFloat(_req.query.threshold as string) : 0.4;
+      const flaky = getFlakyTests(threshold);
+      res.json(flaky);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/test/runs', async (_req, res) => {
+    try {
+      const { getRecentTestRuns } = await import('../testing/testHealthMonitor.js');
+      const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
+      const runs = getRecentTestRuns(limit);
+      res.json(runs);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/test/run', async (_req, res) => {
+    try {
+      const { runTestsDetailed } = await import('../testing/testHealthMonitor.js');
+      const { pattern, watch, coverage, timeout } = _req.body;
+      const result = await runTestsDetailed({ pattern, watch, coverage, timeout });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/test/repair-history', async (_req, res) => {
+    try {
+      const { getRepairHistory } = await import('../testing/repairValidator.js');
+      const repairId = _req.query.repairId as string | undefined;
+      const history = getRepairHistory(repairId);
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Organism / Safety Metrics API ──────────────────────────────
+  app.get('/api/organism/history', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.get('/api/organism/safety-trend', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.get('/api/organism/safety-metrics', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  // ── Organism / Alert Management API ───────────────────────────
+  app.get('/api/organism/alerts', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.get('/api/organism/alerts/stats', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.get('/api/organism/alerts/config', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.post('/api/organism/alerts/config', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.post('/api/organism/alerts/:id/acknowledge', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  app.delete('/api/organism/alerts/old', async (_req, res) => {
+    res.status(501).json({ error: 'Not implemented' });
+  });
+
+  // ── Test Health & Repair Validation API ────────────────────────
+  app.get('/api/tests/health', async (_req, res) => {
+    try {
+      const { getTestHealthSummary } = await import('../testing/testHealthMonitor.js');
+      const summary = getTestHealthSummary();
+      res.json(summary);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/tests/failing', async (_req, res) => {
+    try {
+      const { getFailingTests } = await import('../testing/testHealthMonitor.js');
+      const failing = getFailingTests();
+      res.json({ tests: failing, count: failing.length });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/tests/flaky', async (_req, res) => {
+    try {
+      const { getFlakyTests } = await import('../testing/testHealthMonitor.js');
+      const threshold = _req.query.threshold ? parseFloat(_req.query.threshold as string) : 0.4;
+      const flaky = getFlakyTests(threshold);
+      res.json({ tests: flaky, count: flaky.length, threshold });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/tests/history', async (_req, res) => {
+    try {
+      const { getRecentTestRuns } = await import('../testing/testHealthMonitor.js');
+      const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
+      const runs = getRecentTestRuns(limit);
+      res.json({ runs, count: runs.length });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/tests/run', async (req, res) => {
+    try {
+      const { runTests } = await import('../testing/testRunner.js');
+      const { pattern, timeout } = req.body;
+      const result = await runTests({ pattern, timeout });
+      res.json(result);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/tests/validate-repair', async (req, res) => {
+    try {
+      const { validateRepair } = await import('../testing/repairValidator.js');
+      const { repairId, finding, affectedFiles } = req.body;
+
+      if (!repairId || !finding) {
+        res.status(400).json({ error: 'Missing required fields: repairId, finding' });
+        return;
+      }
+
+      const result = await validateRepair({ repairId, finding, affectedFiles });
+      res.json(result);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/tests/repair-history', async (req, res) => {
+    try {
+      const { getRepairHistory } = await import('../testing/repairValidator.js');
+      const { repairId } = req.query;
+      const history = getRepairHistory(repairId as string | undefined);
+      res.json({ history, count: history.length });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/tests/validate-system-repair', async (req, res) => {
+    try {
+      const { validateSystemRepair } = await import('../testing/repairValidator.js');
+      const { repairType, target } = req.body;
+
+      if (!repairType || !target) {
+        res.status(400).json({ error: 'Missing required fields: repairType, target' });
+        return;
+      }
+
+      const result = await validateSystemRepair({ repairType, target });
+      res.json({ success: result.valid ?? false, repairType, target, ...result });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
   });
 
   // Lightweight first-run readiness check used by Mission Control's banner.
@@ -1571,6 +2188,62 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       });
     } catch (e) {
       res.status(500).json({ ready: false, error: (e as Error).message });
+    }
+  });
+
+  // ── Test Health API ───────────────────────────────────────────
+  app.get('/api/test-health/summary', async (_req, res) => {
+    try {
+      const { getTestHealthSummary } = await import('../testing/testHealthMonitor.js');
+      const summary = getTestHealthSummary();
+      res.json(summary);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/test-health/failing', async (_req, res) => {
+    try {
+      const { getFailingTests } = await import('../testing/testHealthMonitor.js');
+      const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
+      const tests = getFailingTests().slice(0, limit);
+      res.json({ count: tests.length, tests });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message, tests: [] });
+    }
+  });
+
+  app.get('/api/test-health/flaky', async (_req, res) => {
+    try {
+      const { getFlakyTests } = await import('../testing/testHealthMonitor.js');
+      const threshold = _req.query.threshold ? parseFloat(_req.query.threshold as string) : 0.4;
+      const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
+      const tests = getFlakyTests(threshold).slice(0, limit);
+      res.json({ count: tests.length, threshold, tests });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message, tests: [] });
+    }
+  });
+
+  app.get('/api/test-health/history', async (_req, res) => {
+    try {
+      const { getRecentTestRuns } = await import('../testing/testHealthMonitor.js');
+      const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 5;
+      const runs = getRecentTestRuns(limit);
+      res.json({ count: runs.length, runs });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message, runs: [] });
+    }
+  });
+
+  app.post('/api/test-health/run', async (req, res) => {
+    try {
+      const { runTests } = await import('../testing/testRunner.js');
+      const { pattern, coverage, timeout } = req.body;
+      const result = await runTests({ pattern, coverage, timeout });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message, success: false });
     }
   });
 
@@ -1715,6 +2388,35 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Hardware Detection API ──────────────────────────────────
+  app.get('/api/hardware/detect', async (_req, res) => {
+    try {
+      const { detectHardware, generateRecommendations } = await import('../hardware/autoConfig.js');
+      const profile = await detectHardware();
+      const recommendations = generateRecommendations(profile);
+      res.json({ profile, recommendations });
+    } catch (err) {
+      logger.error(COMPONENT, `Hardware detection failed: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/hardware/apply', async (_req, res) => {
+    try {
+      const { applyAutoConfiguration } = await import('../hardware/autoConfig.js');
+      const result = await applyAutoConfiguration(false);
+      res.json({
+        success: true,
+        profile: result.profile,
+        recommendations: result.recommendations,
+        applied: result.applied,
+      });
+    } catch (err) {
+      logger.error(COMPONENT, `Hardware auto-config failed: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── Cloud mode config endpoint ──────────────────────────────
   app.get('/api/cloud/config', (_req, res) => {
     const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
@@ -1732,36 +2434,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Onboarding API ──────────────────────────────────────────
   app.get('/api/onboarding/status', (_req, res) => {
     const cfg = loadConfig();
-    // In cloud mode, auto-onboard if not already done
-    const isCloud = process.env.TITAN_CLOUD_MODE === 'true';
-    if (isCloud && !cfg.onboarded) {
-      try {
-        // Auto-configure for cloud: use openrouter provider pointed at SaaS gateway
-        const cloudApi = process.env.TITAN_CLOUD_API || 'https://titan-api.djtony707.workers.dev';
-        const openrouterKey = process.env.OPENROUTER_API_KEY || '';
-        updateConfig({
-          onboarded: true,
-          agent: {
-            ...cfg.agent,
-            model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
-          },
-          providers: {
-            ...cfg.providers,
-            openrouter: {
-              ...((cfg.providers as { openrouter?: ProviderConfig }).openrouter ?? { authProfiles: [], rotationStrategy: 'priority' as const, credentialCooldownMs: 60000, cloudBypass: false }),
-              apiKey: openrouterKey,
-              baseUrl: cloudApi + '/api/v1',
-            }
-          }
-        });
-        broadcast({ type: 'config_updated' });
-        logger.info('gateway', 'Cloud mode: auto-onboarded with SaaS API');
-      } catch (e) {
-        logger.error('gateway', `Cloud auto-onboard failed: ${(e as Error).message}`);
-      }
-      return res.json({ onboarded: true, version: TITAN_VERSION, cloud: true });
-    }
-    return res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: isCloud });
+    // Cloud auto-onboarding path was removed when OpenRouter was taken out
+    // of the runtime (v4.13). Running in cloud mode now just reports status
+    // — onboarding has to happen through the normal wizard.
+    return res.json({ onboarded: cfg.onboarded, version: TITAN_VERSION, cloud: process.env.TITAN_CLOUD_MODE === 'true' });
   });
 
   app.post('/api/onboarding/complete', (req, res) => {
@@ -1811,6 +2487,155 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // JSON metrics summary for dashboard
   app.get('/api/metrics/summary', (_req, res) => {
     res.json(getMetricsSummary());
+  });
+
+  // ── Telemetry API ──────────────────────────────────────────────
+  app.post('/api/telemetry', (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.telemetry?.enabled) {
+      res.status(204).end();
+      return;
+    }
+    const { event, properties, timestamp } = req.body || {};
+    if (!event || typeof event !== 'string') {
+      res.status(400).json({ error: 'event is required' });
+      return;
+    }
+    const entry = {
+      event,
+      properties: properties || {},
+      timestamp: timestamp || new Date().toISOString(),
+      sessionId: getUserIdFromReq(req),
+    };
+    // Fire-and-forget append to storage
+    import('../storage/index.js')
+      .then(({ getStorage }) => getStorage())
+      .then((storage) => storage.appendTelemetryEvent?.(entry))
+      .catch(() => {});
+    res.status(204).end();
+  });
+
+  app.get('/api/telemetry/events', async (_req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.telemetry?.enabled) {
+      res.json({ enabled: false, events: [] });
+      return;
+    }
+    const limit = Math.min(parseInt((_req.query.limit as string) || '100', 10), 1000);
+    try {
+      const { getStorage } = await import('../storage/index.js');
+      const storage = await getStorage();
+      const events = await storage.queryTelemetryEvents?.({ limit }) ?? [];
+      res.json({ enabled: true, events });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Analytics Profile ─────────────────────────────────────────
+  app.get('/api/analytics/profile', async (_req, res) => {
+    try {
+      const profile = await collectSystemProfile();
+      res.json(profile);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // v5.0 "Spacewalk": opt-in consent endpoint. The SetupWizard calls this
+  // when the user picks "Help improve TITAN by sharing anonymous stats".
+  // Body: { enabled: boolean, crashReports?: boolean }. On enable, we
+  // stamp consentedAt + consentedVersion so we can tell the user WHEN
+  // they opted in and which version the consent was tied to. On disable,
+  // consentedAt is cleared.
+  app.post('/api/telemetry/consent', async (req, res) => {
+    try {
+      const body = (req.body || {}) as { enabled?: boolean; crashReports?: boolean };
+      const enabled = body.enabled === true;
+      const crashReports = body.crashReports !== false; // default true when opted in
+      const patch = {
+        telemetry: {
+          enabled,
+          crashReports,
+          consentedAt: enabled ? new Date().toISOString() : undefined,
+          consentedVersion: enabled ? TITAN_VERSION : undefined,
+        },
+      } as unknown as Parameters<typeof updateConfig>[0];
+      updateConfig(patch);
+
+      // Fire a one-shot system_profile immediately on opt-in so Tony's
+      // dashboard has fresh data within seconds of a new user agreeing.
+      if (enabled) {
+        (async () => {
+          try {
+            const { recordStartupAnalytics } = await import('../analytics/collector.js');
+            await recordStartupAnalytics();
+          } catch { /* best-effort */ }
+        })();
+      }
+
+      res.json({ ok: true, enabled, crashReports });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Read-only status for the SetupWizard / Settings widget.
+  app.get('/api/telemetry/consent', (_req, res) => {
+    const cfg = loadConfig();
+    const t = cfg.telemetry as unknown as {
+      enabled?: boolean;
+      crashReports?: boolean;
+      consentedAt?: string;
+      consentedVersion?: string;
+      remoteUrl?: string;
+    } | undefined;
+    res.json({
+      enabled: Boolean(t?.enabled),
+      crashReports: t?.crashReports !== false,
+      consentedAt: t?.consentedAt,
+      consentedVersion: t?.consentedVersion,
+      remoteUrl: t?.remoteUrl,
+    });
+  });
+
+  /**
+   * Telemetry send status — shows whether anonymous stats are actually
+   * reaching the configured collector. Added in v5.0 after Tony asked
+   * "Fix TITAN to where anonymous stats get reported somewhere" — the
+   * answer is two things together:
+   *   1. A persistent collector on Titan PC (see docs/ANALYTICS-DEPLOYMENT.md)
+   *   2. This endpoint, so the Privacy widget can show a green "last
+   *      sent 14s ago" chip instead of leaving the user guessing.
+   *
+   * Returns: consent state + live remote status (sent/failed counts,
+   * last attempt timestamps, last error). Never returns event bodies or
+   * install IDs — all aggregate.
+   */
+  app.get('/api/telemetry/status', async (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const t = cfg.telemetry as unknown as {
+        enabled?: boolean;
+        crashReports?: boolean;
+        consentedAt?: string;
+        consentedVersion?: string;
+        remoteUrl?: string;
+      } | undefined;
+      const { getRemoteAnalyticsStatus } = await import('../analytics/collector.js');
+      res.json({
+        consent: {
+          enabled: Boolean(t?.enabled),
+          crashReports: t?.crashReports !== false,
+          consentedAt: t?.consentedAt,
+          consentedVersion: t?.consentedVersion,
+          remoteUrl: t?.remoteUrl,
+        },
+        remote: getRemoteAnalyticsStatus(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   // MCP server status
@@ -1923,11 +2748,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
-    // User-initiated opt-in for Claude Code. The provider hard-rejects any
-    // call without this flag to protect the CLI quota from autonomous burn.
-    // Only set it here when the caller explicitly picked a claude-code model.
-    const allowClaudeCode = typeof requestedModel === 'string' && requestedModel.startsWith('claude-code/');
-
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
 
@@ -2035,19 +2855,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
         const response = await routeMessage(content, channel, safeUserId, {
           streamCallbacks: {
-            onToken: (token) => {
+            onToken: (token: string) => {
               safeWrite(`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`);
             },
-            onToolCall: (name, args) => {
+            onToolCall: (name: string, args: Record<string, unknown>) => {
               safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args, timestamp: Date.now() })}\n\n`);
             },
-            onToolResult: (name, result, durationMs, success) => {
+            onToolResult: (name: string, result: string, durationMs: number, success: boolean) => {
               safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, timestamp: Date.now() })}\n\n`);
             },
             onThinking: () => {
               safeWrite(`event: thinking\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
             },
-            onRound: (round, maxRounds) => {
+            onRound: (round: number, maxRounds: number) => {
               safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
             },
           },
@@ -2055,7 +2875,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           signal: abortController.signal,
           sessionId: requestedSessionId,
           modelOverride: requestedModel,
-          providerOptions: allowClaudeCode ? { allowClaudeCode: true } : undefined,
         });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
@@ -2090,7 +2909,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           signal: abortController.signal,
           sessionId: requestedSessionId,
           modelOverride: requestedModel,
-          providerOptions: allowClaudeCode ? { allowClaudeCode: true } : undefined,
         });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
@@ -2131,7 +2949,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.status(structured.status).json(structured);
       }
     } finally {
-      releaseLlmSlot();
+      activeLlmRequests--;
+      titanActiveSessions.dec();
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
       if (requestedSessionId) sessionAborts.delete(requestedSessionId);
@@ -2152,7 +2971,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // SSE streaming endpoint — real token-by-token delivery
-  app.post('/api/chat/stream', rateLimit(60000, 30), async (req, res) => {
+  app.post('/api/chat/stream', rateLimit(60000, 30), concurrencyGuard(10), async (req, res) => {
     const { content, model } = req.body;
     if (!content) { res.status(400).json({ error: 'content is required' }); return; }
 
@@ -2173,7 +2992,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (chunk.type === 'done' || chunk.type === 'error') break;
       }
     } catch (error) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: (error as Error).message })}\n\n`);
+      logger.error(COMPONENT, `Stream error: ${(error as Error).message}`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'The assistant hit a snag. Please refresh and try again.' })}\n\n`);
     }
     res.end();
   });
@@ -2281,8 +3101,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         enabled: Boolean(cfg.voice?.enabled),
         livekitUrl: cfg.voice?.livekitUrl || '',
         agentUrl: cfg.voice?.agentUrl || '',
-        ttsEngine: cfg.voice?.ttsEngine || 'orpheus',
-        ttsUrl: cfg.voice?.ttsUrl || 'http://localhost:5005',
+        ttsEngine: cfg.voice?.ttsEngine || 'f5-tts',
+        ttsUrl: cfg.voice?.ttsUrl || 'http://localhost:5006',
         ttsVoice: cfg.voice?.ttsVoice || 'tara',
         sttUrl: cfg.voice?.sttUrl || 'http://localhost:48421',
         sttEngine: cfg.voice?.sttEngine || 'faster-whisper',
@@ -2299,16 +3119,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       gateway: {
         port: cfg.gateway.port,
         host: cfg.gateway.host,
-        auth: {
-          mode: cfg.gateway.auth.mode,
-          // True when auth.mode='token' but no token is configured — remote
-          // requests are 503'd; localhost bypass allows first-run wizard. UI
-          // uses this to render a loud banner so deployers notice.
-          openAccess:
-            cfg.gateway.auth.mode === 'none' ||
-            (cfg.gateway.auth.mode === 'token' && !cfg.gateway.auth.token),
-          tokenConfigured: Boolean(cfg.gateway.auth.token),
-        },
+        auth: { mode: cfg.gateway.auth.mode },
       },
       logging: cfg.logging,
       providers: {
@@ -2318,7 +3129,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         ollama: { baseUrl: cfg.providers.ollama?.baseUrl || 'http://localhost:11434' },
         groq: { configured: Boolean(cfg.providers.groq?.apiKey) },
         mistral: { configured: Boolean(cfg.providers.mistral?.apiKey) },
-        openrouter: { configured: Boolean(cfg.providers.openrouter?.apiKey) },
         fireworks: { configured: Boolean(cfg.providers.fireworks?.apiKey) },
         xai: { configured: Boolean(cfg.providers.xai?.apiKey) },
         together: { configured: Boolean(cfg.providers.together?.apiKey) },
@@ -2355,6 +3165,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         maxPeers: cfg.mesh?.maxPeers ?? 5,
         autoApprove: Boolean(cfg.mesh?.autoApprove),
       },
+      organism: {
+        enabled: Boolean(cfg.organism?.enabled),
+        hormonesInPrompt: Boolean(cfg.organism?.hormonesInPrompt),
+        pressureThreshold: Number(cfg.organism?.pressureThreshold) || 0.5,
+        shadowEnabled: Boolean(cfg.organism?.shadowEnabled),
+        tickIntervalMs: Number(cfg.organism?.tickIntervalMs) || 60000,
+      },
       commandPost: {
         enabled: Boolean((cfg as Record<string, any>).commandPost?.enabled),
         heartbeatIntervalMs: (cfg as Record<string, any>).commandPost?.heartbeatIntervalMs ?? 30000,
@@ -2369,7 +3186,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const body = req.body as Record<string, unknown>;
       const cfg = loadConfig();
       // Clone config to avoid mutating live state before validation succeeds
-      const draft = JSON.parse(JSON.stringify(cfg)) as typeof cfg;
+      const draft = structuredClone(cfg) as typeof cfg;
 
       // Track which config fields are being changed for restart detection
       const changedFields: string[] = [];
@@ -2406,10 +3223,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (body.anthropicKey !== undefined) { draft.providers.anthropic.apiKey = body.anthropicKey as string; changedFields.push('providers.anthropic.apiKey'); }
       if (body.openaiKey !== undefined) { draft.providers.openai.apiKey = body.openaiKey as string; changedFields.push('providers.openai.apiKey'); }
       if (body.googleKey !== undefined) { draft.providers.google.apiKey = body.googleKey as string; changedFields.push('providers.google.apiKey'); }
-      if (body.ollamaUrl !== undefined) { draft.providers.ollama.baseUrl = validateConfigUrl(body.ollamaUrl, 'providers.ollama.baseUrl'); changedFields.push('providers.ollama.baseUrl'); }
+      if (body.ollamaUrl !== undefined) { draft.providers.ollama.baseUrl = body.ollamaUrl as string; changedFields.push('providers.ollama.baseUrl'); }
       if (body.groqKey !== undefined) { draft.providers.groq.apiKey = body.groqKey as string; changedFields.push('providers.groq.apiKey'); }
       if (body.mistralKey !== undefined) { draft.providers.mistral.apiKey = body.mistralKey as string; changedFields.push('providers.mistral.apiKey'); }
-      if (body.openrouterKey !== undefined) { draft.providers.openrouter.apiKey = body.openrouterKey as string; changedFields.push('providers.openrouter.apiKey'); }
       if (body.fireworksKey !== undefined) { draft.providers.fireworks.apiKey = body.fireworksKey as string; changedFields.push('providers.fireworks.apiKey'); }
       if (body.xaiKey !== undefined) { draft.providers.xai.apiKey = body.xaiKey as string; changedFields.push('providers.xai.apiKey'); }
       if (body.togetherKey !== undefined) { draft.providers.together.apiKey = body.togetherKey as string; changedFields.push('providers.together.apiKey'); }
@@ -2444,20 +3260,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (body.voice !== undefined && typeof body.voice === 'object') {
         const v = body.voice as Record<string, unknown>;
         if (v.enabled !== undefined) draft.voice.enabled = Boolean(v.enabled);
-        if (v.livekitUrl !== undefined) draft.voice.livekitUrl = validateConfigUrl(v.livekitUrl, 'voice.livekitUrl');
+        if (v.livekitUrl !== undefined) draft.voice.livekitUrl = String(v.livekitUrl);
         if (v.livekitApiKey !== undefined) draft.voice.livekitApiKey = String(v.livekitApiKey);
         if (v.livekitApiSecret !== undefined) draft.voice.livekitApiSecret = String(v.livekitApiSecret);
-        if (v.agentUrl !== undefined) draft.voice.agentUrl = validateConfigUrl(v.agentUrl, 'voice.agentUrl');
+        if (v.agentUrl !== undefined) draft.voice.agentUrl = String(v.agentUrl);
         if (v.ttsVoice !== undefined) draft.voice.ttsVoice = String(v.ttsVoice);
         if (v.ttsEngine !== undefined) draft.voice.ttsEngine = String(v.ttsEngine) as typeof draft.voice.ttsEngine;
-        if (v.ttsUrl !== undefined) draft.voice.ttsUrl = validateConfigUrl(v.ttsUrl, 'voice.ttsUrl');
-        if (v.sttUrl !== undefined) draft.voice.sttUrl = validateConfigUrl(v.sttUrl, 'voice.sttUrl');
+        if (v.ttsUrl !== undefined) draft.voice.ttsUrl = String(v.ttsUrl);
+        if (v.sttUrl !== undefined) draft.voice.sttUrl = String(v.sttUrl);
         if (v.sttEngine !== undefined) draft.voice.sttEngine = String(v.sttEngine) as typeof draft.voice.sttEngine;
         if (v.model !== undefined) (draft.voice as Record<string, unknown>).model = String(v.model) || undefined;
         changedFields.push('voice');
       }
       // Home Assistant
-      if (body.homeAssistantUrl !== undefined) { draft.homeAssistant.url = validateConfigUrl(body.homeAssistantUrl, 'homeAssistant.url'); changedFields.push('homeAssistant.url'); }
+      if (body.homeAssistantUrl !== undefined) { draft.homeAssistant.url = body.homeAssistantUrl as string; changedFields.push('homeAssistant.url'); }
       if (body.homeAssistantToken !== undefined) { draft.homeAssistant.token = body.homeAssistantToken as string; changedFields.push('homeAssistant.token'); }
       // Channels
       if (body.channels !== undefined && typeof body.channels === 'object') {
@@ -2500,13 +3316,25 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         (draft as Record<string, unknown>).nvidia = nvCfg;
         changedFields.push('nvidia');
       }
+      // Organism / SOMA toggle
+      if (body.organism !== undefined && typeof body.organism === 'object') {
+        const org = body.organism as Record<string, unknown>;
+        if (!draft.organism) (draft as Record<string, unknown>).organism = {};
+        if (org.enabled !== undefined) draft.organism.enabled = Boolean(org.enabled);
+        if (org.hormonesInPrompt !== undefined) draft.organism.hormonesInPrompt = Boolean(org.hormonesInPrompt);
+        if (org.pressureThreshold !== undefined) draft.organism.pressureThreshold = Number(org.pressureThreshold);
+        if (org.shadowEnabled !== undefined) draft.organism.shadowEnabled = Boolean(org.shadowEnabled);
+        if (org.tickIntervalMs !== undefined) draft.organism.tickIntervalMs = Number(org.tickIntervalMs);
+        changedFields.push('organism');
+      }
+
       if (changedFields.length === 0) {
         const validFields = ['model', 'autonomyMode', 'sandboxMode', 'logLevel', 'anthropicKey', 'openaiKey',
-          'googleKey', 'ollamaUrl', 'groqKey', 'mistralKey', 'openrouterKey', 'fireworksKey', 'xaiKey',
+          'googleKey', 'ollamaUrl', 'groqKey', 'mistralKey', 'fireworksKey', 'xaiKey',
           'togetherKey', 'deepseekKey', 'perplexityKey', 'maxTokens', 'temperature', 'systemPrompt',
           'shieldEnabled', 'shieldMode', 'deniedTools', 'networkAllowlist', 'gatewayPort', 'gatewayAuthMode',
           'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
-          'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia'];
+          'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia', 'organism'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
@@ -2547,6 +3375,35 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       current: cfg.agent.model,
       aliases: getModelAliases(),
     });
+  });
+
+  // ── Provider Status API ─────────────────────────────────────────
+  app.get('/api/providers/status', async (_req, res) => {
+    try {
+      const { getCircuitBreakerStatus } = await import('../providers/router.js');
+      const cbStatus = getCircuitBreakerStatus();
+      const health = await healthCheckAll();
+      const providers = Object.entries(health).map(([name, healthy]) => ({
+        name,
+        healthy,
+        circuitBreaker: cbStatus[name] || { state: 'unknown', failureCount: 0 },
+      }));
+      res.json({ providers, count: providers.length });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/providers/:name/reset', async (req, res) => {
+    try {
+      const { resetCircuitBreaker } = await import('../providers/router.js');
+      resetCircuitBreaker(req.params.name);
+      res.json({ reset: true, provider: req.params.name });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
   });
 
   app.get('/api/models/discover', async (_req, res) => {
@@ -2725,12 +3582,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       saveProfile(profile);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
   // Learning stats endpoint
   app.get('/api/learning', (_req, res) => {
+    res.json(getLearningStats());
+  });
+
+  app.get('/api/learning/stats', (_req, res) => {
     res.json(getLearningStats());
   });
 
@@ -2766,7 +3627,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       );
       res.json({ lines: sanitized });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3105,7 +3966,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         edges,
       });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/graph/entities', (req, res) => {
+    try {
+      const q = (req.query.q as string) || '';
+      const type = (req.query.type as string) || undefined;
+      const entities = listEntities(type);
+      const filtered = q
+        ? entities.filter(e => e.name.toLowerCase().includes(q.toLowerCase()) || (e.type || '').toLowerCase().includes(q.toLowerCase()))
+        : entities;
+      res.json(filtered);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3116,7 +3992,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.info(COMPONENT, 'Memory graph cleared via API');
       res.json({ success: true, message: 'Graph cleared' });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3126,7 +4002,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.info(COMPONENT, `Graph cleanup: removed ${result.removedEntities} entities, ${result.removedEdges} edges`);
       res.json({ success: true, ...result });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3154,7 +4030,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         firstSeen: e.firstSeen,
         lastSeen: e.lastSeen,
       })));
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/wiki/entity/:name', (req, res) => {
@@ -3179,7 +4055,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         createdAt: ep.createdAt,
       }));
       res.json({ ...entity, related, episodes });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Agent Templates (marketplace)
@@ -3188,7 +4064,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { listTemplates, BUILTIN_TEMPLATES } = await import('../skills/agentTemplates.js');
       const installed = listTemplates();
       res.json({ builtin: BUILTIN_TEMPLATES, installed });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/agent-templates', async (req, res) => {
@@ -3196,7 +4072,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { saveTemplate } = await import('../skills/agentTemplates.js');
       saveTemplate(req.body);
       res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Training data (RL trajectory capture)
@@ -3204,7 +4080,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const { getTrainingStats } = await import('../agent/trajectoryCapture.js');
       res.json(getTrainingStats());
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/training/export', async (_req, res) => {
@@ -3213,7 +4089,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Content-Type', 'application/jsonl');
       res.setHeader('Content-Disposition', 'attachment; filename="titan-training-data.jsonl"');
       res.send(exportTrainingData());
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Dreaming memory (sleep-cycle consolidation)
@@ -3221,7 +4097,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const { getDreamingStatus } = await import('../memory/dreaming.js');
       res.json(getDreamingStatus());
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/dreaming/run', async (_req, res) => {
@@ -3229,14 +4105,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { runConsolidation } = await import('../memory/dreaming.js');
       const result = await runConsolidation();
       res.json({ success: true, ...result });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/dreaming/history', async (_req, res) => {
     try {
       const { getConsolidationHistory } = await import('../memory/dreaming.js');
       res.json(getConsolidationHistory());
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Backup system
@@ -3245,14 +4121,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { createBackup } = await import('../storage/backup.js');
       const info = await createBackup();
       res.json({ success: true, ...info });
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/backup/list', async (_req, res) => {
     try {
       const { listBackups } = await import('../storage/backup.js');
       res.json(listBackups());
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/backup/verify', async (req, res) => {
@@ -3262,7 +4138,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (!path) { res.status(400).json({ error: 'No backup path specified and no backups found' }); return; }
       const result = await verifyBackup(path);
       res.json(result);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   // Full data reset (graph + knowledge + titan-data)
@@ -3282,7 +4158,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.info(COMPONENT, `Full data reset via API: deleted ${deleted.join(', ') || 'none'}`);
       res.json({ success: true, message: `Deleted: ${deleted.join(', ') || 'none'}. Restart recommended.` });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3302,7 +4178,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const result = await runAutopilotNow({ dryRun });
       res.json(result);
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3326,7 +4202,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const status = getAutopilotStatus();
       res.json({ enabled: enable, dryRun: status.dryRun });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3337,6 +4213,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   app.post('/api/goals', (req, res) => {
+    const { title, description, subtasks, priority, tags } = req.body;
+    if (!title) { res.status(400).json({ error: 'title is required' }); return; }
+    const goal = createGoal({
+      title,
+      description: description || '',
+      subtasks: subtasks || [],
+      priority,
+      tags,
+    });
+    res.status(201).json({ goal });
+  });
+
+  // Alias for Command Post UI compatibility
+  app.post('/api/command-post/goals', (req, res) => {
     const { title, description, subtasks, priority, tags } = req.body;
     if (!title) { res.status(400).json({ error: 'title is required' }); return; }
     const goal = createGoal({
@@ -3430,11 +4320,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
-    const events = ['daemon:started', 'daemon:stopped', 'daemon:paused', 'daemon:resumed',
-                     'daemon:heartbeat', 'goal:subtask:ready', 'health:ollama:down',
-                     'health:ollama:degraded', 'cron:stuck',
-                     'initiative:start', 'initiative:complete', 'initiative:no_progress',
-                     'initiative:tool_call', 'initiative:tool_result', 'initiative:round'];
+    const events = DAEMON_SSE_EVENTS;
 
     // Store per-client listener references so we only remove THIS client's listeners on disconnect
     const listeners = new Map<string, (data: unknown) => void>();
@@ -3451,9 +4337,141 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [evt, handler] of listeners) {
-        try { titanEvents.removeListener(evt, handler); } catch { /* listener already gone */ }
+        titanEvents.removeListener(evt, handler);
       }
     });
+  });
+
+  // ── Social Media API ──────────────────────────────────────
+
+  app.get('/api/social/state', async (_req, res) => {
+    try {
+      const { loadConfig } = await import('../config/config.js');
+      const { loadState, resetDailyCounters, CONTENT_ROTATION } = await import('../skills/builtin/fb_autopilot.js');
+      const { loadQueue } = await import('../skills/builtin/facebook.js');
+      const { getEpisodesBySource } = await import('../memory/graph.js');
+      const config = loadConfig();
+      const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
+      const state = loadState();
+      resetDailyCounters(state);
+      const queue = loadQueue();
+      const pending = queue.posts.filter(p => p.status === 'pending');
+      // Enrich recentPosts with Graphiti content when state file lacks it
+      const graphPosts = getEpisodesBySource(['facebook_post', 'facebook_autopilot'], 20);
+      const recentPosts = state.postHistory.slice(-20).reverse().map(h => {
+        if (h.content) return h;
+        // Try to find matching content in Graphiti by date proximity
+        const match = graphPosts.find(g => g.createdAt.slice(0, 16) === h.date.slice(0, 16));
+        return { ...h, content: match ? match.content : undefined };
+      });
+      res.json({
+        autopilot: {
+          enabled: fbConfig?.autopilotEnabled !== false,
+          postsToday: state.postsToday,
+          maxPostsPerDay: Number(fbConfig?.maxPostsPerDay ?? 6),
+          repliesToday: state.repliesToday,
+          lastPostAt: state.lastPostAt,
+          nextContentType: CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length],
+        },
+        queue: pending,
+        recentPosts,
+      });
+    } catch (e) {
+      logger.error(COMPONENT, `Social state error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to load social state' });
+    }
+  });
+
+  app.post('/api/social/autopilot/toggle', async (req, res) => {
+    try {
+      const { loadConfig, updateConfig } = await import('../config/config.js');
+      const config = loadConfig();
+      const enabled = !!(req.body as Record<string, unknown>).enabled;
+      const fb = { ...((config as Record<string, unknown>).facebook as Record<string, unknown> || {}), autopilotEnabled: enabled } as Record<string, unknown>;
+      updateConfig({ facebook: fb } as Partial<typeof config>);
+      res.json({ enabled });
+    } catch (e) {
+      logger.error(COMPONENT, `Social toggle error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to toggle autopilot' });
+    }
+  });
+
+  app.post('/api/social/post', async (req, res) => {
+    try {
+      const { postToPage } = await import('../skills/builtin/facebook.js');
+      const content = String((req.body as Record<string, unknown>).content || '');
+      if (!content || content.length < 5) { res.status(400).json({ error: 'Content too short' }); return; }
+      const result = await postToPage(content, { source: 'manual:api' });
+      if (result.success) {
+        res.json({ success: true, postId: result.postId });
+      } else if (result.skipped) {
+        res.status(409).json({ success: false, skipped: result.skipped });
+      } else {
+        res.status(500).json({ success: false, error: result.error });
+      }
+    } catch (e) {
+      logger.error(COMPONENT, `Social post error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to post' });
+    }
+  });
+
+  app.post('/api/social/drafts/:id/approve', async (req, res) => {
+    try {
+      const { loadQueue, saveQueue, postToPage, hasApiAccess } = await import('../skills/builtin/facebook.js') as any;
+      const queue = loadQueue();
+      const post = queue.posts.find((p: { id: string }) => p.id === req.params.id);
+      if (!post) { res.status(404).json({ error: 'Draft not found' }); return; }
+      if (post.status !== 'pending') { res.status(409).json({ error: `Already ${post.status}` }); return; }
+      if (hasApiAccess()) {
+        const result = await postToPage(post.content, { source: 'queue:approved' });
+        if (result.success) {
+          post.status = 'posted';
+          post.postedAt = new Date().toISOString();
+          post.fbPostId = result.postId;
+        } else {
+          res.status(500).json({ error: result.error || 'Post failed' });
+          return;
+        }
+      } else {
+        post.status = 'approved';
+      }
+      saveQueue(queue);
+      res.json({ success: true, status: post.status, postId: post.fbPostId });
+    } catch (e) {
+      logger.error(COMPONENT, `Draft approve error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to approve draft' });
+    }
+  });
+
+  app.post('/api/social/drafts/:id/reject', async (req, res) => {
+    try {
+      const { loadQueue, saveQueue } = await import('../skills/builtin/facebook.js');
+      const queue = loadQueue();
+      const post = queue.posts.find(p => p.id === req.params.id);
+      if (!post) { res.status(404).json({ error: 'Draft not found' }); return; }
+      post.status = 'rejected';
+      saveQueue(queue);
+      res.json({ success: true });
+    } catch (e) {
+      logger.error(COMPONENT, `Draft reject error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to reject draft' });
+    }
+  });
+
+  app.get('/api/social/graph-context', async (_req, res) => {
+    try {
+      const { getEpisodesBySource } = await import('../memory/graph.js');
+      const recentPosts = getEpisodesBySource(['facebook_post', 'facebook_autopilot'], 5);
+      const topics = recentPosts.map(ep => ({
+        content: ep.content.slice(0, 200),
+        date: ep.createdAt,
+        entities: ep.entities,
+      }));
+      res.json({ recentTopics: topics });
+    } catch (e) {
+      logger.error(COMPONENT, `Social graph context error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to load graph context' });
+    }
   });
 
   // ── Watch stream — unified human-readable event firehose (v4.5.0)
@@ -3472,33 +4490,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Every event topic the Pane cares about — union of drive ticks,
     // soma proposals, tool calls, goals, initiative, command-post, health,
     // multi-agent, alerts. Matches src/watch/humanize.ts dictionary.
-    const topics = [
-      // Soma / drives
-      'drive:tick', 'hormone:update', 'pressure:threshold', 'soma:proposal',
-      // Turns / tools
-      'turn:pre', 'turn:post', 'tool:call', 'tool:result',
-      // Goals
-      'goal:created', 'goal:completed', 'goal:progress', 'goal:failed',
-      'goal:subtask:ready', 'goal:subtask:added',
-      // Initiative (autopilot)
-      'initiative:start', 'initiative:complete', 'initiative:no_progress',
-      'initiative:round',
-      // Command Post
-      'commandpost:task:checkout', 'commandpost:task:checkin',
-      'commandpost:task:expired', 'commandpost:budget:warning',
-      'commandpost:budget:exceeded', 'commandpost:agent:status',
-      // Health / system
-      'daemon:started', 'daemon:paused', 'daemon:resumed',
-      'cron:stuck', 'health:ollama:degraded', 'health:ollama:down',
-      'dreaming:consolidated',
-      // Multi-agent
-      'agent:spawned', 'agent:stopped', 'agent:task:completed',
-      'agent:task:failed',
-      // Company
-      'company:goal:completed',
-      // Alerts
-      'alert',
-    ];
+    const topics = PANE_SSE_TOPICS;
 
     const send = (data: unknown) => {
       try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
@@ -3528,7 +4520,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     for (const topic of topics) {
       const handler = (payload: unknown) => {
         const event = humanize(topic, (payload as Record<string, unknown>) || {});
-        if (event) send({ type: 'event', ...event });
+        if (event) send({ type: "event", ...event });
       };
       listeners.set(topic, handler);
       titanEvents.on(topic, handler);
@@ -3541,7 +4533,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [topic, handler] of listeners) {
-        try { titanEvents.removeListener(topic, handler); } catch { /* listener already gone */ }
+        titanEvents.removeListener(topic, handler);
       }
     });
   });
@@ -3575,7 +4567,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         timestamp: Date.now(),
       });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -3631,6 +4623,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   app.get('/api/command-post/budgets', (_req, res) => {
     res.json(getBudgetPolicies());
+  });
+
+  // Budget reservations stub — frontend expects this endpoint
+  app.get('/api/command-post/budgets/reservations', (_req, res) => {
+    res.json([]);
   });
 
   app.post('/api/command-post/budgets', (req, res) => {
@@ -3768,6 +4765,89 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(budgetInfo);
   });
 
+  // ── Conflict Resolution ───────────────────────────────
+  app.post('/api/command-post/conflicts/propose', async (req, res) => {
+    try {
+      const { conflictResolver } = await import('../agent/conflictResolver.js');
+      const { entities, type, description, metadata } = req.body;
+
+      if (!entities || !Array.isArray(entities) || entities.length === 0) {
+        res.status(400).json({ error: 'entities array is required' });
+        return;
+      }
+
+      if (!type || !['file', 'goal', 'resource', 'agent', 'config', 'other'].includes(type)) {
+        res.status(400).json({ error: 'valid type is required (file, goal, resource, agent, config, other)' });
+        return;
+      }
+
+      if (!description || typeof description !== 'string') {
+        res.status(400).json({ error: 'description string is required' });
+        return;
+      }
+
+      const proposal = await conflictResolver.generateProposal({
+        entities,
+        type,
+        description,
+        metadata: metadata || {}
+      });
+
+      res.json(proposal);
+    } catch (error) {
+      logger.error(COMPONENT, 'Conflict proposal generation error:', error);
+      res.status(500).json({ error: 'Failed to generate conflict resolution proposal' });
+    }
+  });
+
+  app.post('/api/command-post/conflicts/propose/formatted', async (req, res) => {
+    try {
+      const { conflictResolver } = await import('../agent/conflictResolver.js');
+      const { entities, type, description, metadata } = req.body;
+
+      if (!entities || !Array.isArray(entities) || entities.length === 0) {
+        res.status(400).json({ error: 'entities array is required' });
+        return;
+      }
+
+      if (!type || !['file', 'goal', 'resource', 'agent', 'config', 'other'].includes(type)) {
+        res.status(400).json({ error: 'valid type is required (file, goal, resource, agent, config, other)' });
+        return;
+      }
+
+      if (!description || typeof description !== 'string') {
+        res.status(400).json({ error: 'description string is required' });
+        return;
+      }
+
+      const proposal = await conflictResolver.generateProposal({
+        entities,
+        type,
+        description,
+        metadata: metadata || {}
+      });
+
+      const formatted = conflictResolver.formatProposal(proposal);
+      res.type('text/plain').send(formatted);
+    } catch (error) {
+      logger.error(COMPONENT, 'Conflict proposal formatting error:', error);
+      res.status(500).json({ error: 'Failed to format conflict resolution proposal' });
+    }
+  });
+
+  app.get('/api/command-post/conflicts/types', (_req, res) => {
+    res.json({
+      types: [
+        { id: 'file', name: 'File Conflict', description: 'Merge conflicts, version conflicts' },
+        { id: 'goal', name: 'Goal Conflict', description: 'Competing or conflicting goals' },
+        { id: 'resource', name: 'Resource Conflict', description: 'Resource contention (GPU, memory, etc.)' },
+        { id: 'agent', name: 'Agent Conflict', description: 'Agent coordination conflicts' },
+        { id: 'config', name: 'Configuration Conflict', description: 'Conflicting configuration values' },
+        { id: 'other', name: 'Other', description: 'Unclassified conflict type' }
+      ]
+    });
+  });
+
   // Command Post SSE stream
   app.get('/api/command-post/stream', (req, res) => {
     res.writeHead(200, {
@@ -3781,11 +4861,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
-    const cpEvents = [
-      'commandpost:activity', 'commandpost:task:checkout', 'commandpost:task:checkin',
-      'commandpost:task:expired', 'commandpost:budget:warning', 'commandpost:budget:exceeded',
-      'commandpost:agent:heartbeat', 'commandpost:agent:status',
-    ];
+    const cpEvents = CP_SSE_EVENTS;
 
     const listeners = new Map<string, (data: unknown) => void>();
     for (const evt of cpEvents) {
@@ -3801,7 +4877,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     req.on('close', () => {
       clearInterval(keepalive);
       for (const [evt, handler] of listeners) {
-        try { titanEvents.removeListener(evt, handler); } catch { /* listener already gone */ }
+        titanEvents.removeListener(evt, handler);
       }
     });
   });
@@ -3826,7 +4902,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     req.on('close', () => {
       clearInterval(keepalive);
-      try { titanEvents.removeListener('plan:event', handler); } catch { /* listener already gone */ }
+      titanEvents.removeListener('plan:event', handler);
     });
   });
 
@@ -3880,6 +4956,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.status(201).json(issue);
   });
 
+  // Issue context stub — frontend expects this endpoint
+  app.get('/api/command-post/issues/:id/context', (req, res) => {
+    const issue = getIssue(req.params.id);
+    if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+    res.json({ ancestry: issue.goalId || '', issue });
+  });
+
   app.get('/api/command-post/issues/:id', (req, res) => {
     const issue = getIssue(req.params.id);
     if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
@@ -3929,9 +5012,47 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.status(201).json(approval);
   });
 
-  app.post('/api/command-post/approvals/:id/approve', (req, res) => {
+  // v4.13: approval-gated self-restart. Creates a custom approval of
+  // kind 'restart_titan' that, when approved via the normal
+  // /api/command-post/approvals/:id/approve flow, restarts the service.
+  // Audit log records both the request and the approval.
+  app.post('/api/system/request-restart', async (req, res) => {
+    try {
+      const { reason, requestedBy } = (req.body || {}) as { reason?: string; requestedBy?: string };
+      if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+        res.status(400).json({ error: 'reason is required (min 3 chars)' });
+        return;
+      }
+      const { createApproval } = await import('../agent/commandPost.js');
+      const approval = createApproval({
+        type: 'custom',
+        requestedBy: requestedBy || 'api',
+        payload: {
+          kind: 'restart_titan',
+          reason: reason.trim().slice(0, 500),
+          requestedAt: new Date().toISOString(),
+          severity: 'medium',
+          suggestedAction: 'Approve to execute: sudo systemctl restart titan.service',
+        },
+        linkedIssueIds: [],
+      });
+      try {
+        const { logAudit } = await import('../security/auditLog.js');
+        logAudit('security_alert', requestedBy || 'api', {
+          action: 'restart_titan_requested',
+          approvalId: approval.id,
+          reason,
+        });
+      } catch { /* audit unavailable */ }
+      res.json({ ok: true, approval });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/command-post/approvals/:id/approve', async (req, res) => {
     const { decidedBy, note } = req.body;
-    const result = approveApproval(req.params.id, decidedBy || 'board', note);
+    const result = await approveApproval(req.params.id, decidedBy || 'board', note);
     if (!result) { res.status(404).json({ error: 'Approval not found or already decided' }); return; }
     res.json(result);
   });
@@ -3941,6 +5062,68 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const result = rejectApproval(req.params.id, decidedBy || 'board', note);
     if (!result) { res.status(404).json({ error: 'Approval not found or already decided' }); return; }
     res.json(result);
+  });
+
+  app.post('/api/command-post/approvals/:id/reply', (req, res) => {
+    const { author, body } = req.body;
+    if (!body || typeof body !== 'string') { res.status(400).json({ error: 'body is required' }); return; }
+    const result = replyToApproval(req.params.id, author || 'user', body);
+    if (!result) { res.status(404).json({ error: 'Approval not found' }); return; }
+    res.json(result);
+  });
+
+  app.post('/api/command-post/approvals/:id/snooze', (req, res) => {
+    const { until } = req.body;
+    if (!until) { res.status(400).json({ error: 'until timestamp is required' }); return; }
+    const result = snoozeApproval(req.params.id, until);
+    if (!result) { res.status(404).json({ error: 'Approval not found or not pending' }); return; }
+    res.json(result);
+  });
+
+  app.post('/api/command-post/approvals/:id/unsnooze', (req, res) => {
+    const result = unsnoozeApproval(req.params.id);
+    if (!result) { res.status(404).json({ error: 'Approval not found' }); return; }
+    res.json(result);
+  });
+
+  app.get('/api/command-post/approvals/:id/thread', (req, res) => {
+    const approval = listApprovals().find(a => a.id === req.params.id);
+    if (!approval) { res.status(404).json({ error: 'Approval not found' }); return; }
+    res.json({ approvalId: approval.id, thread: approval.thread || [] });
+  });
+
+  app.post('/api/command-post/approvals/batch', async (req, res) => {
+    const { ids, action, decidedBy, note } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array required' }); return; }
+    if (action === 'approve') {
+      const result = await batchApprove(ids, decidedBy || 'board', note);
+      res.json(result);
+    } else if (action === 'reject') {
+      const result = batchReject(ids, decidedBy || 'board', note);
+      res.json(result);
+    } else {
+      res.status(400).json({ error: 'action must be approve or reject' });
+    }
+  });
+
+  app.post('/api/command-post/approvals/sweep', async (_req, res) => {
+    const { sweepStaleApprovalsManual } = await import('../agent/commandPost.js');
+    const result = sweepStaleApprovalsManual();
+    res.json(result);
+  });
+
+  // ── Agent-to-User Messages ───────────────────────────────
+  app.get('/api/command-post/agent-messages', (req, res) => {
+    const agentId = req.query.agentId as string | undefined;
+    const userId = req.query.userId as string | undefined;
+    const unreadOnly = req.query.unread === 'true';
+    res.json(getAgentMessages(agentId, userId, unreadOnly));
+  });
+
+  app.post('/api/command-post/agent-messages/:id/read', (req, res) => {
+    const ok = markAgentMessageRead(req.params.id);
+    if (!ok) { res.status(404).json({ error: 'Message not found' }); return; }
+    res.json({ read: true });
   });
 
   // ── Soma (v4.0): organism state ──────────────────────────
@@ -4119,6 +5302,52 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(listRuns(agentId, limit));
   });
 
+  // Retry a failed run — creates a new issue and queues a wakeup for the same agent
+  app.post('/api/command-post/runs/:id/retry', async (req, res) => {
+    const allRuns = listRuns(undefined, 500);
+    const run = allRuns.find(r => r.id === req.params.id);
+    if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
+
+    const agent = getRegisteredAgents().find(a => a.id === run.agentId);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    // Build retry task from original context
+    let task = `Retry failed run (${run.id})`;
+    if (run.error) task += `: ${run.error}`;
+
+    // If the run had an issue, reference it
+    let issueDesc = task;
+    if (run.issueId) {
+      const originalIssue = getIssue(run.issueId);
+      if (originalIssue) {
+        task = `Retry: ${originalIssue.title}`;
+        issueDesc = `${originalIssue.description || ''}\n\nRetrying after failure: ${run.error || 'unknown error'}`;
+      }
+    }
+
+    const issue = createIssue({
+      title: task,
+      description: issueDesc,
+      priority: 'high',
+      assigneeAgentId: agent.id,
+      createdByUser: 'board',
+    });
+
+    const newRun = startRun(agent.id, 'manual', issue.id);
+
+    queueWakeup({
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+      agentId: agent.id,
+      agentName: agent.name,
+      parentSessionId: null,
+      task,
+      templateName: agent.role || 'default',
+    });
+
+    res.json({ retried: true, runId: newRun.id, issueId: issue.id });
+  });
+
   // ── Paperclip: Agent Updates (org chart fields) ──────────
   app.patch('/api/command-post/agents/:id', async (req, res) => {
     const { reportsTo, role, title, name, status } = req.body;
@@ -4194,102 +5423,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // v4.10.0-local polish: reviewer budget — shows cost spent + caps
-  app.get('/api/safety/reviewer-budget', async (_req, res) => {
-    try {
-      const { getReviewerBudget } = await import('../safety/opusReview.js');
-      res.json(getReviewerBudget());
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // v4.10.0-local polish: Claude Code quota watchdog snapshot.
-  // Used by Settings UI + diagnostics to see how close we are to the
-  // MAX-plan interactive quota throttle (default 60%) and whether a
-  // rate-limit backoff is active. Protects interactive quota from
-  // automated burn by Sage/reviewer/external adapters.
-  app.get('/api/providers/claude-code/budget', async (_req, res) => {
-    try {
-      const { getSnapshot } = await import('../providers/claudeCodeBudget.js');
-      res.json(getSnapshot());
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // Manual clear of rate-limit backoff (diagnostics / ops)
-  app.post('/api/providers/claude-code/clear-rate-limit', async (_req, res) => {
-    try {
-      const { clearRateLimit, getSnapshot } = await import('../providers/claudeCodeBudget.js');
-      clearRateLimit();
-      res.json({ ok: true, snapshot: getSnapshot() });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // ── Specialists (per-agent model config) ─────────────────────
-  // Returns all specialists with their effective model (base + any
-  // user override from config.specialists.overrides). The UI uses this
-  // to render a per-specialist model selector.
-  app.get('/api/specialists', async (_req, res) => {
-    try {
-      const { listSpecialists, SPECIALISTS } = await import('../agent/specialists.js');
-      const resolved = listSpecialists();
-      const { loadConfig } = await import('../config/config.js');
-      const overrides = loadConfig().specialists?.overrides ?? {};
-      res.json({
-        specialists: resolved.map(s => {
-          const base = SPECIALISTS.find(b => b.id === s.id);
-          return {
-            id: s.id,
-            name: s.name,
-            role: s.role,
-            title: s.title,
-            defaultModel: base?.model ?? s.model,
-            activeModel: s.model,
-            overridden: !!overrides[s.id]?.model,
-          };
-        }),
-      });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // Update a specialist's model. Pass `{ model: null }` or `{ model: '' }`
-  // to clear the override and revert to the hardcoded default.
-  app.patch('/api/specialists/:id', async (req, res) => {
-    try {
-      const specialistId = req.params.id;
-      const { SPECIALISTS } = await import('../agent/specialists.js');
-      const exists = SPECIALISTS.some(s => s.id === specialistId);
-      if (!exists) {
-        res.status(404).json({ error: `Unknown specialist: ${specialistId}` });
-        return;
-      }
-      const newModel = typeof req.body?.model === 'string' ? req.body.model.trim() : null;
-      const { loadConfig, saveConfig } = await import('../config/config.js');
-      const cfg = loadConfig();
-      const overrides = { ...(cfg.specialists?.overrides ?? {}) };
-      if (!newModel) {
-        delete overrides[specialistId];
-      } else {
-        overrides[specialistId] = { model: newModel };
-      }
-      const nextCfg = {
-        ...cfg,
-        specialists: { overrides },
-      };
-      saveConfig(nextCfg);
-      logger.info(COMPONENT, `Specialist model updated: ${specialistId} → ${newModel || '(default)'}`);
-      res.json({ ok: true, id: specialistId, model: newModel || null });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
   app.post('/api/safety/resume', async (req, res) => {
     try {
       const note = (req.body?.note as string) || 'resumed via API (no note)';
@@ -4360,69 +5493,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const ok = cancelDriver(req.params.goalId);
       if (!ok) { res.status(404).json({ error: 'No driver for goal' }); return; }
       res.json({ status: 'cancel-requested' });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // v4.10.0-local: force-unblock a driver stuck on a machine-level error
-  // (parse failure, bogus auto-generated needs_info). Auto-rejects the
-  // approval and transitions the driver to 'iterating' so it retries.
-  app.post('/api/drivers/:goalId/unblock', async (req, res) => {
-    try {
-      const { forceUnblockDriver } = await import('../agent/goalDriver.js');
-      const note = (req.body?.note as string) || 'manual force-unblock';
-      const ok = await forceUnblockDriver(req.params.goalId, note);
-      if (!ok) { res.status(404).json({ error: 'No blocked driver for goal' }); return; }
-      res.json({ status: 'unblocked' });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // Bulk: unblock every driver currently blocked on a parse-error / bogus
-  // approval. Matches drivers whose blockedReason.question starts with
-  // "No structured JSON" or contains generic "what is your status".
-  app.post('/api/drivers/unblock-parse-errors', async (_req, res) => {
-    try {
-      const { listAllDrivers, forceUnblockDriver } = await import('../agent/goalDriver.js');
-      const drivers = listAllDrivers();
-      const unblocked: string[] = [];
-      for (const d of drivers) {
-        if (d.phase !== 'blocked') continue;
-        const q = d.blockedReason?.question || '';
-        // Match all machine-level JSON/parse failures across the three
-        // code paths that can produce them (extractJsonBlock miss,
-        // JSON.parse throw, sub-agent circuit-breaker bubble-up).
-        if (/no structured json|what is your status|parser could not|could not parse response json|expected property|unexpected token|json\.parse/i.test(q)) {
-          const ok = await forceUnblockDriver(d.goalId, 'bulk parse-error unblock');
-          if (ok) unblocked.push(d.goalId);
-        }
-      }
-      res.json({ count: unblocked.length, unblocked });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // Bulk: unblock every driver stuck on budget exhaustion. Halves the
-  // retry counter so the driver has headroom to retry with whatever
-  // underlying fix was just deployed (new model, new verifier, etc.).
-  app.post('/api/drivers/unblock-budget', async (_req, res) => {
-    try {
-      const { listAllDrivers, forceUnblockDriver } = await import('../agent/goalDriver.js');
-      const drivers = listAllDrivers();
-      const unblocked: string[] = [];
-      for (const d of drivers) {
-        if (d.phase !== 'blocked') continue;
-        const q = d.blockedReason?.question || '';
-        const kind = d.blockedReason?.kind || '';
-        if (kind === 'budget_exceeded' || /budget.*exceed|retries exceed/i.test(q)) {
-          const ok = await forceUnblockDriver(d.goalId, 'bulk budget unblock');
-          if (ok) unblocked.push(d.goalId);
-        }
-      }
-      res.json({ count: unblocked.length, unblocked });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -4527,6 +5597,54 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         return t >= cutoff;
       });
       res.json({ hours, count: filtered.length, history: filtered });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Phase B: current drive state ────────────────────────────────
+  app.get('/api/drives/current', async (_req, res) => {
+    try {
+      const { readFileSync, existsSync } = await import('fs');
+      const { join } = await import('path');
+      const { TITAN_HOME } = await import('../utils/constants.js');
+      const driveStatePath = join(TITAN_HOME, 'drive-state.json');
+
+      // Try cached drive state first
+      if (existsSync(driveStatePath)) {
+        const state = JSON.parse(readFileSync(driveStatePath, 'utf-8'));
+        const latest = state.latest;
+        if (latest?.drives) {
+          res.json({
+            drives: (latest.drives as Array<{ id: string; satisfaction: number; pressure: number; setpoint: number; weight: number; inputs?: Record<string, unknown>; description: string }>).map(d => ({
+              id: d.id,
+              satisfaction: d.satisfaction,
+              pressure: d.pressure,
+              setpoint: d.setpoint,
+              weight: d.weight,
+              inputs: d.inputs ?? {},
+              description: d.description,
+            })),
+          });
+          return;
+        }
+      }
+
+      // Fallback: recompute via buildSnapshot + computeAllDrives
+      const { buildSnapshot, computeAllDrives } = await import('../organism/drives.js');
+      const snapshot = buildSnapshot();
+      const drives = computeAllDrives(snapshot);
+      res.json({
+        drives: drives.map(d => ({
+          id: d.id,
+          satisfaction: d.satisfaction,
+          pressure: d.pressure,
+          setpoint: d.setpoint,
+          weight: d.weight,
+          inputs: d.inputs ?? {},
+          description: d.description,
+        })),
+      });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -4700,7 +5818,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (!pb) { res.status(404).json({ match: null }); return; }
       res.json({ match: pb });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error(COMPONENT, `Playbook error: ${(err as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -4732,7 +5851,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         : undefined;
       res.json({ answer, ttsUrl, activeDrivers, sessionId: result.sessionId });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      logger.error(COMPONENT, `Voice ask error: ${(err as Error).message}`);
+      res.status(500).json({ error: "I'm having trouble hearing you right now. Please try again in a moment." });
     }
   });
 
@@ -5195,6 +6315,52 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(getAuditStats(hours));
   });
 
+  // ── Vulnerability Scan API ────────────────────────────────
+
+  app.get('/api/vulnerabilities', (_req, res) => {
+    try {
+      const reportPath = join(process.cwd(), 'dependency-scan-report.json');
+      if (!fs.existsSync(reportPath)) {
+        res.json({
+          timestamp: new Date().toISOString(),
+          vulnerabilities: { total: 0, critical: 0, high: 0, moderate: 0, low: 0 },
+          outdated: [],
+          deprecated: [],
+          licenseIssues: [],
+          totalDependencies: 0,
+          directDependencies: 0,
+          errors: ['No scan report found. Run: npm run scan:deps'],
+        });
+        return;
+      }
+      const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+      res.json(report);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/vulnerabilities/scan', async (_req, res) => {
+    try {
+      const scanScript = join(process.cwd(), 'scripts', 'dependency-scan.cjs');
+      if (!fs.existsSync(scanScript)) {
+        res.status(404).json({ error: 'Scan script not found' });
+        return;
+      }
+
+      const { exec } = await import('child_process');
+      exec(`node ${scanScript}`, (error, stdout, stderr) => {
+        if (error) {
+          res.status(500).json({ error: error.message, output: stderr });
+          return;
+        }
+        res.json({ success: true, output: stdout });
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── Cron API ──────────────────────────────────────────────
 
   app.get('/api/cron', (_req, res) => {
@@ -5453,7 +6619,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       );
       res.json({ success: true, content: response.content?.slice(0, 500) });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -5468,7 +6634,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const response = await processMessage(prompt, `autoresearch-gendata-${type}`, 'system', {});
       res.json({ success: true, content: response.content?.slice(0, 500) });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -5480,7 +6646,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const response = await processMessage(prompt, `autoresearch-deploy-${type}`, 'system', {});
       res.json({ success: true, content: response.content?.slice(0, 500) });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -5497,7 +6663,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       res.json({ recipe: recipe.name, stepsExecuted: steps.length, steps });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -5583,17 +6749,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // Voice health check (checks all voice services)
+  // Voice health check (F5-TTS only)
   app.get('/api/voice/health', async (_req, res) => {
     const cfg = loadConfig();
     if (!cfg.voice?.enabled) {
-      res.json({ livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: cfg.voice?.ttsEngine || 'orpheus' });
+      res.json({ livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: cfg.voice?.ttsEngine || 'f5-tts' });
       return;
     }
-    const engine = cfg.voice.ttsEngine || 'orpheus';
+    const engine = cfg.voice.ttsEngine || 'f5-tts';
     const results = { livekit: false, stt: false, tts: false, agent: false, overall: false, ttsEngine: engine };
     const sttUrl = cfg.voice.sttUrl || 'http://localhost:48421';
-    const ttsUrl = cfg.voice.ttsUrl || 'http://localhost:5005';
+    const ttsUrl = cfg.voice.ttsUrl || 'http://localhost:5006';
     const sttEngine = cfg.voice.sttEngine || 'faster-whisper';
     const nvidia = (cfg as Record<string, unknown>).nvidia as Record<string, unknown> | undefined;
     const asrCfg = nvidia?.asr as Record<string, unknown> | undefined;
@@ -5611,19 +6777,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         results[key] = resp.ok || resp.status < 500;
       } catch { results[key] = false; }
     }));
-    // TTS health check — /health endpoint or speech probe fallback
+    // TTS health check — F5-TTS only
     try {
-      const ttsBase = engine === 'f5-tts' ? 'http://localhost:5006' : ttsUrl;
-      const healthUrl = engine === 'edge' ? `http://localhost:5007/health` : `${ttsBase}/health`;
-      let resp = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      let resp = await fetch(`${ttsUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
       if (!resp || resp.status >= 400) {
         // No /health endpoint — try a lightweight speech probe
-        const voice = cfg.voice.ttsVoice || 'default';
-        const model = engine === 'f5-tts' ? 'f5-tts' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
-        resp = await fetch(`${ttsBase}/v1/audio/speech`, {
+        const voice = cfg.voice.ttsVoice || 'andrew';
+        resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, input: '.', voice, response_format: 'pcm' }),
+          body: JSON.stringify({ model: 'f5-tts', input: '.', voice, response_format: 'pcm' }),
           signal: AbortSignal.timeout(10000),
         });
       }
@@ -5677,33 +6840,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // Voice preview — synthesize a short sample via TTS server (engine-aware)
+  // Voice preview — F5-TTS only
   app.post('/api/voice/preview', async (req, res) => {
     const cfg = loadConfig();
-    const engine = cfg.voice?.ttsEngine || 'orpheus';
-    const voiceId = req.body?.voice || cfg.voice?.ttsVoice || 'tara';
+    const engine = cfg.voice?.ttsEngine || 'f5-tts';
+    const voiceId = req.body?.voice || cfg.voice?.ttsVoice || 'andrew';
     const rawText = req.body?.text || 'Hey! I\'m TITAN, your AI assistant.';
     const text = rawText.length > 500 ? rawText.slice(0, 497) + '...' : rawText;
-    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
+    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
     logger.info('Gateway', `TTS [${engine}] request: voice=${voiceId}, text=${text.slice(0, 80)}...`);
 
-    // Browser engine — no server call, client handles it
-    if (engine === 'browser') {
-      res.json({ engine: 'browser', text, voice: voiceId });
-      return;
-    }
-
-    // Resolve TTS URL and model based on engine
-    const previewTtsUrl = engine === 'edge' ? `http://localhost:5007`
-      : engine === 'f5-tts' ? `http://localhost:${5006}` : ttsUrl;
-    const previewTtsModel = engine === 'edge' ? 'edge-tts'
-      : engine === 'f5-tts' ? 'f5-tts-mlx' : 'mlx-community/orpheus-3b-0.1-ft-4bit';
-
     try {
-      const ttsRes = await fetch(`${previewTtsUrl}/v1/audio/speech`, {
+      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: previewTtsModel, input: text, voice: voiceId, response_format: 'wav' }),
+        body: JSON.stringify({ model: 'f5-tts-mlx', input: text, voice: voiceId, response_format: 'wav' }),
         signal: AbortSignal.timeout(60000),
       });
 
@@ -5721,14 +6872,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Streaming voice endpoint: LLM → sentence chunking → TTS per sentence ──
   // Returns SSE with interleaved text and audio events for low-latency voice
-  app.post('/api/voice/stream', rateLimit(60000, 30), async (req, res) => {
+  app.post('/api/voice/stream', rateLimit(60000, 30), concurrencyGuard(10), async (req, res) => {
     const { content, sessionId: requestedSessionId, voice: reqVoice } = req.body || {};
     if (!content) { res.status(400).json({ error: 'content is required' }); return; }
 
     const cfg = loadConfig();
-    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
-    const ttsEngine = cfg.voice?.ttsEngine || 'orpheus';
-    const voiceId = reqVoice || cfg.voice?.ttsVoice || 'tara';
+    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
+    const ttsEngine = cfg.voice?.ttsEngine || 'f5-tts';
+    const voiceId = reqVoice || cfg.voice?.ttsVoice || 'andrew';
     const channel = 'voice';
     const userId = 'voice-user';
 
@@ -5753,36 +6904,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }, 2000);
 
     const abortController = new AbortController();
-    if (requestedSessionId) sessionAborts.set(requestedSessionId, abortController);
+    if (requestedSessionId) {
+        sessionAborts.set(requestedSessionId, abortController);
+        sessionAbortTimes.set(requestedSessionId, Date.now());
+    }
 
-    // Auto-detect TTS availability — probe the active TTS engine once at stream start
-    let effectiveTtsEngine = ttsEngine;
+    // Auto-detect TTS availability — probe F5-TTS once at stream start
+    let effectiveTtsEngine: string = ttsEngine;
     let effectiveTtsUrl = ttsUrl;
-    let effectiveTtsModel = 'mlx-community/orpheus-3b-0.1-ft-4bit';
+    let effectiveTtsModel = 'f5-tts-mlx';
 
-    if (ttsEngine === 'f5-tts') {
-      effectiveTtsUrl = `http://localhost:${5006}`;
-      effectiveTtsModel = 'f5-tts-mlx';
-      try {
-        const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
-        if (!probe.ok) effectiveTtsEngine = 'browser';
-      } catch {
-        effectiveTtsEngine = 'browser';
-        logger.warn(COMPONENT, `Voice clone TTS unreachable at ${effectiveTtsUrl} — falling back to browser TTS`);
-      }
-    } else if (ttsEngine === 'orpheus') {
-      try {
-        const probe = await fetch(`${ttsUrl}/v1/audio/speech`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: effectiveTtsModel, input: '.', voice: voiceId, response_format: 'wav' }),
-          signal: AbortSignal.timeout(60000),
-        });
-        if (!probe.ok) effectiveTtsEngine = 'browser';
-      } catch {
-        effectiveTtsEngine = 'browser';
-        logger.warn(COMPONENT, `Orpheus TTS unreachable at ${ttsUrl} — falling back to browser TTS`);
-      }
+    try {
+      const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
+      if (!probe.ok) effectiveTtsEngine = 'unavailable';
+    } catch {
+      effectiveTtsEngine = 'unavailable';
+      logger.warn(COMPONENT, `F5-TTS unreachable at ${effectiveTtsUrl}`);
     }
     // Tell the client which TTS engine is active
     safeWrite(`event: tts_mode\ndata: ${JSON.stringify({ engine: effectiveTtsEngine })}\n\n`);
@@ -5862,8 +6999,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       // Skip audio if we've exceeded TTS limits (still display text)
       if (index >= MAX_TTS_SENTENCES || totalTtsChars >= MAX_TTS_CHARS) return;
-      if (effectiveTtsEngine === 'browser') return;
-
       totalTtsChars += clean.length;
 
       try {
@@ -5914,81 +7049,81 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     try {
       const response = await routeMessage(content, channel, userId, {
-        signal: abortController.signal,
         streamCallbacks: {
-          onToken: (token) => {
-          if (clientDisconnected) return;
-          tokenBuffer += token;
+          onToken: (token: string) => {
+            if (clientDisconnected) return;
+            tokenBuffer += token;
 
-          // Force first chunk early for low time-to-first-audio
-          if (!firstChunkSent && tokenBuffer.length >= FIRST_CHUNK_MIN) {
-            const lastSpace = tokenBuffer.lastIndexOf(' ');
-            if (lastSpace > 30) {
-              flushSentence(tokenBuffer.slice(0, lastSpace));
-              tokenBuffer = tokenBuffer.slice(lastSpace + 1);
-              firstChunkSent = true;
-              return;
-            }
-          }
-
-          // Split on newlines first — paragraph/list boundaries are natural sentence breaks
-          if (tokenBuffer.includes('\n')) {
-            const lines = tokenBuffer.split('\n');
-            // Keep last fragment in buffer (may be incomplete)
-            tokenBuffer = lines.pop() || '';
-            for (const line of lines) {
-              if (line.trim().length >= 3) {
-                flushSentence(line);
-                firstChunkSent = true;
-              }
-            }
-            return;
-          }
-
-          // Detect sentence boundaries: .!?:; followed by space or end
-          // Negative lookbehind avoids splitting on decimals like "PM2.5", "8.8kW", "Dr.", "vs."
-          // Loop to drain ALL complete sentences from buffer
-          let match: RegExpMatchArray | null;
-          while ((match = tokenBuffer.match(/^(.*?(?<!\d)(?<!\b(?:Dr|Mr|Mrs|Ms|vs|etc|e\.g|i\.e))[.!?])(\s+|$)/s)) !== null) {
-            flushSentence(match[1]);
-            tokenBuffer = tokenBuffer.slice(match[0].length);
-            firstChunkSent = true;
-          }
-
-          // Also split on colons/semicolons when buffer is getting long (natural pauses)
-          if (tokenBuffer.length > 80) {
-            const colonMatch = tokenBuffer.match(/^(.*?[:;])\s+/s);
-            if (colonMatch && colonMatch[1].length > 20) {
-              flushSentence(colonMatch[1]);
-              tokenBuffer = tokenBuffer.slice(colonMatch[0].length);
-              firstChunkSent = true;
-              return;
-            }
-          }
-
-          // Force flush long runs without punctuation (bullet lists, etc.)
-          if (tokenBuffer.length > 200) {
-            // Try comma as a natural break point
-            const commaPos = tokenBuffer.lastIndexOf(', ', 180);
-            if (commaPos > 40) {
-              flushSentence(tokenBuffer.slice(0, commaPos + 1));
-              tokenBuffer = tokenBuffer.slice(commaPos + 2);
-              firstChunkSent = true;
-            } else {
-              const lastSpace = tokenBuffer.lastIndexOf(' ', 180);
-              if (lastSpace > 50) {
+            // Force first chunk early for low time-to-first-audio
+            if (!firstChunkSent && tokenBuffer.length >= FIRST_CHUNK_MIN) {
+              const lastSpace = tokenBuffer.lastIndexOf(' ');
+              if (lastSpace > 30) {
                 flushSentence(tokenBuffer.slice(0, lastSpace));
                 tokenBuffer = tokenBuffer.slice(lastSpace + 1);
                 firstChunkSent = true;
+                return;
               }
             }
-          }
-        },
-          onToolCall: (name) => {
+
+            // Split on newlines first — paragraph/list boundaries are natural sentence breaks
+            if (tokenBuffer.includes('\n')) {
+              const lines = tokenBuffer.split('\n');
+              // Keep last fragment in buffer (may be incomplete)
+              tokenBuffer = lines.pop() || '';
+              for (const line of lines) {
+                if (line.trim().length >= 3) {
+                  flushSentence(line);
+                  firstChunkSent = true;
+                }
+              }
+              return;
+            }
+
+            // Detect sentence boundaries: .!?:; followed by space or end
+            // Negative lookbehind avoids splitting on decimals like "PM2.5", "8.8kW", "Dr.", "vs."
+            // Loop to drain ALL complete sentences from buffer
+            let match: RegExpMatchArray | null;
+            while ((match = tokenBuffer.match(/^(.*?(?<!\d)(?<!\b(?:Dr|Mr|Mrs|Ms|vs|etc|e\.g|i\.e))[.!?])(\s+|$)/s)) !== null) {
+              flushSentence(match[1]);
+              tokenBuffer = tokenBuffer.slice(match[0].length);
+              firstChunkSent = true;
+            }
+
+            // Also split on colons/semicolons when buffer is getting long (natural pauses)
+            if (tokenBuffer.length > 80) {
+              const colonMatch = tokenBuffer.match(/^(.*?[:;])\s+/s);
+              if (colonMatch && colonMatch[1].length > 20) {
+                flushSentence(colonMatch[1]);
+                tokenBuffer = tokenBuffer.slice(colonMatch[0].length);
+                firstChunkSent = true;
+                return;
+              }
+            }
+
+            // Force flush long runs without punctuation (bullet lists, etc.)
+            if (tokenBuffer.length > 200) {
+              // Try comma as a natural break point
+              const commaPos = tokenBuffer.lastIndexOf(', ', 180);
+              if (commaPos > 40) {
+                flushSentence(tokenBuffer.slice(0, commaPos + 1));
+                tokenBuffer = tokenBuffer.slice(commaPos + 2);
+                firstChunkSent = true;
+              } else {
+                const lastSpace = tokenBuffer.lastIndexOf(' ', 180);
+                if (lastSpace > 50) {
+                  flushSentence(tokenBuffer.slice(0, lastSpace));
+                  tokenBuffer = tokenBuffer.slice(lastSpace + 1);
+                  firstChunkSent = true;
+                }
+              }
+            }
+          },
+          onToolCall: (name: string) => {
             // Notify client that tools are running (shows "Thinking..." state)
             safeWrite(`event: tool\ndata: ${JSON.stringify({ name })}\n\n`);
           },
         },
+        signal: abortController.signal,
       });
 
       // Flush remaining buffer
@@ -5999,7 +7134,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       // F5-TTS: generate audio in chunks of ~120 chars after LLM finishes.
       // Short enough for quality, long enough for voice consistency.
-      if (isF5TTS && f5Sentences.length > 0 && effectiveTtsEngine !== 'browser') {
+      if (isF5TTS && f5Sentences.length > 0) {
         const F5_MAX_CHUNK_CHARS = 600; // voice prompt limits to ~50 words; send as single chunk to avoid voice inconsistency
         const chunks: string[] = [];
         let current = '';
@@ -6047,14 +7182,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // ── Voice session poison detection ──────────────────────
       // If the model returned a canned/useless response, auto-reset the session
       // to prevent the next voice message from getting the same poisoned context.
-      const POISON_PATTERNS = [
-        /i completed the tool operations/i,
-        /i wasn't able to execute tools/i,
-        /i completed the operations/i,
-        /let me know if you need anything else\.?\s*$/i,
-      ];
       const responseText = response.content || '';
-      if (POISON_PATTERNS.some(p => p.test(responseText)) || (response.durationMs > 60000 && responseText.length < 50)) {
+      if (VOICE_POISON_PATTERNS.some(p => p.test(responseText)) || (response.durationMs > 60000 && responseText.length < 50)) {
         logger.warn(COMPONENT, `[VoicePoisonGuard] Detected canned/stale response — resetting voice session ${response.sessionId}`);
         try {
           const { closeSession } = await import('../agent/session.js');
@@ -6080,7 +7209,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
     } finally {
       clearInterval(heartbeat);
-      releaseLlmSlot();
+      activeLlmRequests--;
+      titanActiveSessions.dec();
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
       if (requestedSessionId) sessionAborts.delete(requestedSessionId);
@@ -6090,15 +7220,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Voice available voices — engine-aware
   app.get('/api/voice/voices', async (_req, res) => {
     const cfg = loadConfig();
-    const engine = cfg.voice?.ttsEngine || 'orpheus';
-    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
-
-    const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'];
-
-    if (engine === 'browser') {
-      res.json({ voices: [], engine: 'browser' });
-      return;
-    }
+    const engine = cfg.voice?.ttsEngine || 'f5-tts';
+    const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
 
     if (engine === 'f5-tts') {
       // Return cloned voices from ~/.titan/voices/
@@ -6115,14 +7238,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return;
     }
 
-    // Orpheus (default)
+    // F5-TTS (default)
     try {
       const ttsRes = await fetch(`${ttsUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(3000) });
-      if (!ttsRes.ok) { res.json({ voices: ORPHEUS_VOICES, engine: 'orpheus' }); return; }
+      if (!ttsRes.ok) { res.json({ voices: F5_TTS_DEFAULT_VOICES, engine: 'f5-tts' }); return; }
       const data = await ttsRes.json() as { voices?: string[] };
-      res.json({ ...data, engine: 'orpheus' });
+      res.json({ ...data, engine: 'f5-tts' });
     } catch {
-      res.json({ voices: ORPHEUS_VOICES, engine: 'orpheus' });
+      res.json({ voices: F5_TTS_DEFAULT_VOICES, engine: 'f5-tts' });
     }
   });
 
@@ -6141,28 +7264,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // the generic voice.ttsUrl (Orpheus) if the user requested an Orpheus
       // voice or F5 is down.
       const cfg = loadConfig();
-      const f5Url = 'http://localhost:5006';
-      const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5005';
+      const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
 
-      const callF5 = async () => fetch(`${f5Url}/v1/audio/speech`, {
+      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: text, voice, response_format: format }),
         signal: AbortSignal.timeout(180_000),
       });
-
-      let ttsRes = await callF5().catch(() => null);
-      if (!ttsRes || !ttsRes.ok) {
-        // Orpheus fallback (default voice will apply; Andrew not available on Orpheus)
-        try {
-          ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: text, voice: 'tara', response_format: format }),
-            signal: AbortSignal.timeout(180_000),
-          });
-        } catch { /* nothing else to try */ }
-      }
 
       if (!ttsRes || !ttsRes.ok) {
         res.status(502).json({ error: 'tts backends unavailable' });
@@ -6176,7 +7285,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Cache-Control', 'no-store');
       res.send(buf);
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -6195,181 +7304,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ installed, running, venvPath });
   });
 
-  app.post('/api/voice/orpheus/install', async (_req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.flushHeaders();
+  // ── F5-TTS Voice Cloning ─────────────────────────────────────────
+  const F5_TTS_PORT = 5006;
+  const F5_TTS_MODEL = 'f5-tts-mlx';
 
-    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => {
-      res.write(`data: ${JSON.stringify({ step, status, detail })}\n\n`);
-    };
-
-    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
-    const isMac = process.platform === 'darwin';
-
-    try {
-      // Step 1: Create venv
-      send('venv', 'running', 'Creating Python virtual environment...');
-      if (!fs.existsSync(join(venvPath, 'bin', 'python'))) {
-        execSync(`python3 -m venv "${venvPath}"`, { timeout: 60000 });
-      }
-      send('venv', 'done');
-
-      // Step 2: Install dependencies
-      const pip = join(venvPath, 'bin', 'pip');
-      if (isMac) {
-        send('install', 'running', 'Installing mlx-audio (this may take 2-3 minutes)...');
-        execSync(`"${pip}" install "mlx-audio[server]" "setuptools<81" webrtcvad`, { timeout: 600000 });
-      } else {
-        send('install', 'running', 'Installing orpheus-speech + dependencies...');
-        execSync(`"${pip}" install orpheus-speech fastapi uvicorn`, { timeout: 600000 });
-      }
-      send('install', 'done');
-
-      // Step 3: Start the server
-      send('start', 'running', 'Starting Orpheus TTS server on port 5005...');
-      const python = join(venvPath, 'bin', 'python');
-      const pidFile = join(homedir(), '.titan', 'orpheus.pid');
-
-      if (isMac) {
-        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005'], {
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
-        });
-        child.unref();
-        fs.writeFileSync(pidFile, String(child.pid));
-
-        // Wait for server to come up (model download + load can take a while)
-        send('model', 'running', 'Downloading Orpheus model (~1.9GB, first time only)...');
-        let ready = false;
-        for (let i = 0; i < 120; i++) { // up to 4 minutes
-          await new Promise(r => setTimeout(r, 2000));
-          try {
-            const probe = await fetch('http://localhost:5005/v1/audio/speech', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
-              signal: AbortSignal.timeout(10000),
-            });
-            if (probe.ok) { ready = true; break; }
-          } catch { /* still loading */ }
-        }
-        if (ready) {
-          send('model', 'done');
-          send('complete', 'done', 'Orpheus TTS is ready!');
-        } else {
-          send('model', 'error', 'Server started but model loading timed out. It may still be downloading — try again in a few minutes.');
-        }
-      } else {
-        // Linux: orpheus-speech server
-        const child = spawn(python, ['-m', 'uvicorn', 'orpheus_speech.server:app', '--host', '127.0.0.1', '--port', '5005'], {
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
-        });
-        child.unref();
-        fs.writeFileSync(pidFile, String(child.pid));
-
-        send('model', 'running', 'Waiting for Orpheus server to start...');
-        let ready = false;
-        for (let i = 0; i < 60; i++) {
-          await new Promise(r => setTimeout(r, 2000));
-          try {
-            const probe = await fetch('http://localhost:5005/v1/audio/speech', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
-              signal: AbortSignal.timeout(10000),
-            });
-            if (probe.ok) { ready = true; break; }
-          } catch { /* still loading */ }
-        }
-        if (ready) {
-          send('model', 'done');
-          send('complete', 'done', 'Orpheus TTS is ready!');
-        } else {
-          send('model', 'error', 'Server started but timed out waiting for readiness. Check logs.');
-        }
-      }
-    } catch (e) {
-      send('error', 'error', (e as Error).message);
-    }
-    res.end();
-  });
-
-  app.post('/api/voice/orpheus/stop', (_req, res) => {
-    const pidFile = join(homedir(), '.titan', 'orpheus.pid');
-    try {
-      if (fs.existsSync(pidFile)) {
-        const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
-        process.kill(pid, 'SIGTERM');
-        fs.unlinkSync(pidFile);
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      res.json({ ok: false, error: (e as Error).message });
-    }
-  });
-
-  app.post('/api/voice/orpheus/start', async (_req, res) => {
-    const cfg = loadConfig();
-    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
-    const python = join(venvPath, 'bin', 'python');
-    const pidFile = join(homedir(), '.titan', 'orpheus.pid');
-    const isMac = process.platform === 'darwin';
-
-    if (!fs.existsSync(python)) {
-      res.status(400).json({ ok: false, error: 'Orpheus not installed. Use POST /api/voice/orpheus/install first.' });
-      return;
-    }
-
-    // Check if already running
-    try {
-      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/health`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      if (probe.ok) {
-        res.json({ ok: true, message: 'Orpheus is already running' });
-        return;
-      }
-    } catch { /* not running, start it */ }
-
-    try {
-      if (isMac) {
-        const child = spawn(python, ['-m', 'mlx_audio.server', '--host', '127.0.0.1', '--port', '5005'], {
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
-        });
-        child.unref();
-        fs.writeFileSync(pidFile, String(child.pid));
-      } else {
-        const child = spawn(python, ['-m', 'uvicorn', 'orpheus_speech.server:app', '--host', '127.0.0.1', '--port', '5005'], {
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
-        });
-        child.unref();
-        fs.writeFileSync(pidFile, String(child.pid));
-      }
-      res.json({ ok: true, message: 'Orpheus server starting — model loading may take a minute.' });
-    } catch (e) {
-      res.status(500).json({ ok: false, error: (e as Error).message });
-    }
-  });
-
-  // ── Voice Cloning Auto-Installer (F5-TTS via MLX) ──────────────────
-  const QWEN3_PORT = 5006;
-  const QWEN3_MODEL = 'f5-tts-mlx';
-  let qwen3Pid: number | null = null;
-
-  app.get('/api/voice/qwen3tts/status', async (_req, res) => {
-    const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
-    const installed = fs.existsSync(join(venvPath, 'bin', 'python'));
+  app.get('/api/voice/f5tts/status', async (_req, res) => {
     let running = false;
     try {
-      const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+      const probe = await fetch(`http://localhost:${F5_TTS_PORT}/health`, { signal: AbortSignal.timeout(3000) });
       running = probe.ok;
     } catch { /* not running */ }
     // List available cloned voices
@@ -6382,10 +7324,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           .map((f: string) => f.replace('.wav', ''));
       }
     } catch { /* ignore */ }
-    res.json({ installed, running, voices, port: QWEN3_PORT, model: QWEN3_MODEL });
+    res.json({ installed: true, running, voices, port: F5_TTS_PORT, model: F5_TTS_MODEL });
   });
 
-  app.post('/api/voice/qwen3tts/install', async (_req, res) => {
+  let qwen3Pid: number | null = null;
+
+  app.post('/api/voice/f5tts/install', async (_req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.flushHeaders();
@@ -6425,7 +7369,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         ? serverScript
         : join(__dirname, '..', '..', 'scripts', 'f5-tts-server.py');
 
-      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(5006)], {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
@@ -6441,7 +7385,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       for (let i = 0; i < 120; i++) { // up to 4 minutes
         await new Promise(r => setTimeout(r, 2000));
         try {
-          const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(5000) });
+          const probe = await fetch(`http://localhost:${5006}/health`, { signal: AbortSignal.timeout(5000) });
           if (probe.ok) { ready = true; break; }
         } catch { /* still loading */ }
       }
@@ -6484,7 +7428,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Check if already running
     try {
-      const probe = await fetch(`http://localhost:${QWEN3_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+      const probe = await fetch(`http://localhost:${5006}/health`, { signal: AbortSignal.timeout(3000) });
       if (probe.ok) {
         res.json({ ok: true, message: 'Qwen3-TTS is already running' });
         return;
@@ -6497,7 +7441,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         ? serverScript
         : join(__dirname, '..', '..', 'scripts', 'f5-tts-server.py');
 
-      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(QWEN3_PORT)], {
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(5006)], {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
@@ -6549,7 +7493,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         });
       }
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -6642,7 +7586,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.json({ content: '' });
       }
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -6697,7 +7641,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.info(COMPONENT, 'SOUL.md updated via API');
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -6758,7 +7702,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       res.json({ events });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -6818,7 +7762,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         graphStats,
       });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
@@ -7140,6 +8084,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         { method: 'GET',  path: '/api/autopilot/history', desc: 'Autopilot run history' },
         { method: 'POST', path: '/api/autopilot/run',    desc: 'Trigger autopilot run' },
       ]},
+      { cat: 'Social', routes: [
+        { method: 'GET',  path: '/api/social/state',        desc: 'Social autopilot state + queue + recent posts' },
+        { method: 'POST', path: '/api/social/autopilot/toggle', desc: 'Enable/disable autopilot' },
+        { method: 'POST', path: '/api/social/post',         desc: 'Post to Facebook immediately' },
+        { method: 'POST', path: '/api/social/drafts/:id/approve', desc: 'Approve a queued draft' },
+        { method: 'POST', path: '/api/social/drafts/:id/reject', desc: 'Reject a queued draft' },
+        { method: 'GET',  path: '/api/social/graph-context', desc: 'Recent social post topics from Graphiti' },
+      ]},
       { cat: 'Telemetry', routes: [
         { method: 'GET',  path: '/metrics',              desc: 'Prometheus text exposition format' },
         { method: 'GET',  path: '/api/metrics/summary',  desc: 'Metrics summary (JSON)' },
@@ -7229,7 +8181,10 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       ) {
         return next();
       }
-      res.sendFile(uiIndexPath);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.send(cachedIndexHtml || fs.readFileSync(uiIndexPath, 'utf8'));
     });
   }
 
@@ -7300,21 +8255,10 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     // Prevent cross-origin WebSocket hijacking from malicious web pages
     const origin = req.headers.origin;
     if (origin) {
-      const allowedOrigins = [
-        /^https?:\/\/localhost(:\d+)?$/,
-        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-        /^https?:\/\/\[::1\](:\d+)?$/,
-        /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,      // LAN
-        /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/,        // LAN
-        /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?$/, // LAN
-        /^https?:\/\/.*\.ts\.net(:\d+)?$/,               // Tailscale
-        /^https?:\/\/.*\.trycloudflare\.com$/,           // Cloudflare tunnels
-      ];
       const wsAllowlist = (cfg.gateway as Record<string, unknown>).wsOriginAllowlist as string[] | undefined;
-      if (wsAllowlist?.length) {
-        for (const o of wsAllowlist) allowedOrigins.push(new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
-      }
-      if (!allowedOrigins.some(p => p.test(origin))) {
+      const customPatterns = (wsAllowlist || []).map(o => new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+      const allowed = isAllowedOrigin(origin) || customPatterns.some(p => p.test(origin));
+      if (!allowed) {
         logger.warn(COMPONENT, `WebSocket origin rejected: ${origin} (not in allowlist)`);
         ws.close(1008, 'Origin not allowed');
         return;
@@ -7378,12 +8322,12 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
             try {
               const response = await routeMessage(data.content, 'webchat', chatUserId, {
                 streamCallbacks: {
-                  onToken: (token) => {
+                  onToken: (token: string) => {
                     if (ws.readyState === WebSocket.OPEN) {
                       ws.send(JSON.stringify({ type: 'token', data: token }));
                     }
                   },
-                  onToolCall: (name, args) => {
+                  onToolCall: (name: string, args: Record<string, unknown>) => {
                     if (ws.readyState === WebSocket.OPEN) {
                       ws.send(JSON.stringify({ type: 'tool_call', name, args }));
                     }
@@ -7691,7 +8635,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
           try {
             const existingSid = getCallSession(callSid);
             const voiceModel = (process.env.TWILIO_VOICE_MODEL
-              || 'ollama/gemini-3-flash-preview:cloud');
+              || 'ollama/qwen3.5:cloud');
             const result = await processMessage(
               speechResult,
               'twilio-admin',
@@ -7944,7 +8888,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       })();
     };
     refresh();
-    setInterval(refresh, 60_000).unref();
+    setInterval(refresh, 60_000).unref?.();
     (globalThis as unknown as { __titan_self_model_block?: () => string }).__titan_self_model_block = () => {
       // If cache is stale (> 2 min) return the old block anyway — the
       // async refresh runs out-of-band. Never blocks the prompt path.
@@ -8006,7 +8950,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
           }
         } catch { /* best-effort */ }
       })();
-    }, 15_000).unref();
+    }, 15_000).unref?.();
 
     // Metrics: cheap synchronous read.
     g.__titan_metrics_summary = () => {
@@ -8085,7 +9029,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         } catch { /* ok */ }
       })();
     }, 15_000);
-    missionTimer.unref();
+    missionTimer.unref?.();
     logger.info(COMPONENT, 'Mission scheduler started (15s cadence)');
   } catch (e) {
     logger.warn(COMPONENT, `Mission scheduler skipped: ${(e as Error).message}`);
@@ -8136,7 +9080,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       const pollTimer = setInterval(() => {
         pollOpenProposals().catch((e: Error) => logger.debug(COMPONENT, `selfMod poll: ${e.message}`));
       }, pollMs);
-      pollTimer.unref();
+      (pollTimer as unknown as { unref?: () => void }).unref?.();
 
       // Auto-review: watch soma:proposal events for self-mod captures and
       // kick off specialist review when a new proposal has enough files.
@@ -8385,10 +9329,32 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     }
 
     // Check memory usage
-    const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+    const mem = process.memoryUsage();
+    const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+    const rssMB = Math.round(mem.rss / 1024 / 1024);
     if (heapMB > 1500) {
       logger.warn(COMPONENT, `Health monitor: High heap usage — ${heapMB}MB`);
     }
+
+    // Enforce configured memory limit — shed load if exceeded
+    const memoryLimitMB = config.security?.maxMemoryMB || 2048;
+    if (rssMB > memoryLimitMB * 0.9) {
+      logger.error(COMPONENT, `Memory pressure — RSS ${rssMB}MB is above 90% of limit (${memoryLimitMB}MB). Reducing max concurrent requests.`);
+      maxConcurrentOverride = Math.max(1, (maxConcurrentOverride ?? config.security.maxConcurrentTasks ?? 5) - 1);
+    } else if (rssMB < memoryLimitMB * 0.7 && maxConcurrentOverride !== null) {
+      maxConcurrentOverride = null; // Reset when memory recovers
+    }
+
+    // Enforce disk write limit (approximate via titan home dir size)
+    try {
+      const diskLimitMB = config.security?.maxDiskWriteMB || 1024;
+      const { spawnSync } = await import('child_process');
+      const du = spawnSync('du', ['-sm', TITAN_HOME], { encoding: 'utf-8', timeout: 5000 });
+      const usedMB = parseInt(du.stdout?.split('\t')[0] || '0', 10);
+      if (usedMB > diskLimitMB * 0.9) {
+        logger.error(COMPONENT, `Disk pressure — ${usedMB}MB used in ${TITAN_HOME}, above 90% of limit (${diskLimitMB}MB). Pausing non-essential writes.`);
+      }
+    } catch { /* du not available or failed — non-critical */ }
 
     // Keep primary agent heartbeat alive for Command Post
     try { reportHeartbeat('default'); } catch { /* non-critical */ }
@@ -8401,9 +9367,76 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
 
   logger.info(COMPONENT, 'Health monitor started (60s interval)');
 
-  // Catch unhandled promise rejections to prevent silent crashes
+  // Catch unhandled promise rejections to prevent silent crashes + report
+  // (v5.0 "Spacewalk"): reports go to the remote collector only when
+  // `telemetry.enabled` AND `telemetry.crashReports` are both true AND the
+  // user has previously consented via the SetupWizard. HOME path is stripped
+  // from the stack to prevent personal-path leakage.
+  //
+  // Secret-scrubbing pass: removes API keys, bearer tokens, and URLs with
+  // embedded credentials before the payload leaves the machine.
+  const SECRET_PATTERNS = [
+    // Bearer / Basic auth headers
+    /\b[Bb]earer\s+[A-Za-z0-9_\-\.]{20,}/g,
+    /\b[Bb]asic\s+[A-Za-z0-9+/=]{20,}/g,
+    // API key prefixes (OpenAI, Anthropic, Groq, etc.)
+    /\b(sk|pk)-[A-Za-z0-9]{20,}/g,
+    /\b([a-zA-Z]{2,}_[a-zA-Z0-9]{16,})/g,
+    // Generic hex tokens (32+ chars) — conservative to avoid scrubbing file hashes
+    /\b[0-9a-f]{64,}\b/gi,
+    // URLs with credentials
+    /https?:\/\/[^\s:]+:[^\s@]+@[^\s/]+/g,
+    // Private keys / PEM blocks
+    /-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]{100,}-----END [A-Z ]+ PRIVATE KEY-----/g,
+  ];
+  function scrubSecrets(text: string): string {
+    let cleaned = text;
+    for (const pattern of SECRET_PATTERNS) {
+      cleaned = cleaned.replace(pattern, '[REDACTED]');
+    }
+    return cleaned;
+  }
+
+  const reportCrash = async (kind: 'unhandledRejection' | 'uncaughtException', err: unknown) => {
+    try {
+      const cfg = loadConfig();
+      if (!cfg.telemetry?.enabled) return;
+      if (!(cfg.telemetry as unknown as { crashReports?: boolean })?.crashReports) return;
+      if (!(cfg.telemetry as unknown as { consentedAt?: string })?.consentedAt) return;
+      const { sendRemoteAnalytics } = await import('../analytics/collector.js');
+      const { getOrCreateNodeId } = await import('../mesh/identity.js');
+      const home = homedir();
+      const stackRaw = (err instanceof Error ? (err.stack || err.message) : String(err));
+      const stack = scrubSecrets(stackRaw.split(home).join('$HOME')).slice(0, 4000);
+      const message = scrubSecrets(err instanceof Error ? err.message : String(err)).slice(0, 500);
+      const fingerprint = `${kind}:${(message.match(/[A-Z][a-zA-Z0-9_]+Error/) || [message])[0]}`.slice(0, 128);
+      await sendRemoteAnalytics({
+        type: 'error',
+        installId: getOrCreateNodeId(),
+        version: TITAN_VERSION,
+        message,
+        stack,
+        fingerprint,
+        context: { kind },
+      });
+    } catch {
+      // Crash reporting is best-effort
+    }
+  };
+
   process.on('unhandledRejection', (reason) => {
     logger.error(COMPONENT, `Unhandled rejection: ${reason}`);
+    void reportCrash('unhandledRejection', reason);
+  });
+
+  // Catch uncaught exceptions — log and exit gracefully to allow systemd/docker restart
+  process.on('uncaughtException', (err) => {
+    logger.error(COMPONENT, `Uncaught exception: ${err.message}\n${err.stack || ''}`);
+    void reportCrash('uncaughtException', err);
+    // Give logger + crash report time to flush before exiting
+    setTimeout(() => {
+      process.exit(1);
+    }, 1500).unref();
   });
 
   // ── Graceful Shutdown ───────────────────────────────────────────
@@ -8470,5 +9503,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         logger.error(COMPONENT, `Tunnel start failed: ${(e as Error).message}`);
       });
     }
+
+    // Start analytics collection (telemetry must be enabled)
+    recordStartupAnalytics().catch(() => {});
+    startHeartbeatAnalytics(() => listSessions().length);
   });
 }
