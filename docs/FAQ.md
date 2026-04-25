@@ -13,12 +13,12 @@ Key features:
 - **Self-improving** — LoRA fine-tuning on your GPU
 - **Multi-agent** — Spawns and coordinates sub-agents
 - **36 providers** — Connects to Anthropic, OpenAI, Google, Ollama, and more
-- **15 channels** — Discord, Slack, Telegram, WhatsApp, etc.
+- **16 channels** — Discord, Slack, Telegram, WhatsApp, Facebook Messenger, etc.
 - **Voice** — LiveKit WebRTC voice integration
-- **Dashboard** — React Mission Control with 26 admin panels
+- **Dashboard** — React 19 Mission Control with 25+ panels, floating mascot, and SOMA organism UI
 - **GPU VRAM management** — Auto-swap models for limited memory
 - **Mesh networking** — Multi-machine agent communication
-- **Open source** — MIT licensed, 5,500+ npm installs
+- **Open source** — MIT licensed
 
 ### What is TITAN NOT?
 
