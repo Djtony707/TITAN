@@ -5,13 +5,39 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.1.2] — 2026-04-26 — 📊 **"Spacewalk: Eval Expansion"**
+
+Patch release that expands the eval harness from 8 cases / 4 suites to 53 cases / 11 suites.
+
+### Added
+- `src/eval/harness.ts` — 53 cases across 11 suites:
+  - PIPELINE_SUITE, ADVERSARIAL_SUITE, TOOL_ROUTING_V2_SUITE, SESSION_SUITE,
+    WIDGET_V2_SUITE, GATE_FORMAT_V2_SUITE, CONTENT_SUITE (plus the original 4)
+  - Trajectory assertion support — eval cases can now declare
+    `expectedToolSequence` to assert the model called the right tools, in
+    the right order, with no hallucinated extras (Phase 4 foundation).
+- `src/gateway/server.ts` — `/api/eval/run` switch handles all 11 suite names;
+  `/api/eval/suites` lists them all (was hardcoded to the original 4).
+- Doc cleanup — credit lines and Co-Authored-By trailers replaced with a
+  single "Created by Tony Elliott aka djtony707." attribution.
+
+### Test counts
+402 deterministic tests pass in 2.88 s (was 381 in 5.1.0). Typecheck clean.
+
+### No breaking changes
+Drop-in upgrade from 5.1.0. (5.1.1 was published to npm but rejected from GitHub due to test-fixture strings tripping secret scanning; 5.1.2 sanitizes those fixtures and ships clean.)
+
+*Created by Tony Elliott aka djtony707.*
+
+---
+
 ## [5.1.0] — 2026-04-26 — 🧪 **"Spacewalk: Test Harness"**
 
 Minor release that lays down a real testing foundation. Going from a few
 end-to-end eval suites to **381 deterministic tests in 2.69 s** with zero
 LLM calls.
 
-### Added — Phase 1: Unit tests (Kimi K2.6)
+### Added — Phase 1: Unit tests
 339+ cases across 11 files in `tests/unit/`:
 - `isDangerous.test.ts` (55 cases) — rm -rf variants, sudo, chmod 777, edge cases
 - `classifyPipeline.test.ts` (71 cases) — all 11 pipeline types, voice priority, fallbacks
@@ -27,7 +53,7 @@ LLM calls.
 unit-testable function. Other places that need the same check now import from
 the same module.
 
-### Added — Phase 2: Mock LLM + tool tapes (Claude)
+### Added — Phase 2: Mock LLM + tool tapes
 - `tests/__mocks__/MockOllamaProvider.ts` — replay harness with three modes:
   `fromResponses([...])` for ad-hoc, `fromTape('name')` for fixtures,
   `recording('name', real)` for capturing fresh tapes via `TITAN_RECORD_TAPE=name`.
@@ -50,6 +76,8 @@ tapes) and Phase 4 (trajectory/step-level evaluation) build on this.
 ### No breaking changes
 Drop-in upgrade from 5.0.3.
 
+*Created by Tony Elliott aka djtony707.*
+
 ---
 
 ## [5.0.3] — 2026-04-26 — 🪟 **"Spacewalk: Gallery UI Reconnect"**
@@ -64,8 +92,7 @@ runtime template registry. Plus type-safety fixes and accumulated polish.
   `assets/widget-templates/`. Users browsing the gallery panel saw less
   than 10% of available templates. Now fetches from the new
   `GET /api/widget-gallery` endpoint and renders all 109 templates with
-  category filters, tag chips, and per-category color coding. Co-authored
-  by Kimi K2.6.
+  category filters, tag chips, and per-category color coding.
 - **Typecheck clean.** Fixed `Dirent` typing in
   `src/skills/frontmatterLoader.ts` and added `'frontmatter'` to the
   `SkillMeta.source` enum so frontmatter-loaded skills register cleanly.

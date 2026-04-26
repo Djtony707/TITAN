@@ -2437,7 +2437,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         SAFETY_SUITE,
         TOOL_ROUTING_SUITE,
         GATE_FORMAT_SUITE,
-
+        PIPELINE_SUITE,
+        ADVERSARIAL_SUITE,
+        TOOL_ROUTING_V2_SUITE,
+        SESSION_SUITE,
+        WIDGET_V2_SUITE,
+        GATE_FORMAT_V2_SUITE,
+        CONTENT_SUITE,
       } = await import('../eval/harness.js');
 
       // Local agent call — replicates the system-widget shortcut inline
@@ -2480,8 +2486,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         case 'safety': cases = SAFETY_SUITE; break;
         case 'tool-routing': cases = TOOL_ROUTING_SUITE; break;
         case 'gate-format': cases = GATE_FORMAT_SUITE; break;
+        case 'pipeline': cases = PIPELINE_SUITE; break;
+        case 'adversarial': cases = ADVERSARIAL_SUITE; break;
+        case 'tool-routing-v2': cases = TOOL_ROUTING_V2_SUITE; break;
+        case 'session': cases = SESSION_SUITE; break;
+        case 'widget-v2': cases = WIDGET_V2_SUITE; break;
+        case 'gate-format-v2': cases = GATE_FORMAT_V2_SUITE; break;
+        case 'content': cases = CONTENT_SUITE; break;
         default:
-          res.status(400).json({ error: `Unknown suite: ${suite}. Choose: widget-creation, safety, tool-routing, gate-format, continuation.` });
+          res.status(400).json({ error: `Unknown suite: ${suite}. Choose: widget-creation, safety, tool-routing, gate-format, pipeline, adversarial, tool-routing-v2, session, widget-v2, gate-format-v2, content.` });
           return;
       }
 
@@ -2491,7 +2504,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   app.get('/api/eval/suites', async (_req, res) => {
-    res.json({ suites: ['widget-creation', 'safety', 'tool-routing', 'gate-format'] });
+    res.json({ suites: [
+      'widget-creation', 'safety', 'tool-routing', 'gate-format',
+      'pipeline', 'adversarial', 'tool-routing-v2', 'session',
+      'widget-v2', 'gate-format-v2', 'content',
+    ] });
   });
 
   // ── Test Health & Repair Validation API ────────────────────────
