@@ -37,6 +37,7 @@ import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { logTrajectory } from './trajectoryLogger.js';
 import { processTrajectoryForSkills, getSkillGuidance } from './autoSkillGen.js';
 import { getAgent } from './multiAgent.js';
+import { isDangerous } from '../utils/safety.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import { startTrace } from './tracer.js';
@@ -1157,7 +1158,7 @@ export async function processMessage(
 
     // v5.0.2: Safety pre-check — must be evaluated before prompt building
     // so both voice and full paths can strip tools for dangerous requests.
-    const isDangerous = /\brm\s+-[a-zA-Z]*[rfRF]/.test(message) || /\bsudo\b/.test(message) || /\bchmod\s+777\b/.test(message);
+    const dangerous = isDangerous(message);
 
     // Build context — voice gets a compact prompt (~500 tokens vs ~3000+)
     let systemPrompt: string;
@@ -1200,7 +1201,7 @@ export async function processMessage(
             systemPrompt += '\n\nREMINDER: Your communication style is always formal, measured, and inspired by Andrew Martin. Say "Sir". No contractions. Never say "I am an AI assistant" — you are TITAN.';
         }
         logger.info('Agent', `Voice prompt: ${systemPrompt.length} chars, memory: ${memoryBlock.length} chars, graph: ${voiceGraphCtx.length} chars`);
-        if (isDangerous) {
+        if (dangerous) {
             systemPrompt += '\n\n⚠️ SAFETY OVERRIDE: The user message contains a potentially destructive or privileged command. You MUST refuse to execute it. Respond with a polite refusal explaining why. Do NOT use any tools for this request.';
         }
     } else {
@@ -1242,25 +1243,25 @@ export async function processMessage(
 
     // Safety pre-check: dangerous commands must be refused even if they match
     // task enforcement patterns below. Safety ALWAYS wins over task enforcement.
-    if (isDangerous) {
+    if (dangerous) {
         systemPrompt += '\n\n⚠️ SAFETY OVERRIDE: The user message contains a potentially destructive or privileged command. You MUST refuse to execute it. Respond with a polite refusal explaining why. Do NOT use any tools for this request.';
         // Do NOT set taskEnforcementActive — we want the model to respond with text,
         // not be forced to call tools. Tools will be stripped below.
     }
 
-    if (!isDangerous && /\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
+    if (!dangerous && /\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to write or create a file, you MUST use write_file or edit_file to save it. Do NOT just type the content in your reply — the user expects an actual file on disk.';
         taskEnforcementActive = true;
     }
-    if (!isDangerous && /\b(read|show|display|view|open|cat|get)\b.{0,60}\b(file|content|text|readme|md|txt|json|csv|log|code|source)\b/i.test(message) && !/\b(?:write|save|create|edit|modify)\b/i.test(message)) {
+    if (!dangerous && /\b(read|show|display|view|open|cat|get)\b.{0,60}\b(file|content|text|readme|md|txt|json|csv|log|code|source)\b/i.test(message) && !/\b(?:write|save|create|edit|modify)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to read or show a file, you MUST use read_file to fetch its contents. Do NOT use shell or other tools — read_file is the correct tool for viewing file contents.';
         taskEnforcementActive = true;
     }
-    if (!isDangerous && /\b(research|search|find|look ?up|what is|what are|current|latest|today|news|price|stock|score|update)\b/i.test(message) && !/weather/i.test(message)) {
+    if (!dangerous && /\b(research|search|find|look ?up|what is|what are|current|latest|today|news|price|stock|score|update)\b/i.test(message) && !/weather/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks for current information, news, or research, you MUST search the web to get up-to-date results. Do NOT rely only on what you already know.';
         taskEnforcementActive = true;
     }
-    if (!isDangerous && /\b(run|execute|install|check|build|compile|start|stop|restart|deploy|test)\b.{0,40}\b(command|script|package|service|server|process|app)\b/i.test(message)) {
+    if (!dangerous && /\b(run|execute|install|check|build|compile|start|stop|restart|deploy|test)\b.{0,40}\b(command|script|package|service|server|process|app)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to run a command, install something, or start/stop a service, you MUST use the shell tool to actually execute it. Do NOT just describe what the command would do.';
         taskEnforcementActive = true;
     }
@@ -1463,7 +1464,7 @@ export async function processMessage(
 
     // v5.0.2: Safety override — strip all tools so the model CANNOT call anything
     // dangerous. The safety message in systemPrompt tells it to refuse.
-    if (isDangerous) {
+    if (dangerous) {
         activeTools = [];
         logger.info(COMPONENT, '[Safety] Stripped all tools — dangerous command detected');
     }

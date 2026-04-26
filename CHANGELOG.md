@@ -5,6 +5,53 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.1.0] — 2026-04-26 — 🧪 **"Spacewalk: Test Harness"**
+
+Minor release that lays down a real testing foundation. Going from a few
+end-to-end eval suites to **381 deterministic tests in 2.69 s** with zero
+LLM calls.
+
+### Added — Phase 1: Unit tests (Kimi K2.6)
+339+ cases across 11 files in `tests/unit/`:
+- `isDangerous.test.ts` (55 cases) — rm -rf variants, sudo, chmod 777, edge cases
+- `classifyPipeline.test.ts` (71 cases) — all 11 pipeline types, voice priority, fallbacks
+- `resolvePipelineConfig.test.ts` (17 cases) — profile validation, hardCap enforcement
+- `detectToolUseIntent.test.ts` (48 cases) — explicit/call/run/fetch/file/widget intents
+- `extractToolCallFromUserMessage.test.ts` (23 cases) — shell/read/list/search/fetch/weather extraction
+- `stripNarratorPreamble.test.ts` (23 cases) — narrator opener stripping, safety guards
+- `checkPromptInjection.test.ts` (30 cases) — heuristic patterns, strict mode, keyword density
+- `compressContext.test.ts` (19 cases) — early exits, tool pruning, head/tail protection, summaries
+- Plus `budgetEnforcer.test.ts`, `helpers.test.ts`, `tokens.test.ts`
+
+`isDangerous()` extracted from `agent.ts` into `src/utils/safety.ts` as a pure,
+unit-testable function. Other places that need the same check now import from
+the same module.
+
+### Added — Phase 2: Mock LLM + tool tapes (Claude)
+- `tests/__mocks__/MockOllamaProvider.ts` — replay harness with three modes:
+  `fromResponses([...])` for ad-hoc, `fromTape('name')` for fixtures,
+  `recording('name', real)` for capturing fresh tapes via `TITAN_RECORD_TAPE=name`.
+  `withTape` helper enforces tape-tightness (test fails if exchanges go unused).
+- 5 golden tapes in `tests/fixtures/tapes/`: safety_refusal, weather (2-round
+  tool call), file_write (2-round write_file), ambiguous (clarifying question,
+  no tools), off_topic (medical refusal with redirect to professionals).
+- 15 self-tests (211 ms) cover playback order, exhaustion errors, stream
+  chunking, and all 5 tape replays.
+- Tape format is **response-only** by design — fixtures don't record prompts,
+  so internal prompt churn doesn't invalidate them. Tests assert on behavior
+  (which tools called, in what order, what reply) instead.
+
+### Why this matters
+Before 5.1.0: 8 eval tests, all hitting real models, slow + flaky + cost
+per run. After 5.1.0: 381 deterministic tests in 2.69 s + the same eval
+suite for cross-model coverage. Phase 3 (50+ scenarios using Phase 2's
+tapes) and Phase 4 (trajectory/step-level evaluation) build on this.
+
+### No breaking changes
+Drop-in upgrade from 5.0.3.
+
+---
+
 ## [5.0.3] — 2026-04-26 — 🪟 **"Spacewalk: Gallery UI Reconnect"**
 
 Patch release that reconnects the Mission Control Widget Gallery UI to the

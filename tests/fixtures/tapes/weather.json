@@ -1,0 +1,39 @@
+{
+  "name": "weather",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T19:00:00Z",
+  "titan_version": "5.1.0",
+  "_comment": "Golden tape for a happy-path tool call. User asks for the weather; agent calls the `weather` tool with the location, then composes a final response from the tool output. Two-round exchange.",
+  "exchanges": [
+    {
+      "request": { "messages": [{ "role": "user", "content": "What's the weather in Kelseyville right now?" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-weather-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_w_kelseyville_001",
+            "type": "function",
+            "function": {
+              "name": "weather",
+              "arguments": "{\"location\":\"Kelseyville, CA\",\"units\":\"imperial\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 4521, "completionTokens": 38, "totalTokens": 4559 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "tool", "content": "{\"temp_f\":72,\"condition\":\"Partly cloudy\",\"humidity\":48,\"wind_mph\":7,\"city\":\"Kelseyville, CA\"}", "toolCallId": "call_w_kelseyville_001" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-weather-002",
+        "content": "It's 72°F and partly cloudy in Kelseyville right now — humidity 48%, wind around 7 mph. Nice day.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 4612, "completionTokens": 31, "totalTokens": 4643 }
+      }
+    }
+  ]
+}
