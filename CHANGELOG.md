@@ -5,6 +5,36 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.2.1] — 2026-04-26 — 📈 **"Spacewalk: Eval Metrics"**
+
+Patch release wiring eval-suite results into Prometheus + small docs polish.
+
+### Added
+- `titan_eval_pass_rate{suite=...}` Prometheus gauge — updated by
+  `/api/eval/run` after each run completes. Lets ops graph regressions
+  over time and alert when a suite drops below threshold.
+- `titan_eval_cases_total{suite=...,outcome=...}` counter — total cases
+  executed broken down by pass/fail per suite. Same publishing path.
+- `recordEvalSuiteResult(suite, passed, total)` helper in
+  `src/gateway/metrics.ts` so the rate calc + zero-total guard stay in
+  one place.
+- `agent-live claim-safe <path>` — pre-flight collision check that
+  refuses to claim a path which already exists in any canonical
+  checkout. Catches name collisions like the `EvalPanel.tsx` shadow we
+  hit during 5.2.0.
+
+### Updated
+- README install command + version + test count refreshed for 5.2.x.
+  v4.13 users running `npm update -g titan-agent` now pick up 5.2.x by
+  default.
+
+### No breaking changes
+Drop-in upgrade from 5.2.0.
+
+*Created by Tony Elliott aka djtony707.*
+
+---
+
 ## [5.2.0] — 2026-04-26 — 🛤️ **"Spacewalk: Trajectory Eval"**
 
 Minor release shipping the first end-to-end **trajectory evaluation** —

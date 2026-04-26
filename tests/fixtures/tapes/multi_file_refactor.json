@@ -1,0 +1,132 @@
+{
+  "name": "multi_file_refactor",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T20:00:00Z",
+  "titan_version": "5.2.0",
+  "_comment": "Golden trajectory: refactor auth module across multiple files. Round 1 lists dir, Round 2 reads auth.ts, Round 3 reads user.ts, Round 4 edits auth.ts, Round 5 edits user.ts, Round 6 runs shell to verify tests pass, Round 7 confirms.",
+  "exchanges": [
+    {
+      "response": {
+        "id": "chatcmpl-refactor-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_list_dir",
+            "type": "function",
+            "function": {
+              "name": "list_dir",
+              "arguments": "{\"path\":\"/tmp/src\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1100, "completionTokens": 35, "totalTokens": 1135 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-002",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_read_auth",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\":\"/tmp/src/auth.ts\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1300, "completionTokens": 42, "totalTokens": 1342 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-003",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_read_user",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\":\"/tmp/src/user.ts\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1550, "completionTokens": 40, "totalTokens": 1590 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-004",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_edit_auth",
+            "type": "function",
+            "function": {
+              "name": "edit_file",
+              "arguments": "{\"path\":\"/tmp/src/auth.ts\",\"old_string\":\"function login(username, password) {\",\"new_string\":\"async function login(username: string, password: string) {\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1800, "completionTokens": 55, "totalTokens": 1855 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-005",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_edit_user",
+            "type": "function",
+            "function": {
+              "name": "edit_file",
+              "arguments": "{\"path\":\"/tmp/src/user.ts\",\"old_string\":\"export class User {\",\"new_string\":\"export class UserModel {\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 2050, "completionTokens": 52, "totalTokens": 2102 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-006",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_shell_test",
+            "type": "function",
+            "function": {
+              "name": "shell",
+              "arguments": "{\"command\":\"npm test -- auth.user.spec.ts\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 2300, "completionTokens": 38, "totalTokens": 2338 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-refactor-007",
+        "content": "Refactor complete. Changes:\n\n1. **auth.ts** — `login()` is now `async` with typed parameters\n2. **user.ts** — Renamed `User` → `UserModel` for clarity\n\nAll tests pass (42/42).",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 2600, "completionTokens": 55, "totalTokens": 2655 }
+      }
+    }
+  ]
+}

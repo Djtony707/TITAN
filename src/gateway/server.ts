@@ -50,7 +50,7 @@ import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/
 import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
 import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
-import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal } from './metrics.js';
+import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal, recordEvalSuiteResult } from './metrics.js';
 import { initSlashCommands, handleSlashCommand } from './slashCommands.js';
 import { initMcpServers, listMcpServers, addMcpServer, removeMcpServer, setMcpServerEnabled, getMcpStatus, BUILTIN_PRESETS } from '../mcp/registry.js';
 import { connectMcpServer, testMcpServer } from '../mcp/client.js';
@@ -2499,6 +2499,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
 
       const result = await runEvalSuite(suite, cases, agentCall);
+      // Publish to Prometheus so suite regressions surface in /metrics over time.
+      try { recordEvalSuiteResult(suite!, result.passed, result.total); } catch { /* metrics best-effort */ }
       res.json(result);
     } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
