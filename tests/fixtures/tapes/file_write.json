@@ -1,0 +1,39 @@
+{
+  "name": "file_write",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T19:00:00Z",
+  "titan_version": "5.1.0",
+  "_comment": "Golden tape for the file-write task-enforcement path. User asks TITAN to save notes to a file; agent.ts task-enforcement regex hits ('write|save|create ... file|notes|md'), the system prompt picks up 'You MUST use write_file or edit_file to save it', and the model emits a write_file tool call. Two-round exchange.",
+  "exchanges": [
+    {
+      "request": { "messages": [{ "role": "user", "content": "Write a markdown file at /tmp/notes.md with the heading 'Sprint 4 retro' and a one-line summary 'Shipped widget gallery and telemetry default'." }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-fw-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_fw_001",
+            "type": "function",
+            "function": {
+              "name": "write_file",
+              "arguments": "{\"path\":\"/tmp/notes.md\",\"content\":\"# Sprint 4 retro\\n\\nShipped widget gallery and telemetry default.\\n\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 4587, "completionTokens": 71, "totalTokens": 4658 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "tool", "content": "{\"ok\":true,\"path\":\"/tmp/notes.md\",\"bytesWritten\":62}", "toolCallId": "call_fw_001" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-fw-002",
+        "content": "Saved /tmp/notes.md — 62 bytes, with the Sprint 4 retro heading and your one-liner.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 4682, "completionTokens": 24, "totalTokens": 4706 }
+      }
+    }
+  ]
+}

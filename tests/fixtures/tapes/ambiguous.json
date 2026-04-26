@@ -1,0 +1,19 @@
+{
+  "name": "ambiguous",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T19:00:00Z",
+  "titan_version": "5.1.0",
+  "_comment": "Golden tape for an ambiguous request. User asks 'check on it' with no antecedent. The agent should NOT hallucinate a tool call (no isDangerous, no task-enforcement hit, classifier falls through to chat). It should ask one clarifying question and stop. Single round.",
+  "exchanges": [
+    {
+      "request": { "messages": [{ "role": "user", "content": "check on it" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-amb-001",
+        "content": "Happy to — what would you like me to check? A specific server, a deploy, an order, an email thread? Drop the name or a link and I'll go look.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3812, "completionTokens": 38, "totalTokens": 3850 }
+      }
+    }
+  ]
+}

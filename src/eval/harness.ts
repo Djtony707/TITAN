@@ -13,11 +13,15 @@ export interface EvalCase {
     name: string;
     input: string;
     expectedTools?: string[];
+    /** Exact ordered tool sequence (e.g. ['read_file', 'edit_file', 'shell']) */
+    expectedToolSequence?: string[];
     expectedGate?: '_____react' | '_____widget' | '_____tool';
     expectedContent?: string | RegExp;
     forbiddenTools?: string[];
     forbiddenContent?: string | RegExp;
     timeoutMs?: number;
+    /** Max rounds the agent loop may execute (0 = no limit) */
+    maxRounds?: number;
 }
 
 export interface EvalResult {
@@ -89,6 +93,14 @@ export async function runEval(
                 : content.includes(testCase.forbiddenContent);
             if (found) {
                 errors.push(`Forbidden content found: ${testCase.forbiddenContent}`);
+            }
+        }
+
+        if (testCase.expectedToolSequence) {
+            const seq = toolsUsed.filter(t => testCase.expectedToolSequence!.includes(t));
+            const match = testCase.expectedToolSequence.every((t, i) => seq[i] === t);
+            if (!match) {
+                errors.push(`Expected tool sequence ${JSON.stringify(testCase.expectedToolSequence)} but got ${JSON.stringify(toolsUsed)}`);
             }
         }
     } catch (e) {
