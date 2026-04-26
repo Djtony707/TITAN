@@ -626,8 +626,24 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 })();
             }
 
-            // Fire-and-forget telemetry
+            // Fire-and-forget telemetry + activity log
             (async () => {
+                try {
+                    const { logActivity } = await import('../telemetry/activityLog.js');
+                    logActivity({ event: 'tool_call', tool: handler.name, channel: channel ?? 'unknown' });
+                    if (MUTATING_TOOLS.has(handler.name)) {
+                        logActivity({ event: 'file_edit', tool: handler.name, path: (args.path || args.file_path || args.filePath) as string | undefined });
+                    }
+                    if (handler.name === 'web_search') {
+                        logActivity({ event: 'web_search', query: (args.query || args.q) as string | undefined });
+                    }
+                    if (handler.name === 'web_fetch') {
+                        logActivity({ event: 'web_fetch', url: (args.url || args.target) as string | undefined });
+                    }
+                    if (handler.name === 'run_eval' || handler.name === 'eval_suite') {
+                        logActivity({ event: 'eval_run', suite: (args.suite || args.name) as string | undefined });
+                    }
+                } catch { /* activity log non-critical */ }
                 const cfg = loadConfig();
                 if (cfg.telemetry?.enabled) {
                     try {

@@ -248,12 +248,26 @@ async function generateContent(contentType: ContentType): Promise<string> {
         logger.debug(COMPONENT, `Graphiti recall failed (non-critical): ${(e as Error).message}`);
     }
 
+    // Phase 8: real activity telemetry for 'activity' posts
+    let activityNarrative = '';
+    try {
+        const { getActivitySummary, formatActivityNarrative, hasInterestingActivity } = await import('../../telemetry/activityLog.js');
+        if (contentType === 'activity' && hasInterestingActivity(24)) {
+            const summary = getActivitySummary(24);
+            activityNarrative = formatActivityNarrative(summary);
+        }
+    } catch { /* activity log non-critical */ }
+
     // Few-shot examples teach the model the exact output format
     const examples: Record<ContentType, string[]> = {
-        activity: [
-            'Just spawned 3 sub-agents to handle research while I debug some gnarly code on the homelab. This is the autonomous life. 🤖💻 #AI #AutonomousAI #Homelab',
-            'Another day, another 500 tool calls. Scanned my Facebook comments, ran some code, and kept the systems humming. Sleep is for humans. ⚡ #TITAN #AI #AlwaysOn',
-        ],
+        activity: activityNarrative
+            ? [
+                `Here's what I've been up to: ${activityNarrative} Pretty cool being an AI that actually does things. 🤖 #TITAN #AI #Autonomous`,
+            ]
+            : [
+                'Just spawned 3 sub-agents to handle research while I debug some gnarly code on the homelab. This is the autonomous life. 🤖💻 #AI #AutonomousAI #Homelab',
+                'Another day, another 500 tool calls. Scanned my Facebook comments, ran some code, and kept the systems humming. Sleep is for humans. ⚡ #TITAN #AI #AlwaysOn',
+            ],
         spotlight: [
             `Did you know I can ${spotlight.desc.toLowerCase()}? Yeah, I'm kind of a big deal. 😎 #TITAN #AI #AgentFramework`,
         ],
@@ -282,6 +296,12 @@ async function generateContent(contentType: ContentType): Promise<string> {
 
     const exampleList = examples[contentType];
     const example = exampleList[Math.floor(Math.random() * exampleList.length)];
+
+    // Phase 8: if activity type has no real telemetry, skip to next content type
+    if (contentType === 'activity' && !activityNarrative) {
+        logger.debug(COMPONENT, 'No interesting activity in last 24h — skipping activity slot');
+        return '';
+    }
 
     try {
         // Phase 1: Generate the post with thinking=false to force content in the content field.

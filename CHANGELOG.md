@@ -5,6 +5,39 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.3.2] — 2026-04-26 — 📢 **"Truth in Marketing"**
+
+Patch release. Closes the gap between what TITAN claims and what it actually
+does — especially on its Facebook page.
+
+586 deterministic unit tests pass in ~6 s. Typecheck + UI build clean.
+
+### Fixed
+
+**Real activity posts (Part A1)**
+- New `src/telemetry/activityLog.ts` — lightweight append-only JSONL log that
+tracks tool calls, agent spawns, file edits, web searches, eval runs, goals,
+and error recoveries.
+- `fb_autopilot.ts` "activity" content type now pulls from real 24 h telemetry
+instead of fictional static templates. If nothing interesting happened, the
+activity slot is skipped rather than posting a fake story.
+- Activity logging wired into `executeTool()` (toolRunner.ts) and
+`spawnSubAgent()` (subAgent.ts) via fire-and-forget dynamic imports.
+
+**SOMA social drive → Facebook (Part A2)**
+- `src/organism/drives.ts`: social drive now blends two factors:
+  - agent staleness (`stale / eligible agents`, legacy)
+  - post drought (`hoursSinceLastPost / 24`, clamped 0–1)
+- `src/organism/pressure.ts`: when social drive dominates AND post drought ≥ 6 h,
+a Facebook-post proposal hint is appended to consolidation notes.
+
+**README accuracy sweep (Part A3)**
+- Tool count badge updated: 248 → 253 (live runtime count).
+- Widget count badge updated: 110 → 128 (109 JSON + 19 system widgets).
+- F5-TTS voice claim clarified to mention Python sidecar + TypeScript glue.
+
+---
+
 ## [5.3.1] — 2026-04-26 — 🪨 **"Spacewalk: Foundation Hardening"**
 
 Patch release. No new features — solid foundation before building the

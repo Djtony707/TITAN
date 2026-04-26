@@ -67,6 +67,16 @@ export interface DriveSnapshot {
      * investigate/improve proposal.
      */
     unresolvedErrorPatterns?: number;
+    /**
+     * v5.3.2 (Phase 8 / Track B): timestamp of the most recent successful
+     * Facebook page post in epoch ms, or null if TITAN hasn't posted yet
+     * since fb-autopilot was enabled. Sourced from
+     * `~/.titan/fb-autopilot-state.json`. Drives the Social-drive's
+     * "social media presence" factor — without this, social pressure was
+     * 100% about agent heartbeat staleness, which the README implied was
+     * about social posting. Now both factors blend.
+     */
+    lastFacebookPostAt?: number | null;
 }
 
 export interface DriveDefinition {
@@ -342,24 +352,66 @@ const SOCIAL: DriveDefinition = {
         // work (`totalTasksCompleted === 0`). They have nothing to heartbeat
         // about; counting them as "unresponsive" was a false negative.
         const eligible = snap.agents.filter(a => (a.totalTasksCompleted ?? 0) > 0 || a.status === 'active');
-        if (eligible.length === 0) {
-            return { satisfaction: 0.9, inputs: { totalAgents: snap.agents.length, staleAgents: 0 } };
-        }
         const hourMs = 3_600_000;
-        const stale = eligible.filter(a =>
-            snap.now - new Date(a.lastHeartbeat).getTime() > hourMs,
-        ).length;
-        const satisfaction = clamp01(1 - stale / eligible.length);
+
+        // ── Factor 1: agent liveness (legacy) ───────────────────────
+        let agentSat = 0.9; // healthy default when no eligible agents
+        let stale = 0;
+        if (eligible.length > 0) {
+            stale = eligible.filter(a =>
+                snap.now - new Date(a.lastHeartbeat).getTime() > hourMs,
+            ).length;
+            agentSat = clamp01(1 - stale / eligible.length);
+        }
+
+        // ── Factor 2: social-media presence (v5.3.2) ────────────────
+        // The README promises a Social drive that asks "should I post or
+        // reply?" — that requires the drive to actually track posting
+        // cadence, not just agent heartbeat. lastFacebookPostAt is wired
+        // through buildSnapshot from fb-autopilot-state.json.
+        //
+        // Saturates at 24h: a drought of 24h+ with no post pulls
+        // satisfaction to 0; a fresh post within the last hour keeps it
+        // near 1. Linear in between. If lastFacebookPostAt is null/missing
+        // (autopilot never ran or never posted), we treat the gap as
+        // "long" — encourages a first post when a user enables FB.
+        const POST_DROUGHT_HOURS = 24;
+        let postSat: number;
+        let hoursSinceLastPost: number;
+        if (snap.lastFacebookPostAt && snap.lastFacebookPostAt > 0) {
+            hoursSinceLastPost = Math.max(0, (snap.now - snap.lastFacebookPostAt) / hourMs);
+            postSat = clamp01(1 - hoursSinceLastPost / POST_DROUGHT_HOURS);
+        } else {
+            // Treat "never posted" as ~12h drought. Don't peg to 0 —
+            // organism shouldn't fire a Soma proposal the moment FB is
+            // enabled before the user has even configured anything.
+            hoursSinceLastPost = POST_DROUGHT_HOURS / 2;
+            postSat = 0.5;
+        }
+
+        // Equal-weight blend. Either factor low → drive deficits.
+        const satisfaction = clamp01((agentSat + postSat) / 2);
+
         return {
             satisfaction,
-            inputs: { totalAgents: eligible.length, staleAgents: stale },
+            inputs: {
+                totalAgents: eligible.length,
+                staleAgents: stale,
+                hoursSinceLastPost: Number(hoursSinceLastPost.toFixed(2)),
+                agentSatisfaction: Number(agentSat.toFixed(3)),
+                postSatisfaction: Number(postSat.toFixed(3)),
+            },
         };
     },
     describe: (_s, inputs) => {
         const total = (inputs?.totalAgents as number) ?? 0;
         const stale = (inputs?.staleAgents as number) ?? 0;
-        if (stale === 0) return `${total} agent(s) all alive`;
-        return `${stale}/${total} agent(s) unresponsive`;
+        const hoursSince = (inputs?.hoursSinceLastPost as number) ?? 0;
+        const reasons: string[] = [];
+        if (stale > 0) reasons.push(`${stale}/${total} agent(s) unresponsive`);
+        if (hoursSince >= 12) reasons.push(`${Math.round(hoursSince)}h since last FB post`);
+        if (reasons.length === 0) return `${total} agent(s) all alive · posted recently`;
+        return reasons.join(' · ');
     },
 };
 
@@ -405,6 +457,23 @@ export function buildSnapshot(): DriveSnapshot {
         if (patterns !== null) unresolvedErrorPatterns = patterns;
     } catch { /* no signal */ }
 
+    // v5.3.2 Track B: read fb-autopilot's last successful post timestamp so
+    // the Social drive's "social media presence" factor has real input.
+    // Best-effort: never throws — Social drive falls back to a neutral
+    // "12h drought" when this is absent (see SOCIAL.compute).
+    let lastFacebookPostAt: number | null = null;
+    try {
+        const fbStatePath = join(TITAN_HOME, 'fb-autopilot-state.json');
+        if (existsSync(fbStatePath)) {
+            const raw = readFileSync(fbStatePath, 'utf-8');
+            const state = JSON.parse(raw) as { lastPostAt?: string | null };
+            if (state.lastPostAt) {
+                const parsed = new Date(state.lastPostAt).getTime();
+                if (Number.isFinite(parsed)) lastFacebookPostAt = parsed;
+            }
+        }
+    } catch { /* ok — autopilot state missing or malformed; fall back */ }
+
     return {
         now: Date.now(),
         goals,
@@ -417,6 +486,7 @@ export function buildSnapshot(): DriveSnapshot {
         telemetryErrorRate,
         telemetryTotalRequests,
         unresolvedErrorPatterns,
+        lastFacebookPostAt,
     };
 }
 

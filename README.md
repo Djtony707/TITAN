@@ -23,7 +23,7 @@
   <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/npm/v/titan-agent?color=blue&label=npm" alt="npm version"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
   <a href="#providers"><img src="https://img.shields.io/badge/providers-37-purple" alt="37 Providers"/></a>
-  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-248-orange" alt="248 Tools"/></a>
+  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-253-orange" alt="253 Tools"/></a>
   <a href="#widget-gallery"><img src="https://img.shields.io/badge/widgets-110-pink" alt="110 Widgets"/></a>
 </p>
 
@@ -56,7 +56,7 @@ TITAN is like having a super-smart intern who never sleeps, never asks for a rai
 **"Talk to me in Andrew's voice"**
 → Done. It clones voices with 10 seconds of audio. Creepy? A little. Useful? Absolutely.
 
-No coding required. TITAN comes with **248 tools** out of the box. If it needs something new, it builds it on the fly.
+No coding required. TITAN comes with **253 tools** out of the box. If it needs something new, it builds it on the fly.
 
 ---
 
@@ -137,7 +137,7 @@ Open `http://localhost:48420` and you get a beautiful canvas of draggable widget
 | **Command Post** | Agents, budgets, approvals, org chart, ancestry validation, atomic checkout. Run a business with TITAN agents as employees. |
 | **SOMA** | Watch TITAN's digital hormones pulse in real time. Weirdly mesmerizing. |
 | **Skills** | 143 skills loaded, 248 tools. Toggle each on/off. |
-| **Voice** | F5-TTS voice cloning + WebRTC streaming. Any voice, any language. |
+| **Voice** | F5-TTS voice cloning via a Python sidecar (mlx-audio on Mac, container on Linux) + WebRTC streaming. Any voice, any language. |
 | **Memory Graph** | A visual web of everything TITAN remembers about you. |
 | **Security** | Audit log, checkpoint history, time travel for your files, bug-report viewer. |
 
@@ -260,9 +260,9 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 - **Version:** 5.3.0 "Spacewalk: CI Gate + Parity"
 - **Tests:** 500+ deterministic tests (unit + mock trajectory + parity), pass in under 5 s — plus 11 live-eval suites and a CI merge gate at 80 % per suite
-- **Widget templates:** 110 across 25 categories
+- **Widget templates:** 109 production templates + 19 system widgets = 128 runtime entries across 26 categories
 - **Skills:** 143 loaded
-- **Tools:** 248 across all skills
+- **Tools:** 253 across all skills (verified at runtime by `tests/unit/readme-claims.test.ts`)
 - **AI Providers:** 37 (Anthropic, OpenAI, Google, Ollama, Groq, Mistral, and 31 more)
 - **Chat Channels:** 16
 - **Node:** ≥ 22, pure ESM

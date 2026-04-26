@@ -399,6 +399,12 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     const agentName = config.name || 'SubAgent';
     const agentTrackingId = `${agentName}-${Date.now()}`;
     activeSubAgentIds.add(agentTrackingId);
+
+    // Phase 8: log agent spawn
+    try {
+        const { logActivity } = await import('../telemetry/activityLog.js');
+        logActivity({ event: 'agent_spawn', agent: agentName, task: config.task.slice(0, 200) });
+    } catch { /* non-critical */ }
     // Reduce max rounds by 30% per depth level to prevent runaway nesting
     const baseMaxRounds = config.maxRounds || 10;
     const depthReduction = Math.pow(0.7, currentDepth);
@@ -605,6 +611,12 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             logger.warn(COMPONENT, `[${agentName}] Output failed validation: "${finalContent.slice(0, 80)}..."`);
         }
 
+        // Phase 8: log agent completion
+        try {
+            const { logActivity } = await import('../telemetry/activityLog.js');
+            logActivity({ event: 'agent_complete', agent: agentName, task: config.task.slice(0, 200), rounds, success: !finalContent.toLowerCase().startsWith('error') && validated });
+        } catch { /* non-critical */ }
+
         return {
             content: finalContent,
             toolsUsed: [...new Set(toolsUsed)],
@@ -616,6 +628,11 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     } catch (err) {
         const durationMs = Date.now() - startTime;
         logger.error(COMPONENT, `${agentName} failed: ${(err as Error).message}`);
+        // Phase 8: log agent error
+        try {
+            const { logActivity } = await import('../telemetry/activityLog.js');
+            logActivity({ event: 'agent_complete', agent: agentName, task: config.task.slice(0, 200), rounds, success: false, error: (err as Error).message });
+        } catch { /* non-critical */ }
         return {
             content: `Sub-agent error: ${(err as Error).message}`,
             toolsUsed: [...new Set(toolsUsed)],

@@ -258,6 +258,32 @@ export async function runPressureCycle(
     for (const d of reading.perDrive.slice(0, 3)) {
         noteLines.push(`- ${d.id}: pressure ${d.pressure.toFixed(2)} — ${d.description}`);
     }
+
+    // v5.3.2 Track B: when Social drive is dominant, point the proposer at
+    // a concrete `facebook_post` action. Without this hint the proposer
+    // sees "social pressure high" and might propose anything (run a sub-
+    // agent, generate a status report) — none of which satisfies the
+    // actual deficit. The Social drive now blends agent staleness +
+    // time-since-last-FB-post; if the dominant cause is the posting
+    // drought, propose a post.
+    if (decision.dominantDrives[0] === 'social') {
+        // perDrive doesn't carry inputs — read them off DriveState directly.
+        const socialDrive = drives.find(d => d.id === 'social');
+        const hoursSince = (socialDrive?.inputs?.hoursSinceLastPost as number) ?? 0;
+        if (hoursSince >= 6) {
+            noteLines.push(
+                '',
+                'PROPOSAL HINT: Social drive deficit is driven by Facebook posting drought.',
+                `It has been ~${Math.round(hoursSince)}h since the last FB post.`,
+                'Propose a goal of type `facebook_post` with one of these contentTypes:',
+                '  - "activity"  — post real TITAN runtime activity from the last 24h',
+                '  - "stats"     — post download/install milestones if any crossed today',
+                '  - "promo"     — promo a recent feature shipment (only if a release tagged today)',
+                'Only propose if there is genuine activity to share — empty/generic posts are worse than none.',
+            );
+        }
+    }
+
     const consolidationNotes = noteLines.join('\n');
 
     // Pressure-driven proposer uses the agent id `soma:${dominantDrive}` so
