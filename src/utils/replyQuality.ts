@@ -48,7 +48,7 @@ export function validateReply(reply: string, commenterFirstName?: string): Reply
     const endsInPunctuation = /[.!?…]/.test(lastChar);
     const endsInQuote = /["')\]}]/.test(lastChar);
     // Emoji detection — any non-ASCII char at the end is likely an emoji
-    const endsInEmoji = /[^\x00-\x7F]/.test(lastChar) || /[^\x00-\x7F][\uFE0F\u200D]?/.test(lastTwo);
+    const endsInEmoji = /[^\p{ASCII}]/u.test(lastChar) || /[^\p{ASCII}][\uFE0F\u200D]?/u.test(lastTwo);
 
     if (!endsInPunctuation && !endsInQuote && !endsInEmoji) {
         return {

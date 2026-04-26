@@ -36,6 +36,9 @@ const BUILTIN_SPACES: Space[] = [
       // freed column space.
       makeWidget('home-welcome', 'Welcome', 'system:soma', 0, 0, 6, 5),
       makeWidget('home-voice', 'Voice', 'system:voice', 6, 0, 6, 5),
+      makeWidget('home-overview', 'Overview', 'system:overview', 0, 5, 6, 5),
+      makeWidget('home-sessions', 'Sessions', 'system:sessions', 6, 5, 6, 5),
+      makeWidget('home-watch', 'Watch', 'system:watch', 0, 10, 12, 7),
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -60,6 +63,7 @@ const BUILTIN_SPACES: Space[] = [
     color: '#ef4444',
     widgets: [
       makeWidget('cp-hub', 'Command Post', 'system:command-post', 0, 0, 12, 10),
+      makeWidget('cp-proposals', 'Self-Proposals', 'system:self-proposals', 0, 10, 12, 6),
     ],
     agentInstructions: 'This is the Command Post. Help the user manage agents, runs, and operations.',
     createdAt: new Date().toISOString(),
@@ -77,6 +81,8 @@ const BUILTIN_SPACES: Space[] = [
       makeWidget('intel-memory', 'Memory Graph', 'system:memory-graph', 6, 5, 6, 5),
       makeWidget('intel-selfimprove', 'Self-Improve', 'system:intelligence-self-improve', 0, 10, 6, 5),
       makeWidget('intel-personas', 'Personas', 'system:intelligence-personas', 6, 10, 6, 5),
+      makeWidget('intel-wiki', 'Memory Wiki', 'system:memory-wiki', 0, 15, 6, 6),
+      makeWidget('intel-autoresearch', 'Autoresearch', 'system:autoresearch', 6, 15, 6, 6),
     ],
     agentInstructions: 'This is the Intelligence space. Help the user explore memory graphs, wiki, and knowledge.',
     createdAt: new Date().toISOString(),
@@ -93,6 +99,8 @@ const BUILTIN_SPACES: Space[] = [
       makeWidget('infra-files', 'Files', 'system:infra-files', 0, 6, 4, 5),
       makeWidget('infra-logs', 'Logs', 'system:infra-logs', 4, 6, 4, 5),
       makeWidget('infra-telemetry', 'Telemetry', 'system:infra-telemetry', 8, 6, 4, 5),
+      makeWidget('infra-vram', 'VRAM', 'system:vram', 0, 11, 6, 5),
+      makeWidget('infra-fleet', 'Fleet', 'system:fleet', 6, 11, 6, 5),
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -108,6 +116,10 @@ const BUILTIN_SPACES: Space[] = [
       makeWidget('tools-integrations', 'Integrations', 'system:tools-integrations', 0, 6, 4, 5),
       makeWidget('tools-channels', 'Channels', 'system:tools-channels', 4, 6, 4, 5),
       makeWidget('tools-mesh', 'Mesh Network', 'system:tools-mesh', 8, 6, 4, 5),
+      makeWidget('tools-recipes', 'Recipes', 'system:recipes', 0, 11, 6, 5),
+      makeWidget('tools-paperclip', 'Paperclip', 'system:paperclip', 6, 11, 6, 5),
+      makeWidget('tools-browser', 'Browser', 'system:browser', 0, 16, 6, 5),
+      makeWidget('tools-cron', 'Cron', 'system:cron', 6, 16, 6, 5),
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -161,7 +173,7 @@ const BUILTIN_SPACES: Space[] = [
 //
 // v9 (5.0 "Spacewalk" empty-widget cleanup): deletes any widget with
 // empty source so blank iframes disappear for existing installs.
-const SEED_VERSION = 9;
+const SEED_VERSION = 11;
 const REMOVED_BUILTIN_IDS: Record<string, Set<string>> = {
   home: new Set(['home-chat']),
 };

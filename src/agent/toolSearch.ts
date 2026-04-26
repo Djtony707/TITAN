@@ -39,6 +39,9 @@ export const DEFAULT_CORE_TOOLS = [
     'ha_control',
     'ha_devices',
     'ha_status',
+    'gallery_search',
+    'gallery_get',
+    'gallery_list',
 ];
 
 /** Build a compact one-line catalog of all tools for the tool_search description */

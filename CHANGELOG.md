@@ -5,6 +5,40 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.3] — 2026-04-26 — 🪟 **"Spacewalk: Gallery UI Reconnect"**
+
+Patch release that reconnects the Mission Control Widget Gallery UI to the
+runtime template registry. Plus type-safety fixes and accumulated polish.
+
+### Fixed
+- **Widget Gallery UI was disconnected from the gallery skill.** The
+  `WidgetGallery.tsx` panel had a hardcoded `PROMPTS` array (~10 items)
+  while the runtime registered 109 production templates from
+  `assets/widget-templates/`. Users browsing the gallery panel saw less
+  than 10% of available templates. Now fetches from the new
+  `GET /api/widget-gallery` endpoint and renders all 109 templates with
+  category filters, tag chips, and per-category color coding. Co-authored
+  by Kimi K2.6.
+- **Typecheck clean.** Fixed `Dirent` typing in
+  `src/skills/frontmatterLoader.ts` and added `'frontmatter'` to the
+  `SkillMeta.source` enum so frontmatter-loaded skills register cleanly.
+  Tightened gateway config-write paths (`/api/config`) to avoid Zod
+  schema strictness errors when accepting nested partials.
+
+### Added
+- `GET /api/widget-gallery` — lightweight listing endpoint (templates
+  without source code) for the Widget Gallery panel + future tooling.
+- `widget_gallery` skill now also indexes 19 hardcoded system widget
+  IDs (`system-backup`, `system-training`, `system-vram`,
+  `system-cron`, `system-checkpoints`, etc.) so the agent can search
+  and emit them via `_____widget` gates.
+
+### Why a patch
+No schema changes, no breaking config moves, no behavior change for
+opted-in users. Drop-in upgrade from 5.0.2.
+
+---
+
 ## [5.0.2] — 2026-04-25 — 🎯 **"Spacewalk: Telemetry Default"**
 
 Patch release that makes opt-in telemetry actually reach PostHog out of the box.

@@ -240,7 +240,7 @@ async function tickReporting(s: MissionState): Promise<void> {
 // ── Main entry ───────────────────────────────────────────────────
 
 export async function tickMission(missionId: string): Promise<MissionPhase> {
-    let state = loadMission(missionId);
+    const state = loadMission(missionId);
     if (!state) return 'failed';
 
     try {

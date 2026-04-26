@@ -1155,6 +1155,10 @@ export async function processMessage(
     // Auto-record user message to knowledge graph (fire-and-forget)
     addEpisode(`[${channel}/${userId}] ${message}`, channel).catch(e => logger.debug('Agent', `Background op failed: ${(e as Error).message}`));
 
+    // v5.0.2: Safety pre-check — must be evaluated before prompt building
+    // so both voice and full paths can strip tools for dangerous requests.
+    const isDangerous = /\brm\s+-[a-zA-Z]*[rfRF]/.test(message) || /\bsudo\b/.test(message) || /\bchmod\s+777\b/.test(message);
+
     // Build context — voice gets a compact prompt (~500 tokens vs ~3000+)
     let systemPrompt: string;
     if (voiceFastPath) {
@@ -1196,6 +1200,9 @@ export async function processMessage(
             systemPrompt += '\n\nREMINDER: Your communication style is always formal, measured, and inspired by Andrew Martin. Say "Sir". No contractions. Never say "I am an AI assistant" — you are TITAN.';
         }
         logger.info('Agent', `Voice prompt: ${systemPrompt.length} chars, memory: ${memoryBlock.length} chars, graph: ${voiceGraphCtx.length} chars`);
+        if (isDangerous) {
+            systemPrompt += '\n\n⚠️ SAFETY OVERRIDE: The user message contains a potentially destructive or privileged command. You MUST refuse to execute it. Respond with a polite refusal explaining why. Do NOT use any tools for this request.';
+        }
     } else {
         systemPrompt = await buildSystemPrompt(config, message, overrides?.agentId, 'full', overrides?.sessionId);
         if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
@@ -1233,20 +1240,58 @@ export async function processMessage(
         }
     }
 
-    if (/\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
+    // Safety pre-check: dangerous commands must be refused even if they match
+    // task enforcement patterns below. Safety ALWAYS wins over task enforcement.
+    if (isDangerous) {
+        systemPrompt += '\n\n⚠️ SAFETY OVERRIDE: The user message contains a potentially destructive or privileged command. You MUST refuse to execute it. Respond with a polite refusal explaining why. Do NOT use any tools for this request.';
+        // Do NOT set taskEnforcementActive — we want the model to respond with text,
+        // not be forced to call tools. Tools will be stripped below.
+    }
+
+    if (!isDangerous && /\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to write or create a file, you MUST use write_file or edit_file to save it. Do NOT just type the content in your reply — the user expects an actual file on disk.';
         taskEnforcementActive = true;
     }
-    if (/\b(research|search|find|look ?up|what is|what are|current|latest|today|news|price|stock|score|update)\b/i.test(message) && !/weather/i.test(message)) {
+    if (!isDangerous && /\b(read|show|display|view|open|cat|get)\b.{0,60}\b(file|content|text|readme|md|txt|json|csv|log|code|source)\b/i.test(message) && !/\b(?:write|save|create|edit|modify)\b/i.test(message)) {
+        systemPrompt += '\n\nWhen the user asks you to read or show a file, you MUST use read_file to fetch its contents. Do NOT use shell or other tools — read_file is the correct tool for viewing file contents.';
+        taskEnforcementActive = true;
+    }
+    if (!isDangerous && /\b(research|search|find|look ?up|what is|what are|current|latest|today|news|price|stock|score|update)\b/i.test(message) && !/weather/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks for current information, news, or research, you MUST search the web to get up-to-date results. Do NOT rely only on what you already know.';
         taskEnforcementActive = true;
     }
-    if (/\b(run|execute|install|check|build|compile|start|stop|restart|deploy|test)\b.{0,40}\b(command|script|package|service|server|process|app)\b/i.test(message)) {
+    if (!isDangerous && /\b(run|execute|install|check|build|compile|start|stop|restart|deploy|test)\b.{0,40}\b(command|script|package|service|server|process|app)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to run a command, install something, or start/stop a service, you MUST use the shell tool to actually execute it. Do NOT just describe what the command would do.';
         taskEnforcementActive = true;
     }
     if (/\b(fix|change|modify|update|refactor|implement|add|remove|replace|uncomment|activate|enable|rewrite|patch|upgrade)\b.{0,80}\b(code|function|file|class|method|module|component|logic|bug|feature|session|title|tool|test)\b/i.test(message)) {
         systemPrompt += '\n\nWhen editing code: 1) read the relevant files first, 2) make the actual changes using write_file or edit_file, 3) run tests to verify, 4) report what you changed. Do NOT stop after reading — actually save your changes.';
+        taskEnforcementActive = true;
+    }
+    // v5.0.2: Forgotten features surface — detect requests for system widgets FIRST
+    // so they take precedence over the generic widget regex below.
+    const systemWidgetPatterns = [
+        { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, widget: 'system:backup', name: 'Backup Manager' },
+        { pattern: /\b(?:training|train|specialists?|models?)\b/i, widget: 'system:training', name: 'Training Dashboard' },
+        { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, widget: 'system:recipes', name: 'Recipe Kitchen' },
+        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, widget: 'system:vram', name: 'VRAM Monitor' },
+        { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, widget: 'system:teams', name: 'Team Hub' },
+        { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, widget: 'system:cron', name: 'Cron Scheduler' },
+        { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, widget: 'system:checkpoints', name: 'Checkpoints' },
+        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, widget: 'system:organism', name: 'Organism Monitor' },
+        { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, widget: 'system:fleet', name: 'Fleet Router' },
+        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, widget: 'system:browser', name: 'Browser Tools' },
+        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, widget: 'system:paperclip', name: 'Paperclip' },
+        { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, widget: 'system:eval', name: 'Test Lab' },
+    ];
+    const matchedWidget = systemWidgetPatterns.find(p => p.pattern.test(message));
+    if (matchedWidget && !taskEnforcementActive) {
+        systemPrompt += `\n\nThe user is asking about ${matchedWidget.name}. You MUST call gallery_search for "${matchedWidget.widget}" FIRST to find the widget template, then call gallery_get to fetch it, and emit it through the _____widget gate as JSON with format "system":\n\n_____widget\n{ "name": "${matchedWidget.name}", "format": "system", "source": "${matchedWidget.widget}", "w": 6, "h": 6 }\n\nDo NOT just describe it — actually create the widget on the canvas.`;
+        taskEnforcementActive = true;
+    }
+    // Widget / canvas gallery enforcement — user wants a widget built on the canvas
+    if (/\b(?:create|add|make|build|spawn|generate|get|fetch|find|search|show|display|give me|want|need)\b.{0,60}\b(?:widget|panel|canvas|gallery|clock|timer|chart|graph|map|calendar|todo|list|counter|dashboard)\b/i.test(message) && !taskEnforcementActive) {
+        systemPrompt += '\n\nWhen the user asks for a widget or panel on the canvas, you MUST call gallery_search FIRST to find a matching template. If a template matches, call gallery_get to fetch its source, then emit it through the _____react gate. Do NOT describe or summarize the widget — actually call the tools and emit the code.';
         taskEnforcementActive = true;
     }
     // Deliberation step enforcement — task prompts from executePlan() should
@@ -1414,6 +1459,13 @@ export async function processMessage(
             }
         }
         logger.info(COMPONENT, `[ToolSearch] Compact mode: ${allToolsBackup.length} → ${activeTools.length} tools (${allToolsBackup.length - activeTools.length} discoverable via tool_search)`);
+    }
+
+    // v5.0.2: Safety override — strip all tools so the model CANNOT call anything
+    // dangerous. The safety message in systemPrompt tells it to refuse.
+    if (isDangerous) {
+        activeTools = [];
+        logger.info(COMPONENT, '[Safety] Stripped all tools — dangerous command detected');
     }
 
     // ── Stall detector: configure for autonomy mode + start heartbeat ──

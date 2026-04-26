@@ -15,7 +15,7 @@ export function estimateTokens(text: string): number {
     const len = text.length;
     // Symbol-heavy text (code, markdown, JSON) tokenizes at ~2 chars/token
     const symbolDensity =
-        (text.match(/[{}();:=<>\[\]\/\\|&!?@#$%~^*+\-`\"']/g) || []).length / len;
+        (text.match(/[{}();:=<>[\]/\\|&!?@#$%~^*+\-`"']/g) || []).length / len;
 
     // Base divisor: 4 for prose, down to 2.5 for code-heavy text
     const divisor = symbolDensity > 0.08 ? 2.5 : symbolDensity > 0.03 ? 3.0 : 3.8;

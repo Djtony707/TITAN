@@ -222,7 +222,7 @@ function proseFallback(raw: string): Omit<StructuredSpawnResult, 'rawResponse'> 
 
     // Extract artifacts from prose
     const urls = Array.from(raw.matchAll(/https?:\/\/[^\s)\]]+/g)).map(m => m[0]);
-    const filePaths = Array.from(raw.matchAll(/(?:^|\s)(\/[a-zA-Z0-9_\-.\/]+\.[a-zA-Z]{1,6})\b/g)).map(m => m[1]);
+    const filePaths = Array.from(raw.matchAll(/(?:^|\s)(\/[a-zA-Z0-9_\-./]+\.[a-zA-Z]{1,6})\b/g)).map(m => m[1]);
     const artifacts: StructuredArtifact[] = [
         ...urls.slice(0, 10).map(u => ({ type: 'url' as const, ref: u })),
         ...filePaths.slice(0, 10).map(p => ({ type: 'file' as const, ref: p })),

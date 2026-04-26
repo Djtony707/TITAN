@@ -137,7 +137,7 @@ export function classifySubtask(subtask: Pick<Subtask, 'title' | 'description'>)
     // analysis. Code signals require BOTH a file path AND a code verb — a
     // mere file mention ("check ~/.titan/foo.json for events") is not
     // enough to reclassify as code.
-    const hasFilePathSignal = /\/[a-z0-9_\-.\/]+\.(ts|tsx|js|jsx|py|rs|go|sh|sql|md|yaml|yml)\b/.test(text);
+    const hasFilePathSignal = /\/[a-z0-9_\-./]+\.(ts|tsx|js|jsx|py|rs|go|sh|sql|md|yaml|yml)\b/.test(text);
     const hasCodeVerb = matchAny(text, CODE_VERBS);
     const hasWriteFileTool = /\bwrite_file\b|\bedit_file\b|\bapply_patch\b/.test(text);
     // Require BOTH a code verb AND a file/tool signal to classify as code.

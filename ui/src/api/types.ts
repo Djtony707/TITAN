@@ -721,3 +721,187 @@ export interface OrgNode {
   model: string;
   reports: OrgNode[];
 }
+
+// ---- Backup ----
+
+export interface BackupManifest {
+  version: string;
+  createdAt: string;
+  files: Array<{ name: string; size: number; hash?: string }>;
+  titanVersion: string;
+}
+
+export interface BackupInfo {
+  filename: string;
+  path: string;
+  createdAt: string;
+  sizeBytes: number;
+  manifest?: BackupManifest;
+}
+
+// ---- Training ----
+
+export interface TrainingStats {
+  entries: number;
+  sizeBytes: number;
+  lastCapture: string | null;
+}
+
+export interface TrainingRun {
+  id: string;
+  type: 'tool_router' | 'main_agent';
+  status: 'running' | 'completed' | 'failed' | 'pending';
+  startedAt: string;
+  completedAt?: string;
+  examplesProcessed: number;
+  accuracy?: number;
+  loss?: number;
+}
+
+// ---- Recipes ----
+
+export interface RecipeStep {
+  prompt: string;
+  tool?: string;
+  toolArgs?: Record<string, unknown>;
+  awaitConfirm?: boolean;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string;
+  slashCommand?: string;
+  parameters?: Record<string, {
+    description: string;
+    required: boolean;
+    default?: string;
+  }>;
+  steps: RecipeStep[];
+  author?: string;
+  tags?: string[];
+  createdAt: string;
+  lastRunAt?: string;
+}
+
+// ---- Teams ----
+
+export type TeamRole = 'owner' | 'admin' | 'operator' | 'viewer';
+export type MemberStatus = 'pending' | 'active' | 'suspended' | 'revoked';
+
+export interface TeamMember {
+  userId: string;
+  role: TeamRole;
+  status: MemberStatus;
+  joinedAt: string;
+  invitedBy: string;
+  displayName?: string;
+  lastActive?: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  members: TeamMember[];
+  ownerId: string;
+}
+
+// ---- Cron ----
+
+export interface CronJob {
+  id: string;
+  name: string;
+  schedule: string;
+  command: string;
+  enabled: boolean;
+  lastRun?: string;
+  nextRun?: string;
+  createdAt: string;
+}
+
+// ---- VRAM ----
+
+export interface GpuState {
+  vendor: 'nvidia' | 'amd' | 'apple' | 'none';
+  totalMB: number;
+  usedMB: number;
+  freeMB: number;
+  temperatureC: number;
+  utilizationPct: number;
+  driverVersion: string;
+  gpuName: string;
+  unifiedMemory: boolean;
+}
+
+export interface LoadedModel {
+  name: string;
+  sizeMB: number;
+  sizeVramMB: number;
+  family: string;
+  parameterSize: string;
+  quantization: string;
+  expiresAt: string;
+}
+
+export interface VramLease {
+  id: string;
+  service: string;
+  reservedMB: number;
+  createdAt: number;
+  expiresAt: number;
+  evictedModel?: string;
+  replacementModel?: string;
+}
+
+export interface VramSnapshot {
+  gpu: GpuState;
+  loadedModels: LoadedModel[];
+  activeLeases: VramLease[];
+  reservedMB: number;
+  availableMB: number;
+}
+
+// ---- Fleet ----
+
+export interface FleetNode {
+  id: string;
+  name: string;
+  address: string;
+  status: 'online' | 'offline' | 'busy';
+  capabilities: string[];
+  lastSeen: string;
+  load?: number;
+}
+
+// ---- Tests ----
+
+export interface FailingTest {
+  name: string;
+  suite: string;
+  error: string;
+  lastFailed: string;
+  attempts: number;
+}
+
+export interface FlakyTest {
+  name: string;
+  suite: string;
+  passRate: number;
+  runs: number;
+}
+
+export interface TestRunRecord {
+  timestamp: string;
+  status: string;
+  passed: number;
+  failed: number;
+  failingTests: string[];
+  durationMs: number;
+}
+
+// ---- Organism ----
+
+

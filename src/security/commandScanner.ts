@@ -53,8 +53,8 @@ const DESTRUCTIVE_PATTERNS: Array<{ pattern: RegExp; score: number; reason: stri
 // ── Exfiltration patterns (0-25) ────────────────────────────────
 
 const EXFILTRATION_PATTERNS: Array<{ pattern: RegExp; score: number; reason: string }> = [
-    { pattern: /\bcurl\b[^|;&\n]*\$\(cat\s+[~\/][^)]*(?:ssh|key|token|secret|password|credential|\.env)[^)]*\)/, score: 25, reason: 'curl with secret file in command substitution' },
-    { pattern: /\bwget\b[^|;&\n]*\$\(cat\s+[~\/][^)]*(?:ssh|key|token|secret|password|credential|\.env)[^)]*\)/, score: 25, reason: 'wget with secret file in command substitution' },
+    { pattern: /\bcurl\b[^|;&\n]*\$\(cat\s+[~/][^)]*(?:ssh|key|token|secret|password|credential|\.env)[^)]*\)/, score: 25, reason: 'curl with secret file in command substitution' },
+    { pattern: /\bwget\b[^|;&\n]*\$\(cat\s+[~/][^)]*(?:ssh|key|token|secret|password|credential|\.env)[^)]*\)/, score: 25, reason: 'wget with secret file in command substitution' },
     { pattern: /\bcurl\s+[^|;&\n]+\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/, score: 25, reason: 'curl piped to shell (remote code execution)' },
     { pattern: /\bwget\s+-\w*O-?\s+[^|;&\n]+\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/, score: 25, reason: 'wget piped to shell' },
     { pattern: /\bbase64\b[^|;&\n]*\|\s*\bcurl\b/, score: 20, reason: 'base64-encoded data piped to curl' },

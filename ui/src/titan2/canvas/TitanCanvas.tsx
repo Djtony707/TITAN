@@ -75,6 +75,11 @@ import {
   IntelligenceSelfImproveWidget, IntelligencePersonasWidget,
   InfraHomelabWidget, InfraGpuWidget, InfraFilesWidget, InfraLogsWidget, InfraTelemetryWidget,
   ToolsSkillsWidget, ToolsMcpWidget, ToolsIntegrationsWidget, ToolsChannelsWidget, ToolsMeshWidget,
+  DaemonWidget, MemoryWikiWidget, AutoresearchWidget, SelfProposalsWidget,
+  OverviewWidget, SessionsWidget, WatchWidget,
+  BackupWidget, TrainingWidget, RecipesWidget, VramWidget,
+  TeamsWidget, CronWidget, CheckpointsWidget, OrganismWidget,
+  FleetWidget, BrowserWidget, PaperclipWidget, EvalWidget,
 } from '../system/widgets';
 
 import { AgentsWidget } from '../system/AgentsWidget';
@@ -119,6 +124,25 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:health': HealthWidget,
   'system:stats': StatsWidget,
   'system:quick-links': QuickLinksWidget,
+  'system:daemon': DaemonWidget,
+  'system:memory-wiki': MemoryWikiWidget,
+  'system:autoresearch': AutoresearchWidget,
+  'system:self-proposals': SelfProposalsWidget,
+  'system:overview': OverviewWidget,
+  'system:sessions': SessionsWidget,
+  'system:watch': WatchWidget,
+  'system:backup': BackupWidget,
+  'system:training': TrainingWidget,
+  'system:recipes': RecipesWidget,
+  'system:vram': VramWidget,
+  'system:teams': TeamsWidget,
+  'system:cron': CronWidget,
+  'system:checkpoints': CheckpointsWidget,
+  'system:organism': OrganismWidget,
+  'system:fleet': FleetWidget,
+  'system:browser': BrowserWidget,
+  'system:paperclip': PaperclipWidget,
+  'system:eval': EvalWidget,
 };
 
 // ── Grid Config ───────────────────────────────────────────────
@@ -1020,6 +1044,25 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
     { label: 'Files', source: 'system:files', w: 4, h: 6 },
     { label: 'Infra', source: 'system:infra', w: 6, h: 4 },
     { label: 'Tools', source: 'system:tools', w: 5, h: 4 },
+    { label: 'Daemon', source: 'system:daemon', w: 6, h: 6 },
+    { label: 'Memory Wiki', source: 'system:memory-wiki', w: 6, h: 6 },
+    { label: 'Autoresearch', source: 'system:autoresearch', w: 6, h: 6 },
+    { label: 'Self-Proposals', source: 'system:self-proposals', w: 6, h: 6 },
+    { label: 'Overview', source: 'system:overview', w: 6, h: 5 },
+    { label: 'Sessions', source: 'system:sessions', w: 6, h: 5 },
+    { label: 'Watch', source: 'system:watch', w: 8, h: 7 },
+    { label: 'Backup', source: 'system:backup', w: 6, h: 6 },
+    { label: 'Training', source: 'system:training', w: 6, h: 6 },
+    { label: 'Recipes', source: 'system:recipes', w: 6, h: 6 },
+    { label: 'VRAM', source: 'system:vram', w: 6, h: 6 },
+    { label: 'Teams', source: 'system:teams', w: 6, h: 6 },
+    { label: 'Cron', source: 'system:cron', w: 6, h: 6 },
+    { label: 'Checkpoints', source: 'system:checkpoints', w: 6, h: 5 },
+    { label: 'Organism', source: 'system:organism', w: 6, h: 6 },
+    { label: 'Fleet', source: 'system:fleet', w: 6, h: 5 },
+    { label: 'Browser', source: 'system:browser', w: 6, h: 5 },
+    { label: 'Paperclip', source: 'system:paperclip', w: 6, h: 5 },
+    { label: 'Eval', source: 'system:eval', w: 6, h: 6 },
   ];
 
   return (

@@ -91,6 +91,7 @@ Every template is React, fully styled, with sensible defaults and inline placeho
 2. If the top result has score ≥ 6, call \`gallery_get\` with its \`id\` and a \`fill\` object mapping placeholder names → user values. Example: \`{ id: "stock-tracker", fill: { SYMBOL: "AAPL" } }\`.
 3. Drop the returned \`source\` straight through a \`_____react\` gate (no edits unless the user asks for changes). The defaultSize from the template becomes the widget w/h.
 4. Only fall back to writing fresh code when no result scores well.
+5. For pre-built system panels (backup, training, VRAM, cron, etc.), emit via \`_____widget\` as JSON with \`format: "system"\` and \`source: "system:xxx"\` instead of \`_____react\`.
 
 This is the fastest, highest-quality path. Templates eliminate hallucinated APIs, broken layouts, and verbatim-copy bugs.
 

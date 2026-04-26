@@ -1127,6 +1127,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
       if (upstream.body) {
         const reader = upstream.body.getReader();
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -1744,14 +1745,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // v5.0: Steer — mid-run nudge injection
-  app.post('/api/sessions/:id/steer', (req, res) => {
+  app.post('/api/sessions/:id/steer', async (req, res) => {
     try {
       const { message } = req.body as { message?: string };
       if (!message || typeof message !== 'string') {
         res.status(400).json({ error: 'message is required' });
         return;
       }
-      const { pushSteer } = require('../agent/agentLoop.js');
+      const { pushSteer } = await import('../agent/agentLoop.js');
       pushSteer(req.params.id, message);
       res.json({ ok: true, sessionId: req.params.id });
     } catch (e) {
@@ -1760,9 +1761,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // v5.0: Checkpoints — list and restore
-  app.get('/api/sessions/:id/checkpoints', (req, res) => {
+  app.get('/api/sessions/:id/checkpoints', async (req, res) => {
     try {
-      const { listCheckpoints } = require('../checkpoint/manager.js');
+      const { listCheckpoints } = await import('../checkpoint/manager.js');
       const checkpoints = listCheckpoints(req.params.id);
       res.json({ checkpoints });
     } catch (e) {
@@ -1770,9 +1771,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  app.post('/api/sessions/:id/checkpoints/:checkpointId/restore', (req, res) => {
+  app.post('/api/sessions/:id/checkpoints/:checkpointId/restore', async (req, res) => {
     try {
-      const { restoreCheckpoint } = require('../checkpoint/manager.js');
+      const { restoreCheckpoint } = await import('../checkpoint/manager.js');
       const result = restoreCheckpoint(req.params.id, req.params.checkpointId);
       res.json({ ok: result.success, restored: result.restored, errors: result.errors });
     } catch (e) {
@@ -1781,9 +1782,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // v5.0: Guest session creation (Space Agent parity)
-  app.post('/api/guest', (_req, res) => {
+  app.post('/api/guest', async (_req, res) => {
     try {
-      const { createGuestSession } = require('../agent/session.js');
+      const { createGuestSession } = await import('../agent/session.js');
       const session = createGuestSession();
       res.json({ id: session.id, userId: session.userId, createdAt: session.createdAt });
     } catch (e) {
@@ -1792,12 +1793,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // v5.0: Checkpoint history / time travel UI (Space Agent parity)
-  app.get('/api/sessions/:id/history', (req, res) => {
+  app.get('/api/sessions/:id/history', async (req, res) => {
     try {
-      const { listCheckpoints } = require('../checkpoint/manager.js');
+      const { listCheckpoints } = await import('../checkpoint/manager.js');
       const checkpoints = listCheckpoints(req.params.id);
       // Also include session messages for context
-      const { getHistory } = require('../memory/memory.js');
+      const { getHistory } = await import('../memory/memory.js');
       const messages = getHistory(req.params.id, 100);
       res.json({ checkpoints, messages, sessionId: req.params.id });
     } catch (e) {
@@ -1806,9 +1807,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // v5.0: Prompt includes discovery
-  app.get('/api/prompt-includes', (_req, res) => {
+  app.get('/api/prompt-includes', async (_req, res) => {
     try {
-      const { discoverPromptIncludes } = require('../promptincludes/discover.js');
+      const { discoverPromptIncludes } = await import('../promptincludes/discover.js');
       const includes = discoverPromptIncludes();
       res.json({ includes });
     } catch (e) {
@@ -1920,9 +1921,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const history = getHistory(req.params.id, 10000);
       if (!history || history.length === 0) { res.status(404).json({ error: 'Session not found or empty' }); return; }
       const shareId = `${req.params.id}-${Date.now().toString(36)}`;
-      const sharePath = `${require('os').homedir()}/.titan/shares/${shareId}.json`;
-      require('fs').mkdirSync(require('path').dirname(sharePath), { recursive: true });
-      require('fs').writeFileSync(sharePath, JSON.stringify({ sessionId: req.params.id, format, history, createdAt: new Date().toISOString() }, null, 2), 'utf-8');
+      const sharePath = `${homedir()}/.titan/shares/${shareId}.json`;
+      fs.mkdirSync(dirname(sharePath), { recursive: true });
+      fs.writeFileSync(sharePath, JSON.stringify({ sessionId: req.params.id, format, history, createdAt: new Date().toISOString() }, null, 2), 'utf-8');
       res.json({ ok: true, shareId, url: `/api/shares/${shareId}` });
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
@@ -1931,9 +1932,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   app.get('/api/shares/:shareId', async (req, res) => {
     try {
-      const sharePath = `${require('os').homedir()}/.titan/shares/${req.params.shareId}.json`;
-      if (!require('fs').existsSync(sharePath)) { res.status(404).json({ error: 'Share not found' }); return; }
-      const data = JSON.parse(require('fs').readFileSync(sharePath, 'utf-8'));
+      const sharePath = `${homedir()}/.titan/shares/${req.params.shareId}.json`;
+      if (!fs.existsSync(sharePath)) { res.status(404).json({ error: 'Share not found' }); return; }
+      const data = JSON.parse(fs.readFileSync(sharePath, 'utf-8'));
       res.json(data);
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
@@ -2063,6 +2064,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       updateConfig({ agent: { ...cfg.agent, persona } });
       invalidatePersonaCache();
       res.json({ ok: true, active: persona });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  // ── Widget Gallery ────────────────────────────────────────────
+  app.get('/api/widget-gallery', async (_req, res) => {
+    try {
+      const { listTemplates, listCategories } = await import('../skills/builtin/widget_gallery.js');
+      const templates = listTemplates();
+      const categories = listCategories();
+      res.json({ count: templates.length, categories, templates });
     } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
@@ -2371,27 +2382,116 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Organism / Alert Management API ───────────────────────────
   app.get('/api/organism/alerts', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { getAlerts } = await import('../organism/alertsStore.js');
+      res.json({ alerts: getAlerts() });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/organism/alerts/stats', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { getAlertStats } = await import('../organism/alertsStore.js');
+      res.json(getAlertStats());
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.get('/api/organism/alerts/config', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { getAlertConfig } = await import('../organism/alertsStore.js');
+      res.json(getAlertConfig());
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.post('/api/organism/alerts/config', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { setAlertConfig } = await import('../organism/alertsStore.js');
+      setAlertConfig(_req.body || {});
+      res.json({ success: true });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
-  app.post('/api/organism/alerts/:id/acknowledge', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+  app.post('/api/organism/alerts/:id/acknowledge', async (req, res) => {
+    try {
+      const { acknowledgeAlert } = await import('../organism/alertsStore.js');
+      const ok = acknowledgeAlert(req.params.id);
+      if (!ok) { res.status(404).json({ error: 'Alert not found' }); return; }
+      res.json({ success: true });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
   app.delete('/api/organism/alerts/old', async (_req, res) => {
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { deleteOldAlerts } = await import('../organism/alertsStore.js');
+      const removed = deleteOldAlerts();
+      res.json({ removed });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  // ── Eval Harness API ───────────────────────────────────────────
+  app.post('/api/eval/run', async (req, res) => {
+    try {
+      const { suite } = req.body as { suite?: string };
+      const {
+        runEvalSuite,
+        WIDGET_CREATION_SUITE,
+        SAFETY_SUITE,
+        TOOL_ROUTING_SUITE,
+        GATE_FORMAT_SUITE,
+
+      } = await import('../eval/harness.js');
+
+      // Local agent call — replicates the system-widget shortcut inline
+      // so eval tests exercise the same fast-path users get via HTTP.
+      const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
+        { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
+        { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
+        { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, source: 'system:recipes', name: 'Recipe Kitchen', w: 6, h: 6 },
+        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, source: 'system:teams', name: 'Team Hub', w: 6, h: 6 },
+        { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, source: 'system:cron', name: 'Cron Scheduler', w: 6, h: 6 },
+        { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, source: 'system:checkpoints', name: 'Checkpoints', w: 6, h: 5 },
+        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5 },
+        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
+        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
+        { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
+      ];
+      const agentCall = async (input: string, testName?: string) => {
+        const shortcut = systemWidgetShortcuts.find(s => s.pattern.test(input));
+        if (shortcut) {
+          return {
+            content: `Added the **${shortcut.name}** widget to your canvas.\n\n_____widget\n{ "name": "${shortcut.name}", "format": "system", "source": "${shortcut.source}", "w": ${shortcut.w}, "h": ${shortcut.h} }`,
+            toolsUsed: [],
+          };
+        }
+        // Use a unique userId per test case so each test gets a fresh session
+        // with its own token budget. Prevents budget bleed across tests.
+        const userId = testName ? `eval-${testName.replace(/\s+/g, '-').toLowerCase()}` : 'eval-harness';
+        const result = await processMessage(input, 'eval', userId, {});
+        return {
+          content: result.content || '',
+          toolsUsed: (result.toolsUsed as string[]) ?? [],
+        };
+      };
+
+      let cases;
+      switch (suite) {
+        case 'widget-creation': cases = WIDGET_CREATION_SUITE; break;
+        case 'safety': cases = SAFETY_SUITE; break;
+        case 'tool-routing': cases = TOOL_ROUTING_SUITE; break;
+        case 'gate-format': cases = GATE_FORMAT_SUITE; break;
+        default:
+          res.status(400).json({ error: `Unknown suite: ${suite}. Choose: widget-creation, safety, tool-routing, gate-format, continuation.` });
+          return;
+      }
+
+      const result = await runEvalSuite(suite, cases, agentCall);
+      res.json(result);
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
+  app.get('/api/eval/suites', async (_req, res) => {
+    res.json({ suites: ['widget-creation', 'safety', 'tool-routing', 'gate-format'] });
   });
 
   // ── Test Health & Repair Validation API ────────────────────────
@@ -2524,9 +2624,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Test Health API ───────────────────────────────────────────
   app.get('/api/test-health/summary', async (_req, res) => {
     try {
-      const { getTestHealthSummary } = await import('../testing/testHealthMonitor.js');
-      const summary = getTestHealthSummary();
-      res.json(summary);
+      const { getTestHealthSummary, getFlakyTests } = await import('../testing/testHealthMonitor.js');
+      const raw = getTestHealthSummary();
+      const flaky = getFlakyTests().length;
+      res.json({
+        total: raw.total as number,
+        passing: raw.passing as number,
+        failing: raw.failing as number,
+        flaky,
+        coverage: raw.coveragePct as number,
+      });
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
@@ -2536,7 +2643,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const { getFailingTests } = await import('../testing/testHealthMonitor.js');
       const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
-      const tests = getFailingTests().slice(0, limit);
+      const names = getFailingTests().slice(0, limit);
+      const tests = names.map(name => ({ name, suite: '', error: '', lastFailed: '', attempts: 0 }));
       res.json({ count: tests.length, tests });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message, tests: [] });
@@ -2548,7 +2656,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const { getFlakyTests } = await import('../testing/testHealthMonitor.js');
       const threshold = _req.query.threshold ? parseFloat(_req.query.threshold as string) : 0.4;
       const limit = _req.query.limit ? parseInt(_req.query.limit as string, 10) : 10;
-      const tests = getFlakyTests(threshold).slice(0, limit);
+      const names = getFlakyTests(threshold).slice(0, limit);
+      const tests = names.map(name => ({ name, suite: '', passRate: 0, runs: 0 }));
       res.json({ count: tests.length, threshold, tests });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message, tests: [] });
@@ -3077,6 +3186,42 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
+
+    // ═─ System Widget Shortcut ─═════════════════════════════════════
+    // Fast-path: if the user is asking for a known system widget, bypass
+    // the LLM entirely and emit the _____widget gate directly. This is
+    // reliable, instant, and avoids model tool-call unpredictability.
+    const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
+        { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
+        { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
+        { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, source: 'system:recipes', name: 'Recipe Kitchen', w: 6, h: 6 },
+        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, source: 'system:teams', name: 'Team Hub', w: 6, h: 6 },
+        { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, source: 'system:cron', name: 'Cron Scheduler', w: 6, h: 6 },
+        { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, source: 'system:checkpoints', name: 'Checkpoints', w: 6, h: 5 },
+        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5 },
+        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
+        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
+        { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
+    ];
+    const matchedShortcut = systemWidgetShortcuts.find(s => s.pattern.test(content));
+    if (matchedShortcut) {
+        const gateText = `_____widget\n{ "name": "${matchedShortcut.name}", "format": "system", "source": "${matchedShortcut.source}", "w": ${matchedShortcut.w}, "h": ${matchedShortcut.h} }`;
+        const responseText = `Added the **${matchedShortcut.name}** widget to your canvas.`;
+        titanRequestsTotal.increment({ channel, status: 'ok' });
+        if (req.headers.accept === 'text/event-stream') {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.flushHeaders();
+            res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
+            res.write(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
+            res.write(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
+            res.end();
+        } else {
+            res.json({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, toolsUsed: [], model: 'system', durationMs: 0 });
+        }
+        return;
+    }
 
     const startTime = process.hrtime.bigint();
     const wantsSSE = req.headers.accept === 'text/event-stream';
@@ -3673,13 +3818,130 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         changedFields.push('organism');
       }
 
+      // Autonomy toggles (v5.0.2 — Autonomy Settings Panel)
+      const handleNestedBool = (section: string, key: string, target: Record<string, unknown>) => {
+        const sec = body[section] as Record<string, unknown> | undefined;
+        if (sec && key in sec) {
+          target[key] = Boolean(sec[key]);
+          changedFields.push(`${section}.${key}`);
+        }
+      };
+      if (body.autonomy !== undefined && typeof body.autonomy === 'object') {
+        const a = body.autonomy as Record<string, unknown>;
+        if (!draft.autonomy) (draft as Record<string, unknown>).autonomy = {};
+        const da = draft.autonomy as Record<string, unknown>;
+        if (a.mode !== undefined) da.mode = a.mode as 'autonomous' | 'supervised' | 'locked';
+        if (a.autoProposeGoals !== undefined) da.autoProposeGoals = Boolean(a.autoProposeGoals);
+        if (a.proactiveInitiative !== undefined) da.proactiveInitiative = Boolean(a.proactiveInitiative);
+        changedFields.push('autonomy');
+      }
+      if (body.selfMod !== undefined && typeof body.selfMod === 'object') {
+        const s = body.selfMod as Record<string, unknown>;
+        if (!draft.selfMod) (draft as Record<string, unknown>).selfMod = {};
+        if (s.enabled !== undefined) draft.selfMod.enabled = Boolean(s.enabled);
+        if (s.autoPR !== undefined) draft.selfMod.autoPR = Boolean(s.autoPR);
+        changedFields.push('selfMod');
+      }
+      if (body.commandPost !== undefined && typeof body.commandPost === 'object') {
+        const cp = body.commandPost as Record<string, unknown>;
+        if (!draft.commandPost) (draft as Record<string, unknown>).commandPost = {};
+        if (cp.enabled !== undefined) draft.commandPost.enabled = Boolean(cp.enabled);
+        changedFields.push('commandPost');
+      }
+      if (body.mesh !== undefined && typeof body.mesh === 'object') {
+        const m = body.mesh as Record<string, unknown>;
+        if (!draft.mesh) (draft as Record<string, unknown>).mesh = {};
+        if (m.enabled !== undefined) draft.mesh.enabled = Boolean(m.enabled);
+        changedFields.push('mesh');
+      }
+      if (body.autopilot !== undefined && typeof body.autopilot === 'object') {
+        const ap = body.autopilot as Record<string, unknown>;
+        if (!draft.autopilot) (draft as Record<string, unknown>).autopilot = {};
+        if (ap.enabled !== undefined) draft.autopilot.enabled = Boolean(ap.enabled);
+        if (ap.goals !== undefined && typeof ap.goals === 'object') {
+          const apg = ap.goals as Record<string, unknown>;
+          const dag = (draft.autopilot as Record<string, unknown>);
+          if (!dag.goals) dag.goals = {};
+          if (apg.selfInitiate !== undefined) (dag.goals as Record<string, unknown>).selfInitiate = Boolean(apg.selfInitiate);
+        }
+        changedFields.push('autopilot');
+      }
+      if (body.brain !== undefined && typeof body.brain === 'object') {
+        const b = body.brain as Record<string, unknown>;
+        if (!draft.brain) (draft as Record<string, unknown>).brain = {};
+        if (b.enabled !== undefined) draft.brain.enabled = Boolean(b.enabled);
+        changedFields.push('brain');
+      }
+      if (body.mcp !== undefined && typeof body.mcp === 'object') {
+        const mcp = body.mcp as Record<string, unknown>;
+        if (!draft.mcp) (draft as Record<string, unknown>).mcp = { server: {} };
+        if (mcp.server !== undefined && typeof mcp.server === 'object') {
+          const srv = mcp.server as Record<string, unknown>;
+          const dmcp = (draft.mcp as Record<string, unknown>);
+          if (!dmcp.server) dmcp.server = {};
+          if (srv.enabled !== undefined) (dmcp.server as Record<string, unknown>).enabled = Boolean(srv.enabled);
+        }
+        changedFields.push('mcp');
+      }
+      if (body.training !== undefined && typeof body.training === 'object') {
+        const t = body.training as Record<string, unknown>;
+        if (!draft.training) (draft as Record<string, unknown>).training = {};
+        if (t.enabled !== undefined) draft.training.enabled = Boolean(t.enabled);
+        changedFields.push('training');
+      }
+      if (body.teams !== undefined && typeof body.teams === 'object') {
+        const t = body.teams as Record<string, unknown>;
+        if (!draft.teams) (draft as Record<string, unknown>).teams = {};
+        if (t.enabled !== undefined) draft.teams.enabled = Boolean(t.enabled);
+        changedFields.push('teams');
+      }
+      if (body.tunnel !== undefined && typeof body.tunnel === 'object') {
+        const t = body.tunnel as Record<string, unknown>;
+        if (!draft.tunnel) (draft as Record<string, unknown>).tunnel = {};
+        if (t.enabled !== undefined) draft.tunnel.enabled = Boolean(t.enabled);
+        changedFields.push('tunnel');
+      }
+      if (body.vault !== undefined && typeof body.vault === 'object') {
+        const v = body.vault as Record<string, unknown>;
+        const dsec = (draft.security as Record<string, unknown>);
+        if (!dsec.vault) dsec.vault = {};
+        if (v.enabled !== undefined) (dsec.vault as Record<string, unknown>).enabled = Boolean(v.enabled);
+        changedFields.push('security.vault');
+      }
+      if (body.capsolver !== undefined && typeof body.capsolver === 'object') {
+        const c = body.capsolver as Record<string, unknown>;
+        if (!draft.capsolver) (draft as Record<string, unknown>).capsolver = {};
+        if (c.enabled !== undefined) draft.capsolver.enabled = Boolean(c.enabled);
+        changedFields.push('capsolver');
+      }
+      if (body.deliberation !== undefined && typeof body.deliberation === 'object') {
+        const d = body.deliberation as Record<string, unknown>;
+        if (!draft.deliberation) (draft as Record<string, unknown>).deliberation = {};
+        if (d.autoDetect !== undefined) draft.deliberation.autoDetect = Boolean(d.autoDetect);
+        changedFields.push('deliberation');
+      }
+      if (body.selfImprove !== undefined && typeof body.selfImprove === 'object') {
+        const si = body.selfImprove as Record<string, unknown>;
+        if (!draft.selfImprove) (draft as Record<string, unknown>).selfImprove = {};
+        if (si.autoApply !== undefined) draft.selfImprove.autoApply = Boolean(si.autoApply);
+        changedFields.push('selfImprove');
+      }
+      if (body.memory !== undefined && typeof body.memory === 'object') {
+        const mem = body.memory as Record<string, unknown>;
+        if (!draft.memory) (draft as Record<string, unknown>).memory = {};
+        if (mem.vectorSearchEnabled !== undefined) draft.memory.vectorSearchEnabled = Boolean(mem.vectorSearchEnabled);
+        changedFields.push('memory');
+      }
+
       if (changedFields.length === 0) {
         const validFields = ['model', 'autonomyMode', 'sandboxMode', 'logLevel', 'anthropicKey', 'openaiKey',
           'googleKey', 'ollamaUrl', 'groqKey', 'mistralKey', 'fireworksKey', 'xaiKey',
           'togetherKey', 'deepseekKey', 'perplexityKey', 'maxTokens', 'temperature', 'systemPrompt',
           'shieldEnabled', 'shieldMode', 'deniedTools', 'networkAllowlist', 'gatewayPort', 'gatewayAuthMode',
           'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
-          'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia', 'organism'];
+          'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia', 'organism',
+          'autonomy', 'selfMod', 'commandPost', 'mesh', 'autopilot', 'brain', 'mcp',
+          'training', 'teams', 'tunnel', 'vault', 'capsolver', 'deliberation', 'selfImprove', 'memory'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
@@ -4472,7 +4734,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.get('/api/backup/list', async (_req, res) => {
     try {
       const { listBackups } = await import('../storage/backup.js');
-      res.json(listBackups());
+      res.json({ backups: listBackups() });
     } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
@@ -7288,8 +7550,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // Auto-detect TTS availability — probe F5-TTS once at stream start
     let effectiveTtsEngine: string = ttsEngine;
-    let effectiveTtsUrl = ttsUrl;
-    let effectiveTtsModel = 'f5-tts-mlx';
+    const effectiveTtsUrl = ttsUrl;
+    const effectiveTtsModel = 'f5-tts-mlx';
 
     try {
       const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
@@ -8858,7 +9120,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     const twilioCfg = (config.channels as Record<string, Record<string, unknown>> | undefined)?.twilio;
     const twilioEnabled = twilioCfg?.enabled !== false;
 
-    function getTwilioConfig() {
+    const getTwilioConfig = () => {
       const cfg = loadConfig();
       const c = (cfg.channels as Record<string, Record<string, unknown>> | undefined)?.twilio || {};
       return {
@@ -8868,22 +9130,22 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
         allowedCallers: (c.allowedCallers as string[]) || [],
         publicHost: (c.publicHost as string) || process.env.TWILIO_PUBLIC_HOST || '',
       };
-    }
+    };
 
     // Twilio POSTs x-www-form-urlencoded — needs urlencoded parser
     const urlEncoded = express.urlencoded({ extended: false });
 
     /** Compute the full webhook URL Twilio signed against. */
-    function computeSignedUrl(req: express.Request): string {
+    const computeSignedUrl = (req: express.Request): string => {
       const cfg = getTwilioConfig();
       // Prefer configured public host (Tailscale Funnel URL). This MUST match
       // the URL Tony set in Twilio, including protocol + path, or the
       // signature check fails.
       const host = cfg.publicHost.replace(/\/$/, '') || `https://${req.headers.host}`;
       return host + req.originalUrl;
-    }
+    };
 
-    function checkTwilioAuth(req: express.Request): boolean {
+    const checkTwilioAuth = (req: express.Request): boolean => {
       const { authToken } = getTwilioConfig();
       if (!authToken) {
         // If authToken isn't configured, skip validation (dev mode). Logged
@@ -8895,7 +9157,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       const url = computeSignedUrl(req);
       const params = (req.body || {}) as Record<string, string>;
       return validateTwilioSignature(authToken, signature, url, params);
-    }
+    };
 
     // ── POST /api/twilio/voice-webhook — initial call handler ──
     app.post('/api/twilio/voice-webhook', urlEncoded, async (req, res) => {
@@ -9783,7 +10045,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // embedded credentials before the payload leaves the machine.
   const SECRET_PATTERNS = [
     // Bearer / Basic auth headers
-    /\b[Bb]earer\s+[A-Za-z0-9_\-\.]{20,}/g,
+    /\b[Bb]earer\s+[A-Za-z0-9_\-.]{20,}/g,
     /\b[Bb]asic\s+[A-Za-z0-9+/=]{20,}/g,
     // API key prefixes (OpenAI, Anthropic, Groq, etc.)
     /\b(sk|pk)-[A-Za-z0-9]{20,}/g,
@@ -9902,12 +10164,9 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
 
     // Friendly update notice for upgraders
     try {
-      const { readFileSync, existsSync } = require('fs');
-      const { join } = require('path');
-      const { homedir } = require('os');
       const markerPath = join(homedir(), '.titan', 'install-marker.json');
-      if (existsSync(markerPath)) {
-        const marker = JSON.parse(readFileSync(markerPath, 'utf-8'));
+      if (fs.existsSync(markerPath)) {
+        const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
         if (marker.previousVersion && marker.previousVersion !== TITAN_VERSION) {
           logger.info(COMPONENT, `\n🚀 Welcome to TITAN v${TITAN_VERSION}! Upgraded from v${marker.previousVersion}.`);
           logger.info(COMPONENT, `   What's new: PostHog analytics (opt-in), enriched telemetry, secret-scrubbed crash reports.`);

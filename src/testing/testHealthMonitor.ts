@@ -3,7 +3,7 @@
  * Aggregates test suite health from coverage reports, test file counts,
  * and a persisted JSONL run log.
  */
-import { readFileSync, readdirSync, appendFileSync, existsSync } from 'fs';
+import { readFileSync, readdirSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
 
@@ -21,8 +21,6 @@ function ensureLogDir(): void {
     try {
         const dir = join(process.env.HOME || '/tmp', '.titan');
         if (!existsSync(dir)) {
-            // mkdirSync requires import, use shell instead
-            const { mkdirSync } = require('fs');
             mkdirSync(dir, { recursive: true });
         }
     } catch { /* ok */ }
