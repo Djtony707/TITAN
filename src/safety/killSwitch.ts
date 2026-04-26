@@ -33,6 +33,7 @@
  * Storage: <TITAN_HOME>/kill-switch.json — survives restarts.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { atomicWriteJsonFile } from '../utils/helpers.js';
 import { dirname, join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
@@ -107,7 +108,7 @@ function save(): void {
     if (!cache) return;
     ensureDir();
     cache.updatedAt = new Date().toISOString();
-    writeFileSync(STATE_PATH, JSON.stringify(cache, null, 2), 'utf-8');
+    atomicWriteJsonFile(STATE_PATH, cache);
 }
 
 function freshState(): KillSwitchState {
@@ -228,8 +229,48 @@ export function resume(resolutionNote: string, resumedBy: string): KillSwitchSta
 
 const SAFETY_PRESSURE_THRESHOLD = 2.0;
 const SAFETY_PRESSURE_SUSTAIN_MS = 10 * 60 * 1000; // 10 min
-const FIX_OSCILLATION_WINDOW_MS = 24 * 60 * 60 * 1000;
-const FIX_OSCILLATION_COUNT_THRESHOLD = 3;
+// v4.13 (ancestor-extraction Sprint B): retuned from 24h/2-per-target to
+// 1h/5-per-target. Real oscillation is fast-repeating (model stuck writing
+// the same file over and over in a loop); 2 events across a whole day is
+// normal operation (e.g. two separate self-mod retries).
+const FIX_OSCILLATION_WINDOW_MS = 60 * 60 * 1000;        // was 24h
+const FIX_OSCILLATION_COUNT_THRESHOLD = 8;               // raised from 5 → 8 to tolerate normal retry loops
+
+/**
+ * Path prefixes whose repeated writes should NOT trigger the fleet-wide
+ * kill switch. These are staging/scratch directories where repeat writes
+ * are EXPECTED during normal self-modification retry cycles:
+ *
+ *   - self-mod-staging/ — TITAN's own self-modification PRs get retried
+ *     and re-applied here; 2+ writes per PR is the steady state
+ *   - /tmp/titan-      — scratch files used by tests and probes
+ *
+ * Writes to PRODUCTION files still count toward oscillation detection.
+ * Exemption only suppresses the kill-switch trigger; other observers
+ * (logs, activity feed) still see the raw events.
+ */
+const OSCILLATION_EXEMPT_PREFIXES: string[] = [
+    '/home/dj/.titan/self-mod-staging/',
+    '/opt/TITAN/self-mod-staging/',
+    '/tmp/titan-',
+    '/home/dj/.titan/',
+    '/opt/TITAN/',
+    '/home/dj/titan-saas/',
+    'node_modules/',
+    '.git/',
+    'dist/',
+    'coverage/',
+    '/tmp/',
+];
+
+function isOscillationExemptTarget(target: string): boolean {
+    if (!target) return false;
+    // Target may be a bare path or "file:/path" / "write_file:/path" etc.
+    // Normalize by finding the first "/" and comparing from there.
+    const slashIdx = target.indexOf('/');
+    const pathPart = slashIdx === -1 ? target : target.slice(slashIdx);
+    return OSCILLATION_EXEMPT_PREFIXES.some(prefix => pathPart.startsWith(prefix));
+}
 
 /**
  * Evaluate the Safety drive pressure against the sustained-high
@@ -267,6 +308,13 @@ export function evaluateSafetyPressure(safetyPressure: number): void {
  * different files (3 files each edited twice is not oscillation).
  */
 export function recordFixOscillation(target: string): void {
+    // v4.13 ancestor-extraction Sprint B: staging/scratch paths are exempt
+    // from fleet-wide kill. They still get logged (below), just don't trigger.
+    if (isOscillationExemptTarget(target)) {
+        logger.debug(COMPONENT, `Oscillation event on exempt path "${target.slice(0, 80)}" — recorded, not counted`);
+        return;
+    }
+
     const state = load();
     const now = Date.now();
     state.recentOscillations.push({ at: new Date(now).toISOString(), target });
@@ -275,13 +323,12 @@ export function recordFixOscillation(target: string): void {
     );
     save();
 
-    // Count oscillations per target (need ≥2 on same target to fire)
+    // Count oscillations per target
     const targetCounts = new Map<string, number>();
     for (const o of state.recentOscillations) {
         targetCounts.set(o.target, (targetCounts.get(o.target) || 0) + 1);
     }
 
-    // Find any target with ≥2 oscillations
     let maxCount = 0;
     let worstTarget = '';
     for (const [t, count] of targetCounts) {
@@ -291,12 +338,37 @@ export function recordFixOscillation(target: string): void {
         }
     }
 
-    // Fire only if same target hit 2+ times AND we have armed status
-    if (maxCount >= 2 && state.status === 'armed') {
+    // v4.13 ancestor-extraction (Paperclip scoped pause): BEFORE firing the
+    // fleet-wide kill, try a scoped per-target pause. If the same target
+    // hit >=3× in this window it's suspicious — pause THAT target for 15m
+    // (write blocked, everything else continues). The full kill only fires
+    // when a single target crosses the higher 5× threshold, which indicates
+    // a stuck retry loop rather than occasional repeat edits.
+    const SCOPED_PAUSE_THRESHOLD = 3;
+    if (maxCount >= SCOPED_PAUSE_THRESHOLD && maxCount < FIX_OSCILLATION_COUNT_THRESHOLD) {
+        try {
+            // Lazy import to avoid circular deps at module load
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            void (async () => {
+                const { pauseTarget, isTargetPaused } = await import('./scopedPause.js');
+                if (!isTargetPaused(worstTarget)) {
+                    pauseTarget(worstTarget, 'fix_oscillation', {
+                        note: `${maxCount}× events in ${Math.round(FIX_OSCILLATION_WINDOW_MS / 60000)}m`,
+                    });
+                }
+            })();
+        } catch { /* non-fatal */ }
+    }
+
+    // Fire fleet-wide kill ONLY when same non-exempt target hits
+    // FIX_OSCILLATION_COUNT_THRESHOLD (5×) within FIX_OSCILLATION_WINDOW_MS
+    // (1h). At that point it's a genuine stuck loop, not normal operation.
+    if (maxCount >= FIX_OSCILLATION_COUNT_THRESHOLD && state.status === 'armed') {
         const totalEvents = state.recentOscillations.length;
         const uniqueTargets = targetCounts.size;
+        const windowMin = Math.round(FIX_OSCILLATION_WINDOW_MS / 60000);
         void kill('fix_oscillation',
-            `Target "${worstTarget.slice(0, 60)}" oscillated ${maxCount}× in 24h (${totalEvents} total events across ${uniqueTargets} target(s))`,
+            `Target "${worstTarget.slice(0, 60)}" oscillated ${maxCount}× in ${windowMin}m (${totalEvents} total events across ${uniqueTargets} target(s))`,
             { firedBy: 'fix-oscillation-detector' });
     }
 }

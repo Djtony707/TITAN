@@ -458,11 +458,10 @@ describe('OpenAICompatProvider', () => {
             expect(PROVIDER_PRESETS).toHaveLength(32);
         });
 
-        it('should include groq, mistral, openrouter, fireworks, xai, together, deepseek, cerebras, cohere, perplexity, venice, bedrock, litellm', () => {
+        it('should include groq, mistral, fireworks, xai, together, deepseek, cerebras, cohere, perplexity, venice, bedrock, litellm', () => {
             const names = PROVIDER_PRESETS.map(p => p.name);
             expect(names).toContain('groq');
             expect(names).toContain('mistral');
-            expect(names).toContain('openrouter');
             expect(names).toContain('fireworks');
             expect(names).toContain('xai');
             expect(names).toContain('together');

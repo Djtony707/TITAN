@@ -11,6 +11,33 @@ const fs = require('fs');
 
 const isGlobalInstall = process.env.npm_config_global === 'true';
 
+// v5.0 "Spacewalk": write a privacy-safe install marker. NO network call
+// fires from postinstall — the gateway reads this on first boot and only
+// POSTs an `install` event to the remote collector if the user has
+// previously consented via the Setup Wizard. Pre-consent installs produce
+// a marker that is read + deleted without ever leaving the machine.
+try {
+    const os = require('os');
+    const pkg = require('../package.json');
+    const homeDir = os.homedir();
+    const titanHome = path.join(homeDir, '.titan');
+    if (!fs.existsSync(titanHome)) fs.mkdirSync(titanHome, { recursive: true });
+    const markerPath = path.join(titanHome, 'install-marker.json');
+    const previous = fs.existsSync(markerPath) ? (() => {
+        try { return JSON.parse(fs.readFileSync(markerPath, 'utf-8')); } catch { return null; }
+    })() : null;
+    const marker = {
+        installedVersion: pkg.version,
+        previousVersion: previous?.installedVersion || null,
+        installedAt: new Date().toISOString(),
+        installMethod: isGlobalInstall ? 'npm-global' : 'npm-local',
+        reported: false, // gateway flips this true after sending the event
+    };
+    fs.writeFileSync(markerPath, JSON.stringify(marker, null, 2), 'utf-8');
+} catch {
+    // Non-fatal — the marker is a nice-to-have, never block install
+}
+
 if (isGlobalInstall) {
     const cliPath = path.join(__dirname, '..', 'dist', 'cli', 'index.js');
 

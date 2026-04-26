@@ -9,11 +9,11 @@ import type { RegisteredAgent, CPActivityEntry } from '@/api/types';
 type PixelState = 'idle' | 'active' | 'paused' | 'error' | 'stopped';
 
 const COLORS: Record<PixelState, string> = {
-  idle: '#a1a1aa',
-  active: '#22c55e',
-  paused: '#f59e0b',
-  error: '#ef4444',
-  stopped: '#52525b',
+  idle: 'var(--color-text-secondary)',
+  active: 'var(--color-success)',
+  paused: 'var(--color-warning)',
+  error: 'var(--color-error)',
+  stopped: 'var(--color-border-light)',
 };
 
 const ROLE_ICONS: Record<string, string> = {
@@ -61,7 +61,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
       const recentActivity = activityRef.current;
 
       // Clear
-      ctx.fillStyle = '#09090b';
+      ctx.fillStyle = 'var(--color-bg)';
       ctx.fillRect(0, 0, w, h);
 
       // Floor grid
@@ -72,12 +72,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
 
       if (agentsList.length === 0) {
         // Empty state
-        ctx.fillStyle = '#27272a';
+        ctx.fillStyle = 'var(--color-bg-tertiary)';
         ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('No agents registered', w / 2, h / 2 - 10);
         ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-        ctx.fillStyle = '#3f3f46';
+        ctx.fillStyle = 'var(--color-border)';
         ctx.fillText('Spawn agents to see them here', w / 2, h / 2 + 10);
         ctx.textAlign = 'start';
         animId = requestAnimationFrame(draw);
@@ -107,12 +107,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const deskH = 10;
         const deskX = cx - deskW / 2;
         const deskY = cy + 16;
-        ctx.fillStyle = '#3f3f46';
+        ctx.fillStyle = 'var(--color-border)';
         ctx.fillRect(deskX, deskY, deskW, deskH);
-        ctx.fillStyle = '#52525b';
+        ctx.fillStyle = 'var(--color-border-light)';
         ctx.fillRect(deskX + 1, deskY + 1, deskW - 2, deskH - 2);
         // Legs
-        ctx.fillStyle = '#3f3f46';
+        ctx.fillStyle = 'var(--color-border)';
         ctx.fillRect(deskX + 3, deskY + deskH, 3, 14);
         ctx.fillRect(deskX + deskW - 6, deskY + deskH, 3, 14);
 
@@ -121,9 +121,9 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const monH = 18;
         const monX = cx - monW / 2;
         const monY = deskY - monH;
-        ctx.fillStyle = '#27272a';
+        ctx.fillStyle = 'var(--color-bg-tertiary)';
         ctx.fillRect(monX, monY, monW, monH);
-        const screenColor = state === 'error' ? '#ef4444' : state === 'active' ? '#22c55e' : '#6366f1';
+        const screenColor = state === 'error' ? 'var(--color-error)' : state === 'active' ? 'var(--color-success)' : 'var(--color-accent)';
         ctx.fillStyle = screenColor + '30';
         ctx.fillRect(monX + 2, monY + 2, monW - 4, monH - 4);
         // Screen lines when active
@@ -136,7 +136,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
           }
         }
         // Stand
-        ctx.fillStyle = '#3f3f46';
+        ctx.fillStyle = 'var(--color-border)';
         ctx.fillRect(cx - 2, deskY - 1, 4, 3);
 
         // Chair
@@ -145,12 +145,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         ctx.fillRect(cx - 11, cy - 2 + bobY, 3, 20);
 
         // Body
-        ctx.fillStyle = '#3f3f46';
+        ctx.fillStyle = 'var(--color-border)';
         ctx.fillRect(cx - 7, cy + bobY, 14, 12);
 
         // Head
         const headBob = state === 'active' && isWorking ? Math.sin(t * 1.5 + i) * 1.5 : 0;
-        ctx.fillStyle = '#52525b';
+        ctx.fillStyle = 'var(--color-border-light)';
         ctx.fillRect(cx - 6, cy - 10 + bobY + headBob, 12, 10);
 
         // Eyes
@@ -169,7 +169,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         }
 
         // Antenna
-        ctx.fillStyle = '#52525b';
+        ctx.fillStyle = 'var(--color-border-light)';
         ctx.fillRect(cx - 1, cy - 14 + bobY + headBob, 2, 4);
         ctx.fillStyle = color;
         ctx.beginPath();
@@ -188,11 +188,11 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         if (state === 'active' && isWorking) {
           const armL = Math.sin(t * 6 + i) * 2;
           const armR = Math.sin(t * 6 + i + Math.PI) * 2;
-          ctx.fillStyle = '#3f3f46';
+          ctx.fillStyle = 'var(--color-border)';
           ctx.fillRect(cx - 11, cy + 3 + bobY + armL, 4, 3);
           ctx.fillRect(cx + 7, cy + 3 + bobY + armR, 4, 3);
         } else {
-          ctx.fillStyle = '#3f3f46';
+          ctx.fillStyle = 'var(--color-border)';
           ctx.fillRect(cx - 10, cy + 5 + bobY, 3, 6);
           ctx.fillRect(cx + 7, cy + 5 + bobY, 3, 6);
         }
@@ -219,14 +219,14 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
             const sparkX = cx + Math.sin(t * 4 + p * 2) * 12;
             const sparkY = cy - 5 + Math.cos(t * 3 + p) * 8 + bobY;
             ctx.globalAlpha = 0.4 + Math.sin(t + p) * 0.3;
-            ctx.fillStyle = '#ef4444';
+            ctx.fillStyle = 'var(--color-error)';
             ctx.fillRect(sparkX - 1, sparkY - 1, 2, 2);
           }
           ctx.globalAlpha = 1;
         }
 
         // Name label
-        ctx.fillStyle = state === 'stopped' ? '#3f3f46' : '#71717a';
+        ctx.fillStyle = state === 'stopped' ? 'var(--color-border)' : 'var(--color-text-muted)';
         ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         // v4.8.4: fit the agent's name into the desk width by measuring,
@@ -253,7 +253,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
       }
 
       // Title
-      ctx.fillStyle = '#27272a';
+      ctx.fillStyle = 'var(--color-bg-tertiary)';
       ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('COMMAND POST', w / 2, h - 6);
@@ -264,9 +264,9 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const latest = recentActivity[recentActivity.length - 1];
         const age = Date.now() - new Date(latest.timestamp).getTime();
         if (age < 60000) {
-          ctx.fillStyle = '#6366f1' + '40';
+          ctx.fillStyle = 'var(--color-accent)' + '40';
           ctx.fillRect(0, 0, w, 16);
-          ctx.fillStyle = '#a5b4fc';
+          ctx.fillStyle = 'var(--color-accent-light)';
           ctx.font = '8px -apple-system, BlinkMacSystemFont, sans-serif';
           const tickerText = latest.message.length > 60 ? latest.message.slice(0, 57) + '...' : latest.message;
           ctx.textAlign = 'center';
@@ -288,7 +288,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
   return (
     <canvas
       ref={canvasRef}
-      className="w-full rounded-xl border border-white/[0.06]"
+      className="w-full rounded-xl border border-border"
       style={{ height: 220, imageRendering: 'pixelated' }}
     />
   );

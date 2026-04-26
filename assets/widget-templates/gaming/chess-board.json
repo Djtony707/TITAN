@@ -1,0 +1,13 @@
+{
+  "id": "chess-board",
+  "name": "Chess Board",
+  "category": "gaming",
+  "tags": ["gaming", "chess", "board", "strategy"],
+  "description": "Interactive chess board with square selection and move notation log.",
+  "triggers": ["chess", "chess board", "play chess", "chess game"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function ChessBoard() {\n  const [selected, setSelected] = React.useState(null);\n  const [moves, setMoves] = React.useState([]);\n  const files = ['a','b','c','d','e','f','g','h'];\n  const ranks = ['8','7','6','5','4','3','2','1'];\n\n  const handleClick = (sq) => {\n    if (selected) {\n    if (selected !== sq) {\n        setMoves([...moves, `${selected}-${sq}`]);\n      }\n      setSelected(null);\n    } else {\n      setSelected(sq);\n    }\n  };\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 12, background: '#f8fafc', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', color: '#1e293b' }}>\n      <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Chess Board</h2>\n      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1, background: '#475569', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>\n        {ranks.map((r) =>\n          files.map((f) => {\n            const sq = f + r;\n            const isDark = (files.indexOf(f) + ranks.indexOf(r)) % 2 === 1;\n            const isSel = selected === sq;\n            return (\n              <button\n                key={sq}\n                onClick={() => handleClick(sq)}\n                style={{\n                  aspectRatio: '1',\n                  border: 'none',\n                  background: isSel ? '#2563eb' : isDark ? '#475569' : '#e2e8f0',\n                  color: isSel ? '#fff' : isDark ? '#e2e8f0' : '#475569',\n                  fontSize: 10,\n                  fontWeight: 600,\n                  cursor: 'pointer'\n                }}\n              >\n                {sq}\n              </button>\n            );\n          })\n        )}\n      </div>\n      <div style={{ flex: 1, overflow: 'auto', background: '#fff', borderRadius: 6, padding: 8, fontSize: 12 }}>\n        {moves.length === 0 && <span style={{ color: '#94a3b8' }}>No moves yet.</span>}\n        {moves.map((m, i) => (\n          <div key={i} style={{ padding: '2px 0' }}>\n            {Math.floor(i / 2) + 1}. {m}\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<ChessBoard/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_BOARD_THEME", "description": "Board color theme: classic, blue, or green", "default": "classic" }
+  ]
+}

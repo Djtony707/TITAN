@@ -35,7 +35,7 @@ export interface OrchestratorResult {
 /** Analyze whether a message would benefit from sub-agent delegation */
 export async function analyzeForDelegation(message: string): Promise<DelegationPlan> {
     const config = loadConfig();
-    const fastModel = config.agent.modelAliases?.fast || 'openai/gpt-4o-mini';
+    const fastModel = config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
 
     // Quick heuristic check first — skip LLM call for simple messages
     const wordCount = message.split(/\s+/).length;

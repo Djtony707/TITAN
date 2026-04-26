@@ -5,6 +5,427 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.0] — 2026-04-25 — 🚀 **"Spacewalk"** — The Full Release
+
+The biggest TITAN release since v1.0. **Mission Control is reborn as a
+browser-first widget canvas.** Plus a complete safety & observability overhaul,
+Space Agent parity features, and 35 new capabilities across 8 sprints.
+
+### Publishing strategy
+
+v5.0.0 ships to the npm `@next` tag, **not `@latest`**, so the 25 k+ existing
+v4.x installs are not auto-upgraded. Early adopters opt in with:
+
+```bash
+npm i -g titan-agent@next
+```
+
+After a week of real-world feedback, we promote `5.0.0` → `@latest` with a
+follow-up changelog note. Users who want to stay on v4.13.0 can do nothing;
+they remain on `@latest`.
+
+### v5.0.0 Final Release Notes — What's New Today
+
+#### Safety & Observability (Sprint 1)
+
+- **PII Redaction** — Emails, SSNs, phone numbers, credit cards, IPs, and MAC
+  addresses are automatically scrubbed from tool outputs and LLM responses.
+  Configurable via `security.redactPII`.
+- **Secret Exfiltration Scanning v2** — Five-layer scan: tool output, URLs,
+  LLM responses, base64-encoded secrets, and prompt-injection patterns.
+  `security.secretScan.level: 'full'` enables all layers.
+- **Pre-Execution Scanner** — Dangerous command patterns (`rm -rf /`,
+  `curl | sh`, `eval`, etc.) are blocked before execution.
+  `security.preExecScan: 'block'` to refuse, `'warn'` to flag.
+- **Shell Lifecycle Hooks** — Run shell scripts on `pre_tool_call`,
+  `post_tool_call`, `on_session_start`, `on_session_end`, `on_round_start`,
+  `on_round_end`. Pre-tool hooks can block execution; post-tool hooks can
+  modify results.
+- **Filesystem Checkpoints** — Snapshots taken before every mutating tool
+  (`write_file`, `edit_file`, `append_file`, `apply_patch`). Rollback via
+  `POST /api/sessions/:id/checkpoints/:checkpointId/restore`.
+- **OTEL Diagnostics** — Lightweight JSONL span emitter (no heavy SDK).
+  Spans for `model_call`, `tool_execution`, `session`. Trace context
+  propagated through `LoopContext` → `LoopResult`.
+- **Steer API** — `POST /api/sessions/:id/steer` injects mid-run nudges into
+  active agent loops. Course-correct without stopping the session.
+- **Inactivity & Absolute Timeouts** — `agent.inactivityTimeoutMs` (default
+  5 min) and `agent.absoluteTimeoutMs` (default 10 min) prevent runaway loops.
+
+#### Space Agent Parity
+
+- **Prompt Includes** — Drop `*.system.include.md` or `*.transient.include.md`
+  files into `~/.titan/prompts/` and they auto-inject into every system prompt.
+  Persistent behavior instructions without touching code.
+- **CORS Proxy** — `POST /api/proxy` forwards fetch requests through TITAN,
+  bypassing browser CORS blocks for widget development and web browsing.
+- **Cloud Share** — `POST /api/sessions/:id/share` creates a shareable link
+  for any session. `GET /api/shares/:shareId` retrieves it. Sessions become
+  portable.
+- **Guest Sessions** — `POST /api/guest` creates an anonymous session.
+  Auto-pruned after 72h of inactivity. RBAC blocks dangerous tools for guests.
+- **Prompt Budget Ratios** — `agent.promptBudget` caps context sections:
+  system / history / transient ratios. Prevents token explosion on large
+  contexts.
+- **Checkpoint History UI** — `GET /api/sessions/:id/history` returns
+  checkpoints + messages for a full time-travel view.
+
+#### New Gateway Endpoints
+
+- `POST /api/sessions/:id/steer` — mid-run nudge injection
+- `GET /api/sessions/:id/checkpoints` — list checkpoints
+- `POST /api/sessions/:id/checkpoints/:checkpointId/restore` — rollback
+- `GET /api/debug` — system debug info
+- `POST /api/debug/share` — shareable debug bundle
+- `POST /api/webhooks/direct` — bypass event queue
+- `POST /api/proxy` — CORS proxy
+- `POST /api/sessions/:id/share` — session sharing
+- `GET /api/shares/:shareId` — retrieve shared session
+- `POST /api/guest` — create guest session
+- `GET /api/prompt-includes` — list prompt includes
+- `GET /api/sessions/:id/history` — checkpoint + message history
+
+#### New Modules
+
+- `src/security/exfilScan.ts` — Multi-layer secret exfiltration blocking
+- `src/security/preExecScan.ts` — Dangerous command pattern scanner
+- `src/hooks/shellHooks.ts` — Lifecycle hook execution
+- `src/diagnostics/otel.ts` — Lightweight OTEL-compatible span emitter
+- `src/checkpoint/manager.ts` — Filesystem snapshots + rollback API
+- `src/memory/provider.ts` + `src/memory/builtin.ts` — Pluggable memory
+- `src/providers/credentialPool.ts` — Same-provider API key rotation
+- `src/agent/contextInjection.ts` — `@file`/`@url` context injection
+- `src/promptincludes/discover.ts` — Prompt include discovery
+
+---
+
+## [5.0.0] — 2026-04-23 — 🚀 **"Spacewalk"** — Canvas UI + anonymous telemetry
+
+The biggest TITAN release since v1.0. **Mission Control is reborn as a
+browser-first widget canvas.** The agent can reshape its own interface by
+generating React components on demand, drop them onto a draggable /
+resizable grid, and persist layouts via CRDT. Plus the long-promised
+anonymous telemetry so we can finally see what hardware people are running
+TITAN on — and ship fixes for the bugs we discover before anyone has to
+report them.
+
+### Publishing strategy
+
+v5.0.0 ships to the npm `@next` tag, **not `@latest`**, so the 25 k+ existing
+v4.x installs are not auto-upgraded. Early adopters opt in with:
+
+```bash
+npm i -g titan-agent@next
+```
+
+After a week of real-world feedback, we promote `5.0.0` → `@latest` with a
+follow-up changelog note. Users who want to stay on v4.13.0 can do nothing;
+they remain on `@latest`.
+
+### Headline feature — TITAN 3.0 Canvas
+
+Inspired by Agent Zero's Space Agent, rebuilt as a first-class TITAN subsystem:
+
+- **Widget canvas** — `react-grid-layout` with 12-col responsive grid,
+  drag-from-title-bar, 8 resize handles per widget, unlimited scroll
+  vertically.
+- **Spaces** — pre-seeded workspaces: Home, SOMA, Command Post,
+  Intelligence, Infrastructure, Tools, Settings. Each a collection of
+  widgets. Switch with the floating Nav widget or legacy routes
+  (`/dashboard`, `/soma`, `/command-post`, …) auto-redirect.
+- **30+ built-in system widgets** — Chat (506 LOC), SomaOrb (animated 3D
+  floating orb), Command Post, Memory Graph, Voice, Files, every old admin
+  panel now a movable widget.
+- **Agent-generated widgets** — ask for "a GPU temperature monitor" in
+  chat → the agent emits a `_____widget` block → `widgetCompiler.ts` builds
+  a React component → `WidgetSandbox.tsx` renders it in a sandboxed iframe.
+- **Yjs CRDT persistence** — layouts survive reloads via IndexedDB; optional
+  peer-sync via WebRTC (off by default, enable with
+  `localStorage.titan2:webrtc = '1'`).
+- **New keyboard shortcuts**: **⌘K** command palette, **⌘J** toggle chat.
+
+### Anonymous telemetry (opt-in)
+
+- **Default: OFF.** No existing install silently starts sending data.
+  Consent must be given via the Setup Wizard or the new Settings → Privacy
+  widget.
+- **What's collected on opt-in**: TITAN version, Node version, OS +
+  release, arch, CPU model + cores, RAM, GPU vendor/name/VRAM, install
+  method, disk size, and a lightweight 5-minute heartbeat (uptime, session
+  count, memory use). Crash reports strip `$HOME` from stacks.
+- **Never collected**: prompts, file contents, credentials, IPs (only a /24
+  prefix reaches the collector), or conversations.
+- **Where it goes**: Tailscale-Funnel-fronted collector at
+  `https://dj-z690-steel-legend-d5.tail57901.ts.net/events`. Self-hostable
+  — the collector source is in `packages/titan-analytics/` (SQLite, 300
+  LOC, one dep).
+- **Dashboard**: `https://dj-z690-steel-legend-d5.tail57901.ts.net/dashboard`
+  (basic-auth, Tony-only) — breakdowns of OS / GPU / version / Node
+  version / install method / RAM bucket; top error fingerprints over 7 d.
+- **Full disclosure**: new [`PRIVACY.md`](./PRIVACY.md) at repo root.
+
+### What's new in the code
+
+- New widgets: `SettingsSpecialistsWidget` (per-specialist model override),
+  `SettingsPrivacyWidget` (consent toggles + live profile preview)
+- New backend modules: `src/analytics/collector.ts` (already existed,
+  expanded for install-marker reporting), `packages/titan-analytics/`
+  (NEW — standalone collector service)
+- Endpoints: `POST /api/telemetry/consent`, `GET /api/telemetry/consent`,
+  `GET /api/analytics/profile`
+- Postinstall marker: `~/.titan/install-marker.json` — gateway reports
+  install / update events on first boot, only when consented
+- Gateway: unhandled exception + promise rejection handlers report to the
+  remote collector (strip `$HOME`, gated on opt-in)
+
+### Breaking changes
+
+- **Mission Control UI replaced.** Old React admin panel tree deleted;
+  canvas is the new home. Legacy routes still work via redirect.
+- **Old `MissionView` / `CommandPostHub` entry point is gone** from
+  `App.tsx`. If you had custom components importing from those paths,
+  they've moved into `ui/src/titan2/system/widgets/`.
+- **Config schema additions** (all optional + defaulted): `telemetry.remoteUrl`
+  now has a default, `telemetry.crashReports`, `telemetry.consentedAt`,
+  `telemetry.consentedVersion`. Existing configs load fine.
+- Monorepo migration: repo root is now a pnpm workspace
+  (`packages/*`, `server`, `ui`).
+
+### Other fixes & changes bundled in
+
+- CRDT widget duplication (IndexedDB hydration race + WebRTC sync) — fixed
+  with `healYSpaceOnSync` + `dedupeYSpaceWidgets` + WebRTC off by default.
+- `react-grid-layout` prop-names fixed (`isDraggable` / `isResizable` /
+  `draggableHandle` / `resizeHandles` replaced invented `dragConfig` /
+  `resizeConfig` objects).
+- Memoization bugs in TitanCanvas (conditional `useMemo` → React error #310,
+  plus "object is not iterable" from non-array corruption) — hardened with
+  `Array.isArray` guards + `Number.isFinite` on grid coords.
+- Layout persistence — `onLayoutChange` was a no-op; now routes through
+  `SpaceEngine.updateLayout` → Yjs + localStorage.
+
+### Rollout & safety
+
+- `titan-agent@4.13.0` stays on `@latest` until promotion. Existing installs
+  are not affected.
+- Fresh installs of `@next` see the Setup Wizard which requires explicit
+  consent for any telemetry. Declining keeps the install 100 % local.
+- The collector has a per-IP rate limit (120 events / hour). Ingest errors
+  fail silently on the client — telemetry never blocks the UI.
+
+### Codename
+
+**"Spacewalk"** — the canvas lets the agent walk outside the spaceship's
+walls and rebuild its interface in the vacuum. Fitting for a release where
+TITAN stops being a dashboard and starts being an environment.
+
+---
+
+## [5.0.2] — 2026-04-25 — Self-awareness wiring + version sync + persona slimming
+
+Stability patch closing the v5.0 punch list. Self-awareness modules that were imported but never invoked are now part of every session. The version constant and `package.json` are back in sync. Large persona files (10–14 KB) no longer inflate every system prompt by 3K+ tokens.
+
+### Self-awareness — wired end-to-end
+
+The five `src/memory/` self-awareness modules existed but were partially wired into runtime:
+
+- **`workingMemory.ts`** — `renderSessionContext()` was implemented but never injected into the agent system prompt. Fixed:
+  - Added `__titan_working_memory_block` global hook in `gateway/server.ts`.
+  - Hook called from `agent.ts` `buildSystemPrompt()` with the current `sessionId`.
+  - Added `openSession()` in `agent.ts` `processMessage()` so every new session gets a working-memory record.
+- **`provenance.ts`** — `recordProvenance()` was implemented but never called by any memory write path. Fixed:
+  - Wired into `recordEpisode()` (`episodic.ts`) — accepts optional `provenanceSource/confidence/writtenBy`.
+  - Wired into `addEpisode()` (`graph.ts`) — same optional provenance params.
+  - Wired into `archiveToEpisodic()` (`workingMemory.ts`) — archives record as `source: 'agent'` with 0.85 confidence.
+- **`identity.ts`**, **`meta.ts`**, **`experiments.ts`** — already properly wired (identity/self-model via global hooks in `server.ts`; experiments via `goalProposer.ts`). No changes needed.
+
+### Version source-of-truth sync
+
+- **`package.json`** — bumped `4.12.0` → `5.0.0` to match `src/utils/constants.ts::TITAN_VERSION`. Tests already asserted `'5.0.0'`, so no test changes were needed. Resolves the version drift flagged in the live audit.
+
+### Persona token bloat — fixed
+
+Top personas (`tdd-engineer.md`, `code-reviewer.md`, `simplifier.md`, `browser-tester.md`, etc.) ranged 10–14 KB and were injected raw into every system prompt of every agent that adopted them, costing 2.5–3.5 K tokens per turn — a real hit on smaller models.
+
+- **`src/personas/manager.ts::getActivePersonaContent`** now caps injection at **4096 bytes** (`PERSONA_INJECTION_CAP_DEFAULT`) with **section-aware truncation** — the cut prefers the last markdown header in the final 25 % of the cap, so the truncated persona ends on a clean section boundary.
+- A footer marker `[persona truncated at N bytes — full M bytes available via get_persona tool]` tells the agent the rest is reachable via the existing `get_persona` skill.
+- Override the cap via env: `TITAN_PERSONA_CAP=8192` (or `0` to disable).
+- New `getFullPersonaContent(id)` returns the un-truncated content for tools that need it.
+- Smaller personas (incl. `autonomous.md` at 857 B) pass through unchanged.
+
+Verification:
+- `tdd-engineer` (14 274 B) → 3 930 B injected
+- `code-reviewer` (14 243 B) → 3 539 B injected
+- `autonomous` (857 B) → unchanged
+
+### Doc hygiene
+
+- `CLAUDE.md` punch-list items 1 (version sync), 4 (stale src/ files — already cleaned), and 6 (persona bloat) marked done.
+- `AI_AGENT_SYNC.md` updated with this session's changelog entries; cross-agent IPC bus (`agent-bus`) now in use for live coordination between Claude Code and Kimi CLI.
+
+---
+
+## [5.0.1] — 2026-04-24 — SOMA hardening + specialist model overrides
+
+Post-release hotfix. Addresses a production incident where the content-scheduler + un-damped SOMA pressure cycle created 1,377 duplicate goals, and completes the specialist model-override feature that was half-wired in v5.0.0.
+
+### SOMA anti-spam hardening
+
+- **`src/agent/goals.ts`** — Multi-layer deduplication + caps:
+  - Fuzzy Jaccard bigram similarity (≥0.82) against active goals.
+  - 24-hour exact dedupe against all goals (even completed).
+  - Hard caps: 50 active goals, 150 total goals. `force: true` bypasses for human requests.
+  - Rate limit: 10 goals/hour rolling window for non-human sources.
+  - Bulk `POST /api/goals/dedupe` endpoint to close duplicates, keeping the newest.
+- **`src/organism/pressure.ts`** — Heavy damping:
+  - Global cooldown: 1 hour between any pressure cycle firing.
+  - Per-drive damping: 2 hours before the same dominant drive can fire again.
+  - Overload detection: ≥30 active goals → refuses to propose new work goals.
+  - Hunger drive floor at 0.15 prevents panic-proposing from extreme backlogs.
+- **`src/agent/goalProposer.ts`** — Overload gate: if ≥25 active goals, only cleanup-type proposals are allowed.
+- **`src/agent/commandPost.ts`** — Approval queue caps: auto-rejects oldest pending when queue hits 30; stale cleanup after 3 days.
+- **`src/skills/builtin/content_publisher.ts`** — `content_schedule` now checks existing goals by niche before creating new ones.
+
+### Specialist model overrides — wired end-to-end
+
+- **`src/agent/specialists.ts`** — `getSpecialist()` and `findSpecialistForTemplate()` now read `config.specialists.overrides[id].model` at runtime. `ensureSpecialistsRegistered()` persists the effective model to Command Post registry.
+- **`src/gateway/server.ts`** — `PATCH /api/command-post/agents/:id` and `PATCH /api/command-post/agents/:id/identity` now accept `model` in the request body.
+- **UI** — Model editing added to `CommandPostHub.tsx` (AgentIdentityEditor + OrgChartTab inline field) and `CPAgentDetail.tsx` (Config tab). All wired to `updateCPAgent()`.
+
+### Build & deploy fixes
+
+- **`tsup.config.ts`** — Added missing entry points for `goalDriver.ts`, `pressure.ts`, `driveTickWatcher.ts`, `driverScheduler.ts`, `drives.ts`, `hormones.ts`, `shadow.ts`. Fixes `ERR_MODULE_NOT_FOUND` on deployed builds.
+- **SetupWizard persona fix** — Removed `personas.slice(0, 10)` truncation. All 42 personas now visible via searchable grid with division filtering.
+
+---
+
+## [4.13.0] — 2026-04-20 — Ancestor-extraction sprint (Hermes + Paperclip + OpenClaw)
+
+Large autonomy + operational-safety release. Pulled and adapted thirteen
+patterns from the three ancestor projects that TITAN was missing or only
+partially wired. The headline is that the autonomous cycle now reliably
+produces work on any whitelisted model — previously gemma4:31b-cloud
+would return empty goal-proposal arrays and the whole Dreaming → Proposer
+→ Approve → Drive loop would idle forever.
+
+### Autonomy
+
+- **Composable system prompt** — new `src/agent/systemPromptParts.ts` with
+  per-block assembly + per-model-family overlays. Main-agent prompt
+  shrank from ~25KB to ~3KB per turn. gemma4:31b-cloud no longer emits
+  `<|tool>call:...<|tool|>` markup as prose. (Hermes `prompt_builder.py`)
+- **Auxiliary model client** — new `src/providers/auxiliary.ts` routes
+  side tasks (goal-proposal JSON extraction, structured-spawn reformat,
+  session titles, graph extraction) to a dedicated fast+cheap model.
+  Fixes GoalProposer empty-array problem. Config: `auxiliary.model` or
+  `auxiliary.preferFamilies`. (Hermes `auxiliary_client.py`)
+- **Subdirectory hints** — new `src/agent/subdirHints.ts` lazily loads
+  AGENTS.md / CLAUDE.md / .cursorrules from subdirectories as agents
+  navigate into them via tool calls. Hints are appended to tool RESULTS
+  (preserves prompt cache). Security-scanned for prompt injection.
+  (Hermes `subdirectory_hints.py`)
+- **Bounded run continuations** — new `src/agent/runContinuations.ts`
+  caps per-run continuations at 2, persisted to disk so restarts don't
+  reset. Wired into agentLoop `empty_after_tools` bailout and
+  goalDriver `plan_only` verify fails. (Paperclip `run-continuations.ts`)
+- **Path-scoped auto-approval** — new `src/agent/approvalClassifier.ts`
+  short-circuits read-only tool approvals under allowlisted paths
+  (`~/Desktop/TitanBot`, `/opt/TITAN`, `/tmp`). Off by default; opt in
+  via `commandPost.autoApprove.enabled`. (OpenClaw
+  `acp/approval-classifier.ts`)
+- **Named agents w/ per-agent config** — new `src/agent/agentScope.ts`
+  lets Tony declare custom specialists in `titan.json` under
+  `agents.entries.*`. The five built-in specialists remain as fallbacks.
+  (OpenClaw `agent-scope.ts`)
+- **Smart-turn routing for simple messages** — `isSimpleTurn` + new
+  `costOptimization.simpleTurnModel` config routes trivial turns
+  ("what time is it?") to a dedicated fast model, skipping the full
+  tool-use machinery. (Hermes `smart_model_routing.py`)
+
+### Provider / rate-limit
+
+- **Jittered retry backoff** — `router.ts` now uses Hermes-style
+  asymmetric additive jitter with a monotonic counter seed. Decorrelates
+  concurrent retries under rate-limit storms. (Hermes `retry_utils.py`)
+- **Rate-limit header tracker** — new `src/providers/rateLimitTracker.ts`
+  parses `x-ratelimit-*` response headers for proactive backoff before
+  the 429 fires. Wired into ollama.ts + router.ts. (Hermes
+  `rate_limit_tracker.py`)
+- **One-shot context compression on overflow** — router now acts on the
+  `shouldCompress` error-taxonomy hint. Previously dead code.
+
+### Operational safety
+
+- **Kill-switch retune** — fix-oscillation threshold moved from
+  `2×/24h per-target` (routinely tripped by self-mod staging retries) to
+  `5×/1h per-target`. Paths under `self-mod-staging/` and `/tmp/titan-*`
+  are exempt entirely. Tony: "kill switch is too touchy" — this fixes it.
+- **Scoped pause + probe-on-recovery** — new `src/safety/scopedPause.ts`
+  pauses ONE target for a bounded cooldown instead of pausing the fleet.
+  Auto-expires — no human resume needed. Full kill retained for real
+  emergencies (identity violation, sustained safety pressure,
+  canary regression). (Paperclip `budgets.ts:pauseScopeForBudget`)
+- **Cross-agent stale-lock adoption** — `commandPost.checkoutTask` now
+  lets a different agent adopt a lock when the holder's heartbeat is
+  stale (>5 min). Prevents zombie subtasks.
+
+### Observability
+
+- **Trajectory logger** — new `src/agent/trajectory.ts` appends
+  successful runs to `trajectory_samples.jsonl` and failed runs to
+  `failed_trajectories.jsonl` under `$TITAN_HOME`. Feeds future
+  retrospective + self-improvement pipelines. (Hermes `trajectory.py`)
+
+### Tests
+
+- 81 new tests across 7 new files:
+  - `tests/system-prompt-parts.test.ts` — 19 tests
+  - `tests/auxiliary-client.test.ts` — 14 tests
+  - `tests/subdir-hints.test.ts` — 13 tests
+  - `tests/kill-switch-retune.test.ts` — 6 tests
+  - `tests/batch2-3-modules.test.ts` — 22 tests
+  - `tests/trajectory.test.ts` — 2 tests
+  - `tests/approval-classifier.test.ts`, `tests/run-continuations.test.ts`,
+    `tests/commandpost-stale-adopt.test.ts`, `tests/error-taxonomy-compress.test.ts`
+    (shipped earlier in the sprint)
+- `tests/safety/killSwitch.test.ts` updated for the new 5×/1h threshold.
+- All new tests pass; zero regressions in the full 5800-test suite.
+
+### Files — new
+
+- `src/agent/systemPromptParts.ts`
+- `src/agent/runContinuations.ts`
+- `src/agent/approvalClassifier.ts`
+- `src/agent/subdirHints.ts`
+- `src/agent/agentScope.ts`
+- `src/agent/trajectory.ts`
+- `src/providers/auxiliary.ts`
+- `src/providers/rateLimitTracker.ts`
+- `src/safety/scopedPause.ts`
+
+### Files — changed
+
+- `src/agent/agent.ts` — 317-line template replaced with
+  `assembleSystemPrompt()` call
+- `src/agent/agentLoop.ts` — subdir hints hook, continuation wiring,
+  trajectory logging
+- `src/agent/commandPost.ts` — cross-agent stale adoption, approval
+  classifier hook, auto-approve config wiring
+- `src/agent/goalDriver.ts` — continuation check in `tickIterating`
+- `src/agent/goalProposer.ts` — auxiliary-model routing
+- `src/agent/structuredSpawn.ts` — auxiliary-model routing for reformat
+- `src/agent/subAgent.ts` — specialists now get minimal-mode TITAN core +
+  role template
+- `src/agent/costOptimizer.ts` — `isSimpleTurn` + `simpleTurnModel`
+- `src/safety/killSwitch.ts` — retune + scoped-pause handoff
+- `src/providers/router.ts` — jittered backoff, proactive rate-limit
+  backoff, shouldCompress acting path
+- `src/providers/ollama.ts` — records rate-limit headers on response
+- `src/config/schema.ts` — `auxiliary`, `agents`, `commandPost.autoApprove`,
+  `costOptimization.simpleTurnModel` blocks
+
+---
+
 ## [4.12.0] — 2026-04-19 — API refactor + concurrency hardening
 
 Follow-up to v4.11.1. All v4.11.1 fixes are included; this release

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useResizable } from '../../hooks/useResizable';
+import AmbientBackground from './AmbientBackground';
 import ChatView from '../chat/ChatView';
 import ActivityPanel from './ActivityPanel';
 import ResizeHandle from '../shell/ResizeHandle';
@@ -15,10 +16,11 @@ export default function MissionView({ onVoiceOpen }: { onVoiceOpen?: () => void 
   });
 
   return (
-    <div ref={containerRef} className="flex h-full min-h-0">
+    <div ref={containerRef} className="flex h-full min-h-0 relative">
+      <AmbientBackground />
       {/* Chat Panel (left) */}
       <div
-        className="min-w-0 overflow-hidden"
+        className="min-w-0 overflow-hidden relative z-10"
         style={{ width: activityCollapsed ? '100%' : `${size}%` }}
       >
         <ChatView
@@ -36,7 +38,7 @@ export default function MissionView({ onVoiceOpen }: { onVoiceOpen?: () => void 
       {/* Activity Panel (right) */}
       {!activityCollapsed && (
         <div
-          className="min-w-0 overflow-hidden border-l border-white/[0.04]"
+          className="min-w-0 overflow-hidden border-l border-border relative z-10"
           style={{ width: `${100 - size}%`, background: 'var(--color-bg-secondary)' }}
         >
           <ActivityPanel />

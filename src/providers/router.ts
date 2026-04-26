@@ -14,6 +14,7 @@ import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
 import { GoogleProvider } from './google.js';
 import { OllamaProvider } from './ollama.js';
+import { ClaudeCodeProvider } from './claudeCode.js';
 import { OpenAICompatProvider, PROVIDER_PRESETS } from './openai_compat.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
@@ -28,6 +29,32 @@ import { buildSmartContext } from '../agent/contextManager.js';
 import { shouldBackOff } from './rateLimitTracker.js';
 
 const COMPONENT = 'Router';
+
+/** Build failover order from all registered providers, sorted by capability priority */
+function getFailoverOrder(excludeProvider: string): string[] {
+    const priority: Record<string, number> = {
+        anthropic: 100,
+        openai: 90,
+        google: 80,
+        openrouter: 75,
+        groq: 70,
+        together: 65,
+        deepseek: 60,
+        xai: 55,
+        mistral: 50,
+        cerebras: 45,
+        cohere: 40,
+        'cohere-v2': 40,
+        fireworks: 35,
+        perplexity: 30,
+        'claude-code': 15,
+        ollama: 10,
+    };
+    initProviders();
+    return Array.from(providers.keys())
+        .filter(name => name !== excludeProvider)
+        .sort((a, b) => (priority[b] ?? 25) - (priority[a] ?? 25));
+}
 
 // ── Chain-of-thought stripping ──────────────────────────────────
 // Some local models (qwen, glm, deepseek, etc.) leak their internal
@@ -115,6 +142,7 @@ function initProviders(): void {
     providers.set('openai', new OpenAIProvider());
     providers.set('google', new GoogleProvider());
     providers.set('ollama', new OllamaProvider());
+    providers.set('claude-code', new ClaudeCodeProvider());
     // OpenAI-compatible providers (Groq, Mistral, OpenRouter, xAI, etc.)
     for (const preset of PROVIDER_PRESETS) {
         providers.set(preset.name, new OpenAICompatProvider(preset));
@@ -911,7 +939,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
             // Attempt failover to other providers (only on first failure, not after retries)
             if (attempt === 0) {
-                const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
+                const failoverOrder = getFailoverOrder(providerName);
                 for (const fallbackName of failoverOrder) {
                     if (fallbackName === providerName) continue;
 
@@ -1107,7 +1135,7 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
 
             // Attempt provider failover (only on first attempt)
             if (attempt === 0) {
-                const failoverOrder = ['anthropic', 'openai', 'google', 'ollama'];
+                const failoverOrder = getFailoverOrder(providerName);
                 let failedOver = false;
 
                 for (const fallbackName of failoverOrder) {

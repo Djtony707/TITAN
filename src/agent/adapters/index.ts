@@ -5,9 +5,9 @@
  * on import. Use `getAdapter(type)` to retrieve one by type string.
  */
 import type { ExternalAdapter } from './base.js';
-import { claudeCodeAdapter } from './claudeCode.js';
 import { codexAdapter } from './codex.js';
 import { bashAdapter } from './bash.js';
+import { claudeCodeAdapter } from './claudeCode.js';
 
 export type { ExternalAdapter, AdapterContext, AdapterResult } from './base.js';
 
@@ -32,6 +32,6 @@ export function listAdapters(): string[] {
 
 // ── Auto-register built-in adapters ───────────────────────────────────
 
-registerAdapter(claudeCodeAdapter);
 registerAdapter(codexAdapter);
 registerAdapter(bashAdapter);
+registerAdapter(claudeCodeAdapter);

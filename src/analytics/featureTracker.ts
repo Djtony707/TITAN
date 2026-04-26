@@ -37,14 +37,61 @@ export function trackModelUsage(model: string, provider?: string, success = true
     }).catch(() => {});
 }
 
-/** Track a tool call outcome. */
-export function trackToolCall(tool: string, success: boolean, latencyMs?: number, errorType?: string): void {
-    trackEvent('tool_call', {
-        tool,
-        success,
-        latency_ms: latencyMs,
-        error_type: errorType,
+// ── Per-session tool accumulator (cuts event volume 10-100x) ────────────────
+interface ToolStats {
+    count: number;
+    totalLatencyMs: number;
+    errorCount: number;
+}
+
+const sessionToolAccumulators = new Map<string, Map<string, ToolStats>>();
+
+/** Accumulate a tool call for later per-session batch emit. */
+export function trackToolCall(tool: string, success: boolean, latencyMs?: number, errorType?: string, sessionId?: string): void {
+    const sid = sessionId || '__global__';
+    let acc = sessionToolAccumulators.get(sid);
+    if (!acc) {
+        acc = new Map<string, ToolStats>();
+        sessionToolAccumulators.set(sid, acc);
+    }
+    const existing = acc.get(tool);
+    if (existing) {
+        existing.count += 1;
+        existing.totalLatencyMs += latencyMs ?? 0;
+        if (!success) existing.errorCount += 1;
+    } else {
+        acc.set(tool, {
+            count: 1,
+            totalLatencyMs: latencyMs ?? 0,
+            errorCount: success ? 0 : 1,
+        });
+    }
+}
+
+/** Emit accumulated tool_use_summary for a session and clear the buffer. */
+export function endToolSession(sessionId: string): void {
+    const acc = sessionToolAccumulators.get(sessionId);
+    if (!acc || acc.size === 0) return;
+
+    const tools: Record<string, { count: number; total_latency_ms: number; error_count: number }> = {};
+    let totalCalls = 0;
+    for (const [tool, stats] of acc) {
+        tools[tool] = {
+            count: stats.count,
+            total_latency_ms: stats.totalLatencyMs,
+            error_count: stats.errorCount,
+        };
+        totalCalls += stats.count;
+    }
+
+    trackEvent('tool_use_summary', {
+        session_id: sessionId,
+        tool_count: acc.size,
+        total_calls: totalCalls,
+        tools,
     }).catch(() => {});
+
+    sessionToolAccumulators.delete(sessionId);
 }
 
 /** Track feature toggle changes. */
@@ -55,9 +102,11 @@ export function trackFeatureToggle(feature: string, enabled: boolean): void {
     }).catch(() => {});
 }
 
-/** Track session end metrics. */
-export function trackSessionEnd(messageCount: number, toolRounds: number, errorCount: number, durationMs?: number): void {
+/** Track session end metrics. Flushes any accumulated tool stats. */
+export function trackSessionEnd(sessionId: string, messageCount: number, toolRounds: number, errorCount: number, durationMs?: number): void {
+    endToolSession(sessionId);
     trackEvent('session_end', {
+        session_id: sessionId,
         message_count: messageCount,
         tool_rounds: toolRounds,
         error_count: errorCount,
@@ -113,4 +162,25 @@ export function trackSelfModPR(action: 'created' | 'approved' | 'merged' | 'reje
         action,
         drive: drive || 'unknown',
     }).catch(() => {});
+}
+
+/** Track a bug report with rich context. */
+export function trackBugReport(properties: {
+    bug_id: string;
+    error_name: string;
+    error_message: string;
+    origin?: string;
+    model?: string;
+    channel?: string;
+    tools_used?: string[];
+    prompt_length?: number;
+    turn_number?: number;
+    os?: string;
+    arch?: string;
+    node_major?: number;
+    ram_gb?: number;
+    gpu_vram_gb?: number;
+    stack_preview?: string;
+}): void {
+    trackEvent('bug_report', properties).catch(() => {});
 }

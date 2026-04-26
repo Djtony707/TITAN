@@ -8,7 +8,7 @@ OpenAI-compatible /v1/audio/speech endpoint with reference audio support.
 Generates sentence-by-sentence for natural pacing with pauses between.
 
 Usage:
-    python scripts/qwen3-tts-server.py --host 127.0.0.1 --port 5006
+    python scripts/f5-tts-server.py --host 127.0.0.1 --port 5006
 
 Set voice to a reference audio filename in ~/.titan/voices/ (e.g., "andrew").
 """

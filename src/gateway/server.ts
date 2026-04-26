@@ -69,11 +69,12 @@ import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
 import { invalidateCacheForModel } from '../agent/responseCache.js';
 import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getRunHistory, setAutopilotDryRun } from '../agent/autopilot.js';
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
-import { initCommandPost, shutdownCommandPost, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, replyToApproval, snoozeApproval, unsnoozeApproval, batchApprove, batchReject, getAgentMessages, markAgentMessageRead, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
+import { initCommandPost, shutdownCommandPost, isCommandPostEnabled, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, searchIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, replyToApproval, snoozeApproval, unsnoozeApproval, batchApprove, batchReject, getAgentMessages, markAgentMessageRead, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
-import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask } from '../agent/goals.js';
+import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask, dedupeGoalsBulk } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
+import { startPaperclip, stopPaperclip, getPaperclipStatus } from '../addons/paperclipSidecar.js';
 import { getConsentUrl, exchangeCode, isGoogleConnected, getGoogleEmail, disconnectGoogle } from '../auth/google.js';
 import { createTeam, getTeam, listTeams, deleteTeam, updateTeam, addMember, removeMember, updateMemberRole, createInvite, acceptInvite, getEffectivePermissions, setRolePermissions, getTeamStats, isToolAllowed, getUserRole } from '../security/teams.js';
 import { TITAN_WORKSPACE } from '../utils/constants.js';
@@ -1001,6 +1002,103 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // OpenAI API compatibility layer (/v1/models, /v1/chat/completions, /v1/embeddings)
   app.use('/v1', createOpenAICompatRouter());
 
+  // ── Paperclip sidecar management & proxy ───────────────────
+  const PAPERCLIP_PORT = 3100; // Paperclip server default port
+
+  app.get('/api/paperclip/status', async (_req, res) => {
+    try {
+      res.json(await getPaperclipStatus());
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/paperclip/start', async (_req, res) => {
+    try {
+      await startPaperclip({ enabled: true, port: PAPERCLIP_PORT, autoStart: true }, titanEvents);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error(COMPONENT, `Paperclip start failed: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/paperclip/stop', async (_req, res) => {
+    try {
+      await stopPaperclip();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error(COMPONENT, `Paperclip stop failed: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/paperclip/reset', async (_req, res) => {
+    try {
+      await stopPaperclip();
+      await startPaperclip({ enabled: true, port: PAPERCLIP_PORT, autoStart: true }, titanEvents);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error(COMPONENT, `Paperclip reset failed: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Proxy Paperclip API calls (/api/paperclip/* → http://localhost:3100/api/*)
+  app.all('/api/paperclip/*', async (req: Request, res: Response) => {
+    // Skip the management routes handled above
+    if (req.path === '/api/paperclip/status' || req.path === '/api/paperclip/start' || req.path === '/api/paperclip/stop' || req.path === '/api/paperclip/reset') {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const targetPath = req.path.replace(/^\/api\/paperclip/, '/api');
+    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
+    const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
+    try {
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
+      }
+      const upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers,
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
+      });
+      res.status(upstream.status);
+      upstream.headers.forEach((v, k) => res.setHeader(k, v));
+      const body = await upstream.arrayBuffer();
+      res.end(Buffer.from(body));
+    } catch (err) {
+      logger.error(COMPONENT, `Paperclip API proxy error: ${(err as Error).message}`);
+      res.status(502).json({ error: 'Paperclip API proxy error', message: (err as Error).message });
+    }
+  });
+
+  // Proxy Paperclip web UI (/paperclip/* → http://localhost:3100/*)
+  app.all('/paperclip/*', async (req: Request, res: Response) => {
+    const targetPath = req.path.replace(/^\/paperclip/, '') || '/';
+    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
+    const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
+    try {
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
+      }
+      const upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers,
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
+      });
+      res.status(upstream.status);
+      upstream.headers.forEach((v, k) => res.setHeader(k, v));
+      const body = await upstream.arrayBuffer();
+      res.end(Buffer.from(body));
+    } catch (err) {
+      logger.error(COMPONENT, `Paperclip UI proxy error: ${(err as Error).message}`);
+      res.status(502).json({ error: 'Paperclip UI proxy error', message: (err as Error).message });
+    }
+  });
+
   // Ollama native API proxy (/ollama/* → configured Ollama server)
   // The UI's titan2/llm/ollama.ts hits /ollama/api/chat and /ollama/api/generate
   app.all('/ollama/*', async (req: Request, res: Response) => {
@@ -1163,6 +1261,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (isValidToken(token, cfg)) { next(); return; }
     res.status(401).json({ error: 'Unauthorized' });
+  });
+
+  // ── Command Post availability guard ──────────────────────────
+  app.use('/api/command-post', (_req, res, next) => {
+    if (isCommandPostEnabled()) { next(); return; }
+    res.status(503).json({ error: 'Command Post is disabled', hint: 'Enable it in titan.json: commandPost.enabled = true' });
   });
 
   // Legacy dashboard (kept during migration, also fallback if React UI not built)
@@ -1639,6 +1743,203 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // v5.0: Steer — mid-run nudge injection
+  app.post('/api/sessions/:id/steer', (req, res) => {
+    try {
+      const { message } = req.body as { message?: string };
+      if (!message || typeof message !== 'string') {
+        res.status(400).json({ error: 'message is required' });
+        return;
+      }
+      const { pushSteer } = require('../agent/agentLoop.js');
+      pushSteer(req.params.id, message);
+      res.json({ ok: true, sessionId: req.params.id });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Checkpoints — list and restore
+  app.get('/api/sessions/:id/checkpoints', (req, res) => {
+    try {
+      const { listCheckpoints } = require('../checkpoint/manager.js');
+      const checkpoints = listCheckpoints(req.params.id);
+      res.json({ checkpoints });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.post('/api/sessions/:id/checkpoints/:checkpointId/restore', (req, res) => {
+    try {
+      const { restoreCheckpoint } = require('../checkpoint/manager.js');
+      const result = restoreCheckpoint(req.params.id, req.params.checkpointId);
+      res.json({ ok: result.success, restored: result.restored, errors: result.errors });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Guest session creation (Space Agent parity)
+  app.post('/api/guest', (_req, res) => {
+    try {
+      const { createGuestSession } = require('../agent/session.js');
+      const session = createGuestSession();
+      res.json({ id: session.id, userId: session.userId, createdAt: session.createdAt });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Checkpoint history / time travel UI (Space Agent parity)
+  app.get('/api/sessions/:id/history', (req, res) => {
+    try {
+      const { listCheckpoints } = require('../checkpoint/manager.js');
+      const checkpoints = listCheckpoints(req.params.id);
+      // Also include session messages for context
+      const { getHistory } = require('../memory/memory.js');
+      const messages = getHistory(req.params.id, 100);
+      res.json({ checkpoints, messages, sessionId: req.params.id });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Prompt includes discovery
+  app.get('/api/prompt-includes', (_req, res) => {
+    try {
+      const { discoverPromptIncludes } = require('../promptincludes/discover.js');
+      const includes = discoverPromptIncludes();
+      res.json({ includes });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Debug info endpoint
+  app.get('/api/debug', (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const providers = Object.entries(cfg.providers || {})
+        .map(([name, p]) => ({ name, configured: !!(p as { apiKey?: string }).apiKey }));
+      res.json({
+        version: '5.0.0',
+        node: process.version,
+        platform: process.platform,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        providers: providers.length,
+        providerNames: providers.map(p => p.name),
+        autonomy: cfg.autonomy?.mode || 'supervised',
+        checkpointEnabled: cfg.checkpoints?.enabled !== false,
+        // Optional v5.0+ feature flags — defensive read because the schema
+        // doesn't strictly type these yet (debug bundle only).
+        steerEnabled: (cfg.agent as Record<string, unknown>)?.steerEnabled ?? false,
+        fastMode: (cfg.agent as Record<string, unknown>)?.fastMode ?? false,
+        concurrentTools: (cfg.agent as Record<string, unknown>)?.concurrentTools ?? true,
+      });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Debug share — create a shareable debug bundle
+  app.post('/api/debug/share', (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const providers = Object.entries(cfg.providers || {})
+        .map(([name, p]) => ({ name, configured: !!(p as { apiKey?: string }).apiKey }));
+      const bundle = {
+        version: '5.0.0',
+        node: process.version,
+        platform: process.platform,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        providers: providers.map(p => p.name),
+        autonomy: cfg.autonomy?.mode || 'supervised',
+        checkpointEnabled: cfg.checkpoints?.enabled !== false,
+        // Optional v5.0+ feature flags — read defensively because the schema
+        // doesn't strictly type them yet (debug bundle only — never used to
+        // gate behavior).
+        steerEnabled: (cfg.agent as Record<string, unknown>)?.steerEnabled ?? false,
+        fastMode: (cfg.agent as Record<string, unknown>)?.fastMode ?? false,
+        concurrentTools: (cfg.agent as Record<string, unknown>)?.concurrentTools ?? true,
+        timestamp: new Date().toISOString(),
+      };
+      res.json({ ok: true, bundle, shareUrl: null });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: Direct webhook delivery — bypass event queue
+  app.post('/api/webhooks/direct', async (req, res) => {
+    try {
+      const { webhookId, payload } = req.body as { webhookId?: string; payload?: Record<string, unknown> };
+      if (!webhookId) { res.status(400).json({ error: 'webhookId is required' }); return; }
+      const { getActiveWebhooks } = await import('../skills/builtin/webhook.js');
+      const webhook = getActiveWebhooks().get(webhookId);
+      if (!webhook) { res.status(404).json({ error: 'Webhook not found' }); return; }
+      // Execute handler directly (spawn async, return accepted)
+      import('child_process').then(({ exec }) => {
+        const cmd = webhook.handler.replace(/\$\{([^}]+)\}/g, (_m, key) => String(payload?.[key] ?? ''));
+        exec(cmd, { timeout: 30000 }, (err, stdout, stderr) => {
+          if (err) logger.warn('Webhook', `Direct delivery error: ${err.message}`);
+          else logger.info('Webhook', `Direct delivery ok: ${webhookId}`);
+        });
+      }).catch(() => { /* ignore */ });
+      res.json({ ok: true, webhookId, delivered: true });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v5.0: CORS Proxy (Space Agent parity)
+  app.post('/api/proxy', async (req, res) => {
+    try {
+      const { url, method = 'GET', headers = {}, body } = req.body as { url?: string; method?: string; headers?: Record<string, string>; body?: unknown };
+      if (!url || typeof url !== 'string') { res.status(400).json({ error: 'url is required' }); return; }
+      const proxyRes = await fetch(url, {
+        method,
+        headers: { 'User-Agent': 'TITAN-Proxy/1.0', ...headers },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const proxyBody = await proxyRes.text();
+      res.status(proxyRes.status).set('Content-Type', proxyRes.headers.get('Content-Type') || 'text/plain').send(proxyBody);
+    } catch (e) {
+      logger.error(COMPONENT, `Proxy error: ${(e as Error).message}`);
+      res.status(502).json({ error: 'Proxy failed', message: (e as Error).message });
+    }
+  });
+
+  // v5.0: Cloud Share — create a shareable session link
+  app.post('/api/sessions/:id/share', async (req, res) => {
+    try {
+      const { format = 'json' } = req.body as { format?: string };
+      const { getHistory } = await import('../memory/memory.js');
+      const history = getHistory(req.params.id, 10000);
+      if (!history || history.length === 0) { res.status(404).json({ error: 'Session not found or empty' }); return; }
+      const shareId = `${req.params.id}-${Date.now().toString(36)}`;
+      const sharePath = `${require('os').homedir()}/.titan/shares/${shareId}.json`;
+      require('fs').mkdirSync(require('path').dirname(sharePath), { recursive: true });
+      require('fs').writeFileSync(sharePath, JSON.stringify({ sessionId: req.params.id, format, history, createdAt: new Date().toISOString() }, null, 2), 'utf-8');
+      res.json({ ok: true, shareId, url: `/api/shares/${shareId}` });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  app.get('/api/shares/:shareId', async (req, res) => {
+    try {
+      const sharePath = `${require('os').homedir()}/.titan/shares/${req.params.shareId}.json`;
+      if (!require('fs').existsSync(sharePath)) { res.status(404).json({ error: 'Share not found' }); return; }
+      const data = JSON.parse(require('fs').readFileSync(sharePath, 'utf-8'));
+      res.json(data);
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
   app.get('/api/skills', (_req, res) => {
     const skills = getSkills();
     res.json(skills);
@@ -1818,6 +2119,35 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.get('/api/health', (_req, res) => {
     const cfg = loadConfig();
     res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded });
+  });
+
+  // ── Bug Reports (operator + agent team review) ─────────────────
+  // Local jsonl persisted at ~/.titan/bug-reports.jsonl. Always
+  // available regardless of telemetry.enabled — the file is the
+  // operator's source of truth even when remote sending is off.
+  app.get('/api/bug-reports', async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 200);
+      const { listRecentBugReports } = await import('../analytics/bugReports.js');
+      const reports = listRecentBugReports(limit);
+      res.json({ count: reports.length, reports });
+    } catch (err) {
+      res.status(500).json({ error: 'bug_reports_unavailable', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/bug-reports/:id', async (req, res) => {
+    try {
+      const { getBugReport } = await import('../analytics/bugReports.js');
+      const r = getBugReport(req.params.id);
+      if (!r) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.json(r);
+    } catch (err) {
+      res.status(500).json({ error: 'bug_report_unavailable', message: (err as Error).message });
+    }
   });
 
   // ── Docker Sandbox Execution ─────────────────────────────────
@@ -2736,7 +3066,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
-    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel } = req.body;
+    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel, systemPromptAppendix } = req.body;
     // Default channel to 'webchat' for browser-based Mission Control clients.
     // This enables the interactive plan approval flow (show plan → user approves/denies).
     // Programmatic API callers can explicitly pass channel: 'api' to auto-approve plans.
@@ -2861,8 +3191,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             onToolCall: (name: string, args: Record<string, unknown>) => {
               safeWrite(`event: tool_call\ndata: ${JSON.stringify({ name, args, timestamp: Date.now() })}\n\n`);
             },
-            onToolResult: (name: string, result: string, durationMs: number, success: boolean) => {
-              safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, timestamp: Date.now() })}\n\n`);
+            onToolResult: (name: string, result: string, durationMs: number, success: boolean, diff?: string) => {
+              safeWrite(`event: tool_end\ndata: ${JSON.stringify({ name, result: result.slice(0, 500), durationMs, success, diff, timestamp: Date.now() })}\n\n`);
             },
             onThinking: () => {
               safeWrite(`event: thinking\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
@@ -2875,6 +3205,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           signal: abortController.signal,
           sessionId: requestedSessionId,
           modelOverride: requestedModel,
+          systemPromptAppendix: typeof systemPromptAppendix === 'string' ? systemPromptAppendix : undefined,
         });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
@@ -2909,6 +3240,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           signal: abortController.signal,
           sessionId: requestedSessionId,
           modelOverride: requestedModel,
+          systemPromptAppendix: typeof systemPromptAppendix === 'string' ? systemPromptAppendix : undefined,
         });
         titanRequestsTotal.increment({ channel, status: 'ok' });
         if (response.toolsUsed) {
@@ -2941,6 +3273,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch (error) {
       titanRequestsTotal.increment({ channel, status: 'error' });
       titanErrorsTotal.increment({ type: 'request' });
+      // Capture a structured bug report for the operator + agent team to
+      // review. Best-effort — never gates the user-facing error path.
+      try {
+        const { captureBugReport } = await import('../analytics/bugReports.js');
+        await captureBugReport(error, {
+          origin: 'gateway./api/message',
+          channel,
+          sessionId: requestedSessionId,
+          model: typeof requestedModel === 'string' ? requestedModel : undefined,
+          lastUserMessage: typeof content === 'string' ? content : undefined,
+          turnNumber: undefined,
+        });
+      } catch { /* never let bug capture break the request path */ }
       // Classify the error so the UI can render an actionable banner instead of a stack trace
       const structured = classifyChatError(error as Error);
       if (wantsSSE && !clientDisconnected) {
@@ -4213,30 +4558,46 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   app.post('/api/goals', (req, res) => {
-    const { title, description, subtasks, priority, tags } = req.body;
+    const { title, description, subtasks, priority, tags, force } = req.body;
     if (!title) { res.status(400).json({ error: 'title is required' }); return; }
-    const goal = createGoal({
-      title,
-      description: description || '',
-      subtasks: subtasks || [],
-      priority,
-      tags,
-    });
-    res.status(201).json({ goal });
+    try {
+      const goal = createGoal({
+        title,
+        description: description || '',
+        subtasks: subtasks || [],
+        priority,
+        tags,
+        force: !!force,
+      });
+      res.status(201).json({ goal });
+    } catch (err) {
+      res.status(429).json({ error: (err as Error).message });
+    }
   });
 
   // Alias for Command Post UI compatibility
   app.post('/api/command-post/goals', (req, res) => {
-    const { title, description, subtasks, priority, tags } = req.body;
+    const { title, description, subtasks, priority, tags, force } = req.body;
     if (!title) { res.status(400).json({ error: 'title is required' }); return; }
-    const goal = createGoal({
-      title,
-      description: description || '',
-      subtasks: subtasks || [],
-      priority,
-      tags,
-    });
-    res.status(201).json({ goal });
+    try {
+      const goal = createGoal({
+        title,
+        description: description || '',
+        subtasks: subtasks || [],
+        priority,
+        tags,
+        force: !!force,
+      });
+      res.status(201).json({ goal });
+    } catch (err) {
+      res.status(429).json({ error: (err as Error).message });
+    }
+  });
+
+  // v5.0.0: Bulk dedupe endpoint for cleaning up runaway duplicate goals
+  app.post('/api/goals/dedupe', (_req, res) => {
+    const result = dedupeGoalsBulk();
+    res.status(200).json({ success: true, ...result });
   });
 
   app.get('/api/goals/:id', (req, res) => {
@@ -4949,6 +5310,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(listIssues(filters));
   });
 
+  app.get('/api/command-post/issues/search', (req, res) => {
+    const q = req.query.q as string | undefined;
+    if (!q || q.trim().length < 2) {
+      res.status(400).json({ error: 'Query must be at least 2 characters' });
+      return;
+    }
+    res.json(searchIssues(q));
+  });
+
   app.post('/api/command-post/issues', (req, res) => {
     const { title, description, priority, assigneeAgentId, goalId, parentId } = req.body;
     if (!title) { res.status(400).json({ error: 'title is required' }); return; }
@@ -4968,6 +5338,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
     const issueComments = getIssueComments(req.params.id);
     res.json({ ...issue, comments: issueComments });
+  });
+
+  app.get('/api/command-post/issues/:id/comments', (req, res) => {
+    const issue = getIssue(req.params.id);
+    if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+    res.json(getIssueComments(req.params.id));
   });
 
   app.patch('/api/command-post/issues/:id', (req, res) => {
@@ -5350,8 +5726,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Paperclip: Agent Updates (org chart fields) ──────────
   app.patch('/api/command-post/agents/:id', async (req, res) => {
-    const { reportsTo, role, title, name, status } = req.body;
-    const updated = updateRegisteredAgent(req.params.id, { reportsTo, role, title, name });
+    const { reportsTo, role, title, name, status, model } = req.body;
+    const updated = updateRegisteredAgent(req.params.id, { reportsTo, role, title, name, model });
     if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
     // v4.10.0-local polish: also allow status changes via PATCH so the
     // UI + API can pause/resume agents. Valid statuses enforced by the
@@ -5370,7 +5746,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // untouched. Validation is intentionally lenient — this is an admin
   // surface and malformed data fails at the next LLM call, not here.
   app.patch('/api/command-post/agents/:id/identity', async (req, res) => {
-    const { voiceId, personaId, systemPromptOverride, memoryNamespace, characterSummary } = req.body || {};
+    const { voiceId, personaId, systemPromptOverride, memoryNamespace, characterSummary, model } = req.body || {};
     const coerce = (v: unknown): string | null | undefined => {
       if (v === null) return null;
       if (typeof v === 'string') return v;
@@ -5386,6 +5762,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       systemPromptOverride: coerce(systemPromptOverride),
       memoryNamespace: coerce(memoryNamespace),
       characterSummary: coerce(characterSummary),
+      model: coerce(model),
     });
     if (res.headersSent) return;
     if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
@@ -6933,7 +7310,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const MAX_TTS_SENTENCES = 50; // generous limit — let full responses be spoken
     const MAX_TTS_CHARS = 10000;  // ~5 minutes of speech at 150 WPM
 
-    // Sequential TTS queue — processes one sentence at a time to avoid overwhelming Orpheus
+    // Sequential TTS queue — processes one sentence at a time to avoid overwhelming F5-TTS
     const ttsQueue: Array<{ sentence: string; index: number }> = [];
     let ttsRunning = false;
     let ttsResolve: (() => void) = () => {};
@@ -7260,9 +7637,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const format = ((req.query.format as string) || 'mp3').toLowerCase();
       if (!text.trim()) { res.status(400).json({ error: 'text required' }); return; }
 
-      // Prefer the F5-TTS server (supports Andrew reference). Fall back to
-      // the generic voice.ttsUrl (Orpheus) if the user requested an Orpheus
-      // voice or F5 is down.
+      // F5-TTS only as of v5.0 — voice.ttsUrl always points to the F5-TTS
+      // server (default :5006). Andrew voice is the default reference clone.
       const cfg = loadConfig();
       const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
 
@@ -7289,22 +7665,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  // ── Orpheus TTS Auto-Installer ─────────────────────────────
-  app.get('/api/voice/orpheus/status', async (_req, res) => {
-    const cfg = loadConfig();
-    const venvPath = join(homedir(), '.titan', 'orpheus-venv');
-    const installed = fs.existsSync(join(venvPath, 'bin', 'python'));
-    let running = false;
-    try {
-      const probe = await fetch(`${cfg.voice?.ttsUrl || 'http://localhost:5005'}/health`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      running = probe.ok;
-    } catch { /* not running */ }
-    res.json({ installed, running, venvPath });
-  });
-
   // ── F5-TTS Voice Cloning ─────────────────────────────────────────
+  // (Orpheus TTS support removed in v5.0 — voice is F5-TTS only.)
   const F5_TTS_PORT = 5006;
   const F5_TTS_MODEL = 'f5-tts-mlx';
 
@@ -7327,7 +7689,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ installed: true, running, voices, port: F5_TTS_PORT, model: F5_TTS_MODEL });
   });
 
-  let qwen3Pid: number | null = null;
+  // Tracks the spawned F5-TTS server pid. Variable is named for the legacy
+  // venv directory (~/.titan/qwen3tts-venv) which we keep as a stable
+  // on-disk path so existing installs aren't orphaned.
+  let f5ttsPid: number | null = null;
 
   app.post('/api/voice/f5tts/install', async (_req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -7375,8 +7740,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
       });
       child.unref();
-      qwen3Pid = child.pid ?? null;
-      const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+      f5ttsPid = child.pid ?? null;
+      const pidFile = join(homedir(), '.titan', 'f5tts.pid');
       if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
 
       // Wait for server to come up (model download + load)
@@ -7401,28 +7766,38 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.end();
   });
 
-  app.post('/api/voice/qwen3tts/stop', (_req, res) => {
-    const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+  // Canonical F5-TTS lifecycle handlers. Both legacy /qwen3tts/* and the
+  // new /f5tts/* routes call the same implementation so existing UIs
+  // (which may still POST to /qwen3tts/start|stop) keep working through
+  // v5.x. The /qwen3tts/* aliases are deprecated and will be removed in v6.
+  const stopF5TTSHandler = (_req: import('express').Request, res: import('express').Response) => {
+    // Both legacy and canonical pid-file locations are checked so an upgrade
+    // from a v4-era install with .titan/qwen3tts.pid still cleans up.
+    const candidates = [
+      join(homedir(), '.titan', 'f5tts.pid'),
+      join(homedir(), '.titan', 'qwen3tts.pid'),
+    ];
     try {
-      if (fs.existsSync(pidFile)) {
+      for (const pidFile of candidates) {
+        if (!fs.existsSync(pidFile)) continue;
         const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim());
-        process.kill(pid, 'SIGTERM');
-        fs.unlinkSync(pidFile);
+        try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+        try { fs.unlinkSync(pidFile); } catch { /* already gone */ }
       }
-      qwen3Pid = null;
+      f5ttsPid = null;
       res.json({ ok: true });
     } catch (e) {
       res.json({ ok: false, error: (e as Error).message });
     }
-  });
+  };
 
-  app.post('/api/voice/qwen3tts/start', async (_req, res) => {
+  const startF5TTSHandler = async (_req: import('express').Request, res: import('express').Response) => {
     const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
     const python = join(venvPath, 'bin', 'python');
-    const pidFile = join(homedir(), '.titan', 'qwen3tts.pid');
+    const pidFile = join(homedir(), '.titan', 'f5tts.pid');
 
     if (!fs.existsSync(python)) {
-      res.status(400).json({ ok: false, error: 'Qwen3-TTS not installed. Use POST /api/voice/qwen3tts/install first.' });
+      res.status(400).json({ ok: false, error: 'F5-TTS not installed. Use POST /api/voice/f5tts/install first.' });
       return;
     }
 
@@ -7430,7 +7805,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       const probe = await fetch(`http://localhost:${5006}/health`, { signal: AbortSignal.timeout(3000) });
       if (probe.ok) {
-        res.json({ ok: true, message: 'Qwen3-TTS is already running' });
+        res.json({ ok: true, message: 'F5-TTS is already running' });
         return;
       }
     } catch { /* not running, start it */ }
@@ -7447,12 +7822,30 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
       });
       child.unref();
-      qwen3Pid = child.pid ?? null;
+      f5ttsPid = child.pid ?? null;
       if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
-      res.json({ ok: true, message: 'Qwen3-TTS server starting — model loading may take a minute.' });
+      res.json({ ok: true, message: 'F5-TTS server starting — model loading may take a minute.' });
     } catch (e) {
       res.status(500).json({ ok: false, error: (e as Error).message });
     }
+  };
+
+  // Canonical routes (v5.0+).
+  app.post('/api/voice/f5tts/stop', stopF5TTSHandler);
+  app.post('/api/voice/f5tts/start', startF5TTSHandler);
+
+  // Deprecated aliases — kept for backward compatibility with v4.x UIs.
+  // Will be removed in v6. Logged so we can see if anything still calls them.
+  const deprecationWarn = (alias: string, canonical: string) => {
+    logger.warn(COMPONENT, `Deprecated route ${alias} called; please switch to ${canonical}.`);
+  };
+  app.post('/api/voice/qwen3tts/stop', (req, res) => {
+    deprecationWarn('/api/voice/qwen3tts/stop', '/api/voice/f5tts/stop');
+    return stopF5TTSHandler(req, res);
+  });
+  app.post('/api/voice/qwen3tts/start', (req, res) => {
+    deprecationWarn('/api/voice/qwen3tts/start', '/api/voice/f5tts/start');
+    return startF5TTSHandler(req, res);
   });
 
   // Upload reference audio for voice cloning
@@ -8905,6 +9298,21 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
     logger.warn(COMPONENT, `Self-model bootstrap skipped: ${(e as Error).message}`);
   }
 
+  // v4.9.0-local (Phase C): install working-memory provider. Injects
+  // structured session state into the agent's system prompt when resuming
+  // an in-flight task so TITAN doesn't start from scratch mid-work.
+  try {
+    const { renderSessionContext } = await import('../memory/workingMemory.js');
+    (globalThis as unknown as {
+      __titan_working_memory_block?: (sessionId: string) => string;
+    }).__titan_working_memory_block = (sessionId: string) => {
+      try { return renderSessionContext(sessionId); } catch { return ''; }
+    };
+    logger.info(COMPONENT, 'Working-memory provider installed');
+  } catch (e) {
+    logger.warn(COMPONENT, `Working-memory bootstrap skipped: ${(e as Error).message}`);
+  }
+
   // v4.10.0-local (Phase B): install driver-status provider. Appends
   // live driver phase + blocked questions into the agent's system prompt,
   // so "what are you working on?" gets a real answer.
@@ -9301,13 +9709,11 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
       healthState.ollamaHealthy = false;
     }
 
-    // Check TTS
+    // Check TTS — F5-TTS exposes /health for fast probes; the /v1/audio/speech
+    // synthesize-and-return path is too slow for a periodic monitor.
     try {
-      const resp = await fetch(`${ttsBaseUrl}/v1/audio/speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'mlx-community/orpheus-3b-0.1-ft-4bit', input: 'test', voice: 'tara', response_format: 'wav' }),
-        signal: AbortSignal.timeout(5000),
+      const resp = await fetch(`${ttsBaseUrl}/health`, {
+        signal: AbortSignal.timeout(3000),
       });
       healthState.ttsHealthy = resp.ok;
     } catch {
@@ -9444,26 +9850,21 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   // ── Graceful Shutdown ───────────────────────────────────────────
   const gracefulShutdown = async (signal: string) => {
     logger.info(COMPONENT, `Received ${signal} — shutting down gracefully...`);
-    // Stop Orpheus TTS server if we started it
-    try {
-      const orpheusPid = join(homedir(), '.titan', 'orpheus.pid');
-      if (fs.existsSync(orpheusPid)) {
-        const pid = parseInt(fs.readFileSync(orpheusPid, 'utf-8').trim());
+    // Stop F5-TTS server if we started it. Both the canonical f5tts.pid
+    // and the legacy qwen3tts.pid path are checked so an upgrade from a
+    // pre-v5.0.2 install still gets a clean shutdown of any orphan child.
+    for (const pidPath of [
+      join(homedir(), '.titan', 'f5tts.pid'),
+      join(homedir(), '.titan', 'qwen3tts.pid'),
+    ]) {
+      try {
+        if (!fs.existsSync(pidPath)) continue;
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim());
         process.kill(pid, 'SIGTERM');
-        fs.unlinkSync(orpheusPid);
-        logger.info(COMPONENT, 'Stopped Orpheus TTS server');
-      }
-    } catch { /* already stopped */ }
-    // Stop Qwen3-TTS server if we started it
-    try {
-      const qwen3PidFile = join(homedir(), '.titan', 'qwen3tts.pid');
-      if (fs.existsSync(qwen3PidFile)) {
-        const pid = parseInt(fs.readFileSync(qwen3PidFile, 'utf-8').trim());
-        process.kill(pid, 'SIGTERM');
-        fs.unlinkSync(qwen3PidFile);
-        logger.info(COMPONENT, 'Stopped Qwen3-TTS server');
-      }
-    } catch { /* already stopped */ }
+        fs.unlinkSync(pidPath);
+        logger.info(COMPONENT, `Stopped F5-TTS server (${pidPath})`);
+      } catch { /* already stopped */ }
+    }
     stopAutopilot();
     stopDaemon();
     shutdownCommandPost();

@@ -250,6 +250,8 @@ export function addGoalToCompany(companyId: string, goal: { title: string; descr
 // checking goals, dispatching agents, and reporting progress.
 
 const activeRunners: Map<string, NodeJS.Timeout> = new Map();
+const runnerLocks: Map<string, boolean> = new Map();
+const pendingWakes: Map<string, boolean> = new Map();
 
 /** Start a company's heartbeat — agents check tasks and work autonomously */
 export function startCompanyRunner(companyId: string, intervalMs = 60000): boolean {
@@ -261,66 +263,85 @@ export function startCompanyRunner(companyId: string, intervalMs = 60000): boole
     logger.info(COMPONENT, `Starting heartbeat for "${company.name}" (every ${intervalMs / 1000}s)`);
 
     const tick = async () => {
-        const current = getCompany(companyId);
-        if (!current || current.status !== 'active') {
-            stopCompanyRunner(companyId);
+        // Wakeup coalescing: if already running, mark a pending wake and return
+        if (runnerLocks.get(companyId)) {
+            pendingWakes.set(companyId, true);
+            logger.debug(COMPONENT, `[${companyId}] Tick coalesced — run already in progress`);
             return;
         }
+        runnerLocks.set(companyId, true);
+        pendingWakes.delete(companyId);
 
-        const pendingGoals = current.goals.filter(g => g.status === 'pending' || g.status === 'in_progress');
-        if (pendingGoals.length === 0) {
-            logger.info(COMPONENT, `[${current.name}] No pending goals — heartbeat idle`);
-            titanEvents.emit('company:heartbeat', { id: companyId, name: current.name, status: 'idle', pendingGoals: 0 });
-            return;
-        }
-
-        titanEvents.emit('company:heartbeat', { id: companyId, name: current.name, status: 'working', pendingGoals: pendingGoals.length });
-
-        // Pick the first pending goal and dispatch to an idle agent
-        const goal = pendingGoals.find(g => g.status === 'pending') || pendingGoals[0];
-        const idleAgent = current.agents.find(a => a.status === 'idle');
-
-        if (goal && idleAgent) {
-            logger.info(COMPONENT, `[${current.name}] Dispatching "${idleAgent.name}" on goal: ${goal.title}`);
-            goal.status = 'in_progress';
-            goal.assignedAgent = idleAgent.id;
-            idleAgent.status = 'active';
-
-            const companies = loadCompanies();
-            const idx = companies.findIndex(c => c.id === companyId);
-            if (idx >= 0) {
-                companies[idx] = current;
-                saveCompanies(companies);
+        try {
+            const current = getCompany(companyId);
+            if (!current || current.status !== 'active') {
+                stopCompanyRunner(companyId);
+                return;
             }
 
-            // Actually run the task via processMessage
-            try {
-                const { processMessage } = await import('./agent.js');
-                const result = await processMessage(
-                    `[Company: ${current.name}] Goal: ${goal.title}${goal.description ? `\n\nDetails: ${goal.description}` : ''}`,
-                    'company',
-                    `company-${companyId}`,
-                );
+            const pendingGoals = current.goals.filter(g => g.status === 'pending' || g.status === 'in_progress');
+            if (pendingGoals.length === 0) {
+                logger.info(COMPONENT, `[${current.name}] No pending goals — heartbeat idle`);
+                titanEvents.emit('company:heartbeat', { id: companyId, name: current.name, status: 'idle', pendingGoals: 0 });
+                return;
+            }
 
-                // Update goal status based on result
-                const success = !result.content.toLowerCase().includes('error') && !result.exhaustedBudget;
-                updateGoalStatus(companyId, goal.id, success ? 'completed' : 'failed');
+            titanEvents.emit('company:heartbeat', { id: companyId, name: current.name, status: 'working', pendingGoals: pendingGoals.length });
 
-                // Reset agent to idle
-                const updated = getCompany(companyId);
-                if (updated) {
-                    const agent = updated.agents.find(a => a.id === idleAgent.id);
-                    if (agent) agent.status = 'idle';
-                    const companies2 = loadCompanies();
-                    const idx2 = companies2.findIndex(c => c.id === companyId);
-                    if (idx2 >= 0) { companies2[idx2] = updated; saveCompanies(companies2); }
+            // Pick the first pending goal and dispatch to an idle agent
+            const goal = pendingGoals.find(g => g.status === 'pending') || pendingGoals[0];
+            const idleAgent = current.agents.find(a => a.status === 'idle');
+
+            if (goal && idleAgent) {
+                logger.info(COMPONENT, `[${current.name}] Dispatching "${idleAgent.name}" on goal: ${goal.title}`);
+                goal.status = 'in_progress';
+                goal.assignedAgent = idleAgent.id;
+                idleAgent.status = 'active';
+
+                const companies = loadCompanies();
+                const idx = companies.findIndex(c => c.id === companyId);
+                if (idx >= 0) {
+                    companies[idx] = current;
+                    saveCompanies(companies);
                 }
 
-                titanEvents.emit('company:goal:completed', { companyId, goalId: goal.id, success, agentName: idleAgent.name });
-                logger.info(COMPONENT, `[${current.name}] Goal "${goal.title}" ${success ? 'completed' : 'failed'} by ${idleAgent.name}`);
-            } catch (e) {
-                updateGoalStatus(companyId, goal.id, 'failed');
-                logger.error(COMPONENT, `[${current.name}] Goal execution error: ${(e as Error).message}`);
+                // Actually run the task via processMessage
+                try {
+                    const { processMessage } = await import('./agent.js');
+                    const result = await processMessage(
+                        `[Company: ${current.name}] Goal: ${goal.title}${goal.description ? `\n\nDetails: ${goal.description}` : ''}`,
+                        'company',
+                        `company-${companyId}`,
+                    );
+
+                    // Update goal status based on result
+                    const success = !result.content.toLowerCase().includes('error') && !result.exhaustedBudget;
+                    updateGoalStatus(companyId, goal.id, success ? 'completed' : 'failed');
+
+                    // Reset agent to idle
+                    const updated = getCompany(companyId);
+                    if (updated) {
+                        const agent = updated.agents.find(a => a.id === idleAgent.id);
+                        if (agent) agent.status = 'idle';
+                        const companies2 = loadCompanies();
+                        const idx2 = companies2.findIndex(c => c.id === companyId);
+                        if (idx2 >= 0) { companies2[idx2] = updated; saveCompanies(companies2); }
+                    }
+
+                    titanEvents.emit('company:goal:completed', { companyId, goalId: goal.id, success, agentName: idleAgent.name });
+                    logger.info(COMPONENT, `[${current.name}] Goal "${goal.title}" ${success ? 'completed' : 'failed'} by ${idleAgent.name}`);
+                } catch (e) {
+                    updateGoalStatus(companyId, goal.id, 'failed');
+                    logger.error(COMPONENT, `[${current.name}] Goal execution error: ${(e as Error).message}`);
+                }
+            }
+        } finally {
+            runnerLocks.set(companyId, false);
+            // If a wake was requested while we were running, schedule an immediate follow-up
+            if (pendingWakes.get(companyId)) {
+                pendingWakes.delete(companyId);
+                logger.debug(COMPONENT, `[${companyId}] Processing coalesced wake`);
+                setTimeout(() => tick().catch(e => logger.debug(COMPONENT, `Coalesced tick failed: ${(e as Error).message}`)), 100);
             }
         }
     };
@@ -347,6 +368,8 @@ export function stopCompanyRunner(companyId: string): boolean {
 
     clearInterval(timer);
     activeRunners.delete(companyId);
+    runnerLocks.delete(companyId);
+    pendingWakes.delete(companyId);
 
     const companies = loadCompanies();
     const idx = companies.findIndex(c => c.id === companyId);

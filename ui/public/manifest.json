@@ -1,0 +1,15 @@
+{
+  "name": "TITAN Mission Control",
+  "short_name": "TITAN",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#09090b",
+  "background_color": "#09090b",
+  "icons": [
+    {
+      "src": "/titan-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -512,8 +512,8 @@ describe('ContextManager', () => {
 
     // ─── estimateTokens ─────────────────────────────────────────────
     describe('estimateTokens', () => {
-        it('should estimate ~4 chars per token', () => {
-            expect(estimateTokens('hello world')).toBe(3); // 11/4 = 2.75 => ceil = 3
+        it('should estimate tokens for prose (~3.8 chars/token)', () => {
+            expect(estimateTokens('hello world')).toBe(3); // 11/3.8 ≈ 2.9 => ceil = 3
         });
 
         it('should handle empty string', () => {
@@ -521,14 +521,14 @@ describe('ContextManager', () => {
         });
 
         it('should ceil the result', () => {
-            expect(estimateTokens('a')).toBe(1); // 1/4 = 0.25 => ceil = 1
-            expect(estimateTokens('abcd')).toBe(1); // 4/4 = 1
-            expect(estimateTokens('abcde')).toBe(2); // 5/4 = 1.25 => ceil = 2
+            expect(estimateTokens('a')).toBe(1); // 1/3.8 ≈ 0.26 => ceil = 1
+            expect(estimateTokens('abcd')).toBe(2); // 4/3.8 ≈ 1.05 => ceil = 2
+            expect(estimateTokens('abcde')).toBe(2); // 5/3.8 ≈ 1.32 => ceil = 2
         });
 
         it('should handle long strings', () => {
             const text = 'a'.repeat(4000);
-            expect(estimateTokens(text)).toBe(1000);
+            expect(estimateTokens(text)).toBe(1053); // 4000/3.8 ≈ 1052.6 => ceil = 1053
         });
     });
 
@@ -833,7 +833,7 @@ describe('ContextManager', () => {
                 { role: 'user', content: 'a'.repeat(400) },
             ];
             const stats = getContextStats(msgs);
-            expect(stats.estimatedTokens).toBe(100);
+            expect(stats.estimatedTokens).toBe(106); // 400/3.8 ≈ 105.3 => ceil 106
         });
 
         it('should handle empty messages array', () => {

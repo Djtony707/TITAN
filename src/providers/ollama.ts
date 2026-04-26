@@ -12,6 +12,7 @@ import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 import { fetchWithRetry } from '../utils/helpers.js';
 import { v4 as uuid } from 'uuid';
+import * as fs from 'fs';
 
 const COMPONENT = 'Ollama';
 
@@ -27,6 +28,8 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'glm-5:cloud': 131072,
     // Kimi K2.5 — 256K context (native multimodal agentic, agent swarm)
     'kimi-k2.5:cloud': 262144,
+    // Kimi K2.6 — 256K context (next-gen agentic, enhanced reasoning)
+    'kimi-k2.6:cloud': 262144,
     // Qwen3 Coder Next — 262K context (massive)
     'qwen3-coder-next:cloud': 262144,
     // Qwen3.5 397B Cloud — 256K context (all variants support 256K)
@@ -89,6 +92,39 @@ const DEFAULT_CAPABILITIES: ModelCapabilities = {
     toolTopK: null,
 };
 
+/** Heuristic: infer capabilities from model name patterns when no hardcoded
+ *  entry exists. Most modern models (2024+) support native tool calling and
+ *  handle system prompts correctly. This prevents unknown models from being
+ *  crippled by overly conservative defaults. */
+function inferCapabilitiesFromName(modelName: string): Partial<ModelCapabilities> | undefined {
+    const lower = modelName.toLowerCase();
+
+    // Cloud-hosted models are almost always modern and capable
+    if (lower.includes(':cloud') || lower.includes('-cloud')) {
+        return { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 };
+    }
+
+    // Large local models (30B+) are typically capable
+    const sizeMatch = lower.match(/(\d+)b/);
+    if (sizeMatch) {
+        const size = parseInt(sizeMatch[1], 10);
+        if (size >= 30) {
+            return { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 0.5 };
+        }
+    }
+
+    // Known-capable families by name pattern (even if not in hardcoded map)
+    const capableFamilies = ['qwen', 'glm', 'deepseek', 'kimi', 'gemma', 'nemotron', 'devstral', 'gemini', 'mistral-large', 'llama3.3', 'llama4', 'phi4', 'command-r-plus'];
+    for (const family of capableFamilies) {
+        if (lower.includes(family)) {
+            return { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 0.5 };
+        }
+    }
+
+    // Truly unknown small local models — stay conservative
+    return undefined;
+}
+
 const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     // ── Qwen family — excellent tool calling, uses thinking ──
     'qwen3.5':          { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
@@ -125,13 +161,14 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
 
     // ── Kimi K2.5 — 256K, native agentic, agent swarm decomposition ──
     'kimi-k2.5':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
+    'kimi-k2.6':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
 
     // ── Devstral — code-focused ──
     'devstral-2':       { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 0.4 },
     'devstral-small-2': { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
 
     // ── Gemini — handles system messages well ──
-    'gemini-3-flash':   { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.5 },
+    'gemini-3-flash':   { selfSelectsTools: true, thinkingWithTools: false, needsSystemMerge: false, toolTemperature: 0.5 },
 
     // ── Llama/Mistral — weaker tool calling ──
     'llama3.1':         { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
@@ -169,6 +206,26 @@ function getModelCapabilities(modelName: string): ModelCapabilities {
         // Registry not available (e.g., during tests) — fall through
     }
 
+/** Track which unknown models we've already triggered background probes for */
+const probeInFlight = new Set<string>();
+
+/** Trigger a background capability probe for an unknown model.
+ *  Fire-and-forget: the next request will pick up the result from the registry. */
+function triggerBackgroundProbe(modelName: string): void {
+    if (probeInFlight.has(modelName)) return;
+    probeInFlight.add(modelName);
+    // Dynamic import to avoid circular deps at module load time
+    import('../agent/modelProbe.js')
+        .then(({ probeModel }) => probeModel(`ollama/${modelName}`))
+        .then((result) => import('../agent/capabilitiesRegistry.js')
+            .then(({ recordProbeResult }) => {
+                recordProbeResult(result);
+                logger.info(COMPONENT, `Background probe complete for ${modelName}: nativeTools=${result.nativeToolCalls}, respectsSystem=${result.respectsSystemPrompt}`);
+            }))
+        .catch((err) => logger.warn(COMPONENT, `Background probe failed for ${modelName}: ${(err as Error).message}`))
+        .finally(() => probeInFlight.delete(modelName));
+}
+
     // Step 2: Hardcoded map (prefix-matched, longest wins)
     const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
     const baseName = bare.replace(/:(cloud|latest|\d+b(-cloud)?)$/i, '');
@@ -185,7 +242,15 @@ function getModelCapabilities(modelName: string): ModelCapabilities {
     }
 
     if (!bestMatch) {
-        logger.debug(COMPONENT, `Model "${modelName}" not in capabilities database or registry — using defaults`);
+        // Try heuristic inference from model name before falling back to defaults
+        const inferred = inferCapabilitiesFromName(modelName);
+        if (inferred) {
+            logger.info(COMPONENT, `Model "${modelName}" not in hardcoded map — using inferred capabilities: ${JSON.stringify(inferred)}`);
+            bestMatch = inferred;
+        } else {
+            logger.info(COMPONENT, `Model "${modelName}" not in capabilities database or registry — using conservative defaults. Triggering background probe...`);
+            triggerBackgroundProbe(modelName);
+        }
     }
     return { ...DEFAULT_CAPABILITIES, ...(bestMatch || {}) };
 }
@@ -193,7 +258,22 @@ function getModelCapabilities(modelName: string): ModelCapabilities {
 /** Get the optimal num_ctx for a given model name */
 function getModelCtx(modelName: string): number {
     const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
-    return CLOUD_MODEL_CTX[bare] ?? (bare.endsWith(':cloud') || bare.endsWith('-cloud') ? 131072 : 16384);
+    if (CLOUD_MODEL_CTX[bare]) return CLOUD_MODEL_CTX[bare];
+
+    // Heuristic: modern cloud models typically have 128K+ context
+    if (bare.endsWith(':cloud') || bare.endsWith('-cloud')) return 131072;
+
+    // Heuristic: large local models (30B+) often support 32K-64K
+    const sizeMatch = bare.match(/(\d+)b/i);
+    if (sizeMatch) {
+        const size = parseInt(sizeMatch[1], 10);
+        if (size >= 70) return 65536;
+        if (size >= 30) return 32768;
+        if (size >= 14) return 16384;
+    }
+
+    // Conservative fallback for tiny unknown local models
+    return 8192;
 }
 
 /** Max system prompt length for cloud models with tool calling.
@@ -384,12 +464,23 @@ export class OllamaProvider extends LLMProvider {
                         // stamp a placeholder so the whole turn isn't
                         // rejected with HTTP 400 "Name cannot be empty".
                         const fnName = (tc.function.name || '').trim() || 'unknown_tool';
-                        return {
+                        const out: Record<string, unknown> = {
+                            id: tc.id,
+                            type: tc.type || 'function',
                             function: {
                                 name: fnName,
                                 arguments: parsedArgs,
                             },
                         };
+                        // v4.13: relay Gemini thought_signature through the
+                        // round-trip. Ollama's Gemini proxy needs it on every
+                        // subsequent functionCall part or rejects with
+                        // "Function call is missing a thought_signature".
+                        if (tc.thoughtSignature) {
+                            (out.function as Record<string, unknown>).thought_signature = tc.thoughtSignature;
+                            out.thought_signature = tc.thoughtSignature;
+                        }
+                        return out;
                     });
                 }
                 if (m.toolCallId) msg.tool_call_id = m.toolCallId;
@@ -511,6 +602,16 @@ export class OllamaProvider extends LLMProvider {
         const sentMessages = body.messages as Array<{role: string; content: string}>;
         const toolNames = body.tools ? (body.tools as Array<{function: {name: string}}>).map(t => t.function.name) : [];
         logger.info(COMPONENT, `Chat request: model=${model}, cloud=${isCloudModel}, tools=[${toolNames.join(',')}], think=${body.think}, messages=${sentMessages.length}`);
+        
+        if (process.env.DUMP_OLLAMA_BODY === '1' || model.includes('gemini')) {
+            logger.error(COMPONENT, `[DUMP_BODY] Dumping failing request body for ${model} to /tmp/ollama-body-dump.json`);
+            try {
+                fs.writeFileSync('/tmp/ollama-body-dump.json', JSON.stringify(body, null, 2));
+            } catch (e) {
+                logger.error(COMPONENT, `Failed to dump body: ${e}`);
+            }
+        }
+
         // Cloud models routed through Ollama need longer timeouts (they proxy to remote APIs)
         const timeoutMs = isCloudModel ? 300_000 : 120_000; // 5min cloud, 2min local
         let response = await fetchWithRetry(`${this.baseUrl}/api/chat`, {
@@ -544,6 +645,15 @@ export class OllamaProvider extends LLMProvider {
             }
         }
 
+        // v4.13 ancestor-extraction (Hermes rate_limit_tracker): capture any
+        // x-ratelimit-* headers the Ollama proxy exposes. Graceful no-op when
+        // the headers aren't present. Provider name is 'ollama' so the router's
+        // proactive-backoff logic can consult per-provider state.
+        try {
+            const { recordHeaders } = await import('./rateLimitTracker.js');
+            recordHeaders('ollama', response.headers);
+        } catch { /* never fail the chat on tracker issues */ }
+
         const data = await response.json() as Record<string, unknown>;
         const message = data.message as Record<string, unknown>;
         logger.info(COMPONENT, `Response from ${model}: tool_calls=${JSON.stringify(message.tool_calls)}, content_length=${((message.content as string) || '').length}`);
@@ -552,6 +662,12 @@ export class OllamaProvider extends LLMProvider {
         if (message.tool_calls) {
             for (const tc of message.tool_calls as Array<Record<string, unknown>>) {
                 const fn = tc.function as Record<string, unknown>;
+                // v4.13: capture Gemini thought_signature if present — needed
+                // on the round-trip back or Gemini rejects the next request.
+                const thoughtSig = (tc.thought_signature as string | undefined) ??
+                    (tc.thoughtSignature as string | undefined) ??
+                    (fn.thought_signature as string | undefined) ??
+                    (fn.thoughtSignature as string | undefined);
                 toolCalls.push({
                     id: uuid(),
                     type: 'function',
@@ -559,6 +675,7 @@ export class OllamaProvider extends LLMProvider {
                         name: fn.name as string,
                         arguments: JSON.stringify(fn.arguments),
                     },
+                    ...(thoughtSig ? { thoughtSignature: thoughtSig } : {}),
                 });
             }
         }
@@ -623,7 +740,11 @@ export class OllamaProvider extends LLMProvider {
                     msg.content = m.content;
                 }
                 if (m.toolCalls && m.toolCalls.length > 0) {
-                    msg.tool_calls = m.toolCalls.map(tc => ({ function: { name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') } }));
+                    msg.tool_calls = m.toolCalls.map(tc => ({
+                        id: tc.id,
+                        type: tc.type || 'function',
+                        function: { name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') }
+                    }));
                 }
                 if (m.toolCallId) msg.tool_call_id = m.toolCallId;
                 // Cloud models (Gemini API) require function_response.name to be non-empty

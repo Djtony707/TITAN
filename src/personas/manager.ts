@@ -83,6 +83,46 @@ export function listPersonas(): PersonaMeta[] {
     return Array.from(loadPersonas().values()).map(({ content: _c, ...meta }) => meta);
 }
 
+// Cap persona content injected into system prompts. Many personas are 10–14KB
+// (~2.5–3.5K tokens) which inflates every turn's input and hurts smaller
+// models. We keep the head of the file (role definition + first sections) up
+// to PERSONA_INJECTION_CAP and drop the rest. Override via env
+// TITAN_PERSONA_CAP (bytes) or set to 0 to disable.
+const PERSONA_INJECTION_CAP_DEFAULT = 4096;
+
+function personaInjectionCap(): number {
+    const raw = process.env.TITAN_PERSONA_CAP;
+    if (raw === undefined) return PERSONA_INJECTION_CAP_DEFAULT;
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 0) return PERSONA_INJECTION_CAP_DEFAULT;
+    return n; // 0 disables truncation
+}
+
+/**
+ * Truncate persona content at the cap, preferring section boundaries.
+ * If a markdown header (`^#+ `) appears within the last 25% of the cap,
+ * cut there instead of mid-line. Always appends a "[truncated]" marker
+ * when truncation occurs.
+ */
+function truncatePersona(content: string, cap: number): string {
+    if (cap === 0 || content.length <= cap) return content;
+    const slice = content.slice(0, cap);
+    // search for last header in the final quarter of the slice for a cleaner break
+    const lookback = Math.floor(cap * 0.75);
+    const tail = slice.slice(lookback);
+    const headerMatch = tail.match(/\n(#{1,6} [^\n]+)\n[\s\S]*$/);
+    let cut: string;
+    if (headerMatch && headerMatch.index !== undefined) {
+        // cut right BEFORE the matched header so the truncated section starts cleanly
+        cut = slice.slice(0, lookback + headerMatch.index);
+    } else {
+        // fall back to last paragraph break
+        const lastBreak = slice.lastIndexOf('\n\n');
+        cut = lastBreak > cap * 0.5 ? slice.slice(0, lastBreak) : slice;
+    }
+    return cut.trimEnd() + `\n\n[persona truncated at ${cap} bytes — full ${content.length} bytes available via get_persona tool]`;
+}
+
 export function getActivePersonaContent(personaId: string): string {
     if (personaId === 'default') return '';
     const persona = getPersona(personaId);
@@ -90,7 +130,15 @@ export function getActivePersonaContent(personaId: string): string {
         logger.warn(COMPONENT, `Persona "${personaId}" not found, falling back to default`);
         return '';
     }
-    return persona.content;
+    return truncatePersona(persona.content, personaInjectionCap());
+}
+
+/** Returns the FULL persona content with no truncation — for tool callers
+ * that explicitly need the whole document (e.g. `persona_get` skill). */
+export function getFullPersonaContent(personaId: string): string {
+    if (personaId === 'default') return '';
+    const persona = getPersona(personaId);
+    return persona?.content ?? '';
 }
 
 export function invalidatePersonaCache(): void {

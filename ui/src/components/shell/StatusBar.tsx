@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
-import { Circle } from 'lucide-react';
+import { useUpdateCheck } from '../../hooks/useUpdateCheck';
+import { Circle, Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import BodyStateIndicator from './BodyStateIndicator';
 
 function formatUptime(seconds: number): string {
@@ -12,10 +14,32 @@ function formatUptime(seconds: number): string {
 
 export default function StatusBar() {
   const status = useSystemStatus();
+  const { info: updateInfo, triggerUpdate } = useUpdateCheck();
+  const [updating, setUpdating] = useState(false);
+  const [updateResult, setUpdateResult] = useState<{ ok: boolean; message?: string } | null>(null);
+
+  const handleUpdate = async () => {
+    if (!updateInfo?.isNewer || updating) return;
+    if (!confirm(`Update TITAN from ${updateInfo.current} → ${updateInfo.latest}?
+
+Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`)) {
+      return;
+    }
+    setUpdating(true);
+    setUpdateResult(null);
+    const result = await triggerUpdate(true);
+    setUpdateResult({ ok: result.ok, message: result.message || result.error });
+    setUpdating(false);
+    if (result.ok) {
+      setTimeout(() => {
+        alert('Update initiated. The gateway will restart shortly. Please refresh the page in 10-15 seconds.');
+      }, 500);
+    }
+  };
 
   return (
     <div
-      className="flex items-center justify-between px-4 h-7 text-[10px] tracking-wide text-text-muted shrink-0 select-none border-t border-white/[0.04]"
+      className="flex items-center justify-between px-4 h-7 text-[10px] tracking-wide text-text-muted shrink-0 select-none border-t border-border/50"
       style={{ background: 'var(--color-status-bar-bg)' }}
     >
       <div className="flex items-center gap-4">
@@ -47,6 +71,31 @@ export default function StatusBar() {
         {/* Memory */}
         {status.memoryMB > 0 && (
           <span>{status.memoryMB}MB</span>
+        )}
+
+        {/* Update badge */}
+        {updateInfo?.isNewer && updateInfo.latest && (
+          <button
+            onClick={handleUpdate}
+            disabled={updating}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20 transition-colors cursor-pointer disabled:opacity-50"
+            title={`Update available: ${updateInfo.current} → ${updateInfo.latest}`}
+          >
+            {updating ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : updateResult ? (
+              updateResult.ok ? (
+                <CheckCircle2 className="w-3 h-3" />
+              ) : (
+                <AlertCircle className="w-3 h-3" />
+              )
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            <span className="font-medium">
+              {updating ? 'Updating…' : updateResult ? (updateResult.ok ? 'Restarting…' : 'Failed') : `Update to ${updateInfo.latest}`}
+            </span>
+          </button>
         )}
 
         {/* Version */}

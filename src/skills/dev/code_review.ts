@@ -50,7 +50,7 @@ export function register(): void {
             if (!codeToReview.trim()) return 'No code to review.';
 
             const config = loadConfig();
-            const model = config.agent.modelAliases?.smart || config.agent.modelAliases?.fast || 'openai/gpt-4o-mini';
+            const model = config.agent.modelAliases?.smart || config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
 
             const passes = [
                 { name: 'Security', prompt: 'Focus on security vulnerabilities: injection, XSS, SSRF, path traversal, auth bypass, secrets exposure, unsafe deserialization.' },

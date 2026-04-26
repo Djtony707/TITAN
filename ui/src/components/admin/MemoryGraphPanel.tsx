@@ -49,6 +49,7 @@ const TYPE_COLORS: Record<string, string> = {
   component: '#c084fc',
   feature: '#67e8f9',
   directory: '#a1a1aa',
+  social_post: '#ec4899',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -70,6 +71,7 @@ const TYPE_LABELS: Record<string, string> = {
   component: 'Component',
   feature: 'Feature',
   directory: 'Directory',
+  social_post: 'Social Post',
 };
 
 // Fallback colors for types we haven't seen yet — cycle through distinct hues
@@ -116,7 +118,7 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
     });
   }
 
-  // Initialize positions near cluster centers with jitter
+  // Initialize positions near cluster centers with jitter (only for new nodes)
   for (let i = 0; i < n; i++) {
     const node = nodes[i];
     if (node.x !== undefined) continue;
@@ -132,7 +134,8 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
 
   // Scale parameters with graph size
   const scaleFactor = Math.sqrt(n / 50);
-  const iterations = Math.min(300, Math.max(150, Math.round(80 + n * 0.4)));
+  // Cap iterations for large graphs to prevent UI freeze
+  const iterations = Math.min(200, Math.max(80, Math.round(60 + n * 0.2)));
   const repulsion = 4000 * scaleFactor;
   const attraction = 0.003 / scaleFactor;
   const centerGravity = 0.003 / scaleFactor;
@@ -152,18 +155,39 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
     const progress = iter / iterations;
 
     // Repulsion between all pairs (Coulomb's law)
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const a = nodes[i], b = nodes[j];
-        let dx = a.x! - b.x!, dy = a.y! - b.y!;
-        const distSq = dx * dx + dy * dy;
-        const dist = Math.sqrt(distSq) || 1;
-        // Stronger repulsion at close range, weaker falloff
-        const force = repulsion / (distSq + 100);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx! += fx; a.vy! += fy;
-        b.vx! -= fx; b.vy! -= fy;
+    // Use a spatial grid for large graphs to skip distant pairs
+    if (n > 200) {
+      // Approximate: only repel against a random subset + connected neighbors
+      for (let i = 0; i < n; i++) {
+        const a = nodes[i];
+        const neighbors = adjacency.get(a.id) ?? new Set();
+        for (let j = i + 1; j < n; j++) {
+          // Skip ~80% of distant pairs for large graphs
+          if (!neighbors.has(nodes[j].id) && Math.random() > 0.2) continue;
+          const b = nodes[j];
+          let dx = a.x! - b.x!, dy = a.y! - b.y!;
+          const distSq = dx * dx + dy * dy;
+          const dist = Math.sqrt(distSq) || 1;
+          const force = repulsion / (distSq + 100);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx! += fx; a.vy! += fy;
+          b.vx! -= fx; b.vy! -= fy;
+        }
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const a = nodes[i], b = nodes[j];
+          let dx = a.x! - b.x!, dy = a.y! - b.y!;
+          const distSq = dx * dx + dy * dy;
+          const dist = Math.sqrt(distSq) || 1;
+          const force = repulsion / (distSq + 100);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx! += fx; a.vy! += fy;
+          b.vx! -= fx; b.vy! -= fy;
+        }
       }
     }
 
@@ -246,116 +270,6 @@ function drawArrowhead(ctx: CanvasRenderingContext2D, bx: number, by: number, cx
   ctx.fill();
 }
 
-// Animated demo graph for empty state
-function DemoGraph() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const frameRef = useRef(0);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    const W = rect.width, H = rect.height;
-    const cx = W / 2, cy = H / 2;
-
-    const demoTypes = ['person', 'topic', 'project', 'tool', 'fact', 'preference'];
-    const demoNodes = demoTypes.map((t, i) => {
-      const angle = (i / demoTypes.length) * Math.PI * 2 - Math.PI / 2;
-      const r = Math.min(W, H) * 0.28;
-      return { type: t, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r, baseR: 16 + Math.random() * 8 };
-    });
-
-    const demoEdges = [
-      [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [0, 2], [1, 4],
-    ];
-
-    let frame = 0;
-    const animate = () => {
-      frame++;
-      ctx.clearRect(0, 0, W, H);
-
-      ctx.fillStyle = 'rgba(255,255,255,0.015)';
-      for (let gx = 0; gx < W; gx += 30) {
-        for (let gy = 0; gy < H; gy += 30) {
-          ctx.fillRect(gx, gy, 1, 1);
-        }
-      }
-
-      for (let i = 0; i < 20; i++) {
-        const px = ((frame * 0.3 + i * 97) % W);
-        const py = ((frame * 0.2 + i * 137) % H);
-        const alpha = 0.03 + Math.sin(frame * 0.01 + i) * 0.02;
-        ctx.beginPath();
-        ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(99,102,241,${alpha})`;
-        ctx.fill();
-      }
-
-      for (const [fi, ti] of demoEdges) {
-        const a = demoNodes[fi], b = demoNodes[ti];
-        const pulse = 0.06 + Math.sin(frame * 0.02 + fi) * 0.03;
-        const { cx: cpx, cy: cpy } = getControlPoint(a.x, a.y, b.x, b.y, 15);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
-        ctx.strokeStyle = `rgba(148,163,184,${pulse})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      for (let i = 0; i < demoNodes.length; i++) {
-        const n = demoNodes[i];
-        const color = getColor(n.type);
-        const [cr, cg, cb] = hexToRgb(color);
-        const breathe = Math.sin(frame * 0.03 + i * 1.2) * 0.12;
-        const r = n.baseR + breathe * 4;
-
-        const glow = ctx.createRadialGradient(n.x, n.y, r * 0.3, n.x, n.y, r * 3);
-        glow.addColorStop(0, `rgba(${cr},${cg},${cb},${0.08 + breathe})`);
-        glow.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r * 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        const grad = ctx.createRadialGradient(n.x - r * 0.3, n.y - r * 0.3, 0, n.x, n.y, r);
-        grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.35)`);
-        grad.addColorStop(1, `rgba(${cr},${cg},${cb},0.12)`);
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.5 + breathe})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-
-      frameRef.current = requestAnimationFrame(animate);
-    };
-
-    frameRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frameRef.current);
-  }, []);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: 320 }}
-      className="opacity-40"
-    />
-  );
-}
-
 function MemoryGraphPanel() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -370,6 +284,9 @@ function MemoryGraphPanel() {
   const animFrameRef = useRef(0);
   const timeRef = useRef(0);
 
+  // Preserve node positions across refreshes so the graph doesn't jump
+  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
   const fetchData = useCallback(async () => {
     try {
       const res = await apiFetch('/api/graphiti', { headers: { 'Content-Type': 'application/json' } });
@@ -379,8 +296,22 @@ function MemoryGraphPanel() {
         // Use actual container dimensions for layout
         const container = containerRef.current;
         const w = container?.clientWidth ?? 1200;
-        const h = 600;
+        const h = container?.clientHeight ?? 600;
+        // Restore saved positions before layout so graph stays stable
+        for (const node of d.nodes) {
+          const saved = positionsRef.current.get(node.id);
+          if (saved) {
+            node.x = saved.x;
+            node.y = saved.y;
+          }
+        }
         layoutNodes(d.nodes, d.edges ?? [], w, h);
+        // Save new positions
+        for (const node of d.nodes) {
+          if (node.x !== undefined && node.y !== undefined) {
+            positionsRef.current.set(node.id, { x: node.x, y: node.y });
+          }
+        }
       }
       setData(d);
       setError(null);
@@ -604,7 +535,7 @@ function MemoryGraphPanel() {
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
-          ctx.fillStyle = '#a5b4fc';
+          ctx.fillStyle = 'var(--color-accent-light)';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(e.label, mx, my);
@@ -707,7 +638,7 @@ function MemoryGraphPanel() {
           ctx.roundRect(tx - textW / 2, ty - fontSize / 2 - 1, textW, fontSize + 2, 3);
           ctx.fill();
 
-          ctx.fillStyle = isFocused ? '#fafafa' : '#d4d4d8';
+          ctx.fillStyle = isFocused ? '#fafafa' : '#a1a1aa';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(lbl, tx, ty);
@@ -827,7 +758,7 @@ function MemoryGraphPanel() {
     return (
       <div className="space-y-4">
         <div className="h-12 animate-pulse rounded-xl bg-bg-secondary" />
-        <div className="h-[600px] animate-pulse rounded-xl border border-border bg-bg" />
+        <div className="animate-pulse rounded-xl border border-border bg-bg" style={{ height: '60vh', minHeight: 400 }} />
       </div>
     );
   }
@@ -896,9 +827,9 @@ function MemoryGraphPanel() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Entities', value: data?.nodeCount ?? 0, color: '#818cf8' },
-          { label: 'Relationships', value: data?.edgeCount ?? 0, color: '#22d3ee' },
-          { label: 'Episodes', value: data?.episodeCount ?? 0, color: '#34d399' },
+          { label: 'Entities', value: data?.nodeCount ?? 0, color: 'var(--color-accent-hover)' },
+          { label: 'Relationships', value: data?.edgeCount ?? 0, color: 'var(--color-cyan)' },
+          { label: 'Episodes', value: data?.episodeCount ?? 0, color: 'var(--color-emerald)' },
         ].map(({ label, value, color }) => (
           <div key={label} className="rounded-xl border border-border bg-bg-secondary px-4 py-3">
             <p className="text-xs text-text-muted">{label}</p>
@@ -952,7 +883,7 @@ function MemoryGraphPanel() {
                 >
                   <span
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: isHidden ? '#52525b' : color }}
+                    style={{ backgroundColor: isHidden ? 'var(--color-border-light)' : color }}
                   />
                   {TYPE_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1)}
                   <span className="text-text-muted">{count}</span>
@@ -965,10 +896,10 @@ function MemoryGraphPanel() {
 
       {/* Graph canvas */}
       {hasNodes ? (
-        <div className="relative rounded-xl border border-border bg-bg overflow-hidden shadow-2xl shadow-black/50">
+        <div className="relative rounded-xl border border-border bg-bg overflow-hidden shadow-2xl shadow-black/50" style={{ height: '60vh', minHeight: 400 }}>
           <canvas
             ref={canvasRef}
-            style={{ width: '100%', height: 600, cursor: 'grab' }}
+            style={{ width: '100%', height: '100%', cursor: 'grab' }}
           />
           {/* Zoom indicator */}
           <div className="absolute bottom-3 right-3 rounded-md bg-bg/80 px-2 py-1 text-[10px] text-text-muted backdrop-blur-sm border border-bg-tertiary">
@@ -982,17 +913,14 @@ function MemoryGraphPanel() {
           )}
         </div>
       ) : (
-        <div className="relative rounded-xl border border-border bg-bg overflow-hidden">
-          <DemoGraph />
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 backdrop-blur-sm border border-accent/20 mb-4">
-              <Network className="h-7 w-7 text-accent-hover" />
-            </div>
-            <p className="text-sm font-medium text-text-secondary">No entities in the graph yet</p>
-            <p className="mt-1 max-w-sm text-center text-xs text-text-muted">
-              Start chatting with TITAN to build the knowledge graph. Entities, relationships, and facts are extracted automatically from conversations.
-            </p>
+        <div className="relative rounded-xl border border-border bg-bg-secondary overflow-hidden flex flex-col items-center justify-center" style={{ height: '60vh', minHeight: 400 }}>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 border border-accent/20 mb-4">
+            <Network className="h-7 w-7 text-accent-hover" />
           </div>
+          <p className="text-sm font-medium text-text-secondary">No entities in the graph yet</p>
+          <p className="mt-1 max-w-sm text-center text-xs text-text-muted">
+            Start chatting with TITAN to build the knowledge graph. Entities, relationships, and facts are extracted automatically from conversations.
+          </p>
         </div>
       )}
 

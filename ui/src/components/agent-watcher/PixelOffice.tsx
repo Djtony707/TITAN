@@ -4,11 +4,11 @@ import type { AgentEvent } from '@/api/types';
 type AgentState = 'idle' | 'thinking' | 'typing' | 'searching' | 'reading' | 'executing' | 'error' | 'done';
 
 const STATE_COLORS: Record<AgentState, string> = {
-  idle: '#6366f1', thinking: '#f59e0b', typing: '#22d3ee', searching: '#a78bfa',
-  reading: '#34d399', executing: '#22d3ee', error: '#ef4444', done: '#22c55e',
+  idle: 'var(--color-accent)', thinking: 'var(--color-warning)', typing: 'var(--color-cyan)', searching: 'var(--color-purple-light)',
+  reading: 'var(--color-emerald)', executing: 'var(--color-cyan)', error: 'var(--color-error)', done: 'var(--color-success)',
 };
 
-const AGENT_BODY_COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#a78bfa', '#34d399', '#ec4899', '#f97316', '#14b8a6'];
+const AGENT_BODY_COLORS = ['var(--color-accent)', 'var(--color-cyan)', 'var(--color-warning)', 'var(--color-purple-light)', 'var(--color-emerald)', '#ec4899', '#f97316', '#14b8a6'];
 
 function toolToState(toolName?: string): AgentState {
   if (!toolName) return 'thinking';
@@ -138,14 +138,14 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
 
       // Whiteboard
       const wb = STATIONS.whiteboard;
-      ctx.fillStyle = '#27272a'; ctx.fillRect(w * wb.x - 40, h * wb.y - 30, 80, 50);
-      ctx.fillStyle = '#fafafa'; ctx.fillRect(w * wb.x - 36, h * wb.y - 26, 72, 42);
+      ctx.fillStyle = 'var(--color-bg-tertiary)'; ctx.fillRect(w * wb.x - 40, h * wb.y - 30, 80, 50);
+      ctx.fillStyle = 'var(--color-text)'; ctx.fillRect(w * wb.x - 36, h * wb.y - 26, 72, 42);
       ctx.fillStyle = '#6366f140';
       for (let i = 0; i < 4; i++) ctx.fillRect(w * wb.x - 30 + Math.sin(t * 0.5 + i) * 5, h * wb.y - 20 + i * 10, 20 + Math.sin(i) * 15, 2);
 
       // Water cooler
       const wc = STATIONS.waterCooler;
-      ctx.fillStyle = '#3f3f46'; ctx.fillRect(w * wc.x - 8, h * wc.y - 15, 16, 30);
+      ctx.fillStyle = 'var(--color-border)'; ctx.fillRect(w * wc.x - 8, h * wc.y - 15, 16, 30);
       ctx.fillStyle = '#60a5fa40'; ctx.fillRect(w * wc.x - 6, h * wc.y - 12, 12, 14);
 
       // Coffee machine
@@ -156,17 +156,17 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
 
       // Server rack
       const sr = STATIONS.server;
-      ctx.fillStyle = '#27272a'; ctx.fillRect(w * sr.x - 12, h * sr.y - 20, 24, 40);
+      ctx.fillStyle = 'var(--color-bg-tertiary)'; ctx.fillRect(w * sr.x - 12, h * sr.y - 20, 24, 40);
       for (let i = 0; i < 4; i++) {
         ctx.fillStyle = i % 2 === 0 ? '#22c55e40' : '#3b82f640';
         ctx.fillRect(w * sr.x - 8, h * sr.y - 16 + i * 8, 3, 3);
-        if (Math.sin(t * 3 + i) > 0) { ctx.fillStyle = '#22c55e'; ctx.fillRect(w * sr.x + 4, h * sr.y - 16 + i * 8, 2, 2); }
+        if (Math.sin(t * 3 + i) > 0) { ctx.fillStyle = 'var(--color-success)'; ctx.fillRect(w * sr.x + 4, h * sr.y - 16 + i * 8, 2, 2); }
       }
 
       // Printer
       const pr = STATIONS.printer;
-      ctx.fillStyle = '#3f3f46'; ctx.fillRect(w * pr.x - 14, h * pr.y - 8, 28, 16);
-      ctx.fillStyle = '#52525b'; ctx.fillRect(w * pr.x - 12, h * pr.y - 6, 24, 8);
+      ctx.fillStyle = 'var(--color-border)'; ctx.fillRect(w * pr.x - 14, h * pr.y - 8, 28, 16);
+      ctx.fillStyle = 'var(--color-border-light)'; ctx.fillRect(w * pr.x - 12, h * pr.y - 6, 24, 8);
     };
 
     const drawPixelAgent = (agent: PixelAgent, t: number) => {
@@ -182,11 +182,11 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
 
       // Desk (only if at desk)
       if (atDesk) {
-        ctx.fillStyle = '#3f3f46'; ctx.fillRect(x - 22, y + 8, 44, 6);
-        ctx.fillStyle = '#52525b'; ctx.fillRect(x - 20, y + 9, 40, 4);
+        ctx.fillStyle = 'var(--color-border)'; ctx.fillRect(x - 22, y + 8, 44, 6);
+        ctx.fillStyle = 'var(--color-border-light)'; ctx.fillRect(x - 20, y + 9, 40, 4);
         // Mini monitor
-        ctx.fillStyle = '#27272a'; ctx.fillRect(x - 8, y - 4, 16, 12);
-        const sc = state === 'error' ? '#ef4444' : color;
+        ctx.fillStyle = 'var(--color-bg-tertiary)'; ctx.fillRect(x - 8, y - 4, 16, 12);
+        const sc = state === 'error' ? 'var(--color-error)' : color;
         ctx.fillStyle = sc + '50'; ctx.fillRect(x - 6, y - 2, 12, 8);
         if (state === 'typing') {
           ctx.fillStyle = sc + '90';
@@ -195,7 +195,7 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
       }
 
       // Legs
-      ctx.fillStyle = '#3f3f46';
+      ctx.fillStyle = 'var(--color-border)';
       if (isWalking) {
         ctx.fillRect(x - 3 + (facingRight ? 0 : -1), y + 8 + bob + legAnim, 3, 6);
         ctx.fillRect(x + (facingRight ? 1 : 0), y + 8 + bob - legAnim, 3, 6);
@@ -242,7 +242,7 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
         ctx.fillStyle = '#fbbf24'; ctx.fillRect(x + (facingRight ? 7 : -9), y + 1 + bob, 4, 5); // clipboard
       }
       if (isWalking && state === 'searching') {
-        ctx.fillStyle = '#a78bfa'; ctx.fillRect(x + (facingRight ? 7 : -9), y - 2 + bob, 3, 3); // magnifier
+        ctx.fillStyle = 'var(--color-purple-light)'; ctx.fillRect(x + (facingRight ? 7 : -9), y - 2 + bob, 3, 3); // magnifier
       }
 
       // Activity particles
@@ -280,7 +280,7 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
       const t = frameRef.current / 15;
       const agents = [...agentsRef.current.values()];
 
-      ctx.fillStyle = '#09090b'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = 'var(--color-bg)'; ctx.fillRect(0, 0, w, h);
       drawFurniture(t);
 
       // Move agents toward targets
@@ -311,7 +311,7 @@ export function PixelOffice({ events }: { events: AgentEvent[] }) {
       }
 
       // Title
-      ctx.fillStyle = '#27272a'; ctx.font = 'bold 9px -apple-system, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = 'var(--color-bg-tertiary)'; ctx.font = 'bold 9px -apple-system, sans-serif'; ctx.textAlign = 'center';
       ctx.fillText(`TITAN Office — ${agents.length || 1} agent${agents.length !== 1 ? 's' : ''}`, w / 2, h - 6);
       ctx.textAlign = 'start';
 

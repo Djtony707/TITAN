@@ -138,4 +138,16 @@ export interface StorageProvider {
     // ── Transactions (optional — no-op in JSON mode) ──────────────────────
 
     beginTransaction?(): Promise<Transaction>;
+
+    // ── Telemetry (optional — no-op if disabled) ───────────────────────────
+
+    appendTelemetryEvent?(entry: TelemetryEvent): Promise<void>;
+    queryTelemetryEvents?(opts: { limit?: number }): Promise<TelemetryEvent[]>;
+}
+
+export interface TelemetryEvent {
+    event: string;
+    properties?: Record<string, unknown>;
+    timestamp: string;
+    sessionId?: string;
 }

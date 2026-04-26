@@ -33,6 +33,7 @@
  *   to semantic recall + broadens the event surface beyond experiments.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
+import { atomicWriteFileSync } from '../utils/helpers.js';
 import { dirname, join } from 'path';
 import { randomUUID } from 'crypto';
 import { TITAN_HOME } from '../utils/constants.js';
@@ -136,7 +137,7 @@ function trimIfNeeded(): void {
         const lines = raw.split('\n').filter(Boolean);
         if (lines.length > EPISODIC_MAX_LINES) {
             const tail = lines.slice(-EPISODIC_MAX_LINES).join('\n') + '\n';
-            writeFileSync(EPISODIC_PATH, tail, 'utf-8');
+            atomicWriteFileSync(EPISODIC_PATH, tail);
             logger.info(COMPONENT, `Trimmed episodic.jsonl to last ${EPISODIC_MAX_LINES} episodes`);
         }
     } catch { /* ok */ }
@@ -155,6 +156,9 @@ export function recordEpisode(opts: {
     detail?: string;
     attribution?: Episode['attribution'];
     tags?: string[];
+    provenanceSource?: import('./provenance.js').ProvenanceSource;
+    provenanceConfidence?: number;
+    provenanceWrittenBy?: string;
 }): Episode {
     const ep: Episode = {
         id: randomUUID(),
@@ -166,6 +170,23 @@ export function recordEpisode(opts: {
         tags: opts.tags ?? [],
     };
     appendLine(ep);
+
+    // Record provenance for this episode if source info is provided.
+    if (opts.provenanceSource) {
+        void (async () => {
+            try {
+                const { recordProvenance } = await import('./provenance.js');
+                recordProvenance({
+                    memoryId: ep.id,
+                    memoryType: 'episode',
+                    source: opts.provenanceSource!,
+                    confidence: opts.provenanceConfidence,
+                    writtenBy: opts.provenanceWrittenBy,
+                    content: ep.summary,
+                });
+            } catch { /* ok */ }
+        })();
+    }
 
     // Opportunistically trim — cheap (just a linecount check) at scale
     // via bounded max. Not per-insert; only every ~100 inserts via
@@ -319,5 +340,5 @@ export function getEpisodicStats(windowHours = 24): {
 
 /** Test-only: wipe the jsonl. */
 export function _resetEpisodicForTests(): void {
-    try { if (existsSync(EPISODIC_PATH)) writeFileSync(EPISODIC_PATH, '', 'utf-8'); } catch { /* ok */ }
+    try { if (existsSync(EPISODIC_PATH)) atomicWriteFileSync(EPISODIC_PATH, ''); } catch { /* ok */ }
 }

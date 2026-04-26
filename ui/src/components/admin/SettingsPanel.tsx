@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff, Download, Loader2, Square, Play } from 'lucide-react';
-import { PageHeader } from '@/components/shared/PageHeader';
-import { getConfig, updateConfig, getModels, switchModel, getOrpheusStatus, startOrpheus, stopOrpheus, getQwen3TtsStatus, startQwen3Tts, stopQwen3Tts, getClonedVoices, uploadVoiceReference, deleteClonedVoice, previewVoice, apiFetch } from '@/api/client';
+import { PageHeader, HelpBadge } from '@/components/shared';
+import { getConfig, updateConfig, getModels, switchModel, getF5TtsStatus, getClonedVoices, uploadVoiceReference, deleteClonedVoice, previewVoice, apiFetch } from '@/api/client';
+import { trackEvent } from '@/api/telemetry';
 import type { ModelInfo } from '@/api/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,6 +50,11 @@ function ModelSelector({
   const currentProvider = currentModel.includes('/') ? currentModel.split('/')[0] : '';
   const [selectedProvider, setSelectedProvider] = useState(currentProvider);
 
+  // Sync internal provider state when the active model changes externally
+  useEffect(() => {
+    setSelectedProvider(currentProvider);
+  }, [currentProvider]);
+
   const providers = useMemo(() => {
     const set = new Set(models.map((m) => m.provider));
     return [...set].sort((a, b) => {
@@ -82,7 +88,10 @@ function ModelSelector({
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-1.5 block text-xs text-text-muted">Provider</label>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <label className="text-xs text-text-muted">Provider</label>
+          <HelpBadge title="AI Provider" description="The company or service that hosts the AI model. Local providers (Ollama, LM Studio) run on your machine. Cloud providers (Anthropic, OpenAI) run remotely and require an API key." />
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <select
             value={selectedProvider}
@@ -113,7 +122,10 @@ function ModelSelector({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs text-text-muted">Model</label>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <label className="text-xs text-text-muted">Model</label>
+          <HelpBadge title="Model Selection" description="The specific AI model TITAN uses to think and respond. Larger models are smarter but slower and cost more. You can switch anytime without losing conversation history." />
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-end gap-2 md:gap-3">
           <select
             value={selectedModel}
@@ -160,10 +172,10 @@ function SettingsPanel() {
   // Voice form state
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [livekitUrl, setLivekitUrl] = useState('');
-  const [ttsVoice, setTtsVoice] = useState('tara');
-  const [ttsEngine, setTtsEngine] = useState('orpheus');
-  const [ttsUrl, setTtsUrl] = useState('http://localhost:5005');
-  const [orpheusVoices, setOrpheusVoices] = useState<string[]>(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
+  const [ttsVoice, setTtsVoice] = useState('andrew');
+  const [ttsEngine, setTtsEngine] = useState('f5-tts');
+  const [ttsUrl, setTtsUrl] = useState('http://localhost:5006');
+  const [f5Voices, setF5Voices] = useState<string[]>(['andrew']);
 
   // Orpheus TTS management state
   const [orpheusStatus, setOrpheusStatus] = useState<{ installed: boolean; running: boolean } | null>(null);
@@ -171,9 +183,7 @@ function SettingsPanel() {
   const [orpheusProgress, setOrpheusProgress] = useState<string>('');
 
   const TTS_ENGINES = [
-    { id: 'orpheus', name: 'Orpheus TTS', desc: 'GPU-accelerated emotional speech', defaultUrl: 'http://localhost:5005', defaultVoices: ['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac'] },
-    { id: 'qwen3-tts', name: 'Voice Clone', desc: 'Clone any voice from 5s audio (F5-TTS)', defaultUrl: 'http://localhost:5006', defaultVoices: ['default'] },
-    { id: 'browser', name: 'Browser TTS', desc: 'Built-in, no server needed', defaultUrl: '', defaultVoices: [] },
+    { id: 'f5-tts', name: 'F5-TTS', desc: 'Voice cloning with MLX (Apple Silicon)', defaultUrl: 'http://localhost:5006', defaultVoices: ['andrew'] },
   ];
 
   // Qwen3-TTS state
@@ -200,9 +210,9 @@ function SettingsPanel() {
         const voice = cfg?.voice ?? {};
         setVoiceEnabled(voice.enabled ?? false);
         setLivekitUrl(voice.livekitUrl ?? '');
-        setTtsVoice(voice.ttsVoice ?? 'tara');
-        setTtsEngine(voice.ttsEngine ?? 'orpheus');
-        setTtsUrl(voice.ttsUrl ?? 'http://localhost:5005');
+        setTtsVoice(voice.ttsVoice ?? 'andrew');
+        setTtsEngine(voice.ttsEngine ?? 'f5-tts');
+        setTtsUrl(voice.ttsUrl ?? 'http://localhost:5006');
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to load config';
         setLoadError(msg);
@@ -221,7 +231,7 @@ function SettingsPanel() {
         const res = await apiFetch('/api/voice/voices');
         if (res.ok) {
           const data = await res.json();
-          if (data.voices?.length) setOrpheusVoices(data.voices);
+          if (data.voices?.length) setF5Voices(data.voices);
         }
       } catch { /* voice server offline */ }
     })();
@@ -251,168 +261,64 @@ function SettingsPanel() {
     if (!loading) checkVoiceServices();
   }, [loading]);
 
-  // Check Orpheus status when selected
+  // Check F5-TTS status when voice is enabled
   useEffect(() => {
-    if (voiceEnabled && ttsEngine === 'orpheus') {
-      getOrpheusStatus().then(setOrpheusStatus).catch(() => {});
-    }
-  }, [voiceEnabled, ttsEngine]);
-
-  // Check Qwen3-TTS status when selected
-  useEffect(() => {
-    if (voiceEnabled && ttsEngine === 'qwen3-tts') {
-      getQwen3TtsStatus().then(setQwen3Status).catch(() => {});
-      getClonedVoices().then(d => {
-        setClonedVoices(d.voices || []);
-        // Add cloned voices to voice selector
+    if (voiceEnabled) {
+      getF5TtsStatus().then(d => {
+        setQwen3Status({ installed: d.installed, running: d.running, voices: d.voices });
+        setClonedVoices(d.voices.map(v => ({ name: v, hasTranscript: false, sizeBytes: 0 })));
         if (d.voices?.length) {
-          setOrpheusVoices(['default', ...d.voices.map(v => v.name)]);
+          setF5Voices(['andrew', ...d.voices]);
         }
       }).catch(() => {});
     }
-  }, [voiceEnabled, ttsEngine]);
+  }, [voiceEnabled]);
 
-  const handleOrpheusSetup = async () => {
-    setOrpheusInstalling(true);
-    setOrpheusProgress('Starting setup...');
-
-    try {
-    const res = await apiFetch('/api/voice/orpheus/install', { method: 'POST' });
-    if (!res.ok) {
-      setOrpheusProgress(`Error: ${res.statusText || 'Setup failed'} (${res.status})`);
-      setOrpheusInstalling(false);
-      return;
-    }
-
-    const reader = res.body?.getReader();
-    if (!reader) { setOrpheusInstalling(false); return; }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.detail) setOrpheusProgress(data.detail);
-            if (data.status === 'error') {
-              setOrpheusProgress(`Error: ${data.detail}`);
-              setOrpheusInstalling(false);
-              return;
-            }
-            if (data.step === 'complete') {
-              setOrpheusProgress('Orpheus TTS is ready!');
-              setOrpheusInstalling(false);
-              setOrpheusStatus({ installed: true, running: true });
-              return;
-            }
-          } catch { /* parse error */ }
-        }
-      }
-    }
-    setOrpheusInstalling(false);
-    } catch (e) {
-      setOrpheusProgress(`Error: ${e instanceof Error ? e.message : 'Setup failed'}`);
-      setOrpheusInstalling(false);
-    }
-  };
-
-  const handleOrpheusStart = async () => {
-    try {
-      await startOrpheus();
-      setOrpheusStatus({ installed: true, running: true });
-      showToast('success', 'Orpheus TTS started');
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to start Orpheus');
-    }
-  };
-
-  const handleOrpheusStop = async () => {
-    try {
-      await stopOrpheus();
-      setOrpheusStatus({ installed: true, running: false });
-      showToast('success', 'Orpheus TTS stopped');
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to stop Orpheus');
-    }
-  };
-
-  // ── Qwen3-TTS Handlers ──
-  const handleQwen3Setup = async () => {
+  // ── F5-TTS Handlers ──
+  const handleF5Setup = async () => {
     setQwen3Installing(true);
-    setQwen3Progress('Starting setup...');
-
+    setQwen3Progress('Starting F5-TTS setup...');
     try {
-    const res = await apiFetch('/api/voice/qwen3tts/install', { method: 'POST' });
-    if (!res.ok) {
-      setQwen3Progress(`Error: ${res.statusText || 'Setup failed'} (${res.status})`);
-      setQwen3Installing(false);
-      return;
-    }
-    const reader = res.body?.getReader();
-    if (!reader) { setQwen3Installing(false); return; }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.detail) setQwen3Progress(data.detail);
-            if (data.status === 'error') {
-              setQwen3Progress(`Error: ${data.detail}`);
-              setQwen3Installing(false);
-              return;
-            }
-            if (data.step === 'complete') {
-              setQwen3Progress('Voice cloning is ready! (F5-TTS TTS)');
-              setQwen3Installing(false);
-              setQwen3Status({ installed: true, running: true, voices: [] });
-              return;
-            }
-          } catch { /* parse error */ }
+      const res = await apiFetch('/api/voice/f5tts/install', { method: 'POST' });
+      if (!res.ok) {
+        setQwen3Progress(`Error: ${res.statusText || 'Setup failed'} (${res.status})`);
+        setQwen3Installing(false);
+        return;
+      }
+      const reader = res.body?.getReader();
+      if (!reader) { setQwen3Installing(false); return; }
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.detail) setQwen3Progress(data.detail);
+              if (data.status === 'error') {
+                setQwen3Progress(`Error: ${data.detail}`);
+                setQwen3Installing(false);
+                return;
+              }
+              if (data.step === 'complete') {
+                setQwen3Progress('F5-TTS is ready!');
+                setQwen3Installing(false);
+                setQwen3Status({ installed: true, running: true, voices: [] });
+                return;
+              }
+            } catch { /* parse error */ }
+          }
         }
       }
-    }
-    setQwen3Installing(false);
+      setQwen3Installing(false);
     } catch (e) {
       setQwen3Progress(`Error: ${e instanceof Error ? e.message : 'Setup failed'}`);
       setQwen3Installing(false);
-    }
-  };
-
-  const handleQwen3Start = async () => {
-    try {
-      await startQwen3Tts();
-      setQwen3Status(s => s ? { ...s, running: true } : { installed: true, running: true, voices: [] });
-      showToast('success', 'Voice cloning started');
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to start voice cloning');
-    }
-  };
-
-  const handleQwen3Stop = async () => {
-    try {
-      await stopQwen3Tts();
-      setQwen3Status(s => s ? { ...s, running: false } : { installed: true, running: false, voices: [] });
-      showToast('success', 'Voice cloning stopped');
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to stop voice cloning');
     }
   };
 
@@ -439,7 +345,7 @@ function SettingsPanel() {
         // Refresh voices
         const updated = await getClonedVoices();
         setClonedVoices(updated.voices || []);
-        setOrpheusVoices(['default', ...updated.voices.map(v => v.name)]);
+        setF5Voices(['default', ...updated.voices.map(v => v.name)]);
         setTtsVoice(voiceName);
       } catch (e) {
         showToast('error', e instanceof Error ? e.message : 'Failed to upload voice');
@@ -476,7 +382,7 @@ function SettingsPanel() {
       await deleteClonedVoice(name);
       const updated = await getClonedVoices();
       setClonedVoices(updated.voices || []);
-      setOrpheusVoices(['default', ...updated.voices.map(v => v.name)]);
+      setF5Voices(['andrew', ...updated.voices.map(v => v.name)]);
       if (ttsVoice === name) setTtsVoice('default');
       showToast('success', `Voice "${name}" deleted`);
     } catch (e) {
@@ -494,6 +400,7 @@ function SettingsPanel() {
     try {
       const model = models.find((m) => m.id === selectedModel);
       await switchModel(selectedModel, model?.provider);
+      trackEvent('model_switched', { model: selectedModel, provider: model?.provider });
       const cfg = await getConfig();
       setConfig(cfg);
       setSelectedModel(getModel(cfg));
@@ -669,7 +576,7 @@ function SettingsPanel() {
                     setTtsEngine(engine.id);
                     setTtsUrl(engine.defaultUrl);
                     setTtsVoice(engine.defaultVoices[0] || 'default');
-                    setOrpheusVoices(engine.defaultVoices);
+                    setF5Voices(engine.defaultVoices);
                   }}
                   className={`rounded-lg border p-3 text-left transition-all min-h-[64px] active:scale-[0.98] sm:min-h-[56px] ${
                     ttsEngine === engine.id
@@ -683,235 +590,75 @@ function SettingsPanel() {
               ))}
             </div>
 
-            {/* Orpheus TTS Setup/Status */}
-            {ttsEngine === 'orpheus' && (
-              <div className="mt-3 rounded-xl border border-border bg-bg-secondary p-4">
-                {orpheusInstalling ? (
-                  /* Installing state */
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 text-accent-hover animate-spin" />
-                      <span className="text-sm font-medium text-text">Installing Orpheus TTS...</span>
-                    </div>
-                    <div className="rounded-lg bg-bg border border-bg-tertiary p-3">
-                      <p className="text-xs text-text-secondary font-mono break-all">{orpheusProgress}</p>
-                    </div>
+            {/* F5-TTS Voice Cloning */}
+            <div className="mt-3 rounded-xl border border-border bg-bg-secondary p-4 space-y-4">
+              {qwen3Installing ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 text-accent2 animate-spin" />
+                    <span className="text-sm font-medium text-text">Installing F5-TTS...</span>
                   </div>
-                ) : orpheusStatus?.installed && orpheusStatus?.running ? (
-                  /* Running state */
+                  <div className="rounded-lg bg-bg border border-bg-tertiary p-3">
+                    <p className="text-xs text-text-secondary font-mono break-all">{qwen3Progress}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
-                      <span className="text-sm text-text">Orpheus TTS Running</span>
+                      <span className="text-sm text-text">F5-TTS Running</span>
                     </div>
-                    <button
-                      onClick={handleOrpheusStop}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-secondary border border-border hover:border-error/50 hover:text-error transition-colors"
-                    >
-                      <Square className="h-3.5 w-3.5" />
-                      Stop
-                    </button>
                   </div>
-                ) : orpheusStatus?.installed && !orpheusStatus?.running ? (
-                  /* Stopped state */
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-warning shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
-                      <span className="text-sm text-text">Orpheus TTS Stopped</span>
-                    </div>
-                    <button
-                      onClick={handleOrpheusStart}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-success border border-border hover:border-success/50 hover:bg-success/10 transition-colors"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      Start
-                    </button>
-                  </div>
-                ) : (
-                  /* Not installed state */
-                  <div className="space-y-3">
+                  <div className="rounded-lg border border-bg-tertiary bg-bg p-3 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-text">Orpheus TTS Not Installed</p>
-                        <p className="text-xs text-text-muted mt-0.5">~2GB download, Apple Silicon optimized</p>
-                      </div>
+                      <p className="text-xs font-medium text-text-secondary">Cloned Voices</p>
                       <button
-                        onClick={handleOrpheusSetup}
-                        className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                        onClick={handleVoiceUpload}
+                        disabled={uploadingVoice}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-accent2 border border-border hover:border-accent2/50 hover:bg-accent2/10 transition-colors disabled:opacity-50"
                       >
-                        <Download className="h-4 w-4" />
-                        Setup Orpheus TTS
+                        {uploadingVoice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 rotate-180" />}
+                        Upload Voice
                       </button>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Voice Cloning (F5-TTS TTS) Setup/Status */}
-            {ttsEngine === 'qwen3-tts' && (
-              <div className="mt-3 rounded-xl border border-border bg-bg-secondary p-4 space-y-4">
-                {qwen3Installing ? (
-                  /* Installing state */
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 text-accent2 animate-spin" />
-                      <span className="text-sm font-medium text-text">Installing Voice Cloning...</span>
-                    </div>
-                    <div className="rounded-lg bg-bg border border-bg-tertiary p-3">
-                      <p className="text-xs text-text-secondary font-mono break-all">{qwen3Progress}</p>
-                    </div>
-                  </div>
-                ) : qwen3Status?.installed && qwen3Status?.running ? (
-                  /* Running state */
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
-                        <span className="text-sm text-text">Voice Cloning Running (F5-TTS)</span>
-                      </div>
-                      <button
-                        onClick={handleQwen3Stop}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-secondary border border-border hover:border-error/50 hover:text-error transition-colors"
-                      >
-                        <Square className="h-3.5 w-3.5" />
-                        Stop
-                      </button>
-                    </div>
-
-                    {/* Voice Upload Section */}
-                    <div className="rounded-lg border border-bg-tertiary bg-bg p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-medium text-text-secondary">Cloned Voices</p>
-                        <button
-                          onClick={handleVoiceUpload}
-                          disabled={uploadingVoice}
-                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-accent2 border border-border hover:border-accent2/50 hover:bg-accent2/10 transition-colors disabled:opacity-50"
-                        >
-                          {uploadingVoice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 rotate-180" />}
-                          Upload Voice
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-text-muted leading-relaxed">Upload 5-10 seconds of clear speech. No background noise or music. Adding a transcript significantly improves quality.</p>
-                      {clonedVoices.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {clonedVoices.map(v => (
-                            <div key={v.name} className="flex items-center justify-between rounded-lg border border-bg-tertiary px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <Mic className="h-3.5 w-3.5 text-accent2" />
-                                <span className="text-sm text-text capitalize">{v.name}</span>
-                                <span className="text-[9px] text-text-muted">{(v.sizeBytes / 1024).toFixed(0)}KB</span>
-                                {v.hasTranscript && <span className="rounded bg-success/15 px-1 py-0.5 text-[8px] text-success">transcript</span>}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handlePreviewVoice(v.name)}
-                                  className="text-text-muted hover:text-accent2 transition-colors"
-                                  title="Preview voice"
-                                >
-                                  <Play className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteVoice(v.name)}
-                                  className="text-text-muted hover:text-error transition-colors"
-                                  title="Delete voice"
-                                >
-                                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                                </button>
-                              </div>
+                    <p className="text-[10px] text-text-muted leading-relaxed">Upload 5-10 seconds of clear speech. No background noise or music. Adding a transcript significantly improves quality.</p>
+                    {clonedVoices.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {clonedVoices.map(v => (
+                          <div key={v.name} className="flex items-center justify-between rounded-lg border border-bg-tertiary px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <Mic className="h-3.5 w-3.5 text-accent2" />
+                              <span className="text-sm text-text capitalize">{v.name}</span>
+                              <span className="text-[9px] text-text-muted">{(v.sizeBytes / 1024).toFixed(0)}KB</span>
+                              {v.hasTranscript && <span className="rounded bg-success/15 px-1 py-0.5 text-[8px] text-success">transcript</span>}
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-text-muted">No cloned voices yet. Upload a 5-10 second WAV reference to clone any voice.</p>
-                      )}
-                    </div>
-                  </div>
-                ) : qwen3Status?.installed && !qwen3Status?.running ? (
-                  /* Stopped state */
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-warning shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
-                        <span className="text-sm text-text">Voice Cloning Stopped</span>
-                      </div>
-                      <button
-                        onClick={handleQwen3Start}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-success border border-border hover:border-success/50 hover:bg-success/10 transition-colors"
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        Start
-                      </button>
-                    </div>
-
-                    {/* Voice Library (visible even when stopped) */}
-                    <div className="rounded-lg border border-bg-tertiary bg-bg p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-medium text-text-secondary">Cloned Voices</p>
-                        <button
-                          onClick={handleVoiceUpload}
-                          disabled={uploadingVoice}
-                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-accent2 border border-border hover:border-accent2/50 hover:bg-accent2/10 transition-colors disabled:opacity-50"
-                        >
-                          {uploadingVoice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 rotate-180" />}
-                          Upload Voice
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-text-muted leading-relaxed">Upload 5-10 seconds of clear speech. No background noise or music. Adding a transcript significantly improves quality.</p>
-                      {clonedVoices.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {clonedVoices.map(v => (
-                            <div key={v.name} className="flex items-center justify-between rounded-lg border border-bg-tertiary px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <Mic className="h-3.5 w-3.5 text-accent2" />
-                                <span className="text-sm text-text capitalize">{v.name}</span>
-                                <span className="text-[9px] text-text-muted">{(v.sizeBytes / 1024).toFixed(0)}KB</span>
-                                {v.hasTranscript && <span className="rounded bg-success/15 px-1 py-0.5 text-[8px] text-success">transcript</span>}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handlePreviewVoice(v.name)}
-                                  className="text-text-muted hover:text-accent2 transition-colors"
-                                  title="Preview voice"
-                                >
-                                  <Play className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteVoice(v.name)}
-                                  className="text-text-muted hover:text-error transition-colors"
-                                  title="Delete voice"
-                                >
-                                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                                </button>
-                              </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handlePreviewVoice(v.name)}
+                                className="text-text-muted hover:text-accent2 transition-colors"
+                                title="Preview voice"
+                              >
+                                <Play className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteVoice(v.name)}
+                                className="text-text-muted hover:text-error transition-colors"
+                                title="Delete voice"
+                              >
+                                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                              </button>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-text-muted">No cloned voices yet. Upload a 5-10 second WAV reference to clone any voice.</p>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  /* Not installed state */
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-text">Voice Cloning (F5-TTS TTS)</p>
-                        <p className="text-xs text-text-muted mt-0.5">~300MB download, Apple Silicon native via MLX, clone any voice from 5-10s audio</p>
+                          </div>
+                        ))}
                       </div>
-                      <button
-                        onClick={handleQwen3Setup}
-                        className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent to-accent2 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-                      >
-                        <Download className="h-4 w-4" />
-                        Setup Voice Cloning
-                      </button>
-                    </div>
+                    ) : (
+                      <p className="text-xs text-text-muted">No cloned voices yet. Upload a 5-10 second WAV reference to clone any voice.</p>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* LiveKit URL */}
@@ -934,7 +681,7 @@ function SettingsPanel() {
           <div>
             <label className="mb-2 block text-xs text-text-muted">Voice</label>
             <div className="grid grid-cols-4 gap-2">
-              {orpheusVoices.map((v) => (
+              {f5Voices.map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -950,10 +697,7 @@ function SettingsPanel() {
               ))}
             </div>
             <p className="mt-2 text-xs text-text-muted">
-              {ttsEngine === 'orpheus' && 'Orpheus voices support emotion tags: <laugh>, <sigh>, <chuckle> and more'}
-              {ttsEngine === 'qwen3-tts' && 'Upload a 5-10 second reference audio to clone any voice. Select "default" for standard voice.'}
-              {ttsEngine === 'fish-speech' && 'Upload reference audio to clone any voice via Fish Speech WebUI'}
-              {ttsEngine === 'browser' && "Uses your browser's built-in speech synthesis"}
+              F5-TTS voice cloning via MLX. Upload a 5-10 second reference audio to clone any voice.
             </p>
           </div>
 

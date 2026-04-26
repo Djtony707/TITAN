@@ -397,20 +397,28 @@ export async function structuredSpawn(opts: StructuredSpawnOpts): Promise<Struct
         const isOllama = model.startsWith('ollama/') || model.includes(':cloud');
         if (parseFailed && isOllama && raw.trim().length > 0) {
             try {
-                logger.info(COMPONENT, `Reformat pass for ${opts.specialistId} (model=${model}, parseError=${parsed.parseError})`);
-                const reformatted = await chat({
+                // v4.13 ancestor-extraction: route the reformat pass through the
+                // auxiliary model. This is exactly the task the auxiliary client
+                // exists for — coerce prose output into a strict JSON schema.
+                const { auxChat, resolveAuxiliaryModel } = await import('../providers/auxiliary.js');
+                const reformatModel = resolveAuxiliaryModel('reformat') || model;
+                logger.info(COMPONENT, `Reformat pass for ${opts.specialistId} (model=${reformatModel}, parseError=${parsed.parseError})`);
+                const reformatted = await auxChat(
+                    'reformat',
+                    {
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'You are a JSON reformatter. The user message is an assistant response that was supposed to end with a structured JSON block but did not. Output ONLY the JSON object that best summarizes the response. No prose, no markdown, no code fences — just the JSON object.',
+                            },
+                            { role: 'user', content: raw.slice(0, 8000) },
+                        ],
+                        format: STRUCTURED_SPAWN_JSON_SCHEMA,
+                        temperature: 0.1,
+                        maxTokens: 2048,
+                    },
                     model,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'You are a JSON reformatter. The user message is an assistant response that was supposed to end with a structured JSON block but did not. Output ONLY the JSON object that best summarizes the response. No prose, no markdown, no code fences — just the JSON object.',
-                        },
-                        { role: 'user', content: raw.slice(0, 8000) },
-                    ],
-                    format: STRUCTURED_SPAWN_JSON_SCHEMA,
-                    temperature: 0.1,
-                    maxTokens: 2048,
-                });
+                ) ?? { content: '' } as { content: string };
                 const reformatRaw = reformatted.content?.trim() || '';
                 if (reformatRaw) {
                     const reparsed = parseStructuredResponse(reformatRaw);

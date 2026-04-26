@@ -148,6 +148,14 @@ export interface RouteMessageOptions {
     modelOverride?: string;
     /** Provider-specific opt-ins (e.g. allowClaudeCode). Forwarded to ChatOptions. */
     providerOptions?: Record<string, unknown>;
+    /**
+     * Additive system-prompt block sent only with this message. Used by
+     * the canvas chat surface to inject the gate protocol + current widget
+     * list so the agent has situational awareness of where it is. Never
+     * replaces the agent's own systemPrompt — it lands AFTER everything
+     * the agent already knows.
+     */
+    systemPromptAppendix?: string;
 }
 
 /** Route a message to the appropriate agent and process it */
@@ -157,7 +165,7 @@ export async function routeMessage(
     userId: string,
     options: RouteMessageOptions = {},
 ): Promise<AgentResponse & { agentId: string; agentName: string }> {
-    const { streamCallbacks, overrideAgentId, signal, sessionId, modelOverride, providerOptions } = options;
+    const { streamCallbacks, overrideAgentId, signal, sessionId, modelOverride, providerOptions, systemPromptAppendix } = options;
 
     let agent = resolveAgent(channel, userId);
 
@@ -195,12 +203,18 @@ export async function routeMessage(
     // Process through the agent
     // Model priority: explicit API override > agent config > default config
     const effectiveModel = modelOverride || (agent.id === 'default' ? loadConfig().agent.model : agent.model);
+    // Compose final systemPrompt: agent.systemPrompt (durable role/character)
+    // followed by systemPromptAppendix (per-message situational context like
+    // the canvas gate protocol + current widget list). Either may be empty.
+    const composedSystemPrompt = [agent.systemPrompt, systemPromptAppendix]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .join('\n\n');
+
     const response = await processMessage(message, channel, userId, {
         model: effectiveModel,
-        systemPrompt: agent.systemPrompt,
+        systemPrompt: composedSystemPrompt || undefined,
         agentId: agent.id,
         sessionId,
-        providerOptions,
     }, streamCallbacks, signal);
 
     return {

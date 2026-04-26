@@ -15,6 +15,12 @@ vi.mock('../src/skills/registry.js', () => ({
     }),
 }));
 
+vi.mock('../src/agent/goals.js', () => ({
+    createGoal: vi.fn((def: any) => ({ ...def, id: 'goal-test-123', subtasks: def.subtasks || [] })),
+    listGoals: vi.fn(() => []),
+    updateGoal: vi.fn(),
+}));
+
 // Mock fetch globally
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);

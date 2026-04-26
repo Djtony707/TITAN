@@ -1,0 +1,13 @@
+{
+  "id": "mood-board",
+  "name": "Mood Board",
+  "category": "creative",
+  "tags": ["creative", "mood board", "inspiration", "collage"],
+  "description": "Arrange image placeholder slots into an inspiration mood board.",
+  "triggers": ["mood board", "inspiration board", "vision board", "collage"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function MoodBoard() {\n  const [items, setItems] = React.useState([\n    { id: 1, label: 'Nature' },\n    { id: 2, label: 'Architecture' },\n    { id: 3, label: 'Texture' },\n    { id: 4, label: 'Color' },\n    { id: 5, label: 'Pattern' },\n    { id: 6, label: 'Light' }\n  ]);\n\n  const colors = ['#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155'];\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#ffffff', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', color: '#1e293b' }}>\n      <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>Mood Board</h2>\n      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, flex: 1 }}>\n        {items.map((item, i) => (\n          <div key={item.id} style={{\n            background: colors[i % colors.length],\n            borderRadius: 8,\n            display: 'flex',\n            alignItems: 'center',\n            justifyContent: 'center',\n            textAlign: 'center',\n            fontSize: 12,\n            color: '#fff',\n            fontWeight: 600,\n            aspectRatio: '1',\n            cursor: 'pointer'\n          }}>\n            {item.label}\n          </div>\n        ))}\n      </div>\n      <button onClick={() => setItems([...items, { id: Date.now(), label: 'New' }])} style={{ marginTop: 12, padding: '8px 12px', borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, cursor: 'pointer' }}>Add Slot</button>\n    </div>\n  );\n}\nrender(<MoodBoard/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_DEFAULT_SLOTS", "description": "Number of default placeholder slots", "default": "6" }
+  ]
+}

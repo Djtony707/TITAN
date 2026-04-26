@@ -1,8 +1,8 @@
 /**
  * TITAN Helper Utilities
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { dirname, join } from 'path';
 
 /** Ensure a directory exists, creating it recursively if needed */
 export function ensureDir(dirPath: string): void {
@@ -26,6 +26,19 @@ export function readJsonFile<T = unknown>(filePath: string): T | null {
 export function writeJsonFile(filePath: string, data: unknown): void {
     ensureDir(dirname(filePath));
     writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+/** Atomic file write — writes to temp file then renames to avoid corruption on crash */
+export function atomicWriteFileSync(filePath: string, data: string | Buffer): void {
+    ensureDir(dirname(filePath));
+    const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    writeFileSync(tmpPath, data, 'utf-8');
+    renameSync(tmpPath, filePath);
+}
+
+/** Atomic JSON file write — uses atomicWriteFileSync internally */
+export function atomicWriteJsonFile(filePath: string, data: unknown): void {
+    atomicWriteFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
 /** Safe string truncation */

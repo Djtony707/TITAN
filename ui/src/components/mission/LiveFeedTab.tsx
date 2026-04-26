@@ -53,7 +53,7 @@ export default function LiveFeedTab() {
       {events.map((event, i) => (
         <div
           key={event.id || i}
-          className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+          className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-bg-secondary/30 hover:bg-bg-tertiary transition-colors"
         >
           <div className="mt-0.5">
             {event.type?.includes('tool') ? (

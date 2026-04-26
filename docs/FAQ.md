@@ -157,15 +157,17 @@ ollama pull qwen2.5:7b
 
 ### How do I enable voice?
 
-Voice requires Orpheus TTS or browser TTS fallback:
+Voice uses **F5-TTS** (local neural TTS) on port 5006:
 
 ```bash
-# Auto-install Orpheus
-titan voice install
+# Start the F5-TTS server
+python scripts/f5-tts-server.py
 
-# Or use browser TTS (no setup needed)
-# Enable in Mission Control → Voice panel
+# Or enable in Mission Control → Voice panel
+# Voices: "andrew" (default), "andrew_original_10s"
 ```
+
+F5-TTS is the only supported engine. Orpheus, Qwen3-TTS, and Browser TTS have been removed.
 
 ### How does self-improvement work?
 

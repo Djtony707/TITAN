@@ -7,6 +7,27 @@ import { registerSkill } from '../registry.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentConfig, type ModelTier } from '../../agent/subAgent.js';
 import logger from '../../utils/logger.js';
 
+// v4.14.0: role → specialist ID mapping for CP status tracking
+const ROLE_TO_SPECIALIST: Record<string, string> = {
+    researcher: 'scout',
+    coder: 'builder',
+    analyst: 'analyst',
+    writer: 'writer',
+    reviewer: 'sage',
+    explorer: 'scout',
+    debugger: 'builder',
+    architect: 'builder',
+};
+
+async function setAgentStatus(role: string, status: 'active' | 'idle'): Promise<void> {
+    const specialistId = ROLE_TO_SPECIALIST[role.toLowerCase().trim()];
+    if (!specialistId) return;
+    try {
+        const { updateAgentStatus } = await import('../../agent/commandPost.js');
+        updateAgentStatus(specialistId, status);
+    } catch { /* optional */ }
+}
+
 const COMPONENT = 'AgentHandoff';
 
 /** Role-to-template mapping with fallback system prompts */
@@ -109,12 +130,19 @@ const delegateHandler = {
 
         logger.info(COMPONENT, `Delegating to ${role}: "${task.slice(0, 80)}..."`);
 
-        const config = resolveRole(role, task, context, maxRounds);
-        const result = await spawnSubAgent(config);
+        await setAgentStatus(role, 'active');
+        try {
+            const config = resolveRole(role, task, context, maxRounds);
+            const result = await spawnSubAgent(config);
+            await setAgentStatus(role, 'idle');
 
-        const status = result.success ? 'SUCCESS' : 'FAILED';
-        const tools = result.toolsUsed.length > 0 ? `\nTools used: ${result.toolsUsed.join(', ')}` : '';
-        return `[${status}] Agent: ${config.name} | Rounds: ${result.rounds} | Duration: ${result.durationMs}ms${tools}\n\n${result.content}`;
+            const status = result.success ? 'SUCCESS' : 'FAILED';
+            const tools = result.toolsUsed.length > 0 ? `\nTools used: ${result.toolsUsed.join(', ')}` : '';
+            return `[${status}] Agent: ${config.name} | Rounds: ${result.rounds} | Duration: ${result.durationMs}ms${tools}\n\n${result.content}`;
+        } catch (err) {
+            await setAgentStatus(role, 'idle');
+            throw err;
+        }
     },
 };
 
@@ -158,6 +186,9 @@ const teamHandler = {
 
         logger.info(COMPONENT, `Running agent team: ${tasks.length} agents in parallel`);
 
+        // Activate all team members before spawning
+        await Promise.all(tasks.map(t => setAgentStatus(t.role, 'active')));
+
         const results = await Promise.all(
             tasks.map(async (t, i) => {
                 const config = resolveRole(t.role, t.task, t.context);
@@ -165,6 +196,9 @@ const teamHandler = {
                 return { index: i, role: t.role, task: t.task, result };
             })
         );
+
+        // Deactivate all team members after completion
+        await Promise.all(tasks.map(t => setAgentStatus(t.role, 'idle')));
 
         const sections = results.map(r => {
             const status = r.result.success ? 'SUCCESS' : 'FAILED';
@@ -226,21 +260,28 @@ const chainHandler = {
 
             logger.info(COMPONENT, `Chain step ${i + 1}/${steps.length}: ${step.role}`);
 
-            const config = resolveRole(step.role, step.task, context);
-            const result = await spawnSubAgent(config);
+            await setAgentStatus(step.role, 'active');
+            try {
+                const config = resolveRole(step.role, step.task, context);
+                const result = await spawnSubAgent(config);
+                await setAgentStatus(step.role, 'idle');
 
-            intermediateResults.push({
-                role: step.role,
-                task: step.task,
-                content: result.content,
-                success: result.success,
-            });
+                intermediateResults.push({
+                    role: step.role,
+                    task: step.task,
+                    content: result.content,
+                    success: result.success,
+                });
 
-            previousOutput = result.content;
+                previousOutput = result.content;
 
-            // If a step fails, continue but note it
-            if (!result.success) {
-                logger.warn(COMPONENT, `Chain step ${i + 1} (${step.role}) failed, continuing with partial output`);
+                // If a step fails, continue but note it
+                if (!result.success) {
+                    logger.warn(COMPONENT, `Chain step ${i + 1} (${step.role}) failed, continuing with partial output`);
+                }
+            } catch (err) {
+                await setAgentStatus(step.role, 'idle');
+                throw err;
             }
         }
 

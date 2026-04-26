@@ -9,12 +9,51 @@
 import { registerSkill } from '../registry.js';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
 
 const COMPONENT = 'SelfImprove';
+
+// ── Live prompt bridge cache ─────────────────────────────────────────
+let optimizedPromptCache: { mtime: number; content: string } | null = null;
+
+/** Load optimized prompts from disk with mtime-based caching */
+export function getOptimizedPromptBlock(mode: string): string {
+    if (mode === 'none') return '';
+
+    let maxMtime = 0;
+    const blocks: string[] = [];
+
+    for (const area of IMPROVEMENT_AREAS) {
+        const filePath = join(PROMPTS_DIR, area.promptFile);
+        if (!existsSync(filePath)) continue;
+        const stats = statSync(filePath);
+        maxMtime = Math.max(maxMtime, stats.mtimeMs);
+        const content = readFileSync(filePath, 'utf-8').trim();
+        if (content) {
+            blocks.push(`## Optimized — ${area.label}\n${content}`);
+        }
+    }
+
+    if (blocks.length === 0) return '';
+
+    if (optimizedPromptCache && optimizedPromptCache.mtime >= maxMtime) {
+        return optimizedPromptCache.content;
+    }
+
+    const content = blocks.join('\n\n');
+    optimizedPromptCache = { mtime: maxMtime, content };
+    logger.debug(COMPONENT, `Loaded ${blocks.length} optimized prompt block(s) from ${PROMPTS_DIR}`);
+    return content;
+}
+
+/** Invalidate the optimized prompt cache so new improvements are picked up immediately */
+export function clearOptimizedPromptCache(): void {
+    optimizedPromptCache = null;
+    logger.debug(COMPONENT, 'Optimized prompt cache cleared');
+}
 
 // ── Paths ────────────────────────────────────────────────────────────
 export const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
@@ -598,6 +637,9 @@ async function selfImproveApply(args: Record<string, unknown>): Promise<string> 
     targetSession.applied = true;
     const resultPath = join(RESULTS_DIR, `${targetSession.id}.json`);
     writeFileSync(resultPath, JSON.stringify(targetSession, null, 2), 'utf-8');
+
+    // Invalidate cache so the optimized prompt is picked up on the very next turn
+    clearOptimizedPromptCache();
 
     return [
         `## Improvement Applied`,

@@ -1,16 +1,20 @@
 import { useState, useCallback, useRef } from 'react';
 import { streamMessage } from '@/api/client';
-import type { StreamEvent, ChatMessage, AgentEvent } from '@/api/types';
+import type { StreamEvent, ChatMessage, AgentEvent, ToolInvocation } from '@/api/types';
 
 interface UseSSEReturn {
   isStreaming: boolean;
   streamingContent: string;
   activeTools: string[];
   agentEvents: AgentEvent[];
+  toolInvocations: ToolInvocation[];
   /** True when the last response was a plan waiting for approval */
   pendingApproval: boolean;
+  /** Last structured error from the gateway, if any */
+  lastError: { code?: string; message?: string; action?: { type: string; target: string; label: string } } | null;
   send: (message: string, sessionId?: string, options?: { agentId?: string }) => Promise<ChatMessage | null>;
   cancel: () => void;
+  clearError: () => void;
 }
 
 let eventIdCounter = 0;
@@ -20,9 +24,16 @@ export function useSSE(): UseSSEReturn {
   const [streamingContent, setStreamingContent] = useState('');
   const [activeTools, setActiveTools] = useState<string[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const [toolInvocations, setToolInvocations] = useState<ToolInvocation[]>([]);
+  const [lastError, setLastError] = useState<UseSSEReturn['lastError']>(null);
   const eventBufferRef = useRef<AgentEvent[]>([]);
+  const toolMapRef = useRef<Map<string, ToolInvocation>>(new Map());
   const rafRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const clearError = useCallback(() => {
+    setLastError(null);
+  }, []);
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
@@ -46,6 +57,9 @@ export function useSSE(): UseSSEReturn {
       setStreamingContent('');
       setActiveTools([]);
       setAgentEvents([]);
+      setToolInvocations([]);
+      toolMapRef.current = new Map();
+      setLastError(null);
       eventBufferRef.current = [];
 
       // RAF-based event flushing to prevent render thrashing
@@ -88,12 +102,34 @@ export function useSSE(): UseSSEReturn {
                 if (event.toolName) {
                   setActiveTools((prev) => [...prev, event.toolName!]);
                   pushEvent({ type: 'tool_start', toolName: event.toolName, args: event.toolArgs, status: 'running' });
+                  const key = `${event.toolName}-${Date.now()}`;
+                  toolMapRef.current.set(key, {
+                    toolName: event.toolName,
+                    status: 'running',
+                    args: event.toolArgs,
+                    startedAt: Date.now(),
+                  });
+                  setToolInvocations(Array.from(toolMapRef.current.values()));
                 }
                 break;
               case 'tool_end':
                 if (event.toolName) {
                   setActiveTools((prev) => prev.filter((t) => t !== event.toolName));
                   pushEvent({ type: 'tool_end', toolName: event.toolName, result: event.toolResult, durationMs: event.toolDurationMs, status: event.toolSuccess ? 'success' : 'error' });
+                  // Update the most recent running invocation for this tool
+                  const entries = Array.from(toolMapRef.current.entries());
+                  const match = entries.reverse().find(([, inv]) => inv.toolName === event.toolName && inv.status === 'running');
+                  if (match) {
+                    toolMapRef.current.set(match[0], {
+                      ...match[1],
+                      status: event.toolSuccess ? 'success' : 'error',
+                      result: event.toolResult,
+                      diff: event.toolDiff,
+                      durationMs: event.toolDurationMs,
+                      endedAt: Date.now(),
+                    });
+                    setToolInvocations(Array.from(toolMapRef.current.values()));
+                  }
                 }
                 break;
               case 'thinking':
@@ -117,7 +153,12 @@ export function useSSE(): UseSSEReturn {
                 pushEvent({ type: 'done', status: 'success' });
                 break;
               case 'error':
-                console.error('Stream error:', event.data);
+                // Surface structured errors from classifyChatError
+                setLastError({
+                  code: event.errorCode,
+                  message: event.errorMessage || event.data,
+                  action: event.errorAction,
+                });
                 pushEvent({ type: 'done', status: 'error', result: event.data });
                 break;
             }
@@ -127,6 +168,11 @@ export function useSSE(): UseSSEReturn {
         );
       } catch (e) {
         if ((e as Error).name === 'AbortError') return null;
+        // Surface fetch / network errors
+        setLastError({
+          code: 'network_error',
+          message: (e as Error).message || 'Could not reach TITAN. Check your connection.',
+        });
         throw e;
       } finally {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -146,6 +192,7 @@ export function useSSE(): UseSSEReturn {
         role: 'assistant',
         content: fullContent,
         toolsUsed,
+        toolInvocations: Array.from(toolMapRef.current.values()),
         model,
         durationMs,
         timestamp: new Date().toISOString(),
@@ -155,5 +202,5 @@ export function useSSE(): UseSSEReturn {
     [],
   );
 
-  return { isStreaming, streamingContent, activeTools, agentEvents, pendingApproval: false, send, cancel };
+  return { isStreaming, streamingContent, activeTools, agentEvents, toolInvocations, pendingApproval: false, lastError, send, cancel, clearError };
 }

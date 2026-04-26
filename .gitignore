@@ -40,6 +40,14 @@ src/skills/personal/
 **/voices/*.wav
 **/voices/*.txt
 
+# Python virtualenvs (F5-TTS server, optional installers, etc.)
+.venv/
+.venv-*/
+venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
 # Handoff + audit documents — local-only, never committed
 HANDOFF*.md
 AUDIT*.md

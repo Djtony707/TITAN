@@ -2,11 +2,74 @@
 
 > This file is read automatically by Claude Code. It contains everything needed to understand, build, test, and contribute to TITAN.
 
+## Current Live Status — 2026-04-25 — v5.0.0 "Spacewalk" STAGED FOR RELEASE
+
+- **Local HEAD:** `bf57cf7c v5.0.0 — Spacewalk: full release` (Mac authoring checkout)
+- **Local tag:** `v5.0.0`
+- **Stats:** 450 files changed, +69,846 / −18,147 lines
+- **`origin/main` is at:** `1c04ca71 v4.13.0` — 11 commits behind local
+- **Release commit not yet pushed.** Tony pushes from Titan PC, not this Mac.
+
+Full release report: `docs/HANDOFF-2026-04-25.md`. Release-day breakdown: `AGENTS.md`.
+
+### Standing rules (Tony, do not violate)
+
+- **TITAN runtime must never call Claude Code or shell to the `claude` CLI.** Local Claude Code notes/docs in `~/.claude/` are fine; runtime adapters / providers / fallbacks are not.
+- **Push to GitHub and npm from Titan PC, not from this Mac.** The Mac is the authoring host; Titan PC has the npm + GitHub credentials and is the publishing host.
+- **`/opt/TITAN` on Titan PC is the running service**, not the publish source. For npm releases, fresh-clone into `~/titan-publish` on Titan PC and publish from there. `/opt/TITAN` carries Soma self-mod drift that must not ship.
+- **Mini PC (Node 18) cannot build Tailwind 4.** Always build `ui/dist/` on Mac or Titan PC.
+- **Always explain WHY** when announcing fixes to Kimi (WHAT / WHY this approach / TRADE-OFF / FOLLOW-UP).
+- **Always have Kimi double-check** Claude's work before deploy. Vice versa when Kimi authors.
+
+### Release commands (Titan PC)
+
+```bash
+ssh titan
+cd ~/titan-publish || git clone https://github.com/Djtony707/TITAN ~/titan-publish
+cd ~/titan-publish
+git fetch --tags && git checkout v5.0.0
+npm install && npm run build && npm run build:ui
+git push origin main
+git push origin v5.0.0
+npm publish --tag next   # @next first per CHANGELOG; promote to @latest after ~1 week
+```
+
+If the v5.0 commit isn't on Titan PC yet, rsync from Mac first (exclude `node_modules`, `dist`, `ui/dist`, `server/`, `space-app/`, `space-pages/`, `packages/`).
+
+### What's in v5.0
+
+1. **Widget gallery** — 110 production templates + gallery-first chat agent (`gallery_search` always called first; `gallery_get` fills `REPLACE_WITH_X` / `{{X}}` placeholders with backslash + single-quote + backtick escaping).
+2. **Self-awareness layer** — companyPortability, conflictResolver, peerAdvise, runContinuations, subdirHints, trajectory; identity / self-model / experiments / workingMemory / provenance fully wired.
+3. **Multi-agent prompt threading** — `systemPromptAppendix` carries live canvas context every turn.
+4. **Observability** — PostHog telemetry with bucketed system fingerprint, `/api/bug-reports` endpoints, `~/.titan/bug-reports.jsonl` capture (5 MB rotation, 250 ms burst guard).
+5. **F5-TTS voice** replaces Orpheus.
+6. **Agent-bus IPC** at `~/.local/bin/agent-bus` for Claude ↔ Kimi co-working.
+7. **Hardening** — PII redaction, 5-layer secret scanner, pre-execution scanner, shell lifecycle hooks.
+
+### Excluded from the v5.0 commit (intentional)
+
+`server/`, `space-app/`, `space-pages/`, `packages/`, `pnpm-workspace.yaml`, root scratch (`babel.standalone.min.js`, `debug_template.cjs`, `find_escapes.cjs`).
+
+### Open items (post-v5.0)
+
+- `titan.api.call` proxy bug in canvas widgets (Stock Analyzer "Analyze" returns "No response."; backend works via curl).
+- Pomodoro UI generation 90s+ hang while direct curl produces in 33s — SSE timing suspected.
+- Vitest worker OOM flake on full suite; tests pass individually.
+
+### Cleared from prior audit
+
+- ✅ `package.json` synced to 5.0.0.
+- ✅ `agentScope.ts` wired into runtime (was dead code).
+- ✅ Persona token bloat capped at 4 KB with section-aware truncation; override via `TITAN_PERSONA_CAP` env. Full content via `get_persona` tool.
+- ✅ Stale top-level files (`src/server.ts`, `src/schema.ts`, etc.) cleaned.
+- ✅ Self-awareness modules restored.
+- ✅ PostHog telemetry implemented.
+
 ## What is TITAN?
 
 **TITAN (The Intelligent Task Automation Network)** is a premium, autonomous AI agent framework built in TypeScript. It's published as `titan-agent` on npm with 25,000+ installs. Created by Tony Elliott.
 
-- **Current version**: v4.11.1 (semantic versioning — NOT 2026.10.XX)
+- **Current version**: v5.0.0 "Spacewalk" (semantic versioning — NOT 2026.10.XX). Note: `package.json` still reads `4.12.0` — needs sync.
 - **License**: MIT
 - **Repo**: https://github.com/Djtony707/TITAN
 - **Runtime**: Node.js >= 22, pure ESM
@@ -20,8 +83,8 @@
 | Tools | 248 across 143 loaded skills |
 | Channels | 16 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, Line, Zulip, etc.) |
 | Soma | Homeostatic drive layer (v4.0+, opt-in via `organism.enabled`) |
-| Tests | 4,655+ across 154+ files (vitest) |
-| Default model | `anthropic/claude-sonnet-4-20250514` |
+| Tests | 5,840+ across 211 files (vitest) |
+| Default model | `ollama/qwen3.5:cloud` (Ollama cloud-first) |
 | Gateway port | 48420 |
 
 ## Project Structure

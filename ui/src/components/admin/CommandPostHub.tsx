@@ -4,6 +4,7 @@ import {
   ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
   MessageSquare, Send, StopCircle, Plus, Shield, Eye,
   BarChart3, Briefcase, Play, Pause, Search, Trash2, Scale,
+  Mail, Target, FileText, Terminal, RefreshCw,
 } from 'lucide-react';
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
@@ -14,7 +15,8 @@ import {
   type CPIssueComment,
 } from '@/api/client';
 import { apiFetch } from '@/api/client';
-import { InlineEditableField, ConfirmDialog, Modal } from '@/components/shared';
+import { InlineEditableField, ConfirmDialog, Modal, HelpBadge } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 import { extractApprovalHeadline, approvalUrgencyColor } from '@/lib/approvalHeadline';
 import { ApprovalProgressPanel } from '@/components/admin/ApprovalProgressPanel';
 import { useWatchStream } from '@/hooks/useWatchStream';
@@ -23,8 +25,21 @@ import type {
   CPActivityEntry, GoalTreeNode, CPIssue, CPApproval, CPRun, OrgNode, StreamEvent,
 } from '@/api/types';
 import { PixelOfficeCrew } from '../command-post/PixelOfficeCrew';
+import { AgentSidebar } from '../command-post/AgentSidebar';
+import { AgentLiveCard } from '../command-post/AgentLiveCard';
 
 // ─── Helpers ─────────────────────────────────────────────────
+
+function TabFallback({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="flex items-center gap-3">
+        <div className="w-5 h-5 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+        <span className="text-sm text-text-muted">Loading {label}…</span>
+      </div>
+    </div>
+  );
+}
 
 function timeSince(dateStr: string): string {
   const s = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -36,30 +51,31 @@ function timeSince(dateStr: string): string {
 
 function StatusBadge({ status }: { status: string }) {
   const c: Record<string, string> = {
-    active: 'bg-green-500/10 text-green-400', idle: 'bg-yellow-500/10 text-yellow-400',
-    running: 'bg-cyan-500/10 text-cyan-400', paused: 'bg-blue-500/10 text-blue-400',
-    error: 'bg-red-500/10 text-red-400', stopped: 'bg-zinc-500/10 text-zinc-400',
-    pending: 'bg-amber-500/10 text-amber-400', approved: 'bg-green-500/10 text-green-400',
-    rejected: 'bg-red-500/10 text-red-400', succeeded: 'bg-green-500/10 text-green-400',
-    failed: 'bg-red-500/10 text-red-400',
-    backlog: 'bg-zinc-500/10 text-zinc-400', todo: 'bg-blue-500/10 text-blue-400',
-    in_progress: 'bg-cyan-500/10 text-cyan-400', in_review: 'bg-purple-500/10 text-purple-400',
-    done: 'bg-green-500/10 text-green-400', blocked: 'bg-red-500/10 text-red-400',
-    cancelled: 'bg-zinc-500/10 text-zinc-500',
-    critical: 'bg-red-500/10 text-red-400', high: 'bg-orange-500/10 text-orange-400',
-    medium: 'bg-yellow-500/10 text-yellow-400', low: 'bg-zinc-500/10 text-zinc-400',
+    active: 'bg-success/10 text-success', idle: 'bg-warning/10 text-warning',
+    running: 'bg-cyan/10 text-cyan', paused: 'bg-info/10 text-info',
+    error: 'bg-error/10 text-error', stopped: 'bg-bg-tertiary text-text-muted',
+    pending: 'bg-warning/10 text-warning', approved: 'bg-success/10 text-success',
+    rejected: 'bg-error/10 text-error', succeeded: 'bg-success/10 text-success',
+    failed: 'bg-error/10 text-error',
+    backlog: 'bg-bg-tertiary text-text-muted', todo: 'bg-info/10 text-info',
+    in_progress: 'bg-cyan/10 text-cyan', in_review: 'bg-purple/10 text-purple-light',
+    done: 'bg-success/10 text-success', blocked: 'bg-error/10 text-error',
+    cancelled: 'bg-bg-tertiary text-text-muted',
+    critical: 'bg-error/10 text-error', high: 'bg-warning/10 text-warning',
+    medium: 'bg-warning/10 text-warning', low: 'bg-bg-tertiary text-text-muted',
   };
   const s = status || 'unknown';
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${c[s] || 'bg-zinc-500/10 text-zinc-400'}`}>{s.replace('_', ' ')}</span>;
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${c[s] || 'bg-bg-tertiary text-text-muted'}`}>{s.replace('_', ' ')}</span>;
 }
 
-function SectionHeader({ icon: Icon, title, count, action }: { icon: typeof Shield; title: string; count?: number; action?: React.ReactNode }) {
+function SectionHeader({ icon: Icon, title, count, action, help }: { icon: typeof Shield; title: string; count?: number; action?: React.ReactNode; help?: { title: string; description: string } }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+    <div className="flex items-center justify-between px-5 py-3 border-b border-border">
       <div className="flex items-center gap-2">
-        <Icon size={14} className="text-indigo-400" />
-        <h2 className="text-sm font-semibold text-white/80">{title}</h2>
-        {count !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400">{count}</span>}
+        <Icon size={14} className="text-accent-light" />
+        <h2 className="text-sm font-semibold text-text">{title}</h2>
+        {count !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-light">{count}</span>}
+        {help && <HelpBadge title={help.title} description={help.description} />}
       </div>
       {action}
     </div>
@@ -69,72 +85,6 @@ function SectionHeader({ icon: Icon, title, count, action }: { icon: typeof Shie
 // ═══════════════════════════════════════════════════════════════
 // TAB: DASHBOARD
 // ═══════════════════════════════════════════════════════════════
-
-function DashboardTab({ d, activity }: { d: CommandPostDashboard; activity: CPActivityEntry[] }) {
-  void activity; // legacy prop — live events come from useWatchStream now
-  // Also show on Org Chart tab
-  const showCrew = d.agents.length > 0;
-  const budgetPct = d.budgetUtilization ?? 0;
-
-  // v4.6.1: Real-time event feed wired directly to /api/watch/stream
-  // via useWatchStream. Replaces the polled commandpost:activity feed
-  // with humanized events from the unified bus (drives, soma, tools,
-  // goals, channels, initiative, memory, health, alerts).
-  const { events: liveEvents } = useWatchStream();
-
-  return (
-    <div className="space-y-4">
-      {/* Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { icon: Users, label: 'Agents', value: d.totalAgents, sub: `${d.activeAgents} active`, color: 'text-blue-400' },
-          { icon: Lock, label: 'Locked', value: d.activeCheckouts, sub: 'tasks', color: 'text-orange-400' },
-          { icon: DollarSign, label: 'Budget', value: `${Math.round(budgetPct)}%`, sub: budgetPct >= 80 ? 'nearing limit' : 'healthy', color: budgetPct >= 80 ? 'text-red-400' : 'text-green-400' },
-          { icon: Briefcase, label: 'Goals', value: d.goalTree?.length ?? 0, sub: 'in hierarchy', color: 'text-purple-400' },
-        ].map(m => (
-          <div key={m.label} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2"><m.icon size={14} className={m.color} /><span className="text-[10px] text-white/40 uppercase tracking-wider">{m.label}</span></div>
-            <div className="text-2xl font-bold text-white/90">{m.value}</div>
-            {m.sub && <div className="text-[11px] text-white/30 mt-1">{m.sub}</div>}
-          </div>
-        ))}
-      </div>
-      {/* Pixel Office Crew */}
-      <PixelOfficeCrew agents={d.agents} activity={activity} />
-
-      {/* Live Activity (v4.6.1) */}
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]">
-          <div className="flex items-center gap-2">
-            <Activity size={14} className="text-indigo-400" />
-            <span className="text-[13px] text-white/80 font-medium">Recent Activity</span>
-            <span className="text-[10px] text-white/30 tabular-nums">{liveEvents.length}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            live
-          </div>
-        </div>
-        <div className="max-h-80 overflow-y-auto divide-y divide-white/[0.03]">
-          {liveEvents.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">Listening for TITAN to do something…</div>
-          ) : liveEvents.slice(0, 30).map((e) => (
-            <div key={e.id} className="flex items-start gap-2.5 py-2 px-4 hover:bg-white/[0.02]">
-              <span className="text-[13px] w-5 text-center mt-0.5 flex-shrink-0">{e.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] text-white/75 leading-snug">{e.captionTitan}</div>
-                {e.detail && <div className="text-[10px] text-white/35 mt-0.5">{e.detail}</div>}
-              </div>
-              <span className="text-[10px] text-white/25 flex-shrink-0 tabular-nums whitespace-nowrap mt-0.5">
-                {timeSince(new Date(e.timestamp).toISOString())}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════
 // TAB: ORG CHART
@@ -178,7 +128,7 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
     loadData();
   };
 
-  const saveAgentField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo', value: string) => {
+  const saveAgentField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo' | 'model', value: string) => {
     try {
       await updateCPAgent(agentId, { [field]: value || undefined });
       loadData();
@@ -192,11 +142,11 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
     const reportsToValue = agents.find(a => a.id === node.id)?.reportsTo || '';
     const modelShort = node.model ? node.model.split('/').pop() : '';
     return (
-      <div key={node.id} className={depth > 0 ? 'ml-6 border-l border-white/[0.06] pl-4' : ''}>
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3.5 mb-2 max-w-lg">
+      <div key={node.id} className={depth > 0 ? 'ml-6 border-l border-border pl-4' : ''}>
+        <div className="bg-bg-tertiary/30 border border-border rounded-xl p-3.5 mb-2 max-w-lg">
           {/* Header */}
           <div className="flex items-center justify-between mb-2 gap-2">
-            <span className="text-[14px] font-semibold text-white/95 min-w-0">
+            <span className="text-[14px] font-semibold text-text min-w-0">
               <InlineEditableField
                 value={node.name}
                 onSave={(v) => saveAgentField(node.id, 'name', v)}
@@ -207,8 +157,8 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
           </div>
           {/* Two-col details grid */}
           <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-1.5 text-[11px]">
-            <span className="text-white/30">Title</span>
-            <span className="text-white/65 min-w-0">
+            <span className="text-text-muted">Title</span>
+            <span className="text-text-secondary min-w-0">
               <InlineEditableField
                 value={node.title || ''}
                 onSave={(v) => saveAgentField(node.id, 'title', v)}
@@ -217,20 +167,20 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
               />
             </span>
 
-            <span className="text-white/30">Role</span>
+            <span className="text-text-muted">Role</span>
             <select
               value={node.role}
               onChange={(e) => saveAgentField(node.id, 'role', e.target.value)}
-              className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[11px] text-white/65 capitalize focus:outline-none focus:border-indigo-500/30 justify-self-start"
+              className="bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-[11px] text-text-secondary capitalize focus:outline-none focus:border-accent/30 justify-self-start"
             >
               {roles.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
 
-            <span className="text-white/30">Reports to</span>
+            <span className="text-text-muted">Reports to</span>
             <select
               value={reportsToValue}
               onChange={(e) => saveAgentField(node.id, 'reportsTo', e.target.value)}
-              className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[11px] text-white/65 focus:outline-none focus:border-indigo-500/30 justify-self-start"
+              className="bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-[11px] text-text-secondary focus:outline-none focus:border-accent/30 justify-self-start"
             >
               <option value="">— nobody</option>
               {agents.filter(a => a.id !== node.id).map(a => (
@@ -238,12 +188,15 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
               ))}
             </select>
 
-            {modelShort && (
-              <>
-                <span className="text-white/30">Model</span>
-                <span className="text-white/55 font-mono text-[10px]">{modelShort}</span>
-              </>
-            )}
+            <span className="text-text-muted">Model</span>
+            <span className="text-text-secondary min-w-0">
+              <InlineEditableField
+                value={node.model || ''}
+                onSave={(v) => saveAgentField(node.id, 'model', v)}
+                placeholder="e.g. ollama/qwen3.5:cloud"
+                emptyLabel="—"
+              />
+            </span>
           </div>
         </div>
         {node.reports.map(r => renderNode(r, depth + 1))}
@@ -253,51 +206,51 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
         <SectionHeader icon={Building2} title="Organization Chart" count={agents.length} />
         <div className="p-4">
           {orgTree.length === 0 ? (
             <div className="text-center py-8">
-              <Building2 size={24} className="mx-auto mb-2 text-white/10" />
-              <p className="text-[12px] text-white/25">No agents in org chart yet</p>
-              <p className="text-[10px] text-white/15 mt-1">Spawn agents from the Agents tab, then set "Reports to" on each to build the hierarchy.</p>
+              <Building2 size={24} className="mx-auto mb-2 text-text/10" />
+              <p className="text-[12px] text-text-muted">No agents in org chart yet</p>
+              <p className="text-[10px] text-text-muted mt-1">Spawn agents from the Agents tab, then set "Reports to" on each to build the hierarchy.</p>
             </div>
           ) : orgTree.map(n => renderNode(n))}
         </div>
       </div>
 
       {/* Companies Section */}
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
         <SectionHeader icon={Briefcase} title="Companies" count={companies.length}
-          action={<button onClick={() => setShowCreateCompany(true)} className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"><Plus size={10} /> New</button>}
+          action={<button onClick={() => setShowCreateCompany(true)} className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-accent text-text rounded-lg hover:bg-accent-hover"><Plus size={10} /> New</button>}
         />
 
         {showCreateCompany && (
-          <div className="p-4 border-b border-white/[0.06] bg-white/[0.02] space-y-2">
-            <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Company name..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" onKeyDown={e => e.key === 'Enter' && handleCreateCompany()} />
-            <input value={companyMission} onChange={e => setCompanyMission(e.target.value)} placeholder="Mission (optional)..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/70 placeholder-white/15 focus:outline-none focus:border-indigo-500/30" />
+          <div className="p-4 border-b border-border bg-bg-secondary/30 space-y-2">
+            <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Company name..." className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-[13px] text-text placeholder-white/20 focus:outline-none focus:border-accent/30" onKeyDown={e => e.key === 'Enter' && handleCreateCompany()} />
+            <input value={companyMission} onChange={e => setCompanyMission(e.target.value)} placeholder="Mission (optional)..." className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-[12px] text-text-secondary placeholder-white/15 focus:outline-none focus:border-accent/30" />
             <div className="flex gap-2">
-              <button onClick={handleCreateCompany} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg">Create</button>
-              <button onClick={() => setShowCreateCompany(false)} className="px-3 py-1.5 text-[11px] text-white/40">Cancel</button>
+              <button onClick={handleCreateCompany} className="px-3 py-1.5 text-[11px] bg-accent text-text rounded-lg">Create</button>
+              <button onClick={() => setShowCreateCompany(false)} className="px-3 py-1.5 text-[11px] text-text-muted">Cancel</button>
             </div>
           </div>
         )}
 
-        <div className="divide-y divide-white/[0.03]">
+        <div className="divide-y divide-border/30">
           {companies.length === 0 ? (
-            <div className="py-6 text-center text-[12px] text-white/25">No companies yet — click "+ New" to create one.</div>
+            <div className="py-6 text-center text-[12px] text-text-muted">No companies yet — click "+ New" to create one.</div>
           ) : companies.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
-              <Briefcase size={14} className="text-indigo-400 flex-shrink-0" />
+            <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary/30 transition-colors">
+              <Briefcase size={14} className="text-accent-light flex-shrink-0" />
               <div className="flex-1 min-w-0 space-y-0.5">
-                <div className="text-[13px] text-white/80 font-medium">
+                <div className="text-[13px] text-text font-medium">
                   <InlineEditableField
                     value={c.name}
                     onSave={(v) => saveCompanyField(c.id, 'name', v)}
                     placeholder="Company name"
                   />
                 </div>
-                <div className="text-[10px] text-white/30">
+                <div className="text-[10px] text-text-muted">
                   <InlineEditableField
                     value={c.mission || ''}
                     onSave={(v) => saveCompanyField(c.id, 'mission', v)}
@@ -307,7 +260,7 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
                 </div>
               </div>
               <StatusBadge status={c.status || 'active'} />
-              <button onClick={() => setConfirmDeleteCompany({ id: c.id, name: c.name })} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete company">
+              <button onClick={() => setConfirmDeleteCompany({ id: c.id, name: c.name })} className="p-1 rounded text-text-muted hover:text-error hover:bg-error/10 transition-colors" title="Delete company">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -378,43 +331,43 @@ function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1.5">
-          <button onClick={() => setFilter('')} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${!filter ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>All</button>
+          <button onClick={() => setFilter('')} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${!filter ? 'bg-accent text-text' : 'bg-bg-tertiary text-text-muted hover:text-text-secondary'}`}>All</button>
           {statuses.map(s => (
-            <button key={s} onClick={() => setFilter(s)} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>{s.replace('_', ' ')}</button>
+            <button key={s} onClick={() => setFilter(s)} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${filter === s ? 'bg-accent text-text' : 'bg-bg-tertiary text-text-muted hover:text-text-secondary'}`}>{s.replace('_', ' ')}</button>
           ))}
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1 px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500">
+        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1 px-3 py-1.5 text-[11px] bg-accent text-text rounded-lg hover:bg-accent-hover">
           <Plus size={12} /> New Issue
         </button>
       </div>
 
       {/* Create modal */}
       {showCreate && (
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3">
-          <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Issue title..." className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[13px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+        <div className="bg-bg-tertiary/30 border border-border rounded-xl p-4 space-y-3">
+          <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Issue title..." className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-[13px] text-text placeholder-white/20 focus:outline-none focus:border-accent/30" onKeyDown={e => e.key === 'Enter' && handleCreate()} />
           <div className="flex items-center gap-2">
-            <select value={newPriority} onChange={e => setNewPriority(e.target.value)} className="bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-[11px] text-white/70 focus:outline-none">
+            <select value={newPriority} onChange={e => setNewPriority(e.target.value)} className="bg-bg-tertiary border border-border rounded-lg px-2 py-1.5 text-[11px] text-text-secondary focus:outline-none">
               <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
             </select>
-            <button onClick={handleCreate} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded-lg">Create</button>
-            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-[11px] text-white/40 hover:text-white/60">Cancel</button>
+            <button onClick={handleCreate} className="px-3 py-1.5 text-[11px] bg-accent text-text rounded-lg">Create</button>
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-[11px] text-text-muted hover:text-text-secondary">Cancel</button>
           </div>
         </div>
       )}
 
       {/* Issue list */}
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+      <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
         <SectionHeader icon={Briefcase} title="Issues" count={issues.length} />
-        <div className="divide-y divide-white/[0.03]">
+        <div className="divide-y divide-border/30">
           {issues.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">No issues found — click "+ New Issue" to create one.</div>
+            <div className="py-8 text-center text-[12px] text-text-muted">No issues found — click "+ New Issue" to create one.</div>
           ) : issues.map(issue => (
-            <div key={issue.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
-              <span className="text-[10px] text-white/25 font-mono w-14">{issue.identifier}</span>
+            <div key={issue.id} className="flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary/30 transition-colors">
+              <span className="text-[10px] text-text-muted font-mono w-14">{issue.identifier}</span>
               <StatusBadge status={issue.priority || 'medium'} />
               <button
                 onClick={() => setDetailId(issue.id)}
-                className="text-[12px] text-white/70 flex-1 truncate text-left hover:text-white/95 transition-colors"
+                className="text-[12px] text-text-secondary flex-1 truncate text-left hover:text-text transition-colors"
                 title="Open details"
               >
                 {issue.title}
@@ -423,7 +376,7 @@ function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
                 value={issue.assigneeAgentId || ''}
                 onChange={e => handleAssigneeChange(issue.id, e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none max-w-[120px]"
+                className="bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-secondary focus:outline-none max-w-[120px]"
                 title="Assignee"
               >
                 <option value="">unassigned</option>
@@ -431,11 +384,11 @@ function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
               </select>
               <select value={issue.status} onChange={e => handleStatusChange(issue.id, e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none">
+                className="bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-secondary focus:outline-none">
                 {statuses.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 <option value="cancelled">cancelled</option>
               </select>
-              <button onClick={() => setConfirmDeleteId(issue.id)} className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete issue">
+              <button onClick={() => setConfirmDeleteId(issue.id)} className="p-1 rounded text-text-muted hover:text-error hover:bg-error/10 transition-colors" title="Delete issue">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -521,13 +474,13 @@ function IssueDetailModal({
   return (
     <Modal open={true} onClose={onClose} size="lg" title={issue ? `${issue.identifier}` : 'Loading…'}>
       {!issue ? (
-        <div className="py-8 text-center text-[12px] text-white/40">Loading…</div>
+        <div className="py-8 text-center text-[12px] text-text-muted">Loading…</div>
       ) : (
         <div className="space-y-4">
           {/* Title */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-1">Title</div>
-            <div className="text-[14px] text-white/90">
+            <div className="text-[10px] uppercase tracking-wider text-text-muted/70 mb-1">Title</div>
+            <div className="text-[14px] text-text">
               <InlineEditableField
                 value={issue.title}
                 onSave={(v) => saveField('title', v)}
@@ -538,8 +491,8 @@ function IssueDetailModal({
 
           {/* Description */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-1">Description</div>
-            <div className="text-[12px] text-white/70 whitespace-pre-wrap">
+            <div className="text-[10px] uppercase tracking-wider text-text-muted/70 mb-1">Description</div>
+            <div className="text-[12px] text-text-secondary whitespace-pre-wrap">
               <InlineEditableField
                 value={issue.description || ''}
                 onSave={(v) => saveField('description', v)}
@@ -553,11 +506,11 @@ function IssueDetailModal({
           {/* Meta grid */}
           <div className="grid grid-cols-3 gap-3 text-[11px]">
             <div>
-              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Priority</div>
+              <div className="text-text-muted/70 uppercase tracking-wider text-[10px] mb-1">Priority</div>
               <select
                 value={issue.priority || 'medium'}
                 onChange={(e) => savePriority(e.target.value)}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none w-full"
+                className="bg-bg-tertiary border border-border rounded px-2 py-1 text-text focus:outline-none w-full"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -566,39 +519,39 @@ function IssueDetailModal({
               </select>
             </div>
             <div>
-              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Assignee</div>
+              <div className="text-text-muted/70 uppercase tracking-wider text-[10px] mb-1">Assignee</div>
               <select
                 value={issue.assigneeAgentId || ''}
                 onChange={(e) => saveAssignee(e.target.value)}
-                className="bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none w-full"
+                className="bg-bg-tertiary border border-border rounded px-2 py-1 text-text focus:outline-none w-full"
               >
                 <option value="">unassigned</option>
                 {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
             <div>
-              <div className="text-white/35 uppercase tracking-wider text-[10px] mb-1">Status</div>
-              <div className="text-white/80 capitalize">{issue.status.replace(/_/g, ' ')}</div>
+              <div className="text-text-muted/70 uppercase tracking-wider text-[10px] mb-1">Status</div>
+              <div className="text-text capitalize">{issue.status.replace(/_/g, ' ')}</div>
             </div>
           </div>
 
           {/* Comments */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-white/35 mb-2">
+            <div className="text-[10px] uppercase tracking-wider text-text-muted/70 mb-2">
               Comments ({issue.comments?.length || 0})
             </div>
             <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
               {(issue.comments || []).length === 0 ? (
-                <div className="text-[11px] text-white/30 italic">No comments yet.</div>
+                <div className="text-[11px] text-text-muted italic">No comments yet.</div>
               ) : (
                 issue.comments.map(c => (
-                  <div key={c.id} className="bg-white/[0.02] border border-white/[0.04] rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-2 text-[10px] text-white/35 mb-1">
-                      <span className="text-white/60">{c.authorAgentId || c.authorUser || 'unknown'}</span>
+                  <div key={c.id} className="bg-bg-secondary/30 border border-border/50 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2 text-[10px] text-text-muted/70 mb-1">
+                      <span className="text-text-secondary">{c.authorAgentId || c.authorUser || 'unknown'}</span>
                       <span>·</span>
                       <span>{timeSince(c.createdAt)} ago</span>
                     </div>
-                    <div className="text-[12px] text-white/80 whitespace-pre-wrap">{c.body}</div>
+                    <div className="text-[12px] text-text whitespace-pre-wrap">{c.body}</div>
                   </div>
                 ))
               )}
@@ -610,12 +563,12 @@ function IssueDetailModal({
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(); } }}
                 placeholder="Add a comment — Enter to post"
                 disabled={posting}
-                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-3 py-1.5 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30"
+                className="flex-1 bg-bg-tertiary border border-border rounded px-3 py-1.5 text-[12px] text-text placeholder-white/20 focus:outline-none focus:border-accent/30"
               />
               <button
                 onClick={postComment}
                 disabled={posting || !commentDraft.trim()}
-                className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+                className="px-3 py-1.5 text-[11px] bg-accent text-text rounded hover:bg-accent-hover disabled:opacity-50"
               >
                 Post
               </button>
@@ -623,18 +576,18 @@ function IssueDetailModal({
           </div>
 
           {/* Footer actions */}
-          <div className="flex justify-between items-center pt-2 border-t border-white/[0.06]">
-            <span className="text-[10px] text-white/30">Created {timeSince(issue.createdAt)} ago</span>
+          <div className="flex justify-between items-center pt-2 border-t border-border">
+            <span className="text-[10px] text-text-muted">Created {timeSince(issue.createdAt)} ago</span>
             <div className="flex gap-2">
               <button
                 onClick={onRequestDelete}
-                className="px-3 py-1.5 text-[11px] text-red-400 hover:bg-red-500/10 rounded"
+                className="px-3 py-1.5 text-[11px] text-error hover:bg-error/10 rounded"
               >
                 Delete issue
               </button>
               <button
                 onClick={onClose}
-                className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90 bg-white/[0.04] rounded"
+                className="px-3 py-1.5 text-[11px] text-text-secondary hover:text-text bg-bg-tertiary rounded"
               >
                 Close
               </button>
@@ -656,7 +609,13 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
   const [systemPromptOverride, setSystemPromptOverride] = useState(agent.systemPromptOverride || '');
   const [memoryNamespace, setMemoryNamespace] = useState(agent.memoryNamespace || '');
   const [characterSummary, setCharacterSummary] = useState(agent.characterSummary || '');
+  const [model, setModel] = useState(agent.model || '');
   const [saving, setSaving] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
+
+  useEffect(() => {
+    import('@/api/client').then(({ getModels }) => getModels().then(m => setAvailableModels(m)).catch(() => {}));
+  }, []);
 
   const save = async () => {
     setSaving(true);
@@ -669,6 +628,7 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
           systemPromptOverride: systemPromptOverride || null,
           memoryNamespace: memoryNamespace || null,
           characterSummary: characterSummary || null,
+          model: model || null,
         }),
       });
       onSaved();
@@ -680,61 +640,76 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
   };
 
   return (
-    <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2">
+    <div className="mt-3 pt-3 border-t border-border space-y-2">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-[10px] text-white/40 uppercase tracking-wider">Voice ID</label>
+          <label className="text-[10px] text-text-muted uppercase tracking-wider">Voice ID</label>
           <input
             value={voiceId}
             onChange={(e) => setVoiceId(e.target.value)}
             placeholder="leah, jess, andrew, ..."
-            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none"
           />
         </div>
         <div>
-          <label className="text-[10px] text-white/40 uppercase tracking-wider">Persona ID</label>
+          <label className="text-[10px] text-text-muted uppercase tracking-wider">Persona ID</label>
           <input
             value={personaId}
             onChange={(e) => setPersonaId(e.target.value)}
             placeholder="default, builder, ..."
-            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+            className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none"
           />
         </div>
       </div>
       <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Character Summary (1-3 sentences)</label>
+        <label className="text-[10px] text-text-muted uppercase tracking-wider">Model</label>
+        <input
+          list={`agent-model-list-${agent.id}`}
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="ollama/qwen3.5:cloud"
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none"
+        />
+        <datalist id={`agent-model-list-${agent.id}`}>
+          {availableModels.map(m => (
+            <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
+          ))}
+        </datalist>
+      </div>
+      <div>
+        <label className="text-[10px] text-text-muted uppercase tracking-wider">Character Summary (1-3 sentences)</label>
         <textarea
           value={characterSummary}
           onChange={(e) => setCharacterSummary(e.target.value)}
           rows={2}
           placeholder="A dry, skeptical engineer who pushes back before committing."
-          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none resize-none"
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none resize-none"
         />
       </div>
       <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">System Prompt Override</label>
+        <label className="text-[10px] text-text-muted uppercase tracking-wider">System Prompt Override</label>
         <textarea
           value={systemPromptOverride}
           onChange={(e) => setSystemPromptOverride(e.target.value)}
           rows={3}
           placeholder="Prepended to the base system prompt when this agent runs."
-          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none resize-none"
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none resize-none"
         />
       </div>
       <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Memory Namespace (Hindsight)</label>
+        <label className="text-[10px] text-text-muted uppercase tracking-wider">Memory Namespace (Hindsight)</label>
         <input
           value={memoryNamespace}
           onChange={(e) => setMemoryNamespace(e.target.value)}
           placeholder={`agent:${agent.id}`}
-          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-white/[0.08] rounded text-white/80 focus:border-indigo-500 focus:outline-none"
+          className="mt-1 w-full px-2 py-1 text-[11px] bg-black/30 border border-border rounded text-text focus:border-accent focus:outline-none"
         />
       </div>
       <div className="flex gap-2 pt-1">
         <button
           onClick={save}
           disabled={saving}
-          className="px-3 py-1 text-[10px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+          className="px-3 py-1 text-[10px] bg-accent text-text rounded hover:bg-accent-hover disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Identity'}
         </button>
@@ -742,315 +717,6 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
     </div>
   );
 }
-
-function AgentsTab({ agents, runs, onRefresh }: { agents: RegisteredAgent[]; runs: CPRun[]; onRefresh: () => void }) {
-  const [expandedIdentity, setExpandedIdentity] = useState<string | null>(null);
-  const [confirmRemoveAgent, setConfirmRemoveAgent] = useState<RegisteredAgent | null>(null);
-
-  const saveField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo', value: string) => {
-    try {
-      await updateCPAgent(agentId, { [field]: value || undefined });
-      onRefresh();
-    } catch (e) {
-      alert(`Save failed: ${(e as Error).message}`);
-    }
-  };
-
-  const performRemove = async () => {
-    if (!confirmRemoveAgent) return;
-    try {
-      await apiFetch(`/api/command-post/agents/${confirmRemoveAgent.id}`, { method: 'DELETE' });
-      setConfirmRemoveAgent(null);
-      onRefresh();
-    } catch (e) {
-      alert(`Remove failed: ${(e as Error).message}`);
-    }
-  };
-
-  const roles = ['ceo', 'manager', 'engineer', 'researcher', 'general'] as const;
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-        <SectionHeader icon={Users} title="Agent Registry" count={agents.length} />
-        <div className="divide-y divide-white/[0.03]">
-          {agents.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">No agents registered</div>
-          ) : agents.map(agent => (
-            <div key={agent.id} className="px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[13px] font-semibold text-white/90">
-                    <InlineEditableField
-                      value={agent.name}
-                      onSave={(v) => saveField(agent.id, 'name', v)}
-                      placeholder="Agent name"
-                    />
-                  </span>
-                  <StatusBadge status={agent.status} />
-                  <select
-                    value={agent.role}
-                    onChange={(e) => saveField(agent.id, 'role', e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 capitalize focus:outline-none"
-                    title="Role"
-                  >
-                    {roles.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                  {agent.personaId && <span className="text-[10px] text-indigo-300/70">persona: {agent.personaId}</span>}
-                  {agent.voiceId && <span className="text-[10px] text-pink-300/70">voice: {agent.voiceId}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setExpandedIdentity(expandedIdentity === agent.id ? null : agent.id)}
-                    className="text-[10px] text-white/30 hover:text-white/60 transition-colors"
-                    title="Edit identity"
-                  >
-                    {expandedIdentity === agent.id ? 'Close' : 'Identity'}
-                  </button>
-                  <span className="text-[10px] text-white/25">{timeSince(agent.lastHeartbeat)} ago</span>
-                  {agent.id !== 'default' && (
-                    <button
-                      onClick={() => setConfirmRemoveAgent(agent)}
-                      className="text-[10px] text-white/20 hover:text-error transition-colors"
-                      title="Remove agent"
-                    >
-                      &times;
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-4 text-[10px] text-white/35 flex-wrap">
-                <span>Title:&nbsp;
-                  <InlineEditableField
-                    value={agent.title || ''}
-                    onSave={(v) => saveField(agent.id, 'title', v)}
-                    placeholder="Add a title"
-                    emptyLabel="—"
-                  />
-                </span>
-                <span>Model: {agent.model.split('/').pop()}</span>
-                <span>Tasks: {agent.totalTasksCompleted}</span>
-                <span>Cost: ${agent.totalCostUsd.toFixed(2)}</span>
-                <span>Reports to:&nbsp;
-                  <select
-                    value={agent.reportsTo || ''}
-                    onChange={(e) => saveField(agent.id, 'reportsTo', e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px] text-white/60 focus:outline-none"
-                    title="Reports to"
-                  >
-                    <option value="">—</option>
-                    {agents.filter(a => a.id !== agent.id).map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
-                </span>
-              </div>
-              {agent.characterSummary && (
-                <div className="mt-1 text-[11px] text-white/50 italic">"{agent.characterSummary}"</div>
-              )}
-              {expandedIdentity === agent.id && (
-                <AgentIdentityEditor agent={agent} onSaved={() => { setExpandedIdentity(null); onRefresh(); }} />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <ConfirmDialog
-        open={!!confirmRemoveAgent}
-        title={`Remove agent "${confirmRemoveAgent?.name || ''}"?`}
-        message="This deregisters the agent from Command Post. Its run history stays in the audit log. This can't be undone."
-        confirmLabel="Remove"
-        onConfirm={performRemove}
-        onCancel={() => setConfirmRemoveAgent(null)}
-      />
-
-      {/* Runs */}
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-        <SectionHeader icon={Play} title="Run History" count={runs.length} />
-        <div className="divide-y divide-white/[0.03] max-h-64 overflow-y-auto">
-          {runs.length === 0 ? (
-            <div className="py-6 text-center text-[12px] text-white/25">No runs recorded</div>
-          ) : runs.map(run => (
-            <div key={run.id} className="flex items-center gap-3 px-4 py-2">
-              <StatusBadge status={run.status} />
-              <span className="text-[11px] text-white/50">{run.agentId}</span>
-              <span className="text-[10px] text-white/30">{run.source}</span>
-              {run.durationMs && <span className="text-[10px] text-white/25">{(run.durationMs / 1000).toFixed(1)}s</span>}
-              {run.toolsUsed.length > 0 && <span className="text-[10px] text-white/20">{run.toolsUsed.length} tools</span>}
-              <span className="text-[10px] text-white/20 ml-auto">{timeSince(run.startedAt)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TAB: APPROVALS
-// ═══════════════════════════════════════════════════════════════
-
-function ApprovalPayloadViewer({ payload }: { payload: Record<string, unknown> }) {
-  const [open, setOpen] = useState(false);
-  const hasContent = payload && Object.keys(payload).length > 0;
-  if (!hasContent) return null;
-  return (
-    <div className="mt-2">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="text-[10px] text-white/30 hover:text-white/60 transition-colors inline-flex items-center gap-1"
-      >
-        {open ? <ChevronRight size={10} className="rotate-90 transition-transform" /> : <ChevronRight size={10} />}
-        {open ? 'Hide' : 'Show'} full payload
-      </button>
-      {open && (
-        <pre className="mt-1 max-h-60 overflow-auto text-[10px] text-white/60 bg-black/30 border border-white/[0.05] rounded p-2 font-mono leading-relaxed">
-          {JSON.stringify(payload, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function ApprovalsTab() {
-  const [approvals, setApprovals] = useState<CPApproval[]>([]);
-  const [filter, setFilter] = useState('');
-  // v4.5.5: click-to-drill-in on any approval → slide-over showing the
-  // linked goal's live subtask statuses (polls every 5s).
-  const [selectedApproval, setSelectedApproval] = useState<CPApproval | null>(null);
-
-  const load = useCallback(() => {
-    getCPApprovals(filter || undefined).then(setApprovals).catch(() => {});
-  }, [filter]);
-  useEffect(() => { load(); }, [load]);
-
-  const handleApprove = async (id: string) => { await approveCPApproval(id, 'board'); load(); };
-  const handleReject = async (id: string) => { await rejectCPApproval(id, 'board'); load(); };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-1.5">
-        {['', 'pending', 'approved', 'rejected'].map(s => (
-          <button key={s} onClick={() => setFilter(s)} className={`px-2.5 py-1 text-[10px] rounded-lg transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>
-            {s || 'All'}
-          </button>
-        ))}
-      </div>
-      <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-        <SectionHeader icon={Shield} title="Approvals" count={approvals.length} />
-        <div className="divide-y divide-white/[0.03]">
-          {approvals.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-white/25">No approvals</div>
-          ) : approvals.map(a => {
-            const isProposal = a.type === 'goal_proposal' || a.type === 'soma_proposal';
-            const isSoma = a.type === 'soma_proposal';
-            const pp = a.payload as Record<string, unknown>;
-            const shadowVerdict = isSoma && pp.shadowVerdict && typeof pp.shadowVerdict === 'object'
-              ? pp.shadowVerdict as { reversibilityScore: number; estimatedCostUsd: number; breakRisks: string[] }
-              : null;
-            const proposalTitle = isProposal && typeof pp.title === 'string' ? pp.title : null;
-            const proposalDesc = isProposal && typeof pp.description === 'string' ? pp.description : null;
-            const proposalRationale = isProposal && typeof pp.rationale === 'string' ? pp.rationale : null;
-            const proposalSubtasks = isProposal && Array.isArray(pp.subtasks) ? pp.subtasks as Array<{ title?: string }> : null;
-            // v4.10.0-local: human-readable headline for every approval,
-            // not just proposals. Fixes blank cards where the user couldn't
-            // tell what they were approving without opening the raw payload.
-            const info = extractApprovalHeadline(a);
-            return (
-            <div
-              key={a.id}
-              className="px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
-              onClick={() => setSelectedApproval(a)}
-              title="Click to see live progress"
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide ${approvalUrgencyColor(info.urgency)}`}>
-                    {info.kindLabel}
-                  </span>
-                  <StatusBadge status={a.status} />
-                  <span className="text-[10px] text-white/25">by {a.requestedBy}</span>
-                </div>
-                <span className="text-[10px] text-white/20">{timeSince(a.createdAt)}</span>
-              </div>
-              {!isProposal && (
-                <div className="mt-1 mb-1.5">
-                  <div className="text-[13px] text-white/85 leading-snug">
-                    {info.headline}
-                  </div>
-                  {info.detail && (
-                    <div className="text-[11px] text-white/55 mt-0.5 leading-snug">
-                      {info.detail}
-                    </div>
-                  )}
-                </div>
-              )}
-              {isProposal && proposalTitle && (
-                <div className={`mt-1 mb-2 pl-2 border-l-2 ${isSoma ? 'border-indigo-500/50' : 'border-emerald-500/40'}`}>
-                  <div className="text-[13px] text-white/90 font-medium flex items-center gap-2">
-                    {isSoma && <span className="text-[9px] uppercase tracking-wider text-indigo-300/80 bg-indigo-500/10 px-1.5 py-0.5 rounded">Soma</span>}
-                    {proposalTitle}
-                  </div>
-                  {proposalDesc && <div className="text-[11px] text-white/60 mt-0.5">{proposalDesc}</div>}
-                  {proposalRationale && <div className={`text-[10px] mt-1 italic ${isSoma ? 'text-indigo-300/70' : 'text-emerald-300/70'}`}>Why: {proposalRationale}</div>}
-                  {shadowVerdict && (
-                    <div className="text-[10px] text-white/50 mt-1.5 flex gap-3">
-                      <span>shadow: ${shadowVerdict.estimatedCostUsd.toFixed(2)}</span>
-                      <span>reversible {Math.round(shadowVerdict.reversibilityScore * 100)}%</span>
-                      <span>{shadowVerdict.breakRisks.length} risk(s)</span>
-                    </div>
-                  )}
-                  {proposalSubtasks && proposalSubtasks.length > 0 && (
-                    <div className="text-[10px] text-white/40 mt-1">
-                      {proposalSubtasks.length} subtask{proposalSubtasks.length === 1 ? '' : 's'}: {proposalSubtasks.map(s => s.title).filter(Boolean).join(' • ')}
-                    </div>
-                  )}
-                </div>
-              )}
-              {a.status === 'pending' && (
-                <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => handleApprove(a.id)} className="px-3 py-1 text-[10px] bg-green-600 text-white rounded-lg hover:bg-green-500">Approve</button>
-                  <button onClick={() => handleReject(a.id)} className="px-3 py-1 text-[10px] bg-red-600/80 text-white rounded-lg hover:bg-red-500">Reject</button>
-                </div>
-              )}
-              {a.decidedBy && <div className="text-[10px] text-white/25 mt-1">{a.status} by {a.decidedBy}{a.decisionNote ? `: ${a.decisionNote}` : ''}</div>}
-              {/* v4.1: collapsible full-payload viewer — lets users inspect
-                  what's in any approval (especially non-proposal types) before deciding. */}
-              <div onClick={(e) => e.stopPropagation()}>
-                <ApprovalPayloadViewer payload={a.payload} />
-              </div>
-              {/* v4.5.5: subtle "click for progress" hint when approved */}
-              {a.status === 'approved' && Boolean((a.payload as Record<string, unknown>)?.goalId) && (
-                <div className="text-[10px] text-indigo-300/50 mt-1 italic">
-                  Click to see live progress →
-                </div>
-              )}
-            </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Live-progress slide-over */}
-      <ApprovalProgressPanel
-        open={selectedApproval !== null}
-        approval={selectedApproval ? {
-          id: selectedApproval.id,
-          title: (selectedApproval.payload as Record<string, unknown>)?.title as string | undefined,
-          status: selectedApproval.status,
-          payload: selectedApproval.payload as Record<string, unknown>,
-          createdAt: selectedApproval.createdAt,
-        } : null}
-        onClose={() => setSelectedApproval(null)}
-      />
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TAB: COSTS
-// ═══════════════════════════════════════════════════════════════
 
 function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: () => void }) {
   const [editing, setEditing] = useState<BudgetPolicy | null>(null);
@@ -1065,7 +731,7 @@ function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: 
   };
 
   return (
-    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+    <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
       <SectionHeader
         icon={DollarSign}
         title="Budget Policies"
@@ -1073,7 +739,7 @@ function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: 
         action={
           <button
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"
+            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-accent text-text rounded-lg hover:bg-accent-hover"
           >
             <Plus size={10} /> New Budget
           </button>
@@ -1081,42 +747,42 @@ function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: 
       />
       <div className="p-4 space-y-3">
         {budgets.length === 0 ? (
-          <div className="text-center py-6 text-[12px] text-white/25">
+          <div className="text-center py-6 text-[12px] text-text-muted">
             No budget policies yet — click "+ New Budget" to set spending limits per agent, goal, or globally.
           </div>
         ) : budgets.map(b => {
           const pct = b.limitUsd > 0 ? Math.min(100, (b.currentSpend / b.limitUsd) * 100) : 0;
-          const color = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-yellow-500' : 'bg-green-500';
+          const color = pct >= 100 ? 'bg-error' : pct >= 80 ? 'bg-warning' : 'bg-success';
           return (
-            <div key={b.id} className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+            <div key={b.id} className="bg-bg-tertiary/30 border border-border rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[12px] font-medium text-white/80">{b.name}</span>
+                <span className="text-[12px] font-medium text-text">{b.name}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-white/30 capitalize">{b.scope.type}</span>
-                  <span className="text-[10px] text-white/20">{b.period}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${b.enabled ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/30 bg-white/[0.04]'}`}>
+                  <span className="text-[10px] text-text-muted capitalize">{b.scope.type}</span>
+                  <span className="text-[10px] text-text-muted">{b.period}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${b.enabled ? 'text-success bg-success/10' : 'text-text-muted bg-bg-tertiary'}`}>
                     {b.enabled ? 'on' : 'off'}
                   </span>
                   <button
                     onClick={() => setEditing(b)}
-                    className="text-[10px] text-white/40 hover:text-white/70 px-1"
+                    className="text-[10px] text-text-muted hover:text-text-secondary px-1"
                     title="Edit budget"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => setConfirmDelete(b)}
-                    className="p-1 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    className="p-1 rounded text-text-muted hover:text-error hover:bg-error/10 transition-colors"
                     title="Delete budget"
                   >
                     <Trash2 size={12} />
                   </button>
                 </div>
               </div>
-              <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
+              <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden mb-1.5">
                 <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
               </div>
-              <div className="flex justify-between text-[10px] text-white/30">
+              <div className="flex justify-between text-[10px] text-text-muted">
                 <span>${b.currentSpend.toFixed(2)} spent</span>
                 <span>${b.limitUsd.toFixed(2)} limit · action: {b.action}</span>
               </div>
@@ -1199,8 +865,8 @@ function BudgetFormModal({
       title={isEdit ? 'Edit Budget Policy' : 'New Budget Policy'}
       footer={
         <>
-          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90">Cancel</button>
-          <button onClick={save} disabled={saving || !name.trim()} className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50">
+          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-text-secondary hover:text-text">Cancel</button>
+          <button onClick={save} disabled={saving || !name.trim()} className="px-3 py-1.5 text-[11px] bg-accent text-text rounded hover:bg-accent-hover disabled:opacity-50">
             {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Create budget')}
           </button>
         </>
@@ -1208,59 +874,59 @@ function BudgetFormModal({
     >
       <div className="space-y-3 text-[12px]">
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-white/40">Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily global cap" className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+          <label className="text-[10px] uppercase tracking-wider text-text-muted">Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily global cap" className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none focus:border-accent/40" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Scope</label>
-            <select value={scopeType} onChange={(e) => setScopeType(e.target.value as typeof scopeType)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Scope</label>
+            <select value={scopeType} onChange={(e) => setScopeType(e.target.value as typeof scopeType)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none">
               <option value="global">Global (all agents)</option>
               <option value="agent">Per-agent</option>
               <option value="goal">Per-goal</option>
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Target ID</label>
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Target ID</label>
             <input
               value={scopeTargetId}
               onChange={(e) => setScopeTargetId(e.target.value)}
               placeholder={scopeType === 'global' ? 'n/a' : scopeType === 'agent' ? 'agent-id' : 'goal-id'}
               disabled={scopeType === 'global'}
-              className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none disabled:opacity-40"
+              className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none disabled:opacity-40"
             />
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Period</label>
-            <select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Period</label>
+            <select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none">
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Limit (USD)</label>
-            <input type="number" step="0.01" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Limit (USD)</label>
+            <input type="number" step="0.01" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none focus:border-accent/40" />
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Warn at %</label>
-            <input type="number" min="1" max="100" value={warningThresholdPercent} onChange={(e) => setWarningThresholdPercent(e.target.value)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40" />
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Warn at %</label>
+            <input type="number" min="1" max="100" value={warningThresholdPercent} onChange={(e) => setWarningThresholdPercent(e.target.value)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none focus:border-accent/40" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Action at limit</label>
-            <select value={action} onChange={(e) => setAction(e.target.value as typeof action)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Action at limit</label>
+            <select value={action} onChange={(e) => setAction(e.target.value as typeof action)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none">
               <option value="warn">Warn only</option>
               <option value="pause">Pause agent</option>
               <option value="stop">Stop agent</option>
             </select>
           </div>
           <div className="flex items-end gap-2">
-            <label className="flex items-center gap-2 text-white/70 cursor-pointer">
-              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="accent-indigo-500" />
+            <label className="flex items-center gap-2 text-text-secondary cursor-pointer">
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="accent-accent" />
               <span>Enabled</span>
             </label>
           </div>
@@ -1317,36 +983,36 @@ function ConsoleTab({ dashboard }: { dashboard: CommandPostDashboard }) {
   useEffect(() => { scrollRef.current && (scrollRef.current.scrollTop = scrollRef.current.scrollHeight); }, [messages, streamContent]);
 
   return (
-    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col" style={{ height: 400 }}>
-      <SectionHeader icon={MessageSquare} title="Console" action={streaming ? <button onClick={() => abortRef.current?.abort()} className="text-[10px] text-red-400 flex items-center gap-1"><StopCircle size={12} />Stop</button> : undefined} />
+    <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden flex flex-col" style={{ height: 400 }}>
+      <SectionHeader icon={MessageSquare} title="Console" action={streaming ? <button onClick={() => abortRef.current?.abort()} className="text-[10px] text-error flex items-center gap-1"><StopCircle size={12} />Stop</button> : undefined} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {messages.length === 0 && !streaming && (
           <div className="text-center py-6">
-            <p className="text-[11px] text-white/20 mb-3">Manage your organization through natural language</p>
+            <p className="text-[11px] text-text-muted mb-3">Manage your organization through natural language</p>
             <div className="flex flex-wrap justify-center gap-1.5">
               {['Status report', 'Create issue: Research competitors', 'Spawn a research agent', 'Set $50/day budget'].map(q => (
-                <button key={q} onClick={() => setInput(q)} className="text-[10px] text-white/25 hover:text-white/50 px-2.5 py-1 rounded-full border border-white/[0.06] hover:border-white/[0.12]">{q}</button>
+                <button key={q} onClick={() => setInput(q)} className="text-[10px] text-text-muted hover:text-text-muted px-2.5 py-1 rounded-full border border-border hover:border-border-light">{q}</button>
               ))}
             </div>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-indigo-600/80 text-white rounded-br-sm' : 'bg-white/[0.04] text-white/75 border border-white/[0.06] rounded-bl-sm'}`}>{m.content}</div>
+            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-accent/80 text-text rounded-br-sm' : 'bg-bg-tertiary text-text-secondary border border-border rounded-bl-sm'}`}>{m.content}</div>
           </div>
         ))}
         {streaming && streamContent && (
-          <div className="flex justify-start"><div className="max-w-[85%] px-3 py-2 rounded-xl rounded-bl-sm bg-white/[0.04] text-white/75 border border-white/[0.06] text-[12px] whitespace-pre-wrap">{streamContent}<span className="inline-block w-1 h-3.5 bg-indigo-400 ml-0.5 animate-pulse" /></div></div>
+          <div className="flex justify-start"><div className="max-w-[85%] px-3 py-2 rounded-xl rounded-bl-sm bg-bg-tertiary text-text-secondary border border-border text-[12px] whitespace-pre-wrap">{streamContent}<span className="inline-block w-1 h-3.5 bg-accent-light ml-0.5 animate-pulse" /></div></div>
         )}
         {streaming && !streamContent && (
-          <div className="flex justify-start"><div className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06]"><div className="flex gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" /><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '150ms' }} /><span className="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style={{ animationDelay: '300ms' }} /></div></div></div>
+          <div className="flex justify-start"><div className="px-3 py-2 rounded-xl bg-bg-tertiary border border-border"><div className="flex gap-1"><span className="w-1.5 h-1.5 rounded-full bg-text-muted/20 animate-bounce" /><span className="w-1.5 h-1.5 rounded-full bg-text-muted/20 animate-bounce" style={{ animationDelay: '150ms' }} /><span className="w-1.5 h-1.5 rounded-full bg-text-muted/20 animate-bounce" style={{ animationDelay: '300ms' }} /></div></div></div>
         )}
       </div>
-      <div className="px-3 py-2 border-t border-white/[0.06]">
+      <div className="px-3 py-2 border-t border-border">
         <div className="flex items-center gap-2">
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
-            placeholder="Tell Command Post what to do..." className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 text-[12px] text-white/90 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" />
-          <button onClick={handleSend} disabled={!input.trim() || streaming} className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-30"><Send size={14} /></button>
+            placeholder="Tell Command Post what to do..." className="flex-1 bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-[12px] text-text placeholder-white/20 focus:outline-none focus:border-accent/30" />
+          <button onClick={handleSend} disabled={!input.trim() || streaming} className="p-2 rounded-lg bg-accent text-text hover:bg-accent-hover disabled:opacity-30"><Send size={14} /></button>
         </div>
       </div>
     </div>
@@ -1438,11 +1104,11 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
       size="lg"
       footer={
         <>
-          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-white/60 hover:text-white/90">Cancel</button>
+          <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-text-secondary hover:text-text">Cancel</button>
           <button
             onClick={submit}
             disabled={submitting || !question.trim() || participants.length < 2}
-            className="px-3 py-1.5 text-[11px] bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
+            className="px-3 py-1.5 text-[11px] bg-accent text-text rounded hover:bg-accent-hover disabled:opacity-50"
           >
             {submitting ? 'Running debate…' : 'Run debate'}
           </button>
@@ -1451,25 +1117,25 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
     >
       <div className="space-y-3 text-[12px]">
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-white/40">Question</label>
+          <label className="text-[10px] uppercase tracking-wider text-text-muted">Question</label>
           <textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="e.g. Should we cache the Ollama probe results for 7 days or 30 days?"
             rows={2}
-            className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/90 focus:outline-none focus:border-indigo-500/40 resize-none"
+            className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none focus:border-accent/40 resize-none"
           />
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] uppercase tracking-wider text-white/40">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">
               Participants ({participants.length}/5)
             </label>
             <button
               onClick={addParticipant}
               disabled={participants.length >= 5}
-              className="text-[10px] text-indigo-300/70 hover:text-indigo-300 disabled:opacity-40"
+              className="text-[10px] text-accent-light/70 hover:text-accent-light disabled:opacity-40"
             >
               + Add participant
             </button>
@@ -1481,18 +1147,18 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
                   value={p.role}
                   onChange={(e) => updateParticipant(i, { role: e.target.value })}
                   placeholder="role (e.g. pragmatist)"
-                  className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/80 focus:outline-none"
+                  className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text focus:outline-none"
                 />
                 <input
                   value={p.model}
                   onChange={(e) => updateParticipant(i, { model: e.target.value })}
                   placeholder="model (optional — defaults to agent.model)"
-                  className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1 text-white/60 focus:outline-none"
+                  className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-secondary focus:outline-none"
                 />
                 <button
                   onClick={() => removeParticipant(i)}
                   disabled={participants.length <= 2}
-                  className="text-white/20 hover:text-red-400 disabled:opacity-20 px-1"
+                  className="text-text-muted hover:text-error disabled:opacity-20 px-1"
                   title="Remove"
                 >
                   ×
@@ -1504,14 +1170,14 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Rounds</label>
-            <select value={rounds} onChange={(e) => setRounds(Number(e.target.value))} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Rounds</label>
+            <select value={rounds} onChange={(e) => setRounds(Number(e.target.value))} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none">
               {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n} round{n === 1 ? '' : 's'}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-white/40">Resolution</label>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} className="mt-1 w-full bg-white/[0.04] border border-white/[0.06] rounded px-2 py-1.5 text-white/80 focus:outline-none">
+            <label className="text-[10px] uppercase tracking-wider text-text-muted">Resolution</label>
+            <select value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} className="mt-1 w-full bg-bg-tertiary border border-border rounded px-2 py-1.5 text-text focus:outline-none">
               <option value="judge">Judge (LLM picks winner)</option>
               <option value="synthesize">Synthesize (LLM merges)</option>
               <option value="vote">Vote (word-overlap consensus)</option>
@@ -1519,7 +1185,7 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
           </div>
         </div>
 
-        <div className="text-[10px] text-white/35 italic">
+        <div className="text-[10px] text-text-muted/70 italic">
           Runs live — 1-3 minutes depending on model + rounds. Transcript saves automatically.
         </div>
       </div>
@@ -1565,35 +1231,35 @@ function DebatesTab() {
     }
     return (
       <div className="space-y-3">
-        <button onClick={() => setSelected(null)} className="text-[11px] text-white/40 hover:text-white/70">
+        <button onClick={() => setSelected(null)} className="text-[11px] text-text-muted hover:text-text-secondary">
           ← Back to debates
         </button>
-        <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl p-4">
-          <div className="text-[13px] font-semibold text-white/90 mb-1">{selected.question}</div>
-          <div className="text-[10px] text-white/35">
+        <div className="bg-bg-secondary/50 border border-border rounded-2xl p-4">
+          <div className="text-[13px] font-semibold text-text mb-1">{selected.question}</div>
+          <div className="text-[10px] text-text-muted/70">
             {selected.resolution} • {selected.rounds} round{selected.rounds === 1 ? '' : 's'} • {(selected.durationMs / 1000).toFixed(1)}s
           </div>
           {selected.winner && (
-            <div className="mt-3 p-3 bg-emerald-500/[0.06] border border-emerald-500/30 rounded-lg">
-              <div className="text-[11px] text-emerald-300/80 uppercase tracking-wider">Winner: {selected.winner.role}</div>
-              <div className="text-[12px] text-white/85 mt-1">{selected.winner.content}</div>
+            <div className="mt-3 p-3 bg-success/[0.06] border border-success/30 rounded-lg">
+              <div className="text-[11px] text-success/80/80 uppercase tracking-wider">Winner: {selected.winner.role}</div>
+              <div className="text-[12px] text-text mt-1">{selected.winner.content}</div>
               {selected.winner.justification && (
-                <div className="text-[10px] text-white/40 italic mt-2">{selected.winner.justification}</div>
+                <div className="text-[10px] text-text-muted italic mt-2">{selected.winner.justification}</div>
               )}
             </div>
           )}
         </div>
         {[...rounds.entries()].sort((a, b) => a[0] - b[0]).map(([r, turns]) => (
-          <div key={r} className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
-            <div className="px-4 py-2 border-b border-white/[0.04] text-[11px] font-medium text-white/60 uppercase tracking-wider">
+          <div key={r} className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-border/50 text-[11px] font-medium text-text-secondary uppercase tracking-wider">
               Round {r}
             </div>
-            <div className="divide-y divide-white/[0.03]">
+            <div className="divide-y divide-border/30">
               {turns.map((t, i) => (
                 <div key={i} className="px-4 py-3">
-                  <div className="text-[11px] font-semibold text-indigo-300/80 mb-1">{t.role}</div>
-                  <div className="text-[11px] text-white/75 whitespace-pre-wrap">{t.content}</div>
-                  <div className="text-[9px] text-white/25 mt-1">{t.model.split('/').pop()} • {t.durationMs}ms</div>
+                  <div className="text-[11px] font-semibold text-accent-light/80 mb-1">{t.role}</div>
+                  <div className="text-[11px] text-text-secondary whitespace-pre-wrap">{t.content}</div>
+                  <div className="text-[9px] text-text-muted mt-1">{t.model.split('/').pop()} • {t.durationMs}ms</div>
                 </div>
               ))}
             </div>
@@ -1604,15 +1270,16 @@ function DebatesTab() {
   }
 
   return (
-    <div className="bg-white/[0.015] border border-white/[0.06] rounded-2xl overflow-hidden">
+    <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
       <SectionHeader
         icon={Scale}
         title="Debates"
         count={debates.length}
+        help={{ title: 'Debates', description: 'Pit two or more agents against each other to explore different sides of a decision. Useful for risk assessment and trade-off analysis.' }}
         action={
           <button
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"
+            className="flex items-center gap-1 px-2.5 py-1 text-[10px] bg-accent text-text rounded-lg hover:bg-accent-hover"
           >
             <Plus size={10} /> New Debate
           </button>
@@ -1624,26 +1291,26 @@ function DebatesTab() {
           onCreated={() => { setCreating(false); load(); }}
         />
       )}
-      <div className="divide-y divide-white/[0.03]">
+      <div className="divide-y divide-border/30">
         {loading ? (
-          <div className="py-8 text-center text-[12px] text-white/25">Loading...</div>
+          <div className="py-8 text-center text-[12px] text-text-muted">Loading...</div>
         ) : debates.length === 0 ? (
-          <div className="py-8 text-center text-[12px] text-white/25">No debates yet. Call the <code className="text-indigo-300/70">agent_debate</code> tool to start one.</div>
+          <div className="py-8 text-center text-[12px] text-text-muted">No debates yet. Call the <code className="text-accent-light/70">agent_debate</code> tool to start one.</div>
         ) : debates.map(d => (
           <button
             key={d.id}
             onClick={() => open(d.id)}
-            className="w-full text-left px-4 py-3 hover:bg-white/[0.03] transition-colors"
+            className="w-full text-left px-4 py-3 hover:bg-bg-tertiary/30 transition-colors"
           >
             <div className="flex items-center justify-between mb-1">
-              <div className="text-[12px] text-white/80 flex-1 truncate pr-2">{d.question}</div>
-              <span className="text-[10px] text-white/25 whitespace-nowrap">{timeSince(d.startedAt)} ago</span>
+              <div className="text-[12px] text-text flex-1 truncate pr-2">{d.question}</div>
+              <span className="text-[10px] text-text-muted whitespace-nowrap">{timeSince(d.startedAt)} ago</span>
             </div>
-            <div className="flex items-center gap-3 text-[10px] text-white/40">
+            <div className="flex items-center gap-3 text-[10px] text-text-muted">
               <span>{d.resolution}</span>
               <span>{d.rounds} round{d.rounds === 1 ? '' : 's'}</span>
               <span>{(d.durationMs / 1000).toFixed(1)}s</span>
-              {d.winnerRole && <span className="text-emerald-300/70">winner: {d.winnerRole}</span>}
+              {d.winnerRole && <span className="text-success/80/70">winner: {d.winnerRole}</span>}
             </div>
           </button>
         ))}
@@ -1656,31 +1323,67 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-const TABS = ['Watch', 'Work', 'Dashboard', 'Digest', 'Voice', 'Sessions', 'Drivers', 'Missions', 'Drives', 'Org Chart', 'Issues', 'Agents', 'Approvals', 'Files', 'Debates', 'Costs', 'Console'] as const;
-type Tab = typeof TABS[number];
+type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console';
+
+const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof Shield }[] }[] = [
+  {
+    label: 'Overview',
+    tabs: [
+      { id: 'Dashboard', label: 'Dashboard', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Operations',
+    tabs: [
+      { id: 'Social', label: 'Social', icon: MessageSquare },
+      { id: 'Inbox', label: 'Inbox', icon: Mail },
+      { id: 'Goals', label: 'Goals', icon: Target },
+      { id: 'Work', label: 'Work', icon: Briefcase },
+      { id: 'Sessions', label: 'Sessions', icon: Clock },
+    ],
+  },
+  {
+    label: 'Governance',
+    tabs: [
+      { id: 'Org Chart', label: 'Org Chart', icon: GitBranch },
+      { id: 'Agents', label: 'Agents', icon: Users },
+      { id: 'Files', label: 'Files', icon: FileText },
+      { id: 'Debates', label: 'Debates', icon: Scale },
+      { id: 'Costs', label: 'Costs', icon: DollarSign },
+    ],
+  },
+  {
+    label: 'System',
+    tabs: [
+      { id: 'Traces', label: 'Traces', icon: Activity },
+      { id: 'Console', label: 'Console', icon: Terminal },
+    ],
+  },
+];
 
 // v4.5.2/v4.6.0: lazy-load heavier tab views so their chunks only
 // download when the user opens the tab.
-const WatchViewLazy = lazy(() => import('@/views/WatchView'));
 const WorkTabLazy = lazy(() => import('@/components/admin/WorkTab'));
 const SessionsTabLazy = lazy(() => import('@/components/admin/SessionsTab'));
-// v4.10.0-local: Files + Drivers + Digest + DriveTrends + Missions panels
+const CPInboxLazy = lazy(() => import('@/components/command-post/CPInbox'));
 const CPFilesLazy = lazy(() => import('@/components/command-post/CPFiles'));
-const CPDriversLazy = lazy(() => import('@/components/command-post/CPDrivers'));
-const CPDigestLazy = lazy(() => import('@/components/command-post/CPDigest'));
-const CPDriveTrendsLazy = lazy(() => import('@/components/command-post/CPDriveTrends'));
-const CPMissionsLazy = lazy(() => import('@/components/command-post/CPMissions'));
-const CPVoiceLazy = lazy(() => import('@/components/command-post/CPVoice'));
+const TraceViewerLazy = lazy(() => import('@/components/command-post/TraceViewer'));
+const CPSocialLazy = lazy(() => import('@/components/command-post/CPSocial'));
+const CPDashboardLazy = lazy(() => import('@/components/command-post/CPDashboard'));
+const CPGoalsLazy = lazy(() => import('@/components/command-post/CPGoals'));
+const CPAgentsLazy = lazy(() => import('@/components/command-post/CPAgents'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
   // Tony asked for. The rest are the operator panels.
-  const [tab, setTab] = useState<Tab>('Watch');
+  const [tab, setTab] = useState<Tab>('Dashboard');
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
   const [runs, setRuns] = useState<CPRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<CPActivityEntry[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<RegisteredAgent | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -1708,6 +1411,19 @@ export default function CommandPostHub() {
       retries = 0;
       try { setActivity(prev => [...prev.slice(-49), JSON.parse(e.data)]); } catch {}
     });
+    es.addEventListener('commandpost:agent:status', (e) => {
+      retries = 0;
+      try {
+        const evt = JSON.parse(e.data) as { agentId: string; status: string };
+        setDashboard(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            agents: prev.agents.map(a => a.id === evt.agentId ? { ...a, status: evt.status as RegisteredAgent['status'] } : a),
+          };
+        });
+      } catch {}
+    });
     es.onerror = () => { retries++; if (retries > 5) es.close(); };
     return () => es.close();
   }, [dashboard]);
@@ -1715,98 +1431,103 @@ export default function CommandPostHub() {
   // Auto-refresh
   useEffect(() => { const i = setInterval(refresh, 30000); return () => clearInterval(i); }, [refresh]);
 
-  if (loading) return <div className="flex items-center justify-center h-full"><div className="flex items-center gap-3"><div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /><span className="text-sm text-white/40">Loading Command Post...</span></div></div>;
-  if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-yellow-500" size={32} /><p className="text-sm text-white/60 mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-white/[0.06] rounded-lg hover:bg-white/[0.1] text-white/70">Retry</button></div></div>;
+  if (loading) return <div className="flex items-center justify-center h-full"><div className="flex items-center gap-3"><div className="w-5 h-5 border-2 border-accent/30 border-t-accent rounded-full animate-spin" /><span className="text-sm text-text-muted">Loading Command Post...</span></div></div>;
+  if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-warning" size={32} /><p className="text-sm text-text-secondary mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-bg-tertiary rounded-lg hover:bg-border text-text-secondary transition-colors">Retry</button></div></div>;
 
   const d = dashboard ?? { agents: [], totalAgents: 0, activeAgents: 0, activeCheckouts: 0, budgetUtilization: 0, recentActivity: [], checkouts: [], budgets: [], goalTree: [], companies: [] } as CommandPostDashboard;
 
+  const TabContent = () => {
+    switch (tab) {
+      case 'Dashboard': return <Suspense fallback={<TabFallback label="dashboard" />}><CPDashboardLazy /></Suspense>;
+      case 'Social': return <Suspense fallback={<TabFallback label="social" />}><CPSocialLazy /></Suspense>;
+      case 'Inbox': return <Suspense fallback={<TabFallback label="inbox" />}><CPInboxLazy /></Suspense>;
+      case 'Goals': return <Suspense fallback={<TabFallback label="goals" />}><CPGoalsLazy /></Suspense>;
+      case 'Work': return <Suspense fallback={<TabFallback label="work" />}><WorkTabLazy /></Suspense>;
+      case 'Sessions': return <Suspense fallback={<TabFallback label="sessions" />}><SessionsTabLazy /></Suspense>;
+      case 'Org Chart': return <OrgChartTab agents={d.agents} />;
+      case 'Agents': return <Suspense fallback={<TabFallback label="agents" />}><CPAgentsLazy /></Suspense>;
+      case 'Files': return <Suspense fallback={<TabFallback label="files" />}><CPFilesLazy /></Suspense>;
+      case 'Debates': return <DebatesTab />;
+      case 'Costs': return <CostsTab budgets={d.budgets} onRefresh={refresh} />;
+      case 'Traces': return <Suspense fallback={<TabFallback label="traces" />}><TraceViewerLazy /></Suspense>;
+      case 'Console': return <ConsoleTab dashboard={d} />;
+      default: return null;
+    }
+  };
+
   return (
-    <div className="h-full overflow-auto">
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-              <Building2 size={20} className="text-indigo-400" />
+    <div className="h-full flex overflow-hidden">
+      {/* Vertical tab sidebar */}
+      <div className="w-52 shrink-0 flex flex-col border-r border-border bg-bg-secondary/30">
+        {/* Sidebar header */}
+        <div className="px-4 py-4 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 border border-accent/20">
+              <Building2 size={16} className="text-accent-light" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">Command Post</h1>
-              <p className="text-[11px] text-white/35">Paperclip-style agent governance</p>
+              <h1 className="text-sm font-bold text-text">Command Post</h1>
+              <p className="text-[10px] text-text-muted">Agent governance</p>
             </div>
           </div>
-          <button onClick={refresh} className="px-3 py-1.5 text-[11px] text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/[0.08]">Refresh</button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-white/[0.06] pb-px">
-          {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 text-[12px] font-medium rounded-t-lg transition-colors ${tab === t ? 'bg-white/[0.06] text-white border-b-2 border-indigo-500' : 'text-white/40 hover:text-white/60 hover:bg-white/[0.02]'}`}>
-              {t}
-            </button>
+        {/* Tab groups */}
+        <div className="flex-1 overflow-y-auto py-2 space-y-4">
+          {TAB_GROUPS.map(group => (
+            <div key={group.label}>
+              <div className="px-3 mb-1 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                {group.label}
+              </div>
+              <div className="px-2 space-y-0.5">
+                {group.tabs.map(t => {
+                  const isActive = tab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setTab(t.id)}
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-150 ${
+                        isActive
+                          ? 'bg-accent/10 text-accent-light font-medium'
+                          : 'text-text-secondary hover:text-text hover:bg-bg-tertiary/50'
+                      }`}
+                    >
+                      <t.icon size={14} className={isActive ? 'text-accent-light' : 'text-text-muted'} />
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </div>
 
-        {/* Tab content */}
-        {tab === 'Watch' && (
-          // v4.5.3: hard height (not min-height) so WatchView's internal
-          // grid + overflow-y on the activity panel actually scroll. The
-          // negative margins bleed the Pane edge-to-edge inside CP.
-          <div className="-mx-6 -mb-6" style={{ height: 'calc(100vh - 200px)', overflow: 'hidden' }}>
-            <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-white/40">Opening the Pane…</div>}>
-              <WatchViewLazy />
-            </Suspense>
-          </div>
-        )}
-        {tab === 'Work' && (
-          <Suspense fallback={<div className="py-12 text-center text-sm text-white/40">Loading work…</div>}>
-            <WorkTabLazy />
-          </Suspense>
-        )}
-        {tab === 'Sessions' && (
-          <Suspense fallback={<div className="py-12 text-center text-sm text-white/40">Loading sessions…</div>}>
-            <SessionsTabLazy />
-          </Suspense>
-        )}
-        {tab === 'Dashboard' && <DashboardTab d={d} activity={activity} />}
-        {tab === 'Org Chart' && <OrgChartTab agents={d.agents} />}
-        {tab === 'Issues' && <IssuesTab agents={d.agents} />}
-        {tab === 'Agents' && <AgentsTab agents={d.agents} runs={runs} onRefresh={refresh} />}
-        {tab === 'Approvals' && <ApprovalsTab />}
-        {tab === 'Files' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading files…</div>}>
-            <CPFilesLazy />
-          </Suspense>
-        )}
-        {tab === 'Drivers' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading drivers…</div>}>
-            <CPDriversLazy />
-          </Suspense>
-        )}
-        {tab === 'Digest' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading digest…</div>}>
-            <CPDigestLazy />
-          </Suspense>
-        )}
-        {tab === 'Drives' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading drive trends…</div>}>
-            <CPDriveTrendsLazy />
-          </Suspense>
-        )}
-        {tab === 'Missions' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading missions…</div>}>
-            <CPMissionsLazy />
-          </Suspense>
-        )}
-        {tab === 'Voice' && (
-          <Suspense fallback={<div className="py-12 text-center text-text-muted text-sm">Loading voice…</div>}>
-            <CPVoiceLazy />
-          </Suspense>
-        )}
-        {tab === 'Debates' && <DebatesTab />}
-        {tab === 'Costs' && <CostsTab budgets={d.budgets} onRefresh={refresh} />}
-        {tab === 'Console' && <ConsoleTab dashboard={d} />}
+        {/* Sidebar footer */}
+        <div className="px-3 py-2 border-t border-border">
+          <button onClick={refresh} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-text-muted bg-bg-tertiary/50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors">
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Main content */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-6">
+          <TabContent />
+        </div>
+      </div>
+
+      <AgentSidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        agents={d.agents}
+        runs={runs}
+        onAgentClick={(a) => setSelectedAgent(a)}
+      />
+      {selectedAgent && (
+        <AgentLiveCard agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      )}
     </div>
   );
 }

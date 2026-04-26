@@ -16,31 +16,31 @@ import { PageHeader } from '@/components/shared/PageHeader';
 import type { ActivityEvent, ActivitySummary } from '@/api/types';
 
 const COMPONENT_COLORS: Record<string, string> = {
-  agent: '#6366f1',
-  toolrunner: '#22d3ee',
-  router: '#34d399',
-  graph: '#f59e0b',
-  autopilot: '#818cf8',
-  websearch: '#a78bfa',
-  autonomy: '#ef4444',
-  browse: '#22d3ee',
-  provider: '#34d399',
-  memory: '#f59e0b',
-  goal: '#34d399',
-  search: '#a78bfa',
+  agent: 'var(--color-accent)',
+  toolrunner: 'var(--color-cyan)',
+  router: 'var(--color-emerald)',
+  graph: 'var(--color-warning)',
+  autopilot: 'var(--color-accent-hover)',
+  websearch: 'var(--color-purple-light)',
+  autonomy: 'var(--color-error)',
+  browse: 'var(--color-cyan)',
+  provider: 'var(--color-emerald)',
+  memory: 'var(--color-warning)',
+  goal: 'var(--color-emerald)',
+  search: 'var(--color-purple-light)',
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  tool: '#22d3ee',
-  agent: '#6366f1',
-  autopilot: '#818cf8',
-  goal: '#34d399',
-  search: '#a78bfa',
-  autonomy: '#ef4444',
-  router: '#34d399',
-  graph: '#f59e0b',
-  error: '#ef4444',
-  system: '#a1a1aa',
+  tool: 'var(--color-cyan)',
+  agent: 'var(--color-accent)',
+  autopilot: 'var(--color-accent-hover)',
+  goal: 'var(--color-emerald)',
+  search: 'var(--color-purple-light)',
+  autonomy: 'var(--color-error)',
+  router: 'var(--color-emerald)',
+  graph: 'var(--color-warning)',
+  error: 'var(--color-error)',
+  system: 'var(--color-text-secondary)',
 };
 
 const FILTERS = ['All', 'Tools', 'Agent', 'System', 'Errors'] as const;
@@ -56,18 +56,18 @@ const filterToQuery: Record<FilterType, string> = {
 
 function getComponentColor(component: string): string {
   const key = component.toLowerCase().replace(/\s+/g, '');
-  return COMPONENT_COLORS[key] ?? '#a1a1aa';
+  return COMPONENT_COLORS[key] ?? 'var(--color-text-secondary)';
 }
 
 function getTypeColor(type: string): string {
-  return TYPE_COLORS[type] ?? '#a1a1aa';
+  return TYPE_COLORS[type] ?? 'var(--color-text-secondary)';
 }
 
 function StatusPill({ status }: { status: 'idle' | 'processing' | 'autopilot' }) {
   const config: Record<string, { label: string; bg: string; text: string; pulse: boolean }> = {
-    idle: { label: 'Idle', bg: '#27272a', text: '#a1a1aa', pulse: false },
-    processing: { label: 'Processing', bg: '#22c55e20', text: '#22c55e', pulse: true },
-    autopilot: { label: 'Autopilot', bg: '#6366f120', text: '#818cf8', pulse: true },
+    idle: { label: 'Idle', bg: 'var(--color-bg-tertiary)', text: 'var(--color-text-secondary)', pulse: false },
+    processing: { label: 'Processing', bg: '#22c55e20', text: 'var(--color-success)', pulse: true },
+    autopilot: { label: 'Autopilot', bg: '#6366f120', text: 'var(--color-accent-hover)', pulse: true },
   };
   const c = config[status];
   return (
@@ -245,8 +245,8 @@ function ActivityPanel() {
                 onClick={() => setFilter(f)}
                 className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
                 style={{
-                  backgroundColor: filter === f ? '#6366f1' : '#27272a',
-                  color: filter === f ? '#ffffff' : '#a1a1aa',
+                  backgroundColor: filter === f ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  color: filter === f ? '#ffffff' : 'var(--color-text-secondary)',
                 }}
               >
                 {f}
@@ -281,8 +281,8 @@ function ActivityPanel() {
                 className="inline-block rounded-full px-2.5 py-1 text-xs font-semibold capitalize"
                 style={{
                   backgroundColor:
-                    summary.autonomyMode === 'autonomous' ? '#6366f120' : '#27272a',
-                  color: summary.autonomyMode === 'autonomous' ? '#818cf8' : '#a1a1aa',
+                    summary.autonomyMode === 'autonomous' ? '#6366f120' : 'var(--color-bg-tertiary)',
+                  color: summary.autonomyMode === 'autonomous' ? 'var(--color-accent-hover)' : 'var(--color-text-secondary)',
                 }}
               >
                 {summary.autonomyMode}
@@ -309,7 +309,7 @@ function ActivityPanel() {
                           className="h-1 rounded-full transition-all"
                           style={{
                             width: `${g.progress}%`,
-                            backgroundColor: '#6366f1',
+                            backgroundColor: 'var(--color-accent)',
                           }}
                         />
                       </div>
@@ -329,7 +329,7 @@ function ActivityPanel() {
                   <span className="text-text-muted">Status</span>
                   <span
                     className="font-medium"
-                    style={{ color: summary.autopilotEnabled ? '#34d399' : '#a1a1aa' }}
+                    style={{ color: summary.autopilotEnabled ? 'var(--color-emerald)' : 'var(--color-text-secondary)' }}
                   >
                     {summary.autopilotEnabled ? 'Enabled' : 'Disabled'}
                   </span>

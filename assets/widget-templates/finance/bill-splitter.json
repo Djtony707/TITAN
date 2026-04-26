@@ -1,0 +1,13 @@
+{
+  "id": "bill-splitter",
+  "name": "Bill Splitter",
+  "category": "finance",
+  "tags": ["finance", "splitter", "tip", "calculator"],
+  "description": "Split bills among people with adjustable tip and per-person totals.",
+  "triggers": ["bill splitter", "split check", "tip calculator", "divide bill"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function BillSplitter() {\n  const [total, setTotal] = React.useState(120);\n  const [people, setPeople] = React.useState(4);\n  const [tip, setTip] = React.useState(18);\n\n  const tipAmount = total * (tip / 100);\n  const grandTotal = total + tipAmount;\n  const perPerson = grandTotal / people;\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#ffffff', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', color: '#1e293b' }}>\n      <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Bill Splitter</h2>\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>Bill Total</label>\n      <input type=\"number\" value={total} onChange={e => setTotal(Number(e.target.value))} style={{ marginBottom: 12, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>People</label>\n      <input type=\"number\" value={people} onChange={e => setPeople(Number(e.target.value))} style={{ marginBottom: 12, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>Tip {tip}%</label>\n      <input type=\"range\" min=\"0\" max=\"50\" value={tip} onChange={e => setTip(Number(e.target.value))} style={{ marginBottom: 16 }} />\n      <div style={{ background: '#f1f5f9', borderRadius: 8, padding: 12, marginTop: 'auto' }}>\n        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>\n          <span>Tip:</span><span>${tipAmount.toFixed(2)}</span>\n        </div>\n        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>\n          <span>Total:</span><span>${grandTotal.toFixed(2)}</span>\n        </div>\n        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, color: '#059669' }}>\n          <span>Each pays:</span><span>${perPerson.toFixed(2)}</span>\n        </div>\n      </div>\n    </div>\n  );\n}\nrender(<BillSplitter/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_CURRENCY", "description": "Currency symbol to display", "default": "$" }
+  ]
+}

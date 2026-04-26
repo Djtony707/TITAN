@@ -1,0 +1,13 @@
+{
+  "id": "youtube-player",
+  "name": "YouTube Player",
+  "category": "media",
+  "tags": ["youtube", "video", "player", "media", "music", "stream"],
+  "description": "YouTube video embed with search and playlist support.",
+  "triggers": ["youtube", "video player", "watch youtube", "music video", "youtube embed"],
+  "defaultSize": { "w": 6, "h": 5 },
+  "source": "function YouTubePlayer() {\n  const [videoId, setVideoId] = React.useState('REPLACE_WITH_VIDEO_ID');\n  const [input, setInput] = React.useState('REPLACE_WITH_VIDEO_ID');\n\n  const extractId = (url) => {\n    const m = url.match(/(?:v=|\\/)([a-zA-Z0-9_-]{11})/);\n    return m ? m[1] : url;\n  };\n\n  const load = () => {\n    const id = extractId(input);\n    setVideoId(id);\n  };\n\n  return (\n    <div style={{padding:12,fontFamily:'system-ui',height:'100%',display:'flex',flexDirection:'column'}}>\n      <div style={{display:'flex',gap:8,marginBottom:10}}>\n        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&load()}\n          style={{flex:1,padding:'8px 12px',borderRadius:8,border:'1px solid #ccc',fontSize:14}}\n          placeholder=\"YouTube URL or video ID…\"/>\n        <button onClick={load}\n          style={{padding:'8px 16px',borderRadius:8,background:'#FF0000',color:'#fff',border:'none',cursor:'pointer',fontWeight:600}}>\n          Play\n        </button>\n      </div>\n      <div style={{flex:1,position:'relative',borderRadius:12,overflow:'hidden',background:'#000'}}>\n        {videoId && (\n          <iframe\n            src={`https://www.youtube.com/embed/${videoId}?rel=0`}\n            style={{width:'100%',height:'100%',border:'none'}}\n            allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\"\n            allowFullScreen\n          />\n        )}\n      </div>\n    </div>\n  );\n}\nrender(<YouTubePlayer/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_VIDEO_ID", "description": "YouTube video ID or URL", "default": "dQw4w9WgXcQ" }
+  ]
+}

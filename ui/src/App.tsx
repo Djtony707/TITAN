@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router';
+import { Routes, Route, Navigate, useLocation } from 'react-router';
+import { trackEvent } from '@/api/telemetry';
 import { ConfigProvider } from '@/hooks/useConfig';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ToastProvider } from '@/components/shared/Toast';
@@ -8,51 +9,14 @@ import { SetupWizard } from '@/components/onboarding/SetupWizard';
 import { FirstRunBanner } from '@/components/FirstRunBanner';
 import { OpenAuthBanner } from '@/components/OpenAuthBanner';
 import { apiFetch } from '@/api/client';
-import AppShell from '@/components/shell/AppShell';
+import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 
-// ── Lazy-loaded views ───────────────────────────────────────
-const MissionView = lazy(() => import('@/components/mission/MissionView'));
-const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
-const IntelligenceView = lazy(() => import('@/components/intelligence/IntelligenceView'));
-const ToolsView = lazy(() => import('@/components/tools/ToolsView'));
-const InfraView = lazy(() => import('@/components/infra/InfraView'));
-const SettingsView = lazy(() => import('@/components/settings/SettingsView'));
-const SomaView = lazy(() => import('@/views/SomaView'));
-const WatchView = lazy(() => import('@/views/WatchView'));
+// ── Titan 3.0 Canvas ────────────────────────────────────────
+const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
 
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
-
-// ── Legacy panel imports for backward-compat redirects ──────
-// These lazy imports support old bookmarks/links to individual panels
-const OverviewPanel = lazy(() => import('@/components/admin/OverviewPanel'));
-const ActivityPanel = lazy(() => import('@/components/admin/ActivityPanel'));
-const AgentsPanel = lazy(() => import('@/components/admin/AgentsPanel'));
-const SessionsPanel = lazy(() => import('@/components/admin/SessionsPanel'));
-const SettingsPanel = lazy(() => import('@/components/admin/SettingsPanel'));
-const ChannelsPanel = lazy(() => import('@/components/admin/ChannelsPanel'));
-const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
-const TelemetryPanel = lazy(() => import('@/components/admin/TelemetryPanel'));
-const LogsPanel = lazy(() => import('@/components/admin/LogsPanel'));
-const MeshPanel = lazy(() => import('@/components/admin/MeshPanel'));
-const LearningPanel = lazy(() => import('@/components/admin/LearningPanel'));
-const AutopilotPanel = lazy(() => import('@/components/admin/AutopilotPanel'));
-const SelfProposalsPanel = lazy(() => import('@/components/admin/SelfProposalsPanel'));
-const SecurityPanel = lazy(() => import('@/components/admin/SecurityPanel'));
-const WorkflowsPanel = lazy(() => import('@/components/admin/WorkflowsPanel'));
-const MemoryGraphPanel = lazy(() => import('@/components/admin/MemoryGraphPanel'));
-const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
-const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
-const SelfImprovePanel = lazy(() => import('@/components/admin/SelfImprovePanel'));
-const AutoresearchPanel = lazy(() => import('@/components/admin/AutoresearchPanel'));
-const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
-const DaemonPanel = lazy(() => import('@/components/admin/DaemonPanel'));
-const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
-const FilesPanel = lazy(() => import('@/components/admin/FilesPanel'));
-const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
-const HomelabPanel = lazy(() => import('@/components/admin/HomelabPanel'));
-const MemoryWikiPanel = lazy(() => import('@/components/admin/MemoryWikiPanel'));
 
 function LoadingFallback() {
   return (
@@ -62,13 +26,36 @@ function LoadingFallback() {
   );
 }
 
-/** Wrapper that adds padding for legacy admin panels */
-function AdminPage({ children }: { children: React.ReactNode }) {
-  return <div className="p-3 md:p-6 h-full overflow-auto">{children}</div>;
+/** Maps legacy routes to space IDs */
+function legacyToSpace(path: string): string {
+  const map: Record<string, string> = {
+    '/soma': 'soma',
+    '/command-post': 'command',
+    '/intelligence': 'intelligence',
+    '/infra': 'infra',
+    '/tools': 'tools',
+    '/settings': 'settings',
+    '/dashboard': 'home',
+    '/space': 'home',
+    '/': 'home',
+    '/watch': 'home',
+    '/projects': 'home',
+    '/issues': 'home',
+    '/goals': 'home',
+    '/approvals': 'home',
+    '/activity': 'home',
+  };
+  // Check exact match first
+  if (map[path]) return map[path];
+  // Check prefix match for nested routes
+  for (const [prefix, space] of Object.entries(map)) {
+    if (path.startsWith(prefix + '/')) return space;
+  }
+  return 'home';
 }
 
-function AuthenticatedApp() {
-  const [voiceOpen, setVoiceOpen] = useState(false);
+function AuthenticatedAppInner() {
+  const { isOpen: voiceOpen, close: closeVoice } = useVoice();
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -93,67 +80,64 @@ function AuthenticatedApp() {
   return (
     <ToastProvider>
     <ConfigProvider>
+      <RouteTracker />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
-          {/* New shell layout with icon rail + status bar */}
-          <Route element={<AppShell />}>
-            {/* ── Primary views (6 panels) ─────────────────── */}
-            <Route index element={<MissionView onVoiceOpen={() => setVoiceOpen(true)} />} />
-            <Route path="/command-post" element={<AdminPage><CommandPostHub /></AdminPage>} />
-            <Route path="/intelligence" element={<IntelligenceView />} />
-            <Route path="/tools" element={<ToolsView />} />
-            <Route path="/infra" element={<InfraView />} />
-            <Route path="/settings" element={<SettingsView />} />
-            <Route path="/soma" element={<SomaView />} />
-            <Route path="/watch" element={<WatchView />} />
+          {/* Titan 3.0: Canvas is the only view */}
+          <Route path="/space/:spaceId" element={<TitanCanvas />} />
 
-            {/* ── Legacy routes (redirect to new views) ────── */}
-            <Route path="/chat" element={<Navigate to="/" replace />} />
-            <Route path="/overview" element={<Navigate to="/" replace />} />
+          {/* Legacy routes → redirect to spaces */}
+          <Route path="/" element={<Navigate to="/space/home" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/space/home" replace />} />
+          <Route path="/space" element={<Navigate to="/space/home" replace />} />
+          <Route path="/soma" element={<Navigate to="/space/soma" replace />} />
+          <Route path="/command-post" element={<Navigate to="/space/command" replace />} />
+          <Route path="/command-post/*" element={<Navigate to="/space/command" replace />} />
+          <Route path="/intelligence" element={<Navigate to="/space/intelligence" replace />} />
+          <Route path="/infra" element={<Navigate to="/space/infra" replace />} />
+          <Route path="/tools" element={<Navigate to="/space/tools" replace />} />
+          <Route path="/settings" element={<Navigate to="/space/settings" replace />} />
+          <Route path="/watch" element={<Navigate to="/space/home" replace />} />
+          <Route path="/projects" element={<Navigate to="/space/home" replace />} />
+          <Route path="/issues" element={<Navigate to="/space/home" replace />} />
+          <Route path="/goals" element={<Navigate to="/space/home" replace />} />
+          <Route path="/approvals" element={<Navigate to="/space/home" replace />} />
+          <Route path="/activity" element={<Navigate to="/space/home" replace />} />
 
-            {/* ── Legacy admin panel routes (backward compat) ── */}
-            {/* These still work but are also accessible via consolidated views */}
-            <Route path="/activity" element={<AdminPage><ActivityPanel /></AdminPage>} />
-            <Route path="/agents" element={<AdminPage><AgentsPanel /></AdminPage>} />
-            <Route path="/sessions" element={<AdminPage><SessionsPanel /></AdminPage>} />
-            <Route path="/channels" element={<AdminPage><ChannelsPanel /></AdminPage>} />
-            <Route path="/skills" element={<AdminPage><SkillsPanel /></AdminPage>} />
-            <Route path="/telemetry" element={<AdminPage><TelemetryPanel /></AdminPage>} />
-            <Route path="/logs" element={<AdminPage><LogsPanel /></AdminPage>} />
-            <Route path="/mesh" element={<AdminPage><MeshPanel /></AdminPage>} />
-            <Route path="/learning" element={<AdminPage><LearningPanel /></AdminPage>} />
-            <Route path="/autopilot" element={<AdminPage><AutopilotPanel /></AdminPage>} />
-            <Route path="/self-proposals" element={<AdminPage><SelfProposalsPanel /></AdminPage>} />
-            <Route path="/security" element={<AdminPage><SecurityPanel /></AdminPage>} />
-            <Route path="/workflows" element={<AdminPage><WorkflowsPanel /></AdminPage>} />
-            <Route path="/memory-graph" element={<AdminPage><MemoryGraphPanel /></AdminPage>} />
-            <Route path="/personas" element={<AdminPage><PersonasPanel /></AdminPage>} />
-            <Route path="/integrations" element={<AdminPage><IntegrationsPanel /></AdminPage>} />
-            <Route path="/self-improve" element={<AdminPage><SelfImprovePanel /></AdminPage>} />
-            <Route path="/autoresearch" element={<AdminPage><AutoresearchPanel /></AdminPage>} />
-            <Route path="/mcp" element={<AdminPage><McpPanel /></AdminPage>} />
-            <Route path="/daemon" element={<AdminPage><DaemonPanel /></AdminPage>} />
-            <Route path="/audit" element={<AdminPage><AuditPanel /></AdminPage>} />
-            <Route path="/files" element={<AdminPage><FilesPanel /></AdminPage>} />
-            <Route path="/nvidia" element={<AdminPage><NvidiaPanel /></AdminPage>} />
-            <Route path="/homelab" element={<AdminPage><HomelabPanel /></AdminPage>} />
-            <Route path="/memory-wiki" element={<AdminPage><MemoryWikiPanel /></AdminPage>} />
-          </Route>
+          {/* Catch-all */}
+          <Route path="*" element={<Navigate to="/space/home" replace />} />
         </Routes>
       </Suspense>
 
       <OpenAuthBanner />
       <FirstRunBanner />
 
-      {/* Voice overlay — rendered outside shell so it covers everything */}
+      {/* Voice overlay */}
       {voiceOpen && (
         <Suspense fallback={null}>
-          <VoiceOverlay onClose={() => setVoiceOpen(false)} />
+          <VoiceOverlay onClose={closeVoice} />
         </Suspense>
       )}
     </ConfigProvider>
     </ToastProvider>
   );
+}
+
+function AuthenticatedApp() {
+  return (
+    <VoiceProvider>
+      <AuthenticatedAppInner />
+    </VoiceProvider>
+  );
+}
+
+function RouteTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    const path = location.pathname;
+    trackEvent('feature_opened', { feature: path });
+  }, [location.pathname]);
+  return null;
 }
 
 function AuthGate() {

@@ -1,0 +1,11 @@
+{
+  "id": "hackernews",
+  "name": "Hacker News",
+  "category": "web",
+  "tags": ["hackernews", "hn", "tech", "news", "startup", "coding"],
+  "description": "Top stories from Hacker News with points and comment counts.",
+  "triggers": ["hackernews", "hacker news", "hn", "tech news", "startup news"],
+  "defaultSize": { "w": 5, "h": 6 },
+  "source": "function HackerNews() {\n  const [stories, setStories] = React.useState([]);\n  const [loading, setLoading] = React.useState(false);\n\n  React.useEffect(()=>{\n    setLoading(true);\n    fetch('https://hacker-news.firebaseio.com/v0/topstories.json')\n      .then(r=>r.json())\n      .then(ids=>Promise.all(ids.slice(0,15).map(id=>fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r=>r.json()))))\n      .then(s=>{setStories(s.filter(Boolean));setLoading(false);})\n      .catch(()=>setLoading(false));\n  },[]);\n\n  return (\n    <div style={{padding:16,fontFamily:'system-ui',height:'100%',display:'flex',flexDirection:'column'}}>\n      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>\n        <span style={{fontSize:18,fontWeight:700}}>Hacker News</span>\n        <span style={{fontSize:12,color:'#FF6600',fontWeight:600}}>Y</span>\n      </div>\n      {loading && <div style={{textAlign:'center',color:'#888'}}>Loading…</div>}\n      <div style={{flex:1,overflow:'auto'}}>\n        {stories.map((s,i)=> (\n          <a key={s.id} href={s.url||`https://news.ycombinator.com/item?id=${s.id}`} target=\"_blank\" rel=\"noopener noreferrer\"\n            style={{display:'block',padding:'8px 0',borderBottom:'1px solid #eee',textDecoration:'none',color:'inherit'}}>\n            <div style={{display:'flex',gap:8,alignItems:'baseline'}}>\n              <span style={{fontSize:13,color:'#888',minWidth:20}}>{i+1}.</span>\n              <span style={{fontSize:14,fontWeight:500,color:'#000'}}>{s.title}</span>\n            </div>\n            <div style={{fontSize:12,color:'#888',marginLeft:28,marginTop:2}}>\n              {s.score} points · {s.descendants||0} comments · {s.by}\n            </div>\n          </a>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<HackerNews/>);",
+  "placeholders": []
+}

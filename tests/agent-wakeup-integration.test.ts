@@ -48,6 +48,7 @@ vi.mock('../src/agent/commandPost.js', () => ({
     updateIssue: mockUpdateIssue.mockReturnValue({ id: 'issue-1', status: 'done' }),
     startRun: mockStartRun.mockReturnValue({ id: 'run-1', agentId: 'agent-1', source: 'assignment', status: 'running', startedAt: new Date().toISOString(), toolsUsed: [] }),
     endRun: mockEndRun.mockReturnValue({ id: 'run-1', status: 'succeeded' }),
+    updateAgentStatus: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../src/config/config.js', () => ({

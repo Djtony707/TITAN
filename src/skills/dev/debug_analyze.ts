@@ -37,7 +37,7 @@ export function register(): void {
             }
 
             const config = loadConfig();
-            const model = config.agent.modelAliases?.smart || config.agent.modelAliases?.fast || 'openai/gpt-4o-mini';
+            const model = config.agent.modelAliases?.smart || config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
 
             const response = await chat({
                 model,

@@ -33,6 +33,8 @@ import type {
   OrgNode,
 } from './types';
 
+import { trackEvent } from './telemetry';
+
 const BASE = '';
 
 export function authHeaders(): Record<string, string> {
@@ -70,6 +72,7 @@ export async function sendMessage(
   sessionId?: string,
   options?: { model?: string; agentId?: string },
 ): Promise<SendMessageResponse> {
+  trackEvent('chat_message_sent', { streaming: false, hasSession: !!sessionId });
   return request('/api/message', {
     method: 'POST',
     body: JSON.stringify({
@@ -86,8 +89,9 @@ export function streamMessage(
   sessionId?: string,
   onEvent?: (event: StreamEvent) => void,
   signal?: AbortSignal,
-  options?: { agentId?: string },
+  options?: { agentId?: string; systemPromptAppendix?: string },
 ): Promise<void> {
+  trackEvent('chat_message_sent', { streaming: true, hasSession: !!sessionId });
   return new Promise((resolve, reject) => {
     fetch(`${BASE}/api/message`, {
       method: 'POST',
@@ -100,6 +104,7 @@ export function streamMessage(
         content,
         sessionId,
         ...(options?.agentId && { agentId: options.agentId }),
+        ...(options?.systemPromptAppendix && { systemPromptAppendix: options.systemPromptAppendix }),
       }),
       signal,
     })
@@ -144,7 +149,7 @@ export function streamMessage(
                   } else if (eventType === 'tool_call') {
                     onEvent?.({ type: 'tool_start', data: '', toolName: parsed.name, toolArgs: parsed.args });
                   } else if (eventType === 'tool_end') {
-                    onEvent?.({ type: 'tool_end', data: '', toolName: parsed.name, toolResult: parsed.result, toolDurationMs: parsed.durationMs, toolSuccess: parsed.success });
+                    onEvent?.({ type: 'tool_end', data: '', toolName: parsed.name, toolResult: parsed.result, toolDurationMs: parsed.durationMs, toolSuccess: parsed.success, toolDiff: parsed.diff });
                   } else if (eventType === 'thinking') {
                     onEvent?.({ type: 'thinking', data: '' });
                   } else if (eventType === 'round') {
@@ -571,32 +576,38 @@ export async function deleteFile(path: string, root?: string): Promise<import('.
   return request(`/api/files/delete?${params}`, { method: 'DELETE' });
 }
 
-// ---- Orpheus TTS management ----
+// ---- F5-TTS Voice management ----
 
-export async function getOrpheusStatus(): Promise<{ installed: boolean; running: boolean; venvPath: string }> {
-  return request('/api/voice/orpheus/status');
+export async function getF5TtsStatus(): Promise<{ installed: boolean; running: boolean; voices: string[]; port: number; model: string }> {
+  return request('/api/voice/f5tts/status');
 }
 
-export async function startOrpheus(): Promise<{ ok: boolean }> {
-  return request('/api/voice/orpheus/start', { method: 'POST' });
+export async function getAnalyticsProfile(): Promise<{
+  installId: string;
+  version: string;
+  nodeVersion: string;
+  os: string;
+  arch: string;
+  cpuModel: string;
+  cpuCores: number;
+  ramTotalMB: number;
+  gpuVendor: string;
+  gpuName: string;
+  installMethod: string;
+}> {
+  return request('/api/analytics/profile');
 }
 
-export async function stopOrpheus(): Promise<{ ok: boolean }> {
-  return request('/api/voice/orpheus/stop', { method: 'POST' });
-}
-
-// ---- Qwen3-TTS Voice Cloning management ----
-
-export async function getQwen3TtsStatus(): Promise<{ installed: boolean; running: boolean; voices: string[]; port: number; model: string }> {
-  return request('/api/voice/qwen3tts/status');
-}
-
-export async function startQwen3Tts(): Promise<{ ok: boolean }> {
-  return request('/api/voice/qwen3tts/start', { method: 'POST' });
-}
-
-export async function stopQwen3Tts(): Promise<{ ok: boolean }> {
-  return request('/api/voice/qwen3tts/stop', { method: 'POST' });
+export async function executeSandbox(code: string, language?: string, timeoutMs?: number): Promise<{
+  output: string;
+  exitCode: number;
+  toolCalls: number;
+  durationMs: number;
+}> {
+  return request('/api/sandbox/execute', {
+    method: 'POST',
+    body: JSON.stringify({ code, language: language || 'javascript', timeoutMs }),
+  });
 }
 
 export async function getClonedVoices(): Promise<{ voices: Array<{ name: string; hasTranscript: boolean; sizeBytes: number }> }> {
@@ -644,8 +655,8 @@ export async function cpCheckoutTask(goalId: string, subtaskId: string, agentId 
   });
 }
 
-export async function cpCheckinTask(subtaskId: string, runId: string): Promise<{ success: boolean }> {
-  return request(`/api/command-post/tasks/${subtaskId}/checkin`, {
+export async function cpCheckinTask(goalId: string, subtaskId: string, runId: string): Promise<{ success: boolean }> {
+  return request(`/api/command-post/tasks/${goalId}/${subtaskId}/checkin`, {
     method: 'POST', body: JSON.stringify({ runId }),
   });
 }
@@ -792,7 +803,7 @@ export async function getCPRuns(agentId?: string, limit = 50): Promise<CPRun[]> 
 
 // ---- Paperclip: Agent Updates ----
 
-export async function updateCPAgent(id: string, updates: { reportsTo?: string; role?: string; title?: string; name?: string }): Promise<RegisteredAgent> {
+export async function updateCPAgent(id: string, updates: { reportsTo?: string; role?: string; title?: string; name?: string; model?: string }): Promise<RegisteredAgent> {
   return request(`/api/command-post/agents/${id}`, {
     method: 'PATCH', body: JSON.stringify(updates),
   });
@@ -868,6 +879,85 @@ export async function deleteCompany(id: string): Promise<{ success: boolean }> {
 
 export async function createSession(): Promise<{ id: string }> {
   return request('/api/sessions', { method: 'POST', body: JSON.stringify({ channel: 'webchat', userId: 'api-user' }) });
+}
+
+// ---- Inbox Threading ----
+
+export async function replyToApproval(id: string, author: string, body: string): Promise<CPApproval> {
+  return request(`/api/command-post/approvals/${id}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ author, body }),
+  });
+}
+
+export async function snoozeApproval(id: string, until: string): Promise<CPApproval> {
+  return request(`/api/command-post/approvals/${id}/snooze`, {
+    method: 'POST',
+    body: JSON.stringify({ until }),
+  });
+}
+
+export async function unsnoozeApproval(id: string): Promise<CPApproval> {
+  return request(`/api/command-post/approvals/${id}/unsnooze`, {
+    method: 'POST',
+  });
+}
+
+export async function getApprovalThread(id: string): Promise<{ approvalId: string; thread: CPIssueComment[] }> {
+  return request(`/api/command-post/approvals/${id}/thread`);
+}
+
+export async function batchApprovals(ids: string[], action: 'approve' | 'reject', decidedBy?: string, note?: string): Promise<{ approved?: string[]; rejected?: string[]; failed: string[] }> {
+  return request('/api/command-post/approvals/batch', {
+    method: 'POST',
+    body: JSON.stringify({ ids, action, decidedBy, note }),
+  });
+}
+
+// ---- Agent Messages ----
+
+export async function getAgentMessages(agentId?: string, userId?: string, unreadOnly?: boolean): Promise<import('./types').AgentMessage[]> {
+  const params = new URLSearchParams();
+  if (agentId) params.set('agentId', agentId);
+  if (userId) params.set('userId', userId);
+  if (unreadOnly) params.set('unread', 'true');
+  return request(`/api/command-post/agent-messages?${params}`);
+}
+
+export async function markAgentMessageRead(id: string): Promise<{ read: boolean }> {
+  return request(`/api/command-post/agent-messages/${id}/read`, { method: 'POST' });
+}
+
+// ---- Social ----
+
+export async function getSocialState(): Promise<import('./types').SocialState> {
+  return request('/api/social/state');
+}
+
+export async function toggleSocialAutopilot(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request('/api/social/autopilot/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function postSocial(content: string): Promise<{ success: boolean; postId?: string; error?: string; skipped?: string }> {
+  return request('/api/social/post', {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function approveSocialDraft(id: string): Promise<{ success: boolean; status?: string; postId?: string; error?: string }> {
+  return request(`/api/social/drafts/${id}/approve`, { method: 'POST' });
+}
+
+export async function rejectSocialDraft(id: string): Promise<{ success: boolean }> {
+  return request(`/api/social/drafts/${id}/reject`, { method: 'POST' });
+}
+
+export async function getSocialGraphContext(): Promise<{ recentTopics: import('./types').SocialGraphTopic[] }> {
+  return request('/api/social/graph-context');
 }
 
 // ---- Auth ----

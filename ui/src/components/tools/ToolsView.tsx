@@ -22,7 +22,7 @@ export default function ToolsView() {
     <div className="flex flex-col h-full">
       <div className="shrink-0 px-5 pt-4 pb-0">
         <h1 className="text-sm font-semibold text-text mb-3">Tools & Connections</h1>
-        <div className="flex items-center gap-0.5 border-b border-white/[0.04]">
+        <div className="flex items-center gap-0.5 border-b border-border/50">
           {TABS.map(tab => (
             <button
               key={tab.id}

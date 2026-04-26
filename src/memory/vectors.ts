@@ -9,6 +9,7 @@
  *   Tier 3: Deterministic storage (JSON key-value / structured data)
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { atomicWriteFileSync } from '../utils/helpers.js';
 import { join } from 'path';
 import { homedir } from 'os';
 import { loadConfig } from '../config/config.js';
@@ -79,7 +80,7 @@ function debouncedSave(): void {
     saveTimeout = setTimeout(() => {
         if (!store) return;
         try {
-            writeFileSync(VECTORS_PATH, JSON.stringify(store), 'utf-8');
+            atomicWriteFileSync(VECTORS_PATH, JSON.stringify(store));
         } catch (e) {
             logger.error(COMPONENT, `Failed to save vectors: ${(e as Error).message}`);
         }
@@ -339,7 +340,7 @@ export function flushVectors(): void {
     if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
     if (store) {
         try {
-            writeFileSync(VECTORS_PATH, JSON.stringify(store), 'utf-8');
+            atomicWriteFileSync(VECTORS_PATH, JSON.stringify(store));
         } catch { /* ignore */ }
     }
 }
@@ -386,7 +387,7 @@ function loadRagDocStore(): RAGDocStore {
 function saveRagDocStore(): void {
     if (!ragDocStore) return;
     try {
-        writeFileSync(RAG_DOCS_PATH, JSON.stringify(ragDocStore, null, 2), 'utf-8');
+        atomicWriteFileSync(RAG_DOCS_PATH, JSON.stringify(ragDocStore, null, 2));
     } catch (e) {
         logger.error(COMPONENT, `Failed to save RAG doc store: ${(e as Error).message}`);
     }

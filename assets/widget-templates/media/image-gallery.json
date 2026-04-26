@@ -1,0 +1,14 @@
+{
+  "id": "image-gallery",
+  "name": "Image Gallery",
+  "category": "media",
+  "tags": ["images", "gallery", "photos", "viewer", "grid", "media"],
+  "description": "Image gallery grid with lightbox viewer and caption support.",
+  "triggers": ["image gallery", "photo gallery", "picture grid", "image viewer", "photo album"],
+  "defaultSize": { "w": 6, "h": 5 },
+  "source": "function ImageGallery() {\n  const [images, setImages] = React.useState([\n    {url:'REPLACE_WITH_IMG_1',caption:'REPLACE_WITH_CAPTION_1'},\n    {url:'https://picsum.photos/400/300?random=2',caption:'Sample 2'},\n    {url:'https://picsum.photos/400/300?random=3',caption:'Sample 3'},\n    {url:'https://picsum.photos/400/300?random=4',caption:'Sample 4'}\n  ]);\n  const [lightbox, setLightbox] = React.useState(null);\n\n  const add = ()=>{\n    const url = prompt('Image URL:');\n    if(url) setImages([...images,{url,caption:''}]);\n  };\n\n  return (\n    <div style={{padding:12,fontFamily:'system-ui',height:'100%',display:'flex',flexDirection:'column'}}>\n      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>\n        <span style={{fontSize:18,fontWeight:700}}>Image Gallery</span>\n        <button onClick={add}\n          style={{padding:'6px 12px',borderRadius:8,background:'#007AFF',color:'#fff',border:'none',cursor:'pointer',fontSize:13}}>\n          + Add\n        </button>\n      </div>\n      <div style={{flex:1,overflow:'auto',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>\n        {images.map((img,i)=> (\n          <div key={i} onClick={()=>setLightbox(i)}\n            style={{cursor:'pointer',borderRadius:8,overflow:'hidden',position:'relative',aspectRatio:'4/3'}}>\n            <img src={img.url} style={{width:'100%',height:'100%',objectFit:'cover'}} alt={img.caption}/>\n            {img.caption && <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'4px 8px',background:'rgba(0,0,0,0.5)',color:'#fff',fontSize:11}}>{img.caption}</div>}\n          </div>\n        ))}\n      </div>\n      {lightbox !== null && (\n        <div onClick={()=>setLightbox(null)}\n          style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>\n          <img src={images[lightbox].url} style={{maxWidth:'90%',maxHeight:'90%',borderRadius:8}} alt=\"\"/>\n        </div>\n      )}\n    </div>\n  );\n}\nrender(<ImageGallery/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_IMG_1", "description": "First image URL", "default": "https://picsum.photos/400/300?random=1" },
+    { "name": "REPLACE_WITH_CAPTION_1", "description": "First image caption", "default": "Sample 1" }
+  ]
+}

@@ -10,6 +10,7 @@ import {
     createDecipheriv,
 } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { atomicWriteJsonFile } from '../utils/helpers.js';
 import { join, dirname } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
@@ -103,7 +104,7 @@ function persistVault(): void {
         mkdirSync(dir, { recursive: true });
     }
 
-    writeFileSync(vaultPath, JSON.stringify(vaultFile, null, 2), 'utf-8');
+    atomicWriteJsonFile(vaultPath, vaultFile);
     logger.debug(COMPONENT, 'Vault persisted to disk');
 }
 

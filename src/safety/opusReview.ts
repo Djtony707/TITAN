@@ -35,29 +35,7 @@ const BUDGET_PATH = join(TITAN_HOME, 'reviewer-budget.json');
 // Kept small + conservative. Free models = 0. Unknown models = Opus-rate
 // (safer to over-estimate than under). Update as model list changes.
 const MODEL_PRICES: Record<string, { input: number; output: number }> = {
-    // Claude Code CLI — MAX plan subscription, treated as $0 for caps.
-    // The MAX plan is a flat monthly fee with generous quotas; the
-    // reviewer is a very-low-volume caller (only on self_mod_pr apply)
-    // so MAX easily absorbs it. Cost caps are therefore moot for this
-    // path but we still report accurate usage telemetry.
-    'claude-code/sonnet-4.5':                     { input: 0,    output: 0    },
-    'claude-code/sonnet-4':                       { input: 0,    output: 0    },
-    'claude-code/opus-4.6':                       { input: 0,    output: 0    },
-    'claude-code/opus-4':                         { input: 0,    output: 0    },
-    'claude-code/haiku-4.5':                      { input: 0,    output: 0    },
-    'claude-code/default':                        { input: 0,    output: 0    },
     // OpenRouter — metered
-    'openrouter/qwen/qwen3.6-plus':               { input: 0,    output: 0    }, // free tier
-    'openrouter/qwen/qwen3.6-plus:free':          { input: 0,    output: 0    },
-    'openrouter/nvidia/nemotron-3-super:free':    { input: 0,    output: 0    },
-    'openrouter/anthropic/claude-opus-4.6':       { input: 15.0, output: 75.0 },
-    'openrouter/anthropic/claude-opus-4':         { input: 15.0, output: 75.0 },
-    'openrouter/anthropic/claude-sonnet-4.6':     { input: 3.0,  output: 15.0 },
-    'openrouter/anthropic/claude-sonnet-4':       { input: 3.0,  output: 15.0 },
-    'openrouter/openai/gpt-5.4':                  { input: 5.0,  output: 20.0 },
-    'openrouter/z-ai/glm-5':                      { input: 0.5,  output: 1.5  },
-    'openrouter/moonshotai/kimi-k2.5':            { input: 0.3,  output: 1.2  },
-    'openrouter/minimax/minimax-m2.7':            { input: 0.4,  output: 1.6  },
 };
 
 function priceFor(model: string): { input: number; output: number } {
@@ -167,7 +145,7 @@ function resolveReviewerConfig(): ReviewerConfig {
     const r = sm?.reviewer ?? {};
     return {
         enabled: r.enabled ?? true,
-        model: r.model ?? 'claude-code/sonnet-4.5',
+        model: r.model ?? 'ollama/glm-5.1:cloud',
         maxDiffChars: r.maxDiffChars ?? 50_000,
         blockOnReject: r.blockOnReject ?? true,
         maxPerReviewUsd: r.maxPerReviewUsd ?? 0.25,
@@ -325,9 +303,6 @@ export async function reviewStagedBundle(input: ReviewInput): Promise<OpusReview
 
     // Provider-key sanity check.
     //   openrouter/* → needs OPENROUTER_API_KEY
-    //   claude-code/* → needs `claude` CLI installed + logged in (we'll
-    //                   find out at spawn time; healthCheck is too slow
-    //                   to run per-review, just let it surface on call)
     //   anything else → assume the router's provider will handle its own auth
     if (cfg.model.startsWith('openrouter/')) {
         const openrouterKey = process.env.OPENROUTER_API_KEY ||

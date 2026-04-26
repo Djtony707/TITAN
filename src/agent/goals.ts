@@ -13,6 +13,65 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'Goals';
 const GOALS_PATH = join(TITAN_HOME, 'goals.json');
+const RATE_PATH = join(TITAN_HOME, 'goal-creation-rate.json');
+
+/** Safety limits — prevent runaway goal proliferation (SOMA or agent loops). */
+const MAX_TOTAL_GOALS = 150;
+const MAX_ACTIVE_GOALS = 50;
+const MAX_GOALS_PER_HOUR = 10;
+const RECENT_DEDUPE_HOURS = 24;
+const SIMILARITY_THRESHOLD = 0.82; // Jaccard — catches "Publish content: AI agents" vs "Publish content: tech"
+
+/** Load rate-limit state from disk. */
+function loadRateState(): { creations: string[] } {
+    if (!existsSync(RATE_PATH)) return { creations: [] };
+    try {
+        const raw = readFileSync(RATE_PATH, 'utf-8');
+        const parsed = JSON.parse(raw) as { creations?: string[] };
+        return { creations: Array.isArray(parsed?.creations) ? parsed.creations : [] };
+    } catch {
+        return { creations: [] };
+    }
+}
+
+function saveRateState(state: { creations: string[] }): void {
+    try {
+        ensureDir(TITAN_HOME);
+        writeFileSync(RATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+    } catch { /* non-critical */ }
+}
+
+/** Jaccard similarity for fuzzy dedupe. 0–1, higher = more similar. */
+function titleSimilarity(a: string, b: string): number {
+    const tokenize = (s: string) => new Set(
+        s.toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2)
+    );
+    const ta = tokenize(a);
+    const tb = tokenize(b);
+    if (ta.size === 0 || tb.size === 0) return 0;
+    let intersection = 0;
+    for (const t of ta) if (tb.has(t)) intersection++;
+    const union = ta.size + tb.size - intersection;
+    return union === 0 ? 0 : intersection / union;
+}
+
+/** Returns true if we should block creation due to rate limits. */
+function isRateLimited(force: boolean): { limited: boolean; reason?: string } {
+    if (force) return { limited: false };
+    const state = loadRateState();
+    const now = Date.now();
+    const hourMs = 60 * 60 * 1000;
+    const recent = state.creations.filter(t => now - new Date(t).getTime() < hourMs);
+    if (recent.length >= MAX_GOALS_PER_HOUR) {
+        return { limited: true, reason: `rate limit: ${recent.length} goals created in the last hour (max ${MAX_GOALS_PER_HOUR})` };
+    }
+    recent.push(new Date().toISOString());
+    saveRateState({ creations: recent });
+    return { limited: false };
+}
 
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'failed';
 export type SubtaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
@@ -115,26 +174,59 @@ export function createGoal(options: {
     tags?: string[];
     parentGoalId?: string;
     subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
+    /** Bypass rate limits and soft caps (human-initiated only). */
+    force?: boolean;
 }): Goal {
     const goals = loadGoals();
 
-    // v4.10.0-local: title-based dedupe. Multiple callers (goalProposer,
-    // missionDriver, cron-triggered initiative, autopilot) can propose the
-    // same goal in the same tick. Previously that produced duplicate
-    // active goals with identical titles (saw two "Implement safety drive
-    // satisfaction monitoring" created 4 seconds apart). Policy: if an
-    // ACTIVE goal with the exact same title already exists, return it
-    // instead of creating a new one. Completed/failed goals don't block
-    // — re-propose is legitimate after an old one closed out.
+    // ── v5.0.0: Multi-layer dedupe + runaway prevention ──────────────
+
+    // 1. Exact title match against ACTIVE goals (existing v4.10 behavior)
     const existingActive = goals.find(g =>
         g.status === 'active' && g.title.trim() === options.title.trim()
     );
     if (existingActive) {
-        logger.info(
-            COMPONENT,
-            `createGoal dedupe: "${options.title}" already active as ${existingActive.id} — returning existing`,
-        );
+        logger.info(COMPONENT, `createGoal dedupe: "${options.title}" already active as ${existingActive.id} — returning existing`);
         return existingActive;
+    }
+
+    // 2. Fuzzy similarity match against ACTIVE goals (catches "Publish content: X" variants)
+    const fuzzyDup = goals.find(g =>
+        g.status === 'active' && titleSimilarity(g.title, options.title) >= SIMILARITY_THRESHOLD
+    );
+    if (fuzzyDup) {
+        logger.info(COMPONENT, `createGoal fuzzy dedupe: "${options.title}" similar to active goal "${fuzzyDup.title}" (${fuzzyDup.id}) — returning existing`);
+        return fuzzyDup;
+    }
+
+    // 3. Recent exact match against ANY status (prevents rapid re-creation of completed/failed goals)
+    const cutoffMs = RECENT_DEDUPE_HOURS * 60 * 60 * 1000;
+    const recentDup = goals.find(g => {
+        if (g.title.trim() !== options.title.trim()) return false;
+        const age = Date.now() - new Date(g.createdAt).getTime();
+        return age < cutoffMs;
+    });
+    if (recentDup) {
+        logger.info(COMPONENT, `createGoal recent dedupe: "${options.title}" created ${recentDup.id} within ${RECENT_DEDUPE_HOURS}h — returning existing`);
+        return recentDup;
+    }
+
+    // 4. Hard caps
+    const activeCount = goals.filter(g => g.status === 'active').length;
+    if (!options.force && activeCount >= MAX_ACTIVE_GOALS) {
+        logger.warn(COMPONENT, `createGoal blocked: ${activeCount} active goals >= cap ${MAX_ACTIVE_GOALS}. Use force=true to override.`);
+        throw new Error(`Goal cap exceeded: ${activeCount} active goals (max ${MAX_ACTIVE_GOALS}). Close some goals first.`);
+    }
+    if (!options.force && goals.length >= MAX_TOTAL_GOALS) {
+        logger.warn(COMPONENT, `createGoal blocked: ${goals.length} total goals >= cap ${MAX_TOTAL_GOALS}. Use force=true to override.`);
+        throw new Error(`Goal cap exceeded: ${goals.length} total goals (max ${MAX_TOTAL_GOALS}). Close some goals first.`);
+    }
+
+    // 5. Rate limit
+    const rateCheck = isRateLimited(!!options.force);
+    if (rateCheck.limited) {
+        logger.warn(COMPONENT, `createGoal blocked: ${rateCheck.reason}`);
+        throw new Error(`Goal creation rate limited: ${rateCheck.reason}`);
     }
 
     const subtasks: Subtask[] = (options.subtasks || []).map((st, i) => ({
@@ -178,7 +270,7 @@ export function createGoal(options: {
         title: options.title,
         description: options.description,
         status: 'active',
-        priority: options.priority || goals.length + 1,
+        priority: options.priority || Math.min(goals.length + 1, 99),
         subtasks,
         schedule: options.schedule,
         budgetLimit: options.budgetLimit,
@@ -491,4 +583,38 @@ export function addDynamicSubtask(goalId: string, afterSubtaskId: string, title:
 export function reloadGoals(): void {
     goalsCache = null;
     loadGoals();
+}
+
+/** v5.0.0: Bulk close duplicate goals. Keeps the newest active goal for each
+ *  exact title and marks the rest as failed. Returns counts for logging. */
+export function dedupeGoalsBulk(): { scanned: number; closed: number; kept: number } {
+    const goals = loadGoals();
+    const seen = new Map<string, Goal>(); // title -> newest kept goal
+    let closed = 0;
+
+    // Sort by createdAt desc so we keep the newest
+    const sorted = [...goals].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    for (const g of sorted) {
+        const key = g.title.trim().toLowerCase();
+        if (!seen.has(key)) {
+            seen.set(key, g);
+            continue;
+        }
+        // Duplicate — close it if active
+        if (g.status === 'active') {
+            g.status = 'failed';
+            g.updatedAt = new Date().toISOString();
+            closed++;
+            logger.info(COMPONENT, `Bulk dedupe closed duplicate goal "${g.title}" (${g.id})`);
+        }
+    }
+
+    if (closed > 0) {
+        goalsCache = goals;
+        saveGoals();
+    }
+    return { scanned: goals.length, closed, kept: seen.size };
 }

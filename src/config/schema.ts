@@ -31,6 +31,13 @@ export const ProviderConfigSchema = z.object({
     rotationStrategy: z.enum(['priority', 'round-robin', 'least-used']).default('priority'),
     /** Cooldown duration in ms when a credential is exhausted (default: 60s) */
     credentialCooldownMs: z.number().default(60000),
+    /** v5.0: Credential pool — multiple API keys for same provider with automatic rotation */
+    credentialPool: z.object({
+        apiKeys: z.array(z.string()).default([]),
+        rotationStrategy: z.enum(['least_used', 'round_robin', 'random']).default('least_used'),
+    }).optional(),
+    /** v5.0: Transport layer override ('anthropic' | 'chat_completions' | 'responses_api' | 'bedrock') */
+    transport: z.enum(['anthropic', 'chat_completions', 'responses_api', 'bedrock']).optional(),
 });
 
 export const ChannelConfigSchema = z.object({
@@ -101,6 +108,15 @@ export const SecurityConfigSchema = z.object({
         path: z.string().optional(),
         retentionDays: z.number().default(90),
     }).default({}),
+    /** v5.0: PII redaction before sending context to LLM providers */
+    redactPII: z.boolean().default(false),
+    /** v5.0: Secret exfiltration scanning level */
+    secretScan: z.object({
+        level: z.enum(['tool_only', 'full']).default('tool_only'),
+    }).default({}),
+    /** v5.0: Pre-execution command scanner for dangerous patterns */
+    preExecScan: z.enum(['off', 'warn', 'block']).default('warn'),
+    preExecScanAllow: z.array(z.string()).default([]),
 });
 
 export const GatewayConfigSchema = z.object({
@@ -226,6 +242,13 @@ export const AgentConfigSchema = z.object({
     proposalRateLimitPerDay: z.number().min(0).max(20).default(3),
     /** Model alias used for the proposal generation step. Should be cheap/fast. */
     proposalModel: z.string().default('fast'),
+    /** v5.0: Prompt budget ratios — cap tokens for each context section (Space Agent parity) */
+    promptBudget: z.object({
+        systemRatio: z.number().min(0).max(1).default(0.3),
+        historyRatio: z.number().min(0).max(1).default(0.5),
+        transientRatio: z.number().min(0).max(1).default(0.2),
+        maxTokens: z.number().default(12000),
+    }).optional(),
 });
 
 export const MeshConfigSchema = z.object({
@@ -617,6 +640,10 @@ export const TitanConfigSchema = z.object({
         vectorSearchEnabled: z.boolean().default(false),
         /** Embedding model for vector search (must be available on Ollama) */
         embeddingModel: z.string().default('nomic-embed-text'),
+        /** v5.0: Pluggable memory provider ('builtin' = default three-tier memory) */
+        provider: z.string().default('builtin'),
+        /** v5.0: Provider-specific configuration passed to the memory backend */
+        providerConfig: z.record(z.string(), z.unknown()).default({}),
     }).default({}),
     skills: z.object({
         enabled: z.boolean().default(true),
@@ -889,7 +916,7 @@ export const TitanConfigSchema = z.object({
             type: z.enum(['ollama', 'docker', 'process']),
         })).default({
             ollama: { estimatedMB: 0, priority: 1, type: 'ollama' },
-            orpheus_tts: { estimatedMB: 4000, priority: 2, type: 'docker' },
+            f5_tts: { estimatedMB: 1500, priority: 2, type: 'process' },
             cuopt: { estimatedMB: 5000, priority: 3, type: 'docker' },
             nemotron_asr: { estimatedMB: 4000, priority: 4, type: 'docker' },
         }),
@@ -1019,6 +1046,43 @@ export const TitanConfigSchema = z.object({
         disabled: z.boolean().default(false),
     }).default({}),
 
+    /** v5.0: Lightweight OTEL-compatible diagnostics export */
+    diagnostics: z.object({
+        otel: z.object({
+            enabled: z.boolean().default(false),
+            captureContent: z.boolean().default(false),
+            endpoint: z.string().optional(),
+        }).default({}),
+    }).default({}),
+    /** v5.0: Shell hooks for lifecycle events */
+    hooks: z.object({
+        shell: z.object({
+            enabled: z.boolean().default(false),
+            pre_tool_call: z.array(z.string()).default([]),
+            post_tool_call: z.array(z.string()).default([]),
+            on_session_start: z.array(z.string()).default([]),
+            on_session_end: z.array(z.string()).default([]),
+            on_round_start: z.array(z.string()).default([]),
+            on_round_end: z.array(z.string()).default([]),
+        }).default({}),
+    }).default({}),
+    /** v5.0: Filesystem checkpoints before destructive operations */
+    checkpoints: z.object({
+        enabled: z.boolean().default(true),
+        maxPerSession: z.number().default(50),
+        retentionHours: z.number().default(24),
+    }).default({}),
+    /** v5.0: Browser automation configuration */
+    browser: z.object({
+        actionTimeoutMs: z.number().default(60000),
+        profiles: z.record(z.string(), z.object({
+            headless: z.boolean().optional(),
+        })).default({}),
+    }).default({}),
+    /** v5.0: UI theming */
+    ui: z.object({
+        theme: z.string().default('dark'),
+    }).default({}),
     commandPost: z.object({
         /** Enable the Command Post governance layer */
         enabled: z.boolean().default(false),

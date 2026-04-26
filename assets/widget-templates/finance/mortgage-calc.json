@@ -1,0 +1,13 @@
+{
+  "id": "mortgage-calc",
+  "name": "Mortgage Calculator",
+  "category": "finance",
+  "tags": ["finance", "mortgage", "loan", "calculator"],
+  "description": "Calculate monthly mortgage payments from principal, interest rate, and term.",
+  "triggers": ["mortgage calculator", "loan calculator", "house payment", "mortgage"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function MortgageCalc() {\n  const [principal, setPrincipal] = React.useState(400000);\n  const [rate, setRate] = React.useState(6.5);\n  const [years, setYears] = React.useState(30);\n\n  const r = rate / 100 / 12;\n  const n = years * 12;\n  const monthly = principal && rate ? (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : 0;\n  const totalCost = monthly * n;\n  const totalInterest = totalCost - principal;\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#ffffff', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', color: '#1e293b' }}>\n      <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>Mortgage Calculator</h2>\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>Loan Amount</label>\n      <input type=\"number\" value={principal} onChange={e => setPrincipal(Number(e.target.value))} style={{ marginBottom: 12, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>Interest Rate %</label>\n      <input type=\"number\" step=\"0.1\" value={rate} onChange={e => setRate(Number(e.target.value))} style={{ marginBottom: 12, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <label style={{ fontSize: 13, marginBottom: 4, fontWeight: 500 }}>Years</label>\n      <input type=\"number\" value={years} onChange={e => setYears(Number(e.target.value))} style={{ marginBottom: 16, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <div style={{ background: '#f0fdf4', borderRadius: 8, padding: 12, marginTop: 'auto' }}>\n        <div style={{ fontSize: 13, color: '#166534' }}>Monthly Payment</div>\n        <div style={{ fontSize: 28, fontWeight: 700, color: '#059669' }}>${monthly.toFixed(2)}</div>\n        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Total interest: ${totalInterest.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>\n      </div>\n    </div>\n  );\n}\nrender(<MortgageCalc/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_DEFAULT_RATE", "description": "Default annual interest rate percentage", "default": "6.5" }
+  ]
+}

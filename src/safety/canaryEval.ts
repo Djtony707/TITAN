@@ -215,6 +215,25 @@ async function detectRegressions(current: CanaryRun, history: CanaryHistory): Pr
 
     if (regressions.length > 0) {
         logger.warn(COMPONENT, `Canary regressions detected: ${regressions.map(r => `${r.taskId} ${(r.baseline * 100).toFixed(0)}%→${(r.current * 100).toFixed(0)}%`).join(', ')}`);
+        // v4.13: consult peer advisor before escalating. Most canary drops
+        // are model-swap artefacts that resolve on re-baseline; only bother
+        // Tony when the advisor says 'escalate'.
+        try {
+            const { peerAdvise } = await import('../agent/peerAdvise.js');
+            const advice = await peerAdvise({
+                kind: 'canary_regression',
+                concern: `Canary regression on ${regressions.length} task(s): ${regressions.map(r => `${r.taskId} ${(r.baseline*100).toFixed(0)}%→${(r.current*100).toFixed(0)}%`).join(', ')}`,
+                context: `Current default model: ${current.model}. Overall avg: ${(current.avg*100).toFixed(0)}%. If a model or prompt was changed recently, this is expected and should be dismissed until a new baseline is captured.`,
+                advisor: 'sage',
+                timeoutMs: 20000,
+            });
+            if (advice && advice.verdict !== 'escalate') {
+                logger.info(COMPONENT, `canary regression ${advice.verdict} by sage: ${advice.reason.slice(0, 120)}`);
+                return;
+            }
+        } catch (peerErr) {
+            logger.debug(COMPONENT, `peerAdvise failed: ${(peerErr as Error).message} — escalating`);
+        }
         try {
             const cp = await import('../agent/commandPost.js');
             cp.createApproval({

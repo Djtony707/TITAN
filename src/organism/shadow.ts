@@ -81,8 +81,26 @@ function extractJSONObject(raw: string): Record<string, unknown> | null {
     const candidates: string[] = [trimmed];
     const stripped = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     if (stripped !== trimmed) candidates.push(stripped);
-    const match = trimmed.match(/\{[\s\S]*\}/);
+    const match = trimmed.match(/\{[\s\S]*?\}/);
     if (match) candidates.push(match[0]);
+    // If the non-greedy match didn't capture enough (nested braces),
+    // try a balanced extraction that finds the outermost JSON object.
+    if (!match) {
+        let depth = 0;
+        let start = -1;
+        for (let i = 0; i < trimmed.length; i++) {
+            if (trimmed[i] === '{') {
+                if (depth === 0) start = i;
+                depth++;
+            } else if (trimmed[i] === '}') {
+                depth--;
+                if (depth === 0 && start !== -1) {
+                    candidates.push(trimmed.slice(start, i + 1));
+                    break;
+                }
+            }
+        }
+    }
     for (const candidate of candidates) {
         try {
             const parsed = JSON.parse(candidate);

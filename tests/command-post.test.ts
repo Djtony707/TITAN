@@ -550,7 +550,7 @@ describe('Command Post', () => {
                 description: 'Ensure approval wires through.',
                 rationale: 'Verification.',
             });
-            const result = approveApproval(approval.id, 'board', 'looks good');
+            const result = await approveApproval(approval.id, 'board', 'looks good');
             expect(result).not.toBeNull();
             expect(result!.status).toBe('approved');
             // createGoal is invoked asynchronously via dynamic import.
@@ -573,14 +573,14 @@ describe('Command Post', () => {
             )).toBe(true);
         });
 
-        it('cannot approve a proposal twice', () => {
+        it('cannot approve a proposal twice', async () => {
             const approval = requestGoalProposalApproval('agent-a', {
                 title: 'Once',
                 description: 'desc',
                 rationale: 'why',
             });
-            approveApproval(approval.id, 'board');
-            const second = approveApproval(approval.id, 'board');
+            await approveApproval(approval.id, 'board');
+            const second = await approveApproval(approval.id, 'board');
             expect(second).toBeNull();
         });
 

@@ -16,6 +16,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'fs';
+import { atomicWriteJsonFile } from '../utils/helpers.js';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
@@ -87,7 +88,7 @@ export function saveCheckpoint(state: CheckpointState): void {
             timestamp: new Date().toISOString(),
         };
 
-        writeFileSync(path, JSON.stringify(data, null, 2));
+        atomicWriteJsonFile(path, data);
         logger.debug(COMPONENT, `Saved checkpoint: session=${state.sessionId} round=${state.round} messages=${trimmedMessages.length}`);
     } catch (e) {
         logger.warn(COMPONENT, `Failed to save checkpoint: ${(e as Error).message}`);

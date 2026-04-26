@@ -20,43 +20,6 @@ export interface SkillMeta {
     author?: string;
     source: 'bundled' | 'workspace' | 'marketplace';
     enabled: boolean;
-    /**
-     * Category for the UI's skill browser. Set explicitly when the skill
-     * registers; otherwise inferred from the name by `deriveSkillCategory`
-     * in `getSkills()` so the sidebar isn't a "All / Other" dead end.
-     */
-    category?: string;
-}
-
-/**
- * Heuristic name → category mapping for skills that didn't declare a
- * category explicitly. Keeps the v4.8.4 UI browser grouped into something
- * meaningful instead of a single "Other" bucket.
- */
-function deriveSkillCategory(name: string, description = ''): string {
-    const n = name.toLowerCase();
-    const d = description.toLowerCase();
-    const has = (kws: string[]) => kws.some(k => n.includes(k) || d.includes(k));
-    if (has(['read_file', 'write_file', 'edit_file', 'append_file', 'list_dir', 'filesystem', 'upload'])) return 'Filesystem';
-    if (has(['shell', 'exec', 'cron', 'webhook', 'sandbox', 'sandboxed', 'code_exec'])) return 'Shell & Automation';
-    if (has(['web_search', 'web_fetch', 'web_browse', 'browser', 'smart_form_fill', 'captcha', 'skyvern', 'web_act'])) return 'Web & Browser';
-    if (has(['memory', 'graph', 'knowledge', 'recall', 'remember', 'entities'])) return 'Memory & Knowledge';
-    if (has(['sessions_', 'session_'])) return 'Sessions';
-    if (has(['agent', 'spawn', 'delegate', 'company', 'wakeup', 'debate'])) return 'Agents & Delegation';
-    if (has(['goals', 'goal_', 'subtask', 'autopilot'])) return 'Goals & Autopilot';
-    if (has(['ha_', 'home_assistant', 'home assistant'])) return 'Home Assistant';
-    if (has(['weather'])) return 'Weather';
-    if (has(['fb_', 'facebook', 'x_post', 'twitter', 'messenger', 'discord', 'telegram', 'slack', 'email', 'sms', 'twilio', 'matrix', 'whatsapp', 'signal', 'social'])) return 'Communication';
-    if (has(['voice', 'tts', 'stt', 'livekit', 'orpheus', 'f5-tts'])) return 'Voice & Speech';
-    if (has(['vram', 'gpu', 'nvidia', 'cuopt', 'nemotron', 'model_train', 'self_improve', 'gepa', 'lora'])) return 'GPU & Training';
-    if (has(['github', 'git', 'jira', 'linear', 'hunter', 'stripe', 'gmail', 'google'])) return 'Integrations';
-    if (has(['system_info', 'self_doctor', 'metrics', 'health', 'alert'])) return 'Diagnostics';
-    if (has(['tool_search', 'tool_expand'])) return 'Meta';
-    if (has(['autoresearch', 'research', 'plan_task', 'planner'])) return 'Research & Planning';
-    if (has(['kb_', 'knowledge_base', 'rfc'])) return 'Knowledge Base';
-    if (has(['event_', 'trigger'])) return 'Event Triggers';
-    if (has(['mcp', 'a2a'])) return 'Protocol';
-    return 'Other';
 }
 
 const registeredSkills: Map<string, SkillMeta> = new Map();
@@ -82,10 +45,6 @@ export function getSkills(): SkillMeta[] {
     return Array.from(registeredSkills.values()).map(s => ({
         ...s,
         enabled: !disabled.includes(s.name),
-        // Fill in a category if the skill didn't set one, so the UI
-        // browser can group usefully instead of everything falling into
-        // "Other".
-        category: s.category ?? deriveSkillCategory(s.name, s.description),
     }));
 }
 
@@ -270,6 +229,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerLeadScorerSkill } = await import('./builtin/lead_scorer.js');
     const { registerHunterSkill } = await import('./builtin/hunter.js');
     const { registerCodeExecSkill } = await import('./builtin/code_exec.js');
+    const { registerExecuteCodeSkill } = await import('./builtin/executeCode.js');
     const { registerWeatherSkill } = await import('./builtin/weather.js');
     const { registerGoalsSkill } = await import('./builtin/goals.js');
     const { registerXPosterSkill } = await import('./builtin/x_poster.js');
@@ -318,6 +278,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerAgentMessagingSkill } = await import('./builtin/agent_messaging.js');
     const { registerFacebookSkill } = await import('./builtin/facebook.js');
     const { registerFBAutopilotSkill } = await import('./builtin/fb_autopilot.js');
+    const { registerWidgetGallerySkill } = await import('./builtin/widget_gallery.js');
 
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
@@ -352,6 +313,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['lead_scorer', registerLeadScorerSkill],
         ['hunter', registerHunterSkill],
         ['code_exec', registerCodeExecSkill],
+        ['execute_code', registerExecuteCodeSkill],
         ['weather', registerWeatherSkill],
         ['goals', registerGoalsSkill],
         ['x_poster', registerXPosterSkill],
@@ -400,6 +362,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['agent_messaging', registerAgentMessagingSkill],
         ['facebook', registerFacebookSkill],
         ['fb_autopilot', registerFBAutopilotSkill],
+        ['widget_gallery', registerWidgetGallerySkill],
     ];
 
     for (const [name, fn] of registrations) {
@@ -413,10 +376,14 @@ export async function initBuiltinSkills(): Promise<void> {
     // Register TopFacts context engine plugin (DeerFlow-inspired persistent memory)
     try {
         const { createTopFactsPlugin } = await import('../plugins/topFacts.js');
+        const { createMemoryRetrievalPlugin } = await import('../plugins/memoryRetrieval.js');
         const { registerPlugin } = await import('../plugins/registry.js');
         const topFacts = createTopFactsPlugin();
         registerPlugin(topFacts);
         if (topFacts.bootstrap) await topFacts.bootstrap({});
+        const memoryRetrieval = createMemoryRetrievalPlugin();
+        registerPlugin(memoryRetrieval);
+        if (memoryRetrieval.bootstrap) await memoryRetrieval.bootstrap({});
     } catch (e) { logger.warn(COMPONENT, `Failed to register TopFacts plugin: ${(e as Error).message}`); }
 
     // Register SmartCompress context engine plugin (task-type-aware compression)

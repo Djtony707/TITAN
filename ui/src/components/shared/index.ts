@@ -15,3 +15,4 @@ export { CodeBlock } from './CodeBlock';
 export { StatCard } from './StatCard';
 export { InlineEditableField } from './InlineEditableField';
 export { ConfirmDialog } from './ConfirmDialog';
+export { Tooltip, HelpBadge } from './Tooltip';

@@ -1,0 +1,13 @@
+{
+  "id": "font-pairing",
+  "name": "Font Pairing",
+  "category": "creative",
+  "tags": ["creative", "fonts", "typography", "design"],
+  "description": "Preview curated font pairings with editable sample text.",
+  "triggers": ["font pairing", "typography", "fonts", "font combo"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function FontPairing() {\n  const [text, setText] = React.useState('The quick brown fox jumps over the lazy dog.');\n  const pairs = [\n    { heading: \"'Georgia', serif\", body: \"'system-ui', sans-serif\" },\n    { heading: \"'Helvetica Neue', sans-serif\", body: \"'Georgia', serif\" },\n    { heading: \"'Palatino Linotype', serif\", body: \"'Verdana', sans-serif\" }\n  ];\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#ffffff', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', color: '#1e293b' }}>\n      <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>Font Pairing</h2>\n      <input value={text} onChange={e => setText(e.target.value)} style={{ marginBottom: 12, padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14 }} />\n      <div style={{ flex: 1, overflow: 'auto' }}>\n        {pairs.map((p, i) => (\n          <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>\n            <div style={{ fontFamily: p.heading, fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{text}</div>\n            <div style={{ fontFamily: p.body, fontSize: 14, color: '#475569' }}>{text}</div>\n            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>Heading: {p.heading} · Body: {p.body}</div>\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<FontPairing/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_SAMPLE_TEXT", "description": "Default preview text for font pairings", "default": "The quick brown fox jumps over the lazy dog." }
+  ]
+}

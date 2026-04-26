@@ -1,9 +1,22 @@
+// ---- Tool Invocation ----
+export interface ToolInvocation {
+  toolName: string;
+  status: 'running' | 'success' | 'error';
+  args?: Record<string, unknown>;
+  result?: string;
+  diff?: string;
+  durationMs?: number;
+  startedAt: number;
+  endedAt?: number;
+}
+
 // ---- Chat / Messages ----
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: string;
   toolsUsed?: string[];
+  toolInvocations?: ToolInvocation[];
   model?: string;
   durationMs?: number;
   /** True when this message is a plan waiting for user approve/deny */
@@ -31,6 +44,7 @@ export interface StreamEvent {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
+  toolDiff?: string;
   toolSuccess?: boolean;
   toolDurationMs?: number;
   round?: number;
@@ -138,6 +152,43 @@ export interface AgentInfo {
   model?: string;
   createdAt: string;
   messageCount: number;
+}
+
+// ---- Social ----
+export interface SocialAutopilotState {
+  enabled: boolean;
+  postsToday: number;
+  maxPostsPerDay: number;
+  repliesToday: number;
+  lastPostAt: string | null;
+  nextContentType: string;
+}
+
+export interface SocialQueuedPost {
+  id: string;
+  content: string;
+  status: string;
+  createdAt: string;
+  method?: string;
+}
+
+export interface SocialRecentPost {
+  date: string;
+  type: string;
+  postId?: string;
+  content?: string;
+}
+
+export interface SocialState {
+  autopilot: SocialAutopilotState;
+  queue: SocialQueuedPost[];
+  recentPosts: SocialRecentPost[];
+}
+
+export interface SocialGraphTopic {
+  content: string;
+  date: string;
+  entities: string[];
 }
 
 // ---- Skills ----
@@ -529,6 +580,19 @@ export interface CPApproval {
   decidedAt?: string;
   decisionNote?: string;
   linkedIssueIds: string[];
+  createdAt: string;
+  thread?: CPComment[];
+  snoozedUntil?: string;
+}
+
+export interface AgentMessage {
+  id: string;
+  agentId: string;
+  agentName: string;
+  userId: string;
+  content: string;
+  context?: Record<string, unknown>;
+  read: boolean;
   createdAt: string;
 }
 

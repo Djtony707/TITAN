@@ -148,7 +148,7 @@ export function InlineEditableField({
         <span
             className={clsx(
                 'inline-flex items-center gap-1 cursor-pointer group',
-                'hover:bg-white/[0.04] rounded px-1 -mx-1',
+                'hover:bg-bg-tertiary rounded px-1 -mx-1',
                 className,
             )}
             onClick={() => setEditing(true)}

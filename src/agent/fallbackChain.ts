@@ -34,15 +34,6 @@ export interface FallbackStrategy {
 
 const RATE_LIMIT_PATTERNS = [
     /rate.?limit/i, /too many requests/i, /429/, /quota exceeded/i,
-    /ClaudeCodeQuotaError/i, /claude code throttled/i, /claude code blocked/i,
-];
-
-// Claude Code quota — never retry, never fall through to another model.
-// The watchdog is protecting Tony's interactive MAX plan quota; if it's
-// saying "stop", we stop.
-const CLAUDE_QUOTA_PATTERNS = [
-    /ClaudeCodeQuotaError/i, /claude code throttled/i, /claude code blocked/i,
-    /preserve interactive quota/i,
 ];
 
 const CONTEXT_OVERFLOW_PATTERNS = [
@@ -65,45 +56,32 @@ function matchesAny(err: string, patterns: RegExp[]): boolean {
 
 // ── Model fallback ladders (per kind) ────────────────────────────
 
-// Ladders try Ollama cloud models first (covered by the user's Max
-// plan), then local Ollama, then OpenRouter as a last resort if both
-// Ollama tiers are unreachable. Previously claude-code/sonnet-4.5 was
-// the final tier but it burned significant tokens (500K+ input per
-// stuck spawn) when subtasks cascaded — Claude Code is now reserved
-// exclusively for explicit specialist roles (Sage reviewer, self-mod
-// apply gate) with bounded caps.
-//
-// v4.13: rebalanced to match the new specialist defaults
-// (qwen3-coder-next, kimi-k2.5, gemma4, qwen3.5, glm-5). The ladder
-// entries are DIFFERENT models from the primary so a rotation actually
-// tries a different approach instead of re-hitting the same failure.
-
 const CODE_MODEL_LADDER = [
-    undefined, // primary — Builder's qwen3-coder-next:cloud
-    'ollama/glm-5:cloud',
+    undefined, // primary — Builder's glm-5.1:cloud
+    'ollama/minimax-m2.7:cloud',
     'ollama/gemma4:31b-cloud',
-    'ollama/gemma4:31b', // local fallback if Ollama cloud is down
+    'ollama/gemma4:31b', // local safety net
 ];
 
 const RESEARCH_MODEL_LADDER = [
-    undefined, // primary — Scout's kimi-k2.5:cloud
+    undefined, // primary — Scout's qwen3.5:cloud
     'ollama/glm-5:cloud',
-    'ollama/qwen3.5:cloud',
-    'ollama/gemma4:31b', // local fallback
+    'ollama/gemma4:31b-cloud',
+    'ollama/gemma4:31b', // local safety net
 ];
 
 const WRITE_MODEL_LADDER = [
-    undefined, // primary — Writer's gemma4:31b-cloud
-    'ollama/gemini-3-flash-preview:cloud',
+    undefined, // primary — Writer's minimax-m2.7:cloud
+    'ollama/gemma4:31b-cloud',
     'ollama/glm-5:cloud',
-    'ollama/gemma4:31b', // local fallback
+    'ollama/gemma4:31b', // local safety net
 ];
 
 const ANALYSIS_MODEL_LADDER = [
-    undefined, // primary — Analyst's qwen3.5:397b-cloud
-    'ollama/glm-5:cloud',
+    undefined, // primary — Analyst's glm-5:cloud
     'ollama/nemotron-3-super:cloud',
-    'ollama/gemma4:31b', // local fallback
+    'ollama/gemma4:31b-cloud',
+    'ollama/gemma4:31b', // local safety net
 ];
 
 function modelLadderFor(kind: SubtaskKind): Array<string | undefined> {
@@ -138,14 +116,6 @@ export function nextFallback(
     maxAttempts = 5,
 ): FallbackStrategy | null {
     if (attempt >= maxAttempts) return null;
-
-    // Claude Code quota hit on the prior attempt → stop entirely. Don't
-    // step down the ladder, don't retry. The watchdog is specifically
-    // asking us to back off, and there's no cheaper alternative that
-    // would do better (all local models have already been tried).
-    if (lastError && matchesAny(lastError, CLAUDE_QUOTA_PATTERNS)) {
-        return null;
-    }
 
     const route = routeForKind(kind);
     const specialist = pickAttempt(route, attempt);

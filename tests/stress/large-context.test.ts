@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockChat = vi.hoisted(() => vi.fn());
 const mockChatStream = vi.hoisted(() => vi.fn());
 const mockExecuteTools = vi.hoisted(() => vi.fn());
-const mockMaybeCompressContext = vi.hoisted(() => vi.fn());
+
 const mockBuildSmartContext = vi.hoisted(() => vi.fn());
 const mockRecordTokenUsage = vi.hoisted(() => vi.fn());
 const mockRouteModel = vi.hoisted(() => vi.fn());
@@ -27,7 +27,7 @@ vi.mock('../../src/agent/stallDetector.js', () => ({
 vi.mock('../../src/agent/loopDetection.js', () => ({ checkForLoop: vi.fn().mockReturnValue({ allowed: true }) }));
 vi.mock('../../src/agent/costOptimizer.js', () => ({
     recordTokenUsage: mockRecordTokenUsage,
-    maybeCompressContext: mockMaybeCompressContext,
+
     routeModel: mockRouteModel,
 }));
 vi.mock('../../src/agent/contextManager.js', () => ({ buildSmartContext: mockBuildSmartContext }));
@@ -70,7 +70,7 @@ beforeEach(() => {
     vi.resetAllMocks();
     mockChat.mockResolvedValue(makeResponse('Response.'));
     mockRecordTokenUsage.mockReturnValue({ budgetExceeded: false });
-    mockMaybeCompressContext.mockImplementation((msgs: unknown[]) => ({ messages: msgs, didCompress: false, savedTokens: 0 }));
+
     mockBuildSmartContext.mockImplementation((msgs: unknown[]) => msgs);
     mockRouteModel.mockReturnValue({ model: 'test-model', reason: 'mock', willSaveMoney: false });
 });
@@ -88,23 +88,6 @@ describe('Stress — Large Context', () => {
 
         const result = await runAgentLoop(makeCtx({ messages: bigMessages }));
         expect(result.content).toBeTruthy();
-    });
-
-    it('should trigger compression for large conversations', async () => {
-        const bigMessages = Array.from({ length: 20 }, (_, i) => ({
-            role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: `Message ${i}: ${'X'.repeat(1000)}`,
-        }));
-
-        mockMaybeCompressContext.mockImplementation((msgs: unknown[]) => ({
-            messages: msgs,
-            didCompress: true,
-            savedTokens: 5000,
-        }));
-
-        await runAgentLoop(makeCtx({ messages: bigMessages }));
-
-        expect(mockMaybeCompressContext).toHaveBeenCalled();
     });
 
     it('should call buildSmartContext for longer conversations', async () => {

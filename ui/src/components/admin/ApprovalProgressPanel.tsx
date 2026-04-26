@@ -291,7 +291,7 @@ function GoalProgress({ goal }: { goal: Goal }) {
                             width: `${pct}%`, height: '100%',
                             background: failedCount > 0
                                 ? 'linear-gradient(to right, #34d399, #fbbf24)'
-                                : '#34d399',
+                                : 'var(--color-emerald)',
                             transition: 'width 0.5s',
                         }} />
                     </div>
@@ -378,7 +378,7 @@ function SubtaskRow({ goalId, subtask }: { goalId: string; subtask: Subtask }) {
                         title="Mark done"
                         style={{
                             background: 'transparent', border: 0, padding: 4, borderRadius: 4,
-                            color: '#34d399', cursor: 'pointer', opacity: busy ? 0.4 : 0.8,
+                            color: 'var(--color-emerald)', cursor: 'pointer', opacity: busy ? 0.4 : 0.8,
                         }}
                     ><CheckCircle2 size={12} /></button>
                 )}
@@ -431,11 +431,11 @@ function statusColor(status: string): string {
         case 'done':
         case 'completed':
         case 'approved':
-        case 'active': return '#34d399';
-        case 'running': return '#22d3ee';
+        case 'active': return 'var(--color-emerald)';
+        case 'running': return 'var(--color-cyan)';
         case 'failed':
-        case 'rejected': return '#ef4444';
-        case 'skipped': return '#a1a1aa';
+        case 'rejected': return 'var(--color-error)';
+        case 'skipped': return 'var(--color-text-secondary)';
         case 'pending':
         case 'paused': return '#fbbf24';
         default: return '#9ca3af';

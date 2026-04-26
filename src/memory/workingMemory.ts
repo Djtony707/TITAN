@@ -206,6 +206,9 @@ async function archiveToEpisodic(r: WorkingMemoryRecord, finalStatus: 'completed
                 goalId: r.origin?.goalId,
                 sessionId: r.sessionId,
             },
+            provenanceSource: 'agent',
+            provenanceConfidence: 0.85,
+            provenanceWrittenBy: r.sessionId,
         });
     } catch (err) {
         logger.debug(COMPONENT, `archiveToEpisodic skipped: ${(err as Error).message}`);

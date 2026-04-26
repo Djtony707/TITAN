@@ -51,14 +51,14 @@ interface ReviewQueue {
 
 // ─── Review Queue ──────────────────────────────────────────────
 
-function loadQueue(): ReviewQueue {
+export function loadQueue(): ReviewQueue {
     if (!existsSync(REVIEW_QUEUE_PATH)) return { posts: [] };
     try {
         return JSON.parse(readFileSync(REVIEW_QUEUE_PATH, 'utf-8')) as ReviewQueue;
     } catch { return { posts: [] }; }
 }
 
-function saveQueue(queue: ReviewQueue): void {
+export function saveQueue(queue: ReviewQueue): void {
     try {
         mkdirSync(dirname(REVIEW_QUEUE_PATH), { recursive: true });
         writeFileSync(REVIEW_QUEUE_PATH, JSON.stringify(queue, null, 2), 'utf-8');
@@ -241,6 +241,15 @@ export async function postToPage(
         // Keep queue bounded
         if (queue.posts.length > 200) queue.posts = queue.posts.slice(-100);
         saveQueue(queue);
+
+        // Store in Graphiti episodic memory for contextual follow-ups
+        try {
+            const { addEpisode } = await import('../../memory/graph.js');
+            await addEpisode(message, 'facebook_post');
+            logger.debug(COMPONENT, `Post stored in Graphiti memory`);
+        } catch (e) {
+            logger.debug(COMPONENT, `Graphiti store failed (non-critical): ${(e as Error).message}`);
+        }
 
         logger.info(COMPONENT, `Posted to Facebook (${opts?.source || 'manual'}): ${fbPostId}`);
         return { success: true, postId: fbPostId };

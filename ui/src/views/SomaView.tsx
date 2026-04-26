@@ -12,6 +12,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '@/api/client';
+import { HelpBadge } from '@/components/shared';
 import '@/styles/soma.css';
 
 interface DriveLevel {
@@ -79,6 +80,7 @@ const DRIVE_COLORS: Record<string, string> = {
     curiosity: 'var(--soma-curiosity)',
     safety: 'var(--soma-safety)',
     social: 'var(--soma-social)',
+    rest: 'var(--soma-rest)',
 };
 
 export default function SomaView() {
@@ -88,6 +90,12 @@ export default function SomaView() {
     const [selectedDriveId, setSelectedDriveId] = useState<string | null>(null);
     const [setpointOverride, setSetpointOverride] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
+    const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+    }, []);
 
     const fetchAll = useCallback(async () => {
         try {
@@ -116,7 +124,12 @@ export default function SomaView() {
     useEffect(() => {
         fetchAll();
         const interval = setInterval(fetchAll, 15_000);
-        return () => clearInterval(interval);
+        const onSomaChange = () => fetchAll();
+        window.addEventListener('titan:soma:changed', onSomaChange);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('titan:soma:changed', onSomaChange);
+        };
     }, [fetchAll]);
 
     const approve = async (id: string) => {
@@ -128,7 +141,7 @@ export default function SomaView() {
             });
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
-        } catch (e) { alert(`Approve failed: ${(e as Error).message}`); }
+        } catch (e) { showToast(`Approve failed: ${(e as Error).message}`); }
     };
 
     const reject = async (id: string) => {
@@ -140,7 +153,7 @@ export default function SomaView() {
             });
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
-        } catch (e) { alert(`Reject failed: ${(e as Error).message}`); }
+        } catch (e) { showToast(`Reject failed: ${(e as Error).message}`); }
     };
 
     const saveSetpoint = async () => {
@@ -155,7 +168,7 @@ export default function SomaView() {
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             setSetpointOverride(null);
             fetchAll();
-        } catch (e) { alert(`Setpoint update failed: ${(e as Error).message}`); }
+        } catch (e) { showToast(`Setpoint update failed: ${(e as Error).message}`); }
         setSaving(false);
     };
 
@@ -168,7 +181,7 @@ export default function SomaView() {
             });
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
-        } catch (e) { alert(`Weight update failed: ${(e as Error).message}`); }
+        } catch (e) { showToast(`Weight update failed: ${(e as Error).message}`); }
     };
 
     const toggleDriveDisabled = async (driveId: string, disabled: boolean) => {
@@ -180,7 +193,7 @@ export default function SomaView() {
             });
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             fetchAll();
-        } catch (e) { alert(`Drive toggle failed: ${(e as Error).message}`); }
+        } catch (e) { showToast(`Drive toggle failed: ${(e as Error).message}`); }
     };
 
     if (!state) {
@@ -236,7 +249,13 @@ export default function SomaView() {
             <div className="soma-page__content">
                 <div className="soma-page__header">
                     <div>
-                        <div className="soma-page__title">Soma</div>
+                        <div className="soma-page__title flex items-center gap-2">
+                            Soma
+                            <HelpBadge
+                                title="TITAN-Soma"
+                                description="TITAN's homeostatic core. Six internal drives (purpose, curiosity, hunger, safety, social, rest) drift over time. When a drive crosses its threshold, Soma proposes work to you. Every proposal still requires your approval."
+                            />
+                        </div>
                         <div className="soma-page__subtitle">
                             {state.hormonal?.elevated.length
                                 ? `Body state: ${state.hormonal.elevated.map(e => `${e.label.toLowerCase()} ${Math.round(e.satisfaction * 100)}%`).join(' · ')}`
@@ -248,7 +267,22 @@ export default function SomaView() {
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 32 }}>
+                {toast && (
+                    <div style={{
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        marginBottom: 12,
+                        background: toast.type === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)',
+                        border: `1px solid ${toast.type === 'error' ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.25)'}`,
+                        color: toast.type === 'error' ? '#fca5a5' : '#86efac',
+                        transition: 'opacity 0.3s ease',
+                    }}>
+                        {toast.message}
+                    </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 lg:gap-8">
                     <div>
                         <div className="soma-body">
                             <div className="soma-silhouette" />
@@ -464,7 +498,7 @@ export default function SomaView() {
                                 fontSize: 11,
                                 border: '1px solid rgba(239, 68, 68, 0.2)',
                                 background: 'rgba(239, 68, 68, 0.08)',
-                                color: '#ef4444',
+                                color: 'var(--color-error)',
                                 borderRadius: 6,
                                 cursor: 'pointer',
                             }}

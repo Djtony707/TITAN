@@ -1,0 +1,11 @@
+{
+  "id": "speedtest",
+  "name": "Speed Test",
+  "category": "homelab",
+  "tags": ["network", "speed", "test"],
+  "description": "A simple internet speed test UI with a mock run button.",
+  "triggers": ["speed test", "internet speed", "bandwidth", "network test"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function SpeedTestWidget() {\n  const [running, setRunning] = React.useState(false);\n  const [done, setDone] = React.useState(false);\n  const [speed, setSpeed] = React.useState(null);\n\n  function runTest() {\n    setRunning(true);\n    setDone(false);\n    setSpeed(null);\n    setTimeout(() => {\n      setRunning(false);\n      setDone(true);\n      setSpeed((Math.random() * 900 + 50).toFixed(1));\n    }, 2500);\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>\n      <h3 style={{ margin: 0, marginBottom: 12 }}>Internet Speed Test</h3>\n      {done && speed && (\n        <div style={{ textAlign: 'center', marginBottom: 16 }}>\n          <div style={{ fontSize: 32, fontWeight: 700, color: '#22c55e' }}>{speed} Mbps</div>\n          <div style={{ fontSize: 12, color: '#94a3b8' }}>Download Speed</div>\n        </div>\n      )}\n      <button\n        onClick={runTest}\n        disabled={running}\n        style={{\n          padding: '10px 20px',\n          borderRadius: 8,\n          border: 'none',\n          background: running ? '#334155' : '#3b82f6',\n          color: '#fff',\n          fontWeight: 600,\n          cursor: running ? 'not-allowed' : 'pointer',\n          fontFamily: 'system-ui, sans-serif'\n        }}\n      >\n        {running ? 'Testing...' : done ? 'Run Again' : 'Start Test'}\n      </button>\n      {running && (\n        <div style={{ marginTop: 16, fontSize: 12, color: '#94a3b8' }}>Measuring bandwidth...</div>\n      )}\n    </div>\n  );\n}\nrender(<SpeedTestWidget/>);",
+  "placeholders": []
+}

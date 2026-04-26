@@ -28,10 +28,10 @@ interface HistoryResponse {
 }
 
 const DRIVE_COLORS: Record<string, string> = {
-    purpose: '#8b5cf6',   // violet
-    hunger: '#f59e0b',    // amber
+    purpose: 'var(--color-purple)',   // violet
+    hunger: 'var(--color-warning)',    // amber
     curiosity: '#06b6d4',  // cyan
-    safety: '#ef4444',    // red
+    safety: 'var(--color-error)',    // red
     social: '#10b981',    // emerald
 };
 const DRIVES = ['purpose', 'hunger', 'curiosity', 'safety', 'social'] as const;

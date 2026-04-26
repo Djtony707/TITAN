@@ -112,8 +112,8 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
             // Hardware specs become person properties so we can segment by GPU, OS, etc.
             const personProps: Record<string, unknown> = {};
             const allowlist = [
-                'os', 'osRelease', 'arch', 'cpuModel', 'cpuCores',
-                'ramTotalMB', 'gpuVendor', 'gpuName', 'gpuVramMB',
+                'os', 'osRelease', 'arch', 'cpuCores',
+                'ramTotalGB', 'gpuVendor', 'gpuVramGB',
                 'installMethod', 'diskTotalGB', 'version', 'nodeVersion',
             ];
             for (const key of allowlist) {
@@ -130,7 +130,6 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
             const props: Record<string, unknown> = {
                 uptime_seconds: payload.uptimeSeconds,
                 active_sessions: payload.activeSessions,
-                memory_mb: payload.memoryMB,
                 version: payload.version,
             };
             if (payload.features) {

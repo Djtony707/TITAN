@@ -22,16 +22,46 @@ import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, checkToolCal
 import { loadConfig } from '../config/config.js';
 import { checkForLoop } from './loopDetection.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
-import { updateIssue, startRun, endRun, addIssueComment } from './commandPost.js';
+import { updateIssue, startRun, endRun, addIssueComment, recordSpend } from './commandPost.js';
 import { recordTokenUsage, routeModel, type TurnContext } from './costOptimizer.js';
-import { maybeCompressContext } from './costOptimizer.js';
+import { calculateActualCost } from './costEstimator.js';
+import { getSessionGoal } from './autonomyContext.js';
+import { scanForSecrets } from '../security/secretGuard.js';
+import { fullExfilScan } from '../security/exfilScan.js';
+import { runShellHooks } from '../hooks/shellHooks.js';
+import { initOtel, newTraceContext, timedSpan, fireSpan } from '../diagnostics/otel.js';
+
 import type { TitanConfig } from '../config/schema.js';
+
+/** Timeout wrapper for LLM calls. Prevents indefinite hangs on stuck providers. */
+async function chatWithTimeout<T>(fn: () => Promise<T>, label: string, timeoutMs = 300_000): Promise<T> {
+    const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+    );
+    return Promise.race([fn(), timeout]);
+}
 import { buildSmartContext } from './contextManager.js';
+import { isKilled } from '../safety/killSwitch.js';
+import { estimateTokens } from '../utils/tokens.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress, setProgressSession } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
 import { saveCheckpoint } from './checkpoint.js';
 import { updateSoulState, emitHeartbeat, getInnerMonologue, recordAttempt } from './soul.js';
+
+// v5.0: Global steer queue — allows external API to nudge active sessions
+const globalSteerQueues = new Map<string, string[]>();
+
+/** Push a steer message to an active (or upcoming) session */
+export function pushSteer(sessionId: string, message: string): boolean {
+    const queue = globalSteerQueues.get(sessionId);
+    if (queue) {
+        queue.push(message);
+    } else {
+        globalSteerQueues.set(sessionId, [message]);
+    }
+    return true;
+}
 import { recordToolUsage } from './userProfile.js';
 import { runSubAgent, type Domain } from './swarm.js';
 import { compressToolResult, recordStep, getProgressSummary } from './trajectoryCompressor.js';
@@ -320,7 +350,7 @@ export type AgentPhase = 'think' | 'act' | 'respond' | 'done';
 export interface StreamCallbacks {
     onToken?: (token: string) => void;
     onToolCall?: (name: string, args: Record<string, unknown>) => void;
-    onToolResult?: (name: string, result: string, durationMs: number, success: boolean) => void;
+    onToolResult?: (name: string, result: string, durationMs: number, success: boolean, diff?: string) => void;
     onThinking?: () => void;
     onRound?: (round: number, maxRounds: number) => void;
 }
@@ -361,11 +391,10 @@ export interface LoopContext {
      *  persisted history. Use for RAG injection, summarization, dynamic token budgeting.
      *  Receives a COPY of messages; return modified copy for the LLM call. */
     beforeModelCall?: (messages: ChatMessage[], round: number) => ChatMessage[];
-    /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions.
-     *  For claude-code/* models, user-initiated chat paths set
-     *  `{ allowClaudeCode: true }` here so ClaudeCodeProvider will accept
-     *  the call. All autonomous paths leave this unset. */
+    /** Provider-specific opt-ins forwarded to ChatOptions.providerOptions. */
     providerOptions?: Record<string, unknown>;
+    /** v5.0: Steer queue — mid-run nudges injected after ACT phase */
+    steerQueue?: string[];
 }
 
 /** Everything processMessage needs back from the loop */
@@ -374,6 +403,8 @@ export interface LoopResult {
     toolsUsed: string[];
     orderedToolSequence: string[];
     modelUsed: string;
+    /** v5.0: OTEL trace context for observability */
+    traceContext?: { traceId: string; spanId: string };
     promptTokens: number;
     completionTokens: number;
     budgetExhausted: boolean;
@@ -719,6 +750,23 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // Token budget for context compression
     const tokenBudget = ctx.voiceFastPath ? 2000 : (ctx.config.agent as Record<string, unknown>).tokenBudget as number || 12000;
 
+    // v5.0: Register this session for steering
+    globalSteerQueues.set(ctx.sessionId, ctx.steerQueue ?? []);
+
+    // v5.0: Initialize OTEL trace context for this run
+    const traceCtx = newTraceContext();
+    initOtel();
+
+    // v5.0: Inactivity timeout tracking. Schema doesn't strictly type the
+    // new feature flags yet — read defensively so a missing field doesn't
+    // crash the loop, just falls through to the documented default.
+    let lastActivityAt = Date.now();
+    const agentCfg = ctx.config.agent as Record<string, unknown> | undefined;
+    const inactivityTimeout = (agentCfg?.inactivityTimeoutMs as number | undefined) ?? 300_000;
+    const absoluteTimeout = (agentCfg?.absoluteTimeoutMs as number | undefined) ?? 600_000;
+    const loopStartTime = Date.now();
+    function recordActivity() { lastActivityAt = Date.now(); }
+
     // ── Set session context for spawn_agent async delegation ─────
     setCurrentSessionId(ctx.sessionId);
 
@@ -748,7 +796,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
     while (phase !== 'done' && round < ctx.effectiveMaxRounds) {
         // ── Abort check ──────────────────���───────────────────────
-        if (ctx.signal?.aborted) {
+        if (ctx.signal?.aborted || isKilled()) {
             logger.info(COMPONENT, `Session aborted by user at round ${round + 1} (${phase} phase)`);
             result.content = '[Stopped by user]';
             break;
@@ -759,6 +807,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         ctx.streamCallbacks?.onRound?.(round + 1, ctx.effectiveMaxRounds);
 
         logger.info(COMPONENT, `Round ${round + 1}/${ctx.effectiveMaxRounds} — phase: ${phase}, model: ${activeModel}, tools: ${phase === 'respond' ? 0 : ctx.activeTools.length}`);
+
+        // v5.0: Shell hook — on_round_start
+        if (ctx.config.hooks?.shell?.enabled) {
+            await runShellHooks('on_round_start', {
+                TITAN_SESSION_ID: ctx.sessionId,
+                TITAN_AGENT_ID: ctx.agentId || 'default',
+                TITAN_ROUND: String(round),
+            });
+        }
 
         switch (phase) {
 
@@ -813,7 +870,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (round >= ctx.effectiveMaxRounds - 2 && round >= 3) {
                 ctx.messages.push({
                     role: 'user',
-                    content: `IMPORTANT: You are approaching the tool execution limit (round ${round + 1}/${ctx.effectiveMaxRounds}). Wrap up your current work: summarize progress so far and provide a clear response. If the task is incomplete, describe what remains.`,
+                    content: `We're running short on time for this task. Please summarize what you've accomplished so far and give the user a clear answer.`,
                 });
                 phase = 'respond';
                 continue;
@@ -831,18 +888,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 // (history destroyed). Either way, the model lost data and made bad
                 // decisions (e.g., writing empty files).
                 //
-                // Fix: pass ALL messages through. trimPairAware + pruneToolOutputs in the
-                // compressor already handle context size, and they do it atomically
-                // (keeping pairs together) so no orphans are created.
-                const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(ctx.messages);
-                if (didCompress) {
-                    logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
-                    ctx.messages.length = 0;
-                    ctx.messages.push(...compressedMessages);
-                }
-                smartMessages = (compressedMessages as ChatMessage[]).length <= 4
-                    ? compressedMessages as ChatMessage[]
-                    : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+                // Use 5-phase smart context builder only — avoids double-compression
+                // that destroyed history when maybeCompressContext + buildSmartContext
+                // both ran sequentially (the former mutated ctx.messages in-place).
+                smartMessages = buildSmartContext(ctx.messages as ChatMessage[], tokenBudget);
             }
 
             // ── Response cache check ─────────────────────────────
@@ -983,6 +1032,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             let response: ChatResponse;
+            const thinkStart = Date.now();
             // Hunt Finding #38b (2026-04-15): for single-round chat pipelines,
             // the model's round-0 think output IS the user-facing answer (no
             // respond phase ever runs). With live SSE streaming, the raw
@@ -1002,6 +1052,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (ctx.streamCallbacks?.onToken && !isChatRound0Think) {
                 let streamContent = '';
                 const streamToolCalls: ToolCall[] = [];
+                const smartMessagesJson = JSON.stringify(smartMessages); // cache for token estimation
                 for await (const chunk of chatStream(chatOptions)) {
                     if (chunk.type === 'text' && chunk.content) {
                         streamContent += chunk.content;
@@ -1014,9 +1065,8 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     }
                 }
                 // Estimate token counts for streaming (servers don't report usage in stream mode)
-                // ~4 chars per token is a reasonable approximation for English text
-                const estCompletionTokens = Math.ceil((streamContent.length + JSON.stringify(streamToolCalls).length) / 4);
-                const estPromptTokens = Math.ceil(JSON.stringify(smartMessages).length / 4);
+                const estCompletionTokens = estimateTokens(streamContent + JSON.stringify(streamToolCalls));
+                const estPromptTokens = estimateTokens(smartMessagesJson);
                 response = {
                     id: `stream-${Date.now()}`,
                     content: streamContent,
@@ -1025,13 +1075,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     finishReason: streamToolCalls.length > 0 ? 'tool_calls' : 'stop',
                     model: activeModel,
                 };
+                // v5.0: OTEL span for think-phase LLM call (streaming)
+                fireSpan(traceCtx, 'model_call:think', Date.now() - thinkStart, { round: String(round), model: activeModel, phase: 'think', streamed: true });
             } else {
                 // Non-streaming path. For chat-pipeline round-0 think we
                 // deliberately come here so the sanitizer gets to see the
                 // full response before the client does. We also strip any
                 // leading narrator preamble that the model emitted despite
                 // our respond directive (Hunt Finding #38b).
-                response = await chat(chatOptions);
+                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', 300_000);
                 if (isChatRound0Think && response.content) {
                     const stripped = stripNarratorPreamble(response.content);
                     if (stripped !== response.content) {
@@ -1039,6 +1091,25 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         response.content = stripped;
                     }
                 }
+
+                // Secret exfiltration guard — scan LLM response before it reaches user
+                if (response.content) {
+                    const { redacted, clean } = scanForSecrets(response.content);
+                    if (!clean) {
+                        logger.warn(COMPONENT, 'Secrets detected in LLM response — redacted before delivery');
+                        response.content = redacted;
+                    }
+                    // v5.0: Full exfiltration scan (layer 2-5) when configured
+                    if (ctx.config.security?.secretScan?.level === 'full') {
+                        const scan = fullExfilScan(response.content, 'llm_response');
+                        if (scan.blocked) {
+                            logger.warn(COMPONENT, `Exfiltration scan blocked LLM response: ${scan.findings.map(f => f.type).join(', ')}`);
+                        }
+                        response.content = scan.redacted;
+                    }
+                }
+                // v5.0: OTEL span for think-phase LLM call
+                fireSpan(traceCtx, 'model_call:think', Date.now() - thinkStart, { round: String(round), model: activeModel, phase: 'think' });
             }
 
             result.modelUsed = response.model;
@@ -1049,6 +1120,12 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── Cost tracking (F5: two-tier budget enforcement) ──
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, promptTokens, completionTokens);
+
+            // Wire LLM spend into Command Post budget policies
+            const callCost = calculateActualCost(activeModel, { prompt: promptTokens, completion: completionTokens });
+            const sessionGoal = getSessionGoal(ctx.sessionId);
+            recordSpend(ctx.agentId || 'default', sessionGoal?.goalId, callCost);
+
             if (costCheck.budgetExceeded) {
                 result.content = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control. You can increase the limit in settings or wait until tomorrow.';
                 phase = 'done';
@@ -1065,6 +1142,17 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             heartbeat(ctx.sessionId);
+            recordActivity();
+
+            // v5.0: Secret exfiltration v2 — full scan on LLM responses when enabled
+            const secretScanLevel = ctx.config.security?.secretScan?.level ?? 'tool_only';
+            if (secretScanLevel === 'full' && response.content) {
+                const scan = fullExfilScan(response.content, 'llm_response');
+                if (scan.blocked) {
+                    logger.warn(COMPONENT, `Full exfil scan found issues in LLM response: ${scan.findings.map(f => f.type).join(', ')}`);
+                    response.content = scan.redacted;
+                }
+            }
 
             // ── No tool calls → check rescue paths or accept response ──
             if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -1124,12 +1212,12 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                             modelSwitchCount++;
                             if (modelSwitchCount >= MAX_MODEL_SWITCHES) selfHealExhausted = true;
                             resetToolCallFailures(ctx.sessionId);
-                            ctx.messages.push({ role: 'user', content: `[System: Model switched to ${fallback} for tool calling capability. Use your tools to complete the task.]` });
+                            ctx.messages.push({ role: 'user', content: `Note: I'm now using a different assistant engine. Please continue with your task.` });
                             // Stay in think phase — retry with new model
                             continue;
                         } else if (modelSwitchCount > 0) {
                             selfHealExhausted = true;
-                            result.content = 'I tried switching models but tool calling is still failing. Please check my configuration with the self_doctor tool or switch me to a model that supports tool calling.';
+                            result.content = "I'm having trouble getting that done right now. Running the built-in health check (titan doctor) or picking a different AI model in Settings usually fixes this.";
                             phase = 'done';
                             break;
                         }
@@ -1303,6 +1391,27 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // No stall detected — bail out after 3 [NoTools] rounds in a row
                     // to prevent the model spinning forever returning text instead of tools
                     if (noToolsRetryCount >= 3) {
+                        // Gap 2 (plan-this-logical-ocean): if this run DID execute
+                        // tools earlier and is now stuck in no-tools land, check
+                        // the bounded continuation counter before bailing. This
+                        // is the "empty_after_tools" signal — the model forgot
+                        // what it was doing mid-task. One continuation nudge is
+                        // cheap; the counter persists across process restarts so
+                        // we can't loop forever.
+                        const didUseTools = result.toolsUsed.length > 0;
+                        if (didUseTools) {
+                            const { shouldContinue } = await import('./runContinuations.js');
+                            if (shouldContinue(ctx.sessionId, 'empty_after_tools')) {
+                                logger.warn(COMPONENT, `[Continuation] empty_after_tools — nudging once more (session ${ctx.sessionId})`);
+                                ctx.messages.push({
+                                    role: 'user',
+                                    content: "You started on a task but didn't finish. Please continue with the next step, or if you're done, give the user a clear answer now.",
+                                });
+                                noToolsRetryCount = 0; // fresh window after the continuation
+                                round++;
+                                continue;
+                            }
+                        }
                         logger.warn(COMPONENT, `[NoTools] Bailing after ${noToolsRetryCount} consecutive no-tool rounds — accepting text response`);
                         result.content = stripToolJson(response.content || pendingAssistantContent || 'I was unable to make progress using tools.');
                         phase = 'done';
@@ -1432,7 +1541,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         }
                     }
                 } else {
+                    const toolExecStart = Date.now();
                     toolResults = await executeTools(pendingToolCalls, ctx.channel);
+                    fireSpan(traceCtx, 'tool_execution', Date.now() - toolExecStart, { round: String(round), tools: pendingToolCalls.map(t => t.function.name).join(',') });
                 }
             } catch (err) {
                 logger.error(COMPONENT, `Tool execution error: ${(err as Error).message}`);
@@ -1446,7 +1557,32 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 ctx.streamCallbacks?.onToolResult?.(
                     tr.name, tr.content.slice(0, 500), tr.durationMs || 0,
                     !tr.content.toLowerCase().includes('error'),
+                    tr.diff,
                 );
+            }
+
+            // v4.13 ancestor-extraction (Hermes subdirectory_hints): for each
+            // tool call that touched a new directory, append any AGENTS.md /
+            // CLAUDE.md / .cursorrules from that directory + its ancestors to
+            // the tool RESULT (not the system prompt — we keep prompt cache
+            // stable). Guarded by try/catch so hint discovery can never break
+            // tool execution.
+            try {
+                const { getSubdirTracker } = await import('./subdirHints.js');
+                const tracker = getSubdirTracker(ctx.sessionId);
+                for (let i = 0; i < toolResults.length; i++) {
+                    const tr = toolResults[i];
+                    const tc = pendingToolCalls[i];
+                    if (!tc) continue;
+                    let args: Record<string, unknown> = {};
+                    try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* non-fatal */ }
+                    const hints = tracker.checkToolCall(tr.name, args);
+                    if (hints) {
+                        tr.content = `${tr.content}\n\n${hints}`;
+                    }
+                }
+            } catch (err) {
+                logger.debug(COMPONENT, `[SubdirHints] skipped: ${(err as Error).message}`);
             }
 
             // Sub-agent shortcut: force immediate summary
@@ -1467,6 +1603,26 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 phase = 'respond';
                 round++;
                 break;
+            }
+
+            recordActivity();
+
+            // v5.0: Process steer queue — inject mid-run nudges
+            const steerQueue = globalSteerQueues.get(ctx.sessionId) ?? ctx.steerQueue ?? [];
+            if (steerQueue.length > 0) {
+                const steerPrompts = steerQueue.splice(0, steerQueue.length);
+                for (const steer of steerPrompts) {
+                    // ChatMessage doesn't carry metadata in the public type, but the
+                    // Steer API needs to mark these so logging / replay can tell them
+                    // apart from genuine user turns. Cast through Record so the message
+                    // still serializes cleanly to providers that ignore extra keys.
+                    ctx.messages.push({
+                        role: 'user',
+                        content: `[Steer] ${steer}`,
+                        metadata: { steer: true },
+                    } as unknown as (typeof ctx.messages)[number]);
+                    logger.info(COMPONENT, `Steer injected: ${steer.slice(0, 100)}`);
+                }
             }
 
             // Record tool results and check for loops
@@ -1527,7 +1683,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         tr.content = `[AutoVerify FAILED] ${vr.issue}. Original tool output: ${tr.content}`;
                         ctx.messages.push({
                             role: 'user',
-                            content: `[AutoVerify] ${vr.issue}${vr.suggestion ? `\n\nSuggestion: ${vr.suggestion}` : ''}\n\nCall the tool again with the corrected arguments. Do NOT proceed until the verify passes.`,
+                            content: `That didn't work as expected: ${vr.issue}${vr.suggestion ? `\n\nTry this: ${vr.suggestion}` : ''}\n\nPlease try again with the corrected approach.`,
                         });
                     }
                 }
@@ -1543,10 +1699,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         shellForFilesCount++;
                         const verb = cmd.split(/\s+/)[0];
                         const nudgeMsg = shellForFilesCount >= 3
-                            ? `[TOOL GUIDANCE — IMPORTANT] You have used shell for file operations ${shellForFilesCount} times. TITAN has dedicated tools that are MORE RELIABLE:\n` +
-                              `- cat/head/tail → use read_file\n- sed/awk → use edit_file\n- grep → use read_file\n- curl → use web_fetch\n` +
-                              `Switch to these tools NOW.`
-                            : `[TOOL GUIDANCE] For file operations, use dedicated read_file/edit_file tools instead of shell ${verb}. They are more reliable.`;
+                            ? `For file operations, please use the dedicated read_file and edit_file tools instead of shell commands. They work more reliably for editing code and text.\n` +
+                              `Examples: use read_file instead of cat/head/tail/grep, and edit_file instead of sed/awk.`
+                            : `For file operations, please use read_file or edit_file instead of shell ${verb}. They are more reliable.`;
                         ctx.messages.push({ role: 'user', content: nudgeMsg });
                         logger.info(COMPONENT, `[ShellNudge] Shell-for-files detected (count=${shellForFilesCount}): ${cmd.slice(0, 60)}`);
                     }
@@ -1574,7 +1729,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // The breaker reason stays in logs but never in the reply.
                     ctx.messages.push({
                         role: 'user',
-                        content: '[SYSTEM] You were stuck in a tool loop and it has been broken. Now produce a DIRECT final answer to the user based on the tool results you already have above. Do NOT call any more tools. Do NOT mention the loop, the breaker, or any internal process. Just answer the user\'s original question using the data you collected.',
+                        content: "Let's wrap this up. Based on what you've already found, give the user a direct answer now. Don't call any more tools — just answer their question using the information you've gathered.",
                     });
                     phase = 'respond';
                     loopBroken = true;
@@ -1703,11 +1858,14 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     tr.name === 'write_file' || tr.name === 'edit_file' || tr.name === 'append_file'
                 );
                 if (allReadOnly && !hasWrites && round >= 2) {
-                    logger.info(COMPONENT, `[ReadOnlyNudge] Round ${round}: all tools were read-only — nudging to write`);
+                    logger.info(COMPONENT, `[ReadOnlyNudge] Round ${round}: all tools were read-only — nudging to write (will force tool_choice on next think)`);
                     ctx.messages.push({
                         role: 'user',
                         content: 'You just read files and ran diagnostic commands. Now ACT on what you found. Call edit_file or write_file to make the changes. Do NOT describe what needs to change — make the change NOW.',
                     });
+                    // Give the nudge teeth: force tool_choice=required on next round
+                    // so the model MUST call a tool instead of returning more text.
+                    forceWriteOnNextThink = true;
                 }
             }
 
@@ -1840,15 +1998,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             if (ctx.voiceFastPath) {
                 smartMessages = ctx.messages as ChatMessage[];
             } else {
-                const { messages: compressedMessages, didCompress, savedTokens } = maybeCompressContext(ctx.messages);
-                if (didCompress) {
-                    logger.info(COMPONENT, `Context compressed, saved ~${savedTokens} tokens`);
-                    ctx.messages.length = 0;
-                    ctx.messages.push(...compressedMessages);
-                }
-                smartMessages = (compressedMessages as ChatMessage[]).length <= 4
-                    ? compressedMessages as ChatMessage[]
-                    : buildSmartContext(compressedMessages as ChatMessage[], tokenBudget);
+                smartMessages = buildSmartContext(ctx.messages as ChatMessage[], tokenBudget);
             }
 
             // F1: Pre-model hook for respond phase too
@@ -1886,6 +2036,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             };
 
             let response: ChatResponse;
+            const respondStart = Date.now();
             if (ctx.streamCallbacks?.onToken) {
                 let streamContent = '';
                 for await (const chunk of chatStream(chatOptions)) {
@@ -1904,8 +2055,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     model: activeModel,
                 };
             } else {
-                response = await chat(chatOptions);
+                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', 300_000);
             }
+            // v5.0: OTEL span for respond-phase LLM call
+            fireSpan(traceCtx, 'model_call:respond', Date.now() - respondStart, { round: String(round), model: activeModel, phase: 'respond' });
 
             result.modelUsed = response.model;
             result.promptTokens += response.usage?.promptTokens || 0;
@@ -1944,6 +2097,12 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, response.usage?.promptTokens || 0, response.usage?.completionTokens || 0);
+
+            // Wire LLM spend into Command Post budget policies
+            const callCost = calculateActualCost(activeModel, { prompt: response.usage?.promptTokens || 0, completion: response.usage?.completionTokens || 0 });
+            const sessionGoal = getSessionGoal(ctx.sessionId);
+            recordSpend(ctx.agentId || 'default', sessionGoal?.goalId, callCost);
+
             if (costCheck.budgetExceeded) {
                 result.content = '⚠️ Daily spending limit reached. TITAN has paused to keep your API costs under control.';
             } else {
@@ -1967,15 +2126,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 try {
                     const retryMessages = [
                         ...ctx.messages.slice(-6),
-                        { role: 'user' as const, content: '[SYSTEM] You MUST respond to the user\'s original question now. Summarize what you found from your tool calls in 2-3 sentences. Do NOT call any tools. Just answer directly.' },
+                        { role: 'user' as const, content: "Please answer the user's question now. Summarize what you found in 2-3 sentences. Don't use any tools — just answer directly." },
                     ];
-                    const retryResponse = await chat({
+                    const retryResponse = await chatWithTimeout(() => chat({
                         model: activeModel,
                         messages: retryMessages,
                         temperature: 0.7,
                         maxTokens: 300,
                         providerOptions: ctx.providerOptions,
-                    });
+                    }), 'agentLoop:retry', 300_000);
                     const retryContent = (retryResponse.content || '').trim();
                     if (retryContent && retryContent.length > 10) {
                         logger.info(COMPONENT, '[EmptyResponse] Recovery retry succeeded');
@@ -2013,13 +2172,77 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             break;
         }
         } // end switch
+
+        // ── on_round_end shell hook ──────────────────────────
+        try {
+            const { runShellHooks } = await import('../hooks/shellHooks.js');
+            const { loadConfig } = await import('../config/config.js');
+            const config = loadConfig();
+            const hooksCfg = (config.hooks as Record<string, unknown> | undefined)?.shell as Record<string, unknown> | undefined;
+            if (hooksCfg?.enabled) {
+                await runShellHooks('on_round_end', {
+                    TITAN_SESSION_ID: ctx.sessionId,
+                    TITAN_AGENT_ID: ctx.agentId || 'default',
+                    TITAN_ROUND: String(round),
+                });
+            }
+        } catch { /* hooks are best-effort */ }
     } // end while
+
+    // ── on_session_end shell hook ────────────────────────
+    try {
+        const { runShellHooks } = await import('../hooks/shellHooks.js');
+        const { loadConfig } = await import('../config/config.js');
+        const config = loadConfig();
+        const hooksCfg = (config.hooks as Record<string, unknown> | undefined)?.shell as Record<string, unknown> | undefined;
+        if (hooksCfg?.enabled) {
+            await runShellHooks('on_session_end', {
+                TITAN_SESSION_ID: ctx.sessionId,
+                TITAN_AGENT_ID: ctx.agentId || 'default',
+                TITAN_ROUND: String(round),
+            });
+        }
+    } catch { /* hooks are best-effort */ }
 
     // If loop ended without setting content (hit round limit in think phase)
     if (!result.content && round >= ctx.effectiveMaxRounds) {
-        result.content = 'I reached the maximum number of tool rounds without a complete answer. Please try again with a more specific request.';
+        result.content = 'I ran out of thinking time on that one. Could you break your request into a smaller step?';
         result.budgetExhausted = true;
     }
+
+    // v4.13 ancestor-extraction (Hermes trajectory): append this run's full
+    // ChatML transcript to disk for future retrospective / fine-tuning. Guarded
+    // try/catch — trajectory I/O failures never affect the user response.
+    try {
+        const { saveTrajectory } = await import('./trajectory.js');
+        const completed = !result.budgetExhausted && !!result.content && result.content.length > 0;
+        saveTrajectory({
+            conversations: ctx.messages,
+            model: activeModel,
+            completed,
+            sessionId: ctx.sessionId,
+            toolsUsed: result.toolsUsed,
+            reason: result.budgetExhausted ? 'budget_exhausted' : (completed ? 'done' : 'empty'),
+            metrics: {
+                rounds: round,
+                promptTokens: result.promptTokens ?? 0,
+                completionTokens: result.completionTokens ?? 0,
+            },
+        });
+    } catch { /* trajectory save is best-effort */ }
+
+    // v5.0: Unregister session from steer map
+    globalSteerQueues.delete(ctx.sessionId);
+
+    // v5.0: Session-level OTEL span
+    const totalDuration = Date.now() - loopStartTime;
+    fireSpan(traceCtx, 'session', totalDuration, {
+        rounds: String(round),
+        model: activeModel,
+        toolsUsed: result.toolsUsed.length,
+        budgetExhausted: result.budgetExhausted,
+    });
+    result.traceContext = { traceId: traceCtx.traceId, spanId: traceCtx.spanId };
 
     return result;
 }

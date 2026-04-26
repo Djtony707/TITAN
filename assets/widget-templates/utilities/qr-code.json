@@ -1,0 +1,13 @@
+{
+  "id": "qr-code",
+  "name": "QR Code Generator",
+  "category": "utilities",
+  "tags": ["qr", "code", "generator", "scan", "link"],
+  "description": "Generate QR codes from text or URLs using a free QR API.",
+  "triggers": ["qr code", "generate qr", "qr generator", "scan code", "make qr"],
+  "defaultSize": { "w": 4, "h": 5 },
+  "source": "function QRCodeGen() {\n  const [text, setText] = React.useState('REPLACE_WITH_TEXT');\n  const [size, setSize] = React.useState(200);\n\n  const qrUrl = text ? `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}` : '';\n\n  return (\n    <div style={{padding:16,fontFamily:'system-ui',height:'100%',display:'flex',flexDirection:'column',alignItems:'center'}}>\n      <div style={{fontSize:18,fontWeight:700,marginBottom:12}}>QR Code Generator</div>\n      <input value={text} onChange={e=>setText(e.target.value)}\n        style={{width:'100%',padding:'8px 12px',borderRadius:8,border:'1px solid #ccc',fontSize:14,marginBottom:12}}\n        placeholder=\"Enter text or URL…\"/>\n      <div style={{marginBottom:12}}>\n        <span style={{fontSize:12,color:'#888',marginRight:8}}>Size:</span>\n        {[150,200,300,400].map(s=> (\n          <button key={s} onClick={()=>setSize(s)}\n            style={{padding:'4px 10px',marginRight:4,borderRadius:6,border:'1px solid #ccc',background:size===s?'#007AFF':'#fff',color:size===s?'#fff':'#000',cursor:'pointer',fontSize:12}}>\n            {s}px\n          </button>\n        ))}\n      </div>\n      {qrUrl && (\n        <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>\n          <img src={qrUrl} style={{maxWidth:'100%',maxHeight:'100%',borderRadius:8}} alt=\"QR\"/>\n        </div>\n      )}\n      {!qrUrl && <div style={{color:'#888',fontSize:14}}>Enter text to generate QR code</div>}\n    </div>\n  );\n}\nrender(<QRCodeGen/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_TEXT", "description": "Default text for QR code", "default": "https://example.com" }
+  ]
+}

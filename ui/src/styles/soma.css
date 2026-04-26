@@ -12,6 +12,7 @@
     --soma-curiosity: #06b6d4;
     --soma-safety: #10b981;
     --soma-social: #ec4899;
+    --soma-rest: #64748b;
 }
 
 /* ── Header body indicator ────────────────────────────────── */
@@ -176,6 +177,7 @@
 .soma-region[data-drive="social"]    { top: 36%; left: 78%; width: 88px;  height: 88px;  background: var(--soma-social); }
 .soma-region[data-drive="safety"]    { top: 62%; left: 32%; width: 92px;  height: 92px;  background: var(--soma-safety); }
 .soma-region[data-drive="hunger"]    { top: 62%; left: 68%; width: 92px;  height: 92px;  background: var(--soma-hunger); }
+.soma-region[data-drive="rest"]      { top: 82%; left: 50%; width: 80px;  height: 80px;  background: var(--soma-rest); transform: translateX(-50%); }
 
 /* ── Drive inspector side panel ───────────────────────────── */
 
@@ -350,6 +352,16 @@
 .soma-btn--approve { background: #10b981; color: white; }
 .soma-btn--reject  { background: #ef4444aa; color: white; }
 .soma-btn--defer   { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.7); }
+
+/* ── Mobile breakpoints ───────────────────────────────────── */
+
+@media (max-width: 1024px) {
+    .soma-inspector {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+}
 
 /* ── Reduced motion ───────────────────────────────────────── */
 

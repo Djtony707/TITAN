@@ -60,6 +60,25 @@ interface KnowledgeBase {
 let kb: KnowledgeBase | null = null;
 let dirty = false;
 
+// ── Strategy hint caches ──────────────────────────────────────────
+let successfulStrategiesCache: StrategyEntry[] | null = null;
+let lastDecayRun = 0;
+const DECAY_INTERVAL_MS = 3600_000; // 1 hour
+const patternWordsCache = new Map<string, Set<string>>();
+
+function invalidateStrategyCaches(): void {
+    successfulStrategiesCache = null;
+}
+
+function getPatternWords(pattern: string): Set<string> {
+    let words = patternWordsCache.get(pattern);
+    if (!words) {
+        words = new Set(pattern.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+        patternWordsCache.set(pattern, words);
+    }
+    return words;
+}
+
 // NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadKnowledgeBase(): KnowledgeBase {
     if (kb) return kb;
@@ -631,6 +650,7 @@ export function recordStrategy(
     };
 
     k.strategies.push(entry);
+    invalidateStrategyCaches();
 
     // Evict old/failed strategies to keep at 200 max
     if (k.strategies.length > 200) {
@@ -669,10 +689,12 @@ export function recordStrategyOutcome(
     }
 
     // High-fail strategies get marked as unsuccessful
-    if ((match.failCount || 0) > (match.successCount || 1)) {
+    const becameUnsuccessful = (match.failCount || 0) > (match.successCount || 1) && match.success;
+    if (becameUnsuccessful) {
         match.success = false;
     }
 
+    if (becameUnsuccessful) invalidateStrategyCaches();
     debouncedSave();
 }
 
@@ -708,8 +730,13 @@ export function getStrategyHints(message: string): string | null {
     const k = loadKnowledgeBase();
 
     // Apply decay to stale strategies
-    if (decayStrategies(k.strategies)) {
-        debouncedSave();
+    const now = Date.now();
+    if (now - lastDecayRun > DECAY_INTERVAL_MS) {
+        lastDecayRun = now;
+        if (decayStrategies(k.strategies)) {
+            debouncedSave();
+            invalidateStrategyCaches();
+        }
     }
     if (k.strategies.length === 0) return null;
 
@@ -717,7 +744,7 @@ export function getStrategyHints(message: string): string | null {
     const words = new Set(message.toLowerCase().split(/\s+/).filter(w => w.length > 3));
     if (words.size === 0) return null;
 
-    const successfulStrategies = k.strategies.filter(s => s.success);
+    const successfulStrategies = successfulStrategiesCache ?? (successfulStrategiesCache = k.strategies.filter(s => s.success));
     if (successfulStrategies.length === 0) return null;
 
     // Score strategies by: task type match + keyword overlap + success count
@@ -725,7 +752,7 @@ export function getStrategyHints(message: string): string | null {
     let bestScore = 0;
 
     for (const strategy of successfulStrategies) {
-        const patternWords = new Set(strategy.pattern.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+        const patternWords = getPatternWords(strategy.pattern);
         let overlap = 0;
         for (const w of words) {
             if (patternWords.has(w)) overlap++;

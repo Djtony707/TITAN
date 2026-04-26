@@ -4,6 +4,7 @@ import { getCPApprovals, approveCPApproval, rejectCPApproval } from '@/api/clien
 import type { CPApproval } from '@/api/types';
 import { PageHeader, Tabs, StatusBadge, EmptyState, Button, SkeletonLoader } from '@/components/shared';
 import { extractApprovalHeadline } from '@/lib/approvalHeadline';
+import { useToast } from '@/components/shared/Toast';
 
 function timeSince(dateStr: string): string {
   const s = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -35,6 +36,9 @@ function CPApprovals() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState('all');
   const [acting, setActing] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [expandedNote, setExpandedNote] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -49,15 +53,34 @@ function CPApprovals() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleApprove = async (id: string) => {
-    setActing(id);
-    try { await approveCPApproval(id, 'user'); await refresh(); } catch { /* */ }
+  const handleApprove = async (approval: CPApproval) => {
+    setActing(approval.id);
+    try {
+      const note = notes[approval.id]?.trim();
+      await approveCPApproval(approval.id, 'user', note || undefined);
+      await refresh();
+      const isWork = approval.type === 'goal_proposal' || approval.type === 'soma_proposal';
+      const isBlocked = approval.type === 'custom' && (approval.payload as { kind?: string }).kind === 'driver_blocked';
+      toast('success', isWork ? 'Work approved — TITAN is starting…' : isBlocked ? 'Unblocked — TITAN is resuming…' : 'Approved');
+      setNotes(prev => { const next = { ...prev }; delete next[approval.id]; return next; });
+      setExpandedNote(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Approve failed');
+      toast('error', 'Approval failed');
+    }
     setActing(null);
   };
 
-  const handleReject = async (id: string) => {
-    setActing(id);
-    try { await rejectCPApproval(id, 'user'); await refresh(); } catch { /* */ }
+  const handleReject = async (approval: CPApproval) => {
+    setActing(approval.id);
+    try {
+      await rejectCPApproval(approval.id, 'user');
+      await refresh();
+      toast('success', 'Rejected');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reject failed');
+      toast('error', 'Rejection failed');
+    }
     setActing(null);
   };
 
@@ -116,13 +139,34 @@ function CPApprovals() {
                 </div>
                 <span className="text-xs text-text-muted flex-shrink-0 pt-0.5">{timeSince(a.createdAt)}</span>
                 {a.status === 'pending' && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Button size="sm" variant="ghost" onClick={() => handleApprove(a.id)} loading={acting === a.id} icon={<Check size={14} />}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleReject(a.id)} loading={acting === a.id} icon={<X size={14} />}>
-                      Reject
-                    </Button>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1">
+                      {a.type === 'custom' && (a.payload as { kind?: string }).kind === 'driver_blocked' && (
+                        <button
+                          onClick={() => setExpandedNote(expandedNote === a.id ? null : a.id)}
+                          className="text-[10px] text-text-muted hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-tertiary transition-colors"
+                        >
+                          {expandedNote === a.id ? 'Cancel' : 'Answer'}
+                        </button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => handleApprove(a)} loading={acting === a.id} icon={<Check size={14} />}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleReject(a)} loading={acting === a.id} icon={<X size={14} />}>
+                        Reject
+                      </Button>
+                    </div>
+                    {expandedNote === a.id && (
+                      <input
+                        type="text"
+                        value={notes[a.id] || ''}
+                        onChange={(e) => setNotes(prev => ({ ...prev, [a.id]: e.target.value }))}
+                        placeholder="Type your answer..."
+                        className="w-64 rounded-md border border-border bg-bg px-3 py-1.5 text-xs text-text outline-none focus:border-accent mt-1"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleApprove(a); }}
+                        autoFocus
+                      />
+                    )}
                   </div>
                 )}
               </div>

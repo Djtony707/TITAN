@@ -482,5 +482,59 @@ export function closeSession(sessionId: string): void {
     // D1: Clean up loop detection state to prevent unbounded memory growth
     resetLoopDetection(sessionId);
 
+    // Flush accumulated tool analytics for this session (fire-and-forget)
+    import('../analytics/featureTracker.js')
+        .then(({ endToolSession }) => endToolSession(sessionId))
+        .catch(() => {});
+
     logger.info(COMPONENT, `Closed session: ${sessionId}`);
+}
+
+// v5.0: Guest session support (Space Agent parity)
+const GUEST_PREFIX = 'guest_';
+const GUEST_MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72h
+const GUEST_MAX_FILES = 1000;
+
+export function createGuestSession(): Session {
+    const id = `${GUEST_PREFIX}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const session: Session = {
+        id,
+        channel: 'webchat',
+        userId: id,
+        agentId: 'default',
+        status: 'active',
+        messageCount: 0,
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+    };
+    activeSessions.set(`id:${id}`, session);
+    logger.info(COMPONENT, `Created guest session: ${id}`);
+    return session;
+}
+
+export function isGuestSession(sessionId: string): boolean {
+    return sessionId.startsWith(GUEST_PREFIX);
+}
+
+/** Prune old guest sessions */
+export function pruneGuestSessions(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+    for (const [key, session] of activeSessions) {
+        if (isGuestSession(session.id)) {
+            const age = now - new Date(session.lastActive).getTime();
+            if (age > GUEST_MAX_AGE_MS) {
+                keysToDelete.push(key);
+            }
+        }
+    }
+    for (const key of keysToDelete) {
+        const session = activeSessions.get(key);
+        if (session) {
+            closeSession(session.id);
+        }
+    }
+    if (keysToDelete.length > 0) {
+        logger.info(COMPONENT, `Pruned ${keysToDelete.length} inactive guest session(s)`);
+    }
 }

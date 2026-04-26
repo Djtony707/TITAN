@@ -22,6 +22,10 @@ export interface ApprovalPayload {
     urgency?: string;
     severity?: string;
     subtaskKind?: string;
+    subtaskTitle?: string;
+    specialist?: string;
+    attempts?: number;
+    lastError?: string;
     goalId?: string;
     rationale?: string;
     name?: string;
@@ -51,10 +55,20 @@ export function extractApprovalHeadline(a: CPApproval): HeadlineInfo {
     const kind = p.kind;
 
     if (kind === 'driver_blocked') {
+        // v4.14.0: use the rich contextual question and surface subtask
+        // details so the user knows WHAT is stuck, not just that
+        // "specialist requires input".
+        const headline = p.question || 'Specialist needs clarification';
+        const detailParts: string[] = [];
+        if (p.goalTitle) detailParts.push(`Goal: ${p.goalTitle}`);
+        if (p.subtaskTitle) detailParts.push(`Task: ${p.subtaskTitle}`);
+        if (p.specialist) detailParts.push(`Agent: ${p.specialist}`);
+        if (p.attempts) detailParts.push(`${p.attempts} attempt(s)`);
+        if (p.lastError) detailParts.push(`Error: ${String(p.lastError).slice(0, 120)}`);
         return {
             kindLabel: 'Driver blocked',
-            headline: p.question || 'Specialist needs clarification',
-            detail: p.goalTitle ? `Goal: ${p.goalTitle}${p.subtaskKind ? ` · ${p.subtaskKind}` : ''}` : undefined,
+            headline: headline.length > 120 ? headline.slice(0, 120) + '…' : headline,
+            detail: detailParts.join(' · ') || undefined,
             urgency: 'high',
         };
     }

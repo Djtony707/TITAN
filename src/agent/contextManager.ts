@@ -15,6 +15,8 @@
  */
 import logger from '../utils/logger.js';
 import type { ChatMessage } from '../providers/base.js';
+import { estimateTokens } from '../utils/tokens.js';
+export { estimateTokens };
 import { flushMemoryBeforeCompaction } from '../memory/graph.js';
 import { getRagContext } from '../memory/vectors.js';
 import { getPlugins } from '../plugins/registry.js';
@@ -30,10 +32,7 @@ interface ContextBudget {
     remainingForHistory: number;
 }
 
-/** Estimate token count (fast approximation: ~4 chars per token) */
-export function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-}
+
 
 /** Calculate the context budget */
 export function calculateBudget(

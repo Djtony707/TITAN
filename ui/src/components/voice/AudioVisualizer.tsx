@@ -9,7 +9,7 @@ interface AudioVisualizerProps {
 
 export function AudioVisualizer({
   type = 'wave',
-  color = '#6366f1',
+  color = 'var(--color-accent)',
   active = false,
   audioLevel = 0,
 }: AudioVisualizerProps) {

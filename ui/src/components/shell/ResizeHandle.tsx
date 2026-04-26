@@ -14,7 +14,7 @@ export default function ResizeHandle({ isResizing, onMouseDown, direction = 'hor
       className={clsx(
         'group shrink-0 flex items-center justify-center transition-colors',
         isHorizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
-        isResizing ? 'bg-accent/40' : 'bg-transparent hover:bg-white/[0.06]',
+        isResizing ? 'bg-accent/40' : 'bg-transparent hover:bg-bg-tertiary',
       )}
       onMouseDown={onMouseDown}
     >
@@ -24,7 +24,7 @@ export default function ResizeHandle({ isResizing, onMouseDown, direction = 'hor
           isHorizontal ? 'w-[2px] h-8' : 'h-[2px] w-8',
           isResizing
             ? 'bg-accent'
-            : 'bg-white/[0.08] group-hover:bg-white/[0.15]',
+            : 'bg-bg-tertiary group-hover:bg-border-light',
         )}
       />
     </div>

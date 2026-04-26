@@ -16,6 +16,8 @@ import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import logger from '../utils/logger.js';
+import { loadConfig } from '../config/config.js';
+import { resolveAgentConfig, listResolvedAgents, type ResolvedAgentConfig } from './agentScope.js';
 
 // Resolve the repo's assets/role-bundles directory whether we're running
 // from dist/ or src/ (tsx dev mode). At build time tsup bundles this file
@@ -54,14 +56,7 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Scout',
         role: 'researcher',
         title: 'Web research, monitoring, fact-checking',
-        // v4.10.0-local: switched off gemini-3-flash-preview:cloud —
-        // Ollama's Gemini-compat proxy has a bug where it strips the
-        // `name` field from tool messages, causing HTTP 400
-        // "function_response.name: Name cannot be empty" on every
-        // multi-turn tool run. glm-5.1:cloud is proven reliable with
-        // tool calls (same as Writer/Analyst) and still fast/free on
-        // the OpenRouter bypass path.
-        model: 'ollama/glm-5.1:cloud',
+        model: 'ollama/qwen3.5:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: SCOUT ──',
@@ -78,12 +73,9 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Builder',
         role: 'engineer',
         title: 'Code, files, shell, deploys',
-        // v4.9.0-local.4: swapped from glm-5.1:cloud to qwen3.6:35b.
-        // Qwen 3.6-35B-A3B is MoE (3B active per token), 73.4% on
-        // SWE-Bench Verified, 256K context, local (no cloud hop), and
-        // the 5090 runs it at ~150 tok/s. Better code-task quality +
-        // no rate-limit risk for the most code-heavy specialist.
-        model: 'ollama/qwen3.6:35b',
+        // v4.9.0-local.4: Builder uses glm-5.1:cloud (Ollama cloud).
+        // Strong code-task performance with 256K context via cloud endpoint.
+        model: 'ollama/glm-5.1:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: BUILDER ──',
@@ -100,7 +92,7 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Writer',
         role: 'general',
         title: 'Content, posts, emails, narrative',
-        model: 'ollama/glm-5.1:cloud',
+        model: 'ollama/minimax-m2.7:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: WRITER ──',
@@ -117,7 +109,7 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Analyst',
         role: 'researcher',
         title: 'Data, decisions, deep reasoning',
-        model: 'ollama/glm-5.1:cloud',
+        model: 'ollama/glm-5:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: ANALYST ──',
@@ -133,26 +125,45 @@ export const SPECIALISTS: Specialist[] = [
         id: 'sage',
         name: 'Sage',
         role: 'researcher',
-        title: 'Reviewer + critic',
-        // Previously used claude-code/sonnet-4.5 (MAX plan). Switched to
-        // glm-5.1:cloud after autonomous fallback paths burned interactive
-        // Claude Code credits. Claude Code is now opt-in only — explicit
-        // user requests through the UI, never from autopilot / goal driver
-        // / self-mod review.
-        model: 'ollama/glm-5.1:cloud',
+        title: 'Reviewer + critic (Ollama cloud)',
+        // Uses a non-Claude-CLI model so TITAN never shells out to the local `claude` binary.
+        model: 'ollama/nemotron-3-super:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: SAGE ──',
-            'You are Sage — TITAN\'s reviewer + critic specialist, powered by Claude.',
+            'You are Sage — TITAN\'s reviewer + critic specialist.',
             'Your strengths: code review, catching subtle bugs, verifying that integrations are actually wired, spotting regressions.',
             'You are NOT the generator — Builder writes code, Sage judges it. Be rigorous: flag missing error handling, unchecked null/undefined, off-by-one, forgotten imports, stale comments.',
             'When reviewing a file, also check: does it get imported/used elsewhere? If not, it\'s dead code — say so.',
             'Prefer concrete suggestions ("add try/catch around the fetch on line 42") over vague ones ("improve error handling").',
         ].join('\n'),
-        templateMatches: ['sage', 'reviewer', 'critic', 'claude'],
+        templateMatches: ['sage', 'reviewer', 'critic'],
         reportsTo: 'default',
     },
 ];
+
+/** Resolve the effective model for a specialist, respecting config overrides. */
+function resolveSpecialistModel(sp: Specialist): string {
+    try {
+        const cfg = loadConfig();
+        const override = (cfg as unknown as { specialists?: { overrides?: Record<string, { model?: string }> } })?.specialists?.overrides?.[sp.id]?.model;
+        if (override) return override;
+    } catch { /* fall through */ }
+    return sp.model;
+}
+
+function resolvedAgentToSpecialist(ra: ResolvedAgentConfig): Specialist {
+    return {
+        id: ra.id,
+        name: ra.name,
+        role: 'general',
+        title: ra.description || ra.name,
+        model: ra.model,
+        systemPromptSuffix: ra.systemPromptOverride || '',
+        templateMatches: [ra.template, ra.id, ra.id.toLowerCase()],
+        reportsTo: 'default',
+    };
+}
 
 /**
  * Ensure all specialists are registered with Command Post. Idempotent —
@@ -176,12 +187,37 @@ export async function ensureSpecialistsRegistered(): Promise<void> {
                 name: sp.name,
                 role: sp.role,
                 title: sp.title,
-                model: sp.model,
+                model: resolveSpecialistModel(sp),
                 reportsTo: sp.reportsTo,
             });
             if (!already) created += 1;
             else if (wasErrored) healed += 1;
         }
+
+        // Register config-defined agents from titan.json
+        try {
+            const configAgents = listResolvedAgents();
+            for (const ra of configAgents) {
+                const already = existing.find(a => a.id === ra.id);
+                const wasErrored = already?.status === 'error';
+                cp.forceRegisterSpecialist({
+                    id: ra.id,
+                    name: ra.name,
+                    role: 'general',
+                    title: ra.description || ra.name,
+                    model: ra.model || resolveSpecialistModel(SPECIALISTS[0]),
+                    reportsTo: 'default',
+                });
+                if (!already) created += 1;
+                else if (wasErrored) healed += 1;
+            }
+            if (configAgents.length > 0) {
+                logger.info(COMPONENT, `Registered ${configAgents.length} config-defined agent(s): ${configAgents.map(a => a.name).join(', ')}`);
+            }
+        } catch (agentScopeErr) {
+            logger.warn(COMPONENT, `Config agent registration failed: ${(agentScopeErr as Error).message}`);
+        }
+
         if (created > 0) logger.info(COMPONENT, `Registered ${created} specialist(s): ${SPECIALISTS.map(s => s.name).join(', ')}`);
         if (healed > 0) logger.info(COMPONENT, `Healed ${healed} specialist(s) from stuck 'error' state → 'idle'`);
     } catch (err) {
@@ -192,41 +228,41 @@ export async function ensureSpecialistsRegistered(): Promise<void> {
 /**
  * Given a spawn_agent template hint, find the best-matching specialist.
  * Returns null if no match — callers fall back to the generic spawn path.
+ * v5.0.0: respects config overrides for model.
+ * v5.0.0-spacewalk: also checks config-defined agents in titan.json.
  */
 export function findSpecialistForTemplate(template: string | undefined): Specialist | null {
     if (!template) return null;
     const t = template.toLowerCase();
-    return SPECIALISTS.find(s => s.templateMatches.some(m => m === t)) || null;
+
+    // 1. Hardcoded specialists
+    const sp = SPECIALISTS.find(s => s.templateMatches.some(m => m === t)) || null;
+    if (sp) return { ...sp, model: resolveSpecialistModel(sp) };
+
+    // 2. Config-defined agents (by template field or by id)
+    const resolved = resolveAgentConfig(t);
+    if (resolved) {
+        return resolvedAgentToSpecialist(resolved);
+    }
+
+    return null;
 }
 
-/**
- * Given a specialist id, return it (or null). Applies the user's
- * config-level model override if one is set — lets the UI swap a
- * specialist's model without editing code (e.g. switch Sage off
- * Claude Code when MAX credits are exhausted).
- */
+/** Given a specialist id, return it (or null).
+ *  v5.0.0: respects config overrides for model.
+ *  v5.0.0-spacewalk: also checks config-defined agents in titan.json. */
 export function getSpecialist(id: string): Specialist | null {
-    const base = SPECIALISTS.find(s => s.id === id);
-    if (!base) return null;
-    try {
-        // Dynamic import to avoid config → specialists circular load on bootstrap
-        /* eslint-disable @typescript-eslint/no-require-imports */
-        const { loadConfig } = require('../config/config.js') as typeof import('../config/config.js');
-        const cfg = loadConfig();
-        const override = cfg?.specialists?.overrides?.[id];
-        if (override?.model && override.model !== base.model) {
-            return { ...base, model: override.model };
-        }
-    } catch { /* config not ready yet — return base */ }
-    return base;
-}
+    // 1. Hardcoded specialists
+    const sp = SPECIALISTS.find(s => s.id === id) || null;
+    if (sp) return { ...sp, model: resolveSpecialistModel(sp) };
 
-/**
- * List all specialists with any user overrides applied. Used by the
- * Specialists admin UI.
- */
-export function listSpecialists(): Specialist[] {
-    return SPECIALISTS.map(s => getSpecialist(s.id)!).filter(Boolean);
+    // 2. Config-defined agents
+    const resolved = resolveAgentConfig(id);
+    if (resolved) {
+        return resolvedAgentToSpecialist(resolved);
+    }
+
+    return null;
 }
 
 /**

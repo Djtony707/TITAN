@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { login as apiLogin } from '@/api/client';
 
 interface AuthContextType {
@@ -57,8 +57,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(false);
   }, []);
 
+  const value = useMemo(() => ({ isAuthenticated, isLoading, login, logout }),
+    [isAuthenticated, isLoading, login, logout]);
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

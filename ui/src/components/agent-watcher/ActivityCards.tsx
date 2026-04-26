@@ -15,15 +15,15 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
 };
 
 const TOOL_COLORS: Record<string, string> = {
-  shell: '#22d3ee',
-  web_search: '#a78bfa',
-  read_file: '#34d399',
-  write_file: '#34d399',
-  edit_file: '#34d399',
-  memory: '#f59e0b',
-  graph_search: '#f59e0b',
-  code_exec: '#6366f1',
-  weather: '#22d3ee',
+  shell: 'var(--color-cyan)',
+  web_search: 'var(--color-purple-light)',
+  read_file: 'var(--color-emerald)',
+  write_file: 'var(--color-emerald)',
+  edit_file: 'var(--color-emerald)',
+  memory: 'var(--color-warning)',
+  graph_search: 'var(--color-warning)',
+  code_exec: 'var(--color-accent)',
+  weather: 'var(--color-cyan)',
 };
 
 interface ToolCard {
@@ -86,21 +86,21 @@ export function ActivityCards({ events }: { events: AgentEvent[] }) {
   }, [cards, isThinking]);
 
   const getIcon = (card: ToolCard) => {
-    if (card.status === 'running') return <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#6366f1' }} />;
-    if (card.status === 'error') return <XCircle className="w-4 h-4" style={{ color: '#ef4444' }} />;
-    return <CheckCircle2 className="w-4 h-4" style={{ color: '#22c55e' }} />;
+    if (card.status === 'running') return <Loader2 className="w-4 h-4 animate-spin text-accent" />;
+    if (card.status === 'error') return <XCircle className="w-4 h-4 text-error" />;
+    return <CheckCircle2 className="w-4 h-4 text-success" />;
   };
 
   const getToolIcon = (name: string) => {
     const Icon = TOOL_ICONS[name] || Terminal;
-    const color = TOOL_COLORS[name] || '#a1a1aa';
+    const color = TOOL_COLORS[name] || 'var(--color-text-secondary)';
     return <Icon className="w-3.5 h-3.5" style={{ color }} />;
   };
 
   const getBorderColor = (card: ToolCard) => {
-    if (card.status === 'running') return '#6366f1';
-    if (card.status === 'error') return '#ef4444';
-    return '#22c55e';
+    if (card.status === 'running') return 'var(--color-accent)';
+    if (card.status === 'error') return 'var(--color-error)';
+    return 'var(--color-success)';
   };
 
   if (cards.length === 0 && !isThinking) {
@@ -137,7 +137,7 @@ export function ActivityCards({ events }: { events: AgentEvent[] }) {
                   className="rounded-sm transition-all duration-300"
                   style={{
                     width: `${width}%`,
-                    backgroundColor: TOOL_COLORS[card.name] || '#6366f1',
+                    backgroundColor: TOOL_COLORS[card.name] || 'var(--color-accent)',
                     opacity: card.status === 'running' ? 0.6 : 0.9,
                   }}
                   title={`${card.name}: ${card.durationMs || '...'}ms`}
@@ -218,8 +218,8 @@ export function ActivityCards({ events }: { events: AgentEvent[] }) {
 
       {/* Thinking indicator */}
       {isThinking && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-bg-secondary rounded-lg border border-border" style={{ borderLeftWidth: 3, borderLeftColor: '#f59e0b' }}>
-          <Brain className="w-4 h-4 animate-pulse" style={{ color: '#f59e0b' }} />
+        <div className="flex items-center gap-2 px-3 py-2 bg-bg-secondary rounded-lg border border-border" style={{ borderLeftWidth: 3, borderLeftColor: 'var(--color-warning)' }}>
+          <Brain className="w-4 h-4 animate-pulse text-warning" />
           <span className="text-sm text-text-secondary">Thinking...</span>
           <div className="flex gap-1 ml-auto">
             {[0, 1, 2].map((i) => (

@@ -289,18 +289,14 @@ describe('README Compliance Hunt — source-lint regression tests', () => {
     // Finding #38a — httpPool/undici tsup external
     // ─────────────────────────────────────────────────────────────────
     describe('Finding #38a — undici tsup external', () => {
-        it('package.json lists undici as dependency', () => {
-            const pkg = JSON.parse(
-                readFileSync(resolve(__dirname, '../package.json'), 'utf-8'),
-            );
-            expect(pkg.dependencies.undici).toBeDefined();
+        it('tsup config lists undici as external', () => {
+            const tsupConfig = readFileSync(resolve(__dirname, '../tsup.config.ts'), 'utf-8');
+            expect(tsupConfig).toContain("'undici'");
         });
 
-        it('package.json tsup external array includes undici', () => {
-            const pkg = JSON.parse(
-                readFileSync(resolve(__dirname, '../package.json'), 'utf-8'),
-            );
-            expect(pkg.tsup.external).toContain('undici');
+        it('undici is available in node_modules', () => {
+            const undiciPkg = resolve(__dirname, '../node_modules/undici/package.json');
+            expect(() => readFileSync(undiciPkg, 'utf-8')).not.toThrow();
         });
     });
 

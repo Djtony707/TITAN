@@ -1,0 +1,13 @@
+{
+  "id": "crypto-portfolio",
+  "name": "Crypto Portfolio",
+  "category": "finance",
+  "tags": ["crypto", "finance", "tracker", "bitcoin"],
+  "description": "Track your crypto holdings with live mock price data and portfolio value breakdown.",
+  "triggers": ["crypto portfolio", "bitcoin tracker", "crypto", "portfolio"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function CryptoPortfolio() {\n  const [holdings, setHoldings] = React.useState([\n    { coin: 'BTC', amount: 0.45, price: 67200 },\n    { coin: 'ETH', amount: 4.2, price: 3450 },\n    { coin: 'SOL', amount: 35, price: 148 },\n    { coin: 'ADA', amount: 5000, price: 0.52 }\n  ]);\n\n  const total = holdings.reduce((sum, h) => sum + h.amount * h.price, 0);\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column' }}>\n      <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>Crypto Portfolio</h2>\n      <div style={{ fontSize: 24, fontWeight: 700, color: '#22c55e', marginBottom: 12 }}>${total.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>\n      <div style={{ flex: 1, overflow: 'auto' }}>\n        {holdings.map((h, i) => (\n          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #334155' }}>\n            <div>\n              <div style={{ fontWeight: 600 }}>{h.coin}</div>\n              <div style={{ fontSize: 12, color: '#94a3b8' }}>{h.amount} @ ${h.price.toLocaleString()}</div>\n            </div>\n            <div style={{ textAlign: 'right' }}>\n              <div style={{ fontWeight: 600 }}>${(h.amount * h.price).toLocaleString(undefined, {maximumFractionDigits: 2})}</div>\n              <div style={{ fontSize: 12, color: '#22c55e' }}>+{(Math.random() * 5).toFixed(2)}%</div>\n            </div>\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<CryptoPortfolio/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_COINS", "description": "Comma-separated list of coins to track", "default": "BTC, ETH, SOL, ADA" }
+  ]
+}

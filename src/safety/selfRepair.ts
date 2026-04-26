@@ -21,12 +21,18 @@
  *   5. Integrity ratio below 0.5 — propose metric-gaming audit
  *   6. Working memory has > 5 open-question sessions > 6h old —
  *      propose review
+ *   7. Auto-heal: evaluate 6 repair strategies (MissingPackage,
+ *      BrokenImport, VersionMismatch, OrphanModule, ConfigError,
+ *      BuildFailure) against findings + fix-oscillation events.
+ *      Self-modifying repairs file a self_mod_pr approval; safe
+ *      repairs execute directly (or log in dry-run mode).
  *
  * Each proposal carries a {type:'self_repair', reason, evidence,
  * suggestedAction} payload. Approvals approved by Tony fire the
  * suggested action; rejected ones get archived.
  */
 import logger from '../utils/logger.js';
+import { checkAutoHealOpportunities } from './autoHealRunner.js';
 
 const COMPONENT = 'SelfRepair';
 
@@ -53,22 +59,8 @@ export interface SelfRepairFinding {
 
 const findingsByKey = new Map<string, SelfRepairFinding>();
 
-/**
- * Build a stable dedupe key for a finding. Uses stable identity fields
- * only — driveId / goalId — since the full evidence includes ticking
- * counters like `sampleCount` and rounding-prone numbers like
- * `avgSatisfaction` that make every sweep look like a new finding.
- *
- * Matches the stable-key logic in fileRepairApproval so in-memory
- * dedupe and approval-queue dedupe stay aligned.
- */
 function findingKey(f: Pick<SelfRepairFinding, 'kind' | 'evidence'>): string {
-    const ev = (f.evidence || {}) as Record<string, unknown>;
-    const id = (ev.driveId as string | undefined)
-        ?? (ev.goalId as string | undefined)
-        ?? (ev.patternId as string | undefined)
-        ?? '';
-    return `${f.kind}:${id}`;
+    return `${f.kind}:${JSON.stringify(f.evidence)}`;
 }
 
 // ── The watcher ──────────────────────────────────────────────────
@@ -83,7 +75,21 @@ export async function runSelfRepairSweep(): Promise<SelfRepairFinding[]> {
         checkEpisodicAnomaly(findings),
         checkIntegrityRatio(findings),
         checkWorkingMemoryStale(findings),
+        checkTestHealth(findings),
     ]);
+
+    // v4.10.0: evaluate auto-heal strategies against findings.
+    // Runs in dry-run mode by default — only logs what it would do.
+    // Strategies that need to modify /opt/TITAN source files file a
+    // self_mod_pr approval instead of executing directly.
+    try {
+        const healResult = await checkAutoHealOpportunities(findings, true);
+        if (healResult.opportunities.length > 0) {
+            logger.info(COMPONENT, `Auto-heal: ${healResult.opportunities.length} opportunity(ies), ${healResult.selfModPRsFiled} self_mod_pr(s) filed, ${healResult.executed.length} executed, ${healResult.dryRunSkipped} dry-run skipped`);
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Auto-heal check failed: ${(err as Error).message}`);
+    }
 
     // Dedupe against prior ticks — only surface new findings.
     const newFindings: SelfRepairFinding[] = [];
@@ -232,6 +238,14 @@ async function checkWorkingMemoryStale(out: SelfRepairFinding[]): Promise<void> 
     } catch { /* ok */ }
 }
 
+async function checkTestHealth(out: SelfRepairFinding[]): Promise<void> {
+    try {
+        const { checkTestHealth: checkTests } = await import('../testing/selfRepairIntegration.js');
+        const findings = await checkTests();
+        out.push(...findings);
+    } catch { /* ok */ }
+}
+
 // ── File the approval ────────────────────────────────────────────
 
 async function fileRepairApproval(finding: SelfRepairFinding): Promise<void> {
@@ -269,6 +283,27 @@ async function fileRepairApproval(finding: SelfRepairFinding): Promise<void> {
                 return;
             }
         } catch { /* fall through — if listApprovals fails, still try to create */ }
+
+        // v4.13: consult sage (critic) before escalating. If the advisor
+        // says dismiss/investigate, log and move on instead of filing
+        // an approval Tony has to triage.
+        try {
+            const { peerAdvise } = await import('../agent/peerAdvise.js');
+            const advice = await peerAdvise({
+                kind: 'self_repair',
+                concern: `Self-repair daemon finding (${finding.severity}): ${finding.reason}`,
+                context: `Suggested action: ${finding.suggestedAction}
+Evidence: ${JSON.stringify(finding.evidence).slice(0, 500)}`,
+                advisor: 'sage',
+                timeoutMs: 20000,
+            });
+            if (advice && advice.verdict !== 'escalate') {
+                logger.info(COMPONENT, `self_repair ${advice.verdict} by sage: ${advice.reason.slice(0, 120)}`);
+                return;
+            }
+        } catch (peerErr) {
+            logger.debug(COMPONENT, `peerAdvise failed: ${(peerErr as Error).message} — escalating`);
+        }
 
         cp.createApproval({
             type: 'custom',

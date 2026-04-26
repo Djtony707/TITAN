@@ -1,0 +1,11 @@
+{
+  "id": "service-health-grid",
+  "name": "Service Health Grid",
+  "category": "devops",
+  "tags": ["status", "health", "monitoring"],
+  "description": "Status grid showing green/red indicators for services.",
+  "triggers": ["service health", "status page", "uptime", "monitor"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function ServiceHealthGridWidget() {\n  const [services, setServices] = React.useState([\n    { name: 'API Gateway', status: 'up' },\n    { name: 'Auth Service', status: 'up' },\n    { name: 'Database', status: 'down' },\n    { name: 'Cache', status: 'up' },\n    { name: 'Queue Worker', status: 'up' },\n    { name: 'CDN', status: 'up' },\n    { name: 'Search', status: 'degraded' },\n    { name: 'Notifications', status: 'up' }\n  ]);\n\n  function color(status) {\n    if (status === 'up') return '#22c55e';\n    if (status === 'degraded') return '#f59e0b';\n    return '#ef4444';\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%' }}>\n      <h3 style={{ margin: 0, marginBottom: 12 }}>Service Health</h3>\n      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>\n        {services.map((s) => (\n          <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', padding: 10, borderRadius: 8 }}>\n            <div style={{ width: 10, height: 10, borderRadius: '50%', background: color(s.status) }} />\n            <div style={{ fontSize: 13 }}>{s.name}</div>\n          </div>\n        ))}\n      </div>\n      <div style={{ marginTop: 12, fontSize: 11, color: '#64748b' }}>Auto-refreshes every 30s</div>\n    </div>\n  );\n}\nrender(<ServiceHealthGridWidget/>);",
+  "placeholders": []
+}

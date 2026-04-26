@@ -3,7 +3,7 @@
  * Executes tool calls from the LLM with sandboxing, timeouts, and result formatting.
  */
 import type { ToolCall, ToolDefinition } from '../providers/base.js';
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
 import { runPreTool, runPostTool } from '../plugins/contextEngine.js';
@@ -18,6 +18,47 @@ import logger from '../utils/logger.js';
 import { loadConfig } from '../config/config.js';
 import { checkAutonomy } from './autonomy.js';
 import { isToolSkillEnabled } from '../skills/registry.js';
+import { redactSecrets } from '../security/secretGuard.js';
+import { scanAndRedactPII, fullExfilScan } from '../security/exfilScan.js';
+import { scanCommand, scanURL } from '../security/preExecScan.js';
+import { runPreToolShellHooks, runPostToolShellHooks } from '../hooks/shellHooks.js';
+import { createCheckpoint } from '../checkpoint/manager.js';
+
+/** Compute a lightweight unified diff between old and new file content */
+function computeUnifiedDiff(filePath: string, oldContent: string, newContent: string): string {
+    if (oldContent === newContent) return `// No changes to ${filePath}`;
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+    const header = `--- ${filePath}\n+++ ${filePath}`;
+    const hunks: string[] = [];
+    let i = 0, j = 0;
+    while (i < oldLines.length || j < newLines.length) {
+        if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+            i++; j++; continue;
+        }
+        const startI = i, startJ = j;
+        const removed: string[] = [];
+        const added: string[] = [];
+        while (i < oldLines.length && (j >= newLines.length || oldLines[i] !== newLines[j])) {
+            removed.push(oldLines[i++]);
+        }
+        while (j < newLines.length && (i >= oldLines.length || oldLines[i] !== newLines[j])) {
+            added.push(newLines[j++]);
+        }
+        if (removed.length || added.length) {
+            const ctxBefore = oldLines.slice(Math.max(0, startI - 2), startI);
+            const ctxAfter = oldLines.slice(i, Math.min(oldLines.length, i + 2));
+            hunks.push([
+                ...ctxBefore.map(l => ` ${l}`),
+                ...removed.map(l => `-${l}`),
+                ...added.map(l => `+${l}`),
+                ...ctxAfter.map(l => ` ${l}`),
+            ].join('\n'));
+        }
+    }
+    const body = hunks.join('\n---\n');
+    return `${header}\n${body}`;
+}
 import { getCachedToolResult, cacheToolResult } from './trajectoryCompressor.js';
 import { classifyProviderError, FailoverReason } from '../providers/errorTaxonomy.js';
 import { snapshotBeforeWrite } from './shadowGit.js';
@@ -76,6 +117,8 @@ export interface ToolResult {
     retryCount?: number;
     /** Error classification if the tool failed */
     errorClass?: ErrorClass;
+    /** Inline unified diff for file-modifying tools (write_file, edit_file, apply_patch) */
+    diff?: string;
 }
 
 /** A registered tool handler */
@@ -254,6 +297,52 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
 
     logger.info(COMPONENT, `Executing tool: ${handler.name}`);
 
+    // v5.0: Pre-execution scanner for dangerous commands
+    if (handler.name === 'shell' || handler.name === 'code_exec') {
+        const cmdArg = (args.command || args.code || args.script || '') as string;
+        const scan = scanCommand(cmdArg);
+        if (!scan.allowed) {
+            return {
+                toolCallId: toolCall.id,
+                name: handler.name,
+                content: `Error: Pre-execution scan blocked this command\n${scan.warnings.join('\n')}`,
+                success: false,
+                durationMs: Date.now() - startTime,
+            };
+        }
+        if (scan.warnings.length > 0 && scan.level === 'warn') {
+            logger.warn('ToolRunner', `Pre-exec warnings for ${handler.name}: ${scan.warnings.join('; ')}`);
+        }
+    }
+    if (handler.name === 'browser_navigate' || handler.name === 'browser_auto_nav') {
+        const urlArg = (args.url || args.target || '') as string;
+        const scan = scanURL(urlArg);
+        if (!scan.allowed) {
+            return {
+                toolCallId: toolCall.id,
+                name: handler.name,
+                content: `Error: Pre-execution scan blocked this URL\n${scan.warnings.join('\n')}`,
+                success: false,
+                durationMs: Date.now() - startTime,
+            };
+        }
+    }
+
+    // v5.0: Shell hooks — pre-tool
+    const { getCurrentSessionId } = await import('./agent.js');
+    const sessionId = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+    const shellPre = await runPreToolShellHooks(handler.name, args, sessionId || toolCall.id, 'default', 0);
+    if (!shellPre.allow) {
+        return {
+            toolCallId: toolCall.id,
+            name: handler.name,
+            content: 'Blocked by shell hook: ' + (shellPre.reason || 'Hook denied execution'),
+            success: false,
+            durationMs: Date.now() - startTime,
+        };
+    }
+    if (shellPre.modifiedArgs) args = shellPre.modifiedArgs;
+
     // Pre-tool hooks — plugins can block or modify args
     if (toolHookPlugins.length > 0) {
         const hookResult = await runPreTool(toolHookPlugins, handler.name, args);
@@ -368,6 +457,16 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         }
     }
 
+    // v5.0: Filesystem checkpoint before destructive operations
+    if (MUTATING_TOOLS.has(handler.name)) {
+        const cpPaths: string[] = [];
+        const cpPath = (args.path || args.file_path || args.filePath) as string;
+        if (cpPath) cpPaths.push(cpPath);
+        if (cpPaths.length > 0) {
+            createCheckpoint(sessionId || toolCall.id, handler.name, args, cpPaths);
+        }
+    }
+
     if (MUTATING_TOOLS.has(handler.name)) {
         // Use the (potentially rewritten) path for shadow-git + fix-oscillation
         const filePath = (args.path || args.file_path || args.filePath) as string;
@@ -414,17 +513,48 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     let lastErrorClass: ErrorClass = 'permanent';
     let attempt = 0;
 
+    // Capture pre-execution file state for diff generation
+    let preContent: string | undefined;
+    let filePathForDiff: string | undefined;
+    if (['write_file', 'edit_file', 'apply_patch'].includes(handler.name)) {
+        const pathArg = args.path as string | undefined;
+        if (pathArg) {
+            filePathForDiff = pathArg;
+            try {
+                if (existsSync(pathArg)) preContent = readFileSync(pathArg, 'utf-8');
+            } catch { /* ignore read errors */ }
+        }
+    }
+
     for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
         try {
             // On timeout retry, double the timeout
             const timeout = (attempt > 0 && lastErrorClass === 'timeout') ? baseTimeout * 2 : baseTimeout;
 
-            const result = await Promise.race([
+            let result = await Promise.race([
                 handler.execute(args),
                 new Promise<string>((_, reject) =>
                     setTimeout(() => reject(new Error(`Tool "${handler.name}" timed out after ${timeout}ms`)), timeout)
                 ),
             ]);
+
+            // Secret exfiltration guard — scan tool output before it leaves
+            result = redactSecrets(result);
+
+            // v5.0: PII redaction (privacy compliance)
+            const config = loadConfig();
+            if (config.security?.redactPII) {
+                result = scanAndRedactPII(result);
+            }
+
+            // v5.0: Full exfiltration scan (layer 2-5) when configured
+            if (config.security?.secretScan?.level === 'full') {
+                const scan = fullExfilScan(result, 'tool_output');
+                if (scan.blocked) {
+                    logger.warn('ToolRunner', `Exfiltration scan blocked ${handler.name}: ${scan.findings.map(f => f.type).join(', ')}`);
+                }
+                result = scan.redacted;
+            }
 
             const durationMs = Date.now() - startTime;
             if (attempt > 0) {
@@ -443,6 +573,10 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 finalContent = head + '\n\n[... ' + (finalContent.length - 25000) + ' chars omitted ...]\n\n' + tail;
                 logger.info(COMPONENT, `Tool ${handler.name} output truncated: ${result.length} → ${finalContent.length} chars`);
             }
+
+            // v5.0: Shell hooks — post-tool
+            const shellPost = await runPostToolShellHooks(handler.name, args, finalContent, sessionId || toolCall.id, 'default', 0);
+            if (shellPost !== undefined) finalContent = shellPost;
 
             // Post-tool hooks — plugins can modify result
             if (toolHookPlugins.length > 0) {
@@ -488,8 +622,19 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 }
                 // Remote analytics (PostHog + custom collector)
                 const { trackToolCall } = await import('../analytics/featureTracker.js');
-                trackToolCall(handler.name, true, durationMs);
+                const { getCurrentSessionId } = await import('./agent.js').catch(() => ({ getCurrentSessionId: () => null }));
+                const sid = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+                trackToolCall(handler.name, true, durationMs, undefined, sid ?? undefined);
             })();
+
+            // Compute inline diff for file-modifying tools
+            let diff: string | undefined;
+            if (['write_file', 'edit_file', 'apply_patch'].includes(handler.name) && filePathForDiff && !stagedRedirect) {
+                try {
+                    const postContent = existsSync(filePathForDiff) ? readFileSync(filePathForDiff, 'utf-8') : '';
+                    diff = computeUnifiedDiff(filePathForDiff, preContent ?? '', postContent);
+                } catch { /* ignore diff errors */ }
+            }
 
             return {
                 toolCallId: toolCall.id,
@@ -500,6 +645,7 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 success: true,
                 durationMs,
                 retryCount: attempt,
+                diff,
             };
         } catch (error) {
             lastError = error as Error;
@@ -542,7 +688,9 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         }
         // Remote analytics (PostHog + custom collector)
         const { trackToolCall } = await import('../analytics/featureTracker.js');
-        trackToolCall(handler.name, false, durationMs, lastErrorClass);
+        const { getCurrentSessionId } = await import('./agent.js').catch(() => ({ getCurrentSessionId: () => null }));
+        const sid = typeof getCurrentSessionId === 'function' ? getCurrentSessionId() : null;
+        trackToolCall(handler.name, false, durationMs, lastErrorClass, sid ?? undefined);
     })();
 
     return {

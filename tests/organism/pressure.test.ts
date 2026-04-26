@@ -22,6 +22,7 @@ vi.mock('../../src/agent/commandPost.js', () => ({
     getApproval: mockGetApproval,
     attachShadowVerdictToApproval: mockAttachShadow,
 }));
+vi.mock('../../src/agent/goals.js', () => ({ listGoals: vi.fn(() => []) }));
 
 import { computePressureReading, evaluatePressure, runPressureCycle, _resetPressureDampingForTests } from '../../src/organism/pressure.js';
 import type { DriveState } from '../../src/organism/drives.js';

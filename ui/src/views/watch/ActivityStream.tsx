@@ -17,10 +17,10 @@ interface Props {
 }
 
 const KIND_COLORS: Record<WatchKind, string> = {
-    drive: '#a78bfa',
+    drive: 'var(--color-purple-light)',
     soma: '#c084fc',
     tool: '#60a5fa',
-    goal: '#34d399',
+    goal: 'var(--color-emerald)',
     channel: '#fb7185',
     agent: '#c084fc',
     health: '#fbbf24',

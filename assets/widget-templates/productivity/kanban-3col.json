@@ -1,0 +1,16 @@
+{
+  "id": "kanban-3col",
+  "name": "Kanban Board",
+  "category": "productivity",
+  "tags": ["kanban", "board", "tasks", "productivity", "project", " agile"],
+  "description": "Three-column Kanban board (To Do / In Progress / Done) with drag-ready cards.",
+  "triggers": ["kanban", "kanban board", "project board", "task board", "scrum board", "to do in progress done"],
+  "defaultSize": { "w": 6, "h": 5 },
+  "source": "function KanbanBoard() {\n  const [cols, setCols] = React.useState({\n    todo: {title:'To Do',items:[\n      {id:1,text:'REPLACE_WITH_TASK_TODO_1',tag:'design'},\n      {id:2,text:'REPLACE_WITH_TASK_TODO_2',tag:'dev'}\n    ]},\n    doing: {title:'In Progress',items:[\n      {id:3,text:'REPLACE_WITH_TASK_DOING_1',tag:'research'}\n    ]},\n    done: {title:'Done',items:[\n      {id:4,text:'REPLACE_WITH_TASK_DONE_1',tag:'dev'}\n    ]}\n  });\n  const [dragId, setDragId] = React.useState(null);\n\n  const move = (fromCol, toCol, id) => {\n    setCols(prev=>{\n      const card = prev[fromCol].items.find(i=>i.id===id);\n      if (!card) return prev;\n      return {\n        ...prev,\n        [fromCol]: {...prev[fromCol],items:prev[fromCol].items.filter(i=>i.id!==id)},\n        [toCol]: {...prev[toCol],items:[...prev[toCol].items,card]}\n      };\n    });\n  };\n\n  const tagColor = {design:'#AF52DE',dev:'#007AFF',research:'#FF9500',bug:'#FF3B30',docs:'#34C759'};\n\n  return (\n    <div style={{padding:12,fontFamily:'system-ui',height:'100%',display:'flex',gap:12}}>\n      {Object.entries(cols).map(([key,col])=> (\n        <div key={key} style={{flex:1,background:'#f5f5f5',borderRadius:12,padding:12,display:'flex',flexDirection:'column'}}\n          onDragOver={e=>e.preventDefault()}\n          onDrop={e=>{e.preventDefault();const id=Number(e.dataTransfer.getData('card'));if(dragId)move(dragId,key,id);}}>\n          <div style={{fontSize:14,fontWeight:700,marginBottom:10,color:'#555'}}>\n            {col.title} ({col.items.length})\n          </div>\n          <div style={{flex:1,overflow:'auto'}}>\n            {col.items.map(item=> (\n              <div key={item.id} draggable\n                onDragStart={e=>{e.dataTransfer.setData('card',item.id);setDragId(key);}}\n                onDragEnd={()=>setDragId(null)}\n                style={{background:'#fff',borderRadius:8,padding:10,marginBottom:8,cursor:'grab',boxShadow:'0 1px 3px rgba(0,0,0,0.08)'}}>\n                <div style={{fontSize:13,marginBottom:6}}>{item.text}</div>\n                <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,color:'#fff',background:tagColor[item.tag]||'#888'}}>\n                  {item.tag}\n                </span>\n              </div>\n            ))}\n          </div>\n        </div>\n      ))}\n    </div>\n  );\n}\nrender(<KanbanBoard/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_TASK_TODO_1", "description": "First To Do task", "default": "Design mockups" },
+    { "name": "REPLACE_WITH_TASK_TODO_2", "description": "Second To Do task", "default": "Set up repo" },
+    { "name": "REPLACE_WITH_TASK_DOING_1", "description": "In Progress task", "default": "Research APIs" },
+    { "name": "REPLACE_WITH_TASK_DONE_1", "description": "Done task", "default": "Write README" }
+  ]
+}

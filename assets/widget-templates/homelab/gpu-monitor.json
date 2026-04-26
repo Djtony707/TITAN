@@ -1,0 +1,11 @@
+{
+  "id": "gpu-monitor",
+  "name": "GPU Monitor",
+  "category": "homelab",
+  "tags": ["gpu", "hardware", "monitoring"],
+  "description": "GPU stats display with progress bars for temperature, load, and memory.",
+  "triggers": ["gpu monitor", "gpu stats", "video card", "nvidia monitor"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function GPUMonitorWidget() {\n  const [stats, setStats] = React.useState({ temp: 62, load: 45, memory: 78 });\n\n  React.useEffect(() => {\n    const id = setInterval(() => {\n      setStats({\n        temp: Math.min(100, Math.max(30, stats.temp + (Math.random() * 10 - 5))),\n        load: Math.min(100, Math.max(0, stats.load + (Math.random() * 20 - 10))),\n        memory: Math.min(100, Math.max(20, stats.memory + (Math.random() * 10 - 5)))\n      });\n    }, 3000);\n    return () => clearInterval(id);\n  }, [stats]);\n\n  function bar(label, value, color) {\n    return (\n      <div style={{ marginBottom: 14 }}>\n        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>\n          <span>{label}</span>\n          <span>{value.toFixed(1)}%</span>\n        </div>\n        <div style={{ height: 10, background: '#1e293b', borderRadius: 5, overflow: 'hidden' }}>\n          <div style={{ width: value + '%', height: '100%', background: color, transition: 'width 0.5s ease' }} />\n        </div>\n      </div>\n    );\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%' }}>\n      <h3 style={{ margin: 0, marginBottom: 16 }}>GPU Monitor</h3>\n      {bar('Temperature', stats.temp, '#ef4444')}\n      {bar('Load', stats.load, '#3b82f6')}\n      {bar('Memory', stats.memory, '#22c55e')}\n      <div style={{ marginTop: 8, fontSize: 11, color: '#64748b' }}>GPU 0: NVIDIA GeForce RTX 4090</div>\n    </div>\n  );\n}\nrender(<GPUMonitorWidget/>);",
+  "placeholders": []
+}

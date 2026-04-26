@@ -5,7 +5,7 @@ import {
   RepairResult,
   AutoHealConfig,
   DEFAULT_AUTO_HEAL_CONFIG,
-} from './types';
+} from './types.js';
 
 export class MissingPackageRepair {
   private config: AutoHealConfig;

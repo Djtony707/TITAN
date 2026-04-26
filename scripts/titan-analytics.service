@@ -1,0 +1,43 @@
+[Unit]
+# TITAN Anonymous Analytics Collector
+#
+# A tiny Node HTTP server that accepts anonymized system_profile /
+# heartbeat / install / update / error events from TITAN installs that
+# have opted in to telemetry. Stores them in SQLite (better-sqlite3)
+# under the user-owned data dir.
+#
+# Not a web app — no user-facing pages except /dashboard (basic-auth
+# protected) and /stats/summary (public read-only aggregate).
+#
+# Deploy path: see docs/ANALYTICS-DEPLOYMENT.md
+#
+Description=TITAN Anonymous Analytics Collector
+Documentation=https://github.com/Djtony707/TITAN/blob/main/docs/ANALYTICS-DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dj
+Group=dj
+WorkingDirectory=/opt/titan-analytics
+ExecStart=/usr/bin/node /opt/titan-analytics/src/server.js
+Restart=on-failure
+RestartSec=5
+# Hardening — the collector never needs root, never writes outside its own dir.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadWritePaths=/opt/titan-analytics/data /opt/titan-analytics/logs
+# Environment — basic-auth creds for the read-only dashboard live here.
+# Rotate via `sudo systemctl edit titan-analytics` + restart.
+Environment=PORT=48422
+Environment=DATA_DIR=/opt/titan-analytics/data
+Environment=NODE_ENV=production
+# EnvironmentFile=/opt/titan-analytics/.env   # put BASIC_AUTH_USER + BASIC_AUTH_PASS here
+StandardOutput=append:/opt/titan-analytics/logs/stdout.log
+StandardError=append:/opt/titan-analytics/logs/stderr.log
+
+[Install]
+WantedBy=multi-user.target

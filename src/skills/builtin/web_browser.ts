@@ -361,7 +361,44 @@ export function initWebBrowserTool(): void {
         },
     });
 
-    logger.info(COMPONENT, 'Web browser tools registered (browse_url, browser_search, browser_auto_nav)');
+    // Standalone screenshot — capture current page (or a fresh URL) without running an action sequence.
+    registerSkill({
+        name: 'browser_screenshot',
+        description: 'Capture a screenshot of a web page using the shared Playwright browser. Returns a base64 JPEG.',
+        version: '1.0.0',
+        source: 'bundled',
+        enabled: true,
+    }, {
+        name: 'browser_screenshot',
+        description: 'Take a screenshot of a web page. If `url` is omitted, screenshots the page already loaded in the shared browser.\n\nUSE THIS WHEN Tony says: "screenshot X" / "take a picture of X" / "verify X visually" / sub-agents that need to confirm the visual state of a page they just acted on.\n\nReturns base64-encoded JPEG (quality 70). For full-page screenshots set `fullPage: true`.\n\nVS OTHER TOOLS:\n- Use the desktop `screenshot` tool when you want the whole macOS screen (computer-use)\n- Use this when you only need the browser viewport / page',
+        parameters: {
+            type: 'object',
+            properties: {
+                url: { type: 'string', description: 'Optional URL to navigate to before screenshotting. Omit to capture the current page.' },
+                fullPage: { type: 'boolean', description: 'Capture the entire scrollable page rather than just the viewport. Default false.', default: false },
+                quality: { type: 'number', description: 'JPEG quality 1–100. Default 70.', default: 70 },
+            },
+            required: [],
+        },
+        execute: async (args: Record<string, unknown>) => {
+            const { url, fullPage = false, quality = 70 } = args as { url?: string; fullPage?: boolean; quality?: number };
+            const page = await getPage();
+            try {
+                if (url && page.url() !== url) {
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+                }
+                const buf = await page.screenshot({ type: 'jpeg', quality, fullPage });
+                const b64 = buf.toString('base64');
+                const title = await page.title().catch(() => '');
+                const finalUrl = page.url();
+                return `Screenshot captured (${buf.length} bytes, ${fullPage ? 'full page' : 'viewport'})\nURL: ${finalUrl}${title ? `\nTitle: ${title}` : ''}\n\n[base64 JPEG]\ndata:image/jpeg;base64,${b64}`;
+            } finally {
+                await releasePage(page);
+            }
+        },
+    });
+
+    logger.info(COMPONENT, 'Web browser tools registered (browse_url, browser_search, browser_auto_nav, browser_screenshot)');
 }
 
 /** Gracefully close the browser session on gateway shutdown */

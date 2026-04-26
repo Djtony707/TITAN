@@ -19,7 +19,7 @@ const mockCheckToolCallCapability = vi.hoisted(() => vi.fn());
 const mockResetToolCallFailures = vi.hoisted(() => vi.fn());
 const mockCheckForLoop = vi.hoisted(() => vi.fn());
 const mockRecordTokenUsage = vi.hoisted(() => vi.fn());
-const mockMaybeCompressContext = vi.hoisted(() => vi.fn());
+
 const mockRouteModel = vi.hoisted(() => vi.fn());
 const mockBuildSmartContext = vi.hoisted(() => vi.fn());
 const mockGetCachedResponse = vi.hoisted(() => vi.fn());
@@ -73,7 +73,6 @@ vi.mock('../src/agent/loopDetection.js', () => ({
 
 vi.mock('../src/agent/costOptimizer.js', () => ({
     recordTokenUsage: mockRecordTokenUsage,
-    maybeCompressContext: mockMaybeCompressContext,
     routeModel: mockRouteModel,
 }));
 
@@ -192,11 +191,6 @@ beforeEach(() => {
     mockDrainPendingResults.mockReturnValue([]);
     mockCheckForLoop.mockReturnValue({ allowed: true });
     mockRecordTokenUsage.mockReturnValue({ budgetExceeded: false });
-    mockMaybeCompressContext.mockImplementation((msgs: unknown[]) => ({
-        messages: msgs,
-        didCompress: false,
-        savedTokens: 0,
-    }));
     mockBuildSmartContext.mockImplementation((msgs: unknown[]) => msgs);
     mockGetCachedResponse.mockReturnValue(null);
     mockCheckResponse.mockReturnValue(null);

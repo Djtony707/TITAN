@@ -1,0 +1,11 @@
+{
+  "id": "markdown-editor",
+  "name": "Markdown Editor",
+  "category": "document",
+  "tags": ["markdown", "editor", "notes"],
+  "description": "Simple markdown editor with live preview.",
+  "triggers": ["markdown editor", "write markdown", "notes", "text editor"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function MarkdownEditorWidget() {\n  const [text, setText] = React.useState('# Hello\\n\\nType **markdown** here.');\n\n  function mdToHtml(md) {\n    return md\n      .replace(/^### (.*$)/gim, '<h3>$1</h3>')\n      .replace(/^## (.*$)/gim, '<h2>$1</h2>')\n      .replace(/^# (.*$)/gim, '<h1>$1</h1>')\n      .replace(/\\*\\*(.*?)\\*\\*/gim, '<b>$1</b>')\n      .replace(/\\*(.*?)\\*/gim, '<i>$1</i>')\n      .replace(/`([^`]+)`/gim, '<code style=\"background:#1e293b;padding:2px 4px;border-radius:4px;\">$1</code>')\n      .replace(/\\n/gim, '<br />');\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column' }}>\n      <h3 style={{ margin: 0, marginBottom: 10 }}>Markdown Editor</h3>\n      <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0 }}>\n        <textarea\n          value={text}\n          onChange={(e) => setText(e.target.value)}\n          style={{\n            flex: 1,\n            background: '#1e293b',\n            color: '#e2e8f0',\n            border: '1px solid #334155',\n            borderRadius: 8,\n            padding: 10,\n            fontFamily: 'system-ui, sans-serif',\n            fontSize: 13,\n            resize: 'none'\n          }}\n        />\n        <div\n          style={{\n            flex: 1,\n            background: '#1e293b',\n            border: '1px solid #334155',\n            borderRadius: 8,\n            padding: 10,\n            fontSize: 13,\n            overflow: 'auto'\n          }}\n          dangerouslySetInnerHTML={{ __html: mdToHtml(text) }}\n        />\n      </div>\n    </div>\n  );\n}\nrender(<MarkdownEditorWidget/>);",
+  "placeholders": []
+}

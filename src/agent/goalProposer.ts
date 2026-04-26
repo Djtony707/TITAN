@@ -19,6 +19,7 @@ import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
 import { loadConfig } from '../config/config.js';
 import { chat } from '../providers/router.js';
+import { auxChat, resolveAuxiliaryModel } from '../providers/auxiliary.js';
 import { applyOutputGuardrails } from './outputGuardrails.js';
 import { getActivity, requestGoalProposalApproval, type CPApproval } from './commandPost.js';
 import { listGoals } from './goals.js';
@@ -298,7 +299,8 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
     const isSelfMod = matchedByText || matchedByTag;
 
     if (isSelfMod) {
-        const target = '/opt/TITAN'; // TODO: read from config.autonomy.selfMod.target
+        const cfg = loadConfig();
+        const target = (cfg.autonomy?.selfMod as { target?: string } | undefined)?.target || '/opt/TITAN';
         // Ensure the canonical 'self-mod' tag is present so toolRunner sees it
         tags = tags ? [...tags] : [];
         if (!tagsLower.has('self-mod')) tags.push('self-mod');
@@ -342,6 +344,7 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
 export async function generateGoalProposals(
     agentId: string,
     ctx: GoalProposerContext,
+    type: 'goal_proposal' | 'soma_proposal' = 'goal_proposal'
 ): Promise<CPApproval[]> {
     const config = loadConfig();
     const enabled = config.agent.autoProposeGoals;
@@ -393,23 +396,39 @@ export async function generateGoalProposals(
     const ctxWithBlocks: GoalProposerContext = { ...ctx, extraBlocks };
     const prompt = buildPrompt(agentId, slotsLeft, ctxWithBlocks);
 
-    // Only Ollama honours the `format` JSON-schema constraint today.
-    // Other providers would either ignore it or error, so we gate on provider.
-    const isOllama = model.toLowerCase().startsWith('ollama/');
+    // v4.13 ancestor-extraction: route goal-proposal JSON extraction through
+    // the auxiliary model client. The main agent model (gemma4:31b on the
+    // Titan PC default) produces empty arrays for structured JSON tasks; a
+    // dedicated fast+cheap model (minimax-m2.7:cloud) reliably produces valid
+    // proposals. Falls back to the main `model` when no auxiliary is
+    // configured.
+    const auxModel = resolveAuxiliaryModel('json_extraction');
+    const effectiveModel = auxModel || model;
+    const isOllamaEffective = effectiveModel.toLowerCase().startsWith('ollama/');
 
     let rawContent: string;
     try {
-        const response = await chat({
-            model,
-            messages: [
-                { role: 'system', content: 'You are a careful autonomous agent proposing new work. Output ONLY valid JSON. No explanation, no prose.' },
-                { role: 'user', content: prompt },
-            ],
-            temperature: 0.4,
-            maxTokens: 1500,
-            ...(isOllama ? { format: PROPOSAL_ARRAY_SCHEMA } : {}),
-        });
+        const response = await auxChat(
+            'json_extraction',
+            {
+                messages: [
+                    { role: 'system', content: 'You are a careful autonomous agent proposing new work. Output ONLY valid JSON. No explanation, no prose.' },
+                    { role: 'user', content: prompt },
+                ],
+                temperature: 0.4,
+                maxTokens: 1500,
+                ...(isOllamaEffective ? { format: PROPOSAL_ARRAY_SCHEMA } : {}),
+            },
+            model, // fallback to main agent model if no aux is configured
+        );
+        if (!response) {
+            logger.warn(COMPONENT, `Auxiliary call returned null for agent ${agentId} — treating as no proposals`);
+            return [];
+        }
         rawContent = response.content || '';
+        if (auxModel && auxModel !== model) {
+            logger.info(COMPONENT, `Agent ${agentId} goal-proposal routed via auxiliary model ${auxModel} (main: ${model})`);
+        }
     } catch (err) {
         logger.warn(COMPONENT, `LLM call failed for agent ${agentId}: ${(err as Error).message}`);
         return [];
@@ -430,31 +449,43 @@ export async function generateGoalProposals(
         if (proposals.length >= slotsLeft) break;
     }
 
-    // v4.5.6: dedupe against active goals so Soma doesn't spawn
-    // "Satiate hunger" × 3 and "Explore novel X" × 4 variations.
-    // If an active goal with a title within 72% similarity already
-    // exists, skip the proposal silently — the existing goal will
-    // satisfy the drive once its subtasks complete.
-    let existingActiveTitles: string[] = [];
+    // v5.0.0: dedupe against ALL recent goals (not just active) and enforce
+    // goal-overload backoff. Prevents the runaway loops that produced 1000+
+    // duplicate "Publish content" goals.
+    let allGoalTitles: string[] = [];
+    let activeGoalCount = 0;
     try {
         const { listGoals } = await import('./goals.js');
-        existingActiveTitles = listGoals()
-            .filter(g => g.status === 'active' || g.status === 'paused')
-            .map(g => g.title);
+        const all = listGoals();
+        allGoalTitles = all.map(g => g.title);
+        activeGoalCount = all.filter(g => g.status === 'active').length;
     } catch { /* best-effort */ }
+
+    // Overload backoff: if the system is already swamped, only allow
+    // cleanup / meta proposals (titles containing "resolve", "cancel",
+    // "close", "audit", "clean", "dedupe"). Everything else is deferred
+    // until the backlog drops.
+    const isOverload = activeGoalCount >= 25;
+    const isCleanupProposal = (t: string) => /\b(resolve|cancel|close|audit|clean|dedupe|consolidate|prune)\b/i.test(t);
 
     const approvals: CPApproval[] = [];
     for (const proposal of proposals) {
-        const dup = existingActiveTitles.find(t => titleSimilarity(t, proposal.title) >= 0.72);
+        // Dedupe against ANY existing goal (active, paused, completed, failed)
+        const dup = allGoalTitles.find(t => titleSimilarity(t, proposal.title) >= 0.72);
         if (dup) {
-            logger.info(COMPONENT, `Agent ${agentId} skipped duplicate proposal "${proposal.title}" (matches active goal "${dup}")`);
+            logger.info(COMPONENT, `Agent ${agentId} skipped duplicate proposal "${proposal.title}" (matches existing goal "${dup}")`);
+            continue;
+        }
+        // Overload gate
+        if (isOverload && !isCleanupProposal(proposal.title)) {
+            logger.info(COMPONENT, `Agent ${agentId} skipped proposal "${proposal.title}" — goal overload (${activeGoalCount} active). Only cleanup proposals allowed.`);
             continue;
         }
         try {
-            const approval = requestGoalProposalApproval(agentId, proposal);
+            const approval = requestGoalProposalApproval(agentId, proposal, type);
             approvals.push(approval);
             recordProposal(agentId);
-            existingActiveTitles.push(proposal.title); // prevent intra-batch dupes too
+            allGoalTitles.push(proposal.title); // prevent intra-batch dupes too
             logger.info(COMPONENT, `Agent ${agentId} filed proposal "${proposal.title}" (approval ${approval.id})`);
         } catch (err) {
             logger.warn(COMPONENT, `Failed to file proposal "${proposal.title}": ${(err as Error).message}`);

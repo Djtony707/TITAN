@@ -11,6 +11,7 @@
  */
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
+import { estimateTokens } from '../utils/tokens.js';
 
 const COMPONENT = 'CostOptimizer';
 
@@ -92,6 +93,53 @@ export interface TurnContext {
  *
  * Without turnContext, behaves identically to the original per-session routing.
  */
+/**
+ * Hermes-style simple-turn detector. Ported from
+ * `agent/smart_model_routing.py:choose_cheap_model_route`.
+ *
+ * A turn qualifies as "simple" when ALL of the following hold:
+ *   - body ≤ maxChars (default 160)
+ *   - body ≤ maxWords (default 28)
+ *   - at most 1 newline (not a multi-line essay)
+ *   - no backticks / code fences
+ *   - no URLs
+ *   - no tokens from the complex-keyword set
+ *
+ * Conservative by design — false negatives are fine (stay on primary);
+ * false positives are costly (cheap model gets handed a task it shouldn't).
+ */
+const SIMPLE_TURN_COMPLEX_KEYWORDS = new Set([
+    'debug', 'debugging', 'implement', 'implementation',
+    'refactor', 'patch', 'traceback', 'stacktrace', 'exception', 'error',
+    'analyze', 'analysis', 'investigate', 'architecture', 'design',
+    'compare', 'benchmark', 'optimize', 'optimise', 'review',
+    'terminal', 'shell', 'tool', 'tools',
+    'pytest', 'test', 'tests',
+    'plan', 'planning', 'delegate', 'subagent',
+    'cron', 'docker', 'kubernetes',
+    // TITAN-specific additions
+    'goal', 'goals', 'specialist', 'specialists', 'autopilot',
+]);
+const SIMPLE_TURN_URL_RE = /https?:\/\/|www\./i;
+
+export function isSimpleTurn(message: string, opts?: { maxChars?: number; maxWords?: number }): boolean {
+    const text = (message || '').trim();
+    if (!text) return false;
+    const maxChars = opts?.maxChars ?? 160;
+    const maxWords = opts?.maxWords ?? 28;
+    if (text.length > maxChars) return false;
+    if (text.split(/\s+/).length > maxWords) return false;
+    if ((text.match(/\n/g) || []).length > 1) return false;
+    if (text.includes('`')) return false;
+    if (SIMPLE_TURN_URL_RE.test(text)) return false;
+    const lowered = text.toLowerCase();
+    const words = lowered.split(/\s+/).map(t => t.replace(/[.,:;!?()[\]{}"'`]/g, ''));
+    for (const w of words) {
+        if (SIMPLE_TURN_COMPLEX_KEYWORDS.has(w)) return false;
+    }
+    return true;
+}
+
 export function routeModel(
     message: string,
     configuredModel: string,
@@ -103,6 +151,18 @@ export function routeModel(
     const config = loadConfig();
     if (!config.agent.costOptimization?.smartRouting) {
         return { model: configuredModel, reason: 'smart routing disabled', willSaveMoney: false };
+    }
+
+    // v4.13 ancestor-extraction (Hermes): simple-turn override. When the user's
+    // message is clearly trivial ("what time is it?", "say hello", "who made
+    // you?") AND the config provides a dedicated simpleTurnModel, route there
+    // regardless of tier analysis. Wildcard-tiered provider families (like all
+    // of Ollama) collapse to "already fast" below and never route without this
+    // explicit override.
+    const simpleTurnModel = (config.agent.costOptimization as unknown as { simpleTurnModel?: string })?.simpleTurnModel;
+    if (simpleTurnModel && simpleTurnModel !== configuredModel && isSimpleTurn(message)) {
+        logger.info(COMPONENT, `[SimpleTurn] "${message.slice(0, 60)}" → ${simpleTurnModel}`);
+        return { model: simpleTurnModel, reason: 'simple turn → simpleTurnModel', willSaveMoney: true };
     }
 
     // Per-turn routing: round 0 always uses primary
@@ -162,6 +222,7 @@ interface SessionCost {
 }
 
 const sessionCosts: Map<string, SessionCost> = new Map();
+const MAX_SESSION_COSTS = 1000; // Prevent unbounded memory growth
 let todayTotalUsd = 0;
 let todayDate = new Date().toISOString().split('T')[0];
 
@@ -186,6 +247,12 @@ export function recordTokenUsage(
     existing.estimatedUsd += callCost;
     existing.calls++;
     sessionCosts.set(sessionId, existing);
+
+    // Evict oldest sessions to prevent unbounded memory growth
+    if (sessionCosts.size > MAX_SESSION_COSTS) {
+        const oldest = sessionCosts.keys().next().value;
+        if (oldest) sessionCosts.delete(oldest);
+    }
 
     todayTotalUsd += callCost;
 
@@ -215,10 +282,7 @@ export function getDailyTotal(): number {
 // ─── Context summarization ─────────────────────────────────────────
 const SUMMARIZE_THRESHOLD_TOKENS = 8000;
 
-/** Rough token estimate: ~4 chars per token */
-function estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-}
+
 
 export interface ChatMessageLike {
     role: 'user' | 'assistant' | 'system' | 'tool';

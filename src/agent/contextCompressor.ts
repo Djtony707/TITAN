@@ -10,7 +10,7 @@
  * 4. Middle summarization — structured summary template
  * 5. Iterative updates — update existing summary instead of regenerating
  */
-import { estimateTokens } from './contextManager.js';
+import { estimateTokens } from '../utils/tokens.js';
 import logger from '../utils/logger.js';
 import type { ChatMessage } from '../providers/base.js';
 
@@ -310,8 +310,13 @@ export function compressContext(
     const working = pruneToolOutputs(messages, 2);
     phasesApplied.push('tool_pruning');
 
-    // Check if pruning was enough
-    const afterPruneTokens = working.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
+    // Pre-compute token counts for working messages to avoid repeated estimation
+    const tokenCounts = new Map<ChatMessage, number>();
+    for (const m of working) {
+        tokenCounts.set(m, estimateTokens(m.content || '') + (m.toolCalls ? m.toolCalls.length * 100 : 0));
+    }
+    const afterPruneTokens = working.reduce((sum, m) => sum + tokenCounts.get(m)!, 0);
+
     if (afterPruneTokens <= tokenBudget) {
         return {
             messages: working,
@@ -330,14 +335,14 @@ export function compressContext(
     }
 
     // Phase 3: Tail protection
-    const headTokens = head.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
+    const headTokens = head.reduce((sum, m) => sum + tokenCounts.get(m)!, 0);
     const { tail, middle } = extractTail(rest, tokenBudget - headTokens);
     phasesApplied.push('tail_protection');
 
     if (middle.length === 0) {
         // No middle to summarize — just head + tail
         const result = [...head, ...tail];
-        const afterTokens = result.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
+        const afterTokens = result.reduce((sum, m) => sum + tokenCounts.get(m)!, 0);
         return { messages: result, summary: null, savedTokens: beforeTokens - afterTokens, phasesApplied };
     }
 
@@ -366,7 +371,9 @@ export function compressContext(
 
     // Reassemble: head + summary + tail
     const result = [...cleanHead, summaryMessage, ...tail];
-    const afterTokens = result.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
+    const afterTokens = cleanHead.reduce((sum, m) => sum + tokenCounts.get(m)!, 0) +
+        estimateTokens(summaryText) +
+        tail.reduce((sum, m) => sum + tokenCounts.get(m)!, 0);
 
     logger.info(COMPONENT, `5-phase compression: ${messages.length} → ${result.length} messages, ` +
         `${beforeTokens} → ${afterTokens} tokens (saved ${beforeTokens - afterTokens}), ` +

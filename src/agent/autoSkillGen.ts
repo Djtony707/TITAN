@@ -80,7 +80,7 @@ export async function generateSkillContent(trajectory: TaskTrajectory): Promise<
     try {
         const config = loadConfig();
         const aliases = (config.agent as Record<string, unknown>).modelAliases as Record<string, string> | undefined;
-        const fastModel = aliases?.fast || 'openai/gpt-4o-mini';
+        const fastModel = aliases?.fast || 'ollama/qwen3.5:cloud';
 
         const llmContent = await generateSkillWithLLM(trajectory, fastModel);
         if (llmContent && llmContent.length > 200) {

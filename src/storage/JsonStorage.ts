@@ -7,8 +7,9 @@
  * instead of its module-level Maps and bare fs calls.
  */
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
+import { atomicWriteJsonFile } from '../utils/helpers.js';
 import { join } from 'path';
-import { TITAN_HOME } from '../utils/constants.js';
+import { TITAN_HOME, TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 import type {
@@ -17,6 +18,7 @@ import type {
     ActivityQueryOpts,
     BudgetReservation,
     Transaction,
+    TelemetryEvent,
 } from './StorageProvider.js';
 import type {
     TaskCheckout,
@@ -121,7 +123,7 @@ export class JsonStorage implements StorageProvider {
                 goals,
                 lastUpdated: new Date().toISOString(),
             };
-            writeFileSync(GOALS_PATH, JSON.stringify(store, null, 2), 'utf-8');
+            atomicWriteJsonFile(GOALS_PATH, store);
         } catch (err) {
             logger.error(COMPONENT, `Failed to save goals: ${(err as Error).message}`);
         }
@@ -170,7 +172,7 @@ export class JsonStorage implements StorageProvider {
                 issueCounter: this.issueCounter,
                 lastSaved: new Date().toISOString(),
             };
-            writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+            atomicWriteJsonFile(STATE_PATH, state);
         } catch (err) {
             logger.error(COMPONENT, `Failed to save state: ${(err as Error).message}`);
         }
@@ -458,5 +460,31 @@ export class JsonStorage implements StorageProvider {
             async commit() { /* no-op */ },
             async rollback() { /* no-op */ },
         };
+    }
+
+    // ── Telemetry ─────────────────────────────────────────────────────────
+
+    async appendTelemetryEvent(entry: TelemetryEvent): Promise<void> {
+        try {
+            appendFileSync(TELEMETRY_EVENTS_PATH, JSON.stringify(entry) + '\n', 'utf-8');
+        } catch { /* non-critical */ }
+    }
+
+    async queryTelemetryEvents(opts: { limit?: number }): Promise<TelemetryEvent[]> {
+        const limit = opts.limit ?? 100;
+        try {
+            if (!existsSync(TELEMETRY_EVENTS_PATH)) return [];
+            const raw = readFileSync(TELEMETRY_EVENTS_PATH, 'utf-8');
+            const lines = raw.trim().split('\n').filter(Boolean);
+            const events = lines
+                .slice(-limit)
+                .map((line) => {
+                    try { return JSON.parse(line) as TelemetryEvent; } catch { return null; }
+                })
+                .filter((e): e is TelemetryEvent => e !== null);
+            return events;
+        } catch {
+            return [];
+        }
     }
 }

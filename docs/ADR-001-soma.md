@@ -70,10 +70,18 @@ system that has its own needs.
 
 - **Pros:** Genuinely novel — no shipping framework has this. Composes with
   existing infrastructure, doesn't replace it. Enables self-improvement
-  naturally (Hygiene drive → pressure → proposals → fixes). Opt-in so zero
-  risk to existing users.
+  naturally (Hygiene drive → pressure → proposals → fixes). Shipped
+  feature-flagged off in v4.0 for a full validation window.
 - **Cons:** More moving parts. New concepts to document. Risk of half-shipping
   (mitigated by explicit v4.1–v4.4 roadmap and v4.0 feature-flagged off).
+
+**Update — v5.0 "Spacewalk" (2026-04-23).** After ~6 months on the
+feature flag with zero incident reports from opted-in users, the schema
+default flips to `organism.enabled: true`. The Soma widget ships with a
+prominent one-click master switch so anyone can flip it back off
+instantly — telemetry + governance semantics are unchanged. Existing
+installs with `organism.enabled` already set in `titan.json` keep their
+explicit value; only fresh installs pick up the new default.
 
 ## The novel claim
 
@@ -163,8 +171,12 @@ with observability UI.
 
 - [x] Ship v4.0.0 with five drives, trace bus, hormonal broadcast, shadow
       rehearsal, Soma UI, API endpoints, ADR, tests.
-- [x] Disable by default (`organism.enabled: false`).
+- [x] Disable by default (`organism.enabled: false`) for v4.0 validation window.
 - [x] Pass the full regression suite (5,511 tests).
+- [x] **v5.0 "Spacewalk" (2026-04-23): flip default to `organism.enabled: true`.**
+      SomaWidget ships with a one-click master switch; SetupWizard step
+      defaults the toggle on. The chat-dock mascot halo breathes in the
+      Soma rhythm whenever the drive layer is active.
 - [ ] v4.1 within 7 days — Hygiene drive.
 - [ ] v4.2 within 14 days — drive affinity + emergent specialization.
 - [ ] v4.3 within 21 days — dreaming recalibrates setpoints.

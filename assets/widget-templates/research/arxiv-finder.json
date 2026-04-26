@@ -1,0 +1,11 @@
+{
+  "id": "arxiv-finder",
+  "name": "arXiv Finder",
+  "category": "research",
+  "tags": ["arxiv", "papers", "search"],
+  "description": "Search arXiv papers by keyword with mock results.",
+  "triggers": ["arxiv", "paper search", "research papers", "find paper"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function ArxivFinderWidget() {\n  const [query, setQuery] = React.useState('');\n  const [results, setResults] = React.useState([]);\n\n  function search() {\n    if (!query.trim()) return;\n    setResults([\n      { title: 'Attention Is All You Need', authors: 'Vaswani et al.', year: '2017' },\n      { title: 'Deep Residual Learning for Image Recognition', authors: 'He et al.', year: '2016' },\n      { title: 'Generative Adversarial Networks', authors: 'Goodfellow et al.', year: '2014' }\n    ]);\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%', display: 'flex', flexDirection: 'column' }}>\n      <h3 style={{ margin: 0, marginBottom: 12 }}>arXiv Finder</h3>\n      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>\n        <input\n          value={query}\n          onChange={(e) => setQuery(e.target.value)}\n          onKeyDown={(e) => e.key === 'Enter' && search()}\n          placeholder=\"Search papers...\"\n          style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}\n        />\n        <button\n          onClick={search}\n          style={{ padding: '8px 14px', borderRadius: 6, border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'system-ui, sans-serif' }}\n        >\n          Search\n        </button>\n      </div>\n      <div style={{ flex: 1, overflow: 'auto' }}>\n        {results.map((r, i) => (\n          <div key={i} style={{ background: '#1e293b', padding: 10, borderRadius: 8, marginBottom: 8 }}>\n            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{r.title}</div>\n            <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.authors} — {r.year}</div>\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<ArxivFinderWidget/>);",
+  "placeholders": []
+}

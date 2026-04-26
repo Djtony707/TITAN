@@ -1,0 +1,13 @@
+{
+  "id": "spotify-embed",
+  "name": "Spotify Embed",
+  "category": "music-dj",
+  "tags": ["music", "streaming", "player"],
+  "description": "Embed Spotify playlist or album via iframe.",
+  "triggers": ["spotify", "music player", "playlist", "spotify embed"],
+  "defaultSize": { "w": 4, "h": 5 },
+  "source": "function SpotifyEmbed() {\n  const [url, setUrl] = React.useState('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');\n  const [embedUrl, setEmbedUrl] = React.useState('https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M');\n  const update = () => {\n    try {\n      const u = new URL(url);\n      const path = u.pathname.replace(/^\\//, '');\n      setEmbedUrl(`https://open.spotify.com/embed/${path}`);\n    } catch {\n      /* keep current */\n    }\n  };\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#fff', borderRadius: 12, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>\n      <h3 style={{ margin: '0 0 10px 0', fontSize: 16, color: '#222' }}>Spotify Embed</h3>\n      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>\n        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder=\"Spotify URL...\" style={{ flex: 1, padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd', fontFamily: 'inherit', fontSize: 13 }} />\n        <button onClick={update} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: '#1db954', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 }}>Load</button>\n      </div>\n      <div style={{ flex: 1, borderRadius: 10, overflow: 'hidden', border: '1px solid #eee' }}>\n        <iframe src={embedUrl} width=\"100%\" height=\"100%\" style={{ border: 0 }} allow=\"encrypted-media\"></iframe>\n      </div>\n    </div>\n  );\n}\nrender(<SpotifyEmbed/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_SPOTIFY_URL", "description": "Default Spotify playlist or album URL", "default": "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M" }
+  ]
+}

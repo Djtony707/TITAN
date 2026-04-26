@@ -257,10 +257,10 @@ function GoalDetail({ raw }: { raw: Record<string, unknown> }) {
 
 function subtaskColor(status: string): string {
     switch (status) {
-        case 'done': return '#34d399';
-        case 'running': return '#22d3ee';
-        case 'failed': return '#ef4444';
-        case 'skipped': return '#a1a1aa';
+        case 'done': return 'var(--color-emerald)';
+        case 'running': return 'var(--color-cyan)';
+        case 'failed': return 'var(--color-error)';
+        case 'skipped': return 'var(--color-text-secondary)';
         case 'pending': return '#fbbf24';
         default: return '#9ca3af';
     }
@@ -357,7 +357,7 @@ function ChannelDetail({ raw, topic }: { raw: Record<string, unknown>; topic: st
                             <div key={i} style={{
                                 padding: 10, borderRadius: 8,
                                 background: msg.role === 'assistant' ? 'rgba(167, 139, 250, 0.06)' : 'rgba(255,255,255,0.02)',
-                                borderLeft: `2px solid ${msg.role === 'assistant' ? '#a78bfa' : 'rgba(255,255,255,0.2)'}`,
+                                borderLeft: `2px solid ${msg.role === 'assistant' ? 'var(--color-purple-light)' : 'rgba(255,255,255,0.2)'}`,
                                 fontSize: 12,
                             }}>
                                 <div style={{

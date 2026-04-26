@@ -24,9 +24,9 @@ export default defineConfig({
         pool: 'forks',
         poolOptions: {
             forks: {
-                maxForks: process.env.CI ? 1 : undefined,
+                maxForks: 1,
                 minForks: 1,
-                execArgv: ['--max-old-space-size=12288', '--expose-gc'],
+                execArgv: ['--max-old-space-size=20480', '--expose-gc'],
             },
         },
         coverage: {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router';
 import { Users, Lock, DollarSign, Target, Activity, ListTodo, AlertTriangle, RefreshCw } from 'lucide-react';
-import { getCommandPostDashboard, getCPActivity, getCPIssues } from '@/api/client';
+import { getCommandPostDashboard, getCPActivity, getCPIssues, getCPApprovals } from '@/api/client';
 import type { CommandPostDashboard, CPActivityEntry, CPIssue } from '@/api/types';
 import { StatusBadge, PageHeader, SkeletonLoader } from '@/components/shared';
 import { PixelOfficeCrew } from './PixelOfficeCrew';
@@ -31,18 +31,21 @@ function CPDashboard() {
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
   const [activity, setActivity] = useState<CPActivityEntry[]>([]);
   const [issues, setIssues] = useState<CPIssue[]>([]);
+  const [approvals, setApprovals] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      const [d, a, i] = await Promise.all([
+      const [d, a, i, appr] = await Promise.all([
         getCommandPostDashboard(),
         getCPActivity(20),
         getCPIssues(),
+        getCPApprovals('pending'),
       ]);
       setDashboard(d);
       setActivity(a);
       setIssues(i);
+      setApprovals(appr.length);
     } catch { /* ignore */ }
     setLoading(false);
   }, []);
@@ -63,7 +66,7 @@ function CPDashboard() {
   const budgetPct = dashboard.budgetUtilization ?? 0;
   const inProgressIssues = issues.filter(i => i.status === 'in_progress').length;
   const blockedIssues = issues.filter(i => i.status === 'blocked').length;
-  const pendingApprovals = 0; // Will be fetched separately if needed
+  const pendingApprovals = approvals;
 
   return (
     <div className="space-y-6">
@@ -79,7 +82,7 @@ function CPDashboard() {
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricCard icon={Users} label="Agents Enabled" value={dashboard.totalAgents} sub={`${dashboard.activeAgents} running, 0 paused`} color="text-info" />
+        <MetricCard icon={Users} label="Agents Enabled" value={dashboard.totalAgents} sub={`${dashboard.activeAgents} running, ${Math.max(0, dashboard.totalAgents - dashboard.activeAgents)} paused`} color="text-info" />
         <MetricCard icon={ListTodo} label="Tasks In Progress" value={inProgressIssues} sub={`${issues.length} open, ${blockedIssues} blocked`} color="text-warning" />
         <MetricCard icon={DollarSign} label="Budget Used" value={`${Math.round(budgetPct)}%`} sub={budgetPct >= 80 ? 'Nearing limit' : 'Healthy'} color={budgetPct >= 80 ? 'text-error' : 'text-success'} />
         <MetricCard icon={Target} label="Goals" value={dashboard.goalTree?.length ?? 0} sub="in hierarchy" color="text-purple" />

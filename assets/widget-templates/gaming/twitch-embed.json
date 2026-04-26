@@ -1,0 +1,13 @@
+{
+  "id": "twitch-embed",
+  "name": "Twitch Embed",
+  "category": "gaming",
+  "tags": ["gaming", "streaming", "twitch"],
+  "description": "Twitch stream embed with channel input.",
+  "triggers": ["twitch", "stream", "live stream", "gaming stream"],
+  "defaultSize": { "w": 5, "h": 5 },
+  "source": "function TwitchEmbed() {\n  const [channel, setChannel] = React.useState('shroud');\n  const [embedChannel, setEmbedChannel] = React.useState('shroud');\n  const load = () => { if (channel.trim()) setEmbedChannel(channel.trim().toLowerCase()); };\n  const url = `https://player.twitch.tv/?channel=${embedChannel}&parent=${window.location.hostname}&autoplay=false`;\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#fff', borderRadius: 12, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>\n      <h3 style={{ margin: '0 0 10px 0', fontSize: 16, color: '#222' }}>Twitch Embed</h3>\n      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>\n        <input value={channel} onChange={(e) => setChannel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} placeholder=\"Channel name...\" style={{ flex: 1, padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd', fontFamily: 'inherit', fontSize: 13 }} />\n        <button onClick={load} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: '#9146ff', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 }}>Load</button>\n      </div>\n      <div style={{ flex: 1, borderRadius: 10, overflow: 'hidden', border: '1px solid #eee', background: '#000' }}>\n        <iframe src={url} width=\"100%\" height=\"100%\" style={{ border: 0 }} allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowFullScreen></iframe>\n      </div>\n    </div>\n  );\n}\nrender(<TwitchEmbed/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_CHANNEL", "description": "Default Twitch channel name", "default": "shroud" }
+  ]
+}

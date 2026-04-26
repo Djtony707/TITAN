@@ -60,13 +60,13 @@ function PerformanceChart({ runs }: { runs: AutoresearchRun[] }) {
   const scores = runs.map((r) => r.val_score);
   const minScore = Math.max(0, Math.min(...scores) - 5);
   const maxScore = Math.min(100, Math.max(...scores) + 5);
-  const baseline = 78.0;
+  const baseline = runs.length > 0 ? runs[0].val_score : null;
 
   const x = (i: number) => PAD.left + (i / (runs.length - 1)) * plotW;
   const y = (v: number) => PAD.top + plotH - ((v - minScore) / (maxScore - minScore)) * plotH;
 
   const linePath = runs.map((r, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(r.val_score)}`).join(' ');
-  const baselineY = y(baseline);
+  const baselineY = baseline != null ? y(baseline) : null;
 
   return (
     <div className="rounded-xl border border-bg-tertiary bg-bg-secondary p-4 overflow-x-auto">
@@ -87,7 +87,7 @@ function PerformanceChart({ runs }: { runs: AutoresearchRun[] }) {
         })}
 
         {/* Baseline */}
-        {baseline >= minScore && baseline <= maxScore && (
+        {baseline != null && baseline >= minScore && baseline <= maxScore && baselineY != null && (
           <g>
             <line
               x1={PAD.left}
@@ -111,7 +111,7 @@ function PerformanceChart({ runs }: { runs: AutoresearchRun[] }) {
         {runs.map((r, i) => {
           const improved = i > 0 && r.val_score > runs[i - 1].val_score;
           const regressed = i > 0 && r.val_score < runs[i - 1].val_score;
-          const color = regressed ? '#ef4444' : improved ? '#22c55e' : '#8b5cf6';
+          const color = regressed ? 'var(--color-error)' : improved ? 'var(--color-success)' : 'var(--color-purple)';
           return (
             <circle key={i} cx={x(i)} cy={y(r.val_score)} r="4" fill={color} stroke="#18181b" strokeWidth="2">
               <title>Run {i + 1}: {r.val_score} ({relativeTime(r.timestamp)})</title>
@@ -240,12 +240,12 @@ export default function AutoresearchPanel() {
   };
 
   // Derived stats
-  const baseline = 78.0;
   const bestScore = runs.length > 0 ? Math.max(...runs.map((r) => r.val_score)) : 0;
+  const baseline = runs.length > 0 ? runs[0].val_score : null;
   const avgImprovement =
-    runs.length > 0
+    baseline != null && runs.length > 0
       ? runs.reduce((sum, r) => sum + (r.val_score - baseline), 0) / runs.length
-      : 0;
+      : null;
   const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
   const latestParams = lastRun?.hyperparams;
 
@@ -298,7 +298,7 @@ export default function AutoresearchPanel() {
             Autoresearch
           </h1>
           <p className="text-xs text-text-muted mt-0.5">
-            Autonomous model fine-tuning on RTX 5090 · qwen3.5:35b → titan-qwen
+            Autonomous hyper-parameter search and LoRA fine-tuning
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -329,14 +329,14 @@ export default function AutoresearchPanel() {
           icon={<Trophy className="h-4 w-4" />}
           label="Best Val Score"
           value={bestScore > 0 ? bestScore.toFixed(1) : '—'}
-          sub={bestScore > baseline ? `+${(bestScore - baseline).toFixed(1)} from baseline` : undefined}
-          color={bestScore > baseline ? 'text-success' : 'text-text'}
+          sub={baseline != null && bestScore > baseline ? `+${(bestScore - baseline).toFixed(1)} from baseline` : undefined}
+          color={baseline != null && bestScore > baseline ? 'text-success' : 'text-text'}
         />
         <StatCard
           icon={<TrendingUp className="h-4 w-4" />}
           label="Avg Improvement"
-          value={runs.length > 0 ? `${avgImprovement >= 0 ? '+' : ''}${avgImprovement.toFixed(1)}` : '—'}
-          color={avgImprovement > 0 ? 'text-success' : avgImprovement < 0 ? 'text-error' : 'text-text'}
+          value={avgImprovement != null ? `${avgImprovement >= 0 ? '+' : ''}${avgImprovement.toFixed(1)}` : '—'}
+          color={avgImprovement != null ? (avgImprovement > 0 ? 'text-success' : avgImprovement < 0 ? 'text-error' : 'text-text') : 'text-text'}
         />
         <StatCard
           icon={<Clock className="h-4 w-4" />}
@@ -398,7 +398,7 @@ export default function AutoresearchPanel() {
                 {[...runs].reverse().map((run, idx) => {
                   const realIdx = runs.length - 1 - idx;
                   const prevRun = realIdx > 0 ? runs[realIdx - 1] : null;
-                  const delta = prevRun ? run.val_score - prevRun.val_score : run.val_score - baseline;
+                  const delta = prevRun ? run.val_score - prevRun.val_score : (baseline != null ? run.val_score - baseline : 0);
                   const changes = prevRun ? getChanges(run, prevRun) : ['Initial run'];
                   const ts = new Date(run.timestamp);
 

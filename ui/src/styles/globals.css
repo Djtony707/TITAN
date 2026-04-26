@@ -1,17 +1,18 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Core palette ─────────────────────────────────────── */
+  /* ── TITAN Zinc-Indigo Palette ────────────────────────── */
   --color-bg: #09090b;
   --color-bg-secondary: #18181b;
   --color-bg-tertiary: #27272a;
+  --color-bg-deep: #000000;
   --color-border: #3f3f46;
   --color-border-light: #52525b;
   --color-text: #fafafa;
   --color-text-secondary: #a1a1aa;
   --color-text-muted: #71717a;
 
-  /* ── Accent ───────────────────────────────────────────── */
+  /* ── Accent (TITAN indigo → purple) ───────────────────── */
   --color-accent: #6366f1;
   --color-accent-hover: #818cf8;
   --color-accent-dim: #4f46e5;

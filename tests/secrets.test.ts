@@ -17,6 +17,7 @@ const mockFs = {
     existsSync: vi.fn(),
     mkdirSync: vi.fn(),
     appendFileSync: vi.fn(),
+    renameSync: vi.fn(),
 };
 
 vi.mock('fs', () => ({
@@ -25,6 +26,7 @@ vi.mock('fs', () => ({
     existsSync: (...args: any[]) => mockFs.existsSync(...args),
     mkdirSync: (...args: any[]) => mockFs.mkdirSync(...args),
     appendFileSync: (...args: any[]) => mockFs.appendFileSync(...args),
+    renameSync: (...args: any[]) => mockFs.renameSync(...args),
 }));
 
 vi.mock('../src/utils/constants.js', () => ({
@@ -117,13 +119,17 @@ describe('Encrypted Secrets Vault', () => {
             expect(isVaultUnlocked()).toBe(true);
         });
 
-        it('should write to the configured vault path', () => {
+        it('should write to the configured vault path atomically', () => {
             setVaultPath('/custom/vault.enc');
             initVault('passphrase');
-            expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+            // Atomic write: temp file first, then rename
+            const writeCalls = mockFs.writeFileSync.mock.calls;
+            expect(writeCalls.length).toBeGreaterThan(0);
+            const lastWritePath = writeCalls[writeCalls.length - 1][0] as string;
+            expect(lastWritePath).toMatch(/^\/custom\/vault\.enc\.tmp\./);
+            expect(mockFs.renameSync).toHaveBeenCalledWith(
+                expect.stringMatching(/^\/custom\/vault\.enc\.tmp\./),
                 '/custom/vault.enc',
-                expect.any(String),
-                'utf-8',
             );
         });
 

@@ -42,12 +42,12 @@ describe('AgentConfigSchema', () => {
     it('should have default model aliases including cloud tier', () => {
         const agent = AgentConfigSchema.parse({});
         expect(agent.modelAliases).toEqual({
-            fast: 'openai/gpt-4o-mini',
-            smart: 'anthropic/claude-sonnet-4-20250514',
-            reasoning: 'openai/o3-mini',
-            cheap: 'google/gemini-2.0-flash',
+            fast: 'ollama/qwen3.5:cloud',
+            smart: 'ollama/glm-5:cloud',
+            reasoning: 'ollama/kimi-k2.6:cloud',
+            cheap: 'ollama/qwen3.5:cloud',
             local: 'ollama/qwen3.5:4b',
-            cloud: 'ollama/qwen3.5:397b-cloud',
+            cloud: 'ollama/kimi-k2.6:cloud',
         });
     });
 

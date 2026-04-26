@@ -39,6 +39,20 @@ vi.mock('../src/agent/commandPost.js', () => ({
     requestGoalProposalApproval: mockRequestGoalProposalApproval,
 }));
 vi.mock('../src/agent/goals.js', () => ({ listGoals: mockListGoals }));
+vi.mock('../src/providers/auxiliary.js', () => ({
+    resolveAuxiliaryModel: vi.fn().mockReturnValue(null),
+    auxChat: vi.fn().mockImplementation((task, options, fallbackModel) => {
+        // Simulate real auxChat: constructs chat options with model
+        return mockChat({
+            model: fallbackModel,
+            messages: options.messages,
+            temperature: options.temperature,
+            maxTokens: options.maxTokens,
+            format: options.format,
+            providerOptions: options.providerOptions,
+        });
+    }),
+}));
 
 // outputGuardrails is real — we want to exercise the actual pipeline
 // to confirm CoT leakage is stripped before JSON parsing.
@@ -117,6 +131,7 @@ describe('GoalProposer', () => {
                 title: 'Add nightly backup check',
                 priority: 2,
             }),
+            'goal_proposal',
         );
     });
 

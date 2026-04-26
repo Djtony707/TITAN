@@ -26,21 +26,17 @@ export interface SystemProfile {
     osRelease: string;
     /** CPU architecture */
     arch: string;
-    /** CPU model */
-    cpuModel: string;
     /** CPU cores */
     cpuCores: number;
-    /** Total RAM in MB */
-    ramTotalMB: number;
+    /** Total RAM in GB (bucketed to nearest GB) */
+    ramTotalGB: number;
     /** GPU vendor */
     gpuVendor: string;
-    /** GPU name */
-    gpuName: string;
-    /** GPU VRAM in MB */
-    gpuVramMB: number;
+    /** GPU VRAM in GB (bucketed to nearest GB) */
+    gpuVramGB: number;
     /** Install method: 'git' | 'npm' | 'unknown' */
     installMethod: string;
-    /** Total disk GB */
+    /** Total disk GB (bucketed to nearest 10GB) */
     diskTotalGB: number;
     /** Timestamp of collection */
     collectedAt: string;
@@ -53,7 +49,6 @@ export interface HeartbeatEvent {
     timestamp: string;
     uptimeSeconds: number;
     activeSessions: number;
-    memoryMB: number;
     /** Feature adoption snapshot — which major subsystems are enabled */
     features?: {
         voice: boolean;
@@ -87,7 +82,12 @@ async function detectInstallMethod(): Promise<'git' | 'npm' | 'unknown'> {
     return 'unknown';
 }
 
-/** Collect full system profile */
+/** Bucket a value to the nearest step */
+function bucketToNearest(value: number, step: number): number {
+    return Math.round(value / step) * step;
+}
+
+/** Collect full system profile (privacy-respecting: no cpuModel/gpuName, bucketed sizes) */
 export async function collectSystemProfile(): Promise<SystemProfile> {
     const hw = await detectHardware();
     const installMethod = await detectInstallMethod();
@@ -100,14 +100,12 @@ export async function collectSystemProfile(): Promise<SystemProfile> {
         os: platform(),
         osRelease: release(),
         arch: arch(),
-        cpuModel: cpuList[0]?.model || hw.cpuModel || 'Unknown',
         cpuCores: cpuList.length || hw.cpuCores,
-        ramTotalMB: hw.ramTotalMB,
+        ramTotalGB: bucketToNearest(hw.ramTotalMB / 1024, 4),
         gpuVendor: hw.gpuVendor,
-        gpuName: hw.gpuName,
-        gpuVramMB: hw.gpuVramMB,
+        gpuVramGB: bucketToNearest(hw.gpuVramMB / 1024, 4),
         installMethod,
-        diskTotalGB: hw.diskTotalGB,
+        diskTotalGB: bucketToNearest(hw.diskTotalGB, 50),
         collectedAt: new Date().toISOString(),
     };
 }
@@ -142,7 +140,6 @@ function getFeatureSnapshot(cfg: ReturnType<typeof loadConfig>): HeartbeatEvent[
 
 /** Build a heartbeat event */
 export function buildHeartbeat(activeSessions = 0): HeartbeatEvent {
-    const mem = process.memoryUsage();
     const cfg = loadConfig();
     return {
         installId: getOrCreateNodeId(),
@@ -151,7 +148,6 @@ export function buildHeartbeat(activeSessions = 0): HeartbeatEvent {
         timestamp: new Date().toISOString(),
         uptimeSeconds: Math.round(process.uptime()),
         activeSessions,
-        memoryMB: Math.round(mem.heapUsed / 1024 / 1024),
         features: getFeatureSnapshot(cfg),
     };
 }
@@ -286,7 +282,7 @@ export async function recordStartupAnalytics(): Promise<void> {
             ...profile,
         });
 
-        logger.info(COMPONENT, `System profile recorded: ${profile.os} ${profile.arch}, ${profile.cpuCores}c/${profile.ramTotalMB}MB, GPU: ${profile.gpuName}`);
+        logger.info(COMPONENT, `System profile recorded: ${profile.os} ${profile.arch}, ${profile.cpuCores}c/${profile.ramTotalGB}GB, GPU: ${profile.gpuVendor || 'none'}`);
 
         // Fire install/update event once per new install — only when consented.
         await reportInstallMarkerOnce();

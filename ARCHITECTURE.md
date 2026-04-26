@@ -1,11 +1,11 @@
 # TITAN Architecture
 
 > **TITAN -- The Intelligent Task Automation Network**
-> v2026.9.6
+> v5.0.0 "Spacewalk"
 
 ## System Overview
 
-TITAN is a TypeScript-based autonomous AI agent framework with a modular architecture designed for extensibility, security, and multi-agent operation. Pure ESM, zero native compilation, runs on Node.js >= 20.
+TITAN is a TypeScript-based autonomous AI agent framework with a modular architecture designed for extensibility, security, and multi-agent operation. Pure ESM, zero native compilation, runs on Node.js >= 22.
 
 ## Core Components
 
@@ -327,7 +327,7 @@ src/
 
 ## Test Coverage
 
-- **3,323 tests** across **94 files** (Vitest)
-- **~82% line coverage**
+- **5,840+ tests** across **211 files** (Vitest)
+- **~85% line coverage**
 - All core systems have dedicated test suites
 - Run with `npm run test` or `npm run test:coverage`

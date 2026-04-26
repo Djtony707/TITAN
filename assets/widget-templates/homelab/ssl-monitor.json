@@ -1,0 +1,11 @@
+{
+  "id": "ssl-monitor",
+  "name": "SSL Monitor",
+  "category": "homelab",
+  "tags": ["ssl", "certificate", "security"],
+  "description": "SSL certificate expiry checker for domains.",
+  "triggers": ["ssl monitor", "certificate check", "cert expiry", "https check"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function SSLMonitorWidget() {\n  const [domains, setDomains] = React.useState([\n    { name: 'example.com', days: 45, valid: true },\n    { name: 'api.example.com', days: 12, valid: true },\n    { name: 'blog.example.com', days: -3, valid: false }\n  ]);\n\n  function statusColor(days) {\n    if (days < 0) return '#ef4444';\n    if (days < 14) return '#f59e0b';\n    return '#22c55e';\n  }\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%' }}>\n      <h3 style={{ margin: 0, marginBottom: 12 }}>SSL Certificate Monitor</h3>\n      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>\n        {domains.map((d) => (\n          <div key={d.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1e293b', padding: 10, borderRadius: 8 }}>\n            <span style={{ fontSize: 13 }}>{d.name}</span>\n            <span style={{ fontSize: 12, fontWeight: 600, color: statusColor(d.days) }}>\n              {d.days < 0 ? 'Expired ' + Math.abs(d.days) + 'd ago' : d.days + ' days left'}\n            </span>\n          </div>\n        ))}\n      </div>\n      <div style={{ marginTop: 12, fontSize: 11, color: '#64748b' }}>Last check: just now</div>\n    </div>\n  );\n}\nrender(<SSLMonitorWidget/>);",
+  "placeholders": []
+}

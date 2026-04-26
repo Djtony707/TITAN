@@ -20,6 +20,14 @@ export interface ToolCall {
         name: string;
         arguments: string;
     };
+    /**
+     * v4.13: Gemini 3 thinking models (via Ollama's Gemini proxy) emit a
+     * `thought_signature` on each function_call part. It MUST be carried
+     * through to the next turn or Gemini rejects the request with:
+     *   "Function call is missing a thought_signature in functionCall parts"
+     * Other providers ignore this field.
+     */
+    thoughtSignature?: string;
 }
 
 /** A tool definition for the LLM */

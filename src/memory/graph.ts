@@ -17,6 +17,14 @@ const COMPONENT = 'Graph';
 const TITAN_HOME = join(homedir(), '.titan');
 const GRAPH_PATH = join(TITAN_HOME, 'graph.json');
 
+// Short-term cache for getGraphContext to avoid recomputing identical queries
+const graphContextCache = new Map<string, { result: string; timestamp: number }>();
+const GRAPH_CONTEXT_CACHE_TTL = 5000; // 5 seconds
+const MAX_GRAPH_CONTEXT_CACHE = 100; // prevent unbounded growth
+
+const ENTITY_STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'at', 'to', 'of', 'do', 'you', 'we', 'i', 'me', 'my', 'that', 'this', 'was', 'are', 'be', 'been', 'have', 'has', 'had', 'and', 'or', 'but', 'if', 'so', 'not', 'no', 'yes', 'can', 'how', 'what', 'about', 'from', 'with', 'for', 'up', 'out', 'its', 'our', 'your', 'they', 'them', 'he', 'she', 'his', 'her', 'will', 'would', 'could', 'should', 'did', 'does', 'just', 'now', 'some', 'any', 'all', 'very', 'too', 'also', 'than', 'then', 'when', 'where', 'who', 'which', 'there', 'here', 'again', 'today', 'earlier', 'remember']);
+const ENTITY_TYPE_WEIGHT: Record<string, number> = { person: 1.5, project: 1.3, company: 1.2, technology: 1.1, event: 1.0, place: 0.9, topic: 0.7 };
+
 // ── Memory Bounds (Hermes-inspired) ──────────────────────────────
 const MAX_ENTITIES = 500;          // Prune oldest when exceeded
 const MAX_FACTS_PER_ENTITY = 50;   // Cap facts per entity
@@ -59,7 +67,7 @@ export interface Entity {
 }
 
 // ── Allowed entity types ─────────────────────────────────────────
-const ALLOWED_TYPES = new Set(['person', 'project', 'topic', 'place', 'company', 'technology', 'event']);
+const ALLOWED_TYPES = new Set(['person', 'project', 'topic', 'place', 'company', 'technology', 'event', 'social_post']);
 
 const TYPE_COERCION: Record<string, string> = {
     fact: 'topic',
@@ -75,6 +83,8 @@ const TYPE_COERCION: Record<string, string> = {
     directory: '__skip__',
     scenario: '__skip__',
     'person|organization': 'company',
+    social_post: 'social_post',
+    post: 'social_post',
 };
 
 /** Validate and coerce entity type to allowed set */
@@ -135,6 +145,17 @@ let graph: TitanGraph = { episodes: [], entities: [], edges: [] };
 let initialized = false;
 let dirty = false;
 
+// ── Graph indexes (rebuilt on load / mutation) ────────────────────
+let episodeById = new Map<string, Episode>();
+let entitiesByRecency: Entity[] = []; // pre-sorted by lastSeen desc
+
+function buildGraphIndexes(): void {
+    episodeById = new Map(graph.episodes.map(e => [e.id, e]));
+    entitiesByRecency = graph.entities
+        .slice()
+        .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
+}
+
 // ── Persistence ───────────────────────────────────────────────────
 // NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadGraph(): void {
@@ -165,9 +186,11 @@ function loadGraph(): void {
                 entities,
                 edges,
             };
+            buildGraphIndexes();
         } catch (e) {
             logger.warn(COMPONENT, `Failed to parse graph.json, starting fresh: ${(e as Error).message}`);
             graph = { episodes: [], entities: [], edges: [] };
+            buildGraphIndexes();
         }
     }
 }
@@ -237,6 +260,7 @@ export function initGraph(): void {
         if (c.includes('[titan') && POISON_PHRASES.some(p => c.includes(p))) return false;
         return true;
     });
+    buildGraphIndexes();
     const purged = beforeCount - graph.episodes.length;
     if (purged > 0) {
         logger.info(COMPONENT, `Self-heal: purged ${purged} poisoned episodes (negative recall responses)`);
@@ -280,7 +304,7 @@ async function extractEntities(content: string): Promise<{ entities: Array<{ nam
 
 RULES:
 - Extract MAX 3 entities (most important only)
-- Types MUST be one of: person, project, topic, place, company, technology
+- Types MUST be one of: person, project, topic, place, company, technology, social_post
 - SKIP: file paths, URLs, API endpoints, code tokens, session IDs, config keys
 - Keep facts short (under 10 words each, max 2 facts per entity)
 
@@ -491,6 +515,18 @@ function findOrCreateEntity(name: string, type: string, facts: string[]): Entity
         enforceMemoryBounds();
     }
     graph.entities.push(entity);
+    entitiesByRecency.push(entity);
+    // Keep recency list sorted — single insertion into nearly-sorted list
+    // (entity.lastSeen >= most recent existing, so usually already in place)
+    if (entitiesByRecency.length > 1) {
+        const lastIdx = entitiesByRecency.length - 1;
+        const prev = entitiesByRecency[lastIdx - 1];
+        if (entity.lastSeen.localeCompare(prev.lastSeen) > 0) {
+            // Bubble up one position if needed
+            entitiesByRecency[lastIdx] = prev;
+            entitiesByRecency[lastIdx - 1] = entity;
+        }
+    }
     return entity;
 }
 
@@ -511,6 +547,7 @@ function enforceMemoryBounds(): void {
         const removedIds = new Set(removed.map(e => e.id));
         graph.edges = graph.edges.filter(e => !removedIds.has(e.from) && !removedIds.has(e.to));
         logger.info(COMPONENT, `Pruned ${excess} oldest entities (limit: ${MAX_ENTITIES})`);
+        buildGraphIndexes();
     }
     // Cap facts per entity
     for (const entity of graph.entities) {
@@ -535,7 +572,15 @@ const POISON_PHRASES = [
     'could not find it through search', 'does not appear in my knowledge',
 ];
 
-export async function addEpisode(content: string, source: string): Promise<Episode> {
+export async function addEpisode(
+    content: string,
+    source: string,
+    provenance?: {
+        source: import('./provenance.js').ProvenanceSource;
+        confidence?: number;
+        writtenBy?: string;
+    },
+): Promise<Episode> {
     if (!initialized) initGraph();
 
     // Guard: don't store injection attempts
@@ -558,8 +603,26 @@ export async function addEpisode(content: string, source: string): Promise<Episo
         entities: [],
     };
     graph.episodes.push(episode);
+    episodeById.set(episode.id, episode);
     enforceMemoryBounds();
     saveGraph();
+
+    // Record provenance if source info provided.
+    if (provenance) {
+        void (async () => {
+            try {
+                const { recordProvenance } = await import('./provenance.js');
+                recordProvenance({
+                    memoryId: episode.id,
+                    memoryType: 'episode',
+                    source: provenance.source,
+                    confidence: provenance.confidence,
+                    writtenBy: provenance.writtenBy,
+                    content: episode.content,
+                });
+            } catch { /* ok */ }
+        })();
+    }
 
     // Index to vector store for semantic search (fire-and-forget)
     if (isVectorSearchAvailable()) {
@@ -664,7 +727,7 @@ export async function addEpisode(content: string, source: string): Promise<Episo
 }
 
 // ── Search (hybrid keyword + vector) ─────────────────────────────
-export function searchMemory(query: string, limit = 20): Episode[] {
+export async function searchMemory(query: string, limit = 20): Promise<Episode[]> {
     if (!initialized) initGraph();
     if (!query) return getRecentEpisodes(limit);
 
@@ -697,51 +760,50 @@ export function searchMemory(query: string, limit = 20): Episode[] {
             if (entityText.includes(term)) { entityMatch = true; break; }
         }
         if (entityMatch) {
-            // Search episodes for this entity's name (since episodeIds aren't populated)
-            const entityNameLower = entity.name.toLowerCase();
-            for (const ep of graph.episodes) {
-                if (!scored.has(ep.id) && ep.content.toLowerCase().includes(entityNameLower)) {
-                    scored.set(ep.id, { ep, score: 0.8 });
-                }
-            }
-            // Also search for key terms from entity facts in episodes
-            const factTerms = entity.facts.slice(0, 3).join(' ').toLowerCase().split(/\s+/).filter(t => t.length > 4);
-            for (const ep of graph.episodes) {
-                if (!scored.has(ep.id)) {
-                    let factScore = 0;
-                    for (const ft of factTerms) {
-                        if (ep.content.toLowerCase().includes(ft)) factScore += 0.3;
+            // Use entity.episodeIds (O(1) lookup per episode) instead of scanning all episodes
+            for (const epId of (entity.episodeIds || [])) {
+                if (!scored.has(epId)) {
+                    const ep = episodeById.get(epId);
+                    if (ep) {
+                        scored.set(epId, { ep, score: 0.8 });
                     }
-                    if (factScore > 0.5) scored.set(ep.id, { ep, score: factScore });
+                }
+            }
+            // Also search for key terms from entity facts in linked episodes
+            const factTerms = entity.facts.slice(0, 3).join(' ').toLowerCase().split(/\s+/).filter(t => t.length > 4);
+            for (const epId of (entity.episodeIds || [])) {
+                if (!scored.has(epId)) {
+                    const ep = episodeById.get(epId);
+                    if (!ep) continue;
+                    let factScore = 0;
+                    const contentLower = ep.content.toLowerCase();
+                    for (const ft of factTerms) {
+                        if (contentLower.includes(ft)) factScore += 0.3;
+                    }
+                    if (factScore > 0.5) scored.set(epId, { ep, score: factScore });
                 }
             }
         }
     }
 
-    // Vector search augmentation (async, but we cache results for next call)
+    // Vector search augmentation (awaited — previously fire-and-forget caused stale results)
     if (isVectorSearchAvailable()) {
-        searchVectors(query, limit * 2, 'graph', 0.35).then(vectorResults => {
-            // Store in a module-level cache for getGraphContext to use
-            lastVectorResults = vectorResults.map(vr => ({
-                id: vr.id.replace('graph:', ''),
-                score: vr.score,
-            }));
-        }).catch(e => logger.debug('Graph', `Vector op failed: ${(e as Error).message}`));
-    }
-
-    // Merge cached vector results if available
-    if (lastVectorResults.length > 0) {
-        for (const vr of lastVectorResults) {
-            const ep = graph.episodes.find(e => e.id === vr.id);
-            if (!ep) continue;
-            const existing = scored.get(ep.id);
-            if (existing) {
-                existing.score += vr.score * 2; // Boost keyword matches with semantic similarity
-            } else {
-                scored.set(ep.id, { ep, score: vr.score * 1.5 });
+        try {
+            const vectorResults = await searchVectors(query, limit * 2, 'graph', 0.35);
+            for (const vr of vectorResults) {
+                const epId = vr.id.replace('graph:', '');
+                const ep = episodeById.get(epId);
+                if (!ep) continue;
+                const existing = scored.get(ep.id);
+                if (existing) {
+                    existing.score += vr.score * 2; // Boost keyword matches with semantic similarity
+                } else {
+                    scored.set(ep.id, { ep, score: vr.score * 1.5 });
+                }
             }
+        } catch (e) {
+            logger.debug('Graph', `Vector op failed: ${(e as Error).message}`);
         }
-        lastVectorResults = [];
     }
 
     return Array.from(scored.values())
@@ -753,8 +815,7 @@ export function searchMemory(query: string, limit = 20): Episode[] {
         .map((s) => s.ep);
 }
 
-// Cache for async vector search results
-let lastVectorResults: Array<{ id: string; score: number }> = [];
+
 
 // ── Entity lookups ────────────────────────────────────────────────
 export function getEntity(name: string): Entity | null {
@@ -788,6 +849,15 @@ export function getRecentEpisodes(limit = 20): Episode[] {
         .slice(0, limit);
 }
 
+export function getEpisodesBySource(source: string | string[], limit = 20): Episode[] {
+    if (!initialized) initGraph();
+    const sources = Array.isArray(source) ? source : [source];
+    return graph.episodes
+        .filter(ep => sources.includes(ep.source))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, limit);
+}
+
 // ── Graph data for Mission Control ────────────────────────────────
 export function getGraphData(): { nodes: GraphNode[]; edges: GraphEdge[] } {
     if (!initialized) initGraph();
@@ -816,15 +886,21 @@ export function getGraphStats(): { episodeCount: number; entityCount: number; ed
 }
 
 /** Get relevant graph context for a user message (for system prompt injection) */
-export function getGraphContext(query: string): string {
+export async function getGraphContext(query: string): Promise<string> {
     if (!initialized) initGraph();
     if (graph.episodes.length === 0 && graph.entities.length === 0) return '';
+
+    // Check short-term cache for identical queries
+    const cached = graphContextCache.get(query);
+    if (cached && Date.now() - cached.timestamp < GRAPH_CONTEXT_CACHE_TTL) {
+        return cached.result;
+    }
 
     const parts: string[] = [];
 
     // Search for relevant episodes — prioritize TITAN's informative responses over user questions and "I don't know" responses
     if (query) {
-        const relevant = searchMemory(query, 15);
+        const relevant = await searchMemory(query, 15);
         // Filter: remove TITAN's "I don't recall/remember/know" responses — they poison the context
         // Also remove bare user questions (they don't contain useful info)
         // Keep: TITAN responses with actual content (answers, facts, jokes, etc.)
@@ -846,12 +922,10 @@ export function getGraphContext(query: string): string {
     }
 
     // Search entities with quality scoring
-    const STOP_WORDS = new Set(['a', 'an', 'the', 'is', 'it', 'in', 'on', 'at', 'to', 'of', 'do', 'you', 'we', 'i', 'me', 'my', 'that', 'this', 'was', 'are', 'be', 'been', 'have', 'has', 'had', 'and', 'or', 'but', 'if', 'so', 'not', 'no', 'yes', 'can', 'how', 'what', 'about', 'from', 'with', 'for', 'up', 'out', 'its', 'our', 'your', 'they', 'them', 'he', 'she', 'his', 'her', 'will', 'would', 'could', 'should', 'did', 'does', 'just', 'now', 'some', 'any', 'all', 'very', 'too', 'also', 'than', 'then', 'when', 'where', 'who', 'which', 'there', 'here', 'again', 'today', 'earlier', 'remember']);
-    const queryTerms = query ? query.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t)) : [];
+    const queryTerms = query ? query.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !ENTITY_STOP_WORDS.has(t)) : [];
     const matchedEntities: Array<{ entity: typeof graph.entities[0]; score: number }> = [];
 
     // Type quality weights — persons and projects are more valuable context than generic topics
-    const TYPE_WEIGHT: Record<string, number> = { person: 1.5, project: 1.3, company: 1.2, technology: 1.1, event: 1.0, place: 0.9, topic: 0.7 };
 
     for (const e of graph.entities) {
         // Skip noise entities that slipped through
@@ -867,7 +941,7 @@ export function getGraphContext(query: string): string {
         }
         if (score > 0) {
             // Apply type weight
-            score *= (TYPE_WEIGHT[e.type?.toLowerCase()] ?? 0.8);
+            score *= (ENTITY_TYPE_WEIGHT[e.type?.toLowerCase()] ?? 0.8);
             // Boost entities with more facts (richer context)
             score *= 1 + Math.min(e.facts.length, 10) * 0.05;
             // Mild recency boost (within last 7 days)
@@ -881,9 +955,7 @@ export function getGraphContext(query: string): string {
     const topMatched = matchedEntities.slice(0, 5).map(m => m.entity);
 
     const matchedIds = new Set(topMatched.map(e => e.name));
-    const recentEntities = graph.entities
-        .slice()
-        .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
+    const recentEntities = entitiesByRecency
         .filter(e => !matchedIds.has(e.name) && !isNoiseEntity(e.name) && e.facts.length > 0)
         .slice(0, 3);
 
@@ -908,7 +980,13 @@ export function getGraphContext(query: string): string {
         }
     }
 
-    return parts.length > 0 ? parts.join('\n') : '';
+    const result = parts.length > 0 ? parts.join('\n') : '';
+    if (graphContextCache.size >= MAX_GRAPH_CONTEXT_CACHE) {
+        const oldest = graphContextCache.keys().next().value;
+        if (oldest) graphContextCache.delete(oldest);
+    }
+    graphContextCache.set(query, { result, timestamp: Date.now() });
+    return result;
 }
 
 /**
@@ -943,6 +1021,7 @@ export async function flushMemoryBeforeCompaction(messages: Array<{ role: string
 /** Clear all graph data */
 export function clearGraph(): void {
     graph = { episodes: [], entities: [], edges: [] };
+    buildGraphIndexes();
     saveGraph();
     logger.info(COMPONENT, 'Graph cleared');
 }

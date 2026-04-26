@@ -212,7 +212,7 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             // Dependencies blocking — pause-block for human
             state.phase = 'blocked';
             state.blockedReason = {
-                question: 'Subtask dependency resolution deadlocked — no ready subtask but some are pending. Please review.',
+                question: `Goal "${goal.title}" is deadlocked. All pending subtasks have unresolved dependencies and none are ready to run. Please review the subtask order and dependencies.`,
                 approvalId: '', // filled below if we file an approval
                 sinceAt: new Date().toISOString(),
                 kind: 'dep_deadlock',
@@ -257,7 +257,7 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
         if (isInfrastructureFailure(subState.lastError)) {
             state.phase = 'escalated';
             state.blockedReason = {
-                question: `All specialists failed to produce structured JSON output. This indicates a systematic infrastructure failure (likely model configuration issue). Please check model availability or switch to a JSON-compliant model tier.`,
+                question: `Goal "${goal.title}" — all specialists failed to produce valid output after ${goal.subtasks?.length ?? 0} subtask(s). This usually means the model is misconfigured, the task is too vague, or the specialist doesn't have the right tools. Please review the goal description or switch the model tier.`,
                 approvalId: '',
                 sinceAt: new Date().toISOString(),
                 kind: 'infrastructure_failure',
@@ -332,14 +332,33 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             appendHistory(state, 'iterating', `Spawn returned failed: ${subState.lastError.slice(0, 120)}`);
         } else if (result.status === 'needs_info' || result.status === 'blocked') {
             state.phase = 'blocked';
+            // v4.14.0: build a rich, contextual blocked reason instead of
+            // the generic "Specialist requires input" that tells the user
+            // nothing about what actually went wrong.
+            const subtaskTitle = next.title || 'Unnamed subtask';
+            const specialistName = strategy.specialist || subState.specialist || 'specialist';
+            const attemptCount = subState.attempts;
+            const lastErr = subState.lastError;
+            const rawQuestion = result.questions[0] ?? '';
+
+            let richQuestion: string;
+            if (rawQuestion && rawQuestion.length > 10 && !rawQuestion.toLowerCase().includes('specialist requires')) {
+                // The specialist gave a real question — use it but wrap with context
+                richQuestion = `Goal "${goal.title}" is stuck on subtask "${subtaskTitle}" (attempt ${attemptCount}, specialist: ${specialistName}).\n\n${rawQuestion}`;
+            } else if (lastErr) {
+                richQuestion = `Goal "${goal.title}" — subtask "${subtaskTitle}" failed after ${attemptCount} attempt(s) with specialist ${specialistName}.\n\nError: ${lastErr.slice(0, 200)}\n\nWhat should the specialist do next?`;
+            } else {
+                richQuestion = `Goal "${goal.title}" — subtask "${subtaskTitle}" is blocked after ${attemptCount} attempt(s) with specialist ${specialistName}. The specialist could not complete the task and needs guidance on how to proceed.`;
+            }
+
             state.blockedReason = {
-                question: result.questions[0] ?? 'Specialist requires input',
+                question: richQuestion,
                 approvalId: '',
                 sinceAt: new Date().toISOString(),
                 kind: 'needs_info',
             };
-            appendHistory(state, 'blocked', `Spawn needs info: ${(result.questions[0] ?? '').slice(0, 120)}`);
-            await fileBlockedApproval(state, goal, result.questions);
+            appendHistory(state, 'blocked', `Spawn needs info: ${richQuestion.slice(0, 120)}`);
+            await fileBlockedApproval(state, goal, [richQuestion, ...result.questions.slice(1)]);
         }
         subState.pendingSpawn = undefined;
     } catch (err) {
@@ -419,7 +438,7 @@ async function tickIterating(goal: Goal, state: DriverState): Promise<void> {
         if (suggestion === 'ask_human') {
             state.phase = 'blocked';
             state.blockedReason = {
-                question: `Budget exceeded (${check.message}). Continue with extended budget, de-scope, or cancel?`,
+                question: `Goal "${goal.title}" — budget exceeded (${check.message}). The driver has used ${state.budget.costUsd.toFixed(2)} USD so far. Continue with extended budget, de-scope, or cancel?`,
                 approvalId: '',
                 sinceAt: new Date().toISOString(),
                 kind: 'budget_exceeded',
@@ -431,6 +450,26 @@ async function tickIterating(goal: Goal, state: DriverState): Promise<void> {
     }
 
     if (subState.attempts >= state.budgetCaps.maxRetries) {
+        // Gap 2 (plan-this-logical-ocean): before giving up on this subtask,
+        // consult the bounded continuation counter. If the per-subtask cap
+        // hasn't been hit (max 2, persisted to disk so restarts can't
+        // bypass), halve attempts and let it try again. This is the
+        // "plan_only" signal — spawns kept producing plans/output that
+        // wouldn't verify. Two extra cycles across a restart boundary is
+        // the cheapest escape from the verifying↔iterating oscillation that
+        // the existing stuck-loop detector can't catch (different errors
+        // each time, but no real progress).
+        const { shouldContinue } = await import('./runContinuations.js');
+        const continuationKey = `${goal.id}:${currentId}`;
+        if (shouldContinue(continuationKey, 'plan_only')) {
+            const before = subState.attempts;
+            subState.attempts = Math.max(0, Math.floor(subState.attempts / 2));
+            subState.consecutiveIdenticalErrors = 0;
+            subState.lastErrorFingerprint = undefined;
+            appendHistory(state, 'delegating', `Continuation granted on ${currentId}: attempts halved ${before} → ${subState.attempts}`);
+            state.phase = 'delegating';
+            return;
+        }
         try {
             const { failSubtask } = await import('./goals.js');
             failSubtask(goal.id, currentId, subState.lastError || 'max retries');
@@ -747,7 +786,12 @@ async function pickNextReadySubtask(goal: Goal, state: DriverState): Promise<Sub
             } catch { /* ok — driver will re-try next tick */ }
             continue;
         }
-        // TODO: respect dependsOn — for now we process in subtask order
+        // Respect dependsOn: skip subtasks whose prerequisites are not completed
+        const depsSatisfied = (sub.dependsOn ?? []).every(depId => {
+            const dep = goal.subtasks?.find(s => s.id === depId);
+            return dep?.status === 'done';
+        });
+        if (!depsSatisfied) continue;
         return sub;
     }
     return null;
@@ -770,6 +814,8 @@ async function fileBlockedApproval(
     } catch { /* if throttle module unavailable, fall through */ }
     try {
         const { createApproval } = await import('./commandPost.js');
+        const subState = state.currentSubtaskId ? state.subtaskStates[state.currentSubtaskId] : undefined;
+        const subtaskTitle = goal.subtasks?.find(s => s.id === state.currentSubtaskId)?.title;
         const approval = createApproval({
             type: 'custom',
             requestedBy: 'goal-driver',
@@ -781,7 +827,11 @@ async function fileBlockedApproval(
                 allQuestions: questions,
                 blockedPhase: state.phase,
                 currentSubtaskId: state.currentSubtaskId,
-                subtaskKind: state.currentSubtaskId ? state.subtaskStates[state.currentSubtaskId]?.kind : undefined,
+                subtaskKind: subState?.kind,
+                subtaskTitle,
+                specialist: subState?.specialist,
+                attempts: subState?.attempts,
+                lastError: subState?.lastError,
                 urgency: 'high',
             },
             linkedIssueIds: [],

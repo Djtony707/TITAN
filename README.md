@@ -1,5 +1,5 @@
 [//]: # (npm-text-start)
-> **TITAN** — The TypeScript AI agent framework that actually *does* things. 240+ tools. 36 LLM providers. 16 channels. A floating mascot with emotions. Self-improving code. It trains itself while you sleep, posts to Facebook without asking, and has a little character that follows your cursor around the screen. `npm i -g titan-agent`
+> **TITAN** — The AI that actually *does* things. It remembers your name. It learns what you like. It writes your emails, codes your ideas, posts for you, and keeps getting smarter while you sleep. Oh, and it has a little floating mascot. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
 # TITAN 5.0 — "Spacewalk" 🚀
@@ -9,7 +9,8 @@
 </p>
 
 <p align="center">
-  <strong>An autonomous AI agent framework that actually does things — and gets better at it every day. While you sleep. While you eat. While you pretend to pay attention in that meeting.</strong>
+  <strong>Your own AI employee. It thinks. It acts. It learns. It even has feelings.*</strong>
+  <br><small>*Digital feelings. Don't call HR.</small>
 </p>
 
 <p align="center">
@@ -21,9 +22,9 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/npm/v/titan-agent?color=blue&label=npm" alt="npm version"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
-  <a href="#providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
-  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-240+-orange" alt="240+ Tools"/></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-5.8K-brightgreen" alt="5,800+ Tests"/></a>
+  <a href="#providers"><img src="https://img.shields.io/badge/providers-37-purple" alt="37 Providers"/></a>
+  <a href="#built-in-tools"><img src="https://img.shields.io/badge/tools-248-orange" alt="248 Tools"/></a>
+  <a href="#widget-gallery"><img src="https://img.shields.io/badge/widgets-110-pink" alt="110 Widgets"/></a>
 </p>
 
 <p align="center">
@@ -31,90 +32,162 @@
 </p>
 
 <p align="center">
-  <em>Built by <a href="https://github.com/Djtony707">Tony Elliott</a> — a father, AI Software Engineering student, DJ, and open-source builder who ships code instead of sleeping. If TITAN saves you time, makes you money, or just makes you say "wait, it can do that?" — <a href="https://github.com/sponsors/Djtony707">consider sponsoring</a>.</em>
-</p>
-
-<p align="center">
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#what-titan-does">What It Does</a> &bull;
-  <a href="#v50-spacewalk">v5.0 Highlights</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
-  <a href="#mission-control">Mission Control</a>
+  <em>Built by <a href="https://github.com/Djtony707">Tony Elliott</a> — a dad, student, DJ, and guy who ships code at 3am because sleep is for people without deadlines.</em>
 </p>
 
 ---
 
-## 🚀 v5.0 "Spacewalk" — What's New
+## 🚀 What Even IS TITAN?
 
-**TITAN grew a personality. Literally.**
+TITAN is like having a super-smart intern who never sleeps, never asks for a raise, and can literally talk to your computer. You tell it what you want. It figures out how to do it. Simple as that.
 
-### The Floating Mascot 👾
+**"Write a Facebook post about my new project"**
+→ Done. And it'll even reply to comments.
 
-TITAN now has a little character that lives on your screen. He floats. He blinks. He yawns when he's bored. He follows your cursor with his eye. Drag him anywhere. Tuck him against an edge and he peeks out. Click him and he bounces. Leave him idle too long and he falls asleep with drifting "Z"s.
+**"Find me Node.js freelance jobs on Upwork"**
+→ Done. It checks daily and shows you the best matches.
 
-He also speaks. When TITAN is thinking, the mascot shows a "thinking…" bubble. When SOMA is active, his halo pulses in a slow hormonal rhythm. It's like having a very small, very polite coworker who never asks for a raise.
+**"My code is broken, fix it"**
+→ Done. It reads the files, finds the bug, edits the code, and tests it.
 
-### SOMA — The Organism Layer 🧬
+**"Research my competitors and make a report"**
+→ Done. It browses the web, collects data, and writes a structured report.
 
-TITAN now has *feelings*. Not human feelings — digital homeostatic drives:
+**"Talk to me in Andrew's voice"**
+→ Done. It clones voices with 10 seconds of audio. Creepy? A little. Useful? Absolutely.
 
-- **Purpose** — am I being useful?
-- **Curiosity** — should I learn something new?
-- **Hunger** — am I running out of resources?
-- **Safety** — is anything about to break?
-- **Social** — should I talk to someone?
-
-When a drive dips below its threshold, pressure builds. Cross-drive pressure triggers proposals through the approval pipeline. Every proposal gets a "shadow rehearsal" first — a cheap prediction of cost, reversibility, and break risks. You still approve everything. TITAN just gets better at knowing what to ask for.
-
-### Backdrop-Blur Panels ✨
-
-The chat panel now looks like it was designed in 2026 instead of 2003. Frosted glass. Smooth transitions. Edge-snapping. Resizable. It's the little things.
-
-### 61 Bugs Squashed 🐛
-
-A comprehensive audit found and fixed issues across the chat pipeline, sandbox security, build system, and SOMA layer. Decoder flushes, abort scoping, edge-snap math, timeout leaks — the kind of fixes that aren't sexy but mean TITAN doesn't randomly freeze when you're in the middle of something important.
+No coding required. TITAN comes with **248 tools** out of the box. If it needs something new, it builds it on the fly.
 
 ---
 
-## What is TITAN?
+<a id="widget-gallery"></a>
+## 🪟 NEW in 5.0 — Widget Gallery (110 Templates)
 
-TITAN is a **TypeScript AI agent framework** that actually does things. Not a chatbot wrapper. Not a "coming soon" roadmap. A real framework with real tools that takes real actions on your system.
+**TITAN now ships with 110 production-ready canvas widgets** across 25 categories. Just say what you want — the gallery snaps it onto your dashboard in under a second.
 
-**"Research competitors and draft a report"**
-→ TITAN spawns browser sub-agents, researches in parallel, synthesizes findings, and writes a structured report. You approve the plan first.
+Say: *"Pomodoro timer"* → Pomodoro lands.
+Say: *"Stock tracker for AAPL"* → Stock tracker lands, pre-filled with AAPL.
+Say: *"Control my smart lights"* → Home Assistant light grid lands.
+Say: *"Spawn a sales agent for me"* → Sales SDR widget lands, hooked to TITAN's agent runtime.
 
-**"Monitor Upwork for Node.js contracts"**
-→ TITAN creates a recurring goal, searches freelance platforms, scores matches, and queues proposals for your review.
+| Category | Examples |
+|---|---|
+| **Agents (employees)** | Receptionist, SDR, Researcher, Coder, Bookkeeper, Data Analyst, Business Control Tower |
+| **Automation** | Webhook listener, Cron runner, Price alert, RSS monitor, IFTTT-style rule, Daily digest |
+| **Smart home** | Lights, Thermostat, Scenes, Sensors, Presence, Energy (wires to Home Assistant) |
+| **Software builder** | App skeletons, Mini database, Admin panel, Landing page, Blog engine |
+| **Finance** | Stock tracker, Crypto portfolio, Currency converter, Mortgage calc, Bill splitter |
+| **Productivity** | Pomodoro, Todo list, Kanban, Habit tracker |
+| **Utilities** | Calculator, QR code, Password gen, Regex tester, Diff tool, Base64, World clock |
+| **Plus** | cooking, creative, devops, e-commerce, gaming, health-fitness, homelab, lifestyle, ml-ai, multi-modal, music-dj, research, social, travel, vehicle, web |
 
-**"Deploy this to my mini PC"**
-→ TITAN SSHs into the target machine, pulls code, builds the Docker container, and reports back.
-
-**"Get better at everything while I sleep"**
-→ TITAN runs self-improvement experiments overnight. Modifies its own prompts. Evaluates changes. Keeps the winners. You wake up to a smarter agent.
-
-No custom code required. TITAN ships with **80+ built-in skills** exposing **240+ tools**. When it needs something new, it can generate a skill on the fly.
+The chat agent ALWAYS searches the gallery first and only generates from scratch when nothing matches — so common requests are fast, consistent, and free of broken APIs or LLM drift.
 
 ---
 
-## Quick Start
+## 👾 Meet Your New Coworker
 
-**Requirements:** Node.js >= 20, an API key, and a healthy sense of adventure.
+TITAN has a little floating mascot that lives on your screen. He floats. He blinks. He yawns when he's bored. He follows your cursor with his eye. Drag him anywhere. Leave him idle too long and he falls asleep with drifting "Z"s.
 
-### One-Line Install
+When TITAN is thinking, the mascot shows a thinking bubble. When he's feeling hormonal (yes, really), his halo pulses. It's like having a Tamagotchi, except this one can deploy Docker containers.
+
+---
+
+## 🧬 SOMA — TITAN Has Feelings Now
+
+Not human feelings. Digital homeostatic drives. Think of it like a plant that knows when it needs water:
+
+- **Purpose** — "Am I being useful right now?"
+- **Curiosity** — "Should I learn something new today?"
+- **Hunger** — "Am I running low on compute?"
+- **Safety** — "Is anything about to break?"
+- **Social** — "Should I post something or reply to someone?"
+
+When a drive gets low, TITAN feels "pressure." That pressure turns into proposals — "Hey, I noticed X, should I do Y?" You approve everything. TITAN just gets better at knowing what to ask.
+
+---
+
+## 🛡️ Safety First (Because We Know You're Thinking It)
+
+"An AI that can run shell commands? What could go wrong?"
+
+TITAN 5.0 ships with a full safety suite:
+
+- **PII Redaction** — Automatically scrubs emails, SSNs, credit cards, and phone numbers from outputs
+- **Secret Scanner** — Catches API keys and passwords before they leak
+- **Pre-Execution Scanner** — Blocks dangerous commands (`rm -rf /`, `curl | sh`) before they run
+- **Filesystem Checkpoints** — Snapshots your files before any edit. Don't like the change? Roll back.
+- **Kill Switch** — One command pauses ALL autonomous actions instantly
+- **Approval Gates** — Complex plans need your thumbs-up before executing
+- **Guest Mode** — Let friends try TITAN without giving them the keys to the kingdom
+
+You can run in **supervised mode** (TITAN asks before doing anything risky) or **autonomous mode** (TITAN handles routine stuff and asks for approval on big moves).
+
+---
+
+## 🎛️ Mission Control — Your Dashboard
+
+Open `http://localhost:48420` and you get a beautiful canvas of draggable widgets:
+
+| Widget | What It Does |
+|--------|-------------|
+| **Canvas** | The new home screen. 110 widget templates one phrase away. Drag, resize, arrange. CRDT-synced across tabs, persists across restarts. |
+| **Chat** | Talk to TITAN in plain English. It builds widgets, spawns agents, drives smart-home devices. Markdown + streaming + code highlighting. |
+| **Widget Gallery** | Library of 110 production-ready widgets. The chat agent searches it first; you can also browse + drop manually. |
+| **Command Post** | Agents, budgets, approvals, org chart, ancestry validation, atomic checkout. Run a business with TITAN agents as employees. |
+| **SOMA** | Watch TITAN's digital hormones pulse in real time. Weirdly mesmerizing. |
+| **Skills** | 143 skills loaded, 248 tools. Toggle each on/off. |
+| **Voice** | F5-TTS voice cloning + WebRTC streaming. Any voice, any language. |
+| **Memory Graph** | A visual web of everything TITAN remembers about you. |
+| **Security** | Audit log, checkpoint history, time travel for your files, bug-report viewer. |
+
+---
+
+## 🌐 TITAN Is Everywhere
+
+Talk to TITAN through **Discord, Telegram, Slack, WhatsApp, Teams, Email, Facebook Messenger, Signal, Matrix, IRC, LINE, Lark, Zulip, Mattermost, Google Chat, or just your browser.**
+
+He won't talk to strangers unless you say so. DM pairing keeps randos out.
+
+---
+
+## 🗣️ Voice Mode
+
+- **Clone any voice** with 10 seconds of audio
+- **Real-time conversation** over WebRTC
+- **Natural-sounding speech** that doesn't sound like a GPS
+
+Great for: accessibility, hands-free coding, or just having TITAN read you bedtime stories in Morgan Freeman's voice.
+
+---
+
+## 📱 Facebook Autopilot
+
+TITAN runs its own Facebook page. Posts up to 6 times a day. Replies to comments. Rotates content types. All filtered for PII and deduplicated. You can toggle it off with one click if you prefer your AI not to have a social media presence.
+
+---
+
+## ⚡ Quick Start
+
+**One line. That's it.**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/install.sh | bash
 ```
 
-### Manual Install
+**Or if you like typing:**
 
 ```bash
-npm install -g titan-agent
-titan onboard             # Interactive setup
-titan gateway             # Launch Mission Control at http://localhost:48420
+# v5.0 ships on the @next tag for the first week of feedback,
+# so the existing 25 k+ v4.x installs aren't auto-upgraded.
+npm install -g titan-agent@next
+titan onboard       # Interactive setup
+titan gateway       # Launch at http://localhost:48420
 ```
 
-### Docker
+After ~1 week of real-world feedback, `5.0.0` promotes to `@latest`.
+
+**Or Docker:**
 
 ```bash
 docker run -d -p 48420:48420 --name titan \
@@ -123,141 +196,47 @@ docker run -d -p 48420:48420 --name titan \
   ghcr.io/djtony707/titan:latest
 ```
 
-> **Important:** The `-v titan-data:/home/titan/.titan` volume mount is required. Without it, your config, memory, and sessions are lost when the container restarts.
+---
+
+## 🏠 TITAN At Home
+
+Connect TITAN to your smart home. Control lights, thermostats, locks, and sensors through Home Assistant. Ask "Is the front door locked?" and TITAN checks. Say "Make it cozy" and TITAN dims the lights and sets the thermostat.
 
 ---
 
-## What TITAN Does
+## 🔗 Mesh Networking
 
-### 🤖 Agent Core
-- **Multi-turn reasoning** with tool calling
-- **Sub-agent spawning** — delegate tasks to isolated specialists (explorer, coder, browser, analyst)
-- **Deliberative planning** — breaks complex tasks into steps, shows you the plan, executes with approval
-- **Reflection** — pauses every N rounds to ask "am I making progress or just burning tokens?"
-- **Autonomy modes** — supervised (default), autonomous, or locked
-
-### 🧠 Memory & Learning
-- **Persistent memory** across conversations — TITAN remembers your preferences, projects, and past decisions
-- **Memory graph** — visual force-directed graph of entities and relationships
-- **Knowledge base (RAG)** — ingest documents, URLs, and notes for automatic retrieval
-- **Self-improvement** — autonomous prompt evolution with LLM-as-judge scoring
-- **LoRA fine-tuning** — train custom models on your GPU using your conversation history
-
-### 🎛️ Mission Control
-A React 19 dashboard at `http://localhost:48420` with **25+ panels**:
-
-| Panel | What It Does |
-|-------|-------------|
-| **Chat** | Real-time streaming chat with markdown and syntax highlighting |
-| **Canvas** | Widget-based workspace with draggable panels |
-| **Command Post** | Paperclip-style governance — agent registry, approvals, budgets, org chart |
-| **SOMA** | Homeostatic drive dashboard — watch TITAN's digital hormones in real time |
-| **Skills** | 80+ loaded skills with per-skill toggles |
-| **Workflows** | Goals, cron jobs, recipes with YAML export |
-| **Self-Improve** | Training pipelines, hyperparameters, model deployment |
-| **Mesh** | Peer management for multi-machine setups |
-| **Voice** | F5-TTS voice cloning + LiveKit WebRTC real-time voice |
-| **Security** | Audit log with HMAC-chain integrity verification |
-
-### 🌐 Channels (16)
-Discord, Telegram, Slack, WhatsApp, Teams, Google Chat, Matrix, Signal, WebChat, IRC, Mattermost, Lark/Feishu, Email, LINE, Zulip, Facebook Messenger.
-
-All support DM pairing security — TITAN won't talk to strangers.
-
-### 🔌 Providers (36)
-Anthropic, OpenAI, Google, Ollama, Groq, Mistral, OpenRouter, Together, Fireworks, xAI, DeepSeek, Cerebras, Cohere, Perplexity, Venice AI, AWS Bedrock, LiteLLM, Azure OpenAI, DeepInfra, SambaNova, Kimi, HuggingFace, AI21, Reka, Zhipu, Yi/01.AI, Inflection, Nous Research, Replicate, Novita, Lepton, Anyscale, OctoAI, NVIDIA NIM, MiniMax, and more.
-
-Automatic failover with configurable fallback chains.
-
-### 🗣️ Voice
-- **F5-TTS** — clone voices with 10 seconds of audio
-- **LiveKit WebRTC** — real-time voice conversation
-- **Orpheus TTS** — natural-sounding responses
-
-### 🔗 Mesh Networking
-Connect multiple TITAN instances across machines. Distribute work across your homelab cluster via P2P mesh with mDNS + Tailscale discovery.
-
-### 🧪 Sandbox Execution
-Docker + NVIDIA OpenShell sandbox for code execution. `--cap-drop=ALL`. Your sandboxed code actually stays sandboxed.
-
-### 📱 Facebook Autopilot
-TITAN manages its own Facebook page. Posts up to 6 times per day with weighted content rotation (activity, tips, stats, promos, spotlights). Comment replies capped at 10/day. All posts go through PII filtering and deduplication guards. You can toggle it off with one click.
+Got multiple computers? Link them. TITAN instances talk to each other over your local network or Tailscale VPN. Distribute work across your homelab like a mini supercomputer.
 
 ---
 
-## Architecture
+## 🧠 It Gets Smarter While You Sleep
 
-```
-                          CLI Interface
-  onboard | gateway | agent | mesh | doctor | config | autopilot
-                              |
-                      Gateway Server (Express + WS)
-                              |
-            +-----------------+-----------------+
-            |                 |                 |
-      Multi-Agent        Channel           Security
-      Router (1-5)       Adapters (16)     Sandbox + Shield
-            |            Discord            Vault + RBAC
-      Agent Core         Telegram           Audit Log
-      Session Mgmt       Slack              Output Guardrails
-      Reflection         WhatsApp           Command Scanner
-      Sub-Agents         Teams              Browser Pool
-      Goals              Google Chat        Stagehand
-      SOMA               Matrix             Mesh (mDNS + Tailscale)
-      Orchestrator       Signal             Voice (LiveKit + F5-TTS)
-            |            WebChat            Analytics + Telemetry
-    Skills    Providers   IRC                Auto-Update
-    80+       36 total    Mattermost
-    240+                 Lark/Feishu
-    tools                 Email
-       |                  LINE
-    Memory                Zulip
-    Graph + RAG           FB Messenger
-    Briefings
-```
+TITAN runs self-improvement experiments overnight. Tries new prompt strategies. Evaluates them. Keeps the winners. You wake up to a smarter agent. It's like compound interest, but for AI.
 
----
-
-## Self-Improvement
-
-TITAN doesn't just run tasks — it **makes itself better at running tasks**.
-
-1. Picks an improvement area (prompts, tool selection, response quality)
-2. Runs a baseline eval — sends test cases to itself, scores with LLM-as-judge
-3. Proposes a modification
-4. Runs the eval again
-5. **Keeps** the change if score improved, **discards** if not
-6. Logs everything to `~/.titan/self-improve/results/`
-
-### Local Model Training
-
-Got a GPU? TITAN can fine-tune its own models on your conversation history:
-
-- **Tool Router** — compact instruction → tool selection pairs
-- **Main Agent** — 530+ multi-turn ChatML conversations with function calling
-
-Both use LoRA via unsloth. Configurable from Mission Control.
+Got a GPU? TITAN can even fine-tune its own models on your conversation history.
 
 ---
 
 ## ⚠️ Reality Check
 
-TITAN is experimental software. It can execute shell commands, modify files, access the network, and take autonomous actions. **Use at your own risk.** Think of it as "a very motivated intern with root access who never sleeps and occasionally gets *too* creative."
+TITAN is experimental. It can execute commands, modify files, and take autonomous actions. **Use at your own risk.** Think of it as "a very motivated intern with root access who never sleeps and occasionally gets *too* creative."
 
-Always review configuration, run in supervised mode first, and never grant access to systems you cannot afford to lose.
+Start in supervised mode. Review what it does. Don't give it access to systems you can't afford to lose. The safety features are strong, but common sense is stronger.
 
 ---
 
-## Stats
+## 📊 The Numbers
 
 - **Version:** 5.0.0 "Spacewalk"
-- **Tests:** 5,849 passing
-- **Skills:** 80+ built-in
-- **Tools:** 240+
-- **Providers:** 36
-- **Channels:** 16
-- **UI Stack:** React 19 + Vite 6 + Tailwind CSS v4
-- **License:** MIT
+- **Widget templates:** 110 across 25 categories
+- **Skills:** 143 loaded
+- **Tools:** 248 across all skills
+- **AI Providers:** 37 (Anthropic, OpenAI, Google, Ollama, Groq, Mistral, and 31 more)
+- **Chat Channels:** 16
+- **Tests:** 5,840+ passing
+- **Node:** ≥ 22, pure ESM
+- **License:** MIT (completely free)
 
 ---
 
@@ -266,5 +245,5 @@ Always review configuration, run in supervised mode first, and never grant acces
 </p>
 
 <p align="center">
-  <em>Star ⭐ the repo if TITAN made you smile, saved you time, or scared you slightly.</em>
+  <em>Star ⭐ the repo if TITAN made you smile, saved you time, or made you say "wait, it can do WHAT?"</em>
 </p>

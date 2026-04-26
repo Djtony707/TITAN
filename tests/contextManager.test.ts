@@ -26,15 +26,15 @@ describe('ContextManager', () => {
             expect(estimateTokens('')).toBe(0);
         });
 
-        it('returns 1 for short text (1-4 chars)', () => {
+        it('returns 1 for short text (1-3 chars)', () => {
             expect(estimateTokens('hi')).toBe(1);
             expect(estimateTokens('abc')).toBe(1);
-            expect(estimateTokens('abcd')).toBe(1);
+            expect(estimateTokens('abcd')).toBe(2); // 4/3.8 ≈ 1.05 → ceil 2
         });
 
-        it('returns approximately 4 chars per token for longer text', () => {
+        it('returns approximately 3.8 chars per token for prose', () => {
             const text = 'a'.repeat(400);
-            expect(estimateTokens(text)).toBe(100);
+            expect(estimateTokens(text)).toBe(106); // 400/3.8 ≈ 105.3 → ceil 106
         });
 
         it('rounds up fractional tokens', () => {
@@ -50,7 +50,7 @@ describe('ContextManager', () => {
 
         it('handles very long text', () => {
             const longText = 'word '.repeat(10000); // ~50000 chars
-            expect(estimateTokens(longText)).toBe(12500);
+            expect(estimateTokens(longText)).toBe(13158); // 50000/3.8 ≈ 13158
         });
 
         it('handles single character', () => {
@@ -75,10 +75,10 @@ describe('ContextManager', () => {
         });
 
         it('accounts for system prompt', () => {
-            const prompt = 'a'.repeat(400); // ~100 tokens
+            const prompt = 'a'.repeat(400); // ~106 tokens (400/3.8)
             const budget = calculateBudget(128000, prompt, 0);
-            expect(budget.systemPromptTokens).toBe(100);
-            expect(budget.remainingForHistory).toBe(128000 - 100 - 0 - 2000);
+            expect(budget.systemPromptTokens).toBe(106);
+            expect(budget.remainingForHistory).toBe(128000 - 106 - 0 - 2000);
         });
 
         it('accounts for tool definitions (120 tokens per tool)', () => {
@@ -537,11 +537,11 @@ describe('ContextManager', () => {
 
         it('estimates tokens correctly', () => {
             const msgs: ChatMessage[] = [
-                { role: 'user', content: 'a'.repeat(400) }, // 100 tokens
-                { role: 'assistant', content: 'b'.repeat(200) }, // 50 tokens
+                { role: 'user', content: 'a'.repeat(400) }, // ~106 tokens
+                { role: 'assistant', content: 'b'.repeat(200) }, // ~53 tokens
             ];
             const stats = getContextStats(msgs);
-            expect(stats.estimatedTokens).toBe(150);
+            expect(stats.estimatedTokens).toBe(159);
         });
 
         it('handles tool role messages (not counted as user/assistant)', () => {

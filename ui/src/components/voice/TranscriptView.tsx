@@ -31,7 +31,7 @@ export function TranscriptView({ messages = [], isListening = false }: Transcrip
       }}
     >
       {messages.length === 0 && !isListening && (
-        <p className="text-center text-sm" style={{ color: '#71717a' }}>
+        <p className="text-center text-sm text-text-muted">
           Start speaking to begin the conversation
         </p>
       )}
@@ -44,8 +44,8 @@ export function TranscriptView({ messages = [], isListening = false }: Transcrip
             <div
               className="max-w-[80%] rounded-lg px-3 py-2 text-sm"
               style={{
-                backgroundColor: msg.role === 'user' ? '#6366f1' : '#27272a',
-                color: '#fafafa',
+                backgroundColor: msg.role === 'user' ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                color: 'var(--color-text)',
               }}
             >
               {msg.text}
@@ -58,11 +58,11 @@ export function TranscriptView({ messages = [], isListening = false }: Transcrip
           <span
             className="inline-block h-2 w-2 rounded-full"
             style={{
-              backgroundColor: '#6366f1',
+              backgroundColor: 'var(--color-accent)',
               animation: 'listeningPulse 1s ease-in-out infinite',
             }}
           />
-          <span className="text-xs" style={{ color: '#a1a1aa' }}>
+          <span className="text-xs text-text-secondary">
             Listening...
           </span>
           <style>{`

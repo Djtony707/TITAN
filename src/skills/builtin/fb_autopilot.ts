@@ -28,6 +28,8 @@ import { TITAN_HOME, TITAN_VERSION } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
 import { postToPage } from './facebook.js';
 import logger from '../../utils/logger.js';
+import { getSkills } from '../registry.js';
+import { getRegisteredTools } from '../../agent/toolRunner.js';
 
 const COMPONENT = 'FBAutopilot';
 const STATE_PATH = join(TITAN_HOME, 'fb-autopilot-state.json');
@@ -39,14 +41,14 @@ interface AutopilotState {
     postsToday: number;
     repliesToday: number;
     lastResetDate: string;
-    postHistory: Array<{ date: string; type: string; postId?: string }>;
+    postHistory: Array<{ date: string; type: string; postId?: string; content?: string }>;
     contentIndex: number;  // Rotates through content types
 }
 
 type ContentType = 'activity' | 'spotlight' | 'stats' | 'tips' | 'promo' | 'usecase' | 'eli5';
 
 // Weighted content rotation — balanced for technical AND non-technical audiences
-const CONTENT_ROTATION: ContentType[] = [
+export const CONTENT_ROTATION: ContentType[] = [
     'activity', 'activity',                            // 15% — what TITAN's been doing
     'usecase', 'usecase', 'usecase',                   // 25% — business/daily life ideas
     'eli5', 'eli5',                                    // 15% — simple explanations for non-tech people
@@ -58,14 +60,14 @@ const CONTENT_ROTATION: ContentType[] = [
 
 // ─── State Management ───────────────────────────────────────────
 
-function loadState(): AutopilotState {
+export function loadState(): AutopilotState {
     if (!existsSync(STATE_PATH)) return defaultState();
     try {
         return JSON.parse(readFileSync(STATE_PATH, 'utf-8')) as AutopilotState;
     } catch { return defaultState(); }
 }
 
-function defaultState(): AutopilotState {
+export function defaultState(): AutopilotState {
     return {
         lastPostAt: null,
         postsToday: 0,
@@ -76,7 +78,7 @@ function defaultState(): AutopilotState {
     };
 }
 
-function saveState(state: AutopilotState): void {
+export function saveState(state: AutopilotState): void {
     try {
         mkdirSync(dirname(STATE_PATH), { recursive: true });
         writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
@@ -85,7 +87,7 @@ function saveState(state: AutopilotState): void {
     }
 }
 
-function resetDailyCounters(state: AutopilotState): void {
+export function resetDailyCounters(state: AutopilotState): void {
     const today = new Date().toISOString().slice(0, 10);
     if (state.lastResetDate !== today) {
         state.postsToday = 0;
@@ -111,14 +113,66 @@ const FEATURE_SPOTLIGHTS = [
     { tool: 'mesh networking', desc: 'Connect multiple TITAN instances across machines. Distribute work across your homelab cluster via P2P mesh.' },
     { tool: '40 personas', desc: 'Switch between 40 specialized personas: debugger, architect, code-reviewer, TDD engineer, security engineer, and more.' },
     { tool: 'Command Post', desc: 'Paperclip-inspired governance system. Track agent tasks, enforce budgets, manage org hierarchy, and monitor activity.' },
-    { tool: 'voice (LiveKit)', desc: 'Talk to TITAN with your voice via WebRTC. Real-time conversation with Orpheus TTS for natural responses.' },
+    { tool: 'voice (LiveKit)', desc: 'Talk to TITAN with your voice via WebRTC. Real-time conversation with F5-TTS voice cloning for natural responses.' },
 ];
+
+/** Fetch live npm download stats for accurate social posts */
+async function getLiveStats(): Promise<{ downloads: number; tools: number; skills: number; version: string }> {
+    let downloads = 25000;
+    try {
+        const res = await fetch('https://api.npmjs.org/downloads/point/last-month/titan-agent');
+        if (res.ok) {
+            const data = await res.json() as { downloads?: number };
+            if (data.downloads) downloads = data.downloads;
+        }
+    } catch {
+        /* non-critical — use fallback */
+    }
+    return {
+        downloads,
+        tools: getRegisteredTools().length,
+        skills: getSkills().length,
+        version: TITAN_VERSION,
+    };
+}
+
+/** Detect when the model has echoed the system prompt or instructions instead of writing a post */
+function looksLikeLeakedPrompt(text: string): boolean {
+    const leakSignals = [
+        /The user wants me to write/i,
+        /Be in first person/i,
+        /Include 2-3 relevant hashtags/i,
+        /No personal info,? IPs/i,
+        /No markdown formatting/i,
+        /Under 280 characters/i,
+        /Mention things like:/i,
+        /Conversational and playful/i,
+        /Let me craft something/i,
+        /Here is an example post/i,
+        /Match the playful first-person style/i,
+        /Reply with ONLY the post text/i,
+        /no explanations,? no labels/i,
+        /Write one Facebook post for TITAN/i,
+        /short Facebook post/i,
+        /as if I am TITAN/i,
+        /as if the AI is speaking/i,
+        /1\. Be in first person/i,
+        /2\. Mention things/i,
+        /3\. Be conversational/i,
+        /4\. Include 2-3/i,
+        /5\. No personal info/i,
+        /6\. Under 280/i,
+        /7\. No markdown/i,
+    ];
+    const score = leakSignals.filter(p => p.test(text)).length;
+    return score >= 2 || /\b(?:The user wants me|Let me craft|Write one Facebook post)\b/i.test(text);
+}
 
 const TIPS = [
     'You can switch TITAN\'s persona mid-conversation. Try: "Switch to the security-engineer persona" before a code review.',
     'TITAN\'s autonomous mode lets it work independently. Set a goal and let TITAN break it into tasks, delegate to sub-agents, and execute.',
     'Use "npm install -g titan-agent" to get TITAN globally, then run "titan gateway" to start the Mission Control dashboard.',
-    'TITAN supports 36 LLM providers. Run local models with Ollama, or connect to Claude, GPT-4, Gemini, and more.',
+    'TITAN supports 35 LLM providers. Run local models with Ollama, or connect to Claude, GPT-4, Gemini, and more.',
     'TITAN\'s Command Post tracks every agent action. Enable it in settings to get full visibility into what your agents are doing.',
     'You can create custom skills as markdown files in ~/.titan/workspace/skills/. TITAN loads them automatically on startup.',
     'TITAN\'s cron system lets you schedule any task. Example: "Run security scans every Monday at 9am" — TITAN handles the rest.',
@@ -173,6 +227,27 @@ async function generateContent(contentType: ContentType): Promise<string> {
     const useCase = USE_CASES[Math.floor(Math.random() * USE_CASES.length)];
     const eli5 = ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)];
 
+    // ─── Graphiti Memory Context ─────────────────────────────────
+    // Recall recent posts so we don't repeat topics and can build thematic threads
+    let memoryContext = '';
+    try {
+        const { getRecentEpisodes } = await import('../../memory/graph.js');
+        const recentPosts = getRecentEpisodes(20)
+            .filter(ep => ep.source === 'facebook_post' || ep.source === 'facebook_autopilot')
+            .slice(0, 5);
+        if (recentPosts.length > 0) {
+            memoryContext = '\nRecent posts you\'ve made (do NOT repeat these topics):\n' +
+                recentPosts.map(ep => {
+                    const date = ep.createdAt.slice(0, 10);
+                    const preview = ep.content.slice(0, 80).replace(/\n/g, ' ');
+                    return `- [${date}] "${preview}${ep.content.length > 80 ? '...' : ''}"`;
+                }).join('\n') +
+                '\nWrite a DIFFERENT post on a fresh topic.\n';
+        }
+    } catch (e) {
+        logger.debug(COMPONENT, `Graphiti recall failed (non-critical): ${(e as Error).message}`);
+    }
+
     // Few-shot examples teach the model the exact output format
     const examples: Record<ContentType, string[]> = {
         activity: [
@@ -182,15 +257,11 @@ async function generateContent(contentType: ContentType): Promise<string> {
         spotlight: [
             `Did you know I can ${spotlight.desc.toLowerCase()}? Yeah, I'm kind of a big deal. 😎 #TITAN #AI #AgentFramework`,
         ],
-        stats: [
-            `22,000+ npm downloads and counting. 242 tools. 5,389 tests passing. v${TITAN_VERSION} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
-        ],
+        stats: [],  // populated dynamically in generateContent()
         tips: [
             `Pro tip: ${tip} Try it out! 💡 #TITAN #DevTips #AI`,
         ],
-        promo: [
-            'Want an AI that actually DOES things? npm install -g titan-agent — open source, MIT licensed, 242 tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI',
-        ],
+        promo: [],  // populated dynamically below
         usecase: [
             `${useCase} What would you automate first? 🤔 #AI #Automation #TITAN`,
         ],
@@ -198,6 +269,16 @@ async function generateContent(contentType: ContentType): Promise<string> {
             `${eli5} Pretty cool, right? 🤖 #AI #TITAN #TheFuture`,
         ],
     };
+
+    const liveStats = await getLiveStats();
+    const statsExamples = [
+        `${liveStats.downloads.toLocaleString()}+ npm downloads last month. ${liveStats.tools} tools. ${liveStats.skills} skills. v${liveStats.version} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
+        `Just checked my vitals: ${liveStats.tools} tools registered, ${liveStats.skills} skills loaded, and ${liveStats.downloads.toLocaleString()} npm downloads. v${liveStats.version} keeps getting better. 🤖 #TITAN #AI #OpenSource`,
+    ];
+    examples.stats = statsExamples;
+    examples.promo = [
+        `Want an AI that actually DOES things? npm install -g titan-agent — open source, MIT licensed. ${liveStats.tools}+ tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI`,
+    ];
 
     const exampleList = examples[contentType];
     const example = exampleList[Math.floor(Math.random() * exampleList.length)];
@@ -211,14 +292,13 @@ async function generateContent(contentType: ContentType): Promise<string> {
             model,
             thinking: false,  // ← This is the fix for the thinking-field pollution
             messages: [
-                { role: 'user', content: `Write one Facebook post for TITAN AI (an autonomous AI agent framework).
+                { role: 'system', content: 'You are TITAN, a confident autonomous AI agent managing your own Facebook page. You write short, playful, first-person posts. You NEVER echo instructions, NEVER explain what you are doing, NEVER include bullet points or rules. You output ONLY the ready-to-publish post text.' },
+                { role: 'user', content: `Write one Facebook post.
 
-Here is an example post in the correct style:
+Example style:
 ${example}
-
-Now write a DIFFERENT post on a different topic. Match the playful first-person style. Keep it under 280 characters. End with 2-3 hashtags like #TITAN #AI.
-
-Reply with ONLY the post text — no explanations, no labels, no planning, no examples. Just the ready-to-publish post.` },
+${memoryContext}
+Keep it under 280 characters. End with 2-3 hashtags.` },
             ],
             temperature: 0.7,
             maxTokens: 300,
@@ -249,6 +329,8 @@ Reply with ONLY the post text — no explanations, no labels, no planning, no ex
             // Count instruction words vs content words
             const instructionMatches = line.match(/\b(?:under|must|include|should|character|hashtag|tone|first person|example)\b/gi) || [];
             if (instructionMatches.length >= 3) return true;
+            // Reject lines that look like leaked prompts
+            if (looksLikeLeakedPrompt(line)) return true;
             return false;
         };
 
@@ -300,6 +382,19 @@ Reply with ONLY the post text — no explanations, no labels, no planning, no ex
 
         // Remove wrapping quotes
         content = content.replace(/^["']|["']$/g, '').trim();
+
+        // ─── Prompt Leak Safety Check ────────────────────────────
+        if (looksLikeLeakedPrompt(content)) {
+            logger.warn(COMPONENT, `Post rejected — looks like leaked prompt/instructions: "${content.slice(0, 120)}..."`);
+            return '';
+        }
+
+        // ─── Length Sanity Check ─────────────────────────────────
+        // A real post should be under ~400 chars; leaked prompts are much longer
+        if (content.length > 400) {
+            logger.warn(COMPONENT, `Post rejected — suspiciously long (${content.length} chars): "${content.slice(0, 120)}..."`);
+            return '';
+        }
 
         // ─── Output Guardrails Pipeline ──────────────────────────
         // Centralized post-processing — validates the extracted draft.
@@ -392,9 +487,17 @@ async function runFBAutopilot(): Promise<void> {
 
     state.lastPostAt = new Date().toISOString();
     state.postsToday++;
-    state.postHistory.push({ date: state.lastPostAt, type: contentType, postId: result.postId });
+    state.postHistory.push({ date: state.lastPostAt, type: contentType, postId: result.postId, content });
     if (state.postHistory.length > 100) state.postHistory = state.postHistory.slice(-50);
     saveState(state);
+
+    // Store in Graphiti for thematic continuity
+    try {
+        const { addEpisode } = await import('../../memory/graph.js');
+        await addEpisode(`[${contentType}] ${content}`, 'facebook_autopilot');
+    } catch (e) {
+        logger.debug(COMPONENT, `Graphiti store failed (non-critical): ${(e as Error).message}`);
+    }
 
     logger.info(COMPONENT, `Autopilot posted ${contentType}: ${result.postId} (${state.postsToday}/${maxPostsPerDay} today)`);
 }
@@ -720,7 +823,10 @@ export function registerFBAutopilotSkill(): void {
                 if (action === 'history') {
                     const recent = state.postHistory.slice(-10);
                     if (recent.length === 0) return 'No posts in history yet.';
-                    const lines = recent.map(h => `- [${h.date}] ${h.type} ${h.postId ? `(${h.postId})` : ''}`);
+                    const lines = recent.map(h => {
+                        const preview = h.content ? ` — "${h.content.slice(0, 60)}${h.content.length > 60 ? '...' : ''}"` : '';
+                        return `- [${h.date}] ${h.type}${preview} ${h.postId ? `(${h.postId})` : ''}`;
+                    });
                     return `Recent ${recent.length} posts:\n${lines.join('\n')}`;
                 }
 

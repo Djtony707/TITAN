@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useMemo } from 'react';
 import { getConfig, getVoiceHealth } from '@/api/client';
 import type { TitanConfig, VoiceHealth } from '@/api/types';
 
@@ -44,16 +44,31 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh();
-    // Poll every 4 seconds — keeps model name, config changes live without a reload
-    const interval = setInterval(refresh, 4000);
-    return () => clearInterval(interval);
+    // Poll every 30 seconds — config rarely changes; pause when tab hidden
+    let interval = setInterval(refresh, 30000);
+    const onVis = () => {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        refresh();
+        interval = setInterval(refresh, 30000);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   // Voice button is available whenever voice is enabled in config — don't gate on health
   const voiceAvailable = Boolean(config?.voice?.enabled);
 
+  const value = useMemo(() => ({ config, voiceHealth, voiceAvailable, loading, refresh }),
+    [config, voiceHealth, voiceAvailable, loading, refresh]);
+
   return (
-    <ConfigContext.Provider value={{ config, voiceHealth, voiceAvailable, loading, refresh }}>
+    <ConfigContext.Provider value={value}>
       {children}
     </ConfigContext.Provider>
   );

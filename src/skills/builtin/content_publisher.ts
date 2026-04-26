@@ -381,8 +381,20 @@ export function registerContentPublisherSkill(): void {
                     const cronExpr = cronExpressions[frequency] || cronExpressions.daily;
                     const scheduleLabel = scheduleLabels[frequency] || scheduleLabels.daily;
 
-                    // Wire to the real goal system instead of just writing docs
-                    const { createGoal } = await import('../../agent/goals.js');
+                    // v5.0.0: Check for existing scheduled content goals for this niche
+                    // before creating a duplicate. Update schedule if found.
+                    const { createGoal, listGoals, updateGoal } = await import('../../agent/goals.js');
+                    const existing = listGoals().find(g =>
+                        g.title.trim().toLowerCase() === `publish content: ${niche}`.toLowerCase()
+                    );
+                    if (existing) {
+                        if (existing.schedule !== cronExpr) {
+                            updateGoal(existing.id, { schedule: cronExpr });
+                            return `Updated existing content schedule for "${niche}" (Goal ${existing.id}) to ${scheduleLabel}.`;
+                        }
+                        return `Content schedule for "${niche}" already exists (Goal ${existing.id}, ${existing.schedule}). No duplicate created.`;
+                    }
+
                     const goal = createGoal({
                         title: `Publish content: ${niche}`,
                         description: `Automated content pipeline for "${niche}" niche, publishing to ${repo}`,

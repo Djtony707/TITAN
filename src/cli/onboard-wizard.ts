@@ -19,6 +19,73 @@ import { fileURLToPath } from 'url';
 import { loadConfig, saveConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 
+/** Probe Ollama for actually-installed models */
+async function discoverOllamaModels(baseUrl = 'http://localhost:11434'): Promise<string[]> {
+    try {
+        const response = await fetch(`${baseUrl}/api/tags`);
+        if (!response.ok) return [];
+        const data = await response.json() as { models?: Array<{ name: string; size?: number; modified_at?: string }> };
+        return (data.models || []).map((m) => m.name);
+    } catch {
+        return [];
+    }
+}
+
+/** Probe network for models across all configured providers */
+async function discoverNetworkModels(providers: Record<string, Record<string, unknown>>): Promise<{ name: string; value: string; source: 'live' | 'static' }[]> {
+    const discovered: { name: string; value: string; source: 'live' | 'static' }[] = [];
+
+    // Ollama — always probe local API for live models
+    if (providers.ollama?.enabled) {
+        const ollamaModels = await discoverOllamaModels(
+            (providers.ollama.baseUrl as string) || 'http://localhost:11434'
+        );
+        if (ollamaModels.length > 0) {
+            for (const model of ollamaModels) {
+                discovered.push({
+                    name: `${model} (ollama/${model})`,
+                    value: `ollama/${model}`,
+                    source: 'live',
+                });
+            }
+        } else {
+            // Fallback if Ollama is enabled but no models found
+            discovered.push(
+                { name: 'Llama 3.1 (ollama/llama3.1)', value: 'ollama/llama3.1', source: 'static' },
+                { name: 'Mistral (ollama/mistral)', value: 'ollama/mistral', source: 'static' },
+            );
+        }
+    }
+
+    // Anthropic — static known models
+    if (providers.anthropic?.apiKey) {
+        discovered.push(
+            { name: 'Claude 3.5 Sonnet', value: 'anthropic/claude-3-5-sonnet-20241022', source: 'static' },
+            { name: 'Claude 3 Opus', value: 'anthropic/claude-3-opus-20240229', source: 'static' },
+            { name: 'Claude 3 Haiku', value: 'anthropic/claude-3-haiku-20240307', source: 'static' },
+        );
+    }
+
+    // OpenAI — static known models
+    if (providers.openai?.apiKey) {
+        discovered.push(
+            { name: 'GPT-4o', value: 'openai/gpt-4o', source: 'static' },
+            { name: 'GPT-4o Mini', value: 'openai/gpt-4o-mini', source: 'static' },
+            { name: 'GPT-4 Turbo', value: 'openai/gpt-4-turbo', source: 'static' },
+        );
+    }
+
+    // Groq — static known models
+    if (providers.groq?.apiKey) {
+        discovered.push(
+            { name: 'Llama 3.3 70B (Groq)', value: 'groq/llama-3.3-70b-versatile', source: 'static' },
+            { name: 'Mixtral 8x7B (Groq)', value: 'groq/mixtral-8x7b-32768', source: 'static' },
+        );
+    }
+
+    return discovered;
+}
+
 const COMPONENT = 'Onboarding';
 
 // Template content for workspace files
@@ -590,7 +657,20 @@ async function setupProviders(existingProviders: Record<string, Record<string, u
   });
 
   if (enableOllama) {
-    providers.ollama = { enabled: true };
+    const ollamaUrl = await input({
+      message: 'Ollama base URL (press Enter for localhost):',
+      default: (providers.ollama?.baseUrl as string) || 'http://localhost:11434',
+    });
+
+    providers.ollama = { enabled: true, baseUrl: ollamaUrl };
+
+    // Probe for available models immediately
+    const liveModels = await discoverOllamaModels(ollamaUrl);
+    if (liveModels.length > 0) {
+      console.log(chalk.green(`  ✓ Found ${liveModels.length} Ollama model(s): ${liveModels.join(', ')}`));
+    } else {
+      console.log(chalk.yellow('  ⚠ No Ollama models detected. Install models with: ollama pull <model>'));
+    }
   }
 
   const enableGroq = await confirm({
@@ -616,36 +696,27 @@ async function setupModel(
   existingModel: Record<string, unknown>,
   providers: Record<string, Record<string, unknown>>
 ): Promise<Record<string, unknown>> {
+  console.log(chalk.blue('\n  🔍 Discovering available models...\n'));
+
+  const discovered = await discoverNetworkModels(providers);
+
+  // Separate live (Ollama) from static models
+  const liveModels = discovered.filter(m => m.source === 'live');
+  const staticModels = discovered.filter(m => m.source === 'static');
+
   const availableModels: { name: string; value: string }[] = [];
 
-  if (providers.anthropic?.apiKey) {
+  if (liveModels.length > 0) {
     availableModels.push(
-      { name: 'Claude 3.5 Sonnet (anthropic/claude-3-5-sonnet-20241022)', value: 'anthropic/claude-3-5-sonnet-20241022' },
-      { name: 'Claude 3 Opus (anthropic/claude-3-opus-20240229)', value: 'anthropic/claude-3-opus-20240229' },
-      { name: 'Claude 3 Haiku (anthropic/claude-3-haiku-20240307)', value: 'anthropic/claude-3-haiku-20240307' },
+      { name: chalk.green.bold('━━ Local Models (Ollama) ━━'), value: '' },
+      ...liveModels.map(m => ({ name: `  🖥️  ${m.name}`, value: m.value })),
     );
   }
 
-  if (providers.openai?.apiKey) {
+  if (staticModels.length > 0) {
     availableModels.push(
-      { name: 'GPT-4o (openai/gpt-4o)', value: 'openai/gpt-4o' },
-      { name: 'GPT-4o Mini (openai/gpt-4o-mini)', value: 'openai/gpt-4o-mini' },
-      { name: 'GPT-4 Turbo (openai/gpt-4-turbo)', value: 'openai/gpt-4-turbo' },
-    );
-  }
-
-  if (providers.ollama?.enabled) {
-    availableModels.push(
-      { name: 'Llama 3.1 (ollama/llama3.1)', value: 'ollama/llama3.1' },
-      { name: 'Llama 3.1 70B (ollama/llama3.1:70b)', value: 'ollama/llama3.1:70b' },
-      { name: 'Mistral (ollama/mistral)', value: 'ollama/mistral' },
-    );
-  }
-
-  if (providers.groq?.apiKey) {
-    availableModels.push(
-      { name: 'Llama 3.3 70B (groq/llama-3.3-70b-versatile)', value: 'groq/llama-3.3-70b-versatile' },
-      { name: 'Mixtral 8x7B (groq/mixtral-8x7b-32768)', value: 'groq/mixtral-8x7b-32768' },
+      { name: chalk.blue.bold('━━ Cloud Models ━━'), value: '' },
+      ...staticModels.map(m => ({ name: `  ☁️  ${m.name}`, value: m.value })),
     );
   }
 
@@ -654,33 +725,35 @@ async function setupModel(
     return existingModel;
   }
 
-  const defaultModel = (existingModel.default as string) || availableModels[0]?.value;
+  const defaultModel = (existingModel.default as string) || liveModels[0]?.value || staticModels[0]?.value;
 
   const selectedModel = await select({
     message: 'Select your default AI model:',
-    choices: availableModels.map(m => ({ name: m.name, value: m.value })),
+    choices: availableModels.map(m => ({ name: m.name, value: m.value, disabled: m.value === '' })),
     default: defaultModel,
   });
 
   // Set up aliases
   const aliases: Record<string, string> = {};
-  
+
   const setupAliases = await confirm({
     message: 'Set up model aliases (fast, smart, cheap)?',
     default: true,
   });
 
   if (setupAliases) {
-    // Auto-assign aliases based on model characteristics
-    const cheapModel = availableModels.find(m => 
+    const allModelValues = discovered.map(m => m.value);
+    const cheapModel = discovered.find(m =>
       m.value.includes('haiku') || m.value.includes('mini') || m.value.includes('gpt-4o-mini')
+        || m.value.includes(':small') || m.value.includes(':8b') || m.value.includes(':4b')
     );
-    
-    const smartModel = availableModels.find(m => 
+
+    const smartModel = discovered.find(m =>
       m.value.includes('opus') || m.value.includes('gpt-4') || m.value.includes('70b')
+        || m.value.includes(':large') || m.value.includes(':super') || m.value.includes('sonnet')
     );
-    
-    const fastModel = cheapModel || availableModels[0];
+
+    const fastModel = cheapModel || discovered.find(m => m.value.includes('ollama')) || discovered[0];
 
     if (cheapModel) aliases.cheap = cheapModel.value;
     if (smartModel) aliases.smart = smartModel.value;

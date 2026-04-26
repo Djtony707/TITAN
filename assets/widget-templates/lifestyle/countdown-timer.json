@@ -1,0 +1,13 @@
+{
+  "id": "countdown-timer",
+  "name": "Countdown Timer",
+  "category": "lifestyle",
+  "tags": ["countdown", "timer", "event", "deadline", "reminder"],
+  "description": "Countdown to a specific date and time with days/hours/minutes/seconds.",
+  "triggers": ["countdown", "countdown timer", "days until", "event countdown", "deadline timer"],
+  "defaultSize": { "w": 5, "h": 4 },
+  "source": "function CountdownTimer() {\n  const [target, setTarget] = React.useState('REPLACE_WITH_DATE');\n  const [now, setNow] = React.useState(new Date());\n\n  React.useEffect(()=>{\n    const id = setInterval(()=>setNow(new Date()),1000);\n    return ()=>clearInterval(id);\n  },[]);\n\n  const t = new Date(target);\n  const diff = t - now;\n  const days = Math.floor(diff/(1000*60*60*24));\n  const hours = Math.floor((diff%(1000*60*60*24))/(1000*60*60));\n  const mins = Math.floor((diff%(1000*60*60))/(1000*60));\n  const secs = Math.floor((diff%(1000*60))/1000);\n\n  const pad = (n)=>String(n).padStart(2,'0');\n\n  return (\n    <div style={{padding:20,fontFamily:'system-ui',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>\n      <div style={{fontSize:18,fontWeight:700,marginBottom:12}}>Countdown</div>\n      <input type=\"datetime-local\" value={target} onChange={e=>setTarget(e.target.value)}\n        style={{padding:'8px 12px',borderRadius:8,border:'1px solid #ccc',fontSize:14,marginBottom:20}}/>\n      {diff > 0 ? (\n        <div style={{display:'flex',gap:12}}>\n          {[{l:'Days',v:days},{l:'Hrs',v:hours},{l:'Min',v:mins},{l:'Sec',v:secs}].map(u=> (\n            <div key={u.l} style={{textAlign:'center'}}>\n              <div style={{width:60,height:60,background:'#007AFF',color:'#fff',borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,fontWeight:700,marginBottom:6}}>\n                {pad(u.v)}\n              </div>\n              <div style={{fontSize:11,color:'#888',textTransform:'uppercase'}}>{u.l}</div>\n            </div>\n          ))}\n        </div>\n      ) : (\n        <div style={{fontSize:24,fontWeight:700,color:'#FF3B30'}}>Time's up!</div>\n      )}\n    </div>\n  );\n}\nrender(<CountdownTimer/>);",
+  "placeholders": [
+    { "name": "REPLACE_WITH_DATE", "description": "Target date in datetime-local format", "default": "2026-12-31T23:59" }
+  ]
+}

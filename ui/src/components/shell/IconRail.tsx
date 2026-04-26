@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router';
 import {
-  Crosshair, Shield, Brain, Wrench, Server, Settings, Heart, Users,
+  Crosshair, Activity, Brain, Shield, Wrench, Server, Settings, Sparkles, Rocket,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -13,18 +13,22 @@ interface NavItem {
   group: 'primary' | 'ops' | 'admin';
 }
 
+/** Top-level nav — 7 items, logically grouped */
 const NAV_ITEMS: NavItem[] = [
-  // Primary mission-control views
-  { to: '/',             icon: Crosshair, label: 'Mission',        exact: true, group: 'primary' },
-  { to: '/soma',         icon: Heart,     label: 'Soma',                       group: 'primary' },
-  // Operations — day-to-day interactions with agents, goals, tools
-  { to: '/command-post', icon: Shield,    label: 'Command Post',               group: 'ops' },
-  { to: '/agents',       icon: Users,     label: 'Agents',                     group: 'ops' },
-  { to: '/intelligence', icon: Brain,     label: 'Intelligence',               group: 'ops' },
-  { to: '/tools',        icon: Wrench,    label: 'Tools',                      group: 'ops' },
-  // Admin — infra + config
-  { to: '/infra',        icon: Server,    label: 'Infrastructure',             group: 'admin' },
-  { to: '/settings',     icon: Settings,  label: 'Settings',                   group: 'admin' },
+  // Primary — mission control & live monitoring
+  { to: '/',             icon: Crosshair,  label: 'Mission',      exact: true, group: 'primary' },
+  { to: '/watch',        icon: Activity,   label: 'Watch',                      group: 'primary' },
+
+  // Operations — intelligence & execution
+  { to: '/intelligence', icon: Brain,      label: 'Intelligence',               group: 'ops' },
+  { to: '/command-post', icon: Shield,     label: 'Command Post',               group: 'ops' },
+  { to: '/tools',        icon: Wrench,     label: 'Tools',                      group: 'ops' },
+  { to: '/space',        icon: Rocket,     label: 'Space',                      group: 'ops' },
+
+  // Admin — infrastructure & configuration
+  { to: '/infra',        icon: Server,     label: 'Infra',                      group: 'admin' },
+  { to: '/soma',         icon: Sparkles,   label: 'Soma',                       group: 'admin' },
+  { to: '/settings',     icon: Settings,   label: 'Settings',                   group: 'admin' },
 ];
 
 function RailItem({ item }: { item: NavItem }) {
@@ -62,7 +66,7 @@ function RailItem({ item }: { item: NavItem }) {
               'absolute inset-1 rounded-xl transition-all duration-200',
               isActive
                 ? 'bg-accent/10 ring-1 ring-accent/30 shadow-[0_0_18px_rgba(99,102,241,0.25)]'
-                : 'bg-transparent group-hover:bg-white/[0.04] group-hover:ring-1 group-hover:ring-white/[0.06]',
+                : 'bg-transparent group-hover:bg-bg-tertiary group-hover:ring-1 group-hover:ring-border',
             )}
           />
 
@@ -77,7 +81,7 @@ function RailItem({ item }: { item: NavItem }) {
           <span
             className={clsx(
               'pointer-events-none absolute left-full ml-2 whitespace-nowrap',
-              'rounded-md border border-white/[0.06] bg-bg-secondary px-2 py-1',
+              'rounded-md border border-border bg-bg-secondary px-2 py-1',
               'text-[11px] font-medium text-text shadow-lg',
               'opacity-0 -translate-x-1 transition-all duration-150',
               'group-hover:opacity-100 group-hover:translate-x-0',
@@ -97,7 +101,7 @@ function GroupDivider() {
     <div
       aria-hidden
       className="my-1.5 h-px w-6 self-center"
-      style={{ background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent)' }}
+      style={{ background: 'linear-gradient(to right, transparent, var(--color-border), transparent)' }}
     />
   );
 }
@@ -109,14 +113,13 @@ export default function IconRail() {
 
   return (
     <nav
-      className="relative flex flex-col items-center w-16 shrink-0 py-3 gap-0.5"
+      className="relative hidden md:flex flex-col items-center w-16 shrink-0 py-3 gap-0.5"
       style={{
         background: 'linear-gradient(180deg, var(--color-rail-bg) 0%, #07070a 100%)',
         boxShadow: 'var(--shadow-rail)',
       }}
     >
-      {/* Logo — uses the TITAN logo from /public, consistent with the
-          expanded Sidebar, with a subtle accent-gradient ring. */}
+      {/* Logo */}
       <NavLink
         to="/"
         end

@@ -16,7 +16,7 @@ import { titanEvents } from './daemon.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult } from './subAgent.js';
 import { routeMessage } from './multiAgent.js';
 import { getAdapter } from './adapters/index.js';
-import { addIssueComment, updateIssue, startRun, endRun } from './commandPost.js';
+import { addIssueComment, updateIssue, startRun, endRun, updateAgentStatus } from './commandPost.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 import { emitAgentEvent } from './agentEvents.js';
@@ -103,6 +103,15 @@ export function initWakeupSystem(): void {
             // Clean up completed/failed requests older than 30 minutes
             if ((req.status === 'completed' || req.status === 'failed') && req.completedAt && now - req.completedAt > 1800_000) {
                 wakeupQueue.delete(id);
+            }
+        }
+        // Clean up stale pendingResults (parent never drained them)
+        for (const [sessionId, results] of pendingResults) {
+            const stale = results.filter(r => now - r.completedAt > 3600_000);
+            if (stale.length === results.length) {
+                pendingResults.delete(sessionId);
+            } else if (stale.length > 0) {
+                pendingResults.set(sessionId, results.filter(r => now - r.completedAt <= 3600_000));
             }
         }
     }, 60_000);
@@ -256,6 +265,9 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
     req.status = 'running';
     logger.info(COMPONENT, `[Wakeup] Claimed ${wakeupRequestId} — running sub-agent "${req.agentName}" for issue ${req.issueIdentifier}`);
 
+    // Activate agent in CP registry
+    updateAgentStatus(req.agentId, 'active');
+
     // Transition CP issue to in_progress
     updateIssue(req.issueId, { status: 'in_progress' });
 
@@ -346,6 +358,9 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
             toolsUsed: result.toolsUsed,
         });
 
+        // Deactivate agent
+        updateAgentStatus(req.agentId, 'idle');
+
         await handleCompletion(wakeupRequestId, result);
     } catch (err) {
         const error = (err as Error).message;
@@ -354,6 +369,9 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
         req.completedAt = Date.now();
 
         endRun(run.id, { status: 'error', error });
+
+        // Deactivate agent
+        updateAgentStatus(req.agentId, 'idle');
 
         // Post failure comment on issue
         addIssueComment(req.issueId, `**Sub-agent failed**: ${error}`, { agentId: req.agentId });

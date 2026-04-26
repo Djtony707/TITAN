@@ -4,7 +4,8 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '4.12.0';
+export const TITAN_VERSION = '5.0.0';
+export const TITAN_CODENAME = 'Spacewalk';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
 export const TITAN_ASCII_LOGO = `
@@ -66,6 +67,8 @@ export const INCOME_LEDGER_PATH = join(TITAN_HOME, 'income-ledger.jsonl');
 export const FREELANCE_LEADS_PATH = join(TITAN_HOME, 'freelance-leads.jsonl');
 export const FREELANCE_PROFILE_PATH = join(TITAN_HOME, 'freelance-profile.json');
 export const LEADS_PATH = join(TITAN_HOME, 'leads.jsonl');
+export const TELEMETRY_EVENTS_PATH = join(TITAN_HOME, 'telemetry-events.jsonl');
+export const SOMADRIVE_STATE_PATH = join(TITAN_HOME, 'soma-drive-state.json');
 
 // Gateway defaults
 export const DEFAULT_GATEWAY_HOST = '0.0.0.0';

@@ -49,7 +49,7 @@ export default function TracesTab() {
       {selected ? (
         <div className="space-y-2">
           <button onClick={() => setSelectedTrace(null)} className="text-xs text-accent hover:underline">&larr; Back</button>
-          <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+          <div className="p-2.5 rounded-lg bg-bg-tertiary/30 border border-border/50">
             <p className="text-xs text-text-secondary mb-1 truncate">{selected.message}</p>
             <div className="flex gap-3 text-[10px] text-text-muted mb-2">
               <span>{selected.model}</span>
@@ -82,7 +82,7 @@ export default function TracesTab() {
             <button
               key={trace.traceId}
               onClick={() => setSelectedTrace(trace.traceId)}
-              className="w-full text-left px-2.5 py-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+              className="w-full text-left px-2.5 py-2 rounded-lg bg-bg-secondary/30 hover:bg-bg-tertiary transition-colors"
             >
               <div className="flex items-center gap-2">
                 {trace.status === 'running' ? (

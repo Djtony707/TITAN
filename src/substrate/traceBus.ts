@@ -96,6 +96,11 @@ export interface SomaProposalEvent {
     approvalId: string;
     proposedBy: string;
     title: string;
+    /** Optional proposal description (added 2026-04-20 so the Command Post
+     *  SomaView can render the full card instead of title-only). */
+    description?: string;
+    /** Optional rationale — same reason as description. */
+    rationale?: string;
     dominantDrives: string[];
     shadowVerdict?: {
         reversibilityScore: number;

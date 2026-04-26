@@ -21,7 +21,7 @@ interface WikiEntityDetail extends WikiEntity {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  person: '#818cf8', topic: '#22d3ee', project: '#34d399', place: '#fbbf24',
+  person: 'var(--color-accent-hover)', topic: 'var(--color-cyan)', project: 'var(--color-emerald)', place: '#fbbf24',
   company: '#facc15', technology: '#2dd4bf', event: '#fb7185',
 };
 

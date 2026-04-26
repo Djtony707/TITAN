@@ -18,15 +18,24 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://192.168.1.11:48420',
+        target: 'http://localhost:48420',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://192.168.1.11:48420',
+        target: 'ws://localhost:48420',
         ws: true,
       },
       '/metrics': {
-        target: 'http://192.168.1.11:48420',
+        target: 'http://localhost:48420',
+        changeOrigin: true,
+      },
+      '/ollama': {
+        target: 'http://192.168.1.11:11434',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ollama/, ''),
+      },
+      '/v1/audio': {
+        target: 'http://127.0.0.1:5006',
         changeOrigin: true,
       },
     },

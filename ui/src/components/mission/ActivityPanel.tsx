@@ -29,7 +29,7 @@ export default function ActivityPanel() {
             className={clsx(
               'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors',
               activeTab === id
-                ? 'text-accent bg-white/[0.04] border-b-2 border-accent'
+                ? 'text-accent bg-bg-tertiary border-b-2 border-accent'
                 : 'text-text-muted hover:text-text-secondary',
             )}
           >
@@ -40,7 +40,7 @@ export default function ActivityPanel() {
       </div>
 
       {/* Separator */}
-      <div className="h-px bg-white/[0.04] mx-2" />
+      <div className="h-px bg-bg-tertiary mx-2" />
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto p-3">

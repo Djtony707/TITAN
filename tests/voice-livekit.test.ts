@@ -14,7 +14,7 @@ describe('VoiceConfigSchema', () => {
     expect(result.livekitApiKey).toBe('devkey');
     expect(result.livekitApiSecret).toBe('secret');
     expect(result.agentUrl).toBe('http://localhost:8081');
-    expect(result.ttsVoice).toBe('tara');
+    expect(result.ttsVoice).toBe('andrew');
   });
 
   it('should accept valid voice config', async () => {
@@ -39,7 +39,7 @@ describe('VoiceConfigSchema', () => {
     expect(result.livekitUrl).toBe('ws://localhost:7880');
     expect(result.livekitApiKey).toBe('devkey');
     expect(result.livekitApiSecret).toBe('secret');
-    expect(result.ttsVoice).toBe('tara');
+    expect(result.ttsVoice).toBe('andrew');
   });
 
   it('should accept custom ttsVoice', async () => {

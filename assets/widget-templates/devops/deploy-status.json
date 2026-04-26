@@ -1,0 +1,11 @@
+{
+  "id": "deploy-status",
+  "name": "Deploy Status",
+  "category": "devops",
+  "tags": ["deploy", "CI/CD", "release"],
+  "description": "Deployment status tracker with stages and progress.",
+  "triggers": ["deploy status", "deployment tracker", "release status", "CI/CD"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function DeployStatusWidget() {\n  const stages = ['Build', 'Test', 'Security Scan', 'Staging', 'Production'];\n  const [current, setCurrent] = React.useState(2);\n  const [status, setStatus] = React.useState('running');\n\n  React.useEffect(() => {\n    const id = setInterval(() => {\n      setCurrent((c) => {\n        if (status === 'success') return c;\n        if (c < stages.length - 1) return c + 1;\n        setStatus('success');\n        return c;\n      });\n    }, 3000);\n    return () => clearInterval(id);\n  }, [status]);\n\n  return (\n    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, height: '100%' }}>\n      <h3 style={{ margin: 0, marginBottom: 12 }}>Deploy Status</h3>\n      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Release: v2.4.1</div>\n      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>\n        {stages.map((stage, i) => {\n          let icon = '○';\n          let color = '#475569';\n          if (i < current) { icon = '✓'; color = '#22c55e'; }\n          else if (i === current) { icon = '●'; color = '#3b82f6'; }\n          return (\n            <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>\n              <span style={{ color, fontWeight: 700, width: 16 }}>{icon}</span>\n              <span style={{ fontSize: 13, color: i === current ? '#e2e8f0' : '#94a3b8' }}>{stage}</span>\n              {i === current && status === 'running' && (\n                <span style={{ fontSize: 11, color: '#3b82f6', marginLeft: 'auto' }}>In progress...</span>\n              )}\n            </div>\n          );\n        })}\n      </div>\n      {status === 'success' && (\n        <div style={{ marginTop: 14, padding: 10, background: '#14532d', color: '#86efac', borderRadius: 8, fontSize: 13, textAlign: 'center' }}>Deployment completed successfully</div>\n      )}\n    </div>\n  );\n}\nrender(<DeployStatusWidget/>);",
+  "placeholders": []
+}

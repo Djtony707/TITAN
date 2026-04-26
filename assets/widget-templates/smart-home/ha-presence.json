@@ -1,0 +1,11 @@
+{
+  "id": "ha-presence",
+  "name": "Who's Home",
+  "category": "smart-home",
+  "tags": ["presence", "location", "family", "home status"],
+  "description": "Presence display showing who's home from device trackers with avatar circles.",
+  "triggers": ["who's home", "presence", "family location", "home status"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function Presence() {\n  const [people, setPeople] = React.useState([\n    { name: 'Alice', home: true, since: '8:00 AM', avatar: 'A', color: '#ef4444' },\n    { name: 'Bob', home: false, since: '7:30 AM', avatar: 'B', color: '#3b82f6' },\n    { name: 'Charlie', home: true, since: '9:15 AM', avatar: 'C', color: '#10b981' },\n    { name: 'Diana', home: false, since: '6:00 AM', avatar: 'D', color: '#8b5cf6' }\n  ]);\n\n  return (\n    <div style={{ fontFamily: 'system-ui', background: '#111827', color: '#f3f4f6', width: '100%', height: '100%', padding: 16, borderRadius: 8, boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>\n      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#9ca3af' }}>Who's Home</div>\n      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, flex: 1 }}>\n        {people.map((p, i) => (\n          <div key={i} style={{ background: '#1f2937', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, border: p.home ? '2px solid #10b981' : '2px solid transparent' }}>\n            <div style={{ width: 44, height: 44, borderRadius: '50%', background: p.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff' }}>{p.avatar}</div>\n            <div style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</div>\n            <div style={{ fontSize: 11, color: p.home ? '#10b981' : '#6b7280', fontWeight: 600 }}>{p.home ? 'Home' : 'Away'}</div>\n            <div style={{ fontSize: 10, color: '#475569' }}>Since {p.since}</div>\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<Presence/>);",
+  "placeholders": [{ "name": "REPLACE_WITH_PERSON_ENTITIES", "description": "Comma-separated person or device_tracker entity IDs", "default": "person.alice,person.bob,person.charlie,person.diana" }]
+}

@@ -113,15 +113,6 @@ interface PeerData {
 
 // ── Constants ──────────────────────────────────────────────────
 
-// Default machines — used only until the backend /api/homelab/machines
-// endpoint returns. Actual list comes from server (config.homelab.machines
-// or built-in default) so the panel isn't hardcoded to Tony's setup.
-const PLACEHOLDER_MACHINES: MachineInfo[] = [
-  { name: 'Titan PC', ip: '192.168.1.11', role: 'Primary GPU (RTX 5090)', online: null },
-  { name: 'Mini PC', ip: '192.168.1.95', role: 'Docker Host', online: null },
-  { name: 'T610 Server', ip: '192.168.1.67', role: 'Always-on Backbone', online: null },
-];
-
 const REFRESH_INTERVAL = 15_000;
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -182,7 +173,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon: typeof 
 
 function HomelabPanel() {
   const [loading, setLoading] = useState(true);
-  const [machines, setMachines] = useState<MachineInfo[]>(PLACEHOLDER_MACHINES);
+  const [machines, setMachines] = useState<MachineInfo[]>([]);
   const [vram, setVram] = useState<VramData | null>(null);
   const [stats, setStats] = useState<StatsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);

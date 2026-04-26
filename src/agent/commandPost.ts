@@ -9,15 +9,17 @@
  */
 import { v4 as uuid } from 'uuid';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
+import { spawn } from 'child_process';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { ensureDir } from '../utils/helpers.js';
 import { titanEvents } from './daemon.js';
-import { stopAgent, listAgents, type AgentInstance } from './multiAgent.js';
+import { spawnAgent, stopAgent, listAgents, type AgentInstance } from './multiAgent.js';
 import { listGoals, type Goal } from './goals.js';
 import logger from '../utils/logger.js';
 import type { CommandPostConfig } from '../config/schema.js';
 import { loadConfig } from '../config/config.js';
+import { shouldAutoApprove, type ApprovalRule } from './approvalClassifier.js';
 
 const COMPONENT = 'CommandPost';
 const STATE_PATH = join(TITAN_HOME, 'command-post.json');
@@ -64,7 +66,7 @@ export interface RegisteredAgent {
     title?: string;
     /** TITAN identity fields (F2). Optional — absent = fall back to global config.
      *  When set, they give the agent a continuous personality across restarts. */
-    /** Orpheus voice name (e.g. 'leah', 'jess'). Falls back to config.voice.ttsVoice. */
+    /** F5-TTS voice clone name (e.g. 'andrew', 'leah', 'jess'). Falls back to config.voice.ttsVoice. */
     voiceId?: string;
     /** Persona file stem from assets/personas/. Falls back to config.agent.persona. */
     personaId?: string;
@@ -74,6 +76,8 @@ export interface RegisteredAgent {
     memoryNamespace?: string;
     /** 1-3 sentence self-description. Seed for future relationship memory. */
     characterSummary?: string;
+    /** Sub-agent template this agent was hired with (e.g. 'explorer', 'coder') */
+    template?: string;
 }
 
 export interface ActivityEntry {
@@ -82,7 +86,7 @@ export interface ActivityEntry {
     type: 'task_checkout' | 'task_checkin' | 'task_expired' | 'budget_warning' |
           'budget_exceeded' | 'agent_heartbeat' | 'agent_status_change' |
           'goal_created' | 'goal_completed' | 'goal_proposal_requested' | 'goal_proposal_rejected' |
-          'autopilot_run' | 'tool_execution' | 'error' | 'issue_deleted';
+          'autopilot_run' | 'tool_execution' | 'error' | 'issue_deleted' | 'system';
     agentId?: string;
     goalId?: string;
     message: string;
@@ -139,6 +143,10 @@ export interface CPApproval {
     decisionNote?: string;
     linkedIssueIds: string[];
     createdAt: string;
+    /** Threaded conversation between agent and user */
+    thread?: CPComment[];
+    /** If set, approval is snoozed until this ISO timestamp */
+    snoozedUntil?: string;
 }
 
 // ─── Paperclip: Run Tracking ─────────────────────────────────────────────
@@ -272,17 +280,62 @@ export function getActivity(opts?: { limit?: number; type?: string }): ActivityE
 
 // ─── Task Checkout (Atomic Locking) ──────────────────────────────────────
 
+/**
+ * Gap 3 (plan-this-logical-ocean): stale-lock adoption threshold.
+ * If the lock-holding agent hasn't heartbeat in this long, a different agent
+ * is allowed to adopt the lock instead of being blocked by it. Default 5 min
+ * picks up abandoned runs quickly without stealing from agents that are just
+ * doing long work (checkoutTimeoutMs default is 30 min — sweep handles those).
+ */
+const STALE_LOCK_ADOPTION_MS = 5 * 60 * 1000;
+
 export function checkoutTask(goalId: string, subtaskId: string, agentId: string): TaskCheckout | null {
     // Atomic: single-threaded Node.js event loop = synchronous check-and-lock
     const existing = checkouts.get(subtaskId);
     if (existing && existing.status === 'locked') {
-        // Already locked by another agent
-        if (existing.agentId !== agentId) return null;
         // Same agent re-checking out — adopt (Paperclip dual-run pattern)
-        existing.checkedOutAt = new Date().toISOString();
-        existing.expiresAt = new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString();
+        if (existing.agentId === agentId) {
+            existing.checkedOutAt = new Date().toISOString();
+            existing.expiresAt = new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString();
+            saveState();
+            return existing;
+        }
+        // Gap 3: different agent — check if the lock-holder is stale.
+        // Previously we returned null here, which meant a crashed agent
+        // would zombie the subtask for up to checkoutTimeoutMs (30 min)
+        // before the sweep cleared it. Now, if the lock-holder's heartbeat
+        // is older than STALE_LOCK_ADOPTION_MS, let the new agent take
+        // over with a fresh runId. If the holder is not in the agent
+        // registry at all (never heartbeat, possibly a test caller or an
+        // old persisted checkout), we conservatively treat them as STILL
+        // HOLDING — the sweep will clean the lock up after checkoutTimeoutMs.
+        // This preserves the existing safety invariant that two different
+        // agents can't hold the same subtask simultaneously.
+        const holder = registeredAgents.get(existing.agentId);
+        if (!holder) return null;
+        const holderLastBeat = new Date(holder.lastHeartbeat).getTime();
+        const holderStale = Date.now() - holderLastBeat > STALE_LOCK_ADOPTION_MS;
+        if (!holderStale) return null;
+
+        const adopted: TaskCheckout = {
+            ...existing,
+            agentId,
+            runId: uuid().slice(0, 8),
+            checkedOutAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + (config?.checkoutTimeoutMs ?? 1800000)).toISOString(),
+            status: 'locked',
+        };
+        checkouts.set(subtaskId, adopted);
         saveState();
-        return existing;
+        addActivity({
+            type: 'task_checkout',
+            agentId,
+            goalId,
+            message: `Agent "${agentId}" adopted stale lock on ${subtaskId} (prev holder "${existing.agentId}" heartbeat ${holder ? Math.round((Date.now() - holderLastBeat) / 1000) + 's ago' : 'missing'})`,
+            metadata: { runId: adopted.runId, adoptedFrom: existing.agentId, previousRunId: existing.runId },
+        });
+        titanEvents.emit('commandpost:task:checkout', adopted);
+        return adopted;
     }
 
     const checkout: TaskCheckout = {
@@ -356,6 +409,69 @@ function sweepExpiredCheckouts(): void {
         }
     }
     saveState();
+}
+
+/** Auto-purge stale approvals older than configured retention days */
+function sweepStaleApprovals(): void {
+    const cfg = loadConfig();
+    const retentionDays = Number((cfg as Record<string, unknown>).approvalRetentionDays ?? 7);
+    if (retentionDays <= 0) return;
+    const cutoff = Date.now() - retentionDays * 86400000;
+    let purged = 0;
+    for (const [id, approval] of approvals) {
+        const age = new Date(approval.createdAt).getTime();
+        if (age < cutoff) {
+            approvals.delete(id);
+            purged++;
+        }
+    }
+    if (purged > 0) {
+        saveState();
+        logger.info(COMPONENT, `Auto-purged ${purged} stale approval(s) older than ${retentionDays} days`);
+        addActivity({
+            type: 'issue_deleted',
+            message: `Auto-purged ${purged} stale approval(s) older than ${retentionDays} days`,
+            metadata: { purged, retentionDays },
+        });
+    }
+}
+
+/** v5.0.0: Auto-reject ancient pending approvals (> 3 days) so the queue
+ *  doesn't stall forever on items the user will never see. */
+function sweepAncientPendingApprovals(): void {
+    const PENDING_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+    const cutoff = Date.now() - PENDING_MAX_AGE_MS;
+    let rejected = 0;
+    for (const [id, approval] of approvals) {
+        if (approval.status !== 'pending') continue;
+        const age = new Date(approval.createdAt).getTime();
+        if (age < cutoff) {
+            approval.status = 'rejected';
+            approval.decidedBy = 'auto:sweep';
+            approval.decidedAt = new Date().toISOString();
+            approval.decisionNote = 'Auto-rejected after 3 days in pending queue';
+            rejected++;
+        }
+    }
+    if (rejected > 0) {
+        saveState();
+        logger.info(COMPONENT, `Auto-rejected ${rejected} ancient pending approval(s)`);
+        addActivity({
+            type: 'goal_proposal_rejected',
+            message: `Auto-rejected ${rejected} pending approval(s) older than 3 days`,
+            metadata: { rejected },
+        });
+    }
+}
+
+/** Manual sweep entrypoint for API/admin use */
+export function sweepStaleApprovalsManual(): { purged: number; retentionDays: number } {
+    const before = approvals.size;
+    sweepStaleApprovals();
+    const purged = before - approvals.size;
+    const cfg = loadConfig();
+    const retentionDays = Number((cfg as Record<string, unknown>).approvalRetentionDays ?? 7);
+    return { purged, retentionDays };
 }
 
 // ─── Budget Policies ─────────────────────────────────────────────────────
@@ -532,13 +648,15 @@ export function getGoalTree(): GoalTreeNode[] {
  * Used by the hire approval flow and syncAgentRegistry.
  */
 export function registerAgent(opts: {
+    id?: string;
     name: string;
     role?: string;
     title?: string;
     model?: string;
+    template?: string;
     status?: RegisteredAgent['status'];
 }): RegisteredAgent {
-    const id = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const id = opts.id || `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const agent: RegisteredAgent = {
         id,
         name: opts.name,
@@ -550,6 +668,7 @@ export function registerAgent(opts: {
         createdAt: new Date().toISOString(),
         role: (opts.role || 'general') as RegisteredAgent['role'],
         title: opts.title,
+        template: opts.template,
     };
     registeredAgents.set(id, agent);
     saveState();
@@ -614,7 +733,11 @@ export function forceRegisterSpecialist(opts: {
         // pre-v4.8.1 stale-heartbeat bug. A specialist that never did work
         // got flagged as errored after 120s, but it should have stayed
         // 'idle'. On boot we reset it to idle so the registry UI is clean.
-        if (existing.status === 'error' && (existing.totalTasksCompleted ?? 0) === 0) {
+        // v4.14.0: also heal 'paused' specialists with no task history —
+        // they were likely paused by a now-deleted budget policy or manual
+        // action and should be available for work.
+        const shouldHeal = (existing.status === 'error' || existing.status === 'paused') && (existing.totalTasksCompleted ?? 0) === 0;
+        if (shouldHeal) {
             existing.status = 'idle';
             existing.lastHeartbeat = new Date().toISOString();
             saveState();
@@ -773,6 +896,11 @@ export function initCommandPost(cfg: CommandPostConfig): void {
     // Start sweepers
     sweepInterval = setInterval(sweepExpiredCheckouts, 60000);
     sweepInterval.unref();
+    const approvalSweepInterval = setInterval(() => {
+        sweepStaleApprovals();
+        sweepAncientPendingApprovals();
+    }, 300000); // every 5 min
+    approvalSweepInterval.unref();
     heartbeatInterval = setInterval(checkStaleHeartbeats, cfg.heartbeatIntervalMs);
     heartbeatInterval.unref();
 
@@ -933,12 +1061,122 @@ export function getIssueComments(issueId: string): CPComment[] {
     return comments.filter(c => c.issueId === issueId);
 }
 
+/**
+ * Full-text search across CP issues, titles, descriptions, and comments.
+ * Returns matching issues sorted by relevance (title match > description > comments).
+ */
+export function searchIssues(query: string): CPIssue[] {
+    if (!query || query.trim().length < 2) return [];
+    const q = query.toLowerCase().trim();
+    const scored = Array.from(issues.values()).map(issue => {
+        let score = 0;
+        const title = (issue.title || '').toLowerCase();
+        const desc = (issue.description || '').toLowerCase();
+        const issueComments = getIssueComments(issue.id);
+        const commentText = issueComments.map(c => (c.body || '').toLowerCase()).join(' ');
+
+        if (title.includes(q)) score += 10;
+        if (desc.includes(q)) score += 5;
+        if (commentText.includes(q)) score += 2;
+        if (issue.id.toLowerCase().includes(q)) score += 3;
+
+        // Word-boundary bonus
+        const words = q.split(/\s+/);
+        for (const word of words) {
+            if (word.length < 2) continue;
+            if (title.includes(word)) score += 2;
+            if (desc.includes(word)) score += 1;
+        }
+
+        return { issue, score };
+    });
+
+    return scored
+        .filter(s => s.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map(s => s.issue);
+}
+
 // ─── Paperclip: Approval System ──────────────────────────────────────────
+
+/**
+ * v4.13 coalescing key — generates a stable signature for an approval so
+ * autonomous producers that fire on a cron can reuse a pending approval
+ * for the same concern instead of piling up duplicates. Keyed on
+ * (type, requestedBy, payload.kind, and either goalId or model — the
+ * fields that are identity-like for the concern being raised).
+ */
+function coalesceKey(opts: {
+    type: CPApproval['type']; requestedBy: string; payload: Record<string, unknown>;
+}): string {
+    const kind = typeof opts.payload.kind === 'string' ? opts.payload.kind : '';
+    const goalId = typeof opts.payload.goalId === 'string' ? opts.payload.goalId : '';
+    const model = typeof opts.payload.model === 'string' ? opts.payload.model : '';
+    const title = typeof opts.payload.title === 'string' ? opts.payload.title : '';
+    // Prefer goalId/model when available, otherwise fall back to title. Title-less
+    // concerns (e.g. repeating self_repair) get coalesced by (type, requestedBy, kind).
+    const identity = goalId || model || title;
+    return `${opts.type}|${opts.requestedBy}|${kind}|${identity}`;
+}
 
 export function createApproval(opts: {
     type: CPApproval['type']; requestedBy: string; payload: Record<string, unknown>;
     linkedIssueIds?: string[];
 }): CPApproval {
+    // Gap 4 (plan-this-logical-ocean): path-scoped auto-approval.
+    // Before filing, classify the intent. If the configured autoApprove
+    // rules say 'auto', short-circuit to an already-approved CPApproval
+    // so the thing never reaches the human queue. Off by default — the
+    // (config as any).autoApprove check keeps legacy callers happy
+    // before the config schema is loaded.
+    try {
+        const auto = (config as unknown as { autoApprove?: { enabled?: boolean; rules?: unknown[] } })?.autoApprove;
+        if (auto?.enabled) {
+            const rules = (auto.rules as ApprovalRule[]) || [];
+            if (shouldAutoApprove({ type: opts.type, payload: opts.payload }, { enabled: true, rules })) {
+                const approved: CPApproval = {
+                    id: uuid().slice(0, 8),
+                    type: opts.type,
+                    status: 'approved',
+                    requestedBy: opts.requestedBy,
+                    payload: opts.payload,
+                    decidedBy: 'auto:path-classifier',
+                    decidedAt: new Date().toISOString(),
+                    decisionNote: 'Auto-approved by path-scoped classifier',
+                    linkedIssueIds: opts.linkedIssueIds || [],
+                    createdAt: new Date().toISOString(),
+                };
+                approvals.set(approved.id, approved);
+                saveState();
+                addActivity({
+                    type: 'goal_created',
+                    message: `Approval auto-approved: ${approved.type} (${opts.payload.kind ?? '-'}) from ${opts.requestedBy}`,
+                    metadata: { approvalId: approved.id, auto: true, path: opts.payload.path ?? null },
+                });
+                return approved;
+            }
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Auto-approval classifier error, falling through to human queue: ${(err as Error).message}`);
+    }
+
+    // Coalesce: if a pending approval already exists for the same concern,
+    // update its payload + timestamp and return it instead of filing a new
+    // one. Stops autonomous producers (canary-eval, self-repair daemon,
+    // auto-heal runner) from flooding the queue with dupes while a human
+    // hasn't decided the first one yet.
+    const key = coalesceKey(opts);
+    for (const existing of approvals.values()) {
+        if (existing.status !== 'pending') continue;
+        if (coalesceKey({ type: existing.type, requestedBy: existing.requestedBy, payload: existing.payload as Record<string, unknown> }) === key) {
+            existing.payload = opts.payload;
+            existing.createdAt = new Date().toISOString();
+            saveState();
+            logger.debug(COMPONENT, `Approval coalesced into ${existing.id} (key=${key})`);
+            return existing;
+        }
+    }
+
     const approval: CPApproval = {
         id: uuid().slice(0, 8),
         type: opts.type,
@@ -962,7 +1200,7 @@ export function createApproval(opts: {
     return approval;
 }
 
-export function approveApproval(id: string, decidedBy: string, note?: string): CPApproval | null {
+export async function approveApproval(id: string, decidedBy: string, note?: string): Promise<CPApproval | null> {
     const approval = approvals.get(id);
     if (!approval || approval.status !== 'pending') return null;
     approval.status = 'approved';
@@ -978,14 +1216,48 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
             name?: string; role?: string; template?: string; model?: string; task?: string;
         };
         if (name) {
-            const agent = registerAgent({
+            // Resolve model: explicit → template tier → config default
+            const config = loadConfig();
+            const aliases = config.agent.modelAliases || {};
+            let resolvedModel = model || '';
+            if (!resolvedModel && template) {
+                const { SUB_AGENT_TEMPLATES } = await import('./subAgent.js');
+                const tmpl = SUB_AGENT_TEMPLATES[template];
+                const tier = (tmpl as Record<string, unknown> | undefined)?.tier as string | undefined;
+                resolvedModel = tier ? (aliases[tier] || aliases.cloud || '') : (aliases.cloud || '');
+            }
+            if (!resolvedModel) {
+                resolvedModel = config.agent.model || aliases.cloud || 'ollama/kimi-k2.6:cloud';
+            }
+
+            // Spawn live agent in multi-agent router
+            const spawnResult = spawnAgent({
                 name,
-                role: role || 'agent',
-                title: role || 'Agent',
+                model: resolvedModel,
+                systemPrompt: template
+                    ? `You are the ${name} specialist. You were hired with the "${template}" template. Execute tasks efficiently and report back when done.`
+                    : `You are the ${name} agent. Execute tasks efficiently and report back when done.`,
+                channelBindings: [{ channel: 'direct', pattern: name }],
+            });
+
+            if (!spawnResult.success || !spawnResult.agent) {
+                logger.error('CommandPost', `[HireApproval] Failed to spawn agent "${name}": ${spawnResult.error}`);
+                addActivity({ type: 'error', message: `Failed to hire agent "${name}": ${spawnResult.error}`, metadata: { approvalId: id } });
+                return approval;
+            }
+
+            // Register in Command Post registry
+            const agent = registerAgent({
+                id: spawnResult.agent.id, // sync CP id with multiAgent id
+                name,
+                role: role || 'general',
+                title: role || name,
+                model: resolvedModel,
+                template,
                 status: 'active',
             });
-            logger.info('CommandPost', `[HireApproval] Agent "${name}" hired and activated (approved by ${decidedBy})`);
-            addActivity({ type: 'agent_status_change', message: `Agent "${name}" hired and activated (approved by ${decidedBy})`, metadata: { approvalId: id, agentId: agent.id } });
+            logger.info('CommandPost', `[HireApproval] Agent "${name}" hired and activated (model: ${resolvedModel}, approved by ${decidedBy})`);
+            addActivity({ type: 'agent_status_change', message: `Agent "${name}" hired and activated (model: ${resolvedModel}, approved by ${decidedBy})`, metadata: { approvalId: id, agentId: agent.id } });
 
             // Optionally create a first task issue for the new agent
             if (task) {
@@ -1001,6 +1273,36 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
         // Resume paused agent
         updateAgentStatus(approval.payload.agentId as string, 'active');
         addActivity({ type: 'goal_completed', message: `Budget override approved for ${approval.payload.agentId} by ${decidedBy}`, metadata: { approvalId: id } });
+    } else if (approval.type === 'custom' && (approval.payload as { kind?: string }).kind === 'restart_titan') {
+        // v4.13: approval-gated restart. When approved, audit-log the
+        // decision THEN async-exec systemctl restart. The current process
+        // will die; next boot writes a 'restart_completed' audit entry.
+        const reason = (approval.payload as { reason?: string }).reason || 'no reason given';
+        try {
+            const { logAudit } = await import('../security/auditLog.js');
+            logAudit('security_alert', decidedBy, {
+                action: 'restart_titan_approved',
+                approvalId: id,
+                reason,
+                requestedBy: approval.requestedBy,
+            });
+        } catch { /* audit unavailable — still proceed, restart is more important */ }
+        logger.info('CommandPost', `[RestartApproval] TITAN restart approved by ${decidedBy}: ${reason}`);
+        addActivity({ type: 'goal_completed', message: `Restart approved by ${decidedBy}: ${reason}`, metadata: { approvalId: id } });
+        // Fire-and-forget so the approval response returns before systemctl
+        // kills this process. The 1500ms delay gives Express time to flush
+        // the /api/command-post/approvals/:id/approve response.
+        setTimeout(() => {
+            try {
+                const proc = spawn('sudo', ['-n', 'systemctl', 'restart', 'titan.service'], {
+                    detached: true,
+                    stdio: 'ignore',
+                });
+                proc.unref();
+            } catch (err) {
+                logger.error('CommandPost', `[RestartApproval] systemctl restart failed: ${(err as Error).message}`);
+            }
+        }, 1500).unref();
     } else if (approval.type === 'goal_proposal' || approval.type === 'soma_proposal') {
         const payload = approval.payload as {
             title?: string; description?: string; priority?: number;
@@ -1012,39 +1314,40 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
             addActivity({ type: 'error', message: `Goal proposal ${id} approved but payload was malformed`, metadata: { approvalId: id } });
         } else {
             // Dynamic import to avoid circular dependency (goals.ts imports commandPost types)
-            import('./goals.js').then(({ createGoal }) => {
-                try {
-                    // v4.8.0: preserve proposer provenance on the goal so the
-                    // self-mod pipeline can trace goal → drive → proposal.
-                    // Uses `soma:<drive>` tag convention already established
-                    // by pressure.ts.
-                    const enrichedTags = [...(payload.tags || [])];
-                    if (approval.requestedBy && approval.requestedBy.startsWith('soma:')
-                        && !enrichedTags.includes(approval.requestedBy)) {
-                        enrichedTags.push(approval.requestedBy);
-                    }
-                    const goal = createGoal({
-                        title: payload.title!,
-                        description: payload.description!,
-                        priority: payload.priority,
-                        tags: enrichedTags,
-                        parentGoalId: payload.parentGoalId,
-                        subtasks: payload.subtasks,
-                    });
-                    addActivity({
-                        type: 'goal_created',
-                        goalId: goal.id,
-                        message: `Goal proposal approved: "${goal.title}" (proposed by ${approval.requestedBy}, approved by ${decidedBy})`,
-                        metadata: { approvalId: id, proposedBy: approval.requestedBy },
-                    });
-                    logger.info('CommandPost', `[GoalProposal] Goal ${goal.id} created from approval ${id}`);
-                } catch (err) {
-                    logger.error('CommandPost', `[GoalProposal] Failed to create goal from approval ${id}: ${(err as Error).message}`);
-                    addActivity({ type: 'error', message: `Goal proposal ${id} creation failed: ${(err as Error).message}`, metadata: { approvalId: id } });
+            try {
+                const { createGoal } = await import('./goals.js');
+                // v4.8.0: preserve proposer provenance on the goal so the
+                // self-mod pipeline can trace goal → drive → proposal.
+                // Uses `soma:<drive>` tag convention already established
+                // by pressure.ts.
+                const enrichedTags = [...(payload.tags || [])];
+                if (approval.requestedBy && approval.requestedBy.startsWith('soma:')
+                    && !enrichedTags.includes(approval.requestedBy)) {
+                    enrichedTags.push(approval.requestedBy);
                 }
-            }).catch((err) => {
-                logger.error('CommandPost', `[GoalProposal] Failed to load goals module: ${(err as Error).message}`);
-            });
+                const goal = createGoal({
+                    title: payload.title!,
+                    description: payload.description!,
+                    priority: payload.priority,
+                    tags: enrichedTags,
+                    parentGoalId: payload.parentGoalId,
+                    subtasks: payload.subtasks,
+                    force: true, // human explicitly approved this proposal
+                });
+                // Link the goal back to the approval so UI can track progress
+                approval.payload = { ...approval.payload, goalId: goal.id };
+                saveState();
+                addActivity({
+                    type: 'goal_created',
+                    goalId: goal.id,
+                    message: `Goal proposal approved: "${goal.title}" (proposed by ${approval.requestedBy}, approved by ${decidedBy})`,
+                    metadata: { approvalId: id, proposedBy: approval.requestedBy },
+                });
+                logger.info('CommandPost', `[GoalProposal] Goal ${goal.id} created from approval ${id}`);
+            } catch (err) {
+                logger.error('CommandPost', `[GoalProposal] Failed to create goal from approval ${id}: ${(err as Error).message}`);
+                addActivity({ type: 'error', message: `Goal proposal ${id} creation failed: ${(err as Error).message}`, metadata: { approvalId: id } });
+            }
         }
     } else if (
         approval.type === 'custom'
@@ -1097,6 +1400,22 @@ export function approveApproval(id: string, decidedBy: string, note?: string): C
             })();
         }
         addActivity({ type: 'goal_completed', message: `Self-mod PR approved by ${decidedBy} — applying…`, metadata: { approvalId: id, goalId } });
+    } else if (approval.type === 'custom' && (approval.payload as { kind?: string }).kind === 'driver_blocked') {
+        const payload = approval.payload as { goalId?: string; goalTitle?: string };
+        if (payload.goalId) {
+            // Instant-unblock: tick the driver immediately so the user sees
+            // TITAN start working right away instead of waiting up to 10s
+            // for the next scheduler loop.
+            import('./goalDriver.js').then(({ tickDriver }) => {
+                tickDriver(payload.goalId!).catch(() => { /* driver may not exist */ });
+            }).catch(() => { /* module load failed */ });
+            addActivity({
+                type: 'goal_completed',
+                message: `Driver unblocked for "${payload.goalTitle || payload.goalId}" (approved by ${decidedBy})`,
+                metadata: { approvalId: id, goalId: payload.goalId },
+            });
+            logger.info('CommandPost', `[DriverUnblock] Approval ${id} approved — ticking driver for goal ${payload.goalId}`);
+        }
     } else {
         addActivity({ type: 'goal_completed', message: `Approval ${approval.type} approved by ${decidedBy}`, metadata: { approvalId: id } });
     }
@@ -1127,20 +1446,15 @@ export function requestHireApproval(
     model?: string,
     task?: string,
 ): CPApproval {
-    const id = `appr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const approval: CPApproval = {
-        id,
+    // Use the full approval pipeline (auto-approval classifier + coalescing)
+    // instead of manually constructing and inserting a raw approval.
+    const approval = createApproval({
         type: 'hire_agent',
-        status: 'pending',
         requestedBy,
         payload: { name, role, template, model, task },
-        linkedIssueIds: [],
-        createdAt: new Date().toISOString(),
-    };
-    approvals.set(id, approval);
-    saveState();
-    addActivity({ type: 'agent_status_change', message: `Hire approval requested for "${name}" (${role}) by ${requestedBy}`, metadata: { approvalId: id } });
-    logger.info('CommandPost', `[HireRequest] Pending approval for "${name}" (${role})`);
+    });
+    addActivity({ type: 'agent_status_change', message: `Hire approval requested for "${name}" (${role}) by ${requestedBy}`, metadata: { approvalId: approval.id } });
+    logger.info('CommandPost', `[HireRequest] Pending approval for "${name}" (${role}) (id=${approval.id})`);
     return approval;
 }
 
@@ -1202,6 +1516,109 @@ export function attachShadowVerdictToApproval(
     return approval;
 }
 
+// ─── Threaded Inbox: Reply / Snooze / Batch ─────────────────────────────
+
+export function replyToApproval(id: string, author: string, body: string): CPApproval | null {
+    const approval = approvals.get(id);
+    if (!approval) return null;
+    const comment: CPComment = {
+        id: uuid().slice(0, 8),
+        issueId: id,
+        authorUser: author,
+        body,
+        createdAt: new Date().toISOString(),
+    };
+    if (!approval.thread) approval.thread = [];
+    approval.thread.push(comment);
+    saveState();
+    addActivity({ type: 'system', message: `Reply on approval ${id} by ${author}`, metadata: { approvalId: id } });
+    return approval;
+}
+
+export function snoozeApproval(id: string, until: string): CPApproval | null {
+    const approval = approvals.get(id);
+    if (!approval || approval.status !== 'pending') return null;
+    approval.snoozedUntil = until;
+    saveState();
+    return approval;
+}
+
+export function unsnoozeApproval(id: string): CPApproval | null {
+    const approval = approvals.get(id);
+    if (!approval) return null;
+    delete approval.snoozedUntil;
+    saveState();
+    return approval;
+}
+
+export async function batchApprove(ids: string[], decidedBy: string, note?: string): Promise<{ approved: string[]; failed: string[] }> {
+    const approved: string[] = [];
+    const failed: string[] = [];
+    for (const id of ids) {
+        const result = await approveApproval(id, decidedBy, note);
+        if (result) approved.push(id); else failed.push(id);
+    }
+    return { approved, failed };
+}
+
+export function batchReject(ids: string[], decidedBy: string, note?: string): { rejected: string[]; failed: string[] } {
+    const rejected: string[] = [];
+    const failed: string[] = [];
+    for (const id of ids) {
+        const result = rejectApproval(id, decidedBy, note);
+        if (result) rejected.push(id); else failed.push(id);
+    }
+    return { rejected, failed };
+}
+
+// ─── Agent-to-User Messaging ─────────────────────────────────────────────
+
+export interface AgentMessage {
+    id: string;
+    agentId: string;
+    agentName: string;
+    userId: string;
+    content: string;
+    context?: Record<string, unknown>;
+    read: boolean;
+    createdAt: string;
+}
+
+const agentMessages: AgentMessage[] = [];
+
+export function sendAgentMessage(agentId: string, agentName: string, userId: string, content: string, context?: Record<string, unknown>): AgentMessage {
+    const msg: AgentMessage = {
+        id: uuid().slice(0, 8),
+        agentId,
+        agentName,
+        userId,
+        content,
+        context,
+        read: false,
+        createdAt: new Date().toISOString(),
+    };
+    agentMessages.push(msg);
+    if (agentMessages.length > 500) agentMessages.splice(0, agentMessages.length - 500);
+    addActivity({ type: 'system', message: `Message from ${agentName}: ${content.slice(0, 100)}`, metadata: { agentId, messageId: msg.id } });
+    return msg;
+}
+
+export function getAgentMessages(agentId?: string, userId?: string, unreadOnly = false): AgentMessage[] {
+    return agentMessages.filter(m => {
+        if (agentId && m.agentId !== agentId) return false;
+        if (userId && m.userId !== userId) return false;
+        if (unreadOnly && m.read) return false;
+        return true;
+    }).slice().reverse();
+}
+
+export function markAgentMessageRead(id: string): boolean {
+    const msg = agentMessages.find(m => m.id === id);
+    if (!msg) return false;
+    msg.read = true;
+    return true;
+}
+
 /**
  * File a goal proposal from an agent. Creates a pending approval that, when
  * approved, becomes a real goal via createGoal(). Used by the goalProposer
@@ -1218,7 +1635,26 @@ export function requestGoalProposalApproval(
         parentGoalId?: string;
         subtasks?: Array<{ title: string; description: string; dependsOn?: string[] }>;
     },
+    type: 'goal_proposal' | 'soma_proposal' = 'goal_proposal'
 ): CPApproval {
+    // v5.0.0: Pending queue cap — if there are too many pending approvals,
+    // auto-reject the oldest ones to prevent the queue from growing without bound.
+    const MAX_PENDING_APPROVALS = 30;
+    const pending = Array.from(approvals.values()).filter(a => a.status === 'pending');
+    if (pending.length >= MAX_PENDING_APPROVALS) {
+        // Sort oldest first, reject enough to get back under the cap
+        pending.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        const toReject = pending.slice(0, pending.length - MAX_PENDING_APPROVALS + 1);
+        for (const old of toReject) {
+            old.status = 'rejected';
+            old.decidedBy = 'auto:cap';
+            old.decidedAt = new Date().toISOString();
+            old.decisionNote = `Auto-rejected: pending approval cap (${MAX_PENDING_APPROVALS}) reached`;
+            logger.info(COMPONENT, `Auto-rejected approval ${old.id} due to pending cap`);
+        }
+        if (toReject.length > 0) saveState();
+    }
+
     // Dedupe: if a pending proposal with the same title already exists
     // (regardless of which agent proposed it), return the existing one
     // instead of filing a duplicate. Multiple specialists running the
@@ -1226,15 +1662,15 @@ export function requestGoalProposalApproval(
     const normalizedTitle = proposal.title.trim().toLowerCase();
     for (const existing of approvals.values()) {
         if (existing.status !== 'pending') continue;
-        if (existing.type !== 'goal_proposal') continue;
+        if (existing.type !== type) continue;
         const existingTitle = ((existing.payload as { title?: string })?.title || '').trim().toLowerCase();
         if (existingTitle && existingTitle === normalizedTitle) {
-            logger.debug(COMPONENT, `goal_proposal dedupe: "${proposal.title}" already pending (approval ${existing.id}) — returning existing`);
+            logger.debug(COMPONENT, `${type} dedupe: "${proposal.title}" already pending (approval ${existing.id}) — returning existing`);
             return existing;
         }
     }
     const approval = createApproval({
-        type: 'goal_proposal',
+        type,
         requestedBy,
         payload: proposal,
     });
@@ -1416,13 +1852,14 @@ export function updateAgentIdentity(
         systemPromptOverride?: string | null;
         memoryNamespace?: string | null;
         characterSummary?: string | null;
+        model?: string | null;
     },
 ): RegisteredAgent | null {
     const agent = registeredAgents.get(agentId);
     if (!agent) return null;
 
     const changed: string[] = [];
-    const apply = <K extends 'voiceId' | 'personaId' | 'systemPromptOverride' | 'memoryNamespace' | 'characterSummary'>(key: K) => {
+    const apply = <K extends 'voiceId' | 'personaId' | 'systemPromptOverride' | 'memoryNamespace' | 'characterSummary' | 'model'>(key: K) => {
         const v = updates[key];
         if (v === undefined) return;
         const before = agent[key];
@@ -1435,6 +1872,7 @@ export function updateAgentIdentity(
     apply('systemPromptOverride');
     apply('memoryNamespace');
     apply('characterSummary');
+    apply('model');
 
     if (changed.length === 0) return agent;
 
@@ -1470,13 +1908,14 @@ export function getAgentVoice(agentId: string): string | undefined {
     return agent?.voiceId;
 }
 
-export function updateRegisteredAgent(agentId: string, updates: Partial<Pick<RegisteredAgent, 'reportsTo' | 'role' | 'title' | 'name'>>): RegisteredAgent | null {
+export function updateRegisteredAgent(agentId: string, updates: Partial<Pick<RegisteredAgent, 'reportsTo' | 'role' | 'title' | 'name' | 'model'>>): RegisteredAgent | null {
     const agent = registeredAgents.get(agentId);
     if (!agent) return null;
     if (updates.reportsTo !== undefined) agent.reportsTo = updates.reportsTo || undefined;
     if (updates.role) agent.role = updates.role;
     if (updates.title !== undefined) agent.title = updates.title || undefined;
     if (updates.name) agent.name = updates.name;
+    if (updates.model !== undefined) agent.model = updates.model || '';
     saveState();
     return agent;
 }

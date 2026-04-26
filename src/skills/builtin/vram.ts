@@ -110,7 +110,7 @@ Example: Acquire 5000MB for cuOpt → auto-evicts 35B model, loads 7B fallback, 
             properties: {
                 service: {
                     type: 'string',
-                    description: 'Service name requesting VRAM (e.g., "cuopt", "orpheus_tts", "nemotron_asr")',
+                    description: 'Service name requesting VRAM (e.g., "cuopt", "f5_tts", "nemotron_asr")',
                 },
                 requiredMB: {
                     type: 'number',

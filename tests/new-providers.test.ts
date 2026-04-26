@@ -654,8 +654,7 @@ describe('Router — New Provider Aliases', () => {
     });
 
     describe('getAllProviders()', () => {
-        // v4.10.0-local: added claude-code (5th core provider). Total
-        // is now 37 (5 core + 32 compat).
+        // 5 core + 32 compat = 37 total
         it('should return 37 total providers (5 core + 32 compat)', () => {
             const all = getAllProviders();
             expect(all.size).toBe(37);

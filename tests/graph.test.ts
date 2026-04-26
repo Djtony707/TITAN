@@ -68,12 +68,12 @@ describe('Native Temporal Knowledge Graph', () => {
         await addEpisode('TITAN uses TypeScript.', 'test');
         await addEpisode('Weather is sunny.', 'test');
         await addEpisode('TypeScript generics.', 'test');
-        expect(searchMemory('TypeScript').length).toBe(2);
+        expect((await searchMemory('TypeScript')).length).toBe(2);
     });
 
     it('should return empty for non-matching query', async () => {
         await addEpisode('TITAN uses TypeScript.', 'test');
-        expect(searchMemory('xylophone')).toEqual([]);
+        expect(await searchMemory('xylophone')).toEqual([]);
     });
 
     it('should return correct graph stats', async () => {
@@ -103,12 +103,12 @@ describe('Native Temporal Knowledge Graph', () => {
 
     it('should inject graph context when data exists', async () => {
         await addEpisode('TITAN supports 14 providers.', 'test');
-        const context = getGraphContext('providers');
+        const context = await getGraphContext('providers');
         expect(context.length).toBeGreaterThan(0);
     });
 
-    it('should return empty context on empty graph', () => {
-        expect(getGraphContext('anything')).toBe('');
+    it('should return empty context on empty graph', async () => {
+        expect(await getGraphContext('anything')).toBe('');
     });
 
     it('should clear all data', async () => {

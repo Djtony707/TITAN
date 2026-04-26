@@ -62,7 +62,7 @@ export default function WatchView() {
         return 'connecting…';
     }, [connected, reconnecting]);
 
-    const statusColor = connected ? '#34d399' : reconnecting ? '#fbbf24' : '#6b7280';
+    const statusColor = connected ? 'var(--color-emerald)' : reconnecting ? '#fbbf24' : '#6b7280';
 
     return (
         <div

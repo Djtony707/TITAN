@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
 import { ArrowLeft, Save, Clock, DollarSign, CheckCircle } from 'lucide-react';
-import { getCommandPostAgents, getCPRuns, updateCPAgent, getCPIssues } from '@/api/client';
+import { getCommandPostAgents, getCPRuns, updateCPAgent, getCPIssues, getModels } from '@/api/client';
 import type { RegisteredAgent, CPRun, CPIssue } from '@/api/types';
 import { PageHeader, Tabs, StatusBadge, Button, EmptyState, SkeletonLoader } from '@/components/shared';
 
@@ -31,7 +31,9 @@ function CPAgentDetail() {
   const [editRole, setEditRole] = useState('');
   const [editReportsTo, setEditReportsTo] = useState('');
   const [editTitle, setEditTitle] = useState('');
+  const [editModel, setEditModel] = useState('');
   const [saving, setSaving] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
 
   const refresh = useCallback(async () => {
     if (!id) return;
@@ -43,6 +45,7 @@ function CPAgentDetail() {
       setEditRole(found.role);
       setEditReportsTo(found.reportsTo ?? '');
       setEditTitle(found.title ?? '');
+      setEditModel(found.model ?? '');
 
       const [r, i] = await Promise.all([
         getCPRuns(id),
@@ -59,11 +62,15 @@ function CPAgentDetail() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  useEffect(() => {
+    getModels().then(m => setAvailableModels(m)).catch(() => { /* ignore */ });
+  }, []);
+
   const handleSave = async () => {
     if (!id) return;
     setSaving(true);
     try {
-      const updated = await updateCPAgent(id, { role: editRole, reportsTo: editReportsTo || undefined, title: editTitle || undefined });
+      const updated = await updateCPAgent(id, { role: editRole, reportsTo: editReportsTo || undefined, title: editTitle || undefined, model: editModel || undefined });
       setAgent(updated);
     } catch { /* */ }
     setSaving(false);
@@ -230,6 +237,21 @@ function CPAgentDetail() {
               value={editTitle}
               onChange={e => setEditTitle(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Model</label>
+            <input
+              list="cp-agent-models"
+              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent"
+              placeholder="e.g. ollama/qwen3.5:cloud"
+              value={editModel}
+              onChange={e => setEditModel(e.target.value)}
+            />
+            <datalist id="cp-agent-models">
+              {availableModels.map(m => (
+                <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
+              ))}
+            </datalist>
           </div>
           <Button size="sm" icon={<Save size={14} />} onClick={handleSave} loading={saving}>Save</Button>
         </div>

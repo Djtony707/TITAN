@@ -1158,7 +1158,7 @@ function SelfImprovePanel() {
                       className="flex-1 rounded-t transition-all hover:opacity-80"
                       style={{
                         height: `${Math.max(height, 4)}%`,
-                        backgroundColor: r.val_score >= (arPerf?.baseline || 78) ? '#22c55e' : '#ef4444',
+                        backgroundColor: arPerf?.baseline != null ? (r.val_score >= arPerf.baseline ? 'var(--color-success)' : 'var(--color-error)') : 'var(--color-purple)',
                       }}
                       title={`Run ${i + 1}: ${r.val_score} (${new Date(r.timestamp).toLocaleDateString()})`}
                     />
@@ -1168,7 +1168,7 @@ function SelfImprovePanel() {
               {/* Baseline line */}
               <div className="relative mt-1">
                 <div className="border-t border-dashed border-border-light/50 absolute w-full" />
-                <span className="text-[9px] text-text-muted relative -top-2">baseline: {arPerf?.baseline || 78.0}</span>
+                <span className="text-[9px] text-text-muted relative -top-2">{arPerf?.baseline != null ? `baseline: ${arPerf.baseline}` : 'baseline: —'}</span>
               </div>
             </div>
 
@@ -1233,7 +1233,7 @@ function SelfImprovePanel() {
                       className="flex-1 rounded-t transition-all hover:opacity-80"
                       style={{
                         height: `${Math.max(height, 4)}%`,
-                        backgroundColor: r.val_score >= (agentPerf?.baseline || 70) ? '#f59e0b' : '#ef4444',
+                        backgroundColor: agentPerf?.baseline != null ? (r.val_score >= agentPerf.baseline ? 'var(--color-warning)' : 'var(--color-error)') : 'var(--color-purple)',
                       }}
                       title={`Run ${i + 1}: ${r.val_score} (${new Date(r.timestamp).toLocaleDateString()})`}
                     />
@@ -1243,7 +1243,7 @@ function SelfImprovePanel() {
               {/* Baseline line */}
               <div className="relative mt-1">
                 <div className="border-t border-dashed border-border-light/50 absolute w-full" />
-                <span className="text-[9px] text-text-muted relative -top-2">baseline: {agentPerf?.baseline || 70.0}</span>
+                <span className="text-[9px] text-text-muted relative -top-2">{agentPerf?.baseline != null ? `baseline: ${agentPerf.baseline}` : 'baseline: —'}</span>
               </div>
             </div>
 

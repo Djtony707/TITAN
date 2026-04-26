@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, Activity, Brain, Shield, GitBranch, Zap, Clock, Cpu } from 'lucide-react';
-import { getMetricsSummary, getTraces, getSoulWisdom, getAlerts, getGuardrailViolations } from '@/api/client';
+import { BarChart3, Activity, Brain, Shield, GitBranch, Zap, Clock, Cpu, Server } from 'lucide-react';
+import { getMetricsSummary, getTraces, getSoulWisdom, getAlerts, getGuardrailViolations, getAnalyticsProfile } from '@/api/client';
 import type { TraceStats, SoulWisdom } from '@/api/types';
 import { StatCard } from '@/components/shared/StatCard';
 
@@ -23,17 +23,19 @@ function TelemetryPanel() {
   const [wisdom, setWisdom] = useState<SoulWisdom | null>(null);
   const [alertCount, setAlertCount] = useState(0);
   const [violationCount, setViolationCount] = useState(0);
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof getAnalyticsProfile>> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [metricsData, tracesData, wisdomData, alertsData, violationsData] = await Promise.allSettled([
+        const [metricsData, tracesData, wisdomData, alertsData, violationsData, profileData] = await Promise.allSettled([
           getMetricsSummary(),
           getTraces(1),
           getSoulWisdom(),
           getAlerts(100),
           getGuardrailViolations(100),
+          getAnalyticsProfile(),
         ]);
 
         if (metricsData.status === 'fulfilled') setMetrics(metricsData.value as MetricsSummary);
@@ -41,6 +43,7 @@ function TelemetryPanel() {
         if (wisdomData.status === 'fulfilled') setWisdom(wisdomData.value as SoulWisdom);
         if (alertsData.status === 'fulfilled') setAlertCount(((alertsData.value as { alerts: unknown[] }).alerts || []).length);
         if (violationsData.status === 'fulfilled') setViolationCount(((violationsData.value as { violations: unknown[] }).violations || []).length);
+        if (profileData.status === 'fulfilled') setProfile(profileData.value as Awaited<ReturnType<typeof getAnalyticsProfile>>);
       } catch { /* non-critical */ }
       setLoading(false);
     };
@@ -143,6 +146,26 @@ function TelemetryPanel() {
           icon={<Brain className="h-5 w-5" />}
         />
       </div>
+
+      {/* System Profile */}
+      {profile && (
+        <div className="rounded-xl border border-border bg-bg-secondary p-4">
+          <h3 className="text-sm font-medium text-text-secondary mb-3 flex items-center gap-2">
+            <Server className="h-4 w-4" />
+            System Profile
+          </h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div><span className="text-text-muted">OS</span> <span className="text-text-secondary ml-1">{profile.os} {profile.arch}</span></div>
+            <div><span className="text-text-muted">CPU</span> <span className="text-text-secondary ml-1">{profile.cpuCores}c — {profile.cpuModel.split('@')[0].trim()}</span></div>
+            <div><span className="text-text-muted">RAM</span> <span className="text-text-secondary ml-1">{Math.round(profile.ramTotalMB / 1024)}GB</span></div>
+            <div><span className="text-text-muted">GPU</span> <span className="text-text-secondary ml-1">{profile.gpuName}</span></div>
+            <div><span className="text-text-muted">Node</span> <span className="text-text-secondary ml-1">{profile.nodeVersion}</span></div>
+            <div><span className="text-text-muted">Install</span> <span className="text-text-secondary ml-1">{profile.installMethod}</span></div>
+            <div><span className="text-text-muted">Version</span> <span className="text-text-secondary ml-1">{profile.version}</span></div>
+            <div><span className="text-text-muted">ID</span> <span className="text-text-secondary ml-1 font-mono">{profile.installId.slice(0, 8)}</span></div>
+          </div>
+        </div>
+      )}
 
       {/* Top Tools */}
       {metrics?.topTools && metrics.topTools.length > 0 && (

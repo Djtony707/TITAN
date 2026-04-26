@@ -65,7 +65,7 @@ export function registerMemoryGraphSkill(): void {
             execute: async (args) => {
                 const query = args.query as string;
                 const limit = (args.limit as number) || 10;
-                const results = searchMemory(query, limit);
+                const results = await searchMemory(query, limit);
                 if (results.length === 0) return 'No matching memories found for: ' + query;
                 return results.map((ep, i) =>
                     `[${i + 1}] (${ep.source}, ${ep.createdAt.slice(0, 10)}) ${ep.content.slice(0, 200)}${ep.content.length > 200 ? '…' : ''}`
@@ -136,7 +136,7 @@ export function registerMemoryGraphSkill(): void {
                 const entity = getEntity(name);
                 if (!entity) {
                     // Fall back to text search
-                    const results = searchMemory(name, limit);
+                    const results = await searchMemory(name, limit);
                     if (results.length === 0) return `No memories found related to: ${name}`;
                     return `No entity named "${name}" found, but found ${results.length} related episodes:\n\n` +
                         results.map((ep, i) =>

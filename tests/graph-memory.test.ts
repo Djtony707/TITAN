@@ -265,7 +265,7 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('Second.', 'test');
             await addEpisode('Third.', 'test');
 
-            const results = searchMemory('');
+            const results = await searchMemory('');
             expect(results.length).toBe(3);
         });
 
@@ -274,7 +274,7 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('TypeScript compiles to JavaScript.', 'test');
             await addEpisode('Python is also great.', 'test');
 
-            const results = searchMemory('TypeScript great');
+            const results = await searchMemory('TypeScript great');
             // First result should match both terms
             expect(results[0].content).toContain('TypeScript');
             expect(results[0].content).toContain('great');
@@ -285,7 +285,7 @@ describe('Graph Memory — Extended', () => {
                 await addEpisode(`Episode ${i} about testing.`, 'test');
             }
 
-            const results = searchMemory('testing', 3);
+            const results = await searchMemory('testing', 3);
             expect(results.length).toBe(3);
         });
 
@@ -293,7 +293,7 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('TypeScript.', 'test');
             await addEpisode('TypeScript is a TypeScript language.', 'test'); // More matches
 
-            const results = searchMemory('TypeScript');
+            const results = await searchMemory('TypeScript');
             // The one with more occurrences should come first
             expect(results.length).toBe(2);
         });
@@ -419,7 +419,7 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('TITAN is an AI framework written in TypeScript.', 'test');
             await new Promise(r => setTimeout(r, 100));
 
-            const context = getGraphContext('TypeScript');
+            const context = await getGraphContext('TypeScript');
             expect(context).toContain('Relevant memories');
             expect(context).toContain('TITAN');
         });
@@ -431,14 +431,14 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('Node.js is a runtime.', 'test');
             await new Promise(r => setTimeout(r, 100));
 
-            const context = getGraphContext('something');
+            const context = await getGraphContext('something');
             expect(context).toContain('Known entities');
             expect(context).toContain('Node.js');
         });
 
-        it('should return empty string for empty graph', () => {
+        it('should return empty string for empty graph', async () => {
             clearGraph();
-            const context = getGraphContext('anything');
+            const context = await getGraphContext('anything');
             expect(context).toBe('');
         });
 
@@ -449,7 +449,7 @@ describe('Graph Memory — Extended', () => {
             await addEpisode('Secret thing.', 'test');
             await new Promise(r => setTimeout(r, 100));
 
-            const context = getGraphContext('nomatch');
+            const context = await getGraphContext('nomatch');
             // Should still show known entities
             expect(context).toContain('Known entities');
             expect(context).toContain('Secret');

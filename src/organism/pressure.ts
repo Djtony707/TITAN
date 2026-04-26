@@ -18,17 +18,39 @@ import type { DriveState, DriveId } from './drives.js';
 import { rehearseShadow, type ShadowVerdict } from './shadow.js';
 import { emit } from '../substrate/traceBus.js';
 import { loadConfig } from '../config/config.js';
+import { readJsonFile, writeJsonFile } from '../utils/helpers.js';
+import { SOMADRIVE_STATE_PATH } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Pressure';
 
 /**
  * v4.6.0: per-drive fire history. Used to damp consecutive proposals for
- * the same drive so we don't spawn duplicate "Satiate hunger" goals every
- * tick. Reset on process restart (not persisted — fine, the worst case
- * after restart is one extra proposal which dedupe will catch anyway).
+ * the same drive so we don't spawn duplicate goals every tick.
+ * Persisted to disk so damping survives restarts.
  */
 const lastFireByDrive = new Map<string, number>();
+let lastGlobalFire = 0;
+
+// Load persisted damping state on module init.
+(function loadDampingState() {
+    const raw = readJsonFile<Record<string, number>>(SOMADRIVE_STATE_PATH);
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const now = Date.now();
+        const DAMPING_MS = 2 * 60 * 60 * 1000; // v5.0.0: increased to 2h
+        for (const [k, v] of Object.entries(raw)) {
+            if (typeof v === 'number' && now - v < DAMPING_MS * 2) {
+                lastFireByDrive.set(k, v);
+            }
+        }
+    }
+})();
+
+function saveDampingState() {
+    const obj: Record<string, number> = {};
+    for (const [k, v] of lastFireByDrive) obj[k] = v;
+    writeJsonFile(SOMADRIVE_STATE_PATH, obj);
+}
 
 /**
  * Test-only hook: clear the per-drive damping memory so unit tests that
@@ -38,6 +60,7 @@ const lastFireByDrive = new Map<string, number>();
  */
 export function _resetPressureDampingForTests(): void {
     lastFireByDrive.clear();
+    lastGlobalFire = 0;
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -170,27 +193,43 @@ export async function runPressureCycle(
         return { fired: false, reading, decision };
     }
 
-    // v4.6.0: per-drive backoff + satiation damping.
-    // If the dominant drive already fired within the last 30 minutes, OR
-    // it already has active goals pursuing it, skip this tick — the
-    // organism is already working on that drive, piling on just proliferates
-    // duplicates without helping the drive get satiated faster.
+    // v5.0.0: Global cooldown + per-drive backoff + goal-overload detection.
+    const now = Date.now();
+    const GLOBAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour max across ALL drives
+    if (now - lastGlobalFire < GLOBAL_COOLDOWN_MS) {
+        return {
+            fired: false, reading, decision,
+            skipped: `global cooldown: last SOMA proposal ${Math.round((now - lastGlobalFire) / 60_000)}m ago (min 60m)`,
+        };
+    }
+
     const dominantId = decision.dominantDrives[0];
     if (dominantId) {
-        const now = Date.now();
         const last = lastFireByDrive.get(dominantId) || 0;
-        const DAMPING_MS = 30 * 60 * 1000; // 30 min
+        const DAMPING_MS = 2 * 60 * 60 * 1000; // v5.0.0: 2h per drive
         if (now - last < DAMPING_MS) {
             return {
                 fired: false, reading, decision,
-                skipped: `drive ${dominantId} fired ${Math.round((now - last) / 60_000)}m ago — damping until 30m elapsed`,
+                skipped: `drive ${dominantId} fired ${Math.round((now - last) / 60_000)}m ago — damping until 2h elapsed`,
             };
         }
         // Check if the drive already has active goals in flight. If N ≥ 2,
         // give existing work more time before stacking on more.
         try {
             const { listGoals } = await import('../agent/goals.js');
-            const activeForDrive = listGoals().filter(g => {
+            const allGoals = listGoals();
+            const activeCount = allGoals.filter(g => g.status === 'active').length;
+
+            // Goal overload: if there are too many active goals, refuse to add MORE.
+            // Instead the organism should focus on completing existing work.
+            if (activeCount >= 30) {
+                return {
+                    fired: false, reading, decision,
+                    skipped: `goal overload: ${activeCount} active goals — organism focuses on existing work before proposing more`,
+                };
+            }
+
+            const activeForDrive = allGoals.filter(g => {
                 if (g.status !== 'active') return false;
                 const tags = g.tags || [];
                 const text = `${g.title} ${g.description || ''}`.toLowerCase();
@@ -244,7 +283,7 @@ export async function runPressureCycle(
         const approvals = await generateGoalProposals(somaAgentId, {
             activeGoals: drives.map(d => `${d.label} at ${Math.round(d.satisfaction * 100)}%`),
             consolidationNotes,
-        });
+        }, 'soma_proposal');
 
         if (approvals.length === 0) {
             return {
@@ -287,6 +326,8 @@ export async function runPressureCycle(
                 approvalId: approval.id,
                 proposedBy: somaAgentId,
                 title: (approval.payload as { title?: string })?.title ?? '',
+                description: (approval.payload as { description?: string })?.description ?? '',
+                rationale: (approval.payload as { rationale?: string })?.rationale ?? '',
                 dominantDrives: decision.dominantDrives,
                 shadowVerdict: currentVerdict ? {
                     reversibilityScore: currentVerdict.reversibilityScore,
@@ -300,8 +341,12 @@ export async function runPressureCycle(
         void getApproval;
         void requestGoalProposalApproval;
 
-        // v4.6.0: record fire timestamp for per-drive damping on next tick.
-        if (dominantId) lastFireByDrive.set(dominantId, Date.now());
+        // v5.0.0: record fire timestamps for damping on next tick.
+        lastGlobalFire = Date.now();
+        if (dominantId) {
+            lastFireByDrive.set(dominantId, Date.now());
+            saveDampingState();
+        }
 
         logger.info(COMPONENT, `Soma fired ${approvals.length} proposal(s), primary=${primary.id}: ${decision.reason}`);
         return { fired: true, reading, decision, approvalId, shadow };

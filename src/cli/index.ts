@@ -1101,7 +1101,7 @@ program
             console.log(chalk.white(`  Entities : ${chalk.bold(stats.entityCount)}`));
             console.log(chalk.white(`  Edges    : ${chalk.bold(stats.edgeCount)}`));
             console.log();
-            return;
+            process.exit(0);
         }
 
         if (options.clear) {
@@ -1120,7 +1120,7 @@ program
                     resolve();
                 });
             });
-            return;
+            process.exit(0);
         }
 
         if (options.init) {

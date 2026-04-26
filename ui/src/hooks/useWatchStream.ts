@@ -184,7 +184,16 @@ export function useWatchStream(): UseWatchStreamReturn {
         const headers: Record<string, string> = {};
         if (token) headers.Authorization = `Bearer ${token}`;
         fetch('/api/watch/snapshot', { headers })
-            .then((r) => (r.ok ? r.json() : null))
+            .then((r) => {
+                if (r.status === 401) {
+                    // Token expired or invalid — clear it and force re-login
+                    localStorage.removeItem('titan-token');
+                    localStorage.removeItem('titan_token');
+                    window.location.reload();
+                    return null;
+                }
+                return r.ok ? r.json() : null;
+            })
             .then((data) => {
                 if (data && !data.error) {
                     setSnapshot(data);

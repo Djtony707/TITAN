@@ -43,14 +43,14 @@ export default function AlertsTab() {
       <div className="flex items-center gap-1 text-xs">
         <button
           onClick={() => setView('alerts')}
-          className={clsx('px-2.5 py-1 rounded-md transition-colors', view === 'alerts' ? 'bg-white/[0.06] text-text' : 'text-text-muted hover:text-text-secondary')}
+          className={clsx('px-2.5 py-1 rounded-md transition-colors', view === 'alerts' ? 'bg-bg-tertiary text-text' : 'text-text-muted hover:text-text-secondary')}
         >
           <Bell size={12} className="inline mr-1" />
           Alerts ({alerts.length})
         </button>
         <button
           onClick={() => setView('guardrails')}
-          className={clsx('px-2.5 py-1 rounded-md transition-colors', view === 'guardrails' ? 'bg-white/[0.06] text-text' : 'text-text-muted hover:text-text-secondary')}
+          className={clsx('px-2.5 py-1 rounded-md transition-colors', view === 'guardrails' ? 'bg-bg-tertiary text-text' : 'text-text-muted hover:text-text-secondary')}
         >
           <Shield size={12} className="inline mr-1" />
           Guardrails ({violations.length})
@@ -67,7 +67,7 @@ export default function AlertsTab() {
         ) : (
           <div className="space-y-1">
             {alerts.map((alert, i) => (
-              <div key={i} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-white/[0.02]">
+              <div key={i} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-bg-secondary/30">
                 {severityIcon(alert.severity)}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-text-secondary">{alert.title}</p>
@@ -89,11 +89,11 @@ export default function AlertsTab() {
         ) : (
           <div className="space-y-1">
             {violations.map((v, i) => (
-              <div key={i} className={clsx('flex items-start gap-2 px-2.5 py-2 rounded-lg', v.blocked ? 'bg-error/5' : 'bg-white/[0.02]')}>
+              <div key={i} className={clsx('flex items-start gap-2 px-2.5 py-2 rounded-lg', v.blocked ? 'bg-error/5' : 'bg-bg-secondary/30')}>
                 {severityIcon(v.severity)}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-text-secondary">
-                    <span className="font-mono text-[10px] bg-white/[0.04] px-1 rounded mr-1">{v.layer}</span>
+                    <span className="font-mono text-[10px] bg-bg-tertiary px-1 rounded mr-1">{v.layer}</span>
                     {v.rule}
                     {v.blocked && <span className="ml-1 text-error text-[10px]">BLOCKED</span>}
                   </p>

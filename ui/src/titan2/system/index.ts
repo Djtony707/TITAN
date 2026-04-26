@@ -1,0 +1,13 @@
+export { NavWidget } from './NavWidget';
+export { ChatWidget } from './ChatWidget';
+export { CmdPaletteWidget } from './CmdPaletteWidget';
+export { SomaWidget } from './SomaWidget';
+export { SomaOrb } from './SomaOrb';
+export { CommandPostWidget } from './CommandPostWidget';
+export { IntelligenceWidget } from './IntelligenceWidget';
+export { InfraWidget } from './InfraWidget';
+export { ToolsWidget } from './ToolsWidget';
+export { SettingsWidget } from './SettingsWidget';
+export { FilesWidget } from './FilesWidget';
+export { MemoryGraphWidget } from './MemoryGraphWidget';
+export { VoiceWidget } from './VoiceWidget';

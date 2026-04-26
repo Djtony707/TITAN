@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Search, Trash2, X } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { getSessions, getSessionMessages, deleteSession } from '@/api/client';
+import { InlineEditableField } from '@/components/shared';
+import { getSessions, getSessionMessages, deleteSession, renameSession } from '@/api/client';
 import type { Session, ChatMessage } from '@/api/types';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 
@@ -77,7 +78,17 @@ function SessionsPanel() {
     {
       key: 'name',
       header: 'Name',
-      render: (row) => <span>{row.name ?? '-'}</span>,
+      render: (row) => (
+        <span className="text-sm text-text">
+          <InlineEditableField
+            value={row.name ?? ''}
+            onSave={async (v) => { await renameSession(row.id, v); await fetchSessions(); }}
+            placeholder="Session name"
+            emptyLabel="Untitled"
+            hidePencil
+          />
+        </span>
+      ),
     },
     { key: 'messageCount', header: 'Messages' },
     {

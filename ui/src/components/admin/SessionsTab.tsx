@@ -109,51 +109,51 @@ export default function SessionsTab() {
     return (
         <div className="space-y-4">
             <div>
-                <div className="text-[11px] text-white/40 mb-2">
+                <div className="text-[11px] text-text-muted mb-2">
                     Internal sessions are TITAN's background thought-trains: autopilot runs, deliberation plans, sub-agent delegations. You wouldn't normally see these in chat.
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                     <FilterChip active={channelFilter === 'internal'} onClick={() => setChannelFilter('internal')}>
-                        Internal <span className="text-white/30 ml-1">({totalInternal})</span>
+                        Internal <span className="text-text-muted ml-1">({totalInternal})</span>
                     </FilterChip>
                     <FilterChip active={channelFilter === 'user'} onClick={() => setChannelFilter('user')}>
-                        User chats <span className="text-white/30 ml-1">({totalUser})</span>
+                        User chats <span className="text-text-muted ml-1">({totalUser})</span>
                     </FilterChip>
                     <FilterChip active={channelFilter === 'all'} onClick={() => setChannelFilter('all')}>
-                        All <span className="text-white/30 ml-1">({sessions.length})</span>
+                        All <span className="text-text-muted ml-1">({sessions.length})</span>
                     </FilterChip>
                 </div>
             </div>
 
             {loading ? (
-                <div className="p-6 text-center text-[12px] text-white/40">Loading sessions…</div>
+                <div className="p-6 text-center text-[12px] text-text-muted">Loading sessions…</div>
             ) : filtered.length === 0 ? (
-                <div className="p-8 text-center text-[12px] text-white/40 bg-white/[0.015] border border-white/[0.06] rounded-xl">
+                <div className="p-8 text-center text-[12px] text-text-muted bg-bg-secondary/50 border border-border rounded-xl">
                     No sessions in this filter.
                 </div>
             ) : (
                 <div className="space-y-4">
                     {grouped.map(([channel, group]) => (
-                        <div key={channel} className="bg-white/[0.015] border border-white/[0.06] rounded-xl overflow-hidden">
-                            <div className="px-4 py-2.5 flex items-center justify-between border-b border-white/[0.04]">
+                        <div key={channel} className="bg-bg-secondary/50 border border-border rounded-xl overflow-hidden">
+                            <div className="px-4 py-2.5 flex items-center justify-between border-b border-border/50">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[12px] text-white/70 font-medium">{channel}</span>
-                                    <span className="text-[10px] text-white/30">{group.length}</span>
+                                    <span className="text-[12px] text-text-secondary font-medium">{channel}</span>
+                                    <span className="text-[10px] text-text-muted">{group.length}</span>
                                 </div>
-                                <span className="text-[10px] text-white/25 uppercase tracking-wider">
+                                <span className="text-[10px] text-text-muted uppercase tracking-wider">
                                     {isInternalChannel(channel) ? 'internal' : isUserChannel(channel) ? 'user' : 'other'}
                                 </span>
                             </div>
-                            <div className="divide-y divide-white/[0.03]">
+                            <div className="divide-y divide-border/30">
                                 {group.slice(0, 8).map(s => (
                                     <div
                                         key={s.id}
                                         onClick={() => setSelected(s)}
-                                        className="px-4 py-2.5 flex items-start gap-3 hover:bg-white/[0.03] cursor-pointer"
+                                        className="px-4 py-2.5 flex items-start gap-3 hover:bg-bg-tertiary/30 cursor-pointer"
                                     >
                                         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${s.status === 'active' ? 'bg-emerald-400' : 'bg-white/20'}`} />
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-[12px] text-white/80 truncate">
+                                            <div className="text-[12px] text-text truncate">
                                                 {s.name || s.lastMessage?.slice(0, 80) || '(untitled)'}
                                             </div>
                                             <div className="text-[10px] text-white/35 mt-0.5">
@@ -163,7 +163,7 @@ export default function SessionsTab() {
                                     </div>
                                 ))}
                                 {group.length > 8 && (
-                                    <div className="px-4 py-2 text-[10px] text-white/25 italic">
+                                    <div className="px-4 py-2 text-[10px] text-text-muted italic">
                                         + {group.length - 8} more {channel} session{group.length - 8 === 1 ? '' : 's'}
                                     </div>
                                 )}
@@ -191,7 +191,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
             className={`px-3 py-1 text-[11px] rounded-lg transition-colors ${
                 active
                     ? 'bg-indigo-600 text-white'
-                    : 'bg-white/[0.04] text-white/50 hover:text-white/80'
+                    : 'bg-bg-tertiary text-text-muted hover:text-text'
             }`}
         >{children}</button>
     );
@@ -253,9 +253,9 @@ function SessionDetailPanel({ open, session, onClose }: { open: boolean; session
                             boxShadow: '-20px 0 60px rgba(0,0,0,0.5)',
                         }}
                     >
-                        <div className="px-6 py-4 border-b border-white/[0.06] flex items-start justify-between gap-3">
+                        <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                                <div className="text-[11px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+                                <div className="text-[11px] uppercase tracking-wider text-text-muted font-semibold mb-1">
                                     {session.channel}
                                 </div>
                                 <div className="text-[16px] font-semibold text-white/95 truncate">
@@ -265,7 +265,7 @@ function SessionDetailPanel({ open, session, onClose }: { open: boolean; session
                                     {session.messageCount} messages · {timeAgoShort(session.lastActive)}
                                 </div>
                             </div>
-                            <button onClick={onClose} className="text-white/55 hover:text-white/90 p-1.5 rounded" aria-label="Close">
+                            <button onClick={onClose} className="text-white/55 hover:text-text p-1.5 rounded" aria-label="Close">
                                 <X size={18} />
                             </button>
                         </div>
@@ -279,15 +279,15 @@ function SessionDetailPanel({ open, session, onClose }: { open: boolean; session
                                     m.role === 'assistant'
                                         ? 'bg-purple-500/[0.03] border-purple-400/50'
                                         : m.role === 'user'
-                                            ? 'bg-white/[0.03] border-white/20'
-                                            : 'bg-white/[0.015] border-white/10'
+                                            ? 'bg-bg-tertiary/30 border-white/20'
+                                            : 'bg-bg-secondary/50 border-white/10'
                                 }`}>
-                                    <div className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+                                    <div className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1">
                                         {m.role}
                                     </div>
                                     <div className="text-[12px] text-white/85 whitespace-pre-wrap leading-relaxed" style={{ wordBreak: 'break-word' }}>
                                         {(m.content || '').slice(0, 2000)}
-                                        {(m.content || '').length > 2000 && <span className="text-white/30">… (truncated)</span>}
+                                        {(m.content || '').length > 2000 && <span className="text-text-muted">… (truncated)</span>}
                                     </div>
                                 </div>
                             ))}

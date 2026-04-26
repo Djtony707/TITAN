@@ -4,6 +4,7 @@ import { FluidOrb } from './FluidOrb';
 import { TranscriptView } from './TranscriptView';
 import { VoicePicker, getVoiceInfo } from './VoicePicker';
 import { apiFetch } from '@/api/client';
+import { streamChat } from '@/titan2/llm/ollama';
 
 interface VoiceOverlayProps {
   onClose: () => void;
@@ -18,7 +19,7 @@ interface TranscriptMessage {
 let msgCounter = 0;
 const nextMsgId = () => `voice-msg-${Date.now()}-${++msgCounter}`;
 
-/** Strip Orpheus emotion tags for display (keep for TTS) */
+/** Strip emotion tags for TTS cleanliness */
 const stripEmotionTags = (text: string) =>
   text.replace(/<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>/gi, '').replace(/\s{2,}/g, ' ').trim();
 
@@ -66,7 +67,7 @@ interface SpeechRecognitionAlternative {
 }
 
 /**
- * Direct voice mode — uses browser Web Speech API for STT and Orpheus TTS for speech.
+ * Direct voice mode — uses browser Web Speech API for STT and F5-TTS for speech.
  * No LiveKit required.
  */
 export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
@@ -84,7 +85,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
-  const [ttsMode, setTtsMode] = useState<'orpheus' | 'qwen3-tts' | 'browser' | null>(null);
+  // F5-TTS is the only TTS engine. No fallback modes.
   const [availableVoices, setAvailableVoices] = useState<string[]>([]);
 
   const recognitionRef = useRef<any>(null);
@@ -173,7 +174,6 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
           const data = await res.json();
           if (data.voices?.length) {
             setAvailableVoices(data.voices);
-            setTtsMode(data.engine || 'orpheus');
             // If saved voice isn't in the new list, switch to first available
             if (savedVoice && !data.voices.includes(savedVoice)) {
               const newVoice = data.voices[0];
@@ -182,11 +182,11 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
               localStorage.setItem('titan-voice', newVoice);
             }
           } else {
-            setAvailableVoices(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
+            setAvailableVoices(['default']);
           }
         }
       } catch {
-        setAvailableVoices(['tara', 'leah', 'jess', 'mia', 'zoe', 'leo', 'dan', 'zac']);
+        setAvailableVoices(['default']);
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -477,16 +477,12 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     };
   }, []);
 
-  // Send user message to TITAN and speak the response via streaming TTS
+  // Send user message to TITAN via Ollama and speak the response via F5-TTS
   const handleUserMessage = useCallback(async (text: string) => {
-    // Prevent overlapping calls (echo can trigger rapid duplicate messages)
     if (processingRef.current) return;
     processingRef.current = true;
 
-    // If TITAN is speaking, interrupt it
     stopCurrentAudio();
-
-    // Abort any in-flight requests
     abortRef.current?.abort();
 
     setMessages(prev => [...prev, { id: nextMsgId(), role: 'user', text }]);
@@ -494,284 +490,85 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     setIsListening(false);
     setErrorMsg(null);
 
-    // Pause recognition while processing
     try { recognitionRef.current?.stop(); } catch { /* ok */ }
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const voice = selectedVoiceRef.current || 'default';
+    let assistantMsgId = '';
+    let responseText = '';
 
     try {
-      // Try streaming endpoint first (sentence-by-sentence TTS)
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
-      const voice = selectedVoiceRef.current || 'tara';
-
-      const res = await apiFetch('/api/voice/stream', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // 1. Stream LLM response from Ollama
+      const chatHistory = messages.map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.text,
+        timestamp: m.id ? Date.now() : Date.now(),
+      }));
+      await streamChat(
+        [...chatHistory, { role: 'user', content: text, timestamp: Date.now() }],
+        'You are TITAN, a helpful AI assistant. Keep responses concise and natural for voice conversation. Use short sentences.',
+        {
+          onToken: (token: string) => {
+            responseText += token;
+            const clean = stripToolNarration(stripEmotionTags(stripMarkdown(responseText)));
+            if (!assistantMsgId) {
+              assistantMsgId = nextMsgId();
+              setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', text: clean }]);
+            } else {
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: clean } : m));
+            }
+            setIsThinking(false);
+          },
         },
-        body: JSON.stringify({
-          content: text,
-          sessionId: sessionIdRef.current,
-          voice,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+        { signal: controller.signal }
+      );
 
-      // Fallback to old sequential path if streaming endpoint doesn't exist
-      if (res.status === 404) {
-        await handleUserMessageLegacy(text);
+      // 2. Synthesize audio with F5-TTS
+      const cleanText = stripToolNarration(stripEmotionTags(stripMarkdown(responseText)));
+      if (!cleanText) {
+        processingRef.current = false;
+        try { recognitionRef.current?.start(); } catch { /* ok */ }
         return;
       }
-      if (!res.ok) throw new Error(`TITAN request failed (${res.status})`);
 
-      // Parse SSE stream
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      setIsSpeaking(true);
+      const ttsRes = await fetch('/api/voice/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: cleanText.slice(0, 500), voice }),
+        signal: AbortSignal.timeout(120000),
+      });
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const sentences: string[] = [];
-      let assistantMsgId = '';
-      let displayText = '';
-      let audioPlaying = false;
+      if (!ttsRes.ok) throw new Error(`F5-TTS error: ${ttsRes.status}`);
 
-      // Reactive audio player — items pushed as they arrive from SSE
-      const audioPlayer = createAudioPlayer();
+      const blob = await ttsRes.blob();
+      const url = URL.createObjectURL(blob);
+      await playAudioData(url);
 
-      const audioDoneCleanup = () => {
-        currentAudioRef.current = null;
-        setIsSpeaking(false);
-        setAudioLevel(0);
-        currentTranscriptRef.current = '';
-        setInterimText('');
-        setTimeout(() => {
-          processingRef.current = false;
-          if (!isMutedRef.current && phaseRef.current === 'active') {
-            try { recognitionRef.current?.start(); } catch { /* ok */ }
-          }
-        }, 500);
-      };
-
-      let currentEvent = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ') && currentEvent) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              const evt = currentEvent;
-              currentEvent = '';
-
-              if (evt === 'tts_mode') {
-                setTtsMode(data.engine || 'browser');
-              } else if (evt === 'sentence') {
-                sentences.push(data.text);
-                displayText = sentences.join(' ');
-                if (!assistantMsgId) {
-                  assistantMsgId = nextMsgId();
-                  setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', text: displayText }]);
-                } else {
-                  setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, text: displayText } : m));
-                }
-                setIsThinking(false);
-              } else if (evt === 'audio') {
-                // Convert base64 WAV to blob URL and push to reactive queue
-                const binary = atob(data.audio);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                const blob = new Blob([bytes], { type: 'audio/wav' });
-                audioPlayer.push(URL.createObjectURL(blob));
-
-                // Start playback on first audio chunk
-                if (!audioPlaying) {
-                  audioPlaying = true;
-                  setIsSpeaking(true);
-                  setIsThinking(false);
-                  audioPlayer.start(audioDoneCleanup);
-                }
-              } else if (evt === 'tool') {
-                setIsThinking(true);
-              } else if (evt === 'done') {
-                if (data.sessionId) sessionIdRef.current = data.sessionId;
-                if (!assistantMsgId && data.fullText) {
-                  const clean = stripToolNarration(stripEmotionTags(stripMarkdown(data.fullText)));
-                  setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: clean }]);
-                }
-                if (data.error) {
-                  setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: 'Sorry, something went wrong.' }]);
-                }
-              }
-            } catch { currentEvent = ''; }
-          } else if (line === '') {
-            currentEvent = '';
-          }
-        }
-      }
-
-      // Stream ended — tell the audio player no more chunks are coming
-      audioPlayer.finish();
-
-      // If no audio was played (browser TTS mode or TTS failure), handle cleanup
-      if (!audioPlaying) {
-        setIsThinking(false);
-        setIsSpeaking(false);
-        // Try browser TTS for the full text
-        if (displayText && 'speechSynthesis' in window) {
-          setIsSpeaking(true);
-          const utterance = new SpeechSynthesisUtterance(displayText.slice(0, 500));
-          utterance.rate = 1.05;
-          const synthInterval = setInterval(() => setAudioLevel(0.3 + Math.random() * 0.3), 100);
-          synthIntervalRef.current = synthInterval;
-          utterance.onend = () => {
-            clearInterval(synthInterval);
-            synthIntervalRef.current = null;
-            setIsSpeaking(false);
-            setAudioLevel(0);
-            currentTranscriptRef.current = '';
-            setTimeout(() => {
-              processingRef.current = false;
-              if (!isMutedRef.current && phaseRef.current === 'active') {
-                try { recognitionRef.current?.start(); } catch { /* ok */ }
-              }
-            }, 500);
-          };
-          utterance.onerror = () => {
-            clearInterval(synthInterval);
-            setIsSpeaking(false);
-            processingRef.current = false;
-            try { recognitionRef.current?.start(); } catch { /* ok */ }
-          };
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(utterance);
-        } else {
-          currentTranscriptRef.current = '';
-          processingRef.current = false;
+      setIsSpeaking(false);
+      setAudioLevel(0);
+      currentTranscriptRef.current = '';
+      setTimeout(() => {
+        processingRef.current = false;
+        if (!isMutedRef.current && phaseRef.current === 'active') {
           try { recognitionRef.current?.start(); } catch { /* ok */ }
         }
-      }
+      }, 500);
     } catch (e: any) {
-      // Ignore aborts from component close
       if (e?.name === 'AbortError' && !abortRef.current) return;
-
-      const isTimeout = e?.name === 'AbortError';
-      const msg = isTimeout ? 'Request timed out' : 'Connection error';
+      const msg = e?.name === 'AbortError' ? 'Request timed out' : 'Connection error';
       setErrorMsg(msg);
       setTimeout(() => setErrorMsg(null), 4000);
       console.error('Voice processing error:', e);
-      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: isTimeout ? 'Sorry, that took too long. Try again.' : 'Sorry, something went wrong.' }]);
+      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: 'Sorry, something went wrong.' }]);
       setIsThinking(false);
       setIsSpeaking(false);
       currentTranscriptRef.current = '';
       processingRef.current = false;
       try { recognitionRef.current?.start(); } catch { /* ok */ }
     }
-  }, [stopCurrentAudio, createAudioPlayer]);
-
-  // Legacy sequential path — fallback when /api/voice/stream is not available
-  const handleUserMessageLegacy = useCallback(async (text: string) => {
-    const controller = abortRef.current;
-    if (!controller) return;
-
-    try {
-      const res = await apiFetch('/api/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content: text, channel: 'voice', sessionId: sessionIdRef.current }),
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`TITAN request failed (${res.status})`);
-      const data = await res.json();
-      if (data.sessionId) sessionIdRef.current = data.sessionId;
-
-      const rawText = data.content || 'Sorry, I couldn\'t process that.';
-      const displayText = stripToolNarration(stripEmotionTags(stripMarkdown(rawText)));
-      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', text: displayText }]);
-      setIsThinking(false);
-      setIsSpeaking(true);
-
-      const voice = selectedVoiceRef.current || 'tara';
-      const ttsText = displayText.length > 500 ? displayText.slice(0, 497) + '...' : displayText;
-
-      try {
-        const ttsRes = await apiFetch('/api/voice/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ voice, text: ttsText }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (ttsRes.ok) {
-          const blob = await ttsRes.blob();
-          const url = URL.createObjectURL(blob);
-          // Reuse persistent Audio element for iOS compatibility
-          const audio = reusableAudioRef.current || new Audio();
-          currentAudioRef.current = audio;
-          audio.onplay = () => { try { recognitionRef.current?.stop(); } catch { /* ok */ } };
-          const cleanup = () => {
-            URL.revokeObjectURL(url);
-            audio.src = '';
-            currentAudioRef.current = null;
-            setIsSpeaking(false);
-            setAudioLevel(0);
-            currentTranscriptRef.current = '';
-            setTimeout(() => {
-              processingRef.current = false;
-              if (!isMutedRef.current && phaseRef.current === 'active') {
-                try { recognitionRef.current?.start(); } catch { /* ok */ }
-              }
-            }, 500);
-          };
-          audio.onended = cleanup;
-          audio.onerror = cleanup;
-          await audio.play();
-          return;
-        }
-      } catch { /* TTS failed, fall through */ }
-
-      // Browser TTS fallback
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(ttsText);
-        utterance.rate = 1.05;
-        utterance.onend = () => {
-          setIsSpeaking(false);
-          currentTranscriptRef.current = '';
-          setTimeout(() => {
-            processingRef.current = false;
-            if (!isMutedRef.current && phaseRef.current === 'active') {
-              try { recognitionRef.current?.start(); } catch { /* ok */ }
-            }
-          }, 500);
-        };
-        utterance.onerror = () => {
-          setIsSpeaking(false);
-          processingRef.current = false;
-          try { recognitionRef.current?.start(); } catch { /* ok */ }
-        };
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setIsSpeaking(false);
-        processingRef.current = false;
-        try { recognitionRef.current?.start(); } catch { /* ok */ }
-      }
-    } catch (e: any) {
-      setIsThinking(false);
-      setIsSpeaking(false);
-      processingRef.current = false;
-      try { recognitionRef.current?.start(); } catch { /* ok */ }
-    }
-  }, []);
+  }, [stopCurrentAudio, playAudioData, messages]);
 
   // Voice selection handler
   const handleVoiceSelect = useCallback(async (voiceId: string) => {
@@ -837,10 +634,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
   // Preview voice
   const handlePreview = useCallback(async (voiceId: string) => {
     try {
-      const res = await apiFetch('/api/voice/preview', {
+      const res = await fetch('/api/voice/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice: voiceId, text: 'Hey! I\'m TITAN, your AI assistant.' }),
+        body: JSON.stringify({ text: "Hey! I'm TITAN, your AI assistant.", voice: voiceId }),
       });
       if (!res.ok) return;
       const blob = await res.blob();
@@ -907,7 +704,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
           ? (interimText ? `"${interimText}"` : 'Listening...')
           : 'Connected';
 
-  const statusColor = isSpeaking ? '#a78bfa' : isThinking ? '#f59e0b' : isListening ? '#22d3ee' : '#71717a';
+  const statusColor = isSpeaking ? 'var(--color-purple-light)' : isThinking ? 'var(--color-warning)' : isListening ? 'var(--color-cyan)' : 'var(--color-text-muted)';
 
   return (
     <>
@@ -930,8 +727,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
       {/* Close button */}
       <button
         onClick={handleClose}
-        className="absolute right-6 top-6 rounded-full p-2 transition-colors hover:bg-bg-tertiary z-20"
-        style={{ color: '#a1a1aa' }}
+        className="absolute right-6 top-6 rounded-full p-2 transition-colors hover:bg-bg-tertiary z-20 text-text-secondary"
       >
         <X className="h-6 w-6" />
       </button>
@@ -958,18 +754,10 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
             >
               {statusText}
             </div>
-            {ttsMode === 'browser' && (
-              <div
-                className="text-xs font-medium mt-1"
-                style={{ color: '#f59e0b' }}
-              >
-                TTS server unavailable — using browser voice
-              </div>
-            )}
+            {/* F5-TTS only — no fallback modes */}
             {errorMsg && (
               <div
-                className="text-xs font-medium mt-1 animate-pulse"
-                style={{ color: '#ef4444' }}
+                className="text-xs font-medium mt-1 animate-pulse text-error"
               >
                 {errorMsg}
               </div>
@@ -1002,7 +790,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
                         key={v}
                         onClick={() => switchVoice(v)}
                         className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-bg-tertiary"
-                        style={{ color: isActive ? info.glow : '#a1a1aa' }}
+                        style={{ color: isActive ? info.glow : 'var(--color-text-secondary)' }}
                       >
                         <span
                           className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -1044,8 +832,8 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
               onClick={toggleMute}
               className="rounded-full p-4 transition-colors"
               style={{
-                backgroundColor: isMuted ? '#ef4444' : '#27272a',
-                color: '#fafafa',
+                backgroundColor: isMuted ? 'var(--color-error)' : 'var(--color-bg-tertiary)',
+                color: 'var(--color-text)',
               }}
               title={isMuted ? 'Unmute' : 'Mute'}
             >
@@ -1055,7 +843,7 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
             <button
               onClick={handleClose}
               className="rounded-full p-4 transition-colors"
-              style={{ backgroundColor: '#ef4444', color: '#fafafa' }}
+              style={{ backgroundColor: 'var(--color-error)', color: 'var(--color-text)' }}
               title="End call"
             >
               <PhoneOff className="h-6 w-6" />

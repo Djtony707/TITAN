@@ -22,8 +22,8 @@ export function AgentWatcher({ events, onClose }: { events: AgentEvent[]; onClos
               onClick={() => setMode('cards')}
               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors duration-200"
               style={{
-                backgroundColor: mode === 'cards' ? '#27272a' : 'transparent',
-                color: mode === 'cards' ? '#fafafa' : '#52525b',
+                backgroundColor: mode === 'cards' ? 'var(--color-bg-tertiary)' : 'transparent',
+                color: mode === 'cards' ? 'var(--color-text)' : 'var(--color-border-light)',
               }}
             >
               <Monitor className="w-3 h-3" />
@@ -33,8 +33,8 @@ export function AgentWatcher({ events, onClose }: { events: AgentEvent[]; onClos
               onClick={() => setMode('pixel')}
               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors duration-200"
               style={{
-                backgroundColor: mode === 'pixel' ? '#27272a' : 'transparent',
-                color: mode === 'pixel' ? '#fafafa' : '#52525b',
+                backgroundColor: mode === 'pixel' ? 'var(--color-bg-tertiary)' : 'transparent',
+                color: mode === 'pixel' ? 'var(--color-text)' : 'var(--color-border-light)',
               }}
             >
               <Gamepad2 className="w-3 h-3" />

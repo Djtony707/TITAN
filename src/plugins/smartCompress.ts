@@ -13,6 +13,7 @@ import type { ContextEnginePlugin } from './contextEngine.js';
 import type { ChatMessage } from '../providers/base.js';
 import { classifyTaskType } from '../memory/learning.js';
 import logger from '../utils/logger.js';
+import { estimateTokens } from '../utils/tokens.js';
 
 const COMPONENT = 'SmartCompress';
 
@@ -161,10 +162,10 @@ function compressMessage(msg: ChatMessage, taskType: string, isRecent: boolean):
 
 // ─── Estimate Tokens ──────────��─────────────────────────────────────────────
 
-function estimateTokens(messages: ChatMessage[]): number {
+function estimateMessageTokens(messages: ChatMessage[]): number {
     return messages.reduce((sum, m) => {
         const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return sum + Math.ceil(content.length / 4);
+        return sum + estimateTokens(content);
     }, 0);
 }
 
@@ -185,7 +186,7 @@ export function createSmartCompressPlugin(): ContextEnginePlugin {
         },
 
         async compact(context: ChatMessage[], maxTokens: number): Promise<ChatMessage[]> {
-            const currentTokens = estimateTokens(context);
+            const currentTokens = estimateMessageTokens(context);
             if (currentTokens <= maxTokens) {
                 return context; // Already within budget, no compression needed
             }
@@ -246,7 +247,7 @@ export function createSmartCompressPlugin(): ContextEnginePlugin {
                 }
             }
 
-            const newTokens = estimateTokens(result);
+            const newTokens = estimateMessageTokens(result);
             if (compressedCount > 0) {
                 logger.info(COMPONENT, `Compressed ${compressedCount} messages (${taskType} mode): ${currentTokens} → ${newTokens} tokens`);
             }

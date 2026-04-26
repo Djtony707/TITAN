@@ -177,7 +177,10 @@ const HUNGER: DriveDefinition = {
                 (snap.now - new Date(r.goal.createdAt).getTime()) / 3_600_000,
             ));
         // Both signals independently drag satisfaction down.
-        const backlogSatisfaction = invertedSigmoid(readyCount, 5, 0.35);
+        // v5.0.0: floor backlog satisfaction at 0.15 so extreme backlogs
+        // (e.g. 1000+ zombie goals) don't drive hunger to absolute zero,
+        // which causes SOMA to panic-propose even more goals.
+        const backlogSatisfaction = Math.max(0.15, invertedSigmoid(readyCount, 5, 0.35));
         const ageSatisfaction = invertedSigmoid(oldestAgeHours, 4, 0.5);
         const satisfaction = Math.min(backlogSatisfaction, ageSatisfaction);
         return {

@@ -1,0 +1,11 @@
+{
+  "id": "ha-doorbell",
+  "name": "Doorbell History",
+  "category": "smart-home",
+  "tags": ["doorbell", "security", "visitor", "history"],
+  "description": "Doorbell event history with timestamps and snapshot thumbnails.",
+  "triggers": ["doorbell", "ring history", "front door", "visitor log"],
+  "defaultSize": { "w": 4, "h": 4 },
+  "source": "function DoorbellHistory() {\n  const [events, setEvents] = React.useState([\n    { time: '2:34 PM', date: 'Today', type: 'Motion', color: '#3b82f6' },\n    { time: '10:15 AM', date: 'Today', type: 'Ring', color: '#ef4444' },\n    { time: '6:42 PM', date: 'Yesterday', type: 'Motion', color: '#3b82f6' },\n    { time: '4:20 PM', date: 'Yesterday', type: 'Ring', color: '#ef4444' },\n    { time: '8:05 AM', date: 'Yesterday', type: 'Motion', color: '#3b82f6' }\n  ]);\n\n  return (\n    <div style={{ fontFamily: 'system-ui', background: '#111827', color: '#f3f4f6', width: '100%', height: '100%', padding: 16, borderRadius: 8, boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>\n      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#9ca3af' }}>Doorbell History</div>\n      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>\n        {events.map((e, i) => (\n          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1f2937', borderRadius: 8, padding: 10 }}>\n            <div style={{ width: 48, height: 36, background: '#0f172a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#475569' }}>IMG</div>\n            <div style={{ flex: 1, minWidth: 0 }}>\n              <div style={{ fontSize: 13, fontWeight: 600, color: '#f3f4f6' }}>{e.type}</div>\n              <div style={{ fontSize: 11, color: '#6b7280' }}>{e.date} at {e.time}</div>\n            </div>\n            <div style={{ width: 8, height: 8, borderRadius: '50%', background: e.color }} />\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\nrender(<DoorbellHistory/>);",
+  "placeholders": [{ "name": "REPLACE_WITH_DOORBELL_ENTITY", "description": "Home Assistant doorbell or camera entity ID", "default": "camera.front_doorbell" }]
+}
