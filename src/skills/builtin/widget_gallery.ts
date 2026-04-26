@@ -60,6 +60,31 @@ export interface WidgetTemplate {
     placeholders?: WidgetPlaceholder[];
 }
 
+// System widgets are hardcoded React components in the UI.
+// They are included in the gallery so the agent can discover and emit them.
+const SYSTEM_WIDGET_TEMPLATES: WidgetTemplate[] = [
+    { id: 'system-backup', name: 'Backup Manager', category: 'system', tags: ['backup', 'storage', 'archive'], description: 'Create, list, and verify TITAN data backups', triggers: ['backup', 'snapshot', 'archive'], defaultSize: { w: 6, h: 6 }, source: 'system:backup' },
+    { id: 'system-training', name: 'Training Dashboard', category: 'system', tags: ['training', 'model', 'specialist'], description: 'View training stats, progress, and export data', triggers: ['training', 'train', 'specialist', 'model'], defaultSize: { w: 6, h: 6 }, source: 'system:training' },
+    { id: 'system-recipes', name: 'Recipe Kitchen', category: 'system', tags: ['recipe', 'playbook', 'workflow'], description: 'Run and manage AI playbook recipes', triggers: ['recipe', 'playbook', 'workflow', 'jarvis'], defaultSize: { w: 6, h: 6 }, source: 'system:recipes' },
+    { id: 'system-vram', name: 'VRAM Monitor', category: 'system', tags: ['vram', 'gpu', 'memory', 'nvidia'], description: 'Monitor GPU memory usage and manage leases', triggers: ['vram', 'gpu', 'memory', 'nvidia'], defaultSize: { w: 6, h: 6 }, source: 'system:vram' },
+    { id: 'system-teams', name: 'Team Hub', category: 'system', tags: ['team', 'member', 'role', 'rbac'], description: 'Manage teams, members, and role permissions', triggers: ['team', 'member', 'role', 'permission', 'rbac'], defaultSize: { w: 6, h: 6 }, source: 'system:teams' },
+    { id: 'system-cron', name: 'Cron Scheduler', category: 'system', tags: ['cron', 'schedule', 'job', 'timer'], description: 'View and manage scheduled cron jobs', triggers: ['cron', 'schedule', 'job', 'timer'], defaultSize: { w: 6, h: 6 }, source: 'system:cron' },
+    { id: 'system-checkpoints', name: 'Checkpoints', category: 'system', tags: ['checkpoint', 'restore', 'save'], description: 'Browse and restore session checkpoints', triggers: ['checkpoint', 'restore', 'save state'], defaultSize: { w: 6, h: 5 }, source: 'system:checkpoints' },
+    { id: 'system-organism', name: 'Organism Monitor', category: 'system', tags: ['organism', 'drive', 'safety', 'alert'], description: 'View organism drives, safety alerts, and metrics', triggers: ['organism', 'drive', 'safety', 'alert', 'guardrail'], defaultSize: { w: 6, h: 6 }, source: 'system:organism' },
+    { id: 'system-fleet', name: 'Fleet Router', category: 'system', tags: ['fleet', 'node', 'route', 'mesh'], description: 'View mesh fleet nodes and route requests', triggers: ['fleet', 'node', 'route', 'mesh'], defaultSize: { w: 6, h: 5 }, source: 'system:fleet' },
+    { id: 'system-browser', name: 'Browser Tools', category: 'system', tags: ['browser', 'captcha', 'automation'], description: 'Solve captchas and automate browser tasks', triggers: ['captcha', 'browser', 'form fill', 'web automation'], defaultSize: { w: 6, h: 5 }, source: 'system:browser' },
+    { id: 'system-paperclip', name: 'Paperclip', category: 'system', tags: ['paperclip', 'sidecar', 'helper'], description: 'Control the Paperclip sidecar assistant', triggers: ['paperclip', 'sidecar', 'helper'], defaultSize: { w: 6, h: 5 }, source: 'system:paperclip' },
+    { id: 'system-eval', name: 'Test Lab', category: 'system', tags: ['test', 'eval', 'flaky', 'coverage'], description: 'View test health, failing tests, and run evaluations', triggers: ['test', 'flaky', 'failing', 'coverage', 'eval'], defaultSize: { w: 6, h: 6 }, source: 'system:eval' },
+    // Previously wired orphaned panels
+    { id: 'system-daemon', name: 'Daemon', category: 'system', tags: ['daemon', 'process', 'status'], description: 'Monitor and control the TITAN daemon process', triggers: ['daemon', 'process', 'background'], defaultSize: { w: 6, h: 6 }, source: 'system:daemon' },
+    { id: 'system-memory-wiki', name: 'Memory Wiki', category: 'system', tags: ['wiki', 'memory', 'knowledge', 'entity'], description: 'Browse the memory wiki and knowledge graph entities', triggers: ['wiki', 'memory', 'knowledge', 'entity'], defaultSize: { w: 6, h: 6 }, source: 'system:memory-wiki' },
+    { id: 'system-autoresearch', name: 'Autoresearch', category: 'system', tags: ['research', 'benchmark', 'deploy'], description: 'Run autoresearch benchmarks and deploy pipelines', triggers: ['research', 'benchmark', 'deploy'], defaultSize: { w: 6, h: 6 }, source: 'system:autoresearch' },
+    { id: 'system-self-proposals', name: 'Self-Proposals', category: 'system', tags: ['proposal', 'self-improve', 'pr'], description: 'Review and manage self-improvement proposals', triggers: ['proposal', 'self-improve', 'pr'], defaultSize: { w: 6, h: 6 }, source: 'system:self-proposals' },
+    { id: 'system-overview', name: 'Overview', category: 'system', tags: ['overview', 'stats', 'dashboard'], description: 'System overview and activity dashboard', triggers: ['overview', 'stats', 'dashboard'], defaultSize: { w: 6, h: 5 }, source: 'system:overview' },
+    { id: 'system-sessions', name: 'Sessions', category: 'system', tags: ['session', 'chat', 'history'], description: 'Browse and manage chat sessions', triggers: ['session', 'chat', 'history'], defaultSize: { w: 6, h: 5 }, source: 'system:sessions' },
+    { id: 'system-watch', name: 'Watch', category: 'system', tags: ['watch', 'monitor', 'live'], description: 'Live organism and drive activity monitor', triggers: ['watch', 'monitor', 'live', 'activity'], defaultSize: { w: 8, h: 7 }, source: 'system:watch' },
+];
+
 let templateCache: Map<string, WidgetTemplate> | null = null;
 
 function loadTemplates(): Map<string, WidgetTemplate> {
@@ -102,8 +127,14 @@ function loadTemplates(): Map<string, WidgetTemplate> {
         }
     };
     walk(TEMPLATES_DIR);
+    // Merge system widgets into the gallery
+    for (const sw of SYSTEM_WIDGET_TEMPLATES) {
+        if (!map.has(sw.id)) {
+            map.set(sw.id, sw);
+        }
+    }
     templateCache = map;
-    logger.info(COMPONENT, `Loaded ${map.size} widget templates from ${TEMPLATES_DIR}`);
+    logger.info(COMPONENT, `Loaded ${map.size} widget templates (${map.size - SYSTEM_WIDGET_TEMPLATES.length} JSON + ${SYSTEM_WIDGET_TEMPLATES.length} system) from ${TEMPLATES_DIR}`);
     return map;
 }
 

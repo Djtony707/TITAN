@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SpaceEngine } from '../canvas/SpaceEngine';
-import { Search, X, Home, Brain, Terminal, Network, Server, Wrench, Settings, FileText, LayoutGrid, MessageSquare, Database, Mic } from 'lucide-react';
+import { Search, X, Home, Brain, Terminal, Network, Server, Wrench, Settings, FileText, LayoutGrid, MessageSquare, Database, Mic, Activity, BookOpen, FlaskConical, GitPullRequest, Eye, Clock, Archive, Cpu, Users, Shield, Radio, Globe, Paperclip as PaperclipIcon, TestTube, Save } from 'lucide-react';
 
 interface Props {
   currentSpaceId: string;
@@ -26,6 +26,25 @@ const ACTIONS = [
   { type: 'widget' as const, source: 'system:tools', name: 'Tools', w: 5, h: 4, icon: <Wrench className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:settings', name: 'Settings', w: 5, h: 5, icon: <Settings className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:files', name: 'Files', w: 4, h: 6, icon: <FileText className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:daemon', name: 'Daemon', w: 6, h: 6, icon: <Activity className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:memory-wiki', name: 'Memory Wiki', w: 6, h: 6, icon: <BookOpen className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:autoresearch', name: 'Autoresearch', w: 6, h: 6, icon: <FlaskConical className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:self-proposals', name: 'Self-Proposals', w: 6, h: 6, icon: <GitPullRequest className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:overview', name: 'Overview', w: 6, h: 5, icon: <Eye className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:sessions', name: 'Sessions', w: 6, h: 5, icon: <Clock className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:watch', name: 'Watch', w: 8, h: 7, icon: <Activity className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6, icon: <Archive className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6, icon: <Brain className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:recipes', name: 'Recipe Kitchen', w: 6, h: 6, icon: <BookOpen className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6, icon: <Cpu className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:teams', name: 'Team Hub', w: 6, h: 6, icon: <Users className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:cron', name: 'Cron Scheduler', w: 6, h: 6, icon: <Clock className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:checkpoints', name: 'Checkpoints', w: 6, h: 5, icon: <Save className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6, icon: <Shield className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5, icon: <Radio className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5, icon: <Globe className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5, icon: <PaperclipIcon className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:eval', name: 'Test Lab', w: 6, h: 6, icon: <TestTube className="w-4 h-4" /> },
 ];
 
 export function CmdPaletteWidget({ currentSpaceId, onSpaceSelect, onAction, onClose }: Props) {

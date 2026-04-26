@@ -526,6 +526,24 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         }
     }
 
+    // Swarm invariants — hard safety rules (fail-open)
+    try {
+        const { checkInvariants } = await import('../safety/invariants.js');
+        const invariant = checkInvariants(handler.name, args);
+        if (!invariant.pass) {
+            logger.warn(COMPONENT, `[Invariant] Blocked ${handler.name}: ${invariant.reason}`);
+            return {
+                toolCallId: toolCall.id,
+                name: handler.name,
+                content: `INVARIANT_VIOLATION: ${invariant.reason}`,
+                success: false,
+                durationMs: Date.now() - startTime,
+            };
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Invariant check failed (fail-open): ${(err as Error).message}`);
+    }
+
     for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
         try {
             // On timeout retry, double the timeout

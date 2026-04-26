@@ -56,8 +56,8 @@ const PATTERNS: SecretPattern[] = [
     // GitLab
     { name: 'gitlab_token', regex: /\bglpat-[A-Za-z0-9_-]{20}\b/g, previewLen: 8 },
     // Generic Bearer / API keys
-    { name: 'bearer_token', regex: /\b[Bb]earer\s+[A-Za-z0-9_\-\.]{20,}\b/g, previewLen: 8 },
-    { name: 'generic_api_key', regex: /\b(?:api[_-]?key|apikey|api_token|api_secret)\s*[:=]\s*['"]?([A-Za-z0-9_\-\.]{16,})['"]?/gi, previewLen: 8 },
+    { name: 'bearer_token', regex: /\b[Bb]earer\s+[A-Za-z0-9_\-.]{20,}\b/g, previewLen: 8 },
+    { name: 'generic_api_key', regex: /\b(?:api[_-]?key|apikey|api_token|api_secret)\s*[:=]\s*['"]?([A-Za-z0-9_\-.]{16,})['"]?/gi, previewLen: 8 },
     // JWT
     { name: 'jwt', regex: /\beyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b/g, previewLen: 12 },
     // Private keys
@@ -65,7 +65,7 @@ const PATTERNS: SecretPattern[] = [
     // Passwords in connection strings
     { name: 'db_password', regex: /(?:password|pwd)\s*=\s*([^\s;]+)/gi, previewLen: 4 },
     // Env var secrets
-    { name: 'env_secret', regex: /(?:SECRET|TOKEN|KEY|PASSWORD|PWD)\s*=\s*['"]?([A-Za-z0-9_\-\.\/+=]{8,})['"]?/g, previewLen: 4 },
+    { name: 'env_secret', regex: /(?:SECRET|TOKEN|KEY|PASSWORD|PWD)\s*=\s*['"]?([A-Za-z0-9_\-./+=]{8,})['"]?/g, previewLen: 4 },
     // Slack tokens
     { name: 'slack_token', regex: /\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}(?:-[a-zA-Z0-9]{24})?\b/g, previewLen: 8 },
     // Discord tokens
@@ -83,7 +83,7 @@ const PATTERNS: SecretPattern[] = [
 export function scanForSecrets(text: string): ScanResult {
     const matches: SecretMatch[] = [];
     let redacted = text;
-    let offsetShift = 0;
+    const offsetShift = 0;
 
     // Collect all matches first (with original positions in input)
     const allMatches: Array<{ pattern: SecretPattern; match: RegExpMatchArray; index: number }> = [];

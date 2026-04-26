@@ -521,12 +521,12 @@ export class OllamaProvider extends LLMProvider {
         // the thinking field when think is unset, leaving content empty.
         if (options.thinking === false) {
             body.think = false;
+        } else if (!caps.thinkingWithTools) {
+            // Model doesn't support thinking — disable it to prevent 400 errors
+            // from Ollama (e.g. "titan-qwen3.5:4b does not support thinking").
+            body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
-        } else if (isCloudModel && !caps.thinkingWithTools) {
-            // Disable thinking for cloud models that don't benefit from it —
-            // both with and without tools. Prevents empty content field.
-            body.think = false;
         }
         // Otherwise: omit body.think — let the model decide
 
@@ -622,8 +622,15 @@ export class OllamaProvider extends LLMProvider {
 
         if (!response.ok) {
             const errorText = await response.text();
-            // Fallback: if model doesn't support native tool calling, retry without tools
-            if (response.status === 400 && errorText.includes('does not support tools') && body.tools) {
+            // Fallback: if model doesn't support native tool calling or tokenization
+            // fails with tools, retry without tools. Covers Gemini proxy errors like
+            // "does not support tools" and "tokenization" failures on malformed schemas.
+            if (response.status === 400 && body.tools && (
+                errorText.includes('does not support tools') ||
+                errorText.includes('tokenization') ||
+                errorText.includes('tokenize') ||
+                errorText.includes('Invalid JSON')
+            )) {
                 logger.warn(COMPONENT, `Model ${model} does not support native tool calling — running in chat-only mode`);
                 delete body.tools;
                 response = await fetchWithRetry(`${this.baseUrl}/api/chat`, {
@@ -659,7 +666,11 @@ export class OllamaProvider extends LLMProvider {
         logger.info(COMPONENT, `Response from ${model}: tool_calls=${JSON.stringify(message.tool_calls)}, content_length=${((message.content as string) || '').length}`);
         const toolCalls: ToolCall[] = [];
 
-        if (message.tool_calls) {
+        // v5.0.2: Only accept tool_calls from the model if tools were actually
+        // sent in the request. Prevents hallucinated tool calls when the safety
+        // system has stripped all tools (activeTools = []) or for models that
+        // emit tool_calls even without tool definitions.
+        if (message.tool_calls && options.tools && options.tools.length > 0) {
             for (const tc of message.tool_calls as Array<Record<string, unknown>>) {
                 const fn = tc.function as Record<string, unknown>;
                 // v4.13: capture Gemini thought_signature if present — needed
@@ -769,13 +780,13 @@ export class OllamaProvider extends LLMProvider {
         const caps = getModelCapabilities(model);
 
         // Thinking mode: respect explicit setting, otherwise use model capabilities.
-        // Disable for cloud models that don't benefit — prevents empty content field.
+        // Disable for models that don't support thinking — prevents 400 errors.
         if (options.thinking === false) {
+            body.think = false;
+        } else if (!caps.thinkingWithTools) {
             body.think = false;
         } else if (options.thinking === true) {
             body.think = true;
-        } else if (isCloudModel && !caps.thinkingWithTools) {
-            body.think = false;
         }
 
         // Per-turn override for tool-role turns (see chat() for rationale: vLLM #39611 / Z.ai docs).
@@ -903,7 +914,8 @@ export class OllamaProvider extends LLMProvider {
                             }
                             if (text) yield { type: 'text', content: text };
                         }
-                        if (chunk.message?.tool_calls) {
+                        // v5.0.2: Only yield tool_calls if tools were sent in the request
+                        if (chunk.message?.tool_calls && options.tools && options.tools.length > 0) {
                             for (const tc of chunk.message.tool_calls) {
                                 const fn = tc.function as Record<string, unknown>;
                                 yield {

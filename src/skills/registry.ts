@@ -18,7 +18,7 @@ export interface SkillMeta {
     description: string;
     version: string;
     author?: string;
-    source: 'bundled' | 'workspace' | 'marketplace';
+    source: 'bundled' | 'workspace' | 'marketplace' | 'frontmatter';
     enabled: boolean;
 }
 
@@ -572,6 +572,28 @@ export async function loadAutoSkills(): Promise<void> {
 
     if (loadedCount > 0) {
         logger.info(COMPONENT, `Loaded ${loadedCount} user skill(s) from ~/.titan/skills/`);
+    }
+
+    // Load frontmatter skills (*.skill.md) — Space Agent / Hermes parity
+    try {
+        const { getFrontmatterToolHandlers } = await import('./frontmatterLoader.js');
+        const fmHandlers = getFrontmatterToolHandlers();
+        for (const { name, handler } of fmHandlers) {
+            if (registeredSkills.has(name)) continue;
+            registerSkill({
+                name: handler.name,
+                description: handler.description,
+                version: '1.0.0',
+                source: 'frontmatter',
+                enabled: true,
+            }, handler);
+            loadedCount++;
+        }
+        if (fmHandlers.length > 0) {
+            logger.info(COMPONENT, `Loaded ${fmHandlers.length} frontmatter skill(s)`);
+        }
+    } catch (e) {
+        logger.warn(COMPONENT, `Frontmatter skills failed to load: ${(e as Error).message}`);
     }
 }
 

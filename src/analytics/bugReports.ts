@@ -115,7 +115,7 @@ async function buildSystemSummary(): Promise<BugReport['system']> {
         const hw = await detectHardware();
         gpuVramMB = hw.gpuVramMB;
     } catch { /* ignore */ }
-    const nodeMajor = parseInt((process.version.match(/^v(\d+)/) || [, '0'])[1] || '0', 10);
+    const nodeMajor = parseInt((process.version.match(/^v(\d+)/) || ['', '0'])[1] || '0', 10);
     return {
         os: platform(),
         arch: arch(),

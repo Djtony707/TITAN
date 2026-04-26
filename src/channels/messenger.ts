@@ -442,7 +442,7 @@ export class MessengerChannel extends ChannelAdapter {
                 // dropped silently — no GPU cost, no admin exposure, no leak of
                 // the transcribe/Andrew-voice pipeline to non-owners.
                 const textRaw = message?.text as string | undefined;
-                let text = textRaw || '';
+                const text = textRaw || '';
                 const audios = extractAudioAttachments(message);
                 if (!text && audios.length > 0) {
                     if (!this.ownerIds.has(senderId)) {

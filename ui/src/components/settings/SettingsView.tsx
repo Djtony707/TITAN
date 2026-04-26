@@ -4,9 +4,11 @@ import clsx from 'clsx';
 const SettingsPanel = lazy(() => import('../admin/SettingsPanel'));
 const SecurityPanel = lazy(() => import('../admin/SecurityPanel'));
 const AuditPanel = lazy(() => import('../admin/AuditPanel'));
+const AutonomyPanel = lazy(() => import('../admin/AutonomyPanel'));
 
 const TABS = [
   { id: 'general', label: 'General' },
+  { id: 'autonomy', label: 'Autonomy' },
   { id: 'security', label: 'Security' },
   { id: 'audit', label: 'Audit Log' },
 ];
@@ -37,6 +39,7 @@ export default function SettingsView() {
       <div className="flex-1 min-h-0 overflow-auto p-5">
         <Suspense fallback={<div className="skeleton-shimmer h-40 rounded-lg" />}>
           {activeTab === 'general' && <SettingsPanel />}
+          {activeTab === 'autonomy' && <AutonomyPanel />}
           {activeTab === 'security' && <SecurityPanel />}
           {activeTab === 'audit' && <AuditPanel />}
         </Suspense>

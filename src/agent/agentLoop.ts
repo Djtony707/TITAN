@@ -26,6 +26,7 @@ import { updateIssue, startRun, endRun, addIssueComment, recordSpend } from './c
 import { recordTokenUsage, routeModel, type TurnContext } from './costOptimizer.js';
 import { calculateActualCost } from './costEstimator.js';
 import { getSessionGoal } from './autonomyContext.js';
+import { initBudget, checkBudget, recordUsage, markExceeded, cleanupBudget, getDefaultBudget } from './promptBudget.js';
 import { scanForSecrets } from '../security/secretGuard.js';
 import { fullExfilScan } from '../security/exfilScan.js';
 import { runShellHooks } from '../hooks/shellHooks.js';
@@ -242,6 +243,23 @@ export function detectToolUseIntent(userMessage: string): boolean {
         /\b(?:what is|what's|show me|get) (?:the )?(?:current|actual) (?:uptime|hostname|ip|path|directory|pwd|time|date|memory|disk)\b/,
         // Hunt Finding #17 (2026-04-14): added `[\s:]+` so "run: ls" matches too.
         /\brun[\s:]+['"`]?(?:echo|ls|pwd|uptime|whoami|date|uname|cat|grep|find|node|npm|git|which|ps|df|free)\b/,
+        // Widget / gallery tool requests — canvas chat explicitly asks for gallery_search/gallery_get
+        /\b(?:call|use|run)\b.*?\b(?:gallery_search|gallery_get|gallery_list)\b/,
+        /\b(?:create|add|make|build|spawn)\b.*?\b(?:widget|panel|canvas|gallery)\b/,
+        /\b(?:widget|gallery)\b.*?\b(?:template|search|find|get|fetch)\b/,
+        // New system widget intents (v5.0.2 "forgotten features" surface)
+        /\b(?:backup|snapshot|archive)\b/,
+        /\b(?:training|train|specialist|model)\b/,
+        /\b(?:recipe|playbook|workflow|jarvis)\b/,
+        /\b(?:vram|gpu|memory|nvidia)\b/,
+        /\b(?:team|member|role|permission|rbac)\b/,
+        /\b(?:cron|schedule|job|timer)\b/,
+        /\b(?:checkpoint|restore|save state)\b/,
+        /\b(?:organism|drive|safety|alert|guardrail)\b/,
+        /\b(?:fleet|node|route|mesh)\b/,
+        /\b(?:captcha|browser|form fill|web automation)\b/,
+        /\b(?:paperclip|sidecar|helper)\b/,
+        /\b(?:test|flaky|failing|coverage|eval)\b/,
     ];
 
     return intentPatterns.some(p => p.test(msg));
@@ -711,6 +729,12 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     let selfHealExhausted = false;
     const failedModels = new Set<string>();
 
+    // Prompt budget initialization (Space Agent parity)
+    const budgetConfig = getDefaultBudget(ctx.config);
+    if (budgetConfig.maxTokens > 0) {
+        initBudget(ctx.sessionId, budgetConfig);
+    }
+
     // Bounded retries for [NoTools] rounds — prevents infinite think-loop when
     // the model keeps returning prose instead of tool calls
     let noToolsRetryCount = 0;
@@ -1031,6 +1055,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 logger.info(COMPONENT, '[ExplicitIntent] User explicitly requested tool use — forcing tool_choice=required for round 1');
             }
 
+            // Prompt budget check (Space Agent parity)
+            const budgetMsg = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
+            if (budgetMsg) {
+                markExceeded(ctx.sessionId);
+                result.content = budgetMsg;
+                phase = 'done';
+                break;
+            }
+
             let response: ChatResponse;
             const thinkStart = Date.now();
             // Hunt Finding #38b (2026-04-15): for single-round chat pipelines,
@@ -1120,6 +1153,11 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             // ── Cost tracking (F5: two-tier budget enforcement) ──
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, promptTokens, completionTokens);
+
+            // Prompt budget tracking (Space Agent parity)
+            if (budgetConfig.maxTokens > 0) {
+                recordUsage(ctx.sessionId, promptTokens, completionTokens);
+            }
 
             // Wire LLM spend into Command Post budget policies
             const callCost = calculateActualCost(activeModel, { prompt: promptTokens, completion: completionTokens });
@@ -1458,7 +1496,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // response as final, check if it looks like fabricated tool output.
                     // If the user requested verbatim/exact tool output AND we have
                     // real tool results in this turn, prefer the real result.
-                    const finalText = stripToolJson(response.content || '');
+                    let finalText = stripToolJson(response.content || '');
                     const lastToolResult = result.toolCallDetails.length > 0
                         ? result.toolCallDetails[result.toolCallDetails.length - 1]
                         : null;
@@ -1477,6 +1515,30 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                             setCachedResponse(smartMessages, activeModel, result.content);
                             phase = 'done';
                             break;
+                        }
+                    }
+
+                    // Auto-emit system widget gates when gallery_get returned a system widget
+                    // but the model failed to emit _____widget in its response (common with
+                    // local/cloud models that ignore formatting instructions).
+                    const galleryGetCalls = result.toolCallDetails.filter(d => d.name === 'gallery_get');
+                    logger.info(COMPONENT, `[AutoWidgetGate] Checking ${galleryGetCalls.length} gallery_get call(s) for system widgets`);
+                    for (const call of galleryGetCalls) {
+                        try {
+                            const snippet = call.resultSnippet || '';
+                            logger.info(COMPONENT, `[AutoWidgetGate] gallery_get snippet: ${snippet.slice(0, 200)}`);
+                            const parsed = JSON.parse(snippet);
+                            if (parsed.source && typeof parsed.source === 'string' && parsed.source.startsWith('system:')) {
+                                const gateText = `_____widget\n{ "name": "${parsed.name || 'Widget'}", "format": "system", "source": "${parsed.source}", "w": ${parsed.defaultSize?.w || 6}, "h": ${parsed.defaultSize?.h || 6} }`;
+                                if (!finalText.includes('_____widget')) {
+                                    finalText = finalText ? `${finalText}\n\n${gateText}` : gateText;
+                                    logger.info(COMPONENT, `[AutoWidgetGate] Injected _____widget gate for ${parsed.source}`);
+                                }
+                            } else {
+                                logger.info(COMPONENT, `[AutoWidgetGate] Skipped — source is ${parsed.source}`);
+                            }
+                        } catch (e) {
+                            logger.info(COMPONENT, `[AutoWidgetGate] Parse error: ${(e as Error).message}`);
                         }
                     }
 
@@ -1963,9 +2025,23 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     }
                 }
             } else {
-                // Non-autonomous: force text-only response
-                phase = 'respond';
-                logger.info(COMPONENT, `[ThinkAct] Tools executed — entering respond phase (tools will be stripped)`);
+                // Non-autonomous: usually force text-only response after one tool round.
+                // BUT — if the tool was a discovery tool (gallery_search, tool_search) and
+                // its result explicitly hints at a follow-up tool call, allow one more
+                // think round so the model can complete the chain (e.g. gallery_get).
+                const discoveryTools = ['gallery_search', 'tool_search'];
+                const lastWasDiscovery = pendingToolCalls.length === 1 && discoveryTools.includes(pendingToolCalls[0].function.name);
+                const resultHintsFollowUp = lastWasDiscovery && toolResults.some(r =>
+                    /call gallery_get/i.test(r.content) ||
+                    /hint:.*?(call|use|try|fetch|get|search)/i.test(r.content)
+                );
+                if (resultHintsFollowUp && round < ctx.effectiveMaxRounds - 1) {
+                    logger.info(COMPONENT, `[DiscoveryChain] ${pendingToolCalls[0].function.name} hinted follow-up — allowing another think round`);
+                    phase = 'think';
+                } else {
+                    phase = 'respond';
+                    logger.info(COMPONENT, `[ThinkAct] Tools executed — entering respond phase (tools will be stripped)`);
+                }
             }
             break;
         }
@@ -1993,6 +2069,15 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             logger.info(COMPONENT, `Respond phase — calling LLM without tools to generate final answer`);
 
+            // Prompt budget check (Space Agent parity)
+            const respondBudgetMsg = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
+            if (respondBudgetMsg) {
+                markExceeded(ctx.sessionId);
+                result.content = respondBudgetMsg;
+                phase = 'done';
+                break;
+            }
+
             // Context compression for respond phase
             let smartMessages: ChatMessage[];
             if (ctx.voiceFastPath) {
@@ -2019,7 +2104,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // not persisted to the session history.
             const respondDirective: ChatMessage = {
                 role: 'user',
-                content: '[System directive for this reply only] Write the final answer for the user. RULES: (1) Do NOT narrate what the user asked — they already know. (2) Do NOT describe your reasoning, thinking, or past tool attempts. (3) Do NOT start with "The user asked", "Let me", "Actually", "Looking at", "Wait" — start with the result. (4) Report outcomes as facts in 1-3 sentences. (5) No XML, no tool call blocks, no meta-commentary. Just the answer.',
+                content: '[System directive for this reply only] Write the final answer for the user. RULES: (1) Do NOT narrate what the user asked — they already know. (2) Do NOT describe your reasoning, thinking, or past tool attempts. (3) Do NOT start with "The user asked", "Let me", "Actually", "Looking at", "Wait" — start with the result. (4) Report outcomes as facts in 1-3 sentences. (5) No XML, no tool call blocks, no meta-commentary. Just the answer. (6) EXCEPTION: if you need to create or update a widget on the canvas, you MAY emit a _____react or _____widget gate — these are NOT meta-commentary, they are the actual deliverable.',
             };
             smartMessages = [...smartMessages, respondDirective];
 
@@ -2097,6 +2182,11 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             }
 
             const costCheck = recordTokenUsage(ctx.sessionId, activeModel, response.usage?.promptTokens || 0, response.usage?.completionTokens || 0);
+
+            // Prompt budget tracking (Space Agent parity)
+            if (budgetConfig.maxTokens > 0) {
+                recordUsage(ctx.sessionId, response.usage?.promptTokens || 0, response.usage?.completionTokens || 0);
+            }
 
             // Wire LLM spend into Command Post budget policies
             const callCost = calculateActualCost(activeModel, { prompt: response.usage?.promptTokens || 0, completion: response.usage?.completionTokens || 0 });
@@ -2243,6 +2333,11 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         budgetExhausted: result.budgetExhausted,
     });
     result.traceContext = { traceId: traceCtx.traceId, spanId: traceCtx.spanId };
+
+    // Clean up prompt budget state
+    if (budgetConfig.maxTokens > 0) {
+        cleanupBudget(ctx.sessionId);
+    }
 
     return result;
 }

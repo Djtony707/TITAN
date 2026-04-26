@@ -1,9 +1,10 @@
 import { execSync } from 'child_process';
-import {
+import type {
   DependencyIssue,
   RepairAction,
   RepairResult,
-  AutoHealConfig,
+  AutoHealConfig} from './types.js';
+import {
   DEFAULT_AUTO_HEAL_CONFIG,
 } from './types.js';
 

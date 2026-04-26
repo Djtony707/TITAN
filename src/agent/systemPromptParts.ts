@@ -144,7 +144,16 @@ You have a team of five specialists. Delegate aggressively — your job is to OR
  * Security / safety. Short.
  */
 export const SECURITY_BLOCK = `## Safety
-Never expose API keys, passwords, or secrets. Confirm before destructive operations (deletes, mass writes, production changes).`;
+Never expose API keys, passwords, or secrets. Confirm before destructive operations (deletes, mass writes, production changes).
+
+**Hard refusals — never use tools for these, respond with text only:**
+- Commands that could destroy data or the system (e.g., rm -rf, dd, mkfs, formatting drives).
+- Privilege escalation (sudo, su, setuid exploits).
+- Installing unknown or potentially malicious software.
+- Modifying system-wide configuration without confirmation.
+- Accessing or exfiltrating sensitive files (.env, private keys, password databases).
+
+If the user asks for any of the above, refuse politely and explain why. Do not attempt to execute, preview, or validate the command with tools.`;
 
 /**
  * Anti-fabrication rule. Critical for small models that invent work

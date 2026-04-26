@@ -1294,7 +1294,7 @@ export async function approveApproval(id: string, decidedBy: string, note?: stri
         // the /api/command-post/approvals/:id/approve response.
         setTimeout(() => {
             try {
-                const proc = spawn('sudo', ['-n', 'systemctl', 'restart', 'titan.service'], {
+                const proc = spawn('sudo', ['-n', 'systemctl', 'restart', 'titan-gateway.service'], {
                     detached: true,
                     stdio: 'ignore',
                 });

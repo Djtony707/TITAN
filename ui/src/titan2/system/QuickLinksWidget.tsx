@@ -2,6 +2,8 @@ import React from 'react';
 import {
   Compass, Bot, Activity, Gauge, Zap, MessageSquare, FileText,
   Sparkles, Hexagon, Brain, Server, Wrench, Settings,
+  BookOpen, FlaskConical, GitPullRequest, Eye, Clock,
+  Archive, Cpu, Users, Shield, Radio, Globe, Paperclip as PaperclipIcon, TestTube, Save,
 } from 'lucide-react';
 
 const LINKS = [
@@ -17,6 +19,25 @@ const LINKS = [
   { label: 'Infra', source: 'system:infra', w: 6, h: 4, icon: <Server className="w-3.5 h-3.5" /> },
   { label: 'Tools', source: 'system:tools', w: 5, h: 4, icon: <Wrench className="w-3.5 h-3.5" /> },
   { label: 'Settings', source: 'system:settings', w: 4, h: 6, icon: <Settings className="w-3.5 h-3.5" /> },
+  { label: 'Daemon', source: 'system:daemon', w: 5, h: 5, icon: <Activity className="w-3.5 h-3.5" /> },
+  { label: 'Wiki', source: 'system:memory-wiki', w: 5, h: 5, icon: <BookOpen className="w-3.5 h-3.5" /> },
+  { label: 'Research', source: 'system:autoresearch', w: 5, h: 5, icon: <FlaskConical className="w-3.5 h-3.5" /> },
+  { label: 'Proposals', source: 'system:self-proposals', w: 5, h: 5, icon: <GitPullRequest className="w-3.5 h-3.5" /> },
+  { label: 'Overview', source: 'system:overview', w: 5, h: 4, icon: <Eye className="w-3.5 h-3.5" /> },
+  { label: 'Sessions', source: 'system:sessions', w: 5, h: 4, icon: <Clock className="w-3.5 h-3.5" /> },
+  { label: 'Watch', source: 'system:watch', w: 6, h: 5, icon: <Activity className="w-3.5 h-3.5" /> },
+  { label: 'Backup', source: 'system:backup', w: 5, h: 5, icon: <Archive className="w-3.5 h-3.5" /> },
+  { label: 'Training', source: 'system:training', w: 5, h: 5, icon: <Brain className="w-3.5 h-3.5" /> },
+  { label: 'Recipes', source: 'system:recipes', w: 5, h: 5, icon: <BookOpen className="w-3.5 h-3.5" /> },
+  { label: 'VRAM', source: 'system:vram', w: 5, h: 5, icon: <Cpu className="w-3.5 h-3.5" /> },
+  { label: 'Teams', source: 'system:teams', w: 5, h: 5, icon: <Users className="w-3.5 h-3.5" /> },
+  { label: 'Cron', source: 'system:cron', w: 5, h: 5, icon: <Clock className="w-3.5 h-3.5" /> },
+  { label: 'Checkpoints', source: 'system:checkpoints', w: 5, h: 5, icon: <Save className="w-3.5 h-3.5" /> },
+  { label: 'Organism', source: 'system:organism', w: 5, h: 5, icon: <Shield className="w-3.5 h-3.5" /> },
+  { label: 'Fleet', source: 'system:fleet', w: 5, h: 5, icon: <Radio className="w-3.5 h-3.5" /> },
+  { label: 'Browser', source: 'system:browser', w: 5, h: 5, icon: <Globe className="w-3.5 h-3.5" /> },
+  { label: 'Paperclip', source: 'system:paperclip', w: 5, h: 5, icon: <PaperclipIcon className="w-3.5 h-3.5" /> },
+  { label: 'Eval', source: 'system:eval', w: 5, h: 5, icon: <TestTube className="w-3.5 h-3.5" /> },
 ];
 
 export function QuickLinksWidget() {

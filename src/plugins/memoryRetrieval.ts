@@ -99,7 +99,7 @@ export class MemoryRetrievalPlugin implements ContextEnginePlugin {
             } else {
                 result.push(injected);
             }
-            logger.info(COMPONENT, `[HIT] Injected ${merged.length} hit(s) for query: \"${query.slice(0, 60)}\"`);
+            logger.info(COMPONENT, `[HIT] Injected ${merged.length} hit(s) for query: "${query.slice(0, 60)}"`);
             return result;
         } catch (e) {
             logger.warn(COMPONENT, `assemble failed: ${(e as Error).message}`);

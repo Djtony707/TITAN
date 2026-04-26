@@ -252,8 +252,8 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
         for (const s of r.subtasks) {
             if (!s || typeof s !== 'object') continue;
             const rec = s as Record<string, unknown>;
-            let t = typeof rec.title === 'string' ? rec.title.trim() : '';
-            let d = typeof rec.description === 'string' ? rec.description.trim() : '';
+            const t = typeof rec.title === 'string' ? rec.title.trim() : '';
+            const d = typeof rec.description === 'string' ? rec.description.trim() : '';
             if (!t || !d) continue;
             const deps = Array.isArray(rec.dependsOn)
                 ? rec.dependsOn.filter((x): x is string => typeof x === 'string')

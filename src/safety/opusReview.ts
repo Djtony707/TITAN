@@ -324,7 +324,7 @@ export async function reviewStagedBundle(input: ReviewInput): Promise<OpusReview
     //   daily:       $1.50 default
     //   monthly:     $5.00 default
     // Free models (Qwen3.6 Plus) cost $0, so caps never trigger for them.
-    let budget = rolloverIfNeeded(loadBudget());
+    const budget = rolloverIfNeeded(loadBudget());
     if (budget.daily.costUsd >= cfg.maxDailyUsd) {
         logger.warn(COMPONENT, `Daily cap $${cfg.maxDailyUsd.toFixed(2)} hit ($${budget.daily.costUsd.toFixed(2)} spent today) — skipping review`);
         return {

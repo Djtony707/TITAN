@@ -968,3 +968,209 @@ export async function login(password: string): Promise<{ token: string }> {
     body: JSON.stringify({ password }),
   });
 }
+
+// ---- Backup ----
+
+export async function createBackup(): Promise<{ success: boolean; path?: string; timestamp?: string; error?: string }> {
+  return request('/api/backup/create', { method: 'POST' });
+}
+
+export async function listBackups(): Promise<{ backups: import('./types').BackupInfo[] }> {
+  return request('/api/backup/list');
+}
+
+export async function verifyBackup(path?: string): Promise<{ valid: boolean; path: string; error?: string }> {
+  return request('/api/backup/verify', {
+    method: 'POST',
+    body: JSON.stringify(path ? { path } : {}),
+  });
+}
+
+// ---- Training ----
+
+export async function getTrainingStats(): Promise<import('./types').TrainingStats> {
+  return request('/api/training/stats');
+}
+
+export async function getTrainingProgress(): Promise<{ runs: import('./types').TrainingRun[] }> {
+  return request('/api/training/progress');
+}
+
+export async function getTrainingRuns(): Promise<{ runs: import('./types').TrainingRun[] }> {
+  return request('/api/training/runs');
+}
+
+// ---- Recipes ----
+
+export async function getRecipes(): Promise<{ recipes: import('./types').Recipe[] }> {
+  return request('/api/recipes');
+}
+
+export async function getRecipe(id: string): Promise<{ recipe: import('./types').Recipe }> {
+  return request(`/api/recipes/${id}`);
+}
+
+export async function saveRecipe(recipe: import('./types').Recipe): Promise<{ recipe: import('./types').Recipe }> {
+  return request('/api/recipes', {
+    method: 'POST',
+    body: JSON.stringify(recipe),
+  });
+}
+
+export async function deleteRecipe(id: string): Promise<{ deleted: boolean }> {
+  return request(`/api/recipes/${id}`, { method: 'DELETE' });
+}
+
+export async function runRecipe(id: string, args?: Record<string, unknown>): Promise<{ success: boolean; runId?: string; error?: string }> {
+  return request(`/api/recipes/${id}/run`, {
+    method: 'POST',
+    body: JSON.stringify(args || {}),
+  });
+}
+
+// ---- VRAM ----
+
+export async function getVramSnapshot(): Promise<import('./types').VramSnapshot> {
+  return request('/api/vram');
+}
+
+export async function acquireVram(service: string, requiredMB: number, leaseDurationMs?: number): Promise<{ leaseId: string; grantedMB: number; error?: string }> {
+  return request('/api/vram/acquire', {
+    method: 'POST',
+    body: JSON.stringify({ service, requiredMB, leaseDurationMs }),
+  });
+}
+
+export async function releaseVram(leaseId: string, restoreModel = true): Promise<{ released: boolean; error?: string }> {
+  return request('/api/vram/release', {
+    method: 'POST',
+    body: JSON.stringify({ leaseId, restoreModel }),
+  });
+}
+
+// ---- Teams ----
+
+export async function getTeams(): Promise<{ teams: import('./types').Team[] }> {
+  return request('/api/teams');
+}
+
+export async function createTeam(name: string, description?: string): Promise<{ team: import('./types').Team }> {
+  return request('/api/teams', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+}
+
+export async function deleteTeam(teamId: string): Promise<{ deleted: boolean }> {
+  return request(`/api/teams/${teamId}`, { method: 'DELETE' });
+}
+
+// ---- Cron ----
+
+export async function getCronJobs(): Promise<{ jobs: import('./types').CronJob[] }> {
+  return request('/api/cron');
+}
+
+export async function createCronJob(job: Omit<import('./types').CronJob, 'id'>): Promise<{ job: import('./types').CronJob }> {
+  return request('/api/cron', {
+    method: 'POST',
+    body: JSON.stringify(job),
+  });
+}
+
+export async function toggleCronJob(id: string): Promise<{ job: import('./types').CronJob }> {
+  return request(`/api/cron/${id}/toggle`, { method: 'POST' });
+}
+
+export async function deleteCronJob(id: string): Promise<{ deleted: boolean }> {
+  return request(`/api/cron/${id}`, { method: 'DELETE' });
+}
+
+// ---- Checkpoints ----
+
+export async function deleteCheckpoint(sessionId: string): Promise<{ deleted: boolean }> {
+  return request(`/api/checkpoints/${sessionId}`, { method: 'DELETE' });
+}
+
+// ---- Organism ----
+
+export async function getOrganismAlerts(): Promise<{ alerts: import('./types').Alert[] }> {
+  return request('/api/organism/alerts');
+}
+
+export async function getOrganismAlertStats(): Promise<{ total: number; acked: number; unacked: number }> {
+  return request('/api/organism/alerts/stats');
+}
+
+export async function getOrganismSafetyMetrics(): Promise<Record<string, number>> {
+  return request('/api/organism/safety-metrics');
+}
+
+export async function getOrganismHistory(): Promise<{ history: Array<{ timestamp: string; event: string; data: unknown }> }> {
+  return request('/api/organism/history');
+}
+
+export async function acknowledgeAlert(id: string): Promise<{ success: boolean }> {
+  return request(`/api/organism/alerts/${id}/acknowledge`, { method: 'POST' });
+}
+
+// ---- Fleet ----
+
+export async function getFleet(): Promise<{ nodes: import('./types').FleetNode[] }> {
+  return request('/api/fleet');
+}
+
+export async function routeFleet(target: string, payload?: unknown): Promise<{ routed: boolean; nodeId?: string; error?: string }> {
+  return request('/api/fleet/route', {
+    method: 'POST',
+    body: JSON.stringify({ target, payload }),
+  });
+}
+
+// ---- Browser ----
+
+export async function solveCaptcha(imageBase64: string, provider?: string): Promise<{ success: boolean; token?: string; error?: string }> {
+  return request('/api/browser/solve-captcha', {
+    method: 'POST',
+    body: JSON.stringify({ imageBase64, provider }),
+  });
+}
+
+// ---- Paperclip ----
+
+export async function getPaperclipStatus(): Promise<{ running: boolean; pid?: number; url?: string; error?: string }> {
+  return request('/api/paperclip/status');
+}
+
+export async function startPaperclip(): Promise<{ success: boolean; pid?: number; error?: string }> {
+  return request('/api/paperclip/start', { method: 'POST' });
+}
+
+export async function stopPaperclip(): Promise<{ success: boolean; error?: string }> {
+  return request('/api/paperclip/stop', { method: 'POST' });
+}
+
+// ---- Test Health ----
+
+export async function getTestHealthSummary(): Promise<{ total: number; passing: number; failing: number; flaky: number; coverage?: number }> {
+  return request('/api/test-health/summary');
+}
+
+export async function getFailingTests(): Promise<{ tests: import('./types').FailingTest[] }> {
+  return request('/api/test-health/failing');
+}
+
+export async function getFlakyTests(): Promise<{ tests: import('./types').FlakyTest[] }> {
+  return request('/api/test-health/flaky');
+}
+
+export async function getTestHistory(): Promise<{ runs: import('./types').TestRunRecord[] }> {
+  return request('/api/test-health/history');
+}
+
+export async function runTests(scope?: string): Promise<{ runId: string; started: boolean }> {
+  return request('/api/test-health/run', {
+    method: 'POST',
+    body: JSON.stringify(scope ? { scope } : {}),
+  });
+}

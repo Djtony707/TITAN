@@ -15,7 +15,7 @@ const execAsync = promisify(exec);
 
 const DANGEROUS_COMMANDS = [
     /rm\s+-rf\s+\//,
-    /:\(\)\{\s*:\|:\s*\&\s*\};:\s*:/,
+    /:\(\)\{\s*:\|:\s*&\s*\};:\s*:/,
     />\s*\/dev\/sda/,
     /mkfs\./,
     /curl\s+.*\|\s*(?:sh|bash)/,
