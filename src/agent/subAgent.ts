@@ -10,7 +10,7 @@
  * - Cost counts toward parent session budget
  */
 import { chat } from '../providers/router.js';
-import { executeTools, getToolDefinitions } from './toolRunner.js';
+import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.js';
 import { loadConfig } from '../config/config.js';
 import type { ChatMessage, ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
@@ -534,6 +534,13 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     let finalContent = '';
     let rounds = 0;
 
+    // Phase 9: safety state tracking
+    const toolHistory: Array<{ name: string; args: string; round: number }> = [];
+    let lastContent = '';
+    let stallCount = 0;
+    const STALL_THRESHOLD = 3;
+    const LOOP_THRESHOLD = 2;
+
     try {
         for (let round = 0; round < maxRounds; round++) {
             rounds = round + 1;
@@ -580,7 +587,44 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             if (config.streamCallbacks?.onToolCall) {
                 for (const tc of response.toolCalls!) { config.streamCallbacks.onToolCall(tc.function.name, JSON.parse(tc.function.arguments || "{}")); }
             }
-            const toolResults = await executeTools(response.toolCalls);
+            // Phase 9: per-tool error handling — one failing tool must not kill the session
+            const toolResults: ToolResult[] = [];
+            let allToolsFailed = true;
+            for (const tc of response.toolCalls!) {
+                let result: ToolResult;
+                try {
+                    const singleResult = await executeTools([tc]);
+                    result = singleResult[0];
+                    if (result.success !== false) allToolsFailed = false;
+                } catch (toolErr) {
+                    result = {
+                        toolCallId: tc.id,
+                        name: tc.function.name,
+                        content: `Error executing ${tc.function.name}: ${(toolErr as Error).message}`,
+                        success: false,
+                        durationMs: 0,
+                    };
+                    logger.warn(COMPONENT, `[${agentName}] Tool ${tc.function.name} failed: ${(toolErr as Error).message}`);
+                }
+                // Phase 9: Summarize tool outputs >10K chars to prevent context bloat
+                const MAX_TOOL_OUTPUT = 10_000;
+                if (result.content && result.content.length > MAX_TOOL_OUTPUT) {
+                    const originalLen = result.content.length;
+                    const marker = `\n\n[…output truncated from ${originalLen} to ${MAX_TOOL_OUTPUT} chars — full result available via tool re-execution with narrower scope]`;
+                    result.content = result.content.slice(0, MAX_TOOL_OUTPUT - marker.length) + marker;
+                }
+                toolResults.push(result);
+                toolHistory.push({ name: result.name, args: tc.function.arguments || '{}', round });
+            }
+
+            // Phase 9: Graceful degradation — if every tool in a round fails, bail early
+            if (allToolsFailed && toolResults.length > 0) {
+                const failures = toolResults.map(r => `${r.name}: ${r.content.slice(0, 120)}`).join('; ');
+                finalContent = `Error: All ${toolResults.length} tool(s) failed in round ${rounds}. ${failures}`;
+                logger.warn(COMPONENT, `[${agentName}] All tools failed — aborting after ${rounds} rounds`);
+                break;
+            }
+
             // Emit tool_end events for Agent Watcher
             if (config.streamCallbacks?.onToolResult) {
                 for (const tr of toolResults) { config.streamCallbacks.onToolResult(tr.name, tr.content, tr.durationMs || 0, tr.success !== false); }
@@ -594,6 +638,32 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                     toolCallId: result.toolCallId,
                     name: result.name,
                 });
+            }
+
+            // Phase 9: Stall detection — if content hasn't changed meaningfully, count it
+            const currentContent = response.content || '';
+            if (currentContent && currentContent === lastContent) {
+                stallCount++;
+                logger.warn(COMPONENT, `[${agentName}] Stall detected (${stallCount}/${STALL_THRESHOLD}) — identical content in round ${rounds}`);
+                if (stallCount >= STALL_THRESHOLD) {
+                    finalContent = `Task stalled after ${rounds} rounds — the agent repeated the same reasoning without progress.`;
+                    logger.warn(COMPONENT, `[${agentName}] Aborting due to stall`);
+                    break;
+                }
+            } else {
+                stallCount = 0;
+                lastContent = currentContent;
+            }
+
+            // Phase 9: Loop detection — same tool+args repeated
+            if (toolHistory.length >= 2) {
+                const last = toolHistory[toolHistory.length - 1];
+                const prev = toolHistory[toolHistory.length - 2];
+                if (last.name === prev.name && last.args === prev.args) {
+                    logger.warn(COMPONENT, `[${agentName}] Loop detected — ${last.name} called with identical args in consecutive rounds`);
+                    finalContent = `Task looped after ${rounds} rounds — the agent called ${last.name} repeatedly with the same arguments.`;
+                    break;
+                }
             }
 
             // Last round fallback

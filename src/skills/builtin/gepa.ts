@@ -830,5 +830,33 @@ export function registerGepaSkill(): void {
         execute: gepaHistory,
     });
 
-    logger.info(COMPONENT, 'GEPA evolution skill registered (3 tools)');
+    // Phase 9: GEPA daemon watcher — runs once per day if self-improvement is enabled.
+    // Wrapped in an async IIFE so registerGepaSkill() can stay synchronous
+    // (the registry doesn't await skill registration) while still using
+    // dynamic import() for the daemon module.
+    void (async () => {
+        try {
+            const { registerWatcher } = await import('../../agent/daemon.js');
+            registerWatcher('gepa-daily-evolve', async () => {
+                const cfg = loadConfig();
+                if (!cfg.selfImprove?.enabled) {
+                    logger.debug(COMPONENT, 'GEPA daily watcher skipped — selfImprove.disabled');
+                    return;
+                }
+                // Pick a random area each day
+                const area = IMPROVEMENT_AREAS[Math.floor(Math.random() * IMPROVEMENT_AREAS.length)];
+                logger.info(COMPONENT, `GEPA daily watcher starting evolution for area: ${area.id}`);
+                try {
+                    await gepaEvolve({ area: area.id, budgetMinutes: 30, maxGenerations: 5 });
+                } catch (e) {
+                    logger.error(COMPONENT, `GEPA daily watcher failed: ${(e as Error).message}`);
+                }
+            }, 24 * 60 * 60 * 1000); // 24 hours
+            logger.info(COMPONENT, 'GEPA daily watcher registered (24h interval)');
+        } catch {
+            logger.warn(COMPONENT, 'Daemon system not available — GEPA daily watcher not registered');
+        }
+    })();
+
+    logger.info(COMPONENT, 'GEPA evolution skill registered (3 tools + daily watcher)');
 }

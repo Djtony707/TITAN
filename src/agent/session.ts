@@ -3,7 +3,10 @@
  * Manages per-user/per-channel isolated sessions with history and context.
  */
 import { v4 as uuid } from 'uuid';
-import { getDb, getHistory, saveMessage, updateSessionMeta } from '../memory/memory.js';
+import { getDb, getHistory, saveMessage, updateSessionMeta, debouncedSave } from '../memory/memory.js';
+
+/** Idle sessions older than this are purged from the store entirely */
+const SESSION_IDLE_PURGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 import type { ChatMessage } from '../providers/base.js';
 import { MAX_CONTEXT_MESSAGES, SESSION_TIMEOUT_MS } from '../utils/constants.js';
 import { generateKey } from '../security/encryption.js';
@@ -34,7 +37,41 @@ export interface Session {
 }
 
 /** Active sessions cache */
-const activeSessions: Map<string, Session> = new Map();
+export const activeSessions: Map<string, Session> = new Map();
+
+// ─── Ephemeral channel cleanup (Phase 9 / TITAN PC leak fix) ────────────
+//
+// Background: TITAN PC v5.3.2 accumulated 755 in-memory sessions in 29min
+// because every endpoint that internally calls processMessage with a
+// templated channel name (autoresearch-trigger-${type}, twilio-call-${sid},
+// initiative-fix, etc.) creates a unique cache key under
+// `${channel}:${userId}:${agentId}` — and all sessions previously shared
+// the same SESSION_TIMEOUT_MS (30min) idle TTL. At ~26 sessions/min creation
+// rate, that 30min window buffered 750+ entries before the first expired.
+//
+// Fix: classify channels as ephemeral (one-shot agent invocations from
+// internal triggers) vs persistent (webchat, voice, discord, telegram,
+// slack — where the user expects to resume mid-conversation). Ephemerals
+// get a 5-minute idle TTL and an LRU cap; persistents keep the full 30min.
+//
+// Persistent channels are an EXPLICIT allowlist — any new channel added
+// in the future defaults to ephemeral by accident, which is the safer
+// failure mode (a few extra closeSession calls vs a slow OOM).
+const PERSISTENT_CHANNELS_EXACT = new Set([
+    'webchat', 'voice', 'discord', 'telegram', 'slack',
+    'whatsapp', 'matrix', 'irc', 'line', 'zulip',
+    'mattermost', 'rocketchat', 'twilio', 'sms', 'email',
+]);
+
+/** True if the channel is an ephemeral one-shot — short TTL + LRU cap. */
+export function isEphemeralChannel(channel: string): boolean {
+    return !PERSISTENT_CHANNELS_EXACT.has(channel);
+}
+
+/** Idle TTL for ephemeral sessions. Far shorter than SESSION_TIMEOUT_MS. */
+export const EPHEMERAL_TTL_MS = 5 * 60 * 1000;
+/** Max ephemeral sessions retained in the in-memory cache; LRU evicts beyond. */
+export const EPHEMERAL_MAX_ACTIVE = 100;
 
 /** Create or retrieve a session */
 // Hunt Finding #19 (2026-04-14): UUID v4 pattern used to distinguish
@@ -337,23 +374,150 @@ export function getContextMessages(session: Session, maxMessages: number = MAX_C
     }));
 }
 
-/** Mark sessions that have been inactive > SESSION_TIMEOUT_MS as idle */
+/**
+ * Mark sessions inactive past the per-channel idle TTL as idle, evict from
+ * the in-memory cache, enforce the ephemeral LRU cap, and purge ancient
+ * idle records from the store.
+ *
+ * TTL is per-channel:
+ *   - Persistent channels (webchat, voice, discord, telegram, slack, ...)
+ *     keep SESSION_TIMEOUT_MS (30min) so user conversations can resume.
+ *   - Ephemeral channels (api, eval, autoresearch-*, initiative-*, twilio-*,
+ *     monitor, mesh, deliberation, ...) get EPHEMERAL_TTL_MS (5min) — these
+ *     are internal one-shot agent invocations that don't need to linger.
+ *
+ * After idle eviction, the ephemeral entries in the cache are capped at
+ * EPHEMERAL_MAX_ACTIVE; oldest-by-lastActive get dropped beyond that.
+ */
 export function cleanupStaleSessions(): void {
     const store = getDb();
     const now = Date.now();
     let cleaned = 0;
     for (const s of store.sessions) {
         if (s.status === 'active') {
+            const ttl = isEphemeralChannel(s.channel) ? EPHEMERAL_TTL_MS : SESSION_TIMEOUT_MS;
             const lastActive = new Date(s.last_active || s.created_at).getTime();
-            if (now - lastActive > SESSION_TIMEOUT_MS) {
+            if (now - lastActive > ttl) {
                 s.status = 'idle';
                 cleaned++;
             }
         }
     }
-    if (cleaned > 0) {
-        logger.info(COMPONENT, `Cleaned up ${cleaned} stale session(s)`);
+
+    // Evict timed-out entries from the in-memory cache too — otherwise
+    // getOrCreateSessionById registrations (keyed by id:*) leak forever.
+    const keysToDelete: string[] = [];
+    for (const [key, session] of activeSessions.entries()) {
+        const ttl = isEphemeralChannel(session.channel) ? EPHEMERAL_TTL_MS : SESSION_TIMEOUT_MS;
+        const lastActive = new Date(session.lastActive || session.createdAt).getTime();
+        if (now - lastActive > ttl) {
+            keysToDelete.push(key);
+        }
     }
+    for (const key of keysToDelete) {
+        activeSessions.delete(key);
+    }
+
+    // LRU cap on ephemeral cache entries — even within the 5min window, a
+    // burst of 200+ one-shot agent calls would still buffer up. Drop the
+    // oldest-by-lastActive past EPHEMERAL_MAX_ACTIVE. We dedupe by session
+    // ID first because `id:` and `channel:user:agent` keys often share an
+    // underlying Session object.
+    const ephemeralEntries: Array<{ key: string; session: Session; lastActive: number }> = [];
+    const seenSessionIds = new Set<string>();
+    for (const [key, session] of activeSessions.entries()) {
+        if (!isEphemeralChannel(session.channel)) continue;
+        if (seenSessionIds.has(session.id)) continue;
+        seenSessionIds.add(session.id);
+        ephemeralEntries.push({
+            key,
+            session,
+            lastActive: new Date(session.lastActive || session.createdAt).getTime(),
+        });
+    }
+    let lruEvicted = 0;
+    if (ephemeralEntries.length > EPHEMERAL_MAX_ACTIVE) {
+        ephemeralEntries.sort((a, b) => a.lastActive - b.lastActive); // oldest first
+        const toEvict = ephemeralEntries.slice(0, ephemeralEntries.length - EPHEMERAL_MAX_ACTIVE);
+        for (const { session } of toEvict) {
+            // Remove BOTH key patterns for this session id.
+            const allKeys: string[] = [];
+            for (const [k, v] of activeSessions.entries()) {
+                if (v.id === session.id) allKeys.push(k);
+            }
+            for (const k of allKeys) activeSessions.delete(k);
+            lruEvicted++;
+        }
+    }
+
+    // Purge idle sessions older than 7 days from the store entirely —
+    // otherwise the sessions array grows forever (755+ sessions observed).
+    const beforePurge = store.sessions.length;
+    store.sessions = store.sessions.filter((s) => {
+        if (s.status !== 'idle') return true;
+        const lastActive = new Date(s.last_active || s.created_at).getTime();
+        return now - lastActive < SESSION_IDLE_PURGE_MS;
+    });
+    const purged = beforePurge - store.sessions.length;
+
+    if (cleaned > 0 || keysToDelete.length > 0 || lruEvicted > 0 || purged > 0) {
+        logger.info(
+            COMPONENT,
+            `Cleaned up ${cleaned} stale session(s), evicted ${keysToDelete.length} from cache, ` +
+            `LRU-evicted ${lruEvicted} ephemeral over cap, purged ${purged} old idle session(s)`,
+        );
+    }
+
+    if (cleaned > 0 || purged > 0) {
+        debouncedSave();
+    }
+}
+
+/**
+ * Bulk close sessions matching a filter — used by POST /api/sessions/sweep
+ * for live operational drain (no service restart needed) when the cache
+ * unexpectedly grows.
+ *
+ * @param opts.channel  If set, only close sessions on this exact channel.
+ * @param opts.channelPrefix  If set, only close sessions whose channel
+ *   starts with this prefix (matches templated channels like
+ *   "autoresearch-trigger-tool_router").
+ * @param opts.idleMs   Minimum idle time in ms; only close sessions whose
+ *   lastActive is older than now - idleMs. Defaults to 0 (any age).
+ * @param opts.force    If true, also close persistent channels. Off by
+ *   default to keep webchat/voice conversations alive.
+ *
+ * Returns the count of sessions closed (cache + DB record).
+ */
+export function sweepSessions(opts: {
+    channel?: string;
+    channelPrefix?: string;
+    idleMs?: number;
+    force?: boolean;
+} = {}): { closed: number } {
+    const now = Date.now();
+    const idleThreshold = opts.idleMs ?? 0;
+
+    const sessionIdsToClose = new Set<string>();
+    for (const session of activeSessions.values()) {
+        if (sessionIdsToClose.has(session.id)) continue;
+        if (!opts.force && !isEphemeralChannel(session.channel)) continue;
+        if (opts.channel && session.channel !== opts.channel) continue;
+        if (opts.channelPrefix && !session.channel.startsWith(opts.channelPrefix)) continue;
+        const lastActive = new Date(session.lastActive || session.createdAt).getTime();
+        if (now - lastActive < idleThreshold) continue;
+        sessionIdsToClose.add(session.id);
+    }
+
+    let closed = 0;
+    for (const id of sessionIdsToClose) {
+        closeSession(id);
+        closed++;
+    }
+    if (closed > 0) {
+        logger.info(COMPONENT, `Sweep closed ${closed} session(s) — channel=${opts.channel ?? opts.channelPrefix ?? '*'} idleMs=${idleThreshold} force=${!!opts.force}`);
+    }
+    return { closed };
 }
 
 /** Rename a session */

@@ -180,10 +180,15 @@ describe('Memory Regression — Full-Loop Fidelity', () => {
     });
 
     it('entity extraction creates findable entities from episodes', async () => {
-        await addEpisode('User said: My name is Tony Elliott and I work on Project TITAN in Kelseyville', 'test-memory');
-
-        // Give entity extraction a moment (it's background async)
-        await new Promise(r => setTimeout(r, 100));
+        // v5.4.0 / Track B3: addEpisode now accepts { awaitEntities: true } to
+        // close the race window between insertion and entity availability.
+        // Replaces the brittle "wait 100ms and hope" pattern.
+        await addEpisode(
+            'User said: My name is Tony Elliott and I work on Project TITAN in Kelseyville',
+            'test-memory',
+            undefined,
+            { awaitEntities: true },
+        );
 
         // Direct entity lookup
         const entity = getEntity('Tony Elliott');
@@ -191,8 +196,11 @@ describe('Memory Regression — Full-Loop Fidelity', () => {
             expect(entity.type).toBe('person');
         }
 
-        // Context query should find the entity
-        const context = await getGraphContext('Who am I?');
+        // Context query — query with a content-bearing keyword ("Tony")
+        // that the inverted index can match against the seed episode text.
+        // The previous "Who am I?" probe relied on stop-word filtering
+        // returning all episodes, which v5.4.0's TF-IDF index doesn't do.
+        const context = await getGraphContext('Tony');
         expect(context.toLowerCase()).toContain('tony');
     });
 

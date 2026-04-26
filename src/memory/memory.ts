@@ -147,7 +147,7 @@ function saveStore(): void {
 
 // Auto-save periodically
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-function debouncedSave(): void {
+export function debouncedSave(): void {
   if (dirty) { saveStore(); return; }
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveStore, 1000);

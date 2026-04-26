@@ -53,6 +53,10 @@ vi.mock('../../src/memory/memory.js', () => ({
     getHistory: vi.fn().mockReturnValue([]),
     saveMessage: vi.fn(),
     updateSessionMeta: vi.fn(),
+    // Added 2026-04-26: session.ts now calls debouncedSave() in
+    // cleanupStaleSessions when the DB shape changes (Kimi's 7-day idle
+    // purge). Mock as a no-op so the smoke test doesn't crash on import.
+    debouncedSave: vi.fn(),
 }));
 
 vi.mock('../../src/security/encryption.js', () => ({
@@ -400,6 +404,18 @@ describe('Ollama Provider — Think Parameter Smoke', () => {
 // ════════════════════════════════════════════════════════════════════════
 
 describe('Session Listing — Smoke', () => {
+    // Pin "now" to 2026-04-13T11:00Z so the hardcoded fixture dates
+    // (2026-04-13T08:00–10:05Z) stay within Kimi's 7-day idle purge window.
+    // Without this, the test goes stale after 2026-04-20 and idle fixtures
+    // get purged before listSessions returns them.
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-04-13T11:00:00Z'));
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('listSessions returns both active and idle sessions', async () => {
         const { getDb } = await import('../../src/memory/memory.js');
         vi.mocked(getDb).mockReturnValue({

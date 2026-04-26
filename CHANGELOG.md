@@ -5,6 +5,113 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.4.0] — 2026-04-26 — 🧠 **"Real Framework"**
+
+Phase 9 release. Lifts TITAN from "agent that runs" to "agent that
+remembers, doesn't fabricate, doesn't leak, and survives flooded inboxes."
+Eight tracks across two co-working agents (Claude + Kimi K2.6) landed in a
+single bundle.
+
+**728 deterministic tests pass in 7.80 s. Typecheck + UI build clean.**
+
+Created by Tony Elliott aka djtony707.
+
+### Added
+
+**Track B — Memory upgrades**
+- `src/memory/index.ts` (NEW) — inverted-index TF-IDF keyword search.
+  Sub-50 ms query at 5 000 episodes (verified via `tests/unit/memory-index.test.ts`).
+  Wired into `searchMemory`, `addEpisode`, `enforceMemoryBounds`.
+- `addEpisode` now accepts `{ awaitEntities: true }` to close the entity-
+  extraction race window — replaces the brittle "wait 100 ms and hope" pattern.
+- `enforceMemoryBounds` now prunes entities by salience score
+  (`typeWeight × (1 + episodeRefs + facts)`) instead of FIFO `lastSeen`.
+  Identity entities (person, project) survive log floods that previously
+  evicted them.
+- `memory.vectorSearchEnabled` default flipped `false → true`. Silent
+  fallback contract preserved — installs without Ollama running don't break.
+
+**Track D — Fabrication guard**
+- `src/safety/fabricationGuard.ts` (NEW) — pattern detection across six
+  categories (file_write / file_edit / file_delete / shell_run /
+  web_action / tool_used). All patterns require first-person voice and
+  cross-check against tool history.
+- `verifyFileWriteClaim(path, expected?)` — SHA-256 hash check, lenient
+  trailing-whitespace compare, doesn't throw on invalid paths.
+- `buildNudgeMessage(findings)` — blunt corrective text for the next turn.
+
+**Track A — Sub-agent safety (Kimi)**
+- Stall detection (3 identical responses → bail).
+- Loop detection (identical tool+args fingerprint → bail).
+- Per-tool error wrapping (returns `ToolResult` instead of throwing).
+- Tool output summarization (>10K chars truncated with marker).
+- Graceful degradation (all tools fail → early bail with error summary).
+
+**Track C — Self-improvement activation (Kimi)**
+- Checkpoint-before-mutation + auto-rollback on score drop.
+- Rate limiting (max 1 mutation/hour via `canMutate`/`recordMutation`).
+
+### Fixed
+
+**Operational session leak (Phase 9 hotfix)**
+- TITAN PC v5.3.2 accumulated 755 in-memory sessions in 29 min. Root
+  cause: every endpoint that internally calls `processMessage` with a
+  templated channel name (`autoresearch-trigger-${type}`,
+  `twilio-call-${callSid}`, `initiative-fix`, `monitor`, `mesh`,
+  `deliberation`, `eval`) created a unique cache key under
+  `${channel}:${userId}:${agentId}` — and all sessions shared the same
+  30 min idle TTL. At ~26 sessions/min creation rate, the 30 min window
+  buffered 750+ entries before the first one expired.
+- `src/agent/session.ts`: new `isEphemeralChannel(channel)` classifier.
+  Persistent allowlist (webchat, voice, discord, telegram, slack, …)
+  keeps the full `SESSION_TIMEOUT_MS` (30 min); everything else gets
+  `EPHEMERAL_TTL_MS` (5 min).
+- LRU cap on ephemeral cache: `EPHEMERAL_MAX_ACTIVE = 100`. Beyond that,
+  oldest-by-`lastActive` get evicted.
+- 7-day idle DB purge in `cleanupStaleSessions` so the store doesn't grow
+  forever when sessions never get re-messaged.
+- `src/gateway/server.ts`: cleanup interval shortened 5 min → 60 s so
+  ephemeral 5 min TTL evicts within ~1 min of expiry.
+- New `POST /api/sessions/sweep` endpoint with `{channel?, channelPrefix?,
+  idleMs?, force?}` body for live operational drain — no service restart.
+  Default sweep closes every ephemeral; `force: true` includes persistent.
+
+**Pre-existing typecheck errors**
+- `src/skills/builtin/gepa.ts`: `await` in a non-async function — wrapped
+  daemon registration in `void (async () => { … })()`.
+- `src/skills/builtin/self_improve.ts`: `SELF_IMPROVE_DIR` used at line
+  20 before its `export const` declaration at line 111. Hoisted const to
+  top, re-exported via `export { SELF_IMPROVE_DIR }`.
+
+**Test fixture stale-date trap**
+- `tests/integration/smoke.test.ts` "Session Listing" idle fixture used
+  hardcoded `2026-04-13` dates — past the new 7-day idle purge threshold.
+  Wrapped in `vi.useFakeTimers` + `vi.setSystemTime('2026-04-13T11:00Z')`
+  so the test stays valid as wall-clock time advances. Added
+  `debouncedSave: vi.fn()` to the `memory/memory.js` mock.
+
+### Tests
+
+- `tests/unit/memory-index.test.ts` (NEW, 24): tokenization, ranking,
+  IDF dampening, idempotent add, removal, vocabulary, performance budget.
+- `tests/unit/memory-vector.test.ts` (NEW, 5): schema default, embedding-
+  model default, signature exports.
+- `tests/unit/memory-salience-pruning.test.ts` (NEW, 10): survival
+  ordering, recency tiebreak, identity protection, fallback weights.
+- `tests/unit/fabrication-guard.test.ts` (NEW, 26): all six categories,
+  multi-finding responses, no false fires on tool-backed claims, third-
+  person prose ignored, `buildNudgeMessage` format.
+- `tests/unit/fabrication-verify.test.ts` (NEW, 10): existence, empty-
+  file flagging, lenient compare, hash determinism.
+- `tests/unit/session-cleanup.test.ts` (NEW, 21): per-channel TTL split,
+  LRU cap eviction order, sweep filters, 7-day idle purge.
+- `tests/unit/subagent-safety.test.ts` (NEW, 11): stall/loop detection,
+  per-tool error wrap, output truncation, graceful degradation.
+- `tests/unit/self-improve.test.ts` (NEW, 7): checkpoint/restore + rate
+  limiting.
+
+---
+
 ## [5.3.2] — 2026-04-26 — 📢 **"Truth in Marketing"**
 
 Patch release. Closes the gap between what TITAN claims and what it actually

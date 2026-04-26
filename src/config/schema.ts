@@ -646,8 +646,24 @@ export const TitanConfigSchema = z.object({
     memory: z.object({
         enabled: z.boolean().default(true),
         maxHistoryMessages: z.number().default(50),
-        /** Enable semantic vector search via Ollama embeddings (Tier 2 memory) */
-        vectorSearchEnabled: z.boolean().default(false),
+        /**
+         * Enable semantic vector search via Ollama embeddings (Tier 2 memory).
+         *
+         * v5.4.0: default is now `true`. The vector layer (`src/memory/vectors.ts`,
+         * 566 LOC) was production-ready but unreachable behind a default-off
+         * switch — retrieval was purely literal substring matching, so any
+         * paraphrased recall failed. Flipping the default activates the
+         * existing infrastructure.
+         *
+         * Fallback contract: if the embedding model isn't available on
+         * Ollama (or the request errors), `addVector` and the vector-side
+         * of `searchMemory` silently fall back to keyword-only search.
+         * That fallback is best-effort and logged at debug level — see
+         * `isVectorSearchAvailable()` in `vectors.ts`.
+         *
+         * To opt out, set `memory.vectorSearchEnabled = false` in titan.json.
+         */
+        vectorSearchEnabled: z.boolean().default(true),
         /** Embedding model for vector search (must be available on Ollama) */
         embeddingModel: z.string().default('nomic-embed-text'),
         /** v5.0: Pluggable memory provider ('builtin' = default three-tier memory) */

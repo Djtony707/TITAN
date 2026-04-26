@@ -62,7 +62,7 @@ import { getCostStatus } from '../agent/costOptimizer.js';
 import { initLearning, getLearningStats } from '../memory/learning.js';
 import { initGraph, getGraphData, getGraphStats, clearGraph, cleanupGraph, flushGraph, getEntity, listEntities, getEntityEpisodes } from '../memory/graph.js';
 import { getLogFilePath } from '../utils/logger.js';
-import { closeSession, renameSession } from '../agent/session.js';
+import { closeSession, renameSession, sweepSessions } from '../agent/session.js';
 import { initCronScheduler } from '../skills/builtin/cron.js';
 import { checkAndSendBriefing } from '../memory/briefing.js';
 import { initPersistentWebhooks } from '../skills/builtin/webhook.js';
@@ -826,6 +826,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Stale session cleanup: mark orphaned active sessions as idle ──
   cleanupStaleSessions();
+  // Run every 60s so ephemeral one-shot sessions (api / autoresearch-* /
+  // initiative-* / monitor / mesh / etc.) get cleared promptly within their
+  // 5min idle TTL. Persistent channels (webchat / voice / discord / ...)
+  // still use the full SESSION_TIMEOUT_MS (30min) inside cleanupStaleSessions.
+  // Pre-fix: 5min interval + uniform 30min TTL accumulated 755 sessions in
+  // 29min on the live service (Kimi observation, 2026-04-26).
+  setInterval(() => cleanupStaleSessions(), 60 * 1000);
 
   // ── Port pre-check: fail fast before loading subsystems ────
   const portAvailable = await new Promise<boolean>((resolve) => {
@@ -1724,6 +1731,44 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     try {
       closeSession(req.params.id);
       res.json({ ok: true });
+    } catch (e) {
+      logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  /**
+   * POST /api/sessions/sweep
+   *
+   * Bulk close in-memory sessions matching a filter — used for live
+   * operational drain (no service restart required) when the cache
+   * unexpectedly grows. Body fields are all optional:
+   *   { channel?: string, channelPrefix?: string, idleMs?: number, force?: boolean }
+   *
+   *   - channel        Exact channel match.
+   *   - channelPrefix  Prefix match (e.g. "autoresearch-" or "initiative-").
+   *   - idleMs         Minimum idle time before a session is eligible.
+   *   - force          If true, also close persistent channels (webchat/voice).
+   *                    Off by default so user conversations stay alive.
+   *
+   * Without filters: closes every ephemeral session currently in cache.
+   *
+   * Response: { ok: true, closed: number }
+   */
+  app.post('/api/sessions/sweep', (req, res) => {
+    try {
+      const { channel, channelPrefix, idleMs, force } = (req.body ?? {}) as {
+        channel?: unknown;
+        channelPrefix?: unknown;
+        idleMs?: unknown;
+        force?: unknown;
+      };
+      const opts: Parameters<typeof sweepSessions>[0] = {};
+      if (typeof channel === 'string' && channel.length <= 64) opts.channel = channel;
+      if (typeof channelPrefix === 'string' && channelPrefix.length <= 64) opts.channelPrefix = channelPrefix;
+      if (typeof idleMs === 'number' && Number.isFinite(idleMs) && idleMs >= 0) opts.idleMs = idleMs;
+      if (typeof force === 'boolean') opts.force = force;
+      const result = sweepSessions(opts);
+      res.json({ ok: true, ...result });
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }

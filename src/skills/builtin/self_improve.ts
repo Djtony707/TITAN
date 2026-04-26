@@ -9,12 +9,64 @@
 import { registerSkill } from '../registry.js';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
 
 const COMPONENT = 'SelfImprove';
+
+// SELF_IMPROVE_DIR is exported below; declaring it inline first so the
+// rate-limit/checkpoint helpers that reference it don't trip TS's
+// temporal-dead-zone check (Phase 9 refactor introduced these helpers
+// above the SELF_IMPROVE_DIR const, breaking module init order).
+const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
+
+// Phase 9: rate-limiting + checkpoint safety
+const LAST_MUTATION_PATH = join(SELF_IMPROVE_DIR, '.last-mutation');
+const CHECKPOINTS_DIR = join(SELF_IMPROVE_DIR, 'checkpoints');
+
+function canMutate(minIntervalMs = 60 * 60 * 1000): boolean {
+    try {
+        if (!existsSync(LAST_MUTATION_PATH)) return true;
+        const last = parseInt(readFileSync(LAST_MUTATION_PATH, 'utf-8').trim(), 10);
+        return Date.now() - last >= minIntervalMs;
+    } catch {
+        return true;
+    }
+}
+
+function recordMutation(): void {
+    try {
+        writeFileSync(LAST_MUTATION_PATH, String(Date.now()), 'utf-8');
+    } catch { /* non-critical */ }
+}
+
+function createCheckpoint(areaId: string, content: string): string {
+    try {
+        mkdirSync(CHECKPOINTS_DIR, { recursive: true });
+        const checkpointId = `${areaId}-${Date.now()}`;
+        const path = join(CHECKPOINTS_DIR, `${checkpointId}.txt`);
+        writeFileSync(path, content, 'utf-8');
+        return path;
+    } catch {
+        return '';
+    }
+}
+
+function restoreCheckpoint(areaId: string): string | null {
+    try {
+        const files = readdirSync(CHECKPOINTS_DIR)
+            .filter(f => f.startsWith(areaId + '-'))
+            .sort()
+            .reverse();
+        if (files.length === 0) return null;
+        const path = join(CHECKPOINTS_DIR, files[0]);
+        return readFileSync(path, 'utf-8');
+    } catch {
+        return null;
+    }
+}
 
 // ── Live prompt bridge cache ─────────────────────────────────────────
 let optimizedPromptCache: { mtime: number; content: string } | null = null;
@@ -56,7 +108,10 @@ export function clearOptimizedPromptCache(): void {
 }
 
 // ── Paths ────────────────────────────────────────────────────────────
-export const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
+// SELF_IMPROVE_DIR was hoisted to the top of the file (above the
+// rate-limit helpers that depend on it). This `export const` re-binds
+// the same value so the public surface stays identical.
+export { SELF_IMPROVE_DIR };
 export const PROMPTS_DIR = join(SELF_IMPROVE_DIR, 'prompts');
 export const BENCHMARKS_DIR = join(SELF_IMPROVE_DIR, 'benchmarks');
 export const RESULTS_DIR = join(SELF_IMPROVE_DIR, 'results');
@@ -481,9 +536,23 @@ RULES:
                 continue;
             }
 
+            // Phase 9: rate limit — max 1 mutation per hour
+            if (!canMutate()) {
+                logger.info(COMPONENT, `Experiment ${i}: rate limited — skipping (min 1h between mutations)`);
+                session.crashes++;
+                continue;
+            }
+
+            // Phase 9: checkpoint before mutation
+            const checkpointPath = createCheckpoint(area.id, currentContent);
+            if (checkpointPath) {
+                logger.debug(COMPONENT, `Checkpoint created: ${checkpointPath}`);
+            }
+
             // Apply modification
             const modified = currentContent.replace(searchStr, replaceStr);
             writeFileSync(promptPath, modified, 'utf-8');
+            recordMutation();
 
             // Evaluate
             const result = await runEval(area);

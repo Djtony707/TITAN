@@ -331,23 +331,50 @@ def main():
     start = time.time()
 
     if not HAS_UNSLOTH:
-        # Simulation mode — useful for testing the pipeline
+        # Simulation mode — still produces a evaluable val_score so the
+        # autopilot can benchmark improvements. Score is derived from data
+        # quality (line count, JSON validity) rather than fake constants.
+        import random
         print(f"[SIM] Loading base model: {BASE_MODEL}")
         print(f"[SIM] Training data: {DATA_PATH}")
         time.sleep(2)
+
+        # Compute a data-quality heuristic that stays stable across runs
+        data_score = 0.0
+        try:
+            with open(DATA_PATH, "r") as f:
+                lines = f.readlines()
+            total = len(lines)
+            valid_json = sum(1 for line in lines if line.strip() and line.strip().startswith("{"))
+            data_score = min(100.0, (valid_json / max(total, 1)) * 100.0 + total * 0.5)
+        except Exception:
+            data_score = 45.0
+
+        best_loss = 999.0
         for epoch in range(1, EPOCHS + 1):
             elapsed = time.time() - start
             if elapsed > MAX_MINUTES * 60:
                 print(f"[SIM] Time budget exhausted at epoch {epoch}")
                 break
-            loss = 2.5 - (epoch * 0.3)
+            loss = max(0.5, 2.5 - (epoch * 0.3) - (data_score / 100.0))
+            best_loss = min(best_loss, loss)
             print(f"Epoch {epoch}/{EPOCHS} — loss: {loss:.4f}")
             time.sleep(1)
 
+        # val_score = inverse of loss, scaled to 0-100, boosted by data quality
+        val_score = round(min(100.0, max(0.0, (3.0 - best_loss) * 40.0 + data_score * 0.2)), 2)
+
         # Write results
         with open(os.path.join(OUTPUT_DIR, "results.json"), "w") as f:
-            json.dump({"status": "simulated", "epochs": EPOCHS, "final_loss": 0.8, "model_path": None}, f)
-        print("Training complete (simulated)")
+            json.dump({
+                "status": "simulated",
+                "epochs": EPOCHS,
+                "final_loss": round(best_loss, 4),
+                "val_score": val_score,
+                "model_path": None,
+                "note": "unsloth not installed — score is a data-quality heuristic"
+            }, f)
+        print(f"Training complete (simulated) — val_score: {val_score}")
         return
 
     # Real training with unsloth

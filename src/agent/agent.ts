@@ -1325,7 +1325,7 @@ export async function processMessage(
     }
     // Widget / canvas gallery enforcement — user wants a widget built on the canvas
     if (/\b(?:create|add|make|build|spawn|generate|get|fetch|find|search|show|display|give me|want|need)\b.{0,60}\b(?:widget|panel|canvas|gallery|clock|timer|chart|graph|map|calendar|todo|list|counter|dashboard)\b/i.test(message) && !taskEnforcementActive) {
-        systemPrompt += '\n\nWhen the user asks for a widget or panel on the canvas, you MUST call gallery_search FIRST to find a matching template. If a template matches, call gallery_get to fetch its source, then emit it through the _____react gate. Do NOT describe or summarize the widget — actually call the tools and emit the code.';
+        systemPrompt += '\n\nThe user wants a widget on the canvas. You CAN create it yourself — you do NOT need the user to share files or an existing project. Your job is to BUILD the widget, not ask for files.\n\nMANDATORY steps:\n1. Call gallery_search with the user\'s intent (e.g. "weather widget").\n2. If a template matches (score >= 6), call gallery_get with its id and fill placeholders.\n3. Emit the returned source through the _____react gate.\n4. If no template matches, write the React component yourself and emit it through _____react.\n\nDo NOT describe the widget, do NOT ask the user for files, do NOT say "I don\'t see an existing canvas" — just CREATE it.';
         taskEnforcementActive = true;
     }
     // Deliberation step enforcement — task prompts from executePlan() should
