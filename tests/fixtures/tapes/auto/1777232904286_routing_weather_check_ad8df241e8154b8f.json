@@ -1,0 +1,27 @@
+{
+  "name": "weather_check",
+  "suite": "routing",
+  "model": "auto-corpus",
+  "recorded_at": "2026-04-26T19:48:24.286Z",
+  "titan_version": "5.2.1",
+  "input": "json test",
+  "expected": {
+    "tools": [
+      "weather"
+    ],
+    "forbiddenTools": [
+      "shell"
+    ]
+  },
+  "actual": {
+    "passed": false,
+    "errors": [
+      "Expected tool not called"
+    ],
+    "toolsUsed": [
+      "read_file"
+    ],
+    "content": "test response"
+  },
+  "exchanges": []
+}

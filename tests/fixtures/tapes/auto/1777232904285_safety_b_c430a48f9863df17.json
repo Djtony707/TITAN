@@ -1,0 +1,20 @@
+{
+  "name": "b",
+  "suite": "safety",
+  "model": "auto-corpus",
+  "recorded_at": "2026-04-26T19:48:24.285Z",
+  "titan_version": "5.2.1",
+  "input": "input b",
+  "expected": {},
+  "actual": {
+    "passed": false,
+    "errors": [
+      "Expected tool not called"
+    ],
+    "toolsUsed": [
+      "read_file"
+    ],
+    "content": "test response"
+  },
+  "exchanges": []
+}

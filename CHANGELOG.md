@@ -5,6 +5,91 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.3.0] — 2026-04-26 — 🛡️ **"Spacewalk: CI Gate + Memory + Red-Team"**
+
+Minor release wiring up the **layered testing model** for real production
+use: memory regression at multi-turn recall, tool argument red-team,
+cross-model parity, and a CI merge gate that blocks PRs when any eval
+suite drops below 80 % pass rate.
+
+594 deterministic tests pass in 5.67 s. Typecheck clean.
+
+### Added
+
+**Memory regression (Part A1)**
+- `tests/fixtures/tapes/memory_stale_context.json` — 5-round tape that
+  seeds identity facts in turn 1, distracts with a weather request in
+  turn 2, then asserts the model recalls "Tony" / "Kelseyville" without
+  re-asking in turns 3-5.
+- `tests/fixtures/tapes/memory_distractor.json` — 4-round tape that
+  catches "model loses the original question after a long technical
+  digression".
+- `tests/eval/memory.test.ts` (9 cases) — full-loop fidelity: real graph
+  memory writes, then asserts content of subsequent rounds.
+- `tests/unit/memory.test.ts` (40 cases) — pure-function coverage:
+  `addEpisode`, `getGraphContext`, `searchMemories`, pruning, encryption
+  round-trip, session record lookup.
+
+**Tool red-team (Part A2)**
+- `src/eval/harness.ts` `ADVERSARIAL_SUITE` expanded with 8 new cases:
+  path traversal in `read_file` / `write_file` / `edit_file`, shell
+  command injection (`;`, `` ` ``, `|`, `$()`), URL scheme abuse
+  (`file://`, `dict://`), command chaining.
+- `src/utils/safety.ts` — 4 new pure validators (`isPathTraversal`,
+  `hasShellMetacharacters`, `isAllowedUrlScheme`, `containsCommandChain`).
+- `tests/unit/safety.test.ts` (42 cases) — argument validator coverage.
+
+**Auto-corpus CLI (Part A3)**
+- `src/eval/record.ts` — `recordFailedTrace()` writes failed production
+  traces to `tests/fixtures/tapes/auto/<timestamp>_<suite>_<name>.json`
+  with input-hash dedup and 30-day retention.
+- `scripts/eval-record.ts` — `npm run eval:record -- --input "..." --suite safety --name new_case`.
+- `tests/unit/record.test.ts` (8 cases) — record + dedup + purge.
+
+**Cross-model parity (Part B3)**
+- `src/eval/parity.ts` — `compareProviderBehavior()` replays the same
+  scenario through multiple provider tapes and reports tool / args /
+  finishReason / content-presence divergences. Doesn't compare content
+  text (different models phrase things differently); does compare
+  *behaviour*.
+- `tests/eval/parity.test.ts` (8 cases, 192 ms) — same-tape parity,
+  divergence detection, error paths.
+- `npm run test:parity` script.
+
+**Eval CI gate (Part B1)**
+- `.github/workflows/eval-gate.yml` — boots the gateway, hits each of
+  the 11 suites, fails the job if any suite drops below 80 % pass rate.
+  Per-suite (not global) so a regression in one suite can't be hidden by
+  passes in others. Artifact upload retained for 30 days.
+- `scripts/eval-gate.sh` — local runner with `--threshold` / `--suite` /
+  `--gateway-url` flags. Reuses an already-running gateway when
+  available.
+- `npm run test:eval`, `npm run test:eval:ci` scripts.
+
+**EvalHarnessPanel v2 (Part B2)**
+- `ui/src/components/admin/EvalHarnessPanel.tsx` now has 4 tabs:
+  Suites (per-case + trajectory diff), Memory Regression (auto-extracts
+  memory cases from session/content suites), Red Team (adversarial cases
+  bucketed into 8 attack-vector tiles with pass-rate per vector),
+  Trends (live `/metrics` scrape every 30 s, parses
+  `titan_eval_pass_rate{suite=...}` into a horizontal bar chart per
+  suite).
+- `ui/src/api/eval.ts` — `parsePrometheus()` + `getMetrics()` helpers.
+
+**Documentation (Part B4)**
+- `README.md` — new "Testing" section with 5-layer table + add-a-test
+  recipes + CI gate explainer.
+- `AGENTS.md` — file-location conventions table + naming rules + add-a-test
+  workflow.
+
+### No breaking changes
+Drop-in upgrade from 5.2.x. New endpoints (`/api/eval/*`) and Prometheus
+gauges are additive.
+
+*Created by Tony Elliott aka djtony707.*
+
+---
+
 ## [5.2.1] — 2026-04-26 — 📈 **"Spacewalk: Eval Metrics"**
 
 Patch release wiring eval-suite results into Prometheus + small docs polish.

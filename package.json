@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "5.2.1",
+  "version": "5.3.0",
   "description": "TITAN — Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 16 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, TITAN-Soma homeostatic drives, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -56,6 +56,10 @@
     "eval": "tsx scripts/agent-eval-v2.ts",
     "eval:verbose": "tsx scripts/agent-eval-v2.ts --verbose",
     "eval:json": "tsx scripts/agent-eval-v2.ts --json",
+    "test:eval": "./scripts/eval-gate.sh",
+    "test:eval:ci": "./scripts/eval-gate.sh --threshold 80",
+    "test:parity": "vitest run tests/eval/parity.test.ts",
+    "eval:record": "tsx scripts/eval-record.ts",
     "bench:gaia": "tsx scripts/benchmark/gaia.ts",
     "bench:swe": "tsx scripts/benchmark/swe-bench.ts",
     "ci": "npm run typecheck && npm run test",
