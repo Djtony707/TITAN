@@ -245,15 +245,56 @@ export const titanEvalCasesTotal = new Counter(
   'Total eval cases executed, by suite and outcome',
 );
 
+/** Total eval suite invocations that timed out, labelled by suite.
+ *  v5.3.1: surfaced when /api/eval/run hits its Promise.race deadline. */
+export const titanEvalTimeoutTotal = new Counter(
+  'titan_eval_timeout_total',
+  'Total eval suite invocations that exceeded their timeout',
+);
+
+/** Total eval suite invocations that threw, labelled by suite.
+ *  v5.3.1: surfaced when /api/eval/run catches an unexpected exception
+ *  (gateway must not crash on a single bad case). */
+export const titanEvalErrorTotal = new Counter(
+  'titan_eval_error_total',
+  'Total eval suite invocations that threw an unhandled exception',
+);
+
 /**
  * Record the outcome of an eval suite run on the metrics gauges + counter.
- * Safe to call with `total=0` (gauge stays at 0, no divide-by-zero).
+ *
+ * Safe to call with `total=0` — we skip the gauge update in that case
+ * (rate is undefined when no cases ran; setting a gauge to 0 would
+ * lie). The counter still increments by 0, which is a no-op but keeps
+ * the labelled time-series alive in Prometheus.
+ *
+ * Counters are MONOTONIC by contract (per Prometheus semantics): each
+ * call adds to the running total, never resets, never decrements.
+ * The gauge is ATOMIC PER SUITE — set() replaces the previous value
+ * for the matching label set, never accumulates.
  */
 export function recordEvalSuiteResult(suite: string, passed: number, total: number): void {
-  const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
-  titanEvalPassRate.set(rate, { suite });
+  if (total > 0) {
+    const rate = Math.round((passed / total) * 100);
+    titanEvalPassRate.set(rate, { suite });
+  } else {
+    // Don't touch the gauge — leaving it at its previous value (or
+    // unset) is more honest than overwriting with 0 on an empty run.
+    // The endpoint logs a warning so this isn't silent.
+  }
   titanEvalCasesTotal.increment({ suite, outcome: 'passed' }, passed);
   titanEvalCasesTotal.increment({ suite, outcome: 'failed' }, Math.max(0, total - passed));
+}
+
+/** Increment the timeout counter when /api/eval/run hits its deadline. */
+export function recordEvalTimeout(suite: string): void {
+  titanEvalTimeoutTotal.increment({ suite });
+}
+
+/** Increment the error counter when /api/eval/run throws.
+ *  `errorClass` lets dashboards split timeout vs schema vs runtime. */
+export function recordEvalError(suite: string, errorClass = 'unknown'): void {
+  titanEvalErrorTotal.increment({ suite, errorClass });
 }
 
 // ── Registry & Serialization ─────────────────────────────────────────
@@ -268,6 +309,8 @@ const allMetrics = [
   titanModelRequestsTotal,
   titanEvalPassRate,
   titanEvalCasesTotal,
+  titanEvalTimeoutTotal,
+  titanEvalErrorTotal,
 ];
 
 export function serializePrometheus(): string {

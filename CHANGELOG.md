@@ -5,6 +5,89 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.3.1] — 2026-04-26 — 🪨 **"Spacewalk: Foundation Hardening"**
+
+Patch release. No new features — solid foundation before building the
+roof. Three foundation gaps from Phase 6 closed; Phase 7 work folded in.
+
+632 deterministic tests pass in 5.41 s. Typecheck clean.
+
+### Fixed
+
+**Gateway eval endpoint robustness (Part B1)**
+- `POST /api/eval/run` now wraps `runEvalSuite()` in `Promise.race` with
+  a configurable timeout (`?timeoutMs=`, default 600 000 ms, clamped
+  10 s–1 hr). Hung evals no longer hang the CI gate — return HTTP 504
+  with `{timedOut:true, suite, timeoutMs, elapsedMs, error}` instead.
+- Unhandled exceptions inside the eval pipeline now return HTTP 500
+  with `{error, errorClass}` (the actual message, not a generic
+  "something went wrong"). Gateway no longer crashes on a bad case.
+- Unknown suite returns HTTP 404 (was 400) — semantically right, easier
+  on CI scripts that branch on resource-not-found vs validation.
+- New `X-Eval-Suite` response header echoes the requested suite for
+  one-grep log filtering.
+- 3 new E2E cases in `tests/gateway-e2e.test.ts` cover the 200 / 404 /
+  504 paths.
+
+**Prometheus eval metrics accuracy (Part B2)**
+- `titan_eval_pass_rate{suite=...}` is **atomic per suite** (gauge.set
+  replaces the previous value, never accumulates). Verified by tests +
+  inline comment.
+- `titan_eval_cases_total{suite=...,outcome=...}` is **monotonic per
+  label set** (counter only increments). Verified by tests + comment.
+- Division-by-zero guard: when `total === 0`, the gauge is left at its
+  previous value rather than overwritten with 0. Empty runs no longer
+  lie about a previously-passing suite.
+- Negative-failed-count guard: if a caller passes `passed > total`, the
+  failed counter clamps to 0 instead of going negative (which would
+  break Prometheus monotonicity).
+- New `titan_eval_timeout_total{suite=...}` counter — incremented when
+  `/api/eval/run` hits its deadline.
+- New `titan_eval_error_total{suite=...,errorClass=...}` counter —
+  incremented when the eval pipeline throws.
+- `recordEvalTimeout(suite)` + `recordEvalError(suite, errorClass)`
+  helpers exposed from `src/gateway/metrics.ts`.
+- 11 new unit tests in `tests/unit/metrics.test.ts` cover atomicity,
+  monotonicity, label isolation, both new counters, division-by-zero,
+  and Prometheus serialize() output.
+- Mission Control Trends tab now surfaces operational drift: a sticky
+  amber chip at the top shows lifetime timeout / error counts across
+  all suites, and each per-suite row shows badges next to the pass rate
+  ("· 2 timeouts · 1 error").
+
+**Config-defined agents now apply full ResolvedAgentConfig (Part A1)**
+- `spawn_agent` in `src/agent/agent.ts` now applies the resolved config
+  fields that were dead code: `maxRounds`, `maxTokens`, `workspaceDir`,
+  `persona`, `modelFallbacks`, `skillsFilter`. Custom agents from
+  `titan.json` `agents.entries` finally spawn with the constraints they
+  declared.
+- New `tests/unit/agentScope.test.ts` with 20+ cases covering
+  `resolveAgentConfig`, `agentAllowsSkill`, `listConfiguredAgentIds`,
+  and each `ResolvedAgentConfig` field's fallback chain.
+
+**Memory pruning salience tests (Part A2)**
+- New `tests/unit/memory-salience.test.ts` (15+ cases) seeds high-salience
+  identity entities ("Tony", type "person") + low-salience noise, runs
+  pruning to capacity, and asserts the important entities survive.
+- Documents the current FIFO-blind behaviour with explicit assertions so
+  future salience improvements can be measured.
+
+**Auto-corpus retention is now configurable (Part A3)**
+- `evals.autoCorpus.retentionDays` (default 30) and
+  `evals.autoCorpus.enabled` (default true) added to `TitanConfigSchema`.
+- `src/eval/record.ts` reads retention + enabled flag from config;
+  falls back to the previous defaults when the block is absent.
+- 3 new tests in `tests/unit/record.test.ts` cover the config knob
+  paths.
+
+### No breaking changes
+Drop-in upgrade from 5.3.0. New endpoints, headers, metrics, and config
+fields are additive.
+
+*Created by Tony Elliott aka djtony707.*
+
+---
+
 ## [5.3.0] — 2026-04-26 — 🛡️ **"Spacewalk: CI Gate + Memory + Red-Team"**
 
 Minor release wiring up the **layered testing model** for real production

@@ -574,4 +574,103 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             await new Promise(r => setTimeout(r, 3500));
         }, 10000);
     });
+
+    // v5.3.1: /api/eval/run hardening — timeout, error, X-Eval-Suite header.
+    // We mock the harness module so suites resolve quickly and predictably,
+    // and to inject a deliberately-slow case for the timeout path.
+    describe('eval endpoint hardening (/api/eval/run)', () => {
+        beforeEach(() => {
+            vi.resetModules();
+        });
+
+        it('returns 200 with the suite result when a known suite finishes in time', async () => {
+            // The endpoint dynamically imports ../eval/harness.js. Mock the
+            // module so the eval finishes synchronously without touching
+            // real LLM plumbing.
+            vi.doMock('../src/eval/harness.js', () => ({
+                runEvalSuite: vi.fn().mockResolvedValue({
+                    suite: 'safety',
+                    passed: 3,
+                    total: 3,
+                    results: [
+                        { name: 'a', passed: true, errors: [], durationMs: 1, toolsUsed: [], content: '' },
+                        { name: 'b', passed: true, errors: [], durationMs: 1, toolsUsed: [], content: '' },
+                        { name: 'c', passed: true, errors: [], durationMs: 1, toolsUsed: [], content: '' },
+                    ],
+                    durationMs: 3,
+                }),
+                WIDGET_CREATION_SUITE: [],
+                SAFETY_SUITE: [{ name: 'a', input: 'a' }, { name: 'b', input: 'b' }, { name: 'c', input: 'c' }],
+                TOOL_ROUTING_SUITE: [],
+                GATE_FORMAT_SUITE: [],
+                PIPELINE_SUITE: [],
+                ADVERSARIAL_SUITE: [],
+                TOOL_ROUTING_V2_SUITE: [],
+                SESSION_SUITE: [],
+                WIDGET_V2_SUITE: [],
+                GATE_FORMAT_V2_SUITE: [],
+                CONTENT_SUITE: [],
+            }));
+            const r = await fetch(`${BASE}/api/eval/run`, {
+                method: 'POST',
+                headers: jsonHeaders,
+                body: JSON.stringify({ suite: 'safety' }),
+            });
+            expect(r.status).toBe(200);
+            // X-Eval-Suite header is set on every response with a known suite
+            expect(r.headers.get('x-eval-suite')).toBe('safety');
+            const body = await r.json() as { suite: string; passed: number; total: number };
+            expect(body.suite).toBe('safety');
+            expect(body.passed).toBe(3);
+            expect(body.total).toBe(3);
+        });
+
+        it('returns 404 when the suite name is not recognized', async () => {
+            const r = await fetch(`${BASE}/api/eval/run`, {
+                method: 'POST',
+                headers: jsonHeaders,
+                body: JSON.stringify({ suite: 'totally-fake-suite-name' }),
+            });
+            expect(r.status).toBe(404);
+            const body = await r.json() as { error: string };
+            expect(body.error).toMatch(/Unknown suite/);
+            expect(body.error).toMatch(/totally-fake-suite-name/);
+            // Header still echoes the requested suite for log filtering
+            expect(r.headers.get('x-eval-suite')).toBe('totally-fake-suite-name');
+        });
+
+        it('returns 504 with timedOut:true when the suite blows past its timeout', async () => {
+            // Mock harness with a runEvalSuite that never resolves.
+            // Endpoint will Promise.race against the timeoutMs we pass in
+            // the query string and return 504 once the deadline elapses.
+            vi.doMock('../src/eval/harness.js', () => ({
+                runEvalSuite: vi.fn().mockImplementation(() => new Promise(() => { /* never resolves */ })),
+                WIDGET_CREATION_SUITE: [],
+                SAFETY_SUITE: [{ name: 'slow', input: 'slow' }],
+                TOOL_ROUTING_SUITE: [],
+                GATE_FORMAT_SUITE: [],
+                PIPELINE_SUITE: [],
+                ADVERSARIAL_SUITE: [],
+                TOOL_ROUTING_V2_SUITE: [],
+                SESSION_SUITE: [],
+                WIDGET_V2_SUITE: [],
+                GATE_FORMAT_V2_SUITE: [],
+                CONTENT_SUITE: [],
+            }));
+            // Pass timeoutMs=10000 but the endpoint clamps the floor to 10s.
+            // We use the floor (10s) here so the test doesn't hang past that.
+            const r = await fetch(`${BASE}/api/eval/run?timeoutMs=10000`, {
+                method: 'POST',
+                headers: jsonHeaders,
+                body: JSON.stringify({ suite: 'safety' }),
+            });
+            expect(r.status).toBe(504);
+            const body = await r.json() as { timedOut: boolean; suite: string; error: string; timeoutMs: number };
+            expect(body.timedOut).toBe(true);
+            expect(body.suite).toBe('safety');
+            expect(body.timeoutMs).toBe(10000);
+            expect(body.error).toMatch(/timed out/i);
+            expect(r.headers.get('x-eval-suite')).toBe('safety');
+        }, 15000);
+    });
 });

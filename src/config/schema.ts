@@ -460,6 +460,16 @@ export const AutoresearchConfigSchema = z.object({
     resultsDir: z.string().default('~/.titan/experiments'),
 });
 
+/** Eval / auto-corpus configuration (Phase 7) */
+export const EvalConfigSchema = z.object({
+    /** Enable automatic recording of failed eval traces as auto-tapes */
+    enabled: z.boolean().default(true),
+    /** Retention period for auto-corpus tapes in days (0 = never purge) */
+    autoCorpus: z.object({
+        retentionDays: z.number().min(0).default(30),
+    }).default({}),
+});
+
 export const CapsolverConfigSchema = z.object({
     /** Enable CapSolver CAPTCHA solving */
     enabled: z.boolean().default(false),
@@ -830,6 +840,7 @@ export const TitanConfigSchema = z.object({
     teams: TeamConfigSchema.default({}),
     researchPipeline: ResearchPipelineConfigSchema.default({}),
     autoresearch: AutoresearchConfigSchema.default({}),
+    eval: EvalConfigSchema.default({}),
     homeAssistant: z.object({
         /** Home Assistant instance URL (e.g., http://homeassistant.local:8123) */
         url: z.string().default(''),
@@ -1249,3 +1260,4 @@ export type TeachingConfig = z.infer<typeof TeachingConfigSchema>;
 export type TeamConfig = z.infer<typeof TeamConfigSchema>;
 export type NvidiaConfig = TitanConfig['nvidia'];
 export type CommandPostConfig = TitanConfig['commandPost'];
+export type EvalConfig = z.infer<typeof EvalConfigSchema>;

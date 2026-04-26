@@ -9,8 +9,32 @@ import { join } from 'path';
 import { createHash } from 'crypto';
 import type { EvalCase, EvalResult } from './harness.js';
 
+let _retentionDaysOverride: number | undefined;
+
 const AUTO_DIR = join(process.cwd(), 'tests', 'fixtures', 'tapes', 'auto');
 const DEFAULT_RETENTION_DAYS = 30;
+
+/**
+ * Read the auto-corpus retention days from titan.json config.
+ * Falls back to DEFAULT_RETENTION_DAYS if config fails to load.
+ */
+export function getRetentionDays(): number {
+    if (_retentionDaysOverride !== undefined) return _retentionDaysOverride;
+    try {
+        const { loadConfig } = require('../config/config.js');
+        const config = loadConfig();
+        const days = config.eval?.autoCorpus?.retentionDays;
+        if (typeof days === 'number' && days >= 0) return days;
+    } catch {
+        // config module may not be available in test/browser contexts
+    }
+    return DEFAULT_RETENTION_DAYS;
+}
+
+/** Test-only: override the retention days without touching config files */
+export function _setRetentionDaysOverride(days: number | undefined): void {
+    _retentionDaysOverride = days;
+}
 
 /** Compute a stable hash of the input for deduplication */
 function hashInput(input: string): string {
@@ -108,10 +132,12 @@ export function recordFailedTrace(
  *
  * Returns the number of files removed.
  */
-export function purgeOldAutoTapes(retentionDays: number = DEFAULT_RETENTION_DAYS): number {
+export function purgeOldAutoTapes(retentionDays?: number): number {
+    const days = retentionDays ?? getRetentionDays();
+    if (days === 0) return 0; // 0 = never purge
     if (!existsSync(AUTO_DIR)) return 0;
 
-    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const files = readdirSync(AUTO_DIR);
     let removed = 0;
 

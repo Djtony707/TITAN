@@ -392,23 +392,40 @@ function TrendsTab() {
     }, [metrics]);
 
     const totalsBySuite = useMemo(() => {
-        const totals = new Map<string, { passed: number; failed: number }>();
+        const totals = new Map<string, { passed: number; failed: number; timeouts: number; errors: number }>();
         for (const m of metrics) {
-            if (m.name !== 'titan_eval_cases_total' || !m.labels.suite) continue;
-            const t = totals.get(m.labels.suite) ?? { passed: 0, failed: 0 };
-            if (m.labels.outcome === 'passed') t.passed = m.value;
-            else if (m.labels.outcome === 'failed') t.failed = m.value;
+            if (!m.labels.suite) continue;
+            const t = totals.get(m.labels.suite) ?? { passed: 0, failed: 0, timeouts: 0, errors: 0 };
+            if (m.name === 'titan_eval_cases_total') {
+                if (m.labels.outcome === 'passed') t.passed = m.value;
+                else if (m.labels.outcome === 'failed') t.failed = m.value;
+            } else if (m.name === 'titan_eval_timeout_total') {
+                t.timeouts += m.value;
+            } else if (m.name === 'titan_eval_error_total') {
+                t.errors += m.value;
+            }
             totals.set(m.labels.suite, t);
         }
         return totals;
     }, [metrics]);
+
+    // Aggregate health pulse for a "lifetime errors / timeouts" badge row.
+    const operationalTotals = useMemo(() => {
+        let timeouts = 0;
+        let errors = 0;
+        for (const t of totalsBySuite.values()) {
+            timeouts += t.timeouts;
+            errors += t.errors;
+        }
+        return { timeouts, errors };
+    }, [totalsBySuite]);
 
     const maxRate = 100;
 
     return (
         <div className="flex flex-1 flex-col gap-3 overflow-auto">
             <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Live from <code className="font-mono">/metrics</code> (titan_eval_pass_rate gauge).</span>
+                <span>Live from <code className="font-mono">/metrics</code> (titan_eval_* gauges + counters).</span>
                 <span className="ml-auto">{lastFetch ? `updated ${lastFetch.toLocaleTimeString()}` : ''}</span>
                 <button
                     onClick={refresh}
@@ -418,6 +435,20 @@ function TrendsTab() {
                     <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
                 </button>
             </div>
+            {/* Operational pulse — sticky red/amber chips when timeouts or errors exist. */}
+            {(operationalTotals.timeouts > 0 || operationalTotals.errors > 0) && (
+                <div className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span className="font-medium">Operational drift:</span>
+                    {operationalTotals.timeouts > 0 && (
+                        <span><strong>{operationalTotals.timeouts}</strong> timeout{operationalTotals.timeouts === 1 ? '' : 's'}</span>
+                    )}
+                    {operationalTotals.errors > 0 && (
+                        <span><strong>{operationalTotals.errors}</strong> error{operationalTotals.errors === 1 ? '' : 's'}</span>
+                    )}
+                    <span className="ml-auto opacity-70">across all suites, lifetime totals from /metrics</span>
+                </div>
+            )}
             {error && (
                 <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-300">{error}</div>
             )}
@@ -448,8 +479,10 @@ function TrendsTab() {
                                 </div>
                                 <div className="w-16 text-right font-mono">{rate}%</div>
                                 {totals && (
-                                    <div className="w-20 text-right text-[10px] text-slate-500">
+                                    <div className="w-44 text-right text-[10px] text-slate-500">
                                         {totals.passed}/{totals.passed + totals.failed} ever
+                                        {totals.timeouts > 0 && <span className="ml-1 text-amber-400">· {totals.timeouts} timeout{totals.timeouts === 1 ? '' : 's'}</span>}
+                                        {totals.errors > 0 && <span className="ml-1 text-red-400">· {totals.errors} error{totals.errors === 1 ? '' : 's'}</span>}
                                     </div>
                                 )}
                             </div>
