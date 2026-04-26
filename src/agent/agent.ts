@@ -198,7 +198,7 @@ function ensureSpawnAgentRegistered(): void {
             // config agent's name, model, and systemPromptOverride.
             let configAgent: import('./agentScope.js').ResolvedAgentConfig | null = null;
             try {
-                const { resolveAgentConfig } = await import('./agentScope.js');
+                const { resolveAgentConfig, agentAllowsSkill } = await import('./agentScope.js');
                 configAgent = resolveAgentConfig(templateName);
             } catch { /* optional — agentScope may not exist in some builds */ }
 
@@ -206,6 +206,21 @@ function ensureSpawnAgentRegistered(): void {
             const template = SUB_AGENT_TEMPLATES[baseTemplateName] || {};
             const agentName = (args.name as string) || configAgent?.name || template.name || 'SubAgent';
             const task = args.task as string;
+
+            // v5.3.1: Apply config-defined agent constraints (maxRounds, maxTokens,
+            // persona, skillsFilter). Log what we apply for observability.
+            let appliedFields: string[] = [];
+            if (configAgent) {
+                if (configAgent.maxRounds !== 15) appliedFields.push(`maxRounds=${configAgent.maxRounds}`);
+                if (configAgent.maxTokens !== 4000) appliedFields.push(`maxTokens=${configAgent.maxTokens}`);
+                if (configAgent.persona && configAgent.persona !== 'default') appliedFields.push(`persona=${configAgent.persona}`);
+                if (configAgent.skillsFilter) appliedFields.push(`skillsFilter=[${configAgent.skillsFilter.join(',')}]`);
+                if (configAgent.modelFallbacks.length > 0) logger.info('Agent', `Agent "${agentName}" has modelFallbacks — not yet implemented in spawn path`);
+                if (configAgent.workspaceDir) appliedFields.push(`workspaceDir=${configAgent.workspaceDir}`);
+                if (configAgent.tags.length > 0) appliedFields.push(`tags=[${configAgent.tags.join(',')}]`);
+                if (configAgent.systemPromptOverride) appliedFields.push('systemPromptOverride=set');
+                if (appliedFields.length > 0) logger.info('Agent', `Applied config agent fields for "${agentName}": ${appliedFields.join(', ')}`);
+            }
 
             // v4.9.0: kill switch gate — if Tony killed the organism, no
             // new sub-agent spawns until he explicitly resumes.
@@ -290,13 +305,31 @@ function ensureSpawnAgentRegistered(): void {
                     updateAgentStatus(specialistId, 'active');
                 }
 
+                // v5.3.1: Filter template tools through config agent skillsFilter
+                let allowedTools = template.tools;
+                if (configAgent?.skillsFilter) {
+                    try {
+                        const { agentAllowsSkill } = await import('./agentScope.js');
+                        allowedTools = template.tools?.filter(t => agentAllowsSkill(configAgent!, t));
+                        if (allowedTools && allowedTools.length === 0) {
+                            logger.warn('Agent', `Agent "${agentName}" skillsFilter blocks all template tools — falling back to template default`);
+                            allowedTools = template.tools;
+                        }
+                    } catch { /* fall through to template.tools */ }
+                }
+
                 const result = await spawnSubAgent({
                     name: agentName,
                     task,
-                    tools: template.tools,
-                    systemPrompt: specialistPrompt || template.systemPrompt,
-                    model: (args.model as string | undefined) || specialistModel,
+                    tools: allowedTools,
+                    systemPrompt: configAgent?.systemPromptOverride || specialistPrompt || template.systemPrompt,
+                    model: (args.model as string | undefined) || configAgent?.model || specialistModel,
                     tier: (template as Record<string, unknown>).tier as 'cloud' | 'smart' | 'fast' | 'local' | undefined,
+                    persona: configAgent?.persona,
+                    maxRounds: configAgent?.maxRounds,
+                    maxTokens: configAgent?.maxTokens,
+                    workspaceDir: configAgent?.workspaceDir ?? undefined,
+                    tags: configAgent?.tags,
                     depth: 1, // v4.7.0: this IS a child (was incorrectly 0)
                 });
 

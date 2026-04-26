@@ -44,6 +44,8 @@ export interface SubAgentConfig {
     persona?: string;
     /** Max tool rounds for this sub-agent (default: 10) */
     maxRounds?: number;
+    /** Max tokens per LLM call for this sub-agent (default: from config) */
+    maxTokens?: number;
     /** Whether this is being called from within a sub-agent already */
     isNested?: boolean;
     /** Current nesting depth (0 = top-level sub-agent) */
@@ -52,6 +54,10 @@ export interface SubAgentConfig {
     onProgress?: (round: number, totalRounds: number, agentName: string) => void;
     /** Opt-in to agent pool reuse — warm agents preserve context between tasks */
     reusePool?: boolean;
+    /** Working directory for filesystem operations (future: scope file tools) */
+    workspaceDir?: string;
+    /** Tags for observability / filtering */
+    tags?: string[];
     /** Stream callbacks for Agent Watcher — tool_call, tool_end, round events */
     streamCallbacks?: {
         onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -547,7 +553,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 model,
                 messages,
                 tools: availableTools.length > 0 ? availableTools : undefined,
-                maxTokens: titanConfig.agent.maxTokens || 4096,
+                maxTokens: config.maxTokens ?? titanConfig.agent.maxTokens ?? 4096,
                 temperature: 0.2,
             });
 

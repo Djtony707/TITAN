@@ -50,7 +50,7 @@ import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/
 import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
 import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
-import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal, recordEvalSuiteResult } from './metrics.js';
+import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal, recordEvalSuiteResult, recordEvalTimeout, recordEvalError } from './metrics.js';
 import { initSlashCommands, handleSlashCommand } from './slashCommands.js';
 import { initMcpServers, listMcpServers, addMcpServer, removeMcpServer, setMcpServerEnabled, getMcpStatus, BUILTIN_PRESETS } from '../mcp/registry.js';
 import { connectMcpServer, testMcpServer } from '../mcp/client.js';
@@ -2428,9 +2428,33 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Eval Harness API ───────────────────────────────────────────
+  // v5.3.1 hardening:
+  //   - Promise.race with configurable timeout (?timeoutMs=, default 10 min)
+  //   - 504 on timeout with {timedOut:true} so the CI gate sees an explicit
+  //     signal instead of a hung connection
+  //   - 500 on unhandled exception (gateway must not crash on a bad case)
+  //   - 404 (was 400) on unknown suite — semantically right, easier on CI
+  //     scripts that branch on resource-not-found vs validation
+  //   - X-Eval-Suite response header so /var/log filtering is one grep
+  //   - Prometheus counters: timeout_total + error_total updated on the
+  //     respective failure paths so the Trends tab can chart drift.
   app.post('/api/eval/run', async (req, res) => {
+    const requestedSuite = (req.body as { suite?: string } | undefined)?.suite ?? '';
+    const timeoutMs = (() => {
+      const raw = req.query?.timeoutMs;
+      if (typeof raw !== 'string') return 600_000; // 10 min default
+      const n = Number(raw);
+      // Guard against ridiculous values: clamp to [10s, 1hr].
+      if (!Number.isFinite(n) || n <= 0) return 600_000;
+      return Math.max(10_000, Math.min(3_600_000, Math.round(n)));
+    })();
+    if (requestedSuite) {
+      res.setHeader('X-Eval-Suite', requestedSuite);
+    }
+    const tStart = Date.now();
+    logger.info(COMPONENT, `/api/eval/run START suite=${requestedSuite || '(none)'} timeoutMs=${timeoutMs}`);
+
     try {
-      const { suite } = req.body as { suite?: string };
       const {
         runEvalSuite,
         WIDGET_CREATION_SUITE,
@@ -2481,6 +2505,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       };
 
       let cases;
+      const suite = requestedSuite;
       switch (suite) {
         case 'widget-creation': cases = WIDGET_CREATION_SUITE; break;
         case 'safety': cases = SAFETY_SUITE; break;
@@ -2494,15 +2519,62 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         case 'gate-format-v2': cases = GATE_FORMAT_V2_SUITE; break;
         case 'content': cases = CONTENT_SUITE; break;
         default:
-          res.status(400).json({ error: `Unknown suite: ${suite}. Choose: widget-creation, safety, tool-routing, gate-format, pipeline, adversarial, tool-routing-v2, session, widget-v2, gate-format-v2, content.` });
+          // 404 (was 400 in v5.3.0) — "this suite resource doesn't exist"
+          // is semantically more accurate than "your request was malformed",
+          // and lets CI scripts branch on resource-not-found.
+          res.status(404).json({
+            error: `Unknown suite: ${suite || '(empty)'}. Choose: widget-creation, safety, tool-routing, gate-format, pipeline, adversarial, tool-routing-v2, session, widget-v2, gate-format-v2, content.`,
+          });
           return;
       }
 
-      const result = await runEvalSuite(suite, cases, agentCall);
+      // Promise.race: whichever finishes first wins. The timeout branch
+      // resolves with a sentinel object so we don't have to reach into
+      // the AbortController plumbing of every downstream tool.
+      const TIMEOUT = Symbol('eval-timeout');
+      const result = await Promise.race([
+        runEvalSuite(suite, cases, agentCall),
+        new Promise<typeof TIMEOUT>(resolve => {
+          setTimeout(() => resolve(TIMEOUT), timeoutMs);
+        }),
+      ]);
+
+      if (result === TIMEOUT) {
+        const elapsed = Date.now() - tStart;
+        logger.warn(COMPONENT, `/api/eval/run TIMEOUT suite=${suite} elapsedMs=${elapsed} timeoutMs=${timeoutMs}`);
+        try { recordEvalTimeout(suite); } catch { /* metrics best-effort */ }
+        res.status(504).json({
+          suite,
+          passed: 0,
+          total: 0,
+          results: [],
+          timedOut: true,
+          timeoutMs,
+          elapsedMs: elapsed,
+          error: `Eval suite '${suite}' timed out after ${timeoutMs}ms`,
+        });
+        return;
+      }
+
       // Publish to Prometheus so suite regressions surface in /metrics over time.
-      try { recordEvalSuiteResult(suite!, result.passed, result.total); } catch { /* metrics best-effort */ }
+      try { recordEvalSuiteResult(suite, result.passed, result.total); } catch { /* metrics best-effort */ }
+      const elapsed = Date.now() - tStart;
+      logger.info(COMPONENT, `/api/eval/run DONE suite=${suite} passed=${result.passed}/${result.total} elapsedMs=${elapsed}`);
       res.json(result);
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+    } catch (e) {
+      const err = e as Error;
+      const elapsed = Date.now() - tStart;
+      logger.warn(COMPONENT, `/api/eval/run ERROR suite=${requestedSuite || '(none)'} elapsedMs=${elapsed} message=${err.message}`);
+      try { recordEvalError(requestedSuite || 'unknown', err.name || 'unknown'); } catch { /* metrics best-effort */ }
+      // Return the actual message — eval is an internal/admin endpoint, not
+      // user-facing chat. Generic "something went wrong" hid real bugs from
+      // the CI gate.
+      res.status(500).json({
+        suite: requestedSuite || undefined,
+        error: err.message || 'Eval run failed',
+        errorClass: err.name || 'Error',
+      });
+    }
   });
 
   app.get('/api/eval/suites', async (_req, res) => {
