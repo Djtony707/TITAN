@@ -557,6 +557,37 @@ export async function runOnboardingWizard(options: OnboardingOptions = {}) {
     config.skills = await setupSkills((config.skills as Record<string, unknown>) || {});
   }
 
+  // Telemetry consent — ask explicitly, default OFF (privacy-first).
+  console.log(chalk.blue.bold('\n  ─── Anonymous Usage Telemetry ───\n'));
+  console.log(chalk.gray('  Help improve TITAN by sharing anonymous usage data:'));
+  console.log(chalk.gray('    • Bucketed system fingerprint (OS family, RAM rounded to 4 GB, GPU vendor)'));
+  console.log(chalk.gray('    • Heartbeat with active session count + agent model'));
+  console.log(chalk.gray('    • Tool-call counts (which tools are popular)'));
+  console.log(chalk.gray('    • Crash reports (with secrets scrubbed)'));
+  console.log(chalk.gray('    • Install / update events (which versions are in the wild)'));
+  console.log(chalk.gray('  '));
+  console.log(chalk.gray('  Never collected: chat content, file contents, API keys, tokens, IPs,'));
+  console.log(chalk.gray('  hostnames, exact CPU/GPU model, or anything that identifies you.'));
+  console.log(chalk.gray('  '));
+  console.log(chalk.gray('  Events go to PostHog Cloud. Toggle off any time in Mission Control'));
+  console.log(chalk.gray('  → Settings → Privacy, or via `POST /api/telemetry/consent`.\n'));
+  const telemetryOptIn = await confirm({
+    message: 'Share anonymous telemetry to help TITAN get better?',
+    default: false,
+  });
+  config.telemetry = {
+    ...(config.telemetry as Record<string, unknown> || {}),
+    enabled: telemetryOptIn,
+    crashReports: telemetryOptIn,
+    consentedAt: telemetryOptIn ? new Date().toISOString() : undefined,
+    consentedVersion: telemetryOptIn ? '5.0.2' : undefined,
+  };
+  if (telemetryOptIn) {
+    console.log(chalk.green('  ✓ Telemetry enabled. Thank you!\n'));
+  } else {
+    console.log(chalk.gray('  ✓ Telemetry stays off. No data leaves your machine.\n'));
+  }
+
   // Save configuration
   config.workspace = workspaceDir;
   config.user = {

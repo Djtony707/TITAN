@@ -1200,12 +1200,27 @@ export const TitanConfigSchema = z.object({
         /** Send crash reports (uncaught exceptions, unhandled rejections). */
         crashReports: z.boolean().default(true),
         /**
-         * PostHog Cloud project API key (e.g. phc_...).
-         * When set, telemetry events are ALSO sent to PostHog in addition
-         * to any custom remoteUrl. This lets you try PostHog's dashboards
-         * without dismantling your existing collector.
+         * PostHog Cloud project API key (`phc_...`).
+         *
+         * The default below is the **public-write project key** for the
+         * TITAN project's PostHog dashboard. PostHog `phc_` keys are
+         * designed to be safely embedded in client code — they can ONLY
+         * write events (capture/identify), never read data, modify
+         * dashboards, or list other events. This is exactly how
+         * Google Analytics IDs, Mixpanel tokens, and Sentry public DSNs
+         * work. See https://posthog.com/docs/api#authentication.
+         *
+         * Why ship it: when a user opts in via the SetupWizard, telemetry
+         * "just works" — no extra config, no collector to run. They send
+         * straight to PostHog Cloud, which the project maintainer reads
+         * via their personal API key. This is the simplest correct
+         * architecture for opt-in OSS telemetry.
+         *
+         * Override with your own key for self-hosted PostHog or to send
+         * to a different project. Set to empty string to disable PostHog
+         * forwarding entirely (events still go to `remoteUrl` if set).
          */
-        posthogApiKey: z.string().optional(),
+        posthogApiKey: z.string().default('phc_kVw5xLJx5SVXex9RSTCFwP8cJSNEXTYZ7oJwqoDdMPJX'),
         /**
          * PostHog ingest host. Default is PostHog Cloud US.
          * Use 'https://eu.i.posthog.com' for EU data residency.
