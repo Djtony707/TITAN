@@ -1,0 +1,79 @@
+{
+  "name": "memory_stale_context",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-25T00:14:49Z",
+  "titan_version": "5.2.1",
+  "_comment": "Memory regression tape: 5-round conversation testing fact recall after distractor turns. Round 1 seeds identity facts. Round 2 is a weather distractor. Rounds 3-5 assert the model recalls 'Tony' and 'Kelseyville' from graph memory without re-asking.",
+  "exchanges": [
+    {
+      "request": { "messages": [{ "role": "user", "content": "My name is Tony and I live in Kelseyville" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-001",
+        "content": "Nice to meet you, Tony! I've noted that you live in Kelseyville.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3200, "completionTokens": 18, "totalTokens": 3218 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "What's the weather like right now?" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-002",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_mem_weather_001",
+            "type": "function",
+            "function": {
+              "name": "weather",
+              "arguments": "{\"location\":\"Kelseyville, CA\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3250, "completionTokens": 32, "totalTokens": 3282 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "tool", "content": "{\"temp_f\":72,\"condition\":\"Sunny\",\"city\":\"Kelseyville, CA\"}", "toolCallId": "call_mem_weather_001" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-003",
+        "content": "It's 72°F and sunny in Kelseyville right now. Beautiful day!",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3300, "completionTokens": 22, "totalTokens": 3322 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "What's my name?" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-004",
+        "content": "Your name is Tony.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3350, "completionTokens": 6, "totalTokens": 3356 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "Where do I live?" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-005",
+        "content": "You live in Kelseyville, California.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3400, "completionTokens": 8, "totalTokens": 3408 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "Remind me what we talked about earlier." }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-mem-006",
+        "content": "Earlier you introduced yourself as Tony from Kelseyville, and you asked about the weather. It's 72°F and sunny there right now.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3450, "completionTokens": 28, "totalTokens": 3478 }
+      }
+    }
+  ]
+}

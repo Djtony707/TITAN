@@ -98,3 +98,45 @@ export function statusColor(rate: number): 'emerald' | 'amber' | 'red' | 'slate'
     if (rate >= 80) return 'amber';
     return 'red';
 }
+
+/** Parse a Prometheus text-format response into a flat list of
+ *  metric/labels/value tuples. Used by the Trends tab to read the
+ *  `titan_eval_pass_rate{suite=...}` gauge that v5.2.1 publishes. */
+export interface PromMetric {
+    name: string;
+    labels: Record<string, string>;
+    value: number;
+}
+
+export function parsePrometheus(text: string): PromMetric[] {
+    const out: PromMetric[] = [];
+    for (const raw of text.split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        // metric{label="v",..} value
+        const m = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+([0-9eE+\-.NaN]+)/);
+        if (!m) continue;
+        const labels: Record<string, string> = {};
+        if (m[2]) {
+            for (const pair of m[2].split(',')) {
+                const [k, ...rest] = pair.split('=');
+                if (!k) continue;
+                const v = rest.join('=').trim().replace(/^"|"$/g, '');
+                labels[k.trim()] = v;
+            }
+        }
+        const value = Number(m[3]);
+        if (!Number.isNaN(value)) out.push({ name: m[1], labels, value });
+    }
+    return out;
+}
+
+/** Fetch /metrics, parse, and filter to a metric prefix.
+ *  Returns the filtered tuples — the panel can pivot however it wants. */
+export async function getMetrics(filterName?: string): Promise<PromMetric[]> {
+    const r = await apiFetch('/metrics');
+    if (!r.ok) throw new Error(`/metrics failed: ${r.status}`);
+    const text = await r.text();
+    const all = parsePrometheus(text);
+    return filterName ? all.filter(m => m.name === filterName || m.name.startsWith(`${filterName}_`)) : all;
+}

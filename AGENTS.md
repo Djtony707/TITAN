@@ -111,6 +111,39 @@ draggable grid items. Each widget runs in a sandboxed `iframe` with
 
 ---
 
+## Testing Conventions
+
+File-location rules — keep these consistent or `agent-live claim-safe` will scream at you.
+
+| Test type | Location | Purpose | Speed |
+|---|---|---|---|
+| Pure-function unit | `tests/unit/*.test.ts` | Regex, classifiers, gate extraction, token math, secret scanner. Zero LLM calls, zero I/O. | < 1 ms each |
+| Mock LLM provider | `tests/__mocks__/MockOllamaProvider.ts` + `tests/__mocks__/*.test.ts` | Replay/record harness for tape fixtures. | < 1 ms each |
+| Tape fixtures | `tests/fixtures/tapes/<name>.json` | Recorded LLM responses for deterministic replay. Schema: `{ name, model, recorded_at, titan_version, exchanges: [{ request?, response }] }`. **Response side is what playback uses; request side is cosmetic for human reviewers.** | n/a |
+| Trajectory eval | `tests/eval/trajectory.test.ts` | Asserts `expectedToolSequence` end-to-end through `MockOllamaProvider`. Catches "called the wrong tool first" / "hallucinated extras" / "forgot a step". | < 250 ms / suite |
+| Cross-model parity | `tests/eval/parity.test.ts` | Replays the same scenario across multiple provider tapes; reports behavioural divergence (tool, args, finish reason, content presence). | < 1 s |
+| Live eval harness | `src/eval/harness.ts` (cases) → `/api/eval/run` (runner) | 11 suites of behavioural tests against the running agent. CI gate at 80 % per suite. | 5–15 min |
+| Auto-recorded tapes | `tests/fixtures/tapes/auto/*.json` (Phase 6) | Production traces that failed eval get recorded here for replay. 30-day retention by default. | n/a |
+
+### Naming
+
+- Files: `descriptive_name.test.ts` (kebab-case for multi-word, `.test.ts` suffix). Match the function/module under test where possible (`isDangerous` → `isDangerous.test.ts`).
+- Tape fixtures: `<scenario>_<variant>.json` (e.g. `weather.json`, `safety_refusal.json`, `memory_stale_context.json`). Lowercase, underscore-separated.
+- Eval suites: `*_SUITE` exported `const EvalCase[]` arrays in `src/eval/harness.ts`. Suite names in `/api/eval/run` body are kebab-case (`tool-routing-v2`, `gate-format-v2`).
+
+### Adding a new test
+
+1. **Unit test** — `tests/unit/my_func.test.ts`, run `npm test`.
+2. **Tape** — `TITAN_RECORD_TAPE=my_scenario npm test -- tests/eval/trajectory.test.ts` against a real model, then commit the JSON in `tests/fixtures/tapes/`.
+3. **Eval case** — edit the relevant `*_SUITE` in `src/eval/harness.ts`. Verify with `npm run test:eval -- --suite <name>`.
+4. **Parity scenario** — record the same scenario as a tape per provider, then add a case to `tests/eval/parity.test.ts` calling `compareProviderBehavior`.
+
+### CI gate
+
+Push to `main` or open a PR triggers `.github/workflows/eval-gate.yml`. It boots the gateway, hits each of the 11 suites, and fails the job if any suite is below 80 % pass rate. Results upload as artifacts retained for 30 days.
+
+---
+
 ## Open Items / Known Gaps
 
 | Item | Severity | Notes |

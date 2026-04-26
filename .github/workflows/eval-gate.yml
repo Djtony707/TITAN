@@ -1,0 +1,146 @@
+name: Eval Gate
+
+# v5.3.0: Block merges if any eval suite drops below the pass-rate threshold.
+#
+# Runs on every push to main and every PR. Spins up the gateway, hits each
+# suite via /api/eval/run, computes pass rate, fails the job if any suite is
+# below 80%. Suites are tested individually (not as a global rate) so a
+# regression in one suite can't be hidden by passes in others.
+#
+# This is intentionally a SEPARATE workflow from ci.yml because:
+#   1. It needs a running gateway (unit tests don't)
+#   2. It's slow (real LLM calls per case) — keeping it separate means a
+#      pure-typecheck PR doesn't have to wait on it.
+#   3. Failing eval gate is a soft warning vs. failing typecheck (hard block);
+#      the team can choose to require this status check or not in branch
+#      protection rules.
+#
+# Threshold defaults to 80% per suite. Bump it once cloud-Kimi / Ollama
+# baselines are stable for a few weeks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Manual run via Actions UI — useful for cutting a release tag.
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: 'Per-suite pass rate threshold (percentage)'
+        required: false
+        default: '80'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25  # 11 suites × ~1-2 min each + boot/install overhead
+
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      THRESHOLD: ${{ github.event.inputs.threshold || '80' }}
+      # Eval cases call the agent loop, which routes via providers/router.ts.
+      # In CI we use a stub provider unless TITAN_OLLAMA_URL is set as a secret
+      # — see scripts/eval-gate.sh for the local equivalent.
+      TITAN_TELEMETRY_ENABLED: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Boot TITAN gateway
+        run: |
+          # Background the gateway, wait for /api/health to come back 200.
+          # 60s budget is generous — first boot loads 248 tools and 11 plugins.
+          node dist/gateway/server.js > /tmp/titan-gateway.log 2>&1 &
+          echo $! > /tmp/titan-gateway.pid
+          for i in $(seq 1 60); do
+            if curl -fs http://localhost:48420/api/health > /dev/null 2>&1; then
+              echo "Gateway ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Gateway did not become healthy within 60 seconds"
+          tail -100 /tmp/titan-gateway.log
+          exit 1
+
+      - name: Run eval suites
+        id: eval
+        run: |
+          # Mirrors scripts/eval-gate.sh logic. Kept inline so a CI-only env
+          # (no jq dependency on the runner image) doesn't surprise us — the
+          # ubuntu-latest image ships jq, but documenting the dep here.
+          set -e
+          SUITES="widget-creation safety tool-routing gate-format pipeline adversarial tool-routing-v2 session widget-v2 gate-format-v2 content"
+          OVERALL_PASSED=0
+          OVERALL_TOTAL=0
+          FAILED_SUITES=""
+          mkdir -p /tmp/eval-results
+          for suite in $SUITES; do
+            echo "── Running suite: $suite ──"
+            HTTP_CODE=$(curl -s -o "/tmp/eval-results/${suite}.json" -w '%{http_code}' \
+              -X POST http://localhost:48420/api/eval/run \
+              -H 'Content-Type: application/json' \
+              -d "{\"suite\":\"$suite\"}")
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "::error::Suite $suite request failed with HTTP $HTTP_CODE"
+              cat "/tmp/eval-results/${suite}.json" || true
+              FAILED_SUITES="$FAILED_SUITES $suite"
+              continue
+            fi
+            PASSED=$(jq '.passed // 0' "/tmp/eval-results/${suite}.json")
+            TOTAL=$(jq '.total // 0' "/tmp/eval-results/${suite}.json")
+            DURATION_MS=$(jq '.durationMs // 0' "/tmp/eval-results/${suite}.json")
+            if [ "$TOTAL" = "0" ]; then
+              echo "::warning::Suite $suite has 0 cases — gateway returned empty result"
+              continue
+            fi
+            RATE=$(awk "BEGIN {printf \"%.0f\", ($PASSED/$TOTAL)*100}")
+            DUR_S=$(awk "BEGIN {printf \"%.1f\", $DURATION_MS/1000}")
+            echo "  $suite: $PASSED/$TOTAL ($RATE%) in ${DUR_S}s"
+            OVERALL_PASSED=$((OVERALL_PASSED + PASSED))
+            OVERALL_TOTAL=$((OVERALL_TOTAL + TOTAL))
+            if [ "$RATE" -lt "$THRESHOLD" ]; then
+              echo "::error::Suite $suite pass rate $RATE% is below threshold $THRESHOLD%"
+              FAILED_SUITES="$FAILED_SUITES $suite"
+            fi
+          done
+          echo ""
+          echo "── Summary ──"
+          echo "Overall: $OVERALL_PASSED/$OVERALL_TOTAL"
+          echo "overall_passed=$OVERALL_PASSED" >> "$GITHUB_OUTPUT"
+          echo "overall_total=$OVERALL_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "failed_suites=$FAILED_SUITES" >> "$GITHUB_OUTPUT"
+          if [ -n "$FAILED_SUITES" ]; then
+            echo "::error::Failed suites: $FAILED_SUITES"
+            exit 1
+          fi
+
+      - name: Stop gateway
+        if: always()
+        run: |
+          if [ -f /tmp/titan-gateway.pid ]; then
+            kill "$(cat /tmp/titan-gateway.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload eval results + gateway log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate-${{ github.run_id }}
+          path: |
+            /tmp/eval-results/*.json
+            /tmp/titan-gateway.log
+          retention-days: 30

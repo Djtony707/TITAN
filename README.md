@@ -217,6 +217,37 @@ Got a GPU? TITAN can even fine-tune its own models on your conversation history.
 
 ---
 
+## 🧪 Testing
+
+TITAN ships with **five layered testing stages** that catch agent regressions at different levels:
+
+| Layer | What it covers | Run it | Speed |
+|---|---|---|---|
+| **Unit** | Pure functions: regex (`isDangerous`), pipeline classifier, gate extraction, token budget, secret scanner. Zero LLM calls. | `npm test` | < 5 s |
+| **Mock trajectory** | Tape-replay through `MockOllamaProvider`. Asserts the agent calls the right tools in the right order using recorded responses. Zero LLM calls. | `npm test -- tests/eval/trajectory` | < 1 s |
+| **Cross-model parity** | Same scenario replayed across multiple provider tapes. Catches behavioural divergence when one provider drifts. Zero LLM calls. | `npm run test:parity` | < 1 s |
+| **Live eval (gated)** | 11 suites of behavioural tests against the running agent (`/api/eval/run`). 80 % pass rate per suite is the merge gate in CI. | `npm run test:eval` | 5–15 min |
+| **Adversarial / red-team** | Jailbreak attempts, path traversal, command injection, prompt extraction. Tested at both layers (live agent + mock provider). | (folded into live eval + trajectory) | n/a |
+
+### Adding a new test
+
+```bash
+# Pure-function unit test:
+echo "..." > tests/unit/my_new_func.test.ts && npm test
+
+# New tape (record once against a real model):
+TITAN_RECORD_TAPE=my_scenario npm test -- tests/eval/trajectory.test.ts
+
+# New eval case: edit src/eval/harness.ts, add to the relevant *_SUITE array,
+# then verify with: npm run test:eval -- --suite safety
+```
+
+### CI gate
+
+`.github/workflows/eval-gate.yml` runs the live-eval layer on every push to `main` and every PR. If any suite drops below 80 % pass rate, the job fails and the PR can't merge (when branch protection enforces it). Per-suite results upload as a 30-day artifact for debugging.
+
+---
+
 ## ⚠️ Reality Check
 
 TITAN is experimental. It can execute commands, modify files, and take autonomous actions. **Use at your own risk.** Think of it as "a very motivated intern with root access who never sleeps and occasionally gets *too* creative."
@@ -227,14 +258,13 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 ## 📊 The Numbers
 
-- **Version:** 5.2.1 "Spacewalk: Trajectory Eval"
-- **Tests:** 481 deterministic unit + integration tests (zero LLM calls), pass in under 5 s
+- **Version:** 5.3.0 "Spacewalk: CI Gate + Parity"
+- **Tests:** 500+ deterministic tests (unit + mock trajectory + parity), pass in under 5 s — plus 11 live-eval suites and a CI merge gate at 80 % per suite
 - **Widget templates:** 110 across 25 categories
 - **Skills:** 143 loaded
 - **Tools:** 248 across all skills
 - **AI Providers:** 37 (Anthropic, OpenAI, Google, Ollama, Groq, Mistral, and 31 more)
 - **Chat Channels:** 16
-- **Tests:** 5,840+ passing
 - **Node:** ≥ 22, pure ESM
 - **License:** MIT (completely free)
 

@@ -1,0 +1,49 @@
+{
+  "name": "memory_distractor",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-25T00:14:49Z",
+  "titan_version": "5.2.1",
+  "_comment": "Memory regression tape: 4-round conversation testing resistance to distractor content. Round 1 seeds 'Python' as the topic. Round 2 is a long technical distractor. Round 3 asks for the ORIGINAL topic — model must say 'Python', not get confused by round 2 details.",
+  "exchanges": [
+    {
+      "request": { "messages": [{ "role": "user", "content": "I need help with Python" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-dis-001",
+        "content": "I'd be happy to help with Python! What are you working on?",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3100, "completionTokens": 14, "totalTokens": 3114 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "Can you explain list comprehensions, generators, decorators, context managers, async/await, type hints, dataclasses, and metaclasses in detail? Also show me how to use asyncio with aiohttp for concurrent API calls, and how to structure a large project with Poetry, pytest, and pre-commit hooks." }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-dis-002",
+        "content": "List comprehensions provide a concise way to create lists: [x for x in range(10)]. Generators use yield for lazy evaluation. Decorators are functions that wrap other functions. Context managers use __enter__ and __exit__ for resource management. Async/await enables cooperative multitasking. Type hints improve code clarity with mypy. Dataclasses reduce boilerplate. Metaclasses control class creation. For asyncio with aiohttp, use asyncio.gather() to run multiple requests concurrently. For project structure, use Poetry for dependency management, pytest for testing with fixtures and parametrize, and pre-commit for automated linting and formatting.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3200, "completionTokens": 145, "totalTokens": 3345 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "What was the first thing I asked about?" }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-dis-003",
+        "content": "The first thing you asked about was Python. You said you needed help with Python.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3400, "completionTokens": 18, "totalTokens": 3418 }
+      }
+    },
+    {
+      "request": { "messages": [{ "role": "user", "content": "Good, you remembered correctly." }], "toolCount": 248 },
+      "response": {
+        "id": "chatcmpl-dis-004",
+        "content": "Thank you! I try to keep track of what we discuss so I can help you better.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 3450, "completionTokens": 16, "totalTokens": 3466 }
+      }
+    }
+  ]
+}

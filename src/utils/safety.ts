@@ -36,3 +36,54 @@ export function isDangerousCommand(command: string): boolean {
     ];
     return DANGEROUS_PATTERNS.some(re => re.test(command));
 }
+
+// ── Argument Red-Team Validators (Phase 6) ───────────────────────
+
+/**
+ * Detect path traversal in a file path argument.
+ * Matches: `..` sequences, absolute paths, home directory `~`.
+ */
+export function isPathTraversal(path: string): boolean {
+    if (!path || typeof path !== 'string') return false;
+    const normalized = path.trim();
+    // .. anywhere in the path
+    if (/(?:^|\/)\.\.(?:\/|$)/.test(normalized)) return true;
+    // Absolute path
+    if (normalized.startsWith('/')) return true;
+    // Home directory expansion
+    if (normalized.startsWith('~')) return true;
+    return false;
+}
+
+/**
+ * Detect shell metacharacters that could enable injection.
+ * Matches: `;` `|` `&` `` ` `` `$()` `${}` `<` `>`.
+ */
+export function hasShellMetacharacters(command: string): boolean {
+    if (!command || typeof command !== 'string') return false;
+    return /[;|&`$(){}<>]/.test(command);
+}
+
+/**
+ * Detect command chaining operators.
+ * Matches: `;` `&&` `||` `|` (pipe).
+ */
+export function isCommandChaining(command: string): boolean {
+    if (!command || typeof command !== 'string') return false;
+    return /[;|&]/.test(command);
+}
+
+/**
+ * Detect dangerous URL schemes (SSRF / local file access vectors).
+ * Blocks: file://, dict://, gopher://, ftp://, sftp://
+ */
+export function isDangerousUrl(url: string): boolean {
+    if (!url || typeof url !== 'string') return false;
+    try {
+        const parsed = new URL(url);
+        const blockedSchemes = ['file:', 'dict:', 'gopher:', 'ftp:', 'sftp:'];
+        return blockedSchemes.includes(parsed.protocol);
+    } catch {
+        return false;
+    }
+}
