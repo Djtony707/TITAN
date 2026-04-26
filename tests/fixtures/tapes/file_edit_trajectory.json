@@ -1,0 +1,75 @@
+{
+  "name": "file_edit_trajectory",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T20:00:00Z",
+  "titan_version": "5.1.2",
+  "_comment": "Golden trajectory: 3-round file edit. Round 1 reads the file, Round 2 edits it, Round 3 runs shell to verify, Round 4 confirms completion. Tests expectedToolSequence ordering.",
+  "exchanges": [
+    {
+      "response": {
+        "id": "chatcmpl-edit-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_read_001",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\":\"/tmp/test.py\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1200, "completionTokens": 45, "totalTokens": 1245 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-edit-002",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_edit_001",
+            "type": "function",
+            "function": {
+              "name": "edit_file",
+              "arguments": "{\"path\":\"/tmp/test.py\",\"old_string\":\"print('hello')\",\"new_string\":\"print('hello world')\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1450, "completionTokens": 62, "totalTokens": 1512 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-edit-003",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_shell_001",
+            "type": "function",
+            "function": {
+              "name": "shell",
+              "arguments": "{\"command\":\"python3 /tmp/test.py\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1600, "completionTokens": 38, "totalTokens": 1638 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-edit-004",
+        "content": "Done! I read `/tmp/test.py`, changed the print statement to `print('hello world')`, and verified it runs correctly. Output: `hello world`.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1750, "completionTokens": 42, "totalTokens": 1792 }
+      }
+    }
+  ]
+}

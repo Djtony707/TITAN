@@ -1,0 +1,56 @@
+{
+  "name": "research_trajectory",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T20:00:00Z",
+  "titan_version": "5.1.2",
+  "_comment": "Golden trajectory: 2-round research task. Round 1 searches the web, Round 2 fetches the top result, Round 3 synthesizes the answer.",
+  "exchanges": [
+    {
+      "response": {
+        "id": "chatcmpl-research-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_search_001",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"latest TypeScript 5.7 features release notes\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1100, "completionTokens": 52, "totalTokens": 1152 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-research-002",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_fetch_001",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"url\":\"https://devblogs.microsoft.com/typescript/announcing-typescript-5-7/\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1350, "completionTokens": 48, "totalTokens": 1398 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-research-003",
+        "content": "TypeScript 5.7 brings several notable improvements:\n\n1. **Checked numeric literals for enum members** — prevents out-of-range values\n2. **Better type inference for generic functions** — fewer explicit type annotations needed\n3. **Support for `--target es2024`** — access to new JS features\n4. **Path rewriting for relative paths** — cleaner imports in monorepos",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 2800, "completionTokens": 95, "totalTokens": 2895 }
+      }
+    }
+  ]
+}

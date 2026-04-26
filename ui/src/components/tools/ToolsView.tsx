@@ -6,6 +6,7 @@ const McpPanel = lazy(() => import('../admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('../admin/IntegrationsPanel'));
 const ChannelsPanel = lazy(() => import('../admin/ChannelsPanel'));
 const MeshPanel = lazy(() => import('../admin/MeshPanel'));
+const EvalHarnessPanel = lazy(() => import('../admin/EvalHarnessPanel'));
 
 const TABS = [
   { id: 'skills', label: 'Skills' },
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'integrations', label: 'Integrations' },
   { id: 'channels', label: 'Channels' },
   { id: 'mesh', label: 'Mesh Network' },
+  { id: 'evals', label: 'Eval Harness' },
 ];
 
 export default function ToolsView() {
@@ -45,6 +47,7 @@ export default function ToolsView() {
           {activeTab === 'integrations' && <IntegrationsPanel />}
           {activeTab === 'channels' && <ChannelsPanel />}
           {activeTab === 'mesh' && <MeshPanel />}
+          {activeTab === 'evals' && <EvalHarnessPanel />}
         </Suspense>
       </div>
     </div>

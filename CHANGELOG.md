@@ -5,6 +5,40 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.2.0] — 2026-04-26 — 🛤️ **"Spacewalk: Trajectory Eval"**
+
+Minor release shipping the first end-to-end **trajectory evaluation** —
+asserting the agent calls the right tools, in the right order, with no
+hallucinated extras.
+
+### Added — Phase 4a: Observability panel
+- `ui/src/api/eval.ts` — typed client for `/api/eval/suites` + `/api/eval/run`
+- `ui/src/components/admin/EvalHarnessPanel.tsx` — Mission Control panel
+  listing all 11 suites, with per-case pass/fail and a side-by-side
+  trajectory diff (`expected` vs `actual` tool sequence) on failures
+- Wired into Tools → Eval Harness tab in Mission Control
+
+### Added — Phase 4b: Trajectory test suite
+- `tests/eval/trajectory.test.ts` — 5 trajectory test cases that exercise
+  `expectedToolSequence` end-to-end through the `MockOllamaProvider`
+- `tests/fixtures/tapes/file_edit_trajectory.json` — 4-round:
+  `read_file → edit_file → shell → done`
+- `tests/fixtures/tapes/research_trajectory.json` — 3-round:
+  `web_search → web_fetch → done`
+- Tests verify: ordered sequence enforcement, correct fail on wrong order,
+  weather + safety_refusal regression coverage. <250 ms per suite.
+
+### Test counts
+**481 deterministic tests pass in 4.66 s** (was 402 in 5.1.2). Typecheck
+clean. UI build clean.
+
+### No breaking changes
+Drop-in upgrade from 5.1.2.
+
+*Created by Tony Elliott aka djtony707.*
+
+---
+
 ## [5.1.2] — 2026-04-26 — 📊 **"Spacewalk: Eval Expansion"**
 
 Patch release that expands the eval harness from 8 cases / 4 suites to 53 cases / 11 suites.
