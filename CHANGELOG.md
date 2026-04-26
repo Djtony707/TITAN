@@ -5,6 +5,26 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.0.2] — 2026-04-25 — 🎯 **"Spacewalk: Telemetry Default"**
+
+Patch release that makes opt-in telemetry actually reach PostHog out of the box.
+
+### Fixed
+- **Schema default for `posthogApiKey`** — was `optional()` (no default), so users who clicked "share anonymous telemetry" in the SetupWizard ended up with `enabled: true` but no PostHog credential, silently dropping events on the floor. Now defaults to the TITAN project's public-write `phc_…` key, which is exactly what these keys are designed for (write-only, can't read data, safe to embed). Override with your own key for self-hosted PostHog.
+- **CLI `titan onboard` wizard** now asks for telemetry consent with a clear list of what's collected (bucketed system fingerprint, heartbeats, tool counts, crash reports, install/update events) and what's never collected (chat content, file contents, secrets, IPs, hostnames). Default still `false` — privacy-first.
+
+### Why this is the correct architecture
+PostHog `phc_` keys are public by design — analogous to Google Analytics IDs, Mixpanel tokens, or Sentry public DSNs. They authorize event capture but cannot read events, query dashboards, or modify settings. Embedding the project key in the open-source package is the standard pattern and means opted-in users get telemetry with zero extra config. Self-hosters override `telemetry.posthogApiKey` to point at their own PostHog instance.
+
+### No code changes from 5.0.1 except the schema default + wizard prompt
+Drop-in upgrade. Existing users keep their current consent state; no auto-enable.
+
+---
+
+---
+
+## [5.0.0] — 2026-04-25 — 🚀 **"Spacewalk"** — The Full Release
+
 ## [5.0.0] — 2026-04-25 — 🚀 **"Spacewalk"** — The Full Release
 
 The biggest TITAN release since v1.0. **Mission Control is reborn as a
@@ -1588,7 +1608,8 @@ as **additive** changes — no existing behavior breaks, 24K users unaffected.
     `_resetPressureDampingForTests()` and called it in the test's setup so
     consecutive hunger-drive runs aren't damped from a prior test. (4 tests)
   - `tests/agent-loop.test.ts` — RESPOND-phase strip test failed because
-    `outputGuardrails` META_PREAMBLE regex `^Here(?:'s| is) (?:what|the|my)\s+[^:]*:\s*` used an unbounded `[^:]*` that ate past the period and into embedded tool JSON up to the first colon (`"name":`), stripping the real answer along with the preamble. Changed to `[^:{}\n]*` so the match can't cross into JSON blocks. (1 test)
+    `outputGuardrails` META_PREAMBLE regex `^Here(?:'s| is) (?:what|the|my)\s+[^:]*:\s*` used an unbounded `[^:]*` that ate past the period and into embedded tool JSON up to the first colon (`"name":`), stripping the real answer along with the preamble. Changed to `[^:{}
+]*` so the match can't cross into JSON blocks. (1 test)
   - `tests/mesh-extended.test.ts` — mDNS tests failed because production
     code at `src/mesh/discovery.ts` read `m.default` on the `bonjour-service`
     module namespace, which throws under vitest's strict module-mock
