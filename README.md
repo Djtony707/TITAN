@@ -178,14 +178,13 @@ curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/install.sh | b
 **Or if you like typing:**
 
 ```bash
-# v5.0 ships on the @next tag for the first week of feedback,
-# so the existing 25 k+ v4.x installs aren't auto-upgraded.
-npm install -g titan-agent@next
-titan onboard       # Interactive setup
+# v5.2.x is on @latest as of 2026-04-26. v4.13.x users running
+# `npm update -g titan-agent` will pick it up; new installs get it
+# by default.
+npm install -g titan-agent
+titan onboard       # Interactive setup (now asks for telemetry consent)
 titan gateway       # Launch at http://localhost:48420
 ```
-
-After ~1 week of real-world feedback, `5.0.0` promotes to `@latest`.
 
 **Or Docker:**
 
@@ -228,7 +227,8 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 ## 📊 The Numbers
 
-- **Version:** 5.0.0 "Spacewalk"
+- **Version:** 5.2.1 "Spacewalk: Trajectory Eval"
+- **Tests:** 481 deterministic unit + integration tests (zero LLM calls), pass in under 5 s
 - **Widget templates:** 110 across 25 categories
 - **Skills:** 143 loaded
 - **Tools:** 248 across all skills

@@ -1,0 +1,56 @@
+{
+  "name": "shell_chain_trajectory",
+  "model": "ollama/qwen3.5:cloud",
+  "recorded_at": "2026-04-26T20:00:00Z",
+  "titan_version": "5.1.2",
+  "_comment": "Golden trajectory: build + test pipeline. Round 1 runs npm install, Round 2 runs npm test, Round 3 reports results.",
+  "exchanges": [
+    {
+      "response": {
+        "id": "chatcmpl-shell-001",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_shell_install",
+            "type": "function",
+            "function": {
+              "name": "shell",
+              "arguments": "{\"command\":\"npm install\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1050, "completionTokens": 38, "totalTokens": 1088 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-shell-002",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_shell_test",
+            "type": "function",
+            "function": {
+              "name": "shell",
+              "arguments": "{\"command\":\"npm test\"}"
+            }
+          }
+        ],
+        "finishReason": "tool_calls",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1300, "completionTokens": 35, "totalTokens": 1335 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-shell-003",
+        "content": "Build pipeline complete. `npm install` succeeded (added 42 packages). `npm test` results: 434 passed, 0 failed. All green.",
+        "finishReason": "stop",
+        "model": "ollama/qwen3.5:cloud",
+        "usage": { "promptTokens": 1550, "completionTokens": 45, "totalTokens": 1595 }
+      }
+    }
+  ]
+}

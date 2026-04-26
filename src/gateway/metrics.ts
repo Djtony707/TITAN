@@ -224,6 +224,38 @@ export const titanModelRequestsTotal = new Counter(
   'Total model requests by model and provider',
 );
 
+/**
+ * Eval-suite pass rate, 0–100, labelled by suite name. Updated by the
+ * /api/eval/run endpoint after each run completes. Lets ops graph
+ * regressions over time and alert when a suite drops below threshold.
+ *
+ * Use the helper `recordEvalSuiteResult(suite, passed, total)` instead of
+ * touching this gauge directly so the rate calc + zero-total guard stay
+ * in one place.
+ */
+export const titanEvalPassRate = new Gauge(
+  'titan_eval_pass_rate',
+  'Pass rate (0-100) of the most recent eval suite run, labelled by suite',
+);
+
+/** Total eval cases executed, labelled by suite. Counter so a graph
+ *  shows whether the suite is actually being exercised. */
+export const titanEvalCasesTotal = new Counter(
+  'titan_eval_cases_total',
+  'Total eval cases executed, by suite and outcome',
+);
+
+/**
+ * Record the outcome of an eval suite run on the metrics gauges + counter.
+ * Safe to call with `total=0` (gauge stays at 0, no divide-by-zero).
+ */
+export function recordEvalSuiteResult(suite: string, passed: number, total: number): void {
+  const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+  titanEvalPassRate.set(rate, { suite });
+  titanEvalCasesTotal.increment({ suite, outcome: 'passed' }, passed);
+  titanEvalCasesTotal.increment({ suite, outcome: 'failed' }, Math.max(0, total - passed));
+}
+
 // ── Registry & Serialization ─────────────────────────────────────────
 
 const allMetrics = [
@@ -234,6 +266,8 @@ const allMetrics = [
   titanActiveSessions,
   titanToolCallsTotal,
   titanModelRequestsTotal,
+  titanEvalPassRate,
+  titanEvalCasesTotal,
 ];
 
 export function serializePrometheus(): string {
