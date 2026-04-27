@@ -40,9 +40,15 @@ jobs:
         run: npm run build:ui
 
       - name: Run tests
-        run: npx vitest run --reporter=verbose
+        # --pool=forks isolates each test file in its own process so memory
+        # never accumulates across the full suite — addresses the long-
+        # standing "Vitest worker OOM flake on full suite" CLAUDE.md
+        # called out and that bit every Dependabot CI run since 2026-04-26.
+        # Heap size raised from 4096 → 6144 MB to match the rest of the
+        # workflow so we can't OOM mid-run on large test files either.
+        run: npx vitest run --reporter=verbose --pool=forks
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
 
   health:
     needs: test
