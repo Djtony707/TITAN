@@ -2,10 +2,19 @@
 
 ## Supported Versions
 
-| Version    | Supported |
-| ---------- | --------- |
-| 2026.6.x   | Yes       |
-| < 2026.6.0 | No        |
+TITAN follows [Semantic Versioning](https://semver.org/) since v1.0. Only the
+latest minor on the current major receives security fixes; older minors are
+considered end-of-life unless explicitly noted. The 2026.X.Y calendar-version
+line predates v1.0.0 and is no longer supported — please upgrade.
+
+| Version           | Supported     |
+| ----------------- | ------------- |
+| 5.4.x             | Yes (current) |
+| 5.3.x             | Yes (until next minor) |
+| 5.0.x – 5.2.x     | No            |
+| < 5.0             | No            |
+| 1.0.x             | No            |
+| 2026.X.Y          | No (legacy calendar versions) |
 
 ## Reporting a Vulnerability
 
