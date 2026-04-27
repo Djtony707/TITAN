@@ -45,15 +45,37 @@ updates:
     # stopped resolving — the bump produced ~30 typecheck errors. Pin major
     # for typescript + node @types and re-evaluate manually when upstream
     # type packages catch up.
+    # Major-version ignore list. Every package here ships a breaking
+    # migration that's too disruptive to land via an automated grouped
+    # bump — auto-PRs landed those majors get reverted within minutes.
+    # Patches + minors continue to flow through normally; majors land
+    # by hand when the codebase is ready for the migration.
+    #
+    # History (all 2026-04-27):
+    #   - typescript 5→6: tightened default `lib` config; broke ~30 DOM
+    #     globals in src/browsing/captchaSolver.ts (PR #56).
+    #   - zod 3→4: reshaped overload signatures used throughout
+    #     src/config/schema.ts; ~30 TS2769 errors (PR #57).
+    #   - eslint 8→10: requires the new flat config format
+    #     (eslint.config.js); legacy .eslintrc no longer supported (PR #58).
+    #   - @typescript-eslint 8→9: peer-dep on ESLint 9+ which we don't
+    #     have yet — paired with the eslint pin above.
+    #   - vitest 2→3+: workspace + reporter API churn; touches every
+    #     test file's import surface.
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # Zod 3→4 (PR #57, 2026-04-27) reshapes the overload signatures used
-      # throughout src/config/schema.ts — ~30 TS2769 errors. Skip major
-      # for zod until the schema is migrated by hand.
       - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@typescript-eslint/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
         update-types: ["version-update:semver-major"]
 
   # GitHub Actions
