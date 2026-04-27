@@ -13,6 +13,7 @@ import logger from '../utils/logger.js';
 import { fetchWithRetry } from '../utils/helpers.js';
 import { v4 as uuid } from 'uuid';
 import * as fs from 'fs';
+import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Ollama';
 
@@ -505,7 +506,7 @@ export class OllamaProvider extends LLMProvider {
                 // responses don't come close to that. 8K is plenty for any
                 // single turn and keeps us from getting HTTP 402s when
                 // credit runs low.
-                num_predict: options.maxTokens || (isCloudModel ? 8192 : 16384),
+                num_predict: clampMaxTokens(options.model || 'ollama/llama3.1', options.maxTokens),
                 num_ctx: getModelCtx(model),
                 temperature: options.temperature ?? 0.7,
             },
@@ -770,7 +771,7 @@ export class OllamaProvider extends LLMProvider {
             keep_alive: '30m',
             options: {
                 // v4.10.0-local (cost cap): 8K cloud cap matches non-stream path
-                num_predict: options.maxTokens || (isCloudModel ? 8192 : 16384),
+                num_predict: clampMaxTokens(options.model || 'ollama/llama3.1', options.maxTokens),
                 num_ctx: getModelCtx(model),
                 temperature: options.temperature ?? 0.7,
             },

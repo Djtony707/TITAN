@@ -17,6 +17,7 @@ import logger from '../utils/logger.js';
 import { fetchWithRetry } from '../utils/helpers.js';
 import { resolveApiKey } from './authResolver.js';
 import { v4 as uuid } from 'uuid';
+import { clampMaxTokens } from './modelCapabilities.js';
 
 /** Configuration for an OpenAI-compatible provider */
 export interface OpenAICompatConfig {
@@ -56,13 +57,13 @@ export class OpenAICompatProvider extends LLMProvider {
 
     private get apiKey(): string {
         const cfg = loadConfig();
-        const providerCfg = (cfg.providers as Record<string, ProviderConfig>)[this.config.configKey];
+        const providerCfg = (cfg.providers as Record<string, unknown>)[this.config.configKey] as ProviderConfig | undefined;
         return resolveApiKey(this.config.name, providerCfg?.authProfiles || [], providerCfg?.apiKey || '', this.config.envKey, providerCfg?.rotationStrategy, providerCfg?.credentialCooldownMs);
     }
 
     private get baseUrl(): string {
         const cfg = loadConfig();
-        const providerCfg = (cfg.providers as Record<string, ProviderConfig>)[this.config.configKey];
+        const providerCfg = (cfg.providers as Record<string, unknown>)[this.config.configKey] as ProviderConfig | undefined;
         return providerCfg?.baseUrl || this.config.defaultBaseUrl;
     }
 
@@ -105,7 +106,7 @@ export class OpenAICompatProvider extends LLMProvider {
                 }
                 return { role: m.role, content: m.content || ' ' };
             }),
-            max_tokens: options.maxTokens || 8192,
+            max_tokens: clampMaxTokens(model, options.maxTokens),
         };
 
         if (options.tools && options.tools.length > 0) {
@@ -203,7 +204,7 @@ export class OpenAICompatProvider extends LLMProvider {
                 }
                 return { role: m.role, content: m.content || ' ' };
             }),
-            max_tokens: options.maxTokens || 8192,
+            max_tokens: clampMaxTokens(model, options.maxTokens),
         };
         if (options.tools && options.tools.length > 0) body.tools = options.tools;
         if (options.temperature !== undefined) body.temperature = options.temperature;

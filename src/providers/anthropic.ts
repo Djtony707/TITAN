@@ -13,6 +13,7 @@ import logger from '../utils/logger.js';
 import { fetchWithRetry } from '../utils/helpers.js';
 import { resolveApiKey } from './authResolver.js';
 import { v4 as uuid } from 'uuid';
+import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Anthropic';
 
@@ -43,7 +44,7 @@ export class AnthropicProvider extends LLMProvider {
 
         const body: Record<string, unknown> = {
             model: model.replace('anthropic/', ''),
-            max_tokens: options.maxTokens || 8192,
+            max_tokens: clampMaxTokens(model, options.maxTokens),
             messages: nonSystemMessages.map((m) => ({
                 role: m.role === 'tool' ? 'user' : m.role,
                 content: m.role === 'tool'
@@ -171,7 +172,7 @@ export class AnthropicProvider extends LLMProvider {
 
         const body: Record<string, unknown> = {
             model: model.replace('anthropic/', ''),
-            max_tokens: options.maxTokens || 8192,
+            max_tokens: clampMaxTokens(model, options.maxTokens),
             stream: true,
             messages: nonSystemMessages.map((m) => ({
                 role: m.role === 'tool' ? 'user' : m.role,

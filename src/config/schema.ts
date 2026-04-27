@@ -553,6 +553,13 @@ export const TitanConfigSchema = z.object({
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
     providers: z.object({
+        /** v5.4.1: Per-model output-token caps override. Keys are provider/model IDs.
+         *  Values override the built-in static table + family heuristics. */
+        modelCapabilities: z.record(z.string(), z.object({
+            contextWindow: z.number(),
+            maxOutput: z.number(),
+            supportsThinking: z.boolean().optional(),
+        })).optional(),
         anthropic: ProviderConfigSchema.default({}),
         openai: ProviderConfigSchema.default({}),
         google: ProviderConfigSchema.default({}),

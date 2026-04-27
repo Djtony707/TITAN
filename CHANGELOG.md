@@ -5,6 +5,126 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.4.1] — 2026-04-26 — 🛡️ **"Layer Reliability"**
+
+Patch release. Tightens the provider, UI, mesh, and config layers around
+the v5.4.0 framework so every transient failure has a predictable,
+testable recovery path. **1057 deterministic tests pass in 19s** across
+41 files. Typecheck clean.
+
+Created by Tony Elliott aka djtony707.
+
+### Added
+
+**Per-model output clamping (Kimi)**
+- New `src/providers/modelCapabilities.ts` — central source of truth for
+  every provider's context-window + max-output ceiling, plus a family-
+  pattern fallback for unknown specific versions and a config override
+  hook (`providers.modelCapabilities[<model>]`).
+- `clampMaxTokens(model, requested)` is now called inside Anthropic,
+  OpenAI, OpenAI-compatible, Google, and Ollama providers. `DEFAULT_MAX_TOKENS`
+  becomes a "user-preference ceiling" (bumped to 200K) — the clamper
+  silently lowers it to each model's real ceiling so the caller can ask
+  for a high default without 400-ing on capped providers.
+
+**Retry/failover stream events (no more text-leak)**
+- New `retry` variant on `ChatStreamChunk` (discriminated union in
+  `src/providers/base.ts`). Pre-fix the router yielded
+  `\n[Retrying request (1/4) due to rate_limit...]\n\n` as a `text`
+  chunk, which leaked retry banners straight into the assistant's
+  response.
+- `agent/agentLoop.ts` consumers now have `onRetry` / `onFailover`
+  callbacks; chunk handlers route retry/failover branches out-of-band
+  (logged + callback fired, never appended to `streamContent`).
+- Gateway emits dedicated `event: retry` and `event: failover` SSE
+  frames so the UI can render status indicators without parsing the
+  text stream.
+
+**New Issue dialog in the sidebar**
+- `ui/src/components/layout/TitanSidebar.tsx` — the Quick Create button
+  now opens a Modal that posts to `/api/command-post/issues` and
+  navigates to the new issue. Pre-fix the button had an empty `onClick`.
+
+**5 Hunt regression tests**
+- `tests/hunt-regression.test.ts` adds top-level describes for Findings
+  #16 (sanitizer false-positive), #21 (narrator preamble + minimax XML
+  leak), #28 (dangerous-shell invariants), #30 (broken `npm install`),
+  #37 (Retry-After plumbing).
+
+### Fixed
+
+**Gemini tool message serialization (`src/providers/google.ts`)**
+- New strict pre-serialization validation: every `function_response`
+  must have a non-empty `name` paired with a `tool_call_id` that
+  references a recorded prior `tool_call` in the conversation. Drops
+  malformed tool messages with a logged warning instead of forwarding
+  them and triggering Gemini's opaque 400 response.
+- Optional debug dump: `GOOGLE_DUMP_REQUEST_BODY=1` (or
+  `providers.google.dumpRequestBody: true`) writes failing request
+  bodies to `~/.titan/debug/gemini-requests/` for post-mortem.
+
+**Streaming fallback success recording (`src/providers/router.ts`)**
+- `tryFallbackChainStream` used to call `recordSuccess(provider)` the
+  moment it acquired the generator — before any chunk had been
+  produced. The breaker booked optimistic success for streams that
+  errored mid-flight. Replaced with a `monitored()` wrapper that books
+  success only after the underlying stream completes without throwing,
+  and books failure on error chunks or thrown errors. Same wrapping
+  applied to the priority-failover loop.
+
+**Provider failover beyond first attempt (`src/providers/router.ts`)**
+- The priority-failover loop was gated by `attempt === 0`; if the
+  initial attempt was retryable but exhausted, no failover was tried.
+  Replaced with `priorityFailoverAttempted` and `fallbackChainAttempted`
+  latches so both fallback paths are reachable on any exhausted-retry
+  attempt — and each is attempted at most once per `chatStream` call.
+
+**Mesh multi-hop reply routing (`src/mesh/transport.ts`)**
+- `route_forward` `sendReply` no longer blindly writes to the inbound
+  socket. Forwarded requests can arrive via intermediate hops; the
+  reply now uses `routeMessageMultiHop` keyed on the original requester
+  id (carried through `payload.originalRequesterId`) and falls back to
+  the inbound socket only as a last resort. Added a matching
+  `task_response` handler for the requester end so multi-hop replies
+  resolve pending requests.
+
+**Mesh stale route invalidation (`src/mesh/transport.ts`)**
+- `findNextHop` now validates the next-hop's WebSocket state in addition
+  to checking `lastUsedAt` staleness — a closed socket no longer sits
+  in the routing table for the full 5-minute `ROUTE_STALE_MS` window.
+- New `invalidateRoutesVia(nodeId)` is wired into both inbound and
+  outbound WebSocket close + error handlers. Triggers an immediate
+  distance-vector broadcast so the rest of the mesh converges in
+  seconds rather than waiting for the next periodic cycle.
+
+**`pendingApproval` hook return value (`ui/src/hooks/useSSE.ts`)**
+- The hook always returned `pendingApproval: false` regardless of SSE
+  content because the variable that tracked it was a closure-local
+  inside `send()`. Promoted to a `useState(isPendingApproval)` so the
+  returned value reflects state across renders, with reset on each new
+  send.
+
+**Config drift visibility (`src/config/config.ts`)**
+- New recursive diff between `rawConfig` and the Zod-parsed result —
+  unknown keys at any nesting depth are now logged with their full
+  dot-notation path (e.g.
+  `Unknown config key: providers.anthropic.unknownField`). Pre-fix only
+  top-level unknown keys were warned about. Strictly informational —
+  never blocks startup.
+
+**Log parser regex documentation (`ui/src/api/client.ts`)**
+- Added a 12-line comment documenting the gateway log line format
+  (`YYYY-MM-DD HH:MM:SS  <LEVEL>  <COMPONENT>  <message>`) and the
+  history of the corrupted `DEn` alternation that briefly hid every
+  ERROR/WARN entry from the dashboard.
+
+**Test description drift (`tests/providers.test.ts`)**
+- `'should contain exactly 31 presets'` → `'32 presets'` (matches the
+  assertion that already required 32). Maintainer note added so the
+  description and the assertion stay in sync next time.
+
+---
+
 ## [5.4.0] — 2026-04-26 — 🧠 **"Real Framework"**
 
 Phase 9 release. Lifts TITAN from "agent that runs" to "agent that

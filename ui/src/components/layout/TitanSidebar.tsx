@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router';
+import { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
 import {
   LayoutDashboard, Hexagon, MessageSquare, Bot, Brain,
   Wrench, Server, Settings, Activity, Zap, ChevronLeft, ChevronRight,
@@ -8,6 +9,8 @@ import {
 import { useSidebar } from '@/context/SidebarContext';
 import { useCanvas } from '@/space-agent/CanvasContext';
 import { useVoice } from '@/context/VoiceContext';
+import { Modal, Button } from '@/components/shared';
+import { createCPIssue } from '@/api/client';
 
 /* ═══════════════════════════════════════════════════════════════════
    TITAN Sidebar — Space Agent-style navigation
@@ -93,6 +96,52 @@ export function TitanSidebar() {
   const { sidebarOpen, setSidebarOpen, isMobile } = useSidebar();
   const { widgets } = useCanvas();
   const { open: openVoice } = useVoice();
+  const navigate = useNavigate();
+
+  // ─── New Issue dialog state ────────────────────────────────────────
+  // Mirrors the CPIssues panel pattern (ui/src/components/command-post/
+  // CPIssues.tsx) so the create-flow stays consistent across the app.
+  // Pre-fix: the sidebar's "New Issue" button had an empty onClick that
+  // did nothing; users had no way to create issues without navigating
+  // to the Command Post panel first.
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newPriority, setNewPriority] = useState('medium');
+  const [newDesc, setNewDesc] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setNewTitle('');
+    setNewPriority('medium');
+    setNewDesc('');
+    setCreateError(null);
+  };
+
+  const handleCreate = async () => {
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const issue = await createCPIssue({
+        title: newTitle.trim(),
+        description: newDesc.trim() || undefined,
+        priority: newPriority,
+      });
+      setShowCreate(false);
+      resetForm();
+      // Navigate to the new issue so the user lands on something concrete.
+      // If the API didn't echo an id back (older gateway), fall back to the
+      // issues list — never leave the user with a closed-modal-and-nothing-changed UX.
+      const issueId = (issue as { id?: string } | undefined)?.id;
+      if (issueId) navigate(`/command-post/issues/${issueId}`);
+      else navigate('/issues');
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Failed to create issue');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col bg-[#09090b] border-r border-[#27272a]">
@@ -119,7 +168,7 @@ export function TitanSidebar() {
       {sidebarOpen && (
         <div className="px-3 py-2">
           <button
-            onClick={() => {/* TODO: open new issue dialog */}}
+            onClick={() => setShowCreate(true)}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#6366f1]/10 border border-[#6366f1]/20 text-[#818cf8] text-xs font-medium hover:bg-[#6366f1]/20 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -127,6 +176,57 @@ export function TitanSidebar() {
           </button>
         </div>
       )}
+
+      {/* New Issue dialog — POST /api/command-post/issues */}
+      <Modal
+        open={showCreate}
+        onClose={() => { setShowCreate(false); resetForm(); }}
+        title="New Issue"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => { setShowCreate(false); resetForm(); }}>Cancel</Button>
+            <Button size="sm" onClick={handleCreate} loading={creating} disabled={!newTitle.trim()}>Create</Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Title</label>
+            <input
+              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent"
+              placeholder="Issue title..."
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Priority</label>
+            <select
+              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text focus:outline-none focus:border-accent"
+              value={newPriority}
+              onChange={(e) => setNewPriority(e.target.value)}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Description</label>
+            <textarea
+              className="w-full rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-accent min-h-[80px] resize-y"
+              placeholder="Describe the issue..."
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+            />
+          </div>
+          {createError && (
+            <div className="text-xs text-error" role="alert">{createError}</div>
+          )}
+        </div>
+      </Modal>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">

@@ -26,6 +26,11 @@ export function useSSE(): UseSSEReturn {
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   const [toolInvocations, setToolInvocations] = useState<ToolInvocation[]>([]);
   const [lastError, setLastError] = useState<UseSSEReturn['lastError']>(null);
+  // Tracks whether the most-recent response is a plan waiting for user
+  // approval. Promoted from a local closure variable so the returned
+  // `pendingApproval` actually reflects state across renders — pre-fix
+  // the hook always returned `false` regardless of SSE content.
+  const [isPendingApproval, setIsPendingApproval] = useState(false);
   const eventBufferRef = useRef<AgentEvent[]>([]);
   const toolMapRef = useRef<Map<string, ToolInvocation>>(new Map());
   const rafRef = useRef<number | null>(null);
@@ -60,6 +65,7 @@ export function useSSE(): UseSSEReturn {
       setToolInvocations([]);
       toolMapRef.current = new Map();
       setLastError(null);
+      setIsPendingApproval(false);
       eventBufferRef.current = [];
 
       // RAF-based event flushing to prevent render thrashing
@@ -85,7 +91,7 @@ export function useSSE(): UseSSEReturn {
       let toolsUsed: string[] = [];
       let model = '';
       let durationMs = 0;
-      let isPendingApproval = false;
+      let pendingApprovalLocal = false;
 
       try {
         await streamMessage(
@@ -143,7 +149,10 @@ export function useSSE(): UseSSEReturn {
                 if (event.toolsUsed) toolsUsed = event.toolsUsed;
                 if (event.model) model = event.model;
                 if (event.durationMs) durationMs = event.durationMs;
-                if (event.pendingApproval) isPendingApproval = true;
+                if (event.pendingApproval) {
+                  pendingApprovalLocal = true;
+                  setIsPendingApproval(true);
+                }
                 // If the done event carries content and we didn't stream any tokens
                 // (e.g. plan responses arrive as a single done event, not token-by-token),
                 // use the done event's content as the full message.
@@ -196,11 +205,11 @@ export function useSSE(): UseSSEReturn {
         model,
         durationMs,
         timestamp: new Date().toISOString(),
-        pendingApproval: isPendingApproval,
+        pendingApproval: pendingApprovalLocal,
       };
     },
     [],
   );
 
-  return { isStreaming, streamingContent, activeTools, agentEvents, toolInvocations, pendingApproval: false, lastError, send, cancel, clearError };
+  return { isStreaming, streamingContent, activeTools, agentEvents, toolInvocations, pendingApproval: isPendingApproval, lastError, send, cancel, clearError };
 }

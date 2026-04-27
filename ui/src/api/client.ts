@@ -412,6 +412,21 @@ export async function getLogs(level?: string, limit?: number): Promise<LogEntry[
   if (Array.isArray(raw)) return raw;
   const lines: string[] = raw.lines ?? [];
   return lines.map((line) => {
+    // Expected gateway log format (one line per record, written by
+    // src/utils/logger.ts):
+    //
+    //   YYYY-MM-DD HH:MM:SS  <LEVEL>  <COMPONENT>  <message ...>
+    //
+    // <LEVEL> is one of DEBUG | INFO | WARN | ERROR.
+    // Anything that doesn't match is surfaced as a level=info raw line so
+    // the dashboard never drops content (timestamps may be absent on
+    // continuation lines from tracebacks, multi-line tool output, etc.).
+    //
+    // Pre-fix history note: this regex once contained a corrupted "DEn"
+    // alternation that silently dropped DEBUG/INFO/WARN/ERROR matches —
+    // the dashboard then tagged every line as level=info, hiding real
+    // ERROR/WARN entries from filter dropdowns. Keep the alternation
+    // explicit: DEBUG|INFO|WARN|ERROR.
     const match = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(DEBUG|INFO|WARN|ERROR)\s+(.*)$/);
     if (match) return { timestamp: match[1], level: match[2].toLowerCase(), message: match[3] };
     return { timestamp: '', level: 'info', message: line };

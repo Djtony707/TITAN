@@ -109,16 +109,72 @@ export function getRoutingTable(): RouteEntry[] {
     return Array.from(routingTable.values());
 }
 
-/** Find the next-hop node to reach a destination */
+/**
+ * Find the next-hop node to reach a destination.
+ *
+ * Validates two conditions before returning a route:
+ *   1. The route hasn't been idle longer than ROUTE_STALE_MS.
+ *   2. The next-hop neighbour still has a live WebSocket (a peer can
+ *      disconnect without the staleness clock firing — fix for the
+ *      stale-route bug where mesh kept forwarding through a hop whose
+ *      socket had already closed, manifesting as 60s timeouts on every
+ *      task until the heartbeat eventually evicted the entry).
+ *
+ * On either failure, the entry is removed from the routing table so the
+ * caller falls back to a fresh route discovery cycle.
+ */
 export function findNextHop(destinationNodeId: string): string | null {
     const entry = routingTable.get(destinationNodeId);
     if (!entry) return null;
-    // Check if route is stale
+    // Check if route is stale (lastUsedAt-based timeout)
     if (Date.now() - entry.lastUsedAt > ROUTE_STALE_MS) {
         routingTable.delete(destinationNodeId);
         return null;
     }
+    // Connection-state validation: the next-hop's WebSocket must be live.
+    // Without this check, a closed socket sat in routingTable until staleness
+    // expired (5 min default) and routeMessageMultiHop would try to send to
+    // a dead peer via sendToPeer — which silently returns false but the
+    // pending request still hung waiting for a reply.
+    const nextHopWs = peerConnections.get(entry.nextHopNodeId);
+    if (!nextHopWs || nextHopWs.readyState !== WebSocket.OPEN) {
+        routingTable.delete(destinationNodeId);
+        logger.debug(COMPONENT, `Pruned route to ${destinationNodeId} via dead next-hop ${entry.nextHopNodeId}`);
+        return null;
+    }
     return entry.nextHopNodeId;
+}
+
+/**
+ * Invalidate every routing-table entry that flows through a now-disconnected
+ * next-hop, then trigger an immediate distance-vector advertisement so
+ * remaining peers update their tables before the next periodic broadcast.
+ *
+ * Called from the WebSocket close + error handlers in both directions
+ * (outbound `connectToPeer` and inbound `handleMeshWebSocket`). Without
+ * this, a peer drop would leave stale entries in place for up to
+ * ROUTE_STALE_MS (5 min) and routes would be pruned only lazily on the
+ * next findNextHop call rather than proactively.
+ */
+function invalidateRoutesVia(disconnectedNodeId: string): number {
+    let removed = 0;
+    for (const [dest, entry] of routingTable) {
+        if (entry.nextHopNodeId === disconnectedNodeId || dest === disconnectedNodeId) {
+            routingTable.delete(dest);
+            removed++;
+        }
+    }
+    if (removed > 0) {
+        logger.info(COMPONENT, `Mesh peer ${disconnectedNodeId} dropped — invalidated ${removed} route(s); broadcasting refresh`);
+        // Fire-and-forget: notify remaining peers so their distance-vector
+        // tables converge faster than the next periodic broadcast cycle.
+        try {
+            broadcastRouteAdvertisement();
+        } catch (err) {
+            logger.debug(COMPONENT, `Route refresh broadcast failed: ${(err as Error).message}`);
+        }
+    }
+    return removed;
 }
 
 /** Update or insert a routing table entry */
@@ -374,6 +430,9 @@ export async function connectToPeer(
                         pendingRequests.delete(reqId);
                     }
                 }
+                // Invalidate any routes that traversed this peer + broadcast
+                // refresh so other nodes converge faster than the periodic cycle.
+                invalidateRoutesVia(remoteNodeId);
                 logger.info(COMPONENT, `Peer disconnected: ${remoteNodeId}`);
             }
             if (!resolved) { resolved = true; resolve(false); }
@@ -565,6 +624,15 @@ export function handleMeshWebSocket(
                     if (innerAction === 'task_request' && onTaskRequest && msg.requestId) {
                         activeRemoteTasks++;
                         let replied = false;
+
+                        // The original requester's nodeId is `msg.fromNodeId`. Pin it
+                        // so the closure has a stable reference even if msg is mutated
+                        // by the handler. Carry it through the response metadata so
+                        // intermediate hops can route based on the requester id, not
+                        // just whichever socket the inbound message came in on.
+                        const originalRequesterId = msg.fromNodeId;
+                        const originalRequestId = msg.requestId;
+
                         const sendReply = (payload: Record<string, unknown>) => {
                             if (replied) return;
                             replied = true;
@@ -573,17 +641,58 @@ export function handleMeshWebSocket(
                                 type: 'mesh',
                                 action: 'task_response',
                                 fromNodeId: localNodeId,
-                                toNodeId: msg.fromNodeId,
-                                requestId: msg.requestId,
-                                payload,
+                                toNodeId: originalRequesterId,
+                                requestId: originalRequestId,
+                                payload: { ...payload, originalRequesterId },
                                 timestamp: new Date().toISOString(),
                             };
-                            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
+
+                            // Mesh task 1 fix: don't blindly reply on the inbound
+                            // socket. The forwarded request may have arrived via an
+                            // intermediate hop (A → B → C, with us being C); the
+                            // socket we received it on is the link to B, not A.
+                            // Replying via `ws.send` would deliver to B and B would
+                            // have no way to forward it back to A unless B also
+                            // happens to have a route — which in practice means the
+                            // reply gets dropped at B because B's task_response handler
+                            // only resolves pending requests it owns.
+                            //
+                            // Use routeMessageMultiHop, which: (1) sends directly if
+                            // the requester is one of our peers, (2) otherwise looks
+                            // up the next hop in our routing table, (3) otherwise
+                            // falls back to the inbound socket as a last resort.
+                            if (peerConnections.has(originalRequesterId)) {
+                                sendToPeer(originalRequesterId, reply);
+                                return;
+                            }
+                            const routed = routeMessageMultiHop(originalRequesterId, {
+                                ...reply,
+                                action: 'route_forward',
+                                payload: {
+                                    innerAction: 'task_response',
+                                    originalRequesterId,
+                                    ...payload,
+                                },
+                            });
+                            if (!routed && ws.readyState === WebSocket.OPEN) {
+                                // Last-ditch: send back along the inbound socket so the
+                                // intermediate hop can at least see + log the response.
+                                ws.send(JSON.stringify(reply));
+                            }
                         };
                         try {
                             onTaskRequest({ ...msg, action: 'task_request' }, sendReply);
                         } catch (err) {
                             sendReply({ error: `Handler error: ${(err as Error).message}` });
+                        }
+                    } else if (innerAction === 'task_response' && msg.requestId) {
+                        // We're the original requester for a multi-hop response that
+                        // arrived back via route_forward — resolve the pending request.
+                        const pending = pendingRequests.get(msg.requestId);
+                        if (pending) {
+                            clearTimeout(pending.timeout);
+                            pendingRequests.delete(msg.requestId);
+                            pending.resolve(msg.payload);
                         }
                     }
                 } else {
@@ -596,18 +705,25 @@ export function handleMeshWebSocket(
         }
     });
 
-    ws.on('close', () => {
+    const cleanup = (cause: 'close' | 'error') => {
         peerConnections.delete(nodeId);
         // Reject any pending requests for this peer
         for (const [reqId, req] of pendingRequests) {
             if (req.peerNodeId === nodeId) {
                 clearTimeout(req.timeout);
-                req.reject(new Error(`Peer disconnected: ${nodeId}`));
+                req.reject(new Error(`Peer ${cause}: ${nodeId}`));
                 pendingRequests.delete(reqId);
             }
         }
-        logger.info(COMPONENT, `Mesh peer disconnected: ${nodeId}`);
-    });
+        // Mesh task 2: invalidate routes that traversed this peer + broadcast
+        // refresh so the rest of the mesh converges within seconds, not the
+        // 5-min ROUTE_STALE_MS lazy-prune window.
+        invalidateRoutesVia(nodeId);
+        logger.info(COMPONENT, `Mesh peer disconnected (${cause}): ${nodeId}`);
+    };
+
+    ws.on('close', () => cleanup('close'));
+    ws.on('error', () => cleanup('error'));
 }
 
 /** Start sending periodic heartbeats to all connected peers */

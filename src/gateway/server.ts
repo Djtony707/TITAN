@@ -3481,6 +3481,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             onRound: (round: number, maxRounds: number) => {
               safeWrite(`event: round\ndata: ${JSON.stringify({ round, maxRounds, timestamp: Date.now() })}\n\n`);
             },
+            // Dedicated `retry` SSE event so the UI can show a status indicator.
+            // Pre-fix the router yielded retry banners as `text` chunks which
+            // ended up in the user-visible message; this isolates the signal.
+            onRetry: (info) => {
+              safeWrite(`event: retry\ndata: ${JSON.stringify({ ...info, timestamp: Date.now() })}\n\n`);
+            },
+            onFailover: (info) => {
+              safeWrite(`event: failover\ndata: ${JSON.stringify({ ...info, timestamp: Date.now() })}\n\n`);
+            },
           },
           overrideAgentId: agentId,
           signal: abortController.signal,

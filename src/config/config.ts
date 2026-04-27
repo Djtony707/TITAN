@@ -58,24 +58,29 @@ export function loadConfig(): TitanConfig {
         }
     }
 
-    // Detect unknown top-level keys BEFORE Zod strips them.
-    // Hunt Finding #1 (2026-04-14): `facebook: {...}` was silently stripped because
-    // the key wasn't in TitanConfigSchema. Users editing their config saw no effect.
-    // Now we warn loudly when a key is about to be dropped, so bugs of this class
-    // are caught immediately instead of being debugged days later.
+    // Detect unknown keys at every nesting depth BEFORE Zod silently strips
+    // them. Hunt Finding #1 (2026-04-14) covered the top-level case
+    // (`facebook: {...}` ignored). This expanded check also catches nested
+    // typos like `providers.anthropic.unknownField` so users learn about
+    // dropped keys immediately rather than chasing "why doesn't my setting
+    // do anything" days later.
+    //
+    // The diff is purely informational — invalid keys never block startup
+    // (we still feed `rawConfig` through Zod's permissive parse).
     try {
-        const schemaShape = (TitanConfigSchema as unknown as { _def: { shape: () => Record<string, unknown> } })._def.shape();
-        const knownKeys = new Set(Object.keys(schemaShape));
-        const unknownKeys = Object.keys(rawConfig).filter(k => !knownKeys.has(k));
-        if (unknownKeys.length > 0) {
-            logger.warn(
-                COMPONENT,
-                `Config contains unknown top-level keys that will be stripped: ${unknownKeys.join(', ')}. ` +
-                `If these are intentional, add them to TitanConfigSchema in src/config/schema.ts.`,
-            );
+        const parsed = TitanConfigSchema.safeParse(rawConfig);
+        if (parsed.success) {
+            const droppedPaths = findDroppedKeys(rawConfig, parsed.data as Record<string, unknown>, '');
+            for (const path of droppedPaths) {
+                logger.warn(
+                    COMPONENT,
+                    `Unknown config key: ${path}. Will be ignored. ` +
+                    `If intentional, extend TitanConfigSchema in src/config/schema.ts.`,
+                );
+            }
         }
     } catch {
-        // If the schema shape introspection fails, skip the warning (shouldn't block load).
+        // Introspection failed — never let a diagnostic warning block load.
     }
 
     // Validate and merge with defaults via Zod.
@@ -232,6 +237,53 @@ function applyEnvOverrides(config: Record<string, unknown>): void {
             logger.debug(COMPONENT, `Applied env override: ${envKey}`);
         }
     }
+}
+
+/**
+ * Recursively diff `raw` against the Zod-parsed `parsed` and return the set
+ * of dot-notation paths that exist in raw but were stripped by the schema.
+ *
+ * Behaviour:
+ *   - Only walks plain objects (Records). Arrays and primitives are leaf
+ *     comparisons — if the raw value is an object at a key the schema parsed
+ *     as something else, we treat the whole subtree as dropped at that path.
+ *   - Recurses into objects that survive parsing so we catch keys deep inside
+ *     untyped/permissive subtrees (e.g. `providers.<name>.unknownField`).
+ *   - Cap recursion depth to defend against pathological self-referential
+ *     configs; 8 levels covers every legitimate path in TitanConfigSchema.
+ */
+function findDroppedKeys(
+    raw: unknown,
+    parsed: unknown,
+    pathPrefix: string,
+    depth: number = 0,
+): string[] {
+    if (depth > 8) return [];
+    if (!isPlainObject(raw)) return [];
+    const dropped: string[] = [];
+    for (const key of Object.keys(raw)) {
+        const fullPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+        const rawVal = raw[key];
+        const parsedVal = isPlainObject(parsed) ? (parsed as Record<string, unknown>)[key] : undefined;
+
+        if (parsedVal === undefined) {
+            // Skip explicit `undefined` in raw (treats `key: undefined` as not-set
+            // rather than a dropped key — JSON config files can't express this
+            // anyway, but in-memory configs sometimes do via env merging).
+            if (rawVal !== undefined) dropped.push(fullPath);
+            continue;
+        }
+
+        // Recurse into matching subtrees so nested unknown keys are also surfaced.
+        if (isPlainObject(rawVal) && isPlainObject(parsedVal)) {
+            dropped.push(...findDroppedKeys(rawVal, parsedVal, fullPath, depth + 1));
+        }
+    }
+    return dropped;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Set a nested property by dot-notation path */

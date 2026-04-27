@@ -828,6 +828,10 @@ export interface StreamCallbacks {
     onToolResult?: (name: string, result: string, durationMs: number, success: boolean) => void;
     onThinking?: () => void;
     onRound?: (round: number, maxRounds: number) => void;
+    /** Router retry status — out-of-band, never append to text content. */
+    onRetry?: (info: { attempt: number; maxRetries: number; reason: string; provider: string; model: string; delayMs: number }) => void;
+    /** Router failover status — out-of-band, never append to text content. */
+    onFailover?: (info: { originalProvider: string; originalModel: string; error?: string }) => void;
 }
 
 /** Extract structured artifacts from tool call details for inter-step context */

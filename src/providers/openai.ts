@@ -13,6 +13,7 @@ import logger from '../utils/logger.js';
 import { fetchWithRetry } from '../utils/helpers.js';
 import { resolveApiKey } from './authResolver.js';
 import { v4 as uuid } from 'uuid';
+import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'OpenAI';
 
@@ -68,9 +69,9 @@ export class OpenAIProvider extends LLMProvider {
 
         // o-series models require max_completion_tokens, not max_tokens
         if (isReasoningModel) {
-            body.max_completion_tokens = options.maxTokens || 8192;
+            body.max_completion_tokens = clampMaxTokens(model, options.maxTokens);
         } else {
-            body.max_tokens = options.maxTokens || 8192;
+            body.max_tokens = clampMaxTokens(model, options.maxTokens);
         }
 
         if (options.tools && options.tools.length > 0) {
@@ -180,7 +181,7 @@ export class OpenAIProvider extends LLMProvider {
         };
 
         if (isReasoningModel) { body.max_completion_tokens = options.maxTokens || 8192; }
-        else { body.max_tokens = options.maxTokens || 8192; }
+        else { body.max_tokens = clampMaxTokens(model, options.maxTokens); }
         if (options.tools && options.tools.length > 0) body.tools = options.tools;
         if (options.temperature !== undefined && !isReasoningModel) body.temperature = options.temperature;
 

@@ -122,6 +122,31 @@ export type ChatStreamChunk =
     | { type: 'done' }
     | { type: 'error'; error: string }
     | {
+        /**
+         * Out-of-band retry status — emitted while the router is retrying a
+         * transient failure on the same provider. Stream consumers MUST NOT
+         * forward `content` to user-visible output; it's a signal for UI
+         * status indicators (spinners, toasts) and structured logs only.
+         *
+         * Pre-fix (v5.4.x): the router yielded a `text` chunk like
+         * "[Retrying request (1/4) due to rate_limit...]" which leaked into
+         * model responses. The dedicated chunk type isolates that signal.
+         */
+        type: 'retry';
+        /** Which retry this is (1-based). */
+        attempt: number;
+        /** Configured maximum number of retries before failover. */
+        maxRetries: number;
+        /** Classified failure reason (e.g. "rate_limit", "server_error"). */
+        reason: string;
+        /** Provider being retried. */
+        provider: string;
+        /** Model being retried. */
+        model: string;
+        /** Backoff delay in ms before the next attempt. */
+        delayMs: number;
+    }
+    | {
         type: 'failover';
         /** The provider that the request fell over to. */
         content?: string;

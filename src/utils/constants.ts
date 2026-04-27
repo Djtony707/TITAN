@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '5.4.0';
+export const TITAN_VERSION = '5.4.1';
 export const TITAN_CODENAME = 'Spacewalk';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
@@ -78,7 +78,10 @@ export const DEFAULT_WEB_PORT = 48421;
 
 // Agent defaults
 export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514';
-export const DEFAULT_MAX_TOKENS = 12000;
+/** v5.4.1: User-preference ceiling.  Providers clamp per-model via
+ *  clampMaxTokens() so this can be high without causing 400s on
+ *  capped endpoints (e.g. Claude Sonnet 4 8K, Cohere 4K). */
+export const DEFAULT_MAX_TOKENS = 200000;
 export const DEFAULT_TEMPERATURE = 0.7;
 export const MAX_CONTEXT_MESSAGES = 50;
 export const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes

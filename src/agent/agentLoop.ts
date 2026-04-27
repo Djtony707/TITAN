@@ -44,6 +44,7 @@ async function chatWithTimeout<T>(fn: () => Promise<T>, label: string, timeoutMs
 import { buildSmartContext } from './contextManager.js';
 import { isKilled } from '../safety/killSwitch.js';
 import { estimateTokens } from '../utils/tokens.js';
+import { DEFAULT_MAX_TOKENS } from '../utils/constants.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress, setProgressSession } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
@@ -371,6 +372,20 @@ export interface StreamCallbacks {
     onToolResult?: (name: string, result: string, durationMs: number, success: boolean, diff?: string) => void;
     onThinking?: () => void;
     onRound?: (round: number, maxRounds: number) => void;
+    /**
+     * Fired when the router is retrying a transient provider failure on the
+     * SAME provider/model. Out-of-band status — never forward to the
+     * assistant's text content. UI consumers should use this to render a
+     * retry indicator (spinner, toast). Pre-fix v5.4.x leaked this as a
+     * `[Retrying request (1/4) due to ...]` text chunk into the response.
+     */
+    onRetry?: (info: { attempt: number; maxRetries: number; reason: string; provider: string; model: string; delayMs: number }) => void;
+    /**
+     * Fired when the router falls over to a different provider/model after
+     * exhausting retries. Out-of-band status; do NOT append to user-visible
+     * content.
+     */
+    onFailover?: (info: { originalProvider: string; originalModel: string; error?: string }) => void;
 }
 
 /** All inputs the loop needs from processMessage */
@@ -772,7 +787,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     let pendingAssistantContent = '';
 
     // Token budget for context compression
-    const tokenBudget = ctx.voiceFastPath ? 2000 : (ctx.config.agent as Record<string, unknown>).tokenBudget as number || 12000;
+    const tokenBudget = ctx.voiceFastPath ? 2000 : (ctx.config.agent as Record<string, unknown>).tokenBudget as number || DEFAULT_MAX_TOKENS;
 
     // v5.0: Register this session for steering
     globalSteerQueues.set(ctx.sessionId, ctx.steerQueue ?? []);
@@ -1095,6 +1110,30 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         ctx.streamCallbacks.onToolCall?.(chunk.toolCall.function.name, JSON.parse(chunk.toolCall.function.arguments || '{}'));
                     } else if (chunk.type === 'error') {
                         logger.error(COMPONENT, `Stream error: ${chunk.error}`);
+                    } else if (chunk.type === 'retry') {
+                        // Out-of-band status — log internally + surface via callback.
+                        // CRITICAL: do NOT append to streamContent. The router used to
+                        // leak retry banners ("[Retrying request (1/4)...]") into the
+                        // text stream; the dedicated chunk type and this isolated
+                        // branch are the fix.
+                        logger.warn(COMPONENT, `Stream retrying ${chunk.provider}/${chunk.model} (attempt ${chunk.attempt}/${chunk.maxRetries}, reason=${chunk.reason}, delay=${chunk.delayMs}ms)`);
+                        ctx.streamCallbacks.onRetry?.({
+                            attempt: chunk.attempt,
+                            maxRetries: chunk.maxRetries,
+                            reason: chunk.reason,
+                            provider: chunk.provider,
+                            model: chunk.model,
+                            delayMs: chunk.delayMs,
+                        });
+                    } else if (chunk.type === 'failover') {
+                        // Same isolation rule — failover banners must not leak into the
+                        // assistant's response text.
+                        logger.warn(COMPONENT, `Stream failover from ${chunk.originalProvider}/${chunk.originalModel}${chunk.error ? ` (${chunk.error})` : ''}`);
+                        ctx.streamCallbacks.onFailover?.({
+                            originalProvider: chunk.originalProvider,
+                            originalModel: chunk.originalModel,
+                            error: chunk.error,
+                        });
                     }
                 }
                 // Estimate token counts for streaming (servers don't report usage in stream mode)
@@ -2130,6 +2169,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         ctx.streamCallbacks.onToken(chunk.content);
                     } else if (chunk.type === 'error') {
                         logger.error(COMPONENT, `Stream error: ${chunk.error}`);
+                    } else if (chunk.type === 'retry') {
+                        // Out-of-band: log + callback only. Do NOT append to streamContent.
+                        logger.warn(COMPONENT, `Respond-phase stream retrying ${chunk.provider}/${chunk.model} (attempt ${chunk.attempt}/${chunk.maxRetries}, reason=${chunk.reason})`);
+                        ctx.streamCallbacks.onRetry?.({
+                            attempt: chunk.attempt,
+                            maxRetries: chunk.maxRetries,
+                            reason: chunk.reason,
+                            provider: chunk.provider,
+                            model: chunk.model,
+                            delayMs: chunk.delayMs,
+                        });
+                    } else if (chunk.type === 'failover') {
+                        logger.warn(COMPONENT, `Respond-phase stream failover from ${chunk.originalProvider}/${chunk.originalModel}`);
+                        ctx.streamCallbacks.onFailover?.({
+                            originalProvider: chunk.originalProvider,
+                            originalModel: chunk.originalModel,
+                            error: chunk.error,
+                        });
                     }
                 }
                 response = {

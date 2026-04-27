@@ -14,7 +14,7 @@ import { LLMProvider } from '../src/providers/base.js';
 // ─── Constants ──────────────────────────────────────────────────
 describe('Constants', () => {
     it('should have correct version', () => {
-        expect(TITAN_VERSION).toBe('5.4.0');
+        expect(TITAN_VERSION).toBe('5.4.1');
     });
 
     it('should have correct name', () => {
@@ -105,7 +105,7 @@ describe('Config Schema', () => {
     it('should parse empty config with defaults', () => {
         const result = TitanConfigSchema.parse({});
         expect(result.agent.model).toContain('anthropic/');
-        expect(result.agent.maxTokens).toBe(12000);
+        expect(result.agent.maxTokens).toBe(200000);
         expect(result.agent.temperature).toBe(0.7);
         expect(result.gateway.port).toBe(48420);
         expect(result.security.sandboxMode).toBe('host');

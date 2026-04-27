@@ -627,7 +627,22 @@ async function tryFallbackChain(
     return null;
 }
 
-/** Try the fallback chain for a streaming request. Returns an async generator or null if exhausted. */
+/**
+ * Try the fallback chain for a streaming request. Returns an async generator
+ * or null if no fallback could be attempted.
+ *
+ * Circuit-breaker accounting (fix for Phase X / streaming optimism bug):
+ *   The pre-fix version called `recordSuccess(fbProviderName)` immediately
+ *   after acquiring the generator — *before* a single chunk was emitted.
+ *   That meant a fallback provider that opened a stream and then errored
+ *   mid-flight was recorded as a success, lying to the breaker.
+ *
+ *   This version returns a wrapped generator that:
+ *     - records success only after a `done` chunk OR the underlying
+ *       generator completes without throwing (real outcome)
+ *     - records failure if the underlying stream throws or yields an
+ *       `error` chunk after the first chunk
+ */
 async function tryFallbackChainStream(
     options: ChatOptions,
     primaryModelId: string,
@@ -645,9 +660,12 @@ async function tryFallbackChainStream(
         if (fallbackModelId === primaryModelId) continue;
 
         attempts++;
+        let fbProviderName: string;
+        let gen: AsyncGenerator<ChatStreamChunk>;
+
         try {
             const { provider: fbProvider, model: fbModel } = resolveModel(fallbackModelId);
-            const fbProviderName = fbProvider.name;
+            fbProviderName = fbProvider.name;
 
             // Check circuit breaker + rate-limit cooldown for fallback provider
             if (!canRequest(fbProviderName, true)) {
@@ -657,30 +675,51 @@ async function tryFallbackChainStream(
             }
 
             logger.warn(COMPONENT, `Stream model ${primaryModelId} failed (${originalError.message}), falling back to ${fallbackModelId}`);
-            // Verify the provider responds by getting the generator (will throw on immediate errors)
-            const gen = fbProvider.chatStream({ ...options, model: fbModel });
-
-            // Record success for circuit breaker (optimistically, actual success tracked in chatStream)
-            recordSuccess(fbProviderName);
-
-            lastFallbackEvent = {
-                primary: primaryModelId,
-                active: fallbackModelId,
-                reason: originalError.message,
-                timestamp: Date.now(),
-            };
-            return gen;
+            gen = fbProvider.chatStream({ ...options, model: fbModel });
         } catch (chainErr) {
-            // Record failure for circuit breaker
+            // Setup failure (resolveModel threw, etc.) — record breaker failure
             try {
                 const { provider: fbProvider } = resolveModel(fallbackModelId);
                 recordFailure(fbProvider.name);
             } catch {
                 // Ignore if we can't resolve the provider for recording
             }
-            logger.warn(COMPONENT, `Fallback stream model ${fallbackModelId} also failed: ${(chainErr as Error).message}`);
+            logger.warn(COMPONENT, `Fallback stream model ${fallbackModelId} setup failed: ${(chainErr as Error).message}`);
             continue;
         }
+
+        lastFallbackEvent = {
+            primary: primaryModelId,
+            active: fallbackModelId,
+            reason: originalError.message,
+            timestamp: Date.now(),
+        };
+
+        // Wrap the generator so circuit-breaker bookkeeping reflects real
+        // outcomes — success only after a clean stream end, failure on
+        // error chunks or thrown errors mid-stream.
+        async function* monitored(
+            inner: AsyncGenerator<ChatStreamChunk>,
+            providerName: string,
+        ): AsyncGenerator<ChatStreamChunk> {
+            let recorded = false;
+            try {
+                for await (const chunk of inner) {
+                    if (chunk.type === 'error') {
+                        if (!recorded) { recordFailure(providerName); recorded = true; }
+                    }
+                    yield chunk;
+                }
+                // Stream ended without throwing — record success unless we
+                // already booked a failure from an error chunk.
+                if (!recorded) recordSuccess(providerName);
+            } catch (innerErr) {
+                if (!recorded) { recordFailure(providerName); recorded = true; }
+                throw innerErr;
+            }
+        }
+
+        return monitored(gen, fbProviderName);
     }
     return null;
 }
@@ -1049,13 +1088,22 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
     let lastError: Error | null = null;
     const maxRetries = RETRY_CONFIG.maxRetries;
 
+    // Once-per-call latches so we don't repeat failover work after a retry
+    // burst — both fallback paths can be reached on any exhausted-retry
+    // attempt, but each is attempted at most once per chatStream invocation
+    // (Task 4: prevent infinite-loop recovery, formerly attempt===0 gate).
+    let fallbackChainAttempted = false;
+    let priorityFailoverAttempted = false;
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            // Stream from provider
+            // Stream from provider — record success only on first non-error
+            // chunk so we don't claim success for a stream that never produced.
+            let recordedSuccess = false;
             for await (const chunk of provider.chatStream({ ...options, model })) {
-                // Record success on first successful chunk
-                if (attempt === 0 && chunk.type !== 'error') {
+                if (!recordedSuccess && chunk.type !== 'error' && attempt === 0) {
                     recordSuccess(providerName);
+                    recordedSuccess = true;
                 }
                 lastFallbackEvent = null;
                 yield chunk;
@@ -1082,10 +1130,18 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
                 const retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
                 logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — streaming retry in ${Math.round(retryDelayMs)}ms`);
 
-                // Notify consumer about the retry
+                // Task 2: emit a dedicated `retry` event instead of leaking a
+                // text chunk (e.g. "[Retrying request (1/4) due to ...]") into
+                // the user-visible stream. UI consumers should display this
+                // as a status indicator, never forward to the assistant message.
                 yield {
-                    type: 'text',
-                    content: `\n[Retrying request (${attempt + 1}/${maxRetries}) due to ${classified.reason}...]\n\n`,
+                    type: 'retry' as const,
+                    attempt: attempt + 1,
+                    maxRetries,
+                    reason: classified.reason,
+                    provider: providerName,
+                    model,
+                    delayMs: Math.round(retryDelayMs),
                 };
 
                 await sleep(retryDelayMs);
@@ -1099,8 +1155,9 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
                 logger.error(COMPONENT, `${errorMsg} — streaming max retries exceeded [${classified.reason}]`);
             }
 
-            // Try configured fallback chain first
-            if (classified.retryable || classified.shouldFallback) {
+            // Try configured fallback chain first (once per chatStream call)
+            if (!fallbackChainAttempted && (classified.retryable || classified.shouldFallback)) {
+                fallbackChainAttempted = true;
                 const chainStream = await tryFallbackChainStream(options, modelId, error as Error);
                 if (chainStream) {
                     yield {
@@ -1133,8 +1190,12 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
                 }
             }
 
-            // Attempt provider failover (only on first attempt)
-            if (attempt === 0) {
+            // Task 4: priority-failover loop now runs on ANY exhausted-retry
+            // path, not just attempt === 0. The `priorityFailoverAttempted`
+            // latch ensures it executes at most once per chatStream call so
+            // we don't loop through the failover order on every retry burst.
+            if (!priorityFailoverAttempted) {
+                priorityFailoverAttempted = true;
                 const failoverOrder = getFailoverOrder(providerName);
                 let failedOver = false;
 
@@ -1169,8 +1230,23 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
                             error: errorMsg,
                         };
 
-                        yield* fallback.chatStream({ ...options, model: preferred });
-                        recordSuccess(fallbackName);
+                        // Wrap the failover stream so we record actual outcome,
+                        // not just optimistic success-on-generator-acquire (Task 3
+                        // applied here too — same pattern as tryFallbackChainStream).
+                        let recorded = false;
+                        try {
+                            for await (const chunk of fallback.chatStream({ ...options, model: preferred })) {
+                                if (chunk.type === 'error' && !recorded) {
+                                    recordFailure(fallbackName);
+                                    recorded = true;
+                                }
+                                yield chunk;
+                            }
+                            if (!recorded) recordSuccess(fallbackName);
+                        } catch (innerErr) {
+                            if (!recorded) recordFailure(fallbackName);
+                            throw innerErr;
+                        }
                         failedOver = true;
                         break;
                     } catch (fallbackErr) {

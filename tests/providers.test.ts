@@ -109,7 +109,13 @@ describe('getModelAliases', () => {
 });
 
 describe('PROVIDER_PRESETS', () => {
-    it('should contain exactly 31 presets', () => {
+    // Last bumped 2026-04-26 when the preset roster reached 32. Bump the
+    // assertion (and this comment) together with any add/remove of an entry
+    // in src/providers/openai_compat.ts so the test description stays in
+    // sync with reality. Pre-fix history note: the description briefly read
+    // "31" while the assertion already required 32 — the test passed but
+    // the description misled future maintainers.
+    it('should contain exactly 32 presets', () => {
         expect(PROVIDER_PRESETS).toHaveLength(32);
     });
 
