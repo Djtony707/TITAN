@@ -39,6 +39,17 @@ updates:
           - "@vitest/*"
           - "eslint"
           - "@eslint/*"
+    # Block major-version bumps for tools where the upstream change is too
+    # disruptive to land via an automated PR. TS 6 (2026-04-27) tightened
+    # the default `lib` set so DOM globals in src/browsing/captchaSolver.ts
+    # stopped resolving — the bump produced ~30 typecheck errors. Pin major
+    # for typescript + node @types and re-evaluate manually when upstream
+    # type packages catch up.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
