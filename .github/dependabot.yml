@@ -77,6 +77,15 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@vitest/*"
         update-types: ["version-update:semver-major"]
+      # Express 4→5 (PR #59, 2026-04-27) changed wildcard route param keys;
+      # ":path(*)" no longer types req.params.path as string. The gateway
+      # has multiple wildcard routes that need rewrites — manual migration.
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/express-serve-static-core"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
