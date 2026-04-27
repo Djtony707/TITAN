@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         node-version: [22]
@@ -40,13 +41,16 @@ jobs:
         run: npm run build:ui
 
       - name: Run tests
-        # --pool=forks isolates each test file in its own process so memory
-        # never accumulates across the full suite — addresses the long-
-        # standing "Vitest worker OOM flake on full suite" CLAUDE.md
-        # called out and that bit every Dependabot CI run since 2026-04-26.
-        # Heap size raised from 4096 → 6144 MB to match the rest of the
-        # workflow so we can't OOM mid-run on large test files either.
-        run: npx vitest run --reporter=verbose --pool=forks
+        # Default pool=threads (workspaces share one process). Pre-fix
+        # the heap was 4096 MB which OOMed on the 5840-test suite around
+        # the 5min mark, getting cancelled mid-run as "operation
+        # cancelled" — the long-standing "Vitest worker OOM flake on
+        # full suite" CLAUDE.md called out. Bumped to 6144 MB + 30min
+        # job timeout-minutes to absorb the slowdown without hitting
+        # GitHub Actions' default 6h runner limit. (Tried --pool=forks
+        # but it surfaced 50 cross-process state-leak failures locally,
+        # so reverted to the default thread pool.)
+        run: npx vitest run --reporter=verbose
         env:
           NODE_OPTIONS: --max-old-space-size=6144
 
