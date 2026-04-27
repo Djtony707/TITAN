@@ -695,33 +695,35 @@ async function tryFallbackChainStream(
             timestamp: Date.now(),
         };
 
-        // Wrap the generator so circuit-breaker bookkeeping reflects real
-        // outcomes — success only after a clean stream end, failure on
-        // error chunks or thrown errors mid-stream.
-        async function* monitored(
-            inner: AsyncGenerator<ChatStreamChunk>,
-            providerName: string,
-        ): AsyncGenerator<ChatStreamChunk> {
-            let recorded = false;
-            try {
-                for await (const chunk of inner) {
-                    if (chunk.type === 'error') {
-                        if (!recorded) { recordFailure(providerName); recorded = true; }
-                    }
-                    yield chunk;
-                }
-                // Stream ended without throwing — record success unless we
-                // already booked a failure from an error chunk.
-                if (!recorded) recordSuccess(providerName);
-            } catch (innerErr) {
-                if (!recorded) { recordFailure(providerName); recorded = true; }
-                throw innerErr;
-            }
-        }
-
-        return monitored(gen, fbProviderName);
+        return monitorStreamForBreaker(gen, fbProviderName);
     }
     return null;
+}
+
+/**
+ * Wrap a chat stream so circuit-breaker bookkeeping reflects real outcomes —
+ * success only after a clean stream end, failure on error chunks or thrown
+ * errors mid-stream. Hoisted to module scope so ESLint's `no-inner-declarations`
+ * is happy and so the same wrapper can be reused by chatStream's priority
+ * failover path below.
+ */
+async function* monitorStreamForBreaker(
+    inner: AsyncGenerator<ChatStreamChunk>,
+    providerName: string,
+): AsyncGenerator<ChatStreamChunk> {
+    let recorded = false;
+    try {
+        for await (const chunk of inner) {
+            if (chunk.type === 'error') {
+                if (!recorded) { recordFailure(providerName); recorded = true; }
+            }
+            yield chunk;
+        }
+        if (!recorded) recordSuccess(providerName);
+    } catch (innerErr) {
+        if (!recorded) { recordFailure(providerName); recorded = true; }
+        throw innerErr;
+    }
 }
 
 /** Route a chat request to a mesh peer */

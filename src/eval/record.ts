@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
+import { loadConfig } from '../config/config.js';
 import type { EvalCase, EvalResult } from './harness.js';
 
 let _retentionDaysOverride: number | undefined;
@@ -17,16 +18,22 @@ const DEFAULT_RETENTION_DAYS = 30;
 /**
  * Read the auto-corpus retention days from titan.json config.
  * Falls back to DEFAULT_RETENTION_DAYS if config fails to load.
+ *
+ * Note: pre-fix this used `require('../config/config.js')` inside the
+ * function body to defer module load. Switched to a static ESM import
+ * because (a) ESLint forbids `require()` style imports under
+ * `@typescript-eslint/no-require-imports` and (b) there is no circular
+ * dependency — config.ts does not import this module. The try/catch
+ * still handles a thrown `loadConfig()` from a malformed titan.json.
  */
 export function getRetentionDays(): number {
     if (_retentionDaysOverride !== undefined) return _retentionDaysOverride;
     try {
-        const { loadConfig } = require('../config/config.js');
         const config = loadConfig();
         const days = config.eval?.autoCorpus?.retentionDays;
         if (typeof days === 'number' && days >= 0) return days;
     } catch {
-        // config module may not be available in test/browser contexts
+        // loadConfig() can throw on malformed titan.json — fall back to default.
     }
     return DEFAULT_RETENTION_DAYS;
 }

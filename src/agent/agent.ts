@@ -209,7 +209,7 @@ function ensureSpawnAgentRegistered(): void {
 
             // v5.3.1: Apply config-defined agent constraints (maxRounds, maxTokens,
             // persona, skillsFilter). Log what we apply for observability.
-            let appliedFields: string[] = [];
+            const appliedFields: string[] = [];
             if (configAgent) {
                 if (configAgent.maxRounds !== 15) appliedFields.push(`maxRounds=${configAgent.maxRounds}`);
                 if (configAgent.maxTokens !== 4000) appliedFields.push(`maxTokens=${configAgent.maxTokens}`);

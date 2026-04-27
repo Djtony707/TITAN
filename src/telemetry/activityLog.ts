@@ -52,7 +52,7 @@ export interface ActivitySummary {
 }
 
 let _inMemoryBuffer: ActivityEvent[] = [];
-let _bufferFlushMs = 5000;
+const _bufferFlushMs = 5000;
 let _bufferTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Append an event to the activity log (buffered + flushed async) */
