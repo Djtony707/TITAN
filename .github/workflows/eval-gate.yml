@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload eval results + gateway log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-gate-${{ github.run_id }}
           path: |
