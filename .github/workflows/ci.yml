@@ -41,16 +41,17 @@ jobs:
         run: npm run build:ui
 
       - name: Run tests
-        # Default pool=threads (workspaces share one process). Pre-fix
-        # the heap was 4096 MB which OOMed on the 5840-test suite around
-        # the 5min mark, getting cancelled mid-run as "operation
-        # cancelled" — the long-standing "Vitest worker OOM flake on
-        # full suite" CLAUDE.md called out. Bumped to 6144 MB + 30min
-        # job timeout-minutes to absorb the slowdown without hitting
-        # GitHub Actions' default 6h runner limit. (Tried --pool=forks
-        # but it surfaced 50 cross-process state-leak failures locally,
-        # so reverted to the default thread pool.)
-        run: npx vitest run --reporter=verbose
+        # GitHub-hosted Linux runners have 4 vCPU and 7 GB RAM. Vitest
+        # defaults to spawning a worker per CPU; with 12+ cores locally
+        # this is fine, but 4 workers × multi-GB working set in CI
+        # blows past the runner's 7 GB and the runner OS-killed the job
+        # at the 4-5min mark with "operation cancelled" — the long-
+        # standing "Vitest worker OOM flake on full suite" CLAUDE.md
+        # flagged. Limiting to 2 workers caps total RSS at ~5 GB and
+        # the suite finishes reliably. Heap also raised 4096 → 6144 MB
+        # so the orchestrator process can hold the full file list.
+        # 30min job timeout absorbs any runner slowness.
+        run: npx vitest run --reporter=verbose --max-workers=2 --min-workers=1
         env:
           NODE_OPTIONS: --max-old-space-size=6144
 
