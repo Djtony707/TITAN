@@ -1064,7 +1064,21 @@ describe('Swarm', () => {
     });
 
     // ─── runSubAgent ────────────────────────────────────────────────
-    describe('runSubAgent', () => {
+    // v5.4.x: detailed runSubAgent coverage moved to tests/swarm.test.ts.
+    // After Phase B (spawn-path consolidation), `runSubAgent` is a thin
+    // shim over `spawnSubAgent` and the right way to test it is by
+    // mocking the canonical primitive — not by mocking `chat()` and
+    // asserting on the old mini-loop internals (which no longer exist).
+    // Kept stub describe block here as a navigational breadcrumb.
+    describe('runSubAgent (see tests/swarm.test.ts)', () => {
+        it.skip('moved to tests/swarm.test.ts after Phase B consolidation', () => {});
+    });
+
+    // ─── _LEGACY runSubAgent tests removed — see swarm.test.ts ──────
+    // The block below is unreachable (`.skip` describe above ends the
+    // suite) but kept for one release as a reference for anyone tracing
+    // the refactor. Delete in v5.5.x.
+    describe.skip('runSubAgent — legacy chat()-mock harness (removed)', () => {
         const mockedChat = vi.mocked(chat);
         const mockedExecuteTools = vi.mocked(executeTools);
 
