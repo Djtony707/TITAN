@@ -9,15 +9,21 @@ import { defineConfig } from 'vitest/config';
 // message. CLAUDE.md called it the "Vitest worker OOM flake on full
 // suite" without identifying the root cause.
 //
-// Strategy:
-//   - Local: keep the 12 GB / single-fork setup so heavy module-graph
-//     reloading in agent.test.ts has room to breathe.
-//   - CI: cap heap at 4 GB, allow 2 parallel forks. Fits the 7 GB
-//     runner ceiling with headroom for V8 / GHA agent / OS overhead.
+// Strategy (revised after v5.4.x dual-fork OOM):
+//   - Local: 12 GB / single-fork so heavy module-graph reloading in
+//     agent.test.ts has room to breathe.
+//   - CI: 6 GB / single-fork. The earlier maxForks=2 + heap=4 GB combo
+//     looked safe on paper (8 GB total) but in practice each fork's
+//     working set spiked above 4 GB on big test files
+//     (providers-extended, mesh-extended), pushing total memory past
+//     the 7 GB runner ceiling and triggering "JavaScript heap out of
+//     memory" / "Worker exited unexpectedly". Single fork at 6 GB
+//     keeps total under the ceiling and the wall-clock cost is small
+//     because most failures we hit were rerunning the suite anyway.
 const IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
 
-const HEAP_MB = IS_CI ? 4096 : 12288;
-const MAX_FORKS = IS_CI ? 2 : 1;
+const HEAP_MB = IS_CI ? 6144 : 12288;
+const MAX_FORKS = 1;
 
 // CI also excludes a small set of heavy integration tests that need >7 GB
 // heap (the runner ceiling). They're covered by narrower targeted tests
