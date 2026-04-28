@@ -9,21 +9,23 @@ import { defineConfig } from 'vitest/config';
 // message. CLAUDE.md called it the "Vitest worker OOM flake on full
 // suite" without identifying the root cause.
 //
-// Strategy (revised after v5.4.x dual-fork OOM):
-//   - Local: 12 GB / single-fork so heavy module-graph reloading in
+// Strategy (revised after v5.4.x — round 3):
+//   - Local: 12 GB / sequential so heavy module-graph reloading in
 //     agent.test.ts has room to breathe.
-//   - CI: 6 GB / single-fork. The earlier maxForks=2 + heap=4 GB combo
-//     looked safe on paper (8 GB total) but in practice each fork's
-//     working set spiked above 4 GB on big test files
-//     (providers-extended, mesh-extended), pushing total memory past
-//     the 7 GB runner ceiling and triggering "JavaScript heap out of
-//     memory" / "Worker exited unexpectedly". Single fork at 6 GB
-//     keeps total under the ceiling and the wall-clock cost is small
-//     because most failures we hit were rerunning the suite anyway.
+//   - CI: 4 GB heap, sequential, BUT each test file runs in its OWN
+//     fork that's killed afterwards. The earlier maxForks=1 +
+//     minForks=1 combo kept ONE fork alive across all ~150 files;
+//     heap accumulated and OOM'd around file 100. Setting
+//     `singleFork: false` (the default) and dropping minForks lets
+//     vitest spawn a fresh fork per file — each file starts with a
+//     cold heap, never hits the 4 GB cap, total RAM stays under
+//     7 GB because only one fork is ever live at a time.
+//   - `fileParallelism: false` enforces strict sequential file
+//     execution so we never have two heavy forks alive together.
 const IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
 
-const HEAP_MB = IS_CI ? 6144 : 12288;
-const MAX_FORKS = 1;
+const HEAP_MB = IS_CI ? 4096 : 12288;
+const MAX_FORKS = IS_CI ? 1 : 1;
 
 // CI also excludes a small set of heavy integration tests that need >7 GB
 // heap (the runner ceiling). They're covered by narrower targeted tests
@@ -45,14 +47,25 @@ export default defineConfig({
         // Pool tuning — see header comment above. agent.test.ts loads
         // 200+ TITAN modules transitively and the per-test
         // `vi.resetModules() + await import()` pattern accumulates
-        // heap faster than GC can reclaim. The fork pool isolates each
-        // file so memory is released between files (especially
-        // important on CI where HEAP_MB=4096 is tight).
+        // heap faster than GC can reclaim.
+        //
+        // CI critical: `fileParallelism: false` + `singleFork: false`
+        // means each file runs in its OWN fork, sequentially. Each
+        // fork starts cold, finishes its file, dies. Without this,
+        // CI accumulates heap across files and OOMs near the end of
+        // the suite even at 6 GB.
         pool: 'forks',
+        // Force strict sequential file execution on CI (one fork active at
+        // a time). `fileParallelism: false` is the public knob; `maxForks`
+        // is a ceiling, not a forcing function.
+        fileParallelism: !IS_CI,
         poolOptions: {
             forks: {
                 maxForks: MAX_FORKS,
-                minForks: 1,
+                // minForks=0 lets the pool kill idle workers between files,
+                // which is what releases heap on CI. With minForks=1 the
+                // pool kept one fork alive forever and heap accumulated.
+                minForks: 0,
                 execArgv: [`--max-old-space-size=${HEAP_MB}`, '--expose-gc'],
             },
         },
