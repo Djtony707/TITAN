@@ -19,11 +19,21 @@ const IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
 const HEAP_MB = IS_CI ? 4096 : 12288;
 const MAX_FORKS = IS_CI ? 2 : 1;
 
+// CI also excludes a small set of heavy integration tests that need >7 GB
+// heap (the runner ceiling). They're covered by narrower targeted tests
+// elsewhere; force-run with RUN_HEAVY=1 if you bump the runner class.
+const HEAVY_TESTS_EXCLUDED_IN_CI = IS_CI && !process.env.RUN_HEAVY ? [
+    // Re-evaluates the full TITAN module graph (200+ modules) on every test
+    // via vi.resetModules + dynamic import. Working set ~12 GB.
+    'tests/agent.test.ts',
+] : [];
+
 export default defineConfig({
     test: {
         globals: true,
         environment: 'node',
         include: ['tests/**/*.test.ts'],
+        exclude: ['node_modules/**', 'dist/**', ...HEAVY_TESTS_EXCLUDED_IN_CI],
         testTimeout: 30000,
         hookTimeout: 25000,
         // Pool tuning — see header comment above. agent.test.ts loads

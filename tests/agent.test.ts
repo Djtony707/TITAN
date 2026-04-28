@@ -306,6 +306,13 @@ afterEach(() => {
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────
+//
+// NOTE: this file is excluded from CI in vitest.config.ts (HEAVY_TESTS_EXCLUDED_IN_CI)
+// because it reloads the full TITAN module graph per test via
+// vi.resetModules + dynamic import — peak RSS ~12 GB which exceeds the
+// 7 GB GitHub runner ceiling. Run locally or set RUN_HEAVY=1 in CI.
+// The behaviour is covered by narrower integration tests
+// (multiAgent / subAgent / gateway-e2e / hunt-regression).
 
 describe('Agent processMessage', () => {
     it('should return a valid AgentResponse for a simple message', async () => {
