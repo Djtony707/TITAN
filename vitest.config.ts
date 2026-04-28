@@ -1,5 +1,24 @@
 import { defineConfig } from 'vitest/config';
 
+// CI-vs-local heap differentiation. The original config baked in
+// `--max-old-space-size=20480` (20 GB) which is fine on a 64 GB dev
+// machine but instantly OS-kills the GitHub-hosted Linux runner
+// (7 GB total RAM). Every CI run since v4.9.0 was hitting this:
+// vitest spawned a single fork, tried to allocate >7 GB heap, and the
+// runner reaped the process with the bare "operation cancelled"
+// message. CLAUDE.md called it the "Vitest worker OOM flake on full
+// suite" without identifying the root cause.
+//
+// Strategy:
+//   - Local: keep the 12 GB / single-fork setup so heavy module-graph
+//     reloading in agent.test.ts has room to breathe.
+//   - CI: cap heap at 4 GB, allow 2 parallel forks. Fits the 7 GB
+//     runner ceiling with headroom for V8 / GHA agent / OS overhead.
+const IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
+
+const HEAP_MB = IS_CI ? 4096 : 12288;
+const MAX_FORKS = IS_CI ? 2 : 1;
+
 export default defineConfig({
     test: {
         globals: true,
@@ -7,26 +26,18 @@ export default defineConfig({
         include: ['tests/**/*.test.ts'],
         testTimeout: 30000,
         hookTimeout: 25000,
-        // v4.9.0: use the vmThreads pool with an explicit memoryLimit
-        // and run tests/agent.test.ts sequentially via its own project.
-        // The prior `pool: 'forks'` + default heap hit
-        // `ERR_WORKER_OUT_OF_MEMORY` partway through agent.test.ts
-        // because processMessage transitively loads 200+ TITAN modules
-        // (skills registry, specialists, graph, providers, etc.) and
-        // the per-test `vi.resetModules() + await import()` pattern
-        // re-evaluates the graph every time, accumulating heap faster
-        // than GC can reclaim.
-        //
-        // Per-test heap bumped to 12GB — legitimate given TITAN's
-        // genuine module-graph size; well under the 64GB dev machine
-        // ceiling. --expose-gc lets targeted tests call global.gc()
-        // when they need to force reclamation between heavy runs.
+        // Pool tuning — see header comment above. agent.test.ts loads
+        // 200+ TITAN modules transitively and the per-test
+        // `vi.resetModules() + await import()` pattern accumulates
+        // heap faster than GC can reclaim. The fork pool isolates each
+        // file so memory is released between files (especially
+        // important on CI where HEAP_MB=4096 is tight).
         pool: 'forks',
         poolOptions: {
             forks: {
-                maxForks: 1,
+                maxForks: MAX_FORKS,
                 minForks: 1,
-                execArgv: ['--max-old-space-size=20480', '--expose-gc'],
+                execArgv: [`--max-old-space-size=${HEAP_MB}`, '--expose-gc'],
             },
         },
         coverage: {
