@@ -2,12 +2,17 @@
  * Self-Improvement Skill — Phase 9 safety tests
  * Rate limiting, checkpoint/rollback, evaluation scoring
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from 'fs';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, mkdtempSync } from 'fs';
 import { join } from 'path';
-import { TITAN_HOME } from '../../src/utils/constants.js';
+import { tmpdir } from 'os';
 
-const SELF_IMPROVE_DIR = join(TITAN_HOME, 'self-improve');
+// Per-suite temp dir so two parallel vitest forks (CI runs --pool=forks
+// with maxForks=2) don't race on a shared TITAN_HOME/self-improve path.
+// Pre-fix the test imported the constants TITAN_HOME and shared
+// .last-mutation across processes — failed sporadically in CI when
+// another fork's beforeEach raced this fork's recordMutation().
+const SELF_IMPROVE_DIR = mkdtempSync(join(tmpdir(), 'titan-self-improve-test-'));
 const LAST_MUTATION_PATH = join(SELF_IMPROVE_DIR, '.last-mutation');
 const CHECKPOINTS_DIR = join(SELF_IMPROVE_DIR, 'checkpoints');
 
@@ -123,4 +128,9 @@ describe('self-improve checkpoint/rollback', () => {
         const restored = restoreCheckpoint('nonexistent');
         expect(restored).toBeNull();
     });
+});
+
+afterAll(() => {
+    // Clean up the per-suite temp dir so we don't leak fixtures into /tmp.
+    try { rmSync(SELF_IMPROVE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
 });

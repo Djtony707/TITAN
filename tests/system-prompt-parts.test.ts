@@ -133,22 +133,33 @@ describe('systemPromptParts — size budget', () => {
     // The old monolithic prompt was ~25,000 chars. Budgets are set as
     // soft ceilings that would catch a regression (block creep) without
     // false-alarming on a small copy tweak.
-    it('full mode without dynamicContext stays under ~5.8KB', () => {
+    //
+    // 2026-04-28 update: ceilings bumped to absorb v5.4.x growth from
+    //   - widget gallery directives + canvas gate protocol additions
+    //   - SOMA drive directive expansion
+    //   - new Hunt Finding mitigations (#16/#21/#28/#37 nudges)
+    //   - per-model output clamping headers
+    // Measured: full 6254 chars, minimal 5000 chars (still ~4× smaller
+    // than the legacy 25 KB template). New regression budget 7000 for
+    // full / 5500 for minimal so the next round of natural growth
+    // doesn't trip the gate while a real regression (creeping back
+    // toward 25 KB) still does.
+    it('full mode without dynamicContext stays under ~7KB', () => {
         const p = assembleSystemPrompt({
             modelId: 'ollama/gemma4:31b-cloud',
             persona: 'default',
             mode: 'full',
         });
-        expect(p.length, `full mode is ${p.length} chars, ceiling 5800`).toBeLessThan(5800);
+        expect(p.length, `full mode is ${p.length} chars, ceiling 7000`).toBeLessThan(7000);
     });
 
-    it('minimal mode without dynamicContext stays under ~4.5KB', () => {
+    it('minimal mode without dynamicContext stays under ~5.5KB', () => {
         const p = assembleSystemPrompt({
             modelId: 'ollama/gemma4:31b-cloud',
             persona: 'default',
             mode: 'minimal',
         });
-        expect(p.length, `minimal mode is ${p.length} chars, ceiling 4500`).toBeLessThan(4500);
+        expect(p.length, `minimal mode is ${p.length} chars, ceiling 5500`).toBeLessThan(5500);
     });
 
     it('none mode stays under ~1.1KB', () => {
@@ -161,13 +172,15 @@ describe('systemPromptParts — size budget', () => {
     });
 
     it('full mode is dramatically smaller than the legacy ~25KB template', () => {
-        // Sanity check — the whole point of this refactor. If full-mode ever
-        // creeps back above 6KB, someone is re-introducing the MUST/NEVER walls.
+        // Sanity check — the whole point of the refactor. If full-mode
+        // ever creeps back above 8KB, someone is re-introducing the
+        // MUST/NEVER walls or the old monolithic structure. The legacy
+        // template was ~25 KB; we should stay well under half that.
         const p = assembleSystemPrompt({
             modelId: 'ollama/gemma4:31b-cloud',
             persona: 'default',
             mode: 'full',
         });
-        expect(p.length, `full is ${p.length}, legacy was ~25000 — regression budget 6000`).toBeLessThan(6000);
+        expect(p.length, `full is ${p.length}, legacy was ~25000 — regression budget 8000`).toBeLessThan(8000);
     });
 });

@@ -190,13 +190,23 @@ describe('drives', () => {
     });
 
     describe('Social', () => {
-        it('satiated when all agents fresh', () => {
+        it('satiated when all agents fresh AND a recent FB post exists', () => {
+            // v5.3.2 (Hunt #34): the social drive now blends two factors —
+            // agent staleness AND post drought (hoursSinceLastPost / 24).
+            // To get satisfaction=1 we have to satiate BOTH factors. With
+            // one fresh agent + no post timestamp (the pre-v5.3.2 setup),
+            // postSat falls back to ~0.5 ("never posted" treated as a
+            // 12h drought), giving social=0.75 instead of 1.
+            const now = Date.now();
             const agents = [
                 { id: 'a', name: 'x', model: 'm', status: 'active' as const,
-                  lastHeartbeat: new Date().toISOString(),
+                  lastHeartbeat: new Date(now).toISOString(),
                   totalTasksCompleted: 0, totalCostUsd: 0, createdAt: '', role: 'general' as const },
             ];
-            const drives = computeAllDrives(makeSnapshot({ agents }));
+            const drives = computeAllDrives(makeSnapshot({
+                agents,
+                lastFacebookPostAt: now,    // posted right now → postSat = 1
+            }));
             const social = drives.find(d => d.id === 'social')!;
             expect(social.satisfaction).toBe(1);
         });
