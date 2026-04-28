@@ -40,15 +40,21 @@ jobs:
       - name: Build UI
         run: npm run build:ui
 
-      - name: Run tests
-        # Heap + fork policy is owned by `vitest.config.ts` — read the
-        # header comment there for the full reasoning. DO NOT pass
-        # `--max-workers` / `--min-workers` here: those CLI flags
-        # silently override `poolOptions.forks.{maxForks,minForks}` in
-        # the config and re-introduce the multi-fork OOM that the
-        # per-file fork isolation was added to fix.
-        # 30min job timeout absorbs any runner slowness.
-        run: npx vitest run --reporter=verbose
+      # Sharded run: each shard is a fresh `node` process. Vitest's
+      # forks pool can't reliably kill a worker between files (we tried
+      # — the fork is reused and heap accumulates across the suite,
+      # OOMing around file ~100 of ~150). Splitting the run into two
+      # shards is the simplest reliable knife: each shard starts with a
+      # cold heap and stops well below the 4 GB cap.
+      #
+      # Heap + per-fork policy is still owned by `vitest.config.ts` —
+      # do NOT pass `--max-workers` / `--min-workers` here, those flags
+      # silently override `poolOptions.forks.{maxForks,minForks}`.
+      - name: Run tests (shard 1/2)
+        run: npx vitest run --reporter=verbose --shard=1/2
+
+      - name: Run tests (shard 2/2)
+        run: npx vitest run --reporter=verbose --shard=2/2
 
   health:
     needs: test
