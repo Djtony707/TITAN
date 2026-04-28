@@ -225,6 +225,30 @@ function Widget() {
   return <div>Hello from widget</div>;
 }
 
+### _____widget_remove
+For removing a single widget from the canvas. Body is JSON identifying the widget by \`id\`, \`source\`, or display \`name\` (first match wins).
+
+_____widget_remove
+{ "source": "system:vram" }
+
+_____widget_remove
+{ "name": "Clock" }
+
+### _____widget_clear
+For wiping every widget from the active canvas. Use only when the user explicitly asks to clear/reset/start over. Body may be empty JSON \`{}\` or a short note.
+
+_____widget_clear
+{}
+
+### _____widget_update
+For modifying an existing widget — change its name, dimensions (w/h), position (x/y), or replace its source. Identify the widget the same way as remove (\`id\`/\`source\`/\`name\`).
+
+_____widget_update
+{ "source": "system:vram", "w": 8, "h": 8 }
+
+_____widget_update
+{ "name": "Clock", "source": "function Widget(){ return <div>13:00</div>; }" }
+
 ### _____tool
 For calling backend tools or MCP servers.
 
@@ -689,6 +713,120 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
               error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
             };
           }
+        }
+      }
+
+      if (gate === '_____widget_remove') {
+        // Remove a single widget by id, source, or display name. Body is JSON.
+        // Examples:
+        //   { "id": "widget_173_abc" }
+        //   { "source": "system:vram" }
+        //   { "name": "VRAM Monitor" }
+        const s = spaceRef.current;
+        try {
+          const parsed = JSON.parse(code);
+          const target = SpaceEngine.findWidget(s.id, parsed);
+          if (!target) {
+            const desc = parsed.id || parsed.source || parsed.name || 'unknown';
+            return {
+              status: 'error',
+              logs: [{ level: 'warn', text: `No widget found matching ${desc}` }],
+              resultText: '',
+              runId: Date.now(),
+              error: { message: `No widget matching ${desc}`, name: 'WidgetNotFound', stack: '', text: `No widget matching ${desc}` },
+            };
+          }
+          SpaceEngine.removeWidget(s.id, target.id);
+          window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+          return {
+            status: 'success',
+            logs: [{ level: 'info', text: `Removed widget ${target.name} (${target.id})` }],
+            resultText: `Removed ${target.name}`,
+            runId: Date.now(),
+          };
+        } catch (err: any) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: err.message || String(err) }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
+          };
+        }
+      }
+
+      if (gate === '_____widget_clear') {
+        // Wipe all widgets from the active space. Body is ignored (may be empty
+        // or contain a confirmation note like "user requested fresh canvas").
+        const s = spaceRef.current;
+        try {
+          const removed = SpaceEngine.clearWidgets(s.id);
+          window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+          return {
+            status: 'success',
+            logs: [{ level: 'info', text: `Cleared ${removed} widget${removed === 1 ? '' : 's'} from canvas` }],
+            resultText: `Cleared ${removed} widget${removed === 1 ? '' : 's'}`,
+            runId: Date.now(),
+          };
+        } catch (err: any) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: err.message || String(err) }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
+          };
+        }
+      }
+
+      if (gate === '_____widget_update') {
+        // Update a widget's props/size/source. Body is JSON.
+        // The agent must include `id` (or `source`/`name` to look up id) plus
+        // any of: name, w, h, source, format, x, y, props.
+        // Example: { "source": "system:vram", "w": 8, "h": 8 }
+        const s = spaceRef.current;
+        try {
+          const parsed = JSON.parse(code);
+          const target = SpaceEngine.findWidget(s.id, parsed);
+          if (!target) {
+            const desc = parsed.id || parsed.source || parsed.name || 'unknown';
+            return {
+              status: 'error',
+              logs: [{ level: 'warn', text: `No widget found matching ${desc}` }],
+              resultText: '',
+              runId: Date.now(),
+              error: { message: `No widget matching ${desc}`, name: 'WidgetNotFound', stack: '', text: `No widget matching ${desc}` },
+            };
+          }
+          // Build the patch — only include fields the agent actually provided.
+          // Don't blindly overwrite source with parsed.source unless it differs
+          // from the lookup key (otherwise updating by source would be a no-op
+          // patch that still triggers a refresh).
+          const patch: Partial<typeof target> = {};
+          if (typeof parsed.name === 'string') patch.name = parsed.name;
+          if (typeof parsed.format === 'string') patch.format = parsed.format;
+          if (typeof parsed.source === 'string' && parsed.source !== target.source && parsed.id) patch.source = parsed.source;
+          if (Number.isFinite(parsed.w)) patch.w = Math.max(1, Math.floor(parsed.w));
+          if (Number.isFinite(parsed.h)) patch.h = Math.max(1, Math.floor(parsed.h));
+          if (Number.isFinite(parsed.x)) patch.x = Math.max(0, Math.floor(parsed.x));
+          if (Number.isFinite(parsed.y)) patch.y = Math.max(0, Math.floor(parsed.y));
+          if (parsed.props && typeof parsed.props === 'object') (patch as any).props = parsed.props;
+          SpaceEngine.updateWidget(s.id, target.id, patch);
+          window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+          return {
+            status: 'success',
+            logs: [{ level: 'info', text: `Updated widget ${target.name} (${target.id})` }],
+            resultText: `Updated ${target.name}`,
+            runId: Date.now(),
+          };
+        } catch (err: any) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: err.message || String(err) }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
+          };
         }
       }
 

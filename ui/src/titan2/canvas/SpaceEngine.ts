@@ -405,6 +405,39 @@ export const SpaceEngine = {
     this.save(space);
   },
 
+  /**
+   * Remove every widget in a space. Used by the `_____widget_clear` gate so
+   * the agent can wipe the canvas when the user asks for a fresh start.
+   * Returns the number of widgets removed.
+   */
+  clearWidgets(spaceId: string): number {
+    const space = this.get(spaceId);
+    if (!space) return 0;
+    const count = space.widgets.length;
+    if (USE_CRDT) {
+      clearYSpace(spaceId);
+    }
+    space.widgets = [];
+    this.save(space);
+    return count;
+  },
+
+  /**
+   * Find a widget by source id (e.g. `system:vram`) or display name.
+   * Used by `_____widget_remove` when the agent identifies a widget by
+   * human-readable handle rather than internal `id`. Returns the first
+   * match — names should be unique per space in practice.
+   */
+  findWidget(spaceId: string, identifier: { id?: string; source?: string; name?: string }): WidgetDef | undefined {
+    const space = this.get(spaceId);
+    if (!space) return undefined;
+    return space.widgets.find(w =>
+      (identifier.id && w.id === identifier.id) ||
+      (identifier.source && w.source === identifier.source) ||
+      (identifier.name && w.name === identifier.name),
+    );
+  },
+
   updateLayout(spaceId: string, layout: Array<{ i: string; x: number; y: number; w: number; h: number }>) {
     if (USE_CRDT) {
       for (const l of layout) {

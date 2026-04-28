@@ -3341,6 +3341,57 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
     ];
+    // ── Widget-clear fast-path ─────────────────────────────────────
+    // "clear the canvas" / "wipe all widgets" — emit _____widget_clear
+    // directly. Must precede the per-widget shortcut matcher; otherwise
+    // "clear" can collide with widget name patterns.
+    //
+    // The regex requires the destruction verb followed by a SPACE (not a
+    // hyphen, so "clear-style widget" is not matched) and an explicit
+    // target noun (canvas/widgets/space/board/all). The "remove/delete +
+    // all/every/each" branch handles "remove all widgets" phrasings.
+    const widgetClearPattern = /\b(?:clear|wipe|reset|empty)\s+(?:.*\b)?(?:canvas|widgets?|space|board|all)\b|\b(?:remove|delete)\s+(?:all|every|each)\b/i;
+    if (widgetClearPattern.test(content)) {
+        const gateText = `_____widget_clear\n{}`;
+        const responseText = `Clearing the canvas.`;
+        titanRequestsTotal.increment({ channel, status: 'ok' });
+        if (req.headers.accept === 'text/event-stream') {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.flushHeaders();
+            res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
+            res.write(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
+            res.write(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
+            res.end();
+        } else {
+            res.json({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, toolsUsed: [], model: 'system', durationMs: 0 });
+        }
+        return;
+    }
+
+    // ── Widget-remove fast-path ────────────────────────────────────
+    // "remove the VRAM widget" / "close the cron panel" / "delete the
+    // backup widget". Match a remove-verb plus a known widget pattern.
+    const widgetRemoveVerb = /\b(?:remove|delete|close|kill|hide)\b/i;
+    if (widgetRemoveVerb.test(content)) {
+        const targetShortcut = systemWidgetShortcuts.find(s => s.pattern.test(content));
+        if (targetShortcut) {
+            const gateText = `_____widget_remove\n{ "source": "${targetShortcut.source}" }`;
+            const responseText = `Removing the **${targetShortcut.name}** widget from your canvas.`;
+            titanRequestsTotal.increment({ channel, status: 'ok' });
+            if (req.headers.accept === 'text/event-stream') {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.flushHeaders();
+                res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
+                res.write(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
+                res.write(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
+                res.end();
+            } else {
+                res.json({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, toolsUsed: [], model: 'system', durationMs: 0 });
+            }
+            return;
+        }
+    }
+
     const matchedShortcut = systemWidgetShortcuts.find(s => s.pattern.test(content));
     if (matchedShortcut) {
         const gateText = `_____widget\n{ "name": "${matchedShortcut.name}", "format": "system", "source": "${matchedShortcut.source}", "w": ${matchedShortcut.w}, "h": ${matchedShortcut.h} }`;

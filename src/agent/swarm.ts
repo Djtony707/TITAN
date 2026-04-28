@@ -1,13 +1,22 @@
 /**
  * TITAN — Kimi Swarm Architecture
- * 
- * Intercepts requests meant for kimi-k2.5:cloud and routes them through specialized Sub-Agents.
- * By breaking the 23-tool monolith into small 3-4 tool domain chunks, we prevent Kimi from
- * suffering context collapse and timeouts.
+ *
+ * Intercepts requests meant for kimi-k2.5:cloud and routes them through
+ * specialized Sub-Agents. By breaking the 23-tool monolith into small 3-4
+ * tool domain chunks, we prevent Kimi from suffering context collapse and
+ * timeouts.
+ *
+ * v5.4.x note (Phase B consolidation): `runSubAgent` used to host its own
+ * mini agent loop with a separate `chat()` + `executeTools()` cycle. That
+ * bypassed every cross-cutting layer in `commandPost` / `budgetEnforcer` /
+ * `guardrails` — sub-agents went off the books. It now delegates to the
+ * canonical `spawnSubAgent` with a domain-restricted tool allowlist and a
+ * 3-round cap. The Swarm Router's external surface (the
+ * `delegate_to_X_agent` tools) is unchanged.
  */
-import { chat } from '../providers/router.js';
-import { executeTools, getToolDefinitions } from './toolRunner.js';
-import type { ChatMessage, ToolDefinition } from '../providers/base.js';
+import { spawnSubAgent } from './subAgent.js';
+import { getToolDefinitions } from './toolRunner.js';
+import type { ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Swarm';
@@ -104,9 +113,22 @@ function getDomainTools(domain: Domain): ToolDefinition[] {
     return allTools.filter(t => (domainMap[t.function.name] || 'file') === domain);
 }
 
-/** 
- * Spawns an ephemeral Sub-Agent with a restricted toolset. 
- * This is executed sequentially by the Main Director.
+/**
+ * Spawn a domain-restricted ephemeral sub-agent for the Swarm Router.
+ *
+ * v5.4.x: this is now a thin shim over `spawnSubAgent`. The previous
+ * implementation ran its own `chat()` + `executeTools()` loop, which left
+ * the spawned agent invisible to the governance overlay (Command Post,
+ * BudgetEnforcer, audit log). All sub-agent execution now flows through
+ * the canonical path.
+ *
+ * Behavior preserved:
+ *   - Tool surface restricted to the requested domain (file/web/system/memory).
+ *   - 3-round cap (matched the original mini-loop ceiling).
+ *   - Output prefixed with `[Sub-Agent Result / Domain: <domain>]` so
+ *     callers' string parsing still works.
+ *   - Errors return a string starting with `Sub-Agent encountered an error:`
+ *     rather than throwing, matching the old contract.
  */
 export async function runSubAgent(
     domain: Domain,
@@ -116,60 +138,31 @@ export async function runSubAgent(
     logger.info(COMPONENT, `[Swarm] Spawning ${domain.toUpperCase()} Sub-Agent to handle: "${instruction.slice(0, 50)}..."`);
 
     const domainTools = getDomainTools(domain);
+    const toolNames = domainTools.map(t => t.function.name);
 
-    // Mini agent loop (max 3 rounds)
-    const messages: ChatMessage[] = [
-        { role: 'system', content: `You are the ${domain.toUpperCase()} Sub-Agent of TITAN.\nYour ONLY job is to execute the tools necessary to fulfill this instruction:\n\n${instruction}\n\nReturn a final text summary of the results.` },
-        { role: 'user', content: instruction }
-    ];
+    try {
+        const result = await spawnSubAgent({
+            // The `name` field becomes the agent's identifier in logs and
+            // governance feeds — keep it descriptive of the swarm domain.
+            name: `swarm-${domain}`,
+            task: instruction,
+            model,
+            // Match the historical 3-round budget exactly. The driver has
+            // its own depth-aware reduction on top of this; see subAgent.ts
+            // ~line 408.
+            maxRounds: 3,
+            // `spawnSubAgent` interprets `tools` as an allowlist of tool
+            // *names*. Empty list → no tools are presented to the model
+            // (matches the old `tools: domainTools.length > 0 ? ... :
+            // undefined` semantics, since `spawnSubAgent` skips the tool
+            // header when the resolved set is empty).
+            tools: toolNames,
+        });
 
-    let finalContent = '';
-
-    for (let round = 0; round < 3; round++) {
-        logger.debug(COMPONENT, `[Sub-Agent ${domain}] Round ${round + 1} with ${domainTools.length} tools`);
-
-        try {
-            const response = await chat({
-                model,
-                messages,
-                tools: domainTools.length > 0 ? domainTools : undefined,
-                maxTokens: 4096,
-                temperature: 0.2, // Low temp for strictly clinical tool execution
-            });
-
-            if (!response.toolCalls || response.toolCalls.length === 0) {
-                finalContent = response.content || 'Task completed silently.';
-                break;
-            }
-
-            messages.push({
-                role: 'assistant',
-                content: response.content || '',
-                toolCalls: response.toolCalls,
-            });
-
-            const toolResults = await executeTools(response.toolCalls);
-
-            for (const result of toolResults) {
-                messages.push({
-                    role: 'tool',
-                    // Include name — Gemini's Ollama adapter rejects
-                    // function_response with empty name (HTTP 400).
-                    name: result.name,
-                    content: result.content,
-                    toolCallId: result.toolCallId,
-                });
-            }
-
-            if (round === 2) {
-                finalContent = "Max sub-agent rounds reached. Partial results returned.";
-            }
-
-        } catch (e) {
-            logger.error(COMPONENT, `[Sub-Agent ${domain}] Error: ${(e as Error).message}`);
-            return `Sub-Agent encountered an error: ${(e as Error).message}`;
-        }
+        const finalContent = result?.content || 'Task completed silently.';
+        return `[Sub-Agent Result / Domain: ${domain}]\n${finalContent}`;
+    } catch (e) {
+        logger.error(COMPONENT, `[Sub-Agent ${domain}] Error: ${(e as Error).message}`);
+        return `Sub-Agent encountered an error: ${(e as Error).message}`;
     }
-
-    return `[Sub-Agent Result / Domain: ${domain}]\n${finalContent}`;
 }

@@ -5,7 +5,17 @@
 
 import type { AgentGate, ExecutionBlock, AgentMessage, ExecutionResult } from '../types';
 
-const GATES: AgentGate[] = ['_____javascript', '_____react', '_____tool', '_____widget', '_____framework', '_____transient'];
+const GATES: AgentGate[] = [
+  '_____javascript',
+  '_____react',
+  '_____tool',
+  '_____widget',
+  '_____widget_remove',
+  '_____widget_clear',
+  '_____widget_update',
+  '_____framework',
+  '_____transient',
+];
 
 function findLineStart(content: string, index: number): number {
   let start = index;

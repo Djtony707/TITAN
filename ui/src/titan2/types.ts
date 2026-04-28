@@ -72,7 +72,16 @@ export interface SandboxAPI {
 
 // ── Agent Protocol Types ──────────────────────────────────────
 
-export type AgentGate = '_____javascript' | '_____react' | '_____tool' | '_____widget' | '_____framework' | '_____transient';
+export type AgentGate =
+  | '_____javascript'
+  | '_____react'
+  | '_____tool'
+  | '_____widget'
+  | '_____widget_remove'
+  | '_____widget_clear'
+  | '_____widget_update'
+  | '_____framework'
+  | '_____transient';
 
 export interface ExecutionBlock {
   gate: AgentGate;
