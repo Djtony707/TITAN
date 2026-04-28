@@ -957,6 +957,10 @@ describe('GoogleProvider', () => {
         });
 
         it('should handle tool role messages as function responses', async () => {
+            // v5.4.1: google.ts now requires every tool message to reference a
+            // valid prior tool_call (id + name). Without this, Gemini rejects
+            // the request with an opaque 400. Test updated to seed an
+            // assistant turn whose toolCalls match the subsequent tool message.
             mockFetchWithRetry.mockResolvedValueOnce(mockResponse({
                 candidates: [{ content: { parts: [{ text: 'Got it.' }] } }],
             }));
@@ -964,13 +968,23 @@ describe('GoogleProvider', () => {
             await provider.chat({
                 messages: [
                     { role: 'user', content: 'Do thing' },
-                    { role: 'tool', content: '{"result":"ok"}', name: 'my_tool' },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        toolCalls: [{
+                            id: 'tc-1',
+                            type: 'function' as const,
+                            function: { name: 'my_tool', arguments: '{}' },
+                        }],
+                    },
+                    { role: 'tool', content: '{"result":"ok"}', name: 'my_tool', toolCallId: 'tc-1' },
                 ],
             });
 
             const body = JSON.parse(mockFetchWithRetry.mock.calls[0][1].body);
-            expect(body.contents[1].role).toBe('function');
-            expect(body.contents[1].parts[0].functionResponse.name).toBe('my_tool');
+            // contents[0] = user, contents[1] = model (assistant), contents[2] = function (tool)
+            expect(body.contents[2].role).toBe('function');
+            expect(body.contents[2].parts[0].functionResponse.name).toBe('my_tool');
         });
 
         it('should map assistant role to model', async () => {
@@ -1045,7 +1059,13 @@ describe('GoogleProvider', () => {
             expect(body.systemInstruction).toBeUndefined();
         });
 
-        it('should default tool name to "tool" when name not provided', async () => {
+        it('drops malformed tool messages with no matching prior tool_call', async () => {
+            // v5.4.1: pre-fix, google.ts would forward a tool message with
+            // no name as functionResponse.name = "tool" (a literal string),
+            // which Gemini rejects. The new strict validator drops the
+            // malformed message entirely with a logged warning instead of
+            // forwarding garbage to the API. Test renamed + updated to
+            // verify the drop happens.
             mockFetchWithRetry.mockResolvedValueOnce(mockResponse({
                 candidates: [{ content: { parts: [{ text: 'OK' }] } }],
             }));
@@ -1053,12 +1073,15 @@ describe('GoogleProvider', () => {
             await provider.chat({
                 messages: [
                     { role: 'user', content: 'Do thing' },
-                    { role: 'tool', content: '{"result":"ok"}' }, // no name
+                    { role: 'tool', content: '{"result":"ok"}' }, // no name, no toolCallId, no prior call
                 ],
             });
 
             const body = JSON.parse(mockFetchWithRetry.mock.calls[0][1].body);
-            expect(body.contents[1].parts[0].functionResponse.name).toBe('tool');
+            // The malformed tool message must be dropped; only the user
+            // message survives in contents[].
+            expect(body.contents).toHaveLength(1);
+            expect(body.contents[0].role).toBe('user');
         });
     });
 

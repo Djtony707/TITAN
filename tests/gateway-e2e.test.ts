@@ -277,7 +277,7 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             const res = await fetch(`${BASE}/api/message`, {
                 method: 'POST',
                 headers: sseHeaders,
-                body: JSON.stringify({ content: 'test' }),
+                body: JSON.stringify({ content: 'hello there' }),
             });
             const text = await res.text();
             const events = parseSSE(text);
@@ -376,7 +376,7 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             const res = await fetch(`${BASE}/api/message`, {
                 method: 'POST',
                 headers: sseHeaders,
-                body: JSON.stringify({ content: 'test' }),
+                body: JSON.stringify({ content: 'hello there' }),
             });
             const events = parseSSE(await res.text());
             const done = events.filter(e => e.event === 'done');

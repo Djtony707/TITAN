@@ -1,49 +1,139 @@
-version: '3.8'
-
 services:
-  titan:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: titan-gateway
-    ports:
-      - "48420:48420"
-    volumes:
-      - titan-data:/home/titan/.titan
-      # Optional: Mount local config/skills directory
-      # - ./config:/home/titan/.titan/config
-      # - ./skills:/home/titan/.titan/skills
+  # --- Media Server ---
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    network_mode: host
     environment:
-      - NODE_ENV=production
-      - TITAN_HOME=/home/titan/.titan
-      # Gateway binding (0.0.0.0 for container access)
-      - TITAN_GATEWAY_HOST=0.0.0.0
-      # GPU support (uncomment deploy section below for GPU)
-      # - OLLAMA_HOST=http://host.docker.internal:11434
-      # API Keys (use docker secrets or .env file in production):
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - PUID=1000
+      - PGID=1000
+      - VERSION=docker
+      - PLEX_CLAIM= #optional
+    volumes:
+      - ./config/plex:/config
+      - /9tb/media/tvshows:/tv
+      - /9tb/media/movies:/movies
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:48420/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    # GPU passthrough (NVIDIA) — uncomment when GPU is available
-    # See docker-compose.nvidia.yml for full GPU-accelerated setup
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    # Extra hosts for Ollama on host machine
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
 
-volumes:
-  titan-data:
-    driver: local
+  # --- Media Management ---
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./config/sonarr:/config
+      - /9tb/media/tvshows:/tv
+      - /9tb/torrents:/downloads
+    ports:
+      - 8989:8989
+    depends_on:
+      - qbittorrent
+      - prowlarr
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./config/radarr:/config
+      - /9tb/media/movies:/movies
+      - /9tb/torrents:/downloads
+    ports:
+      - 7878:7878
+    depends_on:
+      - qbittorrent
+      - prowlarr
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./config/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./config/jackett:/config
+      - /9tb/torrents/blackhole:/downloads
+    ports:
+      - 9117:9117
+    restart: unless-stopped
+
+  flaresolverr:
+    image: flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=America/Los_Angeles
+    ports:
+      - 8191:8191
+    restart: unless-stopped
+
+  # --- Downloader ---
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - /9tb/torrents:/downloads
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+    restart: unless-stopped
+
+  # --- AI Controller ---
+  # This is a custom service we will build
+  ai-media-controller:
+    build: ./data/ai-agent
+    container_name: ai-media-controller
+    environment:
+      - SONARR_URL=http://sonarr:8989
+      - RADARR_URL=http://radarr:7878
+      - SONARR_API_KEY=ef554ebb60314d3c94e7c465f45eab74
+      - RADARR_API_KEY=b8ded7657c1c4d10b4a5051485b2acb2
+      - TMDB_API_KEY=1fdee3d018c7af868ad62d2657d9ccb7
+    volumes:
+      - ./data/ai-agent:/app
+      - ./data/logs:/app/logs
+    depends_on:
+      - sonarr
+      - radarr
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    container_name: dashboard
+    environment:
+      - QBIT_URL=http://qbittorrent:8080
+    volumes:
+      - ./data/logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 3000:3000
+    restart: unless-stopped
