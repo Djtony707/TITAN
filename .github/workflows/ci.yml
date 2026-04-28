@@ -41,20 +41,23 @@ jobs:
         run: npm run build:ui
 
       # Sharded run: each shard is a fresh `node` process. Vitest's
-      # forks pool can't reliably kill a worker between files (we tried
-      # — the fork is reused and heap accumulates across the suite,
-      # OOMing around file ~100 of ~150). Splitting the run into two
-      # shards is the simplest reliable knife: each shard starts with a
-      # cold heap and stops well below the 4 GB cap.
+      # forks pool can't reliably kill a worker between files (the
+      # fork is reused and heap accumulates across the suite). 2-shard
+      # was close — shard 1 passed clean (123 files) but shard 2
+      # OOM'd at file 123/123 right at the end. Going to 3 shards drops
+      # each shard's file count to ~80 and leaves clear headroom.
       #
       # Heap + per-fork policy is still owned by `vitest.config.ts` —
       # do NOT pass `--max-workers` / `--min-workers` here, those flags
       # silently override `poolOptions.forks.{maxForks,minForks}`.
-      - name: Run tests (shard 1/2)
-        run: npx vitest run --reporter=verbose --shard=1/2
+      - name: Run tests (shard 1/3)
+        run: npx vitest run --reporter=verbose --shard=1/3
 
-      - name: Run tests (shard 2/2)
-        run: npx vitest run --reporter=verbose --shard=2/2
+      - name: Run tests (shard 2/3)
+        run: npx vitest run --reporter=verbose --shard=2/3
+
+      - name: Run tests (shard 3/3)
+        run: npx vitest run --reporter=verbose --shard=3/3
 
   health:
     needs: test
