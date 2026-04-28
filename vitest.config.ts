@@ -24,8 +24,13 @@ import { defineConfig } from 'vitest/config';
 //     execution so we never have two heavy forks alive together.
 const IS_CI = !!(process.env.CI || process.env.GITHUB_ACTIONS);
 
-const HEAP_MB = IS_CI ? 4096 : 12288;
-const MAX_FORKS = IS_CI ? 1 : 1;
+// 6 GB on CI: with sharding (3 shards in ci.yml), only ONE node process
+// runs at a time, so we can use most of the runner's 7 GB ceiling. The
+// fork is still reused across the ~80 files per shard and heap
+// accumulates — at 4 GB this OOMd at file 81/82. 6 GB gives clear
+// headroom while leaving ~1 GB for OS + GHA agent overhead.
+const HEAP_MB = IS_CI ? 6144 : 12288;
+const MAX_FORKS = 1;
 
 // CI also excludes a small set of heavy integration tests that need >7 GB
 // heap (the runner ceiling). They're covered by narrower targeted tests
