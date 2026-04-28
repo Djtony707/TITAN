@@ -938,13 +938,16 @@ describe('Gateway Extended', () => {
                 content: 'delayed', toolsUsed: [], tokenUsage: { total: 1 }, durationMs: 1,
             }), 2000)));
 
-            // Fire off more requests than the maxConcurrent limit (default 5)
+            // Fire off more requests than the maxConcurrent limit (default 5).
+            // Avoid words that match systemWidgetShortcuts (server.ts ~line 3330) —
+            // e.g. 'test', 'cron', 'training', 'vram', 'mesh' all short-circuit
+            // the LLM and return 200 immediately. Use a neutral phrase.
             const requests: Promise<Response>[] = [];
             for (let i = 0; i < 7; i++) {
                 requests.push(fetch(`${BASE}/api/message`, {
                     method: 'POST',
                     headers: jsonAuth,
-                    body: JSON.stringify({ content: `concurrent-test-${i}` }),
+                    body: JSON.stringify({ content: `hello there number ${i}` }),
                 }));
             }
 

@@ -967,9 +967,12 @@ describe('Mesh Transport', () => {
 
             closeHandler();
 
+            // v5.4.x: log format includes (cause), e.g. "Mesh peer disconnected (close): remote-close"
+            // (transport.ts:722). Match on the prefix and nodeId rather than the
+            // full string.
             expect(logger.info).toHaveBeenCalledWith(
                 'MeshTransport',
-                expect.stringContaining('Mesh peer disconnected: remote-close'),
+                expect.stringMatching(/Mesh peer disconnected \(\w+\): remote-close/),
             );
         });
     });

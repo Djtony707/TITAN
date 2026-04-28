@@ -103,14 +103,24 @@ describe('SubAgent', () => {
         });
 
         it('respects maxRounds limit', async () => {
-            // Always return tool calls — should stop at maxRounds
-            mockChat.mockResolvedValue({
-                content: 'Still working...',
-                toolCalls: [{ id: 'tc1', function: { name: 'web_search', arguments: '{}' } }],
-            });
-            mockExecuteTools.mockResolvedValue([
-                { name: 'web_search', content: 'results', toolCallId: 'tc1' },
-            ]);
+            // Always return tool calls — should stop at maxRounds.
+            // NOTE: subAgent has loop detection (subAgent.ts ~line 658) that bails
+            // if the same tool+args repeats in consecutive rounds. Vary the args
+            // each round so the loop detector doesn't fire and we actually exercise
+            // the maxRounds limit.
+            let callIdx = 0;
+            mockChat.mockImplementation(async () => ({
+                // Vary content too — subAgent has stall detection (STALL_THRESHOLD=3)
+                // that bails if identical content is returned in consecutive rounds.
+                content: `Still working... iteration ${callIdx}`,
+                toolCalls: [{
+                    id: `tc${callIdx}`,
+                    function: { name: 'web_search', arguments: JSON.stringify({ q: `query-${callIdx++}` }) },
+                }],
+            }));
+            mockExecuteTools.mockImplementation(async (toolCalls: any[]) =>
+                toolCalls.map((tc) => ({ name: 'web_search', content: 'results', toolCallId: tc.id })),
+            );
 
             const result = await spawnSubAgent({ name: 'Test', task: 'Loop', maxRounds: 5 });
 
