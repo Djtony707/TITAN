@@ -9,6 +9,7 @@ import { TITAN_HOME, TITAN_SKILLS_DIR } from '../utils/constants.js';
 import { registerTool, type ToolHandler } from '../agent/toolRunner.js';
 import { ensureDir } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
+import { loadConfig } from '../config/config.js';
 
 const COMPONENT = 'Skills';
 const DISABLED_SKILLS_PATH = join(TITAN_HOME, 'disabled-skills.json');
@@ -280,11 +281,22 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerFBAutopilotSkill } = await import('./builtin/fb_autopilot.js');
     const { registerWidgetGallerySkill } = await import('./builtin/widget_gallery.js');
 
+    const config = loadConfig();
+    const primitiveMode = config.skills.primitiveMode;
+
+    if (primitiveMode) {
+        logger.info(COMPONENT, 'PRIMITIVE MODE ENABLED — loading only shell, filesystem, web_search');
+    }
+
     const registrations: [string, () => void][] = [
         ['shell', registerShellSkill],
         ['filesystem', registerFilesystemSkill],
         ['web_search', registerWebSearchSkill],
-        ['cron', registerCronSkill],
+    ];
+
+    if (!primitiveMode) {
+        registrations.push(
+            ['cron', registerCronSkill],
         ['webhook', registerWebhookSkill],
         ['memory', registerMemorySkill],
         ['browser', registerBrowserSkill],
@@ -363,90 +375,93 @@ export async function initBuiltinSkills(): Promise<void> {
         ['facebook', registerFacebookSkill],
         ['fb_autopilot', registerFBAutopilotSkill],
         ['widget_gallery', registerWidgetGallerySkill],
-    ];
-
+        ['widget_gallery', registerWidgetGallerySkill],
+        );
+    }
     for (const [name, fn] of registrations) {
         try { fn(); } catch (e) { logger.warn(COMPONENT, `Failed to register skill "${name}": ${(e as Error).message}`); }
     }
 
-    // Register planner as an LLM-invocable tool
-    const { registerPlannerTool } = await import('../agent/planner.js');
-    try { registerPlannerTool(); } catch (e) { logger.warn(COMPONENT, `Failed to register planner: ${(e as Error).message}`); }
+    if (!primitiveMode) {
+        // Register planner as an LLM-invocable tool
+        const { registerPlannerTool } = await import('../agent/planner.js');
+        try { registerPlannerTool(); } catch (e) { logger.warn(COMPONENT, `Failed to register planner: ${(e as Error).message}`); }
 
-    // Register TopFacts context engine plugin (DeerFlow-inspired persistent memory)
-    try {
-        const { createTopFactsPlugin } = await import('../plugins/topFacts.js');
-        const { createMemoryRetrievalPlugin } = await import('../plugins/memoryRetrieval.js');
-        const { registerPlugin } = await import('../plugins/registry.js');
-        const topFacts = createTopFactsPlugin();
-        registerPlugin(topFacts);
-        if (topFacts.bootstrap) await topFacts.bootstrap({});
-        const memoryRetrieval = createMemoryRetrievalPlugin();
-        registerPlugin(memoryRetrieval);
-        if (memoryRetrieval.bootstrap) await memoryRetrieval.bootstrap({});
-    } catch (e) { logger.warn(COMPONENT, `Failed to register TopFacts plugin: ${(e as Error).message}`); }
+        // Register TopFacts context engine plugin (DeerFlow-inspired persistent memory)
+        try {
+            const { createTopFactsPlugin } = await import('../plugins/topFacts.js');
+            const { createMemoryRetrievalPlugin } = await import('../plugins/memoryRetrieval.js');
+            const { registerPlugin } = await import('../plugins/registry.js');
+            const topFacts = createTopFactsPlugin();
+            registerPlugin(topFacts);
+            if (topFacts.bootstrap) await topFacts.bootstrap({});
+            const memoryRetrieval = createMemoryRetrievalPlugin();
+            registerPlugin(memoryRetrieval);
+            if (memoryRetrieval.bootstrap) await memoryRetrieval.bootstrap({});
+        } catch (e) { logger.warn(COMPONENT, `Failed to register TopFacts plugin: ${(e as Error).message}`); }
 
-    // Register SmartCompress context engine plugin (task-type-aware compression)
-    try {
-        const { createSmartCompressPlugin } = await import('../plugins/smartCompress.js');
-        const { registerPlugin: regPlugin } = await import('../plugins/registry.js');
-        const smartCompress = createSmartCompressPlugin();
-        regPlugin(smartCompress);
-        if (smartCompress.bootstrap) await smartCompress.bootstrap({});
-    } catch (e) { logger.warn(COMPONENT, `Failed to register SmartCompress plugin: ${(e as Error).message}`); }
+        // Register SmartCompress context engine plugin (task-type-aware compression)
+        try {
+            const { createSmartCompressPlugin } = await import('../plugins/smartCompress.js');
+            const { registerPlugin: regPlugin } = await import('../plugins/registry.js');
+            const smartCompress = createSmartCompressPlugin();
+            regPlugin(smartCompress);
+            if (smartCompress.bootstrap) await smartCompress.bootstrap({});
+        } catch (e) { logger.warn(COMPONENT, `Failed to register SmartCompress plugin: ${(e as Error).message}`); }
 
-    // Register tool_search + tool_expand — meta-tools for discovering tools on demand
-    // tool_expand is the progressive disclosure extension (Hermes competitive gap fix)
-    const { getToolSearchHandler, getToolExpandHandler } = await import('../agent/toolSearch.js');
-    try { registerTool(getToolSearchHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_search: ${(e as Error).message}`); }
-    try { registerTool(getToolExpandHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_expand: ${(e as Error).message}`); }
+        // Register tool_search + tool_expand — meta-tools for discovering tools on demand
+        // tool_expand is the progressive disclosure extension (Hermes competitive gap fix)
+        const { getToolSearchHandler, getToolExpandHandler } = await import('../agent/toolSearch.js');
+        try { registerTool(getToolSearchHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_search: ${(e as Error).message}`); }
+        try { registerTool(getToolExpandHandler()); } catch (e) { logger.warn(COMPONENT, `Failed to register tool_expand: ${(e as Error).message}`); }
 
-    // F3: Register procedural memory tools (Hermes-inspired skill learning)
-    try {
-        const { saveSkill, searchSkills } = await import('./proceduralMemory.js');
-        registerTool({
-            name: 'save_skill',
-            description: 'Save a reusable approach/technique as a procedural skill for future tasks. Use this when you discover an effective approach that could help in similar future situations.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    name: { type: 'string', description: 'Short descriptive name for the skill (e.g., "Deploy Node.js app to Docker")' },
-                    tags: { type: 'array', items: { type: 'string' }, description: 'Tags for searchability (e.g., ["docker", "deployment", "nodejs"])' },
-                    content: { type: 'string', description: 'The reusable approach/technique in markdown format. Include key steps, commands, and gotchas.' },
+        // F3: Register procedural memory tools (Hermes-inspired skill learning)
+        try {
+            const { saveSkill, searchSkills } = await import('./proceduralMemory.js');
+            registerTool({
+                name: 'save_skill',
+                description: 'Save a reusable approach/technique as a procedural skill for future tasks. Use this when you discover an effective approach that could help in similar future situations.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string', description: 'Short descriptive name for the skill (e.g., "Deploy Node.js app to Docker")' },
+                        tags: { type: 'array', items: { type: 'string' }, description: 'Tags for searchability (e.g., ["docker", "deployment", "nodejs"])' },
+                        content: { type: 'string', description: 'The reusable approach/technique in markdown format. Include key steps, commands, and gotchas.' },
+                    },
+                    required: ['name', 'tags', 'content'],
                 },
-                required: ['name', 'tags', 'content'],
-            },
-            execute: async (args: Record<string, unknown>) => {
-                const name = args.name as string;
-                const tags = (args.tags as string[]) || [];
-                const content = args.content as string;
-                if (!name || !content) return 'Error: name and content are required';
-                const skill = saveSkill(name, tags, content);
-                return `Skill saved: "${skill.name}" (tags: ${skill.tags.join(', ')}). It will be auto-recalled in future tasks matching these tags.`;
-            },
-        });
-        registerTool({
-            name: 'recall_skill',
-            description: 'Search for previously saved procedural skills by keyword or tag. Returns reusable approaches from past tasks.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    query: { type: 'string', description: 'Search query — keywords or tags to find relevant skills' },
+                execute: async (args: Record<string, unknown>) => {
+                    const name = args.name as string;
+                    const tags = (args.tags as string[]) || [];
+                    const content = args.content as string;
+                    if (!name || !content) return 'Error: name and content are required';
+                    const skill = saveSkill(name, tags, content);
+                    return `Skill saved: "${skill.name}" (tags: ${skill.tags.join(', ')}). It will be auto-recalled in future tasks matching these tags.`;
                 },
-                required: ['query'],
-            },
-            execute: async (args: Record<string, unknown>) => {
-                const query = args.query as string;
-                if (!query) return 'Error: query is required';
-                const results = searchSkills(query, 5);
-                if (results.length === 0) return 'No matching skills found. Consider saving useful approaches with save_skill.';
-                return results.map(s =>
-                    `### ${s.name}\nTags: ${s.tags.join(', ')} | Used ${s.useCount}x\n${s.content.slice(0, 800)}`
-                ).join('\n\n---\n\n');
-            },
-        });
-        logger.info(COMPONENT, 'Registered procedural memory tools (save_skill, recall_skill)');
-    } catch (e) { logger.warn(COMPONENT, `Failed to register procedural memory tools: ${(e as Error).message}`); }
+            });
+            registerTool({
+                name: 'recall_skill',
+                description: 'Search for previously saved procedural skills by keyword or tag. Returns reusable approaches from past tasks.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        query: { type: 'string', description: 'Search query — keywords or tags to find relevant skills' },
+                    },
+                    required: ['query'],
+                },
+                execute: async (args: Record<string, unknown>) => {
+                    const query = args.query as string;
+                    if (!query) return 'Error: query is required';
+                    const results = searchSkills(query, 5);
+                    if (results.length === 0) return 'No matching skills found. Consider saving useful approaches with save_skill.';
+                    return results.map(s =>
+                        `### ${s.name}\nTags: ${s.tags.join(', ')} | Used ${s.useCount}x\n${s.content.slice(0, 800)}`
+                    ).join('\n\n---\n\n');
+                },
+            });
+            logger.info(COMPONENT, 'Registered procedural memory tools (save_skill, recall_skill)');
+        } catch (e) { logger.warn(COMPONENT, `Failed to register procedural memory tools: ${(e as Error).message}`); }
+    }
 
     logger.info(COMPONENT, `Loaded ${registeredSkills.size} built-in skills`);
 

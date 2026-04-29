@@ -1,0 +1,9 @@
+name: docs
+specialist: writer
+tools: [read, write, edit, delegate]
+model: ollama/qwen3.5:27b
+maxRounds: 10
+workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main
+approvals: [write, edit]
+autoApprove: false
+heartbeatInterval: 3

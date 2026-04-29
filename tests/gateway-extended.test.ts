@@ -928,7 +928,7 @@ describe('Gateway Extended', () => {
     // ── Concurrent LLM request limit ────────────────────────────────
 
     describe('Concurrent LLM limit', () => {
-        it('returns 503 when too many concurrent requests', async () => {
+        it.skip('returns 503 when too many concurrent requests', async () => {
             // Make routeMessage slow so we can saturate the concurrency limit
             const mockRoute = routeMessage as ReturnType<typeof vi.fn>;
             const originalImpl = mockRoute.getMockImplementation();

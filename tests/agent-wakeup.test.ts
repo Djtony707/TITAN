@@ -12,6 +12,7 @@ const mockStartRun = vi.hoisted(() => vi.fn());
 const mockEndRun = vi.hoisted(() => vi.fn());
 const mockTitanEvents = vi.hoisted(() => ({
     on: vi.fn(),
+    off: vi.fn(),
     emit: vi.fn(),
     removeAllListeners: vi.fn(),
 }));
@@ -262,7 +263,7 @@ describe('AgentWakeup', () => {
         it('should remove event listeners', () => {
             initWakeupSystem();
             shutdownWakeupSystem();
-            expect(mockTitanEvents.removeAllListeners).toHaveBeenCalledWith('agent:wakeup');
+            expect(mockTitanEvents.off).toHaveBeenCalledWith('agent:wakeup', expect.any(Function));
         });
     });
 });

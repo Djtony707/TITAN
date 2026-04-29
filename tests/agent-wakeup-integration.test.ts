@@ -15,6 +15,7 @@ const mockEndRun = vi.hoisted(() => vi.fn());
 const mockGetAdapter = vi.hoisted(() => vi.fn());
 const mockTitanEvents = vi.hoisted(() => ({
     on: vi.fn(),
+    off: vi.fn(),
     emit: vi.fn(),
     removeAllListeners: vi.fn(),
 }));

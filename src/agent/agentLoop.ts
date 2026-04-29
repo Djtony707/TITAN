@@ -1499,7 +1499,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     // push it back to use tools. This is the key behavioral pattern that
                     // makes autonomous execution reliable — don't accept "I would do X"
                     // when the model should be calling tools to actually do X.
-                    if (ctx.isAutonomous && round < ctx.effectiveMaxRounds - 2) {
+                    // In non-autonomous mode with multi-step pipelines (edit, deploy),
+                    // if the model describes work instead of doing it, push it back.
+                    const isMultiStepPipeline = ctx.completionStrategy === 'terminal-tool' || ctx.minRounds !== undefined;
+                    const nudgeMinRounds = ctx.minRounds ?? (ctx.completionStrategy === 'single-round' ? 1 : 2);
+                    const nudgeMinRoundsMet = round >= nudgeMinRounds;
+                    const nudgeEnabled = ctx.isAutonomous || (isMultiStepPipeline && !nudgeMinRoundsMet);
+                    if (nudgeEnabled && round < ctx.effectiveMaxRounds - 2) {
                         // Hunt Finding #10 (2026-04-14): the previous regexes over-matched.
                         // `|The` with no word boundary matched "These"/"This"/"Then"/"There"/
                         // "They" — all common ways to start valid descriptive answers. And
@@ -1660,6 +1666,21 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     !tr.content.toLowerCase().includes('error'),
                     tr.diff,
                 );
+            }
+
+            // v5.0: Approval-gate pause — if any tool is awaiting human approval,
+            // exit the loop immediately so the user sees the approval request.
+            const pendingApproval = toolResults.find(r => r.approvalPending);
+            if (pendingApproval) {
+                logger.info(COMPONENT, `[ApprovalPause] Tool "${pendingApproval.name}" awaiting approval (req ${pendingApproval.approvalRequestId}) — exiting loop`);
+                result.content = pendingApproval.content;
+                // Push assistant + user messages so the user sees the approval request in context
+                ctx.messages.push({
+                    role: 'assistant',
+                    content: `I need your approval before I can use ${pendingApproval.name}. ${pendingApproval.content}`,
+                });
+                phase = 'done';
+                break;
             }
 
             // v4.13 ancestor-extraction (Hermes subdirectory_hints): for each
@@ -2063,23 +2084,40 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         phase = 'think';
                     }
                 }
-            } else {
-                // Non-autonomous: usually force text-only response after one tool round.
-                // BUT — if the tool was a discovery tool (gallery_search, tool_search) and
-                // its result explicitly hints at a follow-up tool call, allow one more
-                // think round so the model can complete the chain (e.g. gallery_get).
-                const discoveryTools = ['gallery_search', 'tool_search'];
-                const lastWasDiscovery = pendingToolCalls.length === 1 && discoveryTools.includes(pendingToolCalls[0].function.name);
-                const resultHintsFollowUp = lastWasDiscovery && toolResults.some(r =>
-                    /call gallery_get/i.test(r.content) ||
-                    /hint:.*?(call|use|try|fetch|get|search)/i.test(r.content)
-                );
-                if (resultHintsFollowUp && round < ctx.effectiveMaxRounds - 1) {
-                    logger.info(COMPONENT, `[DiscoveryChain] ${pendingToolCalls[0].function.name} hinted follow-up — allowing another think round`);
-                    phase = 'think';
                 } else {
-                    phase = 'respond';
-                    logger.info(COMPONENT, `[ThinkAct] Tools executed — entering respond phase (tools will be stripped)`);
+                    // Non-autonomous: force respond after one tool round unless the
+                    // pipeline indicates a multi-step task and a terminal tool hasn't
+                    // been called yet. This fixes the bug where reading a file (1 round)
+                    // would skip to respond despite a write/edit still being required.
+                const hasPipelineConfig = ctx.completionStrategy !== undefined || ctx.minRounds !== undefined;
+                const isMultiStep = hasPipelineConfig && (ctx.completionStrategy === 'terminal-tool' || ctx.minRounds !== undefined);
+                if (isMultiStep) {
+                    // Check if terminal tool (write, edit, post, etc.) was called
+                    const defaultTerminals = ['write_file', 'append_file', 'fb_post', 'fb_reply', 'content_publish'];
+                    const terminalTools = new Set(ctx.pipelineTerminalTools || defaultTerminals);
+                    const terminalMissing = !toolResults.some(r => terminalTools.has(r.name));
+                    if (terminalMissing && round < ctx.effectiveMaxRounds - 1) {
+                        logger.info(COMPONENT, `[NonAutonomous] Multi-step task needs terminal tool — staying in THINK`);
+                        ctx.messages.push({ role: 'user', content: 'Continue with the task. Call the required tool to finish.' });
+                        phase = 'think';
+                    } else {
+                        phase = 'respond';
+                    }
+                } else {
+                    // Default non-autonomous: go to respond (backward compatible)
+                    const discoveryTools = ['gallery_search', 'tool_search'];
+                    const lastWasDiscovery = pendingToolCalls.length === 1 && discoveryTools.includes(pendingToolCalls[0].function.name);
+                    const resultHintsFollowUp = lastWasDiscovery && toolResults.some(r =>
+                        /call gallery_get/i.test(r.content) ||
+                        /hint:.*?(call|use|try|fetch|get|search)/i.test(r.content)
+                    );
+                    if (resultHintsFollowUp && round < ctx.effectiveMaxRounds - 1) {
+                        logger.info(COMPONENT, `[DiscoveryChain] ${pendingToolCalls[0].function.name} hinted follow-up — allowing another think round`);
+                        phase = 'think';
+                    } else {
+                        phase = 'respond';
+                        logger.info(COMPONENT, `[ThinkAct] Tools executed — entering respond phase (tools will be stripped)`);
+                    }
                 }
             }
             break;

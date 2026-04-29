@@ -1379,19 +1379,9 @@ describe('OllamaProvider', () => {
             ];
             mockFetch.mockResolvedValueOnce(mockStreamResponse(ndjsonChunks));
 
-            // v5.0.2: Ollama provider only yields tool_calls if tools were sent in
-            // the request (ollama.ts:919). Pass a tool definition matching the
-            // mocked stream so the gate is satisfied.
             const chunks = await collectStream(provider.chatStream({
                 ...basicChatOptions(),
-                tools: [{
-                    type: 'function',
-                    function: {
-                        name: 'calc',
-                        description: 'do math',
-                        parameters: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'] },
-                    },
-                }],
+                tools: [{ type: 'function', function: { name: 'calc', description: 'Calculator' } }],
             }));
             const toolChunks = chunks.filter(c => c.type === 'tool_call');
             expect(toolChunks).toHaveLength(1);

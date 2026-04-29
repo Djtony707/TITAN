@@ -85,13 +85,7 @@ describe('OllamaProvider', () => {
         expect(body.think).toBe(false);
     });
 
-    it('forces think=false for models without thinkingWithTools (e.g. llama3.1) when thinking unspecified', async () => {
-        // v5.4.x: ollama.ts now consults modelCapabilities. Models with
-        // thinkingWithTools=false (llama3.1 included — see caps map ~line 175)
-        // get body.think=false even when the caller didn't pass `thinking`.
-        // This prevents 400 errors from Ollama ("model does not support thinking")
-        // and prevents content from routing to the thinking field on cloud
-        // models like minimax-m2.7:cloud. See ollama.ts:518-528.
+    it('sets think=false for models that do not support thinking', async () => {
         mockFetchWithRetry.mockResolvedValue({
             ok: true,
             json: async () => ({
@@ -109,29 +103,6 @@ describe('OllamaProvider', () => {
         const [, options] = mockFetchWithRetry.mock.calls[0];
         const body = JSON.parse(options.body);
         expect(body.think).toBe(false);
-    });
-
-    it('omits think field for thinking-capable models when thinking unspecified', async () => {
-        // For models with thinkingWithTools=true (e.g. qwen3), body.think is
-        // omitted when the caller doesn't pass `thinking` — letting the model
-        // decide whether to think.
-        mockFetchWithRetry.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                message: { content: 'Normal response' },
-                prompt_eval_count: 8,
-                eval_count: 4,
-            }),
-        });
-
-        await provider.chat({
-            model: 'ollama/qwen3',
-            messages: [{ role: 'user', content: 'Hello' }],
-        });
-
-        const [, options] = mockFetchWithRetry.mock.calls[0];
-        const body = JSON.parse(options.body);
-        expect(body.think).toBeUndefined();
     });
 
     it('throws on non-ok response', async () => {

@@ -119,6 +119,10 @@ export interface ToolResult {
     errorClass?: ErrorClass;
     /** Inline unified diff for file-modifying tools (write_file, edit_file, apply_patch) */
     diff?: string;
+    /** v5.0: True when the tool is paused waiting for human approval */
+    approvalPending?: boolean;
+    /** v5.0: Approval request ID when approvalPending is true */
+    approvalRequestId?: string;
 }
 
 /** A registered tool handler */
@@ -542,6 +546,46 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         }
     } catch (err) {
         logger.warn(COMPONENT, `Invariant check failed (fail-open): ${(err as Error).message}`);
+    }
+
+    // v5.0: Approval gates — human-in-the-loop before executing dangerous tools.
+    // This wires the approval_gates.ts skill into the execution path, closing the
+    // safety gap identified during the 2026-04-28 overnight audit.
+    try {
+        const { requiresApproval, createApprovalRequest } = await import('../skills/builtin/approval_gates.js');
+        if (requiresApproval(handler.name)) {
+            logger.info(COMPONENT, `[ApprovalGate] Tool "${handler.name}" requires human approval — filing request`);
+            const request = createApprovalRequest(handler.name, args, sessionId || toolCall.id);
+            if (request.status === 'pending') {
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: `Awaiting approval: Tool "${handler.name}" requires human confirmation before execution. ` +
+                        `Request ID: ${request.id}. ` +
+                        `Approve with "approve ${request.id}" or deny with "deny ${request.id}".`,
+                    success: false,
+                    // v5.0: Signal to the loop that this is an approval pause, not a failure
+                    approvalPending: true,
+                    approvalRequestId: request.id,
+                    durationMs: Date.now() - startTime,
+                };
+            }
+            // If request was auto-denied (e.g. preference set to 'always_deny'), 'createApprovalRequest'
+            // returns a request with status 'denied' and we should abort.
+            if (request.status === 'denied') {
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: `Error: Tool "${handler.name}" was auto-denied by approval policy. ` +
+                        `Check approval preferences or change the request decision.`,
+                    success: false,
+                    durationMs: Date.now() - startTime,
+                };
+            }
+        }
+    } catch (approvalErr) {
+        // Approval gates module unavailable → fail-open so the agent doesn't deadlock
+        logger.warn(COMPONENT, `Approval gate check failed (fail-open): ${(approvalErr as Error).message}`);
     }
 
     for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
