@@ -795,6 +795,73 @@ describe('AgentLoop — Stall detection', () => {
     });
 });
 
+describe('AgentLoop — Task Completion Invariant', () => {
+    // Root cause: fragmented completion detection causes agents to stop early
+    // or loop until budget exhaustion. These tests verify completion is correct.
+
+    it('SHOULD complete a write task when terminal tool succeeds (SmartExit)', async () => {
+        // Simulate: user asks to write → model calls write_file → should complete
+        mockChat
+            .mockResolvedValueOnce(makeChatResponse('I will write hello to test.txt', [
+                { name: 'write_file', args: '{"path":"test.txt","content":"hello"}' }
+            ]))
+            .mockResolvedValueOnce(makeChatResponse('Done! I wrote hello to test.txt.'));
+        mockExecuteTools.mockResolvedValueOnce([makeToolResult('write_file', 'File written')]);
+
+        const result = await runAgentLoop(makeLoopContext({
+            message: 'Write hello to test.txt',
+            smartExitEnabled: true,
+            pipelineTerminalTools: ['write_file'],
+            completionStrategy: 'terminal-tool',
+        }));
+
+        expect(result.toolsUsed).toContain('write_file');
+        expect(result.content).toBe('Done! I wrote hello to test.txt.');
+        expect(result.budgetExhausted).toBeFalsy();
+    });
+
+    it('SHOULD continue to edit after read_file when user asked to fix', async () => {
+        // Round 1: model reads file
+        mockChat
+            .mockResolvedValueOnce(makeChatResponse('Let me read the file first.', [
+                { name: 'read_file', args: '{"path":"app.js"}' }
+            ]))
+            .mockResolvedValueOnce(makeChatResponse('Fixed the bug in app.js.', [
+                { name: 'edit_file', args: '{"path":"app.js","target":"foo","replacement":"bar"}' }
+            ]))
+            .mockResolvedValueOnce(makeChatResponse('Done! Fixed the bug.'));
+        mockExecuteTools
+            .mockResolvedValueOnce([makeToolResult('read_file', 'function foo() { return 1; }')])
+            .mockResolvedValueOnce([makeToolResult('edit_file', 'File edited')]);
+
+        const result = await runAgentLoop(makeLoopContext({
+            message: 'Fix the bug in app.js',
+            smartExitEnabled: true,
+            pipelineTerminalTools: ['edit_file'],
+            completionStrategy: 'terminal-tool',
+        }));
+
+        expect(result.toolsUsed).toContain('read_file');
+        expect(result.toolsUsed).toContain('edit_file');
+        expect(result.content).toContain('Done');
+    });
+
+    it('SHOULD terminate gracefully when model returns text without tools', async () => {
+        // In non-autonomous mode, first text-only response goes directly to DONE
+        mockChat.mockResolvedValueOnce(makeChatResponse('I am thinking about this very carefully.'));
+
+        const result = await runAgentLoop(makeLoopContext({
+            message: 'What is 2+2?',
+            effectiveMaxRounds: 10,
+        }));
+
+        // Non-autonomous accepts text after first round (one-shot Q&A pattern)
+        expect(mockChat).toHaveBeenCalledTimes(1);
+        expect(result.content).toBe('I am thinking about this very carefully.');
+        expect(result.budgetExhausted).toBeFalsy();
+    });
+});
+
 describe('AgentLoop — Async sub-agent injection', () => {
     it('should inject completed async results into context when CP enabled', async () => {
         mockDrainPendingResults.mockReturnValueOnce([{
