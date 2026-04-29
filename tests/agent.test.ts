@@ -56,6 +56,7 @@ vi.mock('../src/utils/constants.js', () => ({
     AGENTS_MD: '/tmp/titan-test/AGENTS.md',
     SOUL_MD: '/tmp/titan-test/SOUL.md',
     TOOLS_MD: '/tmp/titan-test/TOOLS.md',
+    DEFAULT_MAX_TOKENS: 200000,
 }));
 
 vi.mock('fs', async (importOriginal) => {

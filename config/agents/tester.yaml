@@ -1,0 +1,9 @@
+name: tester
+specialist: qa
+tools: [read, bash, delegate]
+model: ollama/qwen3.5:27b
+maxRounds: 15
+workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main/tests
+approvals: [bash]
+autoApprove: false
+heartbeatInterval: 3

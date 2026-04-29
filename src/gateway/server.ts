@@ -71,6 +71,7 @@ import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getR
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
 import { initCommandPost, shutdownCommandPost, isCommandPostEnabled, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, searchIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, replyToApproval, snoozeApproval, unsnoozeApproval, batchApprove, batchReject, getAgentMessages, markAgentMessageRead, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
+import { initHeartbeatScheduler } from '../agent/heartbeatScheduler.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask, dedupeGoalsBulk } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
@@ -5365,6 +5366,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ success: ok });
   });
 
+  // Admin: manually trigger heartbeat task checkout for an agent
+  app.post('/api/command-post/agents/:id/fire', async (req, res) => {
+    try {
+      const { fireHeartbeat } = await import('../agent/heartbeatScheduler.js');
+      await fireHeartbeat(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
   app.delete('/api/command-post/agents/:id', (req, res) => {
     const ok = removeAgent(req.params.id);
     if (!ok) { res.status(400).json({ error: 'Cannot remove agent (not found or is the primary agent)' }); return; }
@@ -9637,6 +9649,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   if (config.commandPost?.enabled) {
     initCommandPost(config.commandPost);
     initWakeupSystem();
+    initHeartbeatScheduler();
     logger.info(COMPONENT, 'Command Post governance layer initialized (wakeup system active)');
 
     // v4.7.0: bootstrap specialist pool (Scout, Builder, Writer, Analyst)

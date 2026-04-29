@@ -682,6 +682,8 @@ export const TitanConfigSchema = z.object({
         enabled: z.boolean().default(true),
         autoDiscover: z.boolean().default(true),
         marketplace: z.boolean().default(false),
+        /** v6.0: Primitive mode — load only shell, filesystem, and web_search skills */
+        primitiveMode: z.boolean().default(false),
     }).default({}),
     mesh: MeshConfigSchema.default({}),
     fileManager: z.object({

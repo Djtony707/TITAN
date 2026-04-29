@@ -1,0 +1,9 @@
+name: reviewer
+specialist: analyst
+tools: [read, grep, delegate]
+model: ollama/qwen3.5:27b
+maxRounds: 10
+workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main
+approvals: []
+autoApprove: true
+heartbeatInterval: 3

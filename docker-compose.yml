@@ -137,3 +137,25 @@ services:
     ports:
       - 3000:3000
     restart: unless-stopped
+
+  # --- TITAN AI Agent ---
+  titan:
+    image: titan:latest
+    container_name: titan
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 48420:48420
+    volumes:
+      - titan-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:48420/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  titan-data:

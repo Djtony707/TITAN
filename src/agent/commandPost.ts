@@ -203,6 +203,7 @@ let issueCounter = 0;
 let config: CommandPostConfig | null = null;
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let approvalSweepInterval: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 const eventListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
 
@@ -896,7 +897,7 @@ export function initCommandPost(cfg: CommandPostConfig): void {
     // Start sweepers
     sweepInterval = setInterval(sweepExpiredCheckouts, 60000);
     sweepInterval.unref();
-    const approvalSweepInterval = setInterval(() => {
+    approvalSweepInterval = setInterval(() => {
         sweepStaleApprovals();
         sweepAncientPendingApprovals();
     }, 300000); // every 5 min
@@ -1923,6 +1924,7 @@ export function updateRegisteredAgent(agentId: string, updates: Partial<Pick<Reg
 export function shutdownCommandPost(): void {
     if (sweepInterval) { clearInterval(sweepInterval); sweepInterval = null; }
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+    if (approvalSweepInterval) { clearInterval(approvalSweepInterval); approvalSweepInterval = null; }
     if (initialized) saveState();
     // Remove event listeners
     for (const { event, handler } of eventListeners) {

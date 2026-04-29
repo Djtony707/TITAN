@@ -969,7 +969,7 @@ describe('Mesh Transport', () => {
 
             expect(logger.info).toHaveBeenCalledWith(
                 'MeshTransport',
-                expect.stringContaining('Mesh peer disconnected: remote-close'),
+                expect.stringContaining('Mesh peer disconnected (close): remote-close'),
             );
         });
     });

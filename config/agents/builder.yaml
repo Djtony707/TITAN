@@ -1,0 +1,9 @@
+name: builder
+specialist: coder
+tools: [read, write, edit, bash, delegate]
+model: ollama/qwen3.5:27b
+maxRounds: 25
+workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main/src
+approvals: [write, edit, bash]
+autoApprove: false
+heartbeatInterval: 3

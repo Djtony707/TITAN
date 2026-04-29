@@ -103,14 +103,19 @@ describe('SubAgent', () => {
         });
 
         it('respects maxRounds limit', async () => {
-            // Always return tool calls — should stop at maxRounds
-            mockChat.mockResolvedValue({
-                content: 'Still working...',
-                toolCalls: [{ id: 'tc1', function: { name: 'web_search', arguments: '{}' } }],
+            // Return varying tool calls to avoid loop detection
+            let round = 0;
+            mockChat.mockImplementation(async () => {
+                round++;
+                return {
+                    content: `Working round ${round}...`,
+                    toolCalls: [{ id: `tc${round}`, function: { name: 'web_search', arguments: JSON.stringify({ q: round }) } }],
+                };
             });
-            mockExecuteTools.mockResolvedValue([
-                { name: 'web_search', content: 'results', toolCallId: 'tc1' },
-            ]);
+            mockExecuteTools.mockImplementation(async (calls: ToolCall[]) => {
+                const name = calls[0]?.function?.name || 'tool';
+                return [{ name, content: `results for ${name}`, toolCallId: calls[0]?.id || 'tc1' }];
+            });
 
             const result = await spawnSubAgent({ name: 'Test', task: 'Loop', maxRounds: 5 });
 
