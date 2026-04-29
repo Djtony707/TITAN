@@ -123,7 +123,7 @@ export function validateCommand(command: string): string | null {
 }
 
 /** Execute a shell command and return output */
-function executeCommand(command: string, cwd?: string, timeout: number = 30000): Promise<string> {
+function executeCommand(command: string, cwd?: string, timeout: number = 60000): Promise<string> {
     // S5: Validate command before execution
     const cmdErr = validateCommand(command);
     if (cmdErr) return Promise.resolve(cmdErr);
@@ -223,7 +223,7 @@ export function registerShellSkill(): void {
                     },
                     timeout: {
                         type: 'number',
-                        description: 'Timeout in milliseconds (default: 30000)',
+                        description: 'Timeout in milliseconds (default: 60000)',
                     },
                     background: {
                         type: 'boolean',

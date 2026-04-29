@@ -258,7 +258,7 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 ## 📊 The Numbers
 
-- **Version:** 5.3.0 "Spacewalk: CI Gate + Parity"
+- **Version:** 5.4.2 "Spacewalk: Task Completion + Approval Gates"
 - **Tests:** 500+ deterministic tests (unit + mock trajectory + parity), pass in under 5 s — plus 11 live-eval suites and a CI merge gate at 80 % per suite
 - **Widget templates:** 109 production templates + 19 system widgets = 128 runtime entries across 26 categories
 - **Skills:** 143 loaded
