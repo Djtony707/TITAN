@@ -85,7 +85,7 @@ describe('OllamaProvider', () => {
         expect(body.think).toBe(false);
     });
 
-    it('does not set think field when thinking is not specified', async () => {
+    it('sets think=false for models that do not support thinking', async () => {
         mockFetchWithRetry.mockResolvedValue({
             ok: true,
             json: async () => ({
@@ -102,7 +102,7 @@ describe('OllamaProvider', () => {
 
         const [, options] = mockFetchWithRetry.mock.calls[0];
         const body = JSON.parse(options.body);
-        expect(body.think).toBeUndefined();
+        expect(body.think).toBe(false);
     });
 
     it('throws on non-ok response', async () => {

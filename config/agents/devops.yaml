@@ -1,0 +1,9 @@
+name: devops
+specialist: infra
+tools: [read, bash, delegate]
+model: ollama/qwen3.5:27b
+maxRounds: 20
+workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main
+approvals: [bash]
+autoApprove: false
+heartbeatInterval: 3

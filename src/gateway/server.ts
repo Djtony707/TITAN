@@ -71,6 +71,7 @@ import { initAutopilot, stopAutopilot, runAutopilotNow, getAutopilotStatus, getR
 import { initDaemon, stopDaemon, getDaemonStatus, pauseDaemonManual, resumeDaemon, titanEvents } from '../agent/daemon.js';
 import { initCommandPost, shutdownCommandPost, isCommandPostEnabled, getDashboard as getCPDashboard, getRegisteredAgents, reportHeartbeat, removeAgent, checkoutTask, checkinTask, getActiveCheckouts, getBudgetPolicies, createBudgetPolicy, updateBudgetPolicy, deleteBudgetPolicy, getActivity, getGoalTree, getAncestryChain, validateGoalAncestry, validateGoalParentAssignment, sweepExpiredCheckoutsManual, getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent, createIssue, updateIssue, getIssue, listIssues, searchIssues, checkoutIssue, deleteIssue, addIssueComment, getIssueComments, createApproval, approveApproval, rejectApproval, listApprovals, getApproval, replyToApproval, snoozeApproval, unsnoozeApproval, batchApprove, batchReject, getAgentMessages, markAgentMessageRead, startRun, endRun, listRuns, getOrgTree, updateRegisteredAgent } from '../agent/commandPost.js';
 import { initWakeupSystem, getAgentInbox, queueWakeup, getWakeupRequest, cancelWakeup, drainPendingResults } from '../agent/agentWakeup.js';
+import { initHeartbeatScheduler } from '../agent/heartbeatScheduler.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask, dedupeGoalsBulk } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
@@ -3734,16 +3735,34 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   app.post('/api/update', (req, res) => {
     const isLocalDev = fs.existsSync(join(process.cwd(), '.git'));
+    const isSystemd = fs.existsSync('/run/systemd/system') ||
+                      fs.existsSync(join(process.cwd(), '.systemd-service'));
     const restart = req.body?.restart === true;
 
-    let command = 'npm update -g titan-agent';
+    let command: string;
+    let postCommand: string | null = null;
+
     if (isLocalDev) {
+      // Development checkout — pull source + build
       command = 'git pull && npm run build';
+      if (restart) {
+        // Write restart script + exit
+        postCommand = 'restart';  // handled below
+      }
+    } else if (isSystemd) {
+      // Production systemd deployment — pull from git repo + restart service
+      command = 'git pull && npm run build';
+      if (restart) {
+        postCommand = 'systemctl';
+      }
+    } else {
+      // Global npm install — works only when user has write access to prefix
+      command = 'npm update -g titan-agent';
     }
 
-    logger.info(COMPONENT, `Triggering update: ${command} (restart=${restart})`);
+    logger.info(COMPONENT, `Triggering update: ${command} (isDev=${isLocalDev}, isSystemd=${isSystemd}, restart=${restart})`);
 
-    exec(command, { timeout: 120_000 }, (error, stdout, _stderr) => {
+    exec(command, { timeout: 180_000 }, (error, stdout, _stderr) => {
       if (error) {
         logger.error(COMPONENT, `Update failed: ${error.message}`);
         if (!res.headersSent) res.json({ ok: false, error: error.message });
@@ -3758,15 +3777,28 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (restart) {
         logger.info(COMPONENT, 'Scheduling restart in 2 seconds...');
         const cwd = process.cwd();
-        const scriptPath = '/tmp/titan-restart.sh';
-        fs.writeFileSync(scriptPath, [
-          '#!/bin/bash',
-          'sleep 2',
-          `cd "${cwd}"`,
-          'nohup node dist/cli/index.js gateway >> /tmp/titan-gateway.log 2>&1 &',
-        ].join('\n'), { mode: 0o755 });
 
-        spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+        if (postCommand === 'systemctl') {
+          // Production: use systemctl to restart (requires user passwordless sudo rights)
+          const scriptPath = '/tmp/titan-restart.sh';
+          fs.writeFileSync(scriptPath, [
+            '#!/bin/bash',
+            'sleep 2',
+            `cd "${cwd}"`,
+            'sudo systemctl restart titan-gateway',
+          ].join('\n'), { mode: 0o755 });
+          spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+          // Dev or global: spawn node directly
+          const scriptPath = '/tmp/titan-restart.sh';
+          fs.writeFileSync(scriptPath, [
+            '#!/bin/bash',
+            'sleep 2',
+            `cd "${cwd}"`,
+            'nohup node dist/cli/index.js gateway >> /tmp/titan-gateway.log 2>&1 &',
+          ].join('\n'), { mode: 0o755 });
+          spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+        }
 
         setTimeout(() => {
           logger.info(COMPONENT, 'Exiting for restart...');
@@ -5414,6 +5446,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.post('/api/command-post/agents/:id/heartbeat', (req, res) => {
     const ok = reportHeartbeat(req.params.id);
     res.json({ success: ok });
+  });
+
+  // Admin: manually trigger heartbeat task checkout for an agent
+  app.post('/api/command-post/agents/:id/fire', async (req, res) => {
+    try {
+      const { fireHeartbeat } = await import('../agent/heartbeatScheduler.js');
+      await fireHeartbeat(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
   });
 
   app.delete('/api/command-post/agents/:id', (req, res) => {
@@ -9688,6 +9731,7 @@ td{padding:10px 12px;font-size:14px;vertical-align:middle}
   if (config.commandPost?.enabled) {
     initCommandPost(config.commandPost);
     initWakeupSystem();
+    initHeartbeatScheduler();
     logger.info(COMPONENT, 'Command Post governance layer initialized (wakeup system active)');
 
     // v4.7.0: bootstrap specialist pool (Scout, Builder, Writer, Analyst)

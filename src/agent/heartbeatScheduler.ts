@@ -5,6 +5,7 @@
  */
 import { titanEvents } from './daemon.js';
 import logger from '../utils/logger.js';
+import { listAgents } from './multiAgent.js';
 
 const COMPONENT = 'HeartbeatScheduler';
 
@@ -20,6 +21,7 @@ interface ScheduleEntry {
 const schedules = new Map<string, ScheduleEntry>();
 let running = false;
 let tickInterval: ReturnType<typeof setInterval> | null = null;
+let spawnListener: ((data: { id: string; name: string; model: string }) => void) | null = null;
 
 // ─── Cron Parser (simple, no external dependency) ────────────────────────
 
@@ -101,6 +103,22 @@ export function initHeartbeatScheduler(): void {
     if (running) return;
     running = true;
 
+    // Auto-schedule any existing running agents that aren't scheduled yet
+    for (const agent of listAgents()) {
+        if (agent.status === 'running' && !schedules.has(agent.id)) {
+            scheduleAgent(agent.id, '*/1 * * * *'); // Every minute
+        }
+    }
+
+    // Listen for new agents being spawned and auto-schedule them
+    spawnListener = (data: { id: string; name: string; model: string }) => {
+        if (!schedules.has(data.id)) {
+            scheduleAgent(data.id, '*/1 * * * *');
+            logger.info(COMPONENT, `Auto-scheduled newly spawned agent "${data.name}" (${data.id})`);
+        }
+    };
+    titanEvents.on('agent:spawned', spawnListener);
+
     // Tick every 60 seconds to check cron schedules
     tickInterval = setInterval(() => {
         for (const [agentId, entry] of schedules) {
@@ -163,7 +181,7 @@ export async function fireHeartbeat(agentId: string): Promise<void> {
     logger.info(COMPONENT, `Firing heartbeat for agent "${agentId}"`);
 
     // Lazy import to avoid circular deps
-    const { listIssues, getRegisteredAgents, getIssueComments, buildAncestryContext } = await import('./commandPost.js');
+    const { listIssues, getRegisteredAgents, getIssueComments } = await import('./commandPost.js');
     const { queueWakeup } = await import('./agentWakeup.js');
 
     // Find the agent
@@ -175,8 +193,27 @@ export async function fireHeartbeat(agentId: string): Promise<void> {
     }
 
     // Find highest priority assigned issue
-    const assignedIssues = listIssues({ assigneeAgentId: agentId })
+    let assignedIssues = listIssues({ assigneeAgentId: agentId })
         .filter(i => i.status === 'todo' || i.status === 'backlog' || i.status === 'in_progress');
+
+    // If no assigned issues, try to checkout an unassigned backlog issue
+    if (assignedIssues.length === 0) {
+        const { checkoutIssue } = await import('./commandPost.js');
+        const backlog = listIssues({ status: 'backlog' })
+            .filter(i => !i.assigneeAgentId)
+            .sort((a, b) => {
+                const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+                return (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3);
+            });
+        for (const issue of backlog) {
+            const checkedOut = checkoutIssue(issue.id, agentId);
+            if (checkedOut) {
+                assignedIssues = [checkedOut];
+                logger.info(COMPONENT, `Auto-checked out issue ${issue.identifier} to agent "${agentId}"`);
+                break;
+            }
+        }
+    }
 
     if (assignedIssues.length === 0) {
         logger.debug(COMPONENT, `No actionable issues for agent "${agentId}" — skipping heartbeat`);
@@ -198,12 +235,8 @@ export async function fireHeartbeat(agentId: string): Promise<void> {
             recentComments.map(c => `[${c.createdAt}] ${c.authorAgentId || c.authorUser}: ${c.body.slice(0, 300)}`).join('\n');
     }
 
-    // Build ancestry context
-    const ancestryCtx = buildAncestryContext(issue.id);
-
     // Build the enriched task
     const enrichedTask = [
-        ancestryCtx,
         contextFromComments,
         '',
         '---',
@@ -221,6 +254,7 @@ export async function fireHeartbeat(agentId: string): Promise<void> {
         parentSessionId: null,
         task: enrichedTask,
         templateName: '',
+        model: agent.model,
         mode: 'sub-agent',  // Default; could be overridden per-agent in the future
     });
 
@@ -259,6 +293,10 @@ export function shutdownHeartbeatScheduler(): void {
     }
     for (const entry of schedules.values()) {
         if (entry.task) clearTimeout(entry.task);
+    }
+    if (spawnListener) {
+        titanEvents.off('agent:spawned', spawnListener);
+        spawnListener = null;
     }
     schedules.clear();
     running = false;

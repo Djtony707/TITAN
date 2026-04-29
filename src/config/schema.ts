@@ -67,7 +67,7 @@ export const SecurityConfigSchema = z.object({
     allowedTools: z.array(z.string()).default(ALLOWED_TOOLS_DEFAULT),
     deniedTools: z.array(z.string()).default([]),
     maxConcurrentTasks: z.number().default(5),
-    commandTimeout: z.number().default(30000),
+    commandTimeout: z.number().default(60000),
     /** Per-tool timeout overrides (ms) â keys are tool names */
     toolTimeouts: z.record(z.string(), z.number()).default({
         browser_auto_nav: 60000,
@@ -682,6 +682,8 @@ export const TitanConfigSchema = z.object({
         enabled: z.boolean().default(true),
         autoDiscover: z.boolean().default(true),
         marketplace: z.boolean().default(false),
+        /** v6.0: Primitive mode — load only shell, filesystem, and web_search skills */
+        primitiveMode: z.boolean().default(false),
     }).default({}),
     mesh: MeshConfigSchema.default({}),
     fileManager: z.object({

@@ -61,6 +61,7 @@ export interface PendingResult {
 const wakeupQueue = new Map<string, WakeupRequest>();
 const pendingResults = new Map<string, PendingResult[]>();  // key: parentSessionId
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+let wakeupListener: ((data: { wakeupRequestId: string }) => void) | null = null;
 let initialized = false;
 
 // ── Public API ────────────────────────────────────────────────────────
@@ -73,14 +74,15 @@ export function initWakeupSystem(): void {
     if (initialized) return;
     initialized = true;
 
-    titanEvents.on('agent:wakeup', (data: { wakeupRequestId: string }) => {
+    wakeupListener = (data: { wakeupRequestId: string }) => {
         // Use setImmediate so queueWakeup() returns before we start executing
         setImmediate(() => {
             handleWakeup(data.wakeupRequestId).catch(err => {
                 logger.error(COMPONENT, `Wakeup handler failed: ${(err as Error).message}`);
             });
         });
-    });
+    };
+    titanEvents.on('agent:wakeup', wakeupListener);
 
     // TTL cleanup: sweep stale requests every 60s
     cleanupInterval = setInterval(() => {
@@ -239,7 +241,10 @@ export function shutdownWakeupSystem(): void {
             req.completedAt = Date.now();
         }
     }
-    titanEvents.removeAllListeners('agent:wakeup');
+    if (wakeupListener) {
+        titanEvents.off('agent:wakeup', wakeupListener);
+        wakeupListener = null;
+    }
     initialized = false;
     logger.info(COMPONENT, 'Agent wakeup system shut down');
 }
