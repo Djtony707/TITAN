@@ -67,7 +67,7 @@ export const SecurityConfigSchema = z.object({
     allowedTools: z.array(z.string()).default(ALLOWED_TOOLS_DEFAULT),
     deniedTools: z.array(z.string()).default([]),
     maxConcurrentTasks: z.number().default(5),
-    commandTimeout: z.number().default(30000),
+    commandTimeout: z.number().default(60000),
     /** Per-tool timeout overrides (ms) â keys are tool names */
     toolTimeouts: z.record(z.string(), z.number()).default({
         browser_auto_nav: 60000,
