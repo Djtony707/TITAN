@@ -55,3 +55,4 @@ AUDIT*.md
 # Stray scratch files — keep out of commits
 ai_poem.txt
 pingpong.py
+.gitnexus
