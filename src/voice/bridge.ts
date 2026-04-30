@@ -18,7 +18,7 @@ interface VoiceAgentOptions {
   ttsModel?: string;
 }
 
-interface AgentStatus {
+export interface AgentStatus {
   running: boolean;
   uptime: number;
   lastError?: string;

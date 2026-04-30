@@ -5,7 +5,7 @@
  * voice via the standard tool interface.
  */
 
-import { TitanAgentBridge } from '../../voice/bridge.js';
+import { TitanAgentBridge, type AgentStatus } from '../../voice/bridge.js';
 
 let bridge: TitanAgentBridge | null = null;
 
@@ -27,7 +27,7 @@ export async function stopVoiceAgent(): Promise<string> {
   return 'Voice agent stopped';
 }
 
-export async function getVoiceStatus(): Promise<Record<string, unknown>> {
+export async function getVoiceStatus(): Promise<AgentStatus> {
   if (!bridge) {
     return { running: false, uptime: 0 };
   }
