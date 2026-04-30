@@ -1328,7 +1328,13 @@ export async function processMessage(
         taskEnforcementActive = true;
     }
     // Widget / canvas gallery enforcement — user wants a widget built on the canvas
-    if (/\b(?:create|add|make|build|spawn|generate|get|fetch|find|search|show|display|give me|want|need)\b.{0,60}\b(?:widget|panel|canvas|gallery|clock|timer|chart|graph|map|calendar|todo|list|counter|dashboard)\b/i.test(message) && !taskEnforcementActive) {
+    // v5.4.3 fix: Removed !taskEnforcementActive guard. The generic file-writing
+    // pattern above (line ~1289) matched "Create a..." and suppressed widget
+    // instructions, causing the model to emit prose instead of _____react gates.
+    // Widget creation is a first-class canvas concept and must always fire for
+    // widget-matching messages, regardless of whether other task enforcement
+    // also triggered (the instructions are non-conflicting).
+    if (/\b(?:create|add|make|build|spawn|generate|get|fetch|find|search|show|display|give me|want|need)\b.{0,60}\b(?:widget|panel|canvas|gallery|clock|timer|chart|graph|map|calendar|todo|list|counter|dashboard)\b/i.test(message)) {
         systemPrompt += '\n\nThe user wants a widget on the canvas. You CAN create it yourself — you do NOT need the user to share files or an existing project. Your job is to BUILD the widget, not ask for files.\n\nMANDATORY steps:\n1. Call gallery_search with the user\'s intent (e.g. "weather widget").\n2. If a template matches (score >= 6), call gallery_get with its id and fill placeholders.\n3. Emit the returned source through the _____react gate.\n4. If no template matches, write the React component yourself and emit it through _____react.\n\nDo NOT describe the widget, do NOT ask the user for files, do NOT say "I don\'t see an existing canvas" — just CREATE it.';
         taskEnforcementActive = true;
     }
