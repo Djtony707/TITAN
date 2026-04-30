@@ -1135,7 +1135,13 @@ export async function processMessage(
     // Skip for 'deliberation' channel — task step prompts contain goal text that
     // matches keywords (e.g. "weather") but aren't actual weather queries.
     let preRoutedContext = '';
-    if (channel !== 'deliberation' && /\b(?:weather|forecast|temperature)\b/i.test(message)) {
+    // v5.4.3 fix: Skip weather pre-routing for widget-creation requests.
+    // "Create a weather widget" should NOT get static weather data injected —
+    // the widget needs to fetch live data itself via titan.fetch() inside the
+    // _____react gate. Pre-routing "Do NOT call tools" would suppress gallery
+    // search + gate creation and make the model emit prose instead.
+    const isWidgetRequest = /\b(?:create|add|make|build|spawn|generate)\b.{0,40}\b(?:widget|panel|dashboard)\b/i.test(message);
+    if (channel !== 'deliberation' && !isWidgetRequest && /\b(?:weather|forecast|temperature)\b/i.test(message)) {
         // Split on "and"/"also"/","/"&" FIRST to separate multiple locations
         const segments = message.split(/\b(?:and|also|&)\b|,/i).filter(s => /\b(?:weather|forecast|temperature|\d{5})\b/i.test(s) || /[A-Z][a-z]+/.test(s));
         const locations: string[] = [];
