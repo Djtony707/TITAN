@@ -16,6 +16,7 @@ Patch release. Operational reliability and CI hardening.
 - **Updater systemd support** — `titan update` now detects systemd-managed installs and reloads the service after binary swap.
 - **Shell timeout increase** — raised `DEFAULT_SHELL_TIMEOUT_MS` from 30 s to 120 s for long-running build / package-manager commands.
 - **Approval gates wired** — `commandPost.autoApprove` settings now actually take effect; missing wiring between config and `approvalClassifier.ts` restored.
+- **Sandbox auth injection** — sandboxed widgets calling `titan.api.call()` now receive the user's `Authorization: Bearer` header so protected `/api/*` endpoints (e.g. stock analyzer) return data instead of 401 Unauthorized. Same-origin guard prevents token leakage to third-party URLs.
 
 ---
 
