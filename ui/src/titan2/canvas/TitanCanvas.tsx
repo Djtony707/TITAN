@@ -997,6 +997,13 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
             spaceId={space.id}
             open
             onClose={() => setEditingWidgetId(null)}
+            onSaved={(next) => {
+              // CRDT observer will pick up the SpaceEngine.updateWidget write,
+              // but optimistic render ensures the modal closes immediately and
+              // the user sees the change without waiting for the Yjs round-trip.
+              const updated = validWidgets.map(w => w.id === next.id ? { ...w, ...next } : w);
+              setSpace(prev => prev ? { ...prev, widgets: updated } : prev);
+            }}
           />
         );
       })()}
