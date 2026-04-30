@@ -33,7 +33,10 @@
     "titan": "dist/cli/index.js"
   },
   "scripts": {
-    "build:ui": "cd ui && npm install && npm run build",
+    "gitnexus:rebuild": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js analyze --name TITAN",
+  "gitnexus:query": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js query",
+  "gitnexus:status": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js status",
+  "build:ui": "cd ui && npm install && npm run build",
     "postinstall": "node -e \"try{require('./scripts/postinstall.cjs')}catch(e){if(e.code==='MODULE_NOT_FOUND'){console.log('TITAN installed. Run: titan onboard')}else{throw e}}\"",
     "build": "tsup",
     "build:personal": "node scripts/build-personal.cjs",
