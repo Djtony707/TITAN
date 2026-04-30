@@ -7,6 +7,9 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import { homedir } from 'os';
+import { join } from 'path';
+import fs from 'fs';
 import logger from '../utils/logger.js';
 
 interface VoiceAgentOptions {
@@ -30,7 +33,6 @@ export class TitanAgentBridge {
   private proc: ChildProcess | null = null;
   private status: AgentStatus = { running: false, uptime: 0 };
   private startTime = 0;
-  // Track pending audio requests so we can match response IDs
   private pendingAudio = new Map<string, { resolve: (value: string) => void; reject: (reason: Error) => void }>();
 
   constructor(private options: VoiceAgentOptions = {}) {}
@@ -43,13 +45,22 @@ export class TitanAgentBridge {
     try {
       this.proc = spawn(python, [script, '--server', '--model', model, '--device', this.options.device || 'auto'], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, TITAN_VOICE_MODEL: model }
+        env: { ...process.env, TITAN_VOICE_MODEL: model },
+        detached: false,
       });
     } catch (err) {
       logger.warn(COMPONENT, `Failed to spawn TitanAgent: ${(err as Error).message}`);
       this.status.lastError = (err as Error).message;
       throw err;
     }
+
+    // Write PID file for orphan prevention
+    const pidFile = join(homedir(), '.titan', 'voice-bridge.pid');
+    try {
+      if (this.proc.pid) {
+        fs.writeFileSync(pidFile, String(this.proc.pid), 'utf-8');
+      }
+    } catch { /* non-critical */ }
 
     this.proc.stdout?.on('data', (data: Buffer) => {
       const lines = data.toString().split('\n');
@@ -92,6 +103,8 @@ export class TitanAgentBridge {
         reject(new Error('TitanAgent process exited'));
         this.pendingAudio.delete(id);
       }
+      // Clean up PID file
+      try { fs.unlinkSync(pidFile); } catch { /* already gone */ }
     });
 
     this.startTime = Date.now();
@@ -147,5 +160,8 @@ export class TitanAgentBridge {
     }
     this.status.running = false;
     this.proc = null;
+    // Clean up PID file
+    const pidFile = join(homedir(), '.titan', 'voice-bridge.pid');
+    try { fs.unlinkSync(pidFile); } catch { /* already gone */ }
   }
 }
