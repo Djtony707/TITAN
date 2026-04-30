@@ -5,6 +5,22 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.4.3] — 2026-04-30 — 🎯 **"Canvas & Sandbox Hardening"**
+
+Canvas-focused patch. Fixes critical bugs that prevented widgets from being created, displayed, and calling the API from inside their sandboxes. Also hardens gallery loading and widget editing.
+
+### Fixed
+
+- **Widget self-awareness** — canvas chat agent now receives a live inventory of mounted widgets (name, id, format, dimensions, summary) on every turn. Stops the "I cannot see your canvas" responses.
+- **Gallery template defaultSize** — `gallery_get` now prepends `// __WIDGET_META__ w=X h=Y` to every template source so the agent knows each template's intended size before emitting a gate.
+- **Widget size parsing** — the `_____react` gate handler in `ChatWidget` parses the template meta comment and respects `defaultSize` instead of hardcoding 4×4 for every new widget.
+- **Sandbox API auth injection (Bug A)** — sandboxed widgets calling `titan.api.call()` now receive the user's `Authorization: Bearer` token. Previously `/api/*` calls returned 401 because the iframe proxy sent bare `fetch()`. Same-origin guard prevents token leakage to third-party URLs.
+- **Sandbox endpoint double-prefix (Bug B)** — `titan.api.call('/api/message')` was concatenated to `/api/api/message`, returning 404. Endpoint path is now normalized before concatenation.
+- **Gallery auth (Bug C)** — `WidgetGallery` used plain `fetch('/api/widget-gallery')` without auth. The 401 response made the gallery appear empty. Switched to `apiFetch` which injects the Bearer token.
+- **WidgetEditor optimistic render** — after save, the editor closed optimistically but local React state didn't refresh because the CRDT observer fires asynchronously. `TitanCanvas` now passes `onSaved` to optimistically map the updated widget into state.
+
+---
+
 ## [5.4.2] — 2026-04-29 — 🔧 **"Stability & Wiring"**
 
 Patch release. Operational reliability and CI hardening.
@@ -16,7 +32,6 @@ Patch release. Operational reliability and CI hardening.
 - **Updater systemd support** — `titan update` now detects systemd-managed installs and reloads the service after binary swap.
 - **Shell timeout increase** — raised `DEFAULT_SHELL_TIMEOUT_MS` from 30 s to 120 s for long-running build / package-manager commands.
 - **Approval gates wired** — `commandPost.autoApprove` settings now actually take effect; missing wiring between config and `approvalClassifier.ts` restored.
-- **Sandbox auth injection** — sandboxed widgets calling `titan.api.call()` now receive the user's `Authorization: Bearer` header so protected `/api/*` endpoints (e.g. stock analyzer) return data instead of 401 Unauthorized. Same-origin guard prevents token leakage to third-party URLs.
 
 ---
 
