@@ -5,6 +5,20 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.4.2] — 2026-04-29 — 🔧 **"Stability & Wiring"**
+
+Patch release. Operational reliability and CI hardening.
+
+### Fixed
+
+- **CI timeout bump** — increased test and eval timeouts to prevent spurious failures on slower runners.
+- **Token budget fix** — corrected prompt budget ratio enforcement so `agent.promptBudget` caps are respected across all providers.
+- **Updater systemd support** — `titan update` now detects systemd-managed installs and reloads the service after binary swap.
+- **Shell timeout increase** — raised `DEFAULT_SHELL_TIMEOUT_MS` from 30 s to 120 s for long-running build / package-manager commands.
+- **Approval gates wired** — `commandPost.autoApprove` settings now actually take effect; missing wiring between config and `approvalClassifier.ts` restored.
+
+---
+
 ## [5.4.1] — 2026-04-26 — 🛡️ **"Layer Reliability"**
 
 Patch release. Tightens the provider, UI, mesh, and config layers around
