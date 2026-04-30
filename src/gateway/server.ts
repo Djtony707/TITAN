@@ -76,6 +76,9 @@ import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask, dedupeGoalsBulk } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
 import { createPaperclipRouter, createPaperclipUIRouter } from './routes/paperclip.js';
+import { createTracesRouter } from './routes/traces.js';
+import { createCheckpointsRouter } from './routes/checkpoints.js';
+import { createCompaniesRouter } from './routes/companies.js';
 import { getConsentUrl, exchangeCode, isGoogleConnected, getGoogleEmail, disconnectGoogle } from '../auth/google.js';
 import { createTeam, getTeam, listTeams, deleteTeam, updateTeam, addMember, removeMember, updateMemberRole, createInvite, acceptInvite, getEffectivePermissions, setRolePermissions, getTeamStats, isToolAllowed, getUserRole } from '../security/teams.js';
 import { TITAN_WORKSPACE } from '../utils/constants.js';
@@ -1318,167 +1321,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Tracing API ─────────────────────────────────────────────────
-  app.get('/api/traces', async (_req, res) => {
-    try {
-      const { listTraces, getTraceStats } = await import('../agent/tracer.js');
-      const limit = parseInt(_req.query.limit as string || '50', 10);
-      const session = _req.query.session as string | undefined;
-      res.json({ traces: listTraces(limit, session), stats: getTraceStats() });
-    } catch { res.json({ traces: [], stats: {} }); }
-  });
-
-  app.get('/api/traces/:traceId', async (req, res) => {
-    try {
-      const { getTrace } = await import('../agent/tracer.js');
-      const trace = getTrace(req.params.traceId);
-      if (!trace) { res.status(404).json({ error: 'Trace not found' }); return; }
-      res.json(trace);
-    } catch { res.status(500).json({ error: 'Tracer unavailable' }); }
-  });
+  app.use('/api/traces', createTracesRouter());
 
   // ── Checkpoints API ────────────────────────────────────────────
-  app.get('/api/checkpoints', async (_req, res) => {
-    try {
-      const { listCheckpoints } = await import('../agent/checkpoint.js');
-      res.json({ checkpoints: listCheckpoints() });
-    } catch { res.json({ checkpoints: [] }); }
-  });
-
-  app.get('/api/checkpoints/:sessionId', async (req, res) => {
-    try {
-      const { loadCheckpoint } = await import('../agent/checkpoint.js');
-      const round = req.query.round ? parseInt(req.query.round as string, 10) : undefined;
-      const cp = loadCheckpoint(req.params.sessionId, round);
-      if (!cp) { res.status(404).json({ error: 'Checkpoint not found' }); return; }
-      res.json(cp);
-    } catch { res.status(500).json({ error: 'Checkpoint unavailable' }); }
-  });
-
-  app.delete('/api/checkpoints/:sessionId', async (req, res) => {
-    try {
-      const { clearCheckpoints } = await import('../agent/checkpoint.js');
-      clearCheckpoints(req.params.sessionId);
-      res.json({ success: true });
-    } catch { res.status(500).json({ error: 'Failed to clear checkpoints' }); }
-  });
+  app.use('/api/checkpoints', createCheckpointsRouter());
 
   // ── Company API (Paperclip-style) ─────────────────────────────
-  app.get('/api/companies', async (_req, res) => {
-    try {
-      const { listCompanies, getActiveRunners } = await import('../agent/company.js');
-      const includeArchived = _req.query.archived === 'true';
-      const companies = listCompanies(includeArchived);
-      const runners = getActiveRunners();
-      res.json({ companies: companies.map(c => ({ ...c, runnerActive: runners.includes(c.id) })) });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
+  app.use('/api/companies', createCompaniesRouter());
 
-  app.post('/api/companies', async (req, res) => {
-    try {
-      const { createCompany } = await import('../agent/company.js');
-      const company = createCompany(req.body);
-      res.json(company);
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
-  });
-
-  app.get('/api/companies/:id', async (req, res) => {
-    try {
-      const { getCompany, isRunnerActive } = await import('../agent/company.js');
-      const company = getCompany(req.params.id);
-      if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
-      res.json({ ...company, runnerActive: isRunnerActive(company.id) });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.patch('/api/companies/:id', async (req, res) => {
-    try {
-      const { updateCompany } = await import('../agent/company.js');
-      const company = updateCompany(req.params.id, req.body);
-      if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
-      res.json(company);
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.delete('/api/companies/:id', async (req, res) => {
-    try {
-      const { deleteCompany, stopCompanyRunner } = await import('../agent/company.js');
-      stopCompanyRunner(req.params.id);
-      const ok = deleteCompany(req.params.id);
-      res.json({ success: ok });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  // Start/stop company heartbeat runner
-  app.post('/api/companies/:id/start', async (req, res) => {
-    try {
-      const { startCompanyRunner } = await import('../agent/company.js');
-      const interval = parseInt(req.body?.intervalMs || '60000', 10);
-      const ok = startCompanyRunner(req.params.id, interval);
-      res.json({ success: ok, message: ok ? 'Runner started' : 'Already running or company not active' });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.post('/api/companies/:id/stop', async (req, res) => {
-    try {
-      const { stopCompanyRunner } = await import('../agent/company.js');
-      const ok = stopCompanyRunner(req.params.id);
-      res.json({ success: ok });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  // Add agent/goal to company
-  app.post('/api/companies/:id/agents', async (req, res) => {
-    try {
-      const { addAgentToCompany } = await import('../agent/company.js');
-      const agent = addAgentToCompany(req.params.id, req.body);
-      if (!agent) { res.status(404).json({ error: 'Company not found' }); return; }
-      res.json(agent);
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.post('/api/companies/:id/goals', async (req, res) => {
-    try {
-      const { addGoalToCompany } = await import('../agent/company.js');
-      const goal = addGoalToCompany(req.params.id, req.body);
-      if (!goal) { res.status(404).json({ error: 'Company not found' }); return; }
-      res.json(goal);
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  // ── Company Portability (Export/Import) ───────────────────────
-  app.post('/api/companies/:id/export', async (req, res) => {
-    try {
-      const { getCompany } = await import('../agent/company.js');
-      const { writeCompanyPackage } = await import('../agent/companyPortability.js');
-      const company = getCompany(req.params.id);
-      if (!company) { res.status(404).json({ error: 'Company not found' }); return; }
-      const outPath = writeCompanyPackage(company, req.body?.outDir);
-      res.json({ success: true, path: outPath, name: company.name });
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.get('/api/companies/exports', async (_req, res) => {
-    try {
-      const { listExportedPackages } = await import('../agent/companyPortability.js');
-      res.json(listExportedPackages());
-    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
-  });
-
-  app.post('/api/companies/import', async (req, res) => {
-    try {
-      const { importCompanyFromDirectory, importCompanyFromMarkdown } = await import('../agent/companyPortability.js');
-      const { createCompany } = await import('../agent/company.js');
-      let imported = null;
-      if (req.body?.packagePath) {
-        imported = importCompanyFromDirectory(req.body.packagePath);
-      } else if (req.body?.markdown) {
-        imported = importCompanyFromMarkdown(req.body.markdown);
-      }
-      if (!imported) { res.status(400).json({ error: 'Invalid import. Provide packagePath or markdown.' }); return; }
-      const company = createCompany(imported);
-      res.json({ success: true, company });
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
-  });
+  // ── Soul API ──────────────────────────────────────────────────
 
   // ── Soul API ──────────────────────────────────────────────────
   app.get('/api/soul/wisdom', async (_req, res) => {
