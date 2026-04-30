@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { X, Sparkles, Send, LayoutGrid } from 'lucide-react';
+import { apiFetch } from '@/api/client';
 
 interface Props {
     open: boolean;
@@ -76,7 +77,7 @@ export function WidgetGallery({ open, onClose }: Props) {
     useEffect(() => {
         if (!open) return;
         setLoading(true);
-        fetch('/api/widget-gallery')
+        apiFetch('/api/widget-gallery')
             .then(r => r.json())
             .then(data => {
                 setTemplates(data.templates || []);
