@@ -82,7 +82,7 @@ export interface KillSwitchState {
 
 let cache: KillSwitchState | null = null;
 
-function ensureDir(): void {
+function mkdirIfNotExists(): void {
     try { mkdirSync(dirname(STATE_PATH), { recursive: true }); } catch { /* ok */ }
 }
 
@@ -106,7 +106,7 @@ function load(): KillSwitchState {
 
 function save(): void {
     if (!cache) return;
-    ensureDir();
+    mkdirIfNotExists();
     cache.updatedAt = new Date().toISOString();
     atomicWriteJsonFile(STATE_PATH, cache);
 }

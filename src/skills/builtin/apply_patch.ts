@@ -5,7 +5,7 @@
 import { registerSkill } from '../registry.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname } from 'path';
-import { ensureDir } from '../../utils/helpers.js';
+import { mkdirIfNotExists } from '../../utils/helpers.js';
 
 export function registerApplyPatchSkill(): void {
     registerSkill(
@@ -57,7 +57,7 @@ export function registerApplyPatchSkill(): void {
                                 .map((l) => l.slice(1))
                                 .join('\n');
 
-                            ensureDir(dirname(fullPath));
+                            mkdirIfNotExists(dirname(fullPath));
                             writeFileSync(fullPath, addedLines, 'utf-8');
                             results.push(`✅ Created: ${targetFile}`);
                         } else {
@@ -136,7 +136,7 @@ function applySimplePatch(patch: string, cwd: string): string {
         writeFileSync(targetPath, content, 'utf-8');
         return `✅ Patched: ${targetPath}`;
     } else {
-        ensureDir(dirname(targetPath));
+        mkdirIfNotExists(dirname(targetPath));
         writeFileSync(targetPath, addedLines.join('\n') + '\n', 'utf-8');
         return `✅ Created: ${targetPath}`;
     }

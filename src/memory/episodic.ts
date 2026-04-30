@@ -90,7 +90,7 @@ export interface Episode {
 
 // ── Storage (append-only jsonl, bounded) ─────────────────────────
 
-function ensureDir(): void {
+function mkdirIfNotExists(): void {
     try { mkdirSync(dirname(EPISODIC_PATH), { recursive: true }); } catch { /* ok */ }
 }
 
@@ -114,7 +114,7 @@ function loadAll(): Episode[] {
 }
 
 function appendLine(ep: Episode): void {
-    ensureDir();
+    mkdirIfNotExists();
     const line = JSON.stringify(ep) + '\n';
     try {
         // Append for efficiency; bounded file rewriting handled below.

@@ -65,7 +65,7 @@ function roundFile(sessionId: string, round: number): string {
     return join(sessionDir(sessionId), `round-${String(round).padStart(3, '0')}.json`);
 }
 
-function ensureDir(sessionId: string): void {
+function mkdirIfNotExists(sessionId: string): void {
     const dir = sessionDir(sessionId);
     if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
@@ -76,7 +76,7 @@ function ensureDir(sessionId: string): void {
 
 export function saveCheckpoint(state: CheckpointState): void {
     try {
-        ensureDir(state.sessionId);
+        mkdirIfNotExists(state.sessionId);
         const path = roundFile(state.sessionId, state.round);
 
         // Trim messages to avoid huge checkpoints — keep system + last 20 messages

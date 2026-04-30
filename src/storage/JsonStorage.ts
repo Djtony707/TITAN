@@ -10,7 +10,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { atomicWriteJsonFile } from '../utils/helpers.js';
 import { join } from 'path';
 import { TITAN_HOME, TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 import type {
     StorageProvider,
@@ -83,7 +83,7 @@ export class JsonStorage implements StorageProvider {
     // ── Lifecycle ────────────────────────────────────────────────────────
 
     async init(): Promise<void> {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         this.loadGoals();
         this.loadState();
         logger.info(COMPONENT, 'JSON storage initialized');
@@ -118,7 +118,7 @@ export class JsonStorage implements StorageProvider {
     private saveGoals(): void {
         const goals = this.goalsCache || [];
         try {
-            ensureDir(TITAN_HOME);
+            mkdirIfNotExists(TITAN_HOME);
             const store: GoalsStore = {
                 goals,
                 lastUpdated: new Date().toISOString(),
@@ -160,7 +160,7 @@ export class JsonStorage implements StorageProvider {
 
     private saveState(): void {
         try {
-            ensureDir(TITAN_HOME);
+            mkdirIfNotExists(TITAN_HOME);
             const state: CommandPostState = {
                 checkouts: Array.from(this.checkouts.values()),
                 budgetPolicies: this.budgetPolicies,

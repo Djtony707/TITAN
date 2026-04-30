@@ -12,7 +12,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { titanEvents } from './daemon.js';
 import { spawnAgent, stopAgent, listAgents, type AgentInstance } from './multiAgent.js';
 import { listGoals, type Goal } from './goals.js';
@@ -234,7 +234,7 @@ function loadState(): void {
 
 function saveState(): void {
     try {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         const state: CommandPostState = {
             checkouts: Array.from(checkouts.values()),
             budgetPolicies,
@@ -890,7 +890,7 @@ export function getDashboard(): {
 export function initCommandPost(cfg: CommandPostConfig): void {
     if (initialized) return;
     config = cfg;
-    ensureDir(TITAN_HOME);
+    mkdirIfNotExists(TITAN_HOME);
     loadState();
     syncAgentRegistry();
 

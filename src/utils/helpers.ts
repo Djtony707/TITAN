@@ -5,11 +5,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { dirname, join } from 'path';
 
 /** Ensure a directory exists, creating it recursively if needed */
-export function ensureDir(dirPath: string): void {
+export function mkdirIfNotExists(dirPath: string): void {
     if (!existsSync(dirPath)) {
         mkdirSync(dirPath, { recursive: true });
     }
 }
+
+// Backward-compatible alias — deprecated, use mkdirIfNotExists
+export const ensureDir = mkdirIfNotExists;
 
 /** Safely read a JSON file, returning null on failure */
 export function readJsonFile<T = unknown>(filePath: string): T | null {

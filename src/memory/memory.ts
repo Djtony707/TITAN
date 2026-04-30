@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 import { encrypt, decrypt, type EncryptedPayload } from '../security/encryption.js';
 import { isVectorSearchAvailable, searchVectors, addVector } from './vectors.js';
@@ -109,7 +109,7 @@ function getDefaultStore(): DataStore {
 // NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
 function loadStore(): DataStore {
   if (store) return store;
-  ensureDir(TITAN_HOME);
+  mkdirIfNotExists(TITAN_HOME);
   if (existsSync(DB_FILE)) {
     try {
       const raw = readFileSync(DB_FILE, 'utf-8');
@@ -133,7 +133,7 @@ function loadStore(): DataStore {
 
 function saveStore(): void {
   if (!store || isShuttingDown) return;
-  ensureDir(TITAN_HOME);
+  mkdirIfNotExists(TITAN_HOME);
   try {
     const tmpFile = DB_FILE + '.tmp';
     writeFileSync(tmpFile, JSON.stringify(store, null, 2), 'utf-8');

@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { titanEvents } from './daemon.js';
 import logger from '../utils/logger.js';
 
@@ -36,7 +36,7 @@ function loadRateState(): { creations: string[] } {
 
 function saveRateState(state: { creations: string[] }): void {
     try {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         writeFileSync(RATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
     } catch { /* non-critical */ }
 }
@@ -153,7 +153,7 @@ function loadGoals(): Goal[] {
 function saveGoals(): void {
     const goals = goalsCache || [];
     try {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         const store: GoalsStore = {
             goals,
             lastUpdated: new Date().toISOString(),

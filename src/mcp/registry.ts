@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { connectMcpServer, disconnectMcpServer, getMcpConnections, type McpServer } from './client.js';
 import logger from '../utils/logger.js';
 
@@ -51,7 +51,7 @@ function loadServers(): McpServer[] {
 }
 
 function saveServers(servers: McpServer[]): void {
-    ensureDir(TITAN_HOME);
+    mkdirIfNotExists(TITAN_HOME);
     writeFileSync(MCP_CONFIG_PATH, JSON.stringify(servers, null, 2), 'utf-8');
 }
 

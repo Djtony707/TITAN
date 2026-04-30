@@ -9,7 +9,7 @@ import { v4 as uuid } from 'uuid';
 import { existsSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { registerTool } from './toolRunner.js';
 import logger from '../utils/logger.js';
 
@@ -54,7 +54,7 @@ export function createPlan(goal: string, tasks: Array<{
     dependsOn?: string[];
     toolHint?: string;
 }>): Plan {
-    ensureDir(PLANS_DIR);
+    mkdirIfNotExists(PLANS_DIR);
 
     const plan: Plan = {
         id: uuid().slice(0, 8),
@@ -214,7 +214,7 @@ export function getActivePlans(): Plan[] {
 
 function savePlan(plan: Plan): void {
     try {
-        ensureDir(PLANS_DIR);
+        mkdirIfNotExists(PLANS_DIR);
         writeFileSync(join(PLANS_DIR, `${plan.id}.json`), JSON.stringify(plan, null, 2), 'utf-8');
     } catch {
         // Non-critical
@@ -262,7 +262,7 @@ export function checkpointPlan(planId: string): void {
     };
 
     try {
-        ensureDir(PLANS_DIR);
+        mkdirIfNotExists(PLANS_DIR);
         writeFileSync(
             join(PLANS_DIR, `${planId}.checkpoint.json`),
             JSON.stringify(checkpoint, null, 2),

@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { loadConfig } from '../config/config.js';
 import { chat } from '../providers/router.js';
 import { auxChat, resolveAuxiliaryModel } from '../providers/auxiliary.js';
@@ -85,7 +85,7 @@ function loadRateState(): RateLimitState {
 
 function saveRateState(state: RateLimitState): void {
     try {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         writeFileSync(RATE_STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
     } catch (err) {
         logger.warn(COMPONENT, `Failed to save rate state: ${(err as Error).message}`);

@@ -24,7 +24,7 @@ import { chat } from '../../providers/router.js';
 import { loadConfig } from '../../config/config.js';
 import { applyOutputGuardrails } from '../../agent/outputGuardrails.js';
 import { TITAN_HOME } from '../../utils/constants.js';
-import { ensureDir } from '../../utils/helpers.js';
+import { mkdirIfNotExists } from '../../utils/helpers.js';
 import logger from '../../utils/logger.js';
 
 const COMPONENT = 'AgentDebate';
@@ -400,7 +400,7 @@ function parseJudgeVerdict(raw: string): { winnerRole: string; justification: st
 
 function persistTranscript(t: DebateTranscript): void {
     try {
-        ensureDir(DEBATES_DIR);
+        mkdirIfNotExists(DEBATES_DIR);
         writeFileSync(join(DEBATES_DIR, `${t.id}.json`), JSON.stringify(t, null, 2), 'utf-8');
     } catch (err) {
         logger.warn(COMPONENT, `Failed to persist transcript ${t.id}: ${(err as Error).message}`);

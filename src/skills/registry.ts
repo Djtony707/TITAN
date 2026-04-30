@@ -7,7 +7,7 @@ import { join, dirname } from 'path';
 import vm from 'vm';
 import { TITAN_HOME, TITAN_SKILLS_DIR } from '../utils/constants.js';
 import { registerTool, type ToolHandler } from '../agent/toolRunner.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 import { loadConfig } from '../config/config.js';
 
@@ -144,7 +144,7 @@ function saveDisabledSkills(disabled: string[]): void {
 
 /** Discover workspace skills from ~/.titan/workspace/skills/ */
 export function discoverWorkspaceSkills(): SkillMeta[] {
-    ensureDir(TITAN_SKILLS_DIR);
+    mkdirIfNotExists(TITAN_SKILLS_DIR);
     const discovered: SkillMeta[] = [];
 
     if (!existsSync(TITAN_SKILLS_DIR)) return discovered;

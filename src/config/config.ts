@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'fs';
 import { TITAN_CONFIG_PATH, TITAN_HOME } from '../utils/constants.js';
-import { readJsonFile, writeJsonFile, ensureDir, deepMerge } from '../utils/helpers.js';
+import { readJsonFile, writeJsonFile, mkdirIfNotExists, deepMerge } from '../utils/helpers.js';
 import { TitanConfigSchema, type TitanConfig } from './schema.js';
 import logger from '../utils/logger.js';
 
@@ -21,7 +21,7 @@ export function getDefaultConfig(): TitanConfig {
 export function loadConfig(): TitanConfig {
     if (cachedConfig) return cachedConfig;
 
-    ensureDir(TITAN_HOME);
+    mkdirIfNotExists(TITAN_HOME);
 
     let rawConfig: Record<string, unknown> = {};
 
@@ -111,7 +111,7 @@ export function loadConfig(): TitanConfig {
 
 /** Save current configuration to disk */
 export function saveConfig(config: TitanConfig): void {
-    ensureDir(TITAN_HOME);
+    mkdirIfNotExists(TITAN_HOME);
     writeJsonFile(TITAN_CONFIG_PATH, config);
     cachedConfig = config;
     logger.info(COMPONENT, `Config saved to ${TITAN_CONFIG_PATH}`);

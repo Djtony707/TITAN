@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { listGoals, getReadyTasks, type Goal } from '../agent/goals.js';
 import { getRegisteredAgents, getBudgetPolicies, listRuns, type RegisteredAgent, type BudgetPolicy, type CPRun } from '../agent/commandPost.js';
 import { getRecentTrajectories, type TaskTrajectory } from '../agent/trajectoryLogger.js';
@@ -606,7 +606,7 @@ export function loadDriveHistory(): PersistedDriveHistory | null {
 /** Persist the tick. Ring-buffers history to a max of 1440 entries. */
 export function saveDriveTick(tick: DriveTickResult): void {
     try {
-        ensureDir(TITAN_HOME);
+        mkdirIfNotExists(TITAN_HOME);
         const existing = loadDriveHistory();
         const satisfactions: Record<string, number> = {};
         for (const d of tick.drives) satisfactions[d.id] = d.satisfaction;

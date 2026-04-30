@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { exec } from 'child_process';
 import { saveConfig, getDefaultConfig } from '../config/config.js';
 import { TITAN_HOME, TITAN_WORKSPACE, TITAN_SKILLS_DIR, TITAN_CONFIG_PATH } from '../utils/constants.js';
-import { ensureDir } from '../utils/helpers.js';
+import { mkdirIfNotExists } from '../utils/helpers.js';
 import { initMemory } from '../memory/memory.js';
 import { loadProfile, saveProfile } from '../memory/relationship.js';
 
@@ -542,9 +542,9 @@ export async function runOnboard(_installDaemon?: boolean): Promise<boolean> {
 
     // ─── Finalise ─────────────────────────────────────────────────
     console.log(chalk.yellow('\n─── Setting up workspace ───\n'));
-    ensureDir(TITAN_HOME);
-    ensureDir(TITAN_WORKSPACE);
-    ensureDir(TITAN_SKILLS_DIR);
+    mkdirIfNotExists(TITAN_HOME);
+    mkdirIfNotExists(TITAN_WORKSPACE);
+    mkdirIfNotExists(TITAN_SKILLS_DIR);
     initMemory();
     saveConfig(config);
 

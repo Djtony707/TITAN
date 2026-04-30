@@ -6,7 +6,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
-import { readJsonFile, writeJsonFile, ensureDir } from '../utils/helpers.js';
+import { readJsonFile, writeJsonFile, mkdirIfNotExists } from '../utils/helpers.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'UserProfile';
@@ -53,7 +53,7 @@ let cachedProfile: UserProfile | null = null;
 export function loadProfile(): UserProfile {
     if (cachedProfile) return cachedProfile;
 
-    ensureDir(TITAN_HOME);
+    mkdirIfNotExists(TITAN_HOME);
 
     if (existsSync(PROFILE_PATH)) {
         const loaded = readJsonFile<UserProfile>(PROFILE_PATH);
