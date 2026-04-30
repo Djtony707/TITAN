@@ -1293,8 +1293,17 @@ export async function processMessage(
     }
 
     if (!dangerous && /\b(write|save|create|generate|output|produce|make)\b.{0,60}\b(file|doc|report|md|txt|json|csv|log|notes?|summary|readme)\b/i.test(message)) {
-        systemPrompt += '\n\nWhen the user asks you to write or create a file, you MUST use write_file or edit_file to save it. Do NOT just type the content in your reply — the user expects an actual file on disk.';
-        taskEnforcementActive = true;
+        // v5.4.3 fix: Skip file-writing enforcement for widget creation requests.
+        // Widget instructions already tell the model to use _____react gates and
+        // explicitly prohibit write_file. Adding file-writing enforcement creates
+        // a conflict the model resolves by choosing the more familiar write_file
+        // instead of the gate protocol. Only emit this when no widget/create was
+        // requested.
+        const isWidgetReq2 = /\b(?:create|add|make|build|spawn|generate)\b.{0,40}\b(?:widget|panel|dashboard)\b/i.test(message);
+        if (!isWidgetReq2) {
+            systemPrompt += '\n\nWhen the user asks you to write or create a file, you MUST use write_file or edit_file to save it. Do NOT just type the content in your reply — the user expects an actual file on disk.';
+            taskEnforcementActive = true;
+        }
     }
     if (!dangerous && /\b(read|show|display|view|open|cat|get)\b.{0,60}\b(file|content|text|readme|md|txt|json|csv|log|code|source)\b/i.test(message) && !/\b(?:write|save|create|edit|modify)\b/i.test(message)) {
         systemPrompt += '\n\nWhen the user asks you to read or show a file, you MUST use read_file to fetch its contents. Do NOT use shell or other tools — read_file is the correct tool for viewing file contents.';
