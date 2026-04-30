@@ -46,8 +46,15 @@ export function findFirstFreeSlot(
 
 function buildSystemPrompt(space: Space): string {
   const widgets = space.widgets || [];
+  // Build situational awareness — include widget name, id, format, size,
+  // AND a 150-char summary of what the widget does so the agent can identify
+  // it by content (e.g. "find the stock tracker" → search for "stock" in
+  // widget summaries). This fixes the "not self-aware of what's on canvas" bug.
   const widgetList = widgets.length > 0
-    ? widgets.map((w) => `- ${w.name} (id: ${w.id}, format: ${w.format}, ${w.w}x${w.h})`).join('\n')
+    ? widgets.map((w) => {
+        const summary = w.source ? w.source.slice(0, 150).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() : '(no source)';
+        return `- ${w.name} (id: ${w.id}, format: ${w.format}, ${w.w}x${w.h}) — "${summary}…"`;
+      }).join('\n')
     : '(none yet — the canvas is empty)';
   // Live situational awareness — built fresh on every send so the agent
   // always knows which space + URL the user is looking at right now and
@@ -594,7 +601,17 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
       if (gate === '_____react') {
         // Create a widget from React source
         const s = spaceRef.current;
-        const spot = findFirstFreeSlot(s.widgets || [], 4, 4);
+        // v5.4.2: Parse optional size metadata from gallery template comments.
+        // Templates prepend `// __WIDGET_META__ w=6 h=6` so created widgets match
+        // the template's defaultSize instead of always 4x4.
+        let targetW = 4;
+        let targetH = 4;
+        const metaMatch = code.match(/\/\/\s*__WIDGET_META__\s+w=(\d+)\s+h=(\d+)/);
+        if (metaMatch) {
+          targetW = parseInt(metaMatch[1], 10) || 4;
+          targetH = parseInt(metaMatch[2], 10) || 4;
+        }
+        const spot = findFirstFreeSlot(s.widgets || [], targetW, targetH);
         try {
           const newWidget = SpaceEngine.addWidget(s.id, {
             name: 'React Widget',
@@ -602,8 +619,8 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
             source: code,
             x: spot.x,
             y: spot.y,
-            w: 4,
-            h: 4,
+            w: targetW,
+            h: targetH,
           });
           window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
           return {

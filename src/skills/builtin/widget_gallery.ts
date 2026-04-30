@@ -331,12 +331,19 @@ export function registerWidgetGallerySkill(): void {
                 const fill = (args.fill && typeof args.fill === 'object') ? args.fill as Record<string, string> : undefined;
                 const t = getTemplate(id, fill);
                 if (!t) return JSON.stringify({ error: `Template not found: ${id}` });
+                // v5.4.2: Prepend size metadata as a leading comment so the canvas
+                // frontend can extract defaultSize from the source (Bug #3 fix).
+                // The frontend parses `// __WIDGET_META__ w=6 h=6` on _____react gate.
+                const w = t.defaultSize?.w ?? 4;
+                const h = t.defaultSize?.h ?? 4;
+                const metaComment = `// __WIDGET_META__ w=${w} h=${h}\n`;
+                const sourceWithMeta = metaComment + (t.source || '');
                 return JSON.stringify({
                     id: t.id,
                     name: t.name,
                     category: t.category,
                     defaultSize: t.defaultSize,
-                    source: t.source,
+                    source: sourceWithMeta,
                     placeholders: t.placeholders ?? [],
                 });
             },
