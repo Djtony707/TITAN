@@ -396,7 +396,19 @@ export class SandboxRuntime {
         const { url, options } = payload || {};
         const token = localStorage.getItem('titan-token');
         const headers: Record<string, string> = { ...(options?.headers || {}) };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
+        // Only inject auth for same-origin/relative requests so third-party
+        // URLs cannot steal the token.
+        let injectAuth = false;
+        try {
+          if (typeof url === 'string') {
+            if (url.startsWith('/')) injectAuth = true;
+            else {
+              const u = new URL(url, window.location.href);
+              injectAuth = u.origin === window.location.origin;
+            }
+          }
+        } catch { /* invalid URL — skip auth injection */ }
+        if (token && injectAuth) headers['Authorization'] = `Bearer ${token}`;
         const res = await fetch(url, { ...options, headers });
         const text = await res.text();
         let json = undefined;
