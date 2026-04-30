@@ -9,7 +9,7 @@ async function loadBabel(): Promise<void> {
 
   babelLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@babel/standalone@7.26.0/babel.min.js';
+    script.src = '/babel.min.js'; // Self-hosted, matches sandbox CSP and offline capability
     script.onload = () => { babelLoaded = true; resolve(); };
     script.onerror = () => reject(new Error('Failed to load Babel'));
     document.head.appendChild(script);
