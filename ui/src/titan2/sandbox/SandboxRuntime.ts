@@ -437,7 +437,8 @@ export class SandboxRuntime {
         const text = await res.text();
         let json = undefined;
         try { json = JSON.parse(text); } catch {}
-        result = { ok: res.ok, status: res.status, text, json };
+        // Widgets expect { status, body } not { ok, status, text, json }
+        result = { status: res.status, body: json ?? text };
       } else if (type === 'state') {
         const { action, key, value } = payload || {};
         if (action === 'get') {
