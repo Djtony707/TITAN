@@ -75,7 +75,7 @@ import { initHeartbeatScheduler } from '../agent/heartbeatScheduler.js';
 import { auditLog, queryAuditLog, getAuditStats } from '../agent/auditLog.js';
 import { listGoals, createGoal, getGoal, deleteGoal, updateGoal, completeSubtask, addSubtask, dedupeGoalsBulk } from '../agent/goals.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
-import { startPaperclip, stopPaperclip, getPaperclipStatus } from '../addons/paperclipSidecar.js';
+import { createPaperclipRouter, createPaperclipUIRouter } from './routes/paperclip.js';
 import { getConsentUrl, exchangeCode, isGoogleConnected, getGoogleEmail, disconnectGoogle } from '../auth/google.js';
 import { createTeam, getTeam, listTeams, deleteTeam, updateTeam, addMember, removeMember, updateMemberRole, createInvite, acceptInvite, getEffectivePermissions, setRolePermissions, getTeamStats, isToolAllowed, getUserRole } from '../security/teams.js';
 import { TITAN_WORKSPACE } from '../utils/constants.js';
@@ -1011,101 +1011,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.use('/v1', createOpenAICompatRouter());
 
   // ── Paperclip sidecar management & proxy ───────────────────
-  const PAPERCLIP_PORT = 3100; // Paperclip server default port
-
-  app.get('/api/paperclip/status', async (_req, res) => {
-    try {
-      res.json(await getPaperclipStatus());
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  app.post('/api/paperclip/start', async (_req, res) => {
-    try {
-      await startPaperclip({ enabled: true, port: PAPERCLIP_PORT, autoStart: true }, titanEvents);
-      res.json({ ok: true });
-    } catch (err) {
-      logger.error(COMPONENT, `Paperclip start failed: ${(err as Error).message}`);
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  app.post('/api/paperclip/stop', async (_req, res) => {
-    try {
-      await stopPaperclip();
-      res.json({ ok: true });
-    } catch (err) {
-      logger.error(COMPONENT, `Paperclip stop failed: ${(err as Error).message}`);
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  app.post('/api/paperclip/reset', async (_req, res) => {
-    try {
-      await stopPaperclip();
-      await startPaperclip({ enabled: true, port: PAPERCLIP_PORT, autoStart: true }, titanEvents);
-      res.json({ ok: true });
-    } catch (err) {
-      logger.error(COMPONENT, `Paperclip reset failed: ${(err as Error).message}`);
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  // Proxy Paperclip API calls (/api/paperclip/* → http://localhost:3100/api/*)
-  app.all('/api/paperclip/*', async (req: Request, res: Response) => {
-    // Skip the management routes handled above
-    if (req.path === '/api/paperclip/status' || req.path === '/api/paperclip/start' || req.path === '/api/paperclip/stop' || req.path === '/api/paperclip/reset') {
-      res.status(404).json({ error: 'Not found' });
-      return;
-    }
-    const targetPath = req.path.replace(/^\/api\/paperclip/, '/api');
-    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
-    const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
-    try {
-      const headers = new Headers();
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
-      }
-      const upstream = await fetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
-      });
-      res.status(upstream.status);
-      upstream.headers.forEach((v, k) => res.setHeader(k, v));
-      const body = await upstream.arrayBuffer();
-      res.end(Buffer.from(body));
-    } catch (err) {
-      logger.error(COMPONENT, `Paperclip API proxy error: ${(err as Error).message}`);
-      res.status(502).json({ error: 'Paperclip API proxy error', message: (err as Error).message });
-    }
-  });
-
-  // Proxy Paperclip web UI (/paperclip/* → http://localhost:3100/*)
-  app.all('/paperclip/*', async (req: Request, res: Response) => {
-    const targetPath = req.path.replace(/^\/paperclip/, '') || '/';
-    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
-    const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
-    try {
-      const headers = new Headers();
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
-      }
-      const upstream = await fetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
-      });
-      res.status(upstream.status);
-      upstream.headers.forEach((v, k) => res.setHeader(k, v));
-      const body = await upstream.arrayBuffer();
-      res.end(Buffer.from(body));
-    } catch (err) {
-      logger.error(COMPONENT, `Paperclip UI proxy error: ${(err as Error).message}`);
-      res.status(502).json({ error: 'Paperclip UI proxy error', message: (err as Error).message });
-    }
-  });
+  app.use('/api/paperclip', createPaperclipRouter());
+  app.use('/paperclip', createPaperclipUIRouter());
 
   // Ollama native API proxy (/ollama/* → configured Ollama server)
   // The UI's titan2/llm/ollama.ts hits /ollama/api/chat and /ollama/api/generate
