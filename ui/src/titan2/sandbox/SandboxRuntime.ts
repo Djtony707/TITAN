@@ -419,7 +419,17 @@ export class SandboxRuntime {
         const token = localStorage.getItem('titan-token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api' + endpoint, {
+        // Normalize: widgets may pass '/api/message' or '/message' —
+        // ensure exactly one '/api' prefix so we don't 404 on '/api/api/...'.
+        let path = typeof endpoint === 'string' ? endpoint : '';
+        if (path.startsWith('/api/')) {
+          /* already prefixed, keep as-is */
+        } else if (path.startsWith('/')) {
+          path = '/api' + path;
+        } else {
+          path = '/api/' + path;
+        }
+        const res = await fetch(path, {
           method: 'POST',
           headers,
           body: body ? JSON.stringify(body) : undefined,
