@@ -15,6 +15,15 @@ export async function startVoiceAgent(model?: string): Promise<string> {
   }
   bridge = new TitanAgentBridge({ model });
   await bridge.start();
+  // Register with LifecycleManager for graceful shutdown
+  try {
+    const { getLifecycleManager } = await import('../../utils/lifecycle.js');
+    getLifecycleManager().register(
+      'voice-bridge',
+      () => Promise.resolve(),
+      () => stopVoiceAgent().then(() => {})
+    );
+  } catch { /* lifecycle not available yet */ }
   return `Voice agent started${model ? ` (model: ${model})` : ''}`;
 }
 
