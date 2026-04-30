@@ -394,16 +394,22 @@ export class SandboxRuntime {
         result = { ok: true };
       } else if (type === 'fetch') {
         const { url, options } = payload || {};
-        const res = await fetch(url, options);
+        const token = localStorage.getItem('titan-token');
+        const headers: Record<string, string> = { ...(options?.headers || {}) };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(url, { ...options, headers });
         const text = await res.text();
         let json = undefined;
         try { json = JSON.parse(text); } catch {}
         result = { ok: res.ok, status: res.status, text, json };
       } else if (type === 'api') {
         const { endpoint, body } = payload || {};
+        const token = localStorage.getItem('titan-token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
         const res = await fetch('/api' + endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: body ? JSON.stringify(body) : undefined,
         });
         const text = await res.text();
