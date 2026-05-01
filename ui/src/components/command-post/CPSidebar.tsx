@@ -1,24 +1,40 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { Paperclip, ChevronLeft, PanelLeftClose, PanelLeft } from 'lucide-react';
+import {
+  LayoutDashboard, Users, GitBranch, Target, Briefcase,
+  Activity, DollarSign, FileText, MessageSquare, Mail,
+  ChevronLeft, PanelLeftClose, PanelLeft, Shield,
+} from 'lucide-react';
 import clsx from 'clsx';
 
 interface NavItem {
   label: string;
   path: string;
-  icon: typeof Paperclip;
+  icon: typeof Shield;
 }
+
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', path: '/command-post', icon: LayoutDashboard },
+  { label: 'Issues', path: '/command-post/issues', icon: MessageSquare },
+  { label: 'Approvals', path: '/command-post/approvals', icon: Shield },
+  { label: 'Agents', path: '/command-post/agents', icon: Users },
+  { label: 'Goals', path: '/command-post/goals', icon: Target },
+  { label: 'Work / Runs', path: '/command-post/runs', icon: Briefcase },
+  { label: 'Activity', path: '/command-post/activity', icon: Activity },
+  { label: 'Costs', path: '/command-post/costs', icon: DollarSign },
+  { label: 'Org Chart', path: '/command-post/org', icon: GitBranch },
+  { label: 'Files', path: '/command-post/files', icon: FileText },
+];
 
 export function CPSidebar() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
-  const navItems: NavItem[] = [
-    { label: 'Paperclip', path: '/command-post', icon: Paperclip },
-  ];
-
-  const isActive = (_path: string) => {
-    return location.pathname === '/command-post' || location.pathname.startsWith('/command-post/paperclip');
+  const isActive = (path: string) => {
+    if (path === '/command-post') {
+      return location.pathname === '/command-post' || location.pathname === '/command-post/dashboard';
+    }
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
   if (collapsed) {
@@ -34,7 +50,7 @@ export function CPSidebar() {
           </button>
         </div>
         <nav className="flex-1 flex flex-col items-center gap-1 px-1 py-2">
-          {navItems.map((item) => {
+          {NAV_ITEMS.map((item) => {
             const active = isActive(item.path);
             const Icon = item.icon;
             return (
@@ -80,7 +96,7 @@ export function CPSidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        {navItems.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const active = isActive(item.path);
           const Icon = item.icon;
           return (

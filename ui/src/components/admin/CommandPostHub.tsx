@@ -1193,6 +1193,87 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
   );
 }
 
+function ApprovalsTab() {
+  const [approvals, setApprovals] = useState<CPApproval[]>([]);
+  const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getCPApprovals(filter === 'all' ? undefined : filter);
+      setApprovals(data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleApprove = async (id: string) => {
+    try { await approveCPApproval(id, 'board'); } catch { /* ignore */ }
+    load();
+  };
+
+  const handleReject = async (id: string) => {
+    try { await rejectCPApproval(id, 'board'); } catch { /* ignore */ }
+    load();
+  };
+
+  const filtered = approvals.filter(a => filter === 'all' ? true : a.status === filter);
+
+  return (
+    <div className="bg-bg-secondary/50 border border-border rounded-2xl overflow-hidden">
+      <SectionHeader
+        icon={Shield}
+        title="Approvals"
+        count={filtered.length}
+        help={{ title: 'Approvals', description: 'Human-in-the-loop decisions for hiring agents, budget overrides, goal proposals, and self-modification requests.' }}
+        action={
+          <div className="flex items-center gap-2">
+            {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-2 py-0.5 text-[10px] rounded-md transition-colors ${filter === f ? 'bg-accent text-text' : 'bg-bg-tertiary text-text-muted hover:text-text'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <div className="divide-y divide-border/30">
+        {loading ? (
+          <div className="py-8 text-center text-[12px] text-text-muted">Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div className="py-8 text-center text-[12px] text-text-muted">No {filter} approvals.</div>
+        ) : filtered.map(a => (
+          <div key={a.id} className="px-4 py-3 hover:bg-bg-tertiary/30 transition-colors">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[12px] text-text flex-1 truncate pr-2">{a.type.replace(/_/g, ' ')}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${a.status === 'pending' ? 'bg-warning/10 text-warning' : a.status === 'approved' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>{a.status}</span>
+            </div>
+            <div className="text-[10px] text-text-muted mb-2 truncate">{extractApprovalHeadline(a)?.headline}</div>
+            {a.status === 'pending' && (
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleApprove(a.id)} className="px-2 py-0.5 text-[10px] bg-success text-text rounded hover:bg-success/80">
+                  Approve
+                </button>
+                <button onClick={() => handleReject(a.id)} className="px-2 py-0.5 text-[10px] bg-error text-text rounded hover:bg-error/80">
+                  Reject
+                </button>
+              </div>
+            )}
+            {a.decidedBy && (
+              <div className="text-[10px] text-text-muted mt-1">By {a.decidedBy} {a.decidedAt ? timeSince(a.decidedAt) + ' ago' : ''}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DebatesTab() {
   const [debates, setDebates] = useState<DebateSummary[]>([]);
   const [selected, setSelected] = useState<DebateTranscript | null>(null);
@@ -1323,7 +1404,7 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console';
+type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals';
 
 const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof Shield }[] }[] = [
   {
@@ -1345,6 +1426,8 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof 
   {
     label: 'Governance',
     tabs: [
+      { id: 'Issues', label: 'Issues', icon: MessageSquare },
+      { id: 'Approvals', label: 'Approvals', icon: Shield },
       { id: 'Org Chart', label: 'Org Chart', icon: GitBranch },
       { id: 'Agents', label: 'Agents', icon: Users },
       { id: 'Files', label: 'Files', icon: FileText },
@@ -1444,6 +1527,8 @@ export default function CommandPostHub() {
       case 'Goals': return <Suspense fallback={<TabFallback label="goals" />}><CPGoalsLazy /></Suspense>;
       case 'Work': return <Suspense fallback={<TabFallback label="work" />}><WorkTabLazy /></Suspense>;
       case 'Sessions': return <Suspense fallback={<TabFallback label="sessions" />}><SessionsTabLazy /></Suspense>;
+      case 'Issues': return <IssuesTab agents={d.agents} />;
+      case 'Approvals': return <ApprovalsTab />;
       case 'Org Chart': return <OrgChartTab agents={d.agents} />;
       case 'Agents': return <Suspense fallback={<TabFallback label="agents" />}><CPAgentsLazy /></Suspense>;
       case 'Files': return <Suspense fallback={<TabFallback label="files" />}><CPFilesLazy /></Suspense>;

@@ -13,6 +13,7 @@ import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 
 // ── Titan 3.0 Canvas ────────────────────────────────────────
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
+const CPLayout = lazy(() => import('@/components/command-post/CPLayout'));
 
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
@@ -91,8 +92,6 @@ function AuthenticatedAppInner() {
           <Route path="/dashboard" element={<Navigate to="/space/home" replace />} />
           <Route path="/space" element={<Navigate to="/space/home" replace />} />
           <Route path="/soma" element={<Navigate to="/space/soma" replace />} />
-          <Route path="/command-post" element={<Navigate to="/space/command" replace />} />
-          <Route path="/command-post/*" element={<Navigate to="/space/command" replace />} />
           <Route path="/intelligence" element={<Navigate to="/space/intelligence" replace />} />
           <Route path="/infra" element={<Navigate to="/space/infra" replace />} />
           <Route path="/tools" element={<Navigate to="/space/tools" replace />} />
@@ -103,6 +102,9 @@ function AuthenticatedAppInner() {
           <Route path="/goals" element={<Navigate to="/space/home" replace />} />
           <Route path="/approvals" element={<Navigate to="/space/home" replace />} />
           <Route path="/activity" element={<Navigate to="/space/home" replace />} />
+
+          {/* Command Post — routed page and canvas widget */}
+          <Route path="/command-post/*" element={<CPLayout />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/space/home" replace />} />
