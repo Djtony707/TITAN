@@ -12,7 +12,8 @@ import fs from 'fs';
 import { execSync, spawn } from 'child_process';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
-import { processMessage, routeMessage } from '../../agent/agent.js';
+import { processMessage } from '../../agent/agent.js';
+import { routeMessage } from '../../agent/multiAgent.js';
 
 const COMPONENT = 'VoiceRouter';
 
@@ -199,7 +200,7 @@ export function createVoiceRouter(
     const abortController = new AbortController();
     if (requestedSessionId) { sessionAborts.set(requestedSessionId, abortController); sessionAbortTimes.set(requestedSessionId, Date.now()); }
 
-    let effectiveTtsEngine = ttsEngine;
+    let effectiveTtsEngine: string = ttsEngine;
     const effectiveTtsUrl = ttsUrl;
     const effectiveTtsModel = 'f5-tts-mlx';
 
