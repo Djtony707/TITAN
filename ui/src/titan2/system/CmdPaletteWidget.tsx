@@ -75,6 +75,11 @@ export function CmdPaletteWidget({ currentSpaceId, onSpaceSelect, onAction, onCl
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, items.length - 1)); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); return; }
@@ -91,7 +96,7 @@ export function CmdPaletteWidget({ currentSpaceId, onSpaceSelect, onAction, onCl
   }, [items, selectedIndex, onSpaceSelect, onAction, onClose]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-[2147483200] flex items-start justify-center pt-[20vh]" onClick={onClose}>
       <div className="w-full max-w-lg bg-[#18181b]/98 backdrop-blur-xl border border-[#27272a]/60 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[#27272a]/40">

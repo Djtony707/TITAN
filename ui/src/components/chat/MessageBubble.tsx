@@ -2,8 +2,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import type { ChatMessage } from '@/api/types';
-import { User, Bot } from 'lucide-react';
+import { User, Bot, Volume2 } from 'lucide-react';
 import { ToolInvocationTimeline } from './ToolInvocationTimeline';
+import { speakText } from '@/api/client';
+import { useState, useCallback, useRef } from 'react';
 
 interface MessageBubbleProps {
   message: ChatMessage;

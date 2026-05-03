@@ -3,7 +3,14 @@
  * Parses LLM output for execution gates: _____javascript, _____react, _____tool
  */
 
-import type { AgentGate, ExecutionBlock, AgentMessage, ExecutionResult } from '../types';
+import type {
+  AgentCanvasAction,
+  AgentGate,
+  ExecutionBlock,
+  AgentMessage,
+  ExecutionResult,
+  WidgetDef,
+} from '../types';
 
 const GATES: AgentGate[] = ['_____javascript', '_____react', '_____tool', '_____widget', '_____framework', '_____transient'];
 
@@ -28,6 +35,74 @@ function isGateOnOwnLine(content: string, gateIndex: number, gate: string): bool
 function stripTrailingUnderscores(code: string): string {
   // Some models emit stray _____ or _______ lines after code blocks
   return code.replace(/\n_+\s*$/g, '').trimEnd();
+}
+
+function parseWidgetPayload(code: string): Partial<WidgetDef> | null {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed) as Partial<WidgetDef>;
+    } catch {
+      return null;
+    }
+  }
+  return {
+    format: 'react',
+    source: trimmed,
+  };
+}
+
+export function blockToAction(block: ExecutionBlock): AgentCanvasAction | undefined {
+  if (block.gate === '_____react') {
+    return {
+      type: 'render_widget',
+      widget: {
+        format: 'react',
+        source: block.code.trim(),
+      },
+    };
+  }
+
+  if (block.gate === '_____javascript') {
+    return {
+      type: 'run_javascript',
+      code: block.code,
+    };
+  }
+
+  if (block.gate === '_____tool') {
+    try {
+      return {
+        type: 'tool_request',
+        payload: JSON.parse(block.code),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (block.gate === '_____widget') {
+    const widget = parseWidgetPayload(block.code);
+    if (typeof widget?.source !== 'string' || !widget.source.trim()) return undefined;
+    if (typeof widget.id === 'string' && widget.id.trim()) {
+      const { id, ...patch } = widget;
+      return {
+        type: 'update_widget',
+        widgetId: id,
+        patch,
+      };
+    }
+    return {
+      type: 'render_widget',
+      widget: {
+        ...widget,
+        source: widget.source,
+      },
+    };
+  }
+
+  return undefined;
 }
 
 export function extractExecutionBlocks(content: string): ExecutionBlock[] {
@@ -74,11 +149,13 @@ export function extractExecutionBlocks(content: string): ExecutionBlock[] {
     let code = content.slice(codeStart, nextGateIndex).trimEnd();
     code = stripTrailingUnderscores(code);
 
-    blocks.push({
+    const block: ExecutionBlock = {
       gate: earliestGate,
       code,
       leadingText: content.slice(searchIndex, lineStart).trim(),
-    });
+    };
+    block.action = blockToAction(block);
+    blocks.push(block);
 
     searchIndex = nextGateIndex;
   }

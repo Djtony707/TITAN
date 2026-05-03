@@ -22,6 +22,7 @@ vi.mock('../src/utils/logger.js', () => ({
 
 vi.mock('../src/utils/helpers.js', () => ({
     ensureDir: vi.fn(),
+    mkdirIfNotExists: vi.fn(),
     readJsonFile: vi.fn().mockReturnValue(null),
     writeJsonFile: vi.fn(),
 }));
@@ -81,6 +82,7 @@ describe('Memory Module', () => {
         }));
         vi.doMock('../src/utils/helpers.js', () => ({
             ensureDir: vi.fn(),
+            mkdirIfNotExists: vi.fn(),
             readJsonFile: vi.fn().mockReturnValue(null),
             writeJsonFile: vi.fn(),
         }));
@@ -263,6 +265,7 @@ describe('Learning Engine', () => {
         }));
         vi.doMock('../src/utils/helpers.js', () => ({
             ensureDir: vi.fn(),
+            mkdirIfNotExists: vi.fn(),
         }));
         vi.doMock('../src/utils/constants.js', () => ({
             TITAN_MD_FILENAME: 'TITAN.md',

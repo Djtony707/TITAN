@@ -292,7 +292,7 @@ describe('Mission Control v2', () => {
             expect(res.status).toBe(200);
             const body = await res.json() as any;
             expect(body.status).toBe('ok');
-            expect(body.version).toBe('5.4.1');
+            expect(body.version).toBe('5.5.3');
             expect(typeof body.uptime).toBe('number');
         });
 
@@ -300,7 +300,7 @@ describe('Mission Control v2', () => {
             const res = await fetch(`${BASE}/api/stats`);
             expect(res.status).toBe(200);
             const body = await res.json() as any;
-            expect(body.version).toBe('5.4.1');
+            expect(body.version).toBe('5.5.3');
             expect(typeof body.uptime).toBe('number');
         });
     });

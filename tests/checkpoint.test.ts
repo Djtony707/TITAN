@@ -35,6 +35,9 @@ vi.mock('../src/utils/logger.js', () => ({
 
 vi.mock('../src/utils/helpers.js', () => ({
     ensureDir: vi.fn(),
+    mkdirIfNotExists: vi.fn(),
+    readJsonFile: vi.fn().mockReturnValue(null),
+    writeJsonFile: vi.fn(),
 }));
 
 vi.mock('../src/utils/constants.js', () => ({

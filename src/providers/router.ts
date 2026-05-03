@@ -793,6 +793,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
     // options.messages via buildSmartContext and retry the SAME provider once
     // before falling through to model fallback / cross-provider failover.
     let compressionRetried = false;
+    let thinkingStripped = false;
 
     // v4.13 ancestor-extraction (Hermes rate_limit_tracker): proactive backoff
     // before even sending the request. If the last response from this provider
@@ -910,6 +911,24 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 } catch (compErr) {
                     logger.warn(COMPONENT, `[Router] Compression failed: ${(compErr as Error).message} — falling through`);
                 }
+            }
+
+            // Gap 2: act on THINKING_NOT_SUPPORTED — strip thinking options and retry
+            // once on the same provider. This handles models like titan-qwen3.5:4b
+            // that return HTTP 400 "does not support thinking". We mutate options only
+            // once so a second THINKING_NOT_SUPPORTED falls through to normal retry ladder.
+            if (classified.reason === FailoverReason.THINKING_NOT_SUPPORTED && !thinkingStripped) {
+                thinkingStripped = true;
+                const providerOpts = options.providerOptions ? { ...options.providerOptions } : {};
+                // Remove Ollama/OpenAI-compat thinking keys
+                delete (providerOpts as Record<string, unknown>).think;
+                delete (providerOpts as Record<string, unknown>).thinking;
+                delete (providerOpts as Record<string, unknown>).thinking_mode;
+                delete (providerOpts as Record<string, unknown>).budget_tokens;
+                delete (providerOpts as Record<string, unknown>).enable_thinking;
+                options = { ...options, providerOptions: providerOpts };
+                logger.info(COMPONENT, `[Router] THINKING_NOT_SUPPORTED — stripped thinking flags, retrying ${providerName}/${model}`);
+                continue;
             }
 
             const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);

@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "5.5.0",
+  "version": "5.5.3",
   "description": "TITAN — Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 16 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, TITAN-Soma homeostatic drives, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -34,9 +34,9 @@
   },
   "scripts": {
     "gitnexus:rebuild": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js analyze --name TITAN",
-  "gitnexus:query": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js query",
-  "gitnexus:status": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js status",
-  "build:ui": "cd ui && npm install && npm run build",
+    "gitnexus:query": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js query",
+    "gitnexus:status": "node /opt/homebrew/lib/node_modules/gitnexus/dist/cli/index.js status",
+    "build:ui": "cd ui && npm install && npm run build",
     "postinstall": "node -e \"try{require('./scripts/postinstall.cjs')}catch(e){if(e.code==='MODULE_NOT_FOUND'){console.log('TITAN installed. Run: titan onboard')}else{throw e}}\"",
     "build": "tsup",
     "build:personal": "node scripts/build-personal.cjs",

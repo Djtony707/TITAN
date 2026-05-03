@@ -5,6 +5,20 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.3] — 2026-05-01
+
+### Fixed
+
+- **Capabilities prefix stripping** — provider capabilities no longer include stale prefixes
+- **Configurable chatTimeout** — `chatTimeout` now reads from config instead of hardcoded value
+- **Message array flush** — outbound message buffer flushes correctly before SSE close
+- **THINKING_NOT_SUPPORTED error handling** — graceful fallback when model doesn't support thinking blocks
+- **Doctor model check** — `/api/doctor` no longer crashes when model field is absent
+- **loadDisabledSkills cache** — disabled skills cache invalidates correctly on config change
+- **SSE disconnect abort** — in-flight LLM requests are aborted on client disconnect
+
+---
+
 ## [5.4.3] — 2026-04-30 — 🎯 **"Canvas & Sandbox Hardening"**
 
 Canvas-focused patch. Fixes critical bugs that prevented widgets from being created, displayed, and calling the API from inside their sandboxes. Also hardens gallery loading and widget editing.

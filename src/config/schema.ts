@@ -179,6 +179,13 @@ export const AgentConfigSchema = z.object({
     /** Force tool_choice=required in autonomous mode */
     forceToolUse: z.boolean().default(true),
     thinkingMode: z.enum(['off', 'low', 'medium', 'high']).default('medium'),
+    /**
+     * Wall-clock timeout (ms) for each individual LLM call within the agent loop.
+     * Default 300 s (5 min) is appropriate for complex agentic tasks but too long
+     * for simple webchat queries. Set to e.g. 90_000 (90 s) for faster failure on
+     * slow/unreachable providers. Per-request overrides via LoopContext.chatTimeoutMs.
+     */
+    chatTimeoutMs: z.number().int().positive().default(300_000),
     /** Model aliases â e.g. { fast: "openai/gpt-4o-mini", smart: "anthropic/claude-sonnet-4-20250514", local: "ollama/qwen3.5:4b" } */
     // Hunt Finding #42 (2026-04-15): README promises built-in aliases
     // `fast, smart, cheap, reasoning, local`. Zod's .default() replaces the

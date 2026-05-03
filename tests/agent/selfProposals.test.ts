@@ -190,11 +190,12 @@ describe('selfProposals', () => {
     });
 
     describe('listProposals / getProposal', () => {
-        it('returns newest-first', () => {
+        it('returns newest-first', async () => {
             captureWrite({
                 toolName: 'write_file', filePath: '/tmp/a.ts', content: 'a',
                 sessionId: 's1', agentId: null, goalId: null, goalTitle: null, goalProposedBy: 'soma:curiosity',
             });
+            await new Promise(r => setTimeout(r, 10)); // ensure different timestamps
             captureWrite({
                 toolName: 'write_file', filePath: '/tmp/b.ts', content: 'b',
                 sessionId: 's2', agentId: null, goalId: null, goalTitle: null, goalProposedBy: 'soma:hunger',

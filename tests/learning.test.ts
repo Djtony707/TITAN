@@ -22,6 +22,7 @@ vi.mock('../src/utils/constants.js', () => ({
 
 vi.mock('../src/utils/helpers.js', () => ({
     ensureDir: vi.fn(),
+    mkdirIfNotExists: vi.fn(),
     truncate: vi.fn((s: string) => s),
     formatBytes: vi.fn(),
     formatDuration: vi.fn(),

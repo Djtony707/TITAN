@@ -581,19 +581,37 @@ export default function TitanCanvas() {
     return () => window.removeEventListener('titan:space:refresh', handler);
   }, [space]);
 
-  // Listen for widget-add requests from QuickLinksWidget and other sources
+  // Listen for widget-add requests from QuickLinksWidget, Gallery, and other sources
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!space) return;
       if (detail?.source) {
-        const name = detail.source.replace('system:', '').replace(/-/g, ' ');
-        handleAddSystemWidget(detail.source, name, detail.w || 4, detail.h || 4);
+        const w = Number.isFinite(detail.w) ? detail.w : 4;
+        const h = Number.isFinite(detail.h) ? detail.h : 4;
+        const name = typeof detail.name === 'string' && detail.name.trim()
+          ? detail.name.trim()
+          : String(detail.source).replace('system:', '').replace(/-/g, ' ');
+        const format = detail.format === 'react' || detail.format === 'vanilla' || detail.format === 'html' || detail.format === 'system'
+          ? detail.format
+          : String(detail.source).startsWith('system:')
+            ? 'system'
+            : 'react';
+        const spot = findEmptySpot(w, h);
+        handleAddWidget({
+          name,
+          format,
+          source: String(detail.source),
+          x: spot.x,
+          y: spot.y,
+          w,
+          h,
+        });
       }
     };
     window.addEventListener('titan:widget:add', handler);
     return () => window.removeEventListener('titan:widget:add', handler);
-  }, [space, handleAddSystemWidget]);
+  }, [space, handleAddWidget, findEmptySpot]);
 
   // Listen for widget-edit requests fired from each widget's header
   // pencil. We keep this as a window event rather than drilling a prop

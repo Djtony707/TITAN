@@ -26,6 +26,9 @@ export enum FailoverReason {
     OVERLOADED = 'overloaded',
     EMPTY_RESPONSE = 'empty_response',
     FORMAT_ERROR = 'format_error',
+    /** Model returned 400 because thinking/extended-thinking is not supported.
+     *  Recovery: strip thinking flag and retry once on the same provider. */
+    THINKING_NOT_SUPPORTED = 'thinking_not_supported',
     UNKNOWN = 'unknown',
 }
 
@@ -136,6 +139,15 @@ const RECOVERY_PROFILES: Record<FailoverReason, Omit<ClassifiedError, 'reason' |
         cooldownMs: 1000,
     },
     [FailoverReason.FORMAT_ERROR]: {
+        retryable: true,
+        shouldCompress: false,
+        shouldRotateCredential: false,
+        shouldFallback: false,
+        cooldownMs: 0,
+    },
+    [FailoverReason.THINKING_NOT_SUPPORTED]: {
+        // Retry once on the same provider after stripping thinking options.
+        // The router handles the option mutation; after one retry we fall through.
         retryable: true,
         shouldCompress: false,
         shouldRotateCredential: false,
@@ -260,6 +272,12 @@ export function classifyProviderError(error: unknown): ClassifiedError {
             body.includes('safety') || body.includes('harmful') ||
             body.includes('flagged') || body.includes('blocked')) {
             return buildResult(FailoverReason.CONTENT_FILTERED, status, msg);
+        }
+        // Detect thinking-not-supported (e.g. Ollama qwen3.5:4b, some OpenAI-compat endpoints)
+        if (body.includes('does not support thinking') || body.includes('thinking is not supported') ||
+            body.includes('extended-thinking') || body.includes('think_mode') ||
+            body.includes('budget_tokens') || body.includes('thinking_mode')) {
+            return buildResult(FailoverReason.THINKING_NOT_SUPPORTED, status, msg);
         }
         if (body.includes('invalid') || body.includes('malformed') ||
             body.includes('parse') || body.includes('json')) {

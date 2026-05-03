@@ -26,7 +26,7 @@ vi.mock('fs', async (importOriginal) => {
         readdirSync: mockReaddirSync,
     };
 });
-vi.mock('../src/utils/helpers.js', () => ({ ensureDir: mockEnsureDir }));
+vi.mock('../src/utils/helpers.js', () => ({ ensureDir: mockEnsureDir, mkdirIfNotExists: mockEnsureDir }));
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

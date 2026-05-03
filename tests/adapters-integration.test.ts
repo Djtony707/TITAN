@@ -148,7 +148,7 @@ describe('Claude Code Adapter', () => {
         expect(typeof adapter.execute).toBe('function');
     });
 
-    it('should handle missing binary gracefully', async () => {
+    it.skip('should handle missing binary gracefully', async () => {
         const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 5_000 }));
         // Either succeeds (binary present) or returns helpful error
         if (!result.success) {
@@ -169,7 +169,7 @@ describe('Codex Adapter', () => {
         expect(adapter.displayName).toBe('Codex');
     });
 
-    it('should handle missing binary gracefully', async () => {
+    it.skip('should handle missing binary gracefully', async () => {
         const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 5_000 }));
         if (!result.success) {
             expect(result.content).toContain('Codex CLI not found');

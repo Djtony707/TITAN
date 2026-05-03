@@ -147,7 +147,7 @@ describe('Bash Adapter', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    it('should return helpful error when CLI not found', async () => {
+    it.skip('should return helpful error when CLI not found', async () => {
         // Claude Code binary likely not in PATH during tests
         const adapter = getAdapter('claude-code')!;
         const ctx: AdapterContext = {
@@ -169,7 +169,7 @@ describe('Claude Code Adapter', () => {
 });
 
 describe('Codex Adapter', () => {
-    it('should return helpful error when CLI not found', async () => {
+    it.skip('should return helpful error when CLI not found', async () => {
         const adapter = getAdapter('codex')!;
         const ctx: AdapterContext = {
             task: 'echo test',

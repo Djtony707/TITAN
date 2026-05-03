@@ -428,6 +428,8 @@ export interface LoopContext {
     providerOptions?: Record<string, unknown>;
     /** v5.0: Steer queue — mid-run nudges injected after ACT phase */
     steerQueue?: string[];
+    /** Per-request LLM call timeout override (ms). Falls back to config.agent.chatTimeoutMs → 300_000. */
+    chatTimeoutMs?: number;
 }
 
 /** Everything processMessage needs back from the loop */
@@ -931,6 +933,14 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 // that destroyed history when maybeCompressContext + buildSmartContext
                 // both ran sequentially (the former mutated ctx.messages in-place).
                 smartMessages = buildSmartContext(ctx.messages as ChatMessage[], tokenBudget);
+
+                // QA Bug #4: ctx.messages grows unbounded across rounds (up to 200+ entries).
+                // Flush the compressed result back so the next round starts from the trimmed
+                // baseline rather than the ever-growing raw array.
+                if (ctx.messages.length > 80 && smartMessages.length < ctx.messages.length) {
+                    logger.debug(COMPONENT, `[MsgCap] Flushed context: ${ctx.messages.length} → ${smartMessages.length} msgs`);
+                    ctx.messages = smartMessages as typeof ctx.messages;
+                }
             }
 
             // ── Response cache check ─────────────────────────────
@@ -1155,7 +1165,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 // full response before the client does. We also strip any
                 // leading narrator preamble that the model emitted despite
                 // our respond directive (Hunt Finding #38b).
-                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', 300_000);
+                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', ctx.chatTimeoutMs ?? ctx.config.agent.chatTimeoutMs ?? 300_000);
                 if (isChatRound0Think && response.content) {
                     const stripped = stripNarratorPreamble(response.content);
                     if (stripped !== response.content) {
@@ -2235,7 +2245,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     model: activeModel,
                 };
             } else {
-                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', 300_000);
+                response = await chatWithTimeout(() => chat(chatOptions), 'agentLoop:chat', ctx.chatTimeoutMs ?? ctx.config.agent.chatTimeoutMs ?? 300_000);
             }
             // v5.0: OTEL span for respond-phase LLM call
             fireSpan(traceCtx, 'model_call:respond', Date.now() - respondStart, { round: String(round), model: activeModel, phase: 'respond' });
@@ -2319,7 +2329,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         temperature: 0.7,
                         maxTokens: 300,
                         providerOptions: ctx.providerOptions,
-                    }), 'agentLoop:retry', 300_000);
+                    }), 'agentLoop:retry', Math.min(ctx.chatTimeoutMs ?? ctx.config.agent.chatTimeoutMs ?? 300_000, 60_000));
                     const retryContent = (retryResponse.content || '').trim();
                     if (retryContent && retryContent.length > 10) {
                         logger.info(COMPONENT, '[EmptyResponse] Recovery retry succeeded');

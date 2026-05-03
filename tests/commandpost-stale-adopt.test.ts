@@ -37,6 +37,7 @@ vi.mock('fs', () => ({
 
 vi.mock('../src/utils/helpers.js', () => ({
     ensureDir: vi.fn(),
+    mkdirIfNotExists: vi.fn(),
 }));
 
 vi.mock('../src/utils/constants.js', async (orig) => {

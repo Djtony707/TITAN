@@ -654,6 +654,16 @@ export async function previewVoice(name: string, text?: string): Promise<ArrayBu
   return res.arrayBuffer();
 }
 
+export async function speakText(text: string, voice?: string, format = 'wav'): Promise<ArrayBuffer> {
+  const params = new URLSearchParams({ text, format });
+  if (voice) params.set('voice', voice);
+  const res = await fetch(`${BASE}/api/voice/tts?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`TTS failed: ${res.statusText}`);
+  return res.arrayBuffer();
+}
+
 // ---- Command Post ----
 
 export async function getCommandPostDashboard(): Promise<CommandPostDashboard> {

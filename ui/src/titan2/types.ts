@@ -78,6 +78,68 @@ export interface ExecutionBlock {
   gate: AgentGate;
   code: string;
   leadingText: string;
+  action?: AgentCanvasAction;
+}
+
+export type AgentCanvasActionType =
+  | 'render_widget'
+  | 'update_widget'
+  | 'run_javascript'
+  | 'tool_request'
+  | 'emit_event'
+  | 'set_runtime_state';
+
+export interface AgentCanvasActionBase {
+  type: AgentCanvasActionType;
+}
+
+export interface AgentRenderWidgetAction extends AgentCanvasActionBase {
+  type: 'render_widget';
+  widget: Partial<WidgetDef> & Pick<WidgetDef, 'source'>;
+}
+
+export interface AgentUpdateWidgetAction extends AgentCanvasActionBase {
+  type: 'update_widget';
+  widgetId: string;
+  patch: Partial<WidgetDef>;
+}
+
+export interface AgentRunJavascriptAction extends AgentCanvasActionBase {
+  type: 'run_javascript';
+  code: string;
+}
+
+export interface AgentToolRequestAction extends AgentCanvasActionBase {
+  type: 'tool_request';
+  payload: Record<string, unknown>;
+}
+
+export interface AgentEmitEventAction extends AgentCanvasActionBase {
+  type: 'emit_event';
+  eventName: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface AgentSetRuntimeStateAction extends AgentCanvasActionBase {
+  type: 'set_runtime_state';
+  key: string;
+  value: unknown;
+}
+
+export type AgentCanvasAction =
+  | AgentRenderWidgetAction
+  | AgentUpdateWidgetAction
+  | AgentRunJavascriptAction
+  | AgentToolRequestAction
+  | AgentEmitEventAction
+  | AgentSetRuntimeStateAction;
+
+export interface GalleryRunRequest {
+  templateId: string;
+  templateName: string;
+  source: string;
+  format: WidgetFormat;
+  defaultSize?: { w: number; h: number };
 }
 
 export interface ExecutionResult {

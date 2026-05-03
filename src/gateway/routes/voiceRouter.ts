@@ -489,6 +489,37 @@ export function createVoiceRouter(
     } catch (e) { res.json({ ok: false, error: (e as Error).message }); }
   };
 
+  const startF5TTSSidecar = async (): Promise<void> => {
+    const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
+    const python = join(venvPath, 'bin', 'python');
+    const pidFile = join(homedir(), '.titan', 'f5tts.pid');
+    if (!fs.existsSync(python)) {
+      logger.warn(COMPONENT, 'F5-TTS not installed — skipping auto-start');
+      return;
+    }
+    try {
+      const probe = await fetch(`http://localhost:${F5_TTS_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+      if (probe.ok) {
+        logger.info(COMPONENT, 'F5-TTS sidecar already running');
+        return;
+      }
+    } catch { /* not running */ }
+    try {
+      const serverScript = join(__dirname, '..', '..', 'scripts', 'f5-tts-server.py');
+      const scriptPath = fs.existsSync(serverScript) ? serverScript : join(__dirname, '..', '..', '..', 'scripts', 'f5-tts-server.py');
+      const child = spawn(python, [scriptPath, '--host', '127.0.0.1', '--port', String(F5_TTS_PORT)], {
+        detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PATH: `${join(venvPath, 'bin')}:${process.env.PATH}` },
+      });
+      child.unref();
+      f5ttsPid = child.pid ?? null;
+      if (child.pid) fs.writeFileSync(pidFile, String(child.pid));
+      logger.info(COMPONENT, 'F5-TTS sidecar auto-starting...');
+    } catch (e) {
+      logger.error(COMPONENT, `F5-TTS auto-start failed: ${(e as Error).message}`);
+    }
+  };
+
   const startF5TTSHandler = async (_req: Request, res: Response) => {
     const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
     const python = join(venvPath, 'bin', 'python');
@@ -572,6 +603,12 @@ export function createVoiceRouter(
       res.json({ ok: true });
     } catch (e) { res.json({ ok: false, error: (e as Error).message }); }
   });
+
+  // Auto-start F5-TTS sidecar if voice is enabled
+  const cfg = loadConfig();
+  if (cfg.voice?.enabled) {
+    startF5TTSSidecar().catch(() => {});
+  }
 
   return router;
 }

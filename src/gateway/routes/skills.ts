@@ -162,6 +162,32 @@ export function createSkillsRouter(channels: Map<string, ChannelAdapter>): Route
     } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
   });
 
+  router.get('/widget-gallery/:id', async (req, res): Promise<void> => {
+    try {
+      const { getTemplate } = await import('../../skills/builtin/widget_gallery.js');
+      const template = getTemplate(String(req.params.id || ''));
+      if (!template) {
+        res.status(404).json({ error: `Template not found: ${req.params.id}` });
+        return;
+      }
+
+      const w = template.defaultSize?.w ?? 4;
+      const h = template.defaultSize?.h ?? 4;
+      const source = template.source.startsWith('system:')
+        ? template.source
+        : `// __WIDGET_META__ w=${w} h=${h}\n${template.source || ''}`;
+
+      res.json({
+        id: template.id,
+        name: template.name,
+        category: template.category,
+        defaultSize: template.defaultSize,
+        source,
+        placeholders: template.placeholders ?? [],
+      });
+    } catch (e) { logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' }); }
+  });
+
   // ── Tools ───────────────────────────────────────────────────
   router.get('/tools', (req, res) => {
     const includeSchema = req.query.include === 'schema';

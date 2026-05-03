@@ -325,7 +325,8 @@ describe('Finding #34 — server.ts validateFilePath sibling check', () => {
     it('source code: uses path-separator boundary on startsWith check', async () => {
         const { readFileSync } = await import('fs');
         const { join } = await import('path');
-        const src = readFileSync(join(process.cwd(), 'src/gateway/server.ts'), 'utf-8');
+        // validateFilePath was extracted from server.ts into routes/files.ts
+        const src = readFileSync(join(process.cwd(), 'src/gateway/routes/files.ts'), 'utf-8');
         const idx = src.indexOf('function validateFilePath');
         expect(idx).toBeGreaterThan(0);
         const block = src.slice(idx, idx + 2000);

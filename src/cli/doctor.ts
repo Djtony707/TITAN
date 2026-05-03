@@ -180,6 +180,30 @@ export async function runDoctor(options?: { fix?: boolean; json?: boolean; dryRu
                     });
                 }
             }
+
+            // Check model resolution — does the configured model string look routable?
+            const modelStr: string = config.agent.model || '';
+            const knownProviderPrefixes = [
+                'ollama/', 'anthropic/', 'openai/', 'google/', 'groq/', 'mistral/',
+                'openrouter/', 'xai/', 'together/', 'deepseek/', 'fireworks/',
+                'cerebras/', 'cohere/', 'perplexity/', 'azure/', 'openai_compat/',
+            ];
+            const hasProviderPrefix = knownProviderPrefixes.some(p => modelStr.startsWith(p));
+            if (!hasProviderPrefix && modelStr) {
+                checks.push({
+                    name: 'Model resolution',
+                    status: 'warn',
+                    message: `"${modelStr}" has no provider prefix (e.g. ollama/${modelStr}). ` +
+                        `TITAN will try to auto-detect the provider but may fail at runtime. ` +
+                        `Add a provider prefix to avoid ambiguity.`,
+                });
+            } else if (hasProviderPrefix) {
+                checks.push({
+                    name: 'Model resolution',
+                    status: 'pass',
+                    message: `${modelStr} (provider prefix detected)`,
+                });
+            }
         } catch (error) {
             checks.push({
                 name: 'Config validation',

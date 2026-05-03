@@ -229,7 +229,13 @@ function triggerBackgroundProbe(modelName: string): void {
 
     // Step 2: Hardcoded map (prefix-matched, longest wins)
     const bare = modelName.includes('/') ? modelName.split('/').slice(1).join('/') : modelName;
-    const baseName = bare.replace(/:(cloud|latest|\d+b(-cloud)?)$/i, '');
+    // Strip version/tag suffix (e.g. ":cloud", ":4b", ":latest", ":4b-cloud")
+    const noTag = bare.replace(/:(cloud|latest|\d+b(-cloud)?)$/i, '');
+    // Strip known custom name prefixes that operators add (e.g. "titan-qwen3.5" → "qwen3.5",
+    // "myorg-deepseek-v3" → "deepseek-v3"). We do a single pass removing any word-prefix
+    // that is NOT itself a known model family, up to the first recognised pattern in the map.
+    const knownPrefixes = /^(titan|local|custom|myorg|org|priv|private|dev|test|prod|staging)-/i;
+    const baseName = noTag.replace(knownPrefixes, '');
 
     let bestMatch: Partial<ModelCapabilities> | undefined;
     let bestLen = 0;

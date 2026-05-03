@@ -212,10 +212,12 @@ const SANDBOX_TEMPLATE = `<!DOCTYPE html>
               throw new Error('Babel transform failed: ' + babelErr.message);
             }
 
-            // ── 3.5 Auto-inject React hooks so widgets work with bare hook names
-            // (LLMs often write useState instead of React.useState).
+            // ── 3.5 Auto-inject React hooks and the legacy gallery render()
+            // helper. Older templates end with render(<MyWidget/>); while newer
+            // generated code is component-only and gets auto-detected below.
             const hookDecl = 'const { useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer, useLayoutEffect, useId, useTransition, useDeferredValue, useImperativeHandle, useDebugValue, useSyncExternalStore } = React;';
-            code = hookDecl + '\\n' + code;
+            const renderDecl = 'window.__titanRenderedElement = null; const render = (node) => { window.__titanRenderedElement = node; };';
+            code = hookDecl + '\\n' + renderDecl + '\\n' + code;
 
             // ── 4. Eval the code and find the component ──
             const returnChecks = names.map(n =>
@@ -231,14 +233,15 @@ const SANDBOX_TEMPLATE = `<!DOCTYPE html>
               throw new Error('Eval failed: ' + evalErr.message + '\\nDetected names: ' + names.join(', '));
             }
 
-            if (!Widget) {
+            const renderedElement = window.__titanRenderedElement;
+            if (!Widget && !renderedElement) {
               throw new Error('No React component found. Detected names: ' + names.join(', ') + '. The code must define a capitalized component (e.g., function Widget() {}).');
             }
 
             // ── 5. Render ──
             try {
               reactRoot = ReactDOM.createRoot(root);
-              reactRoot.render(React.createElement(Widget, { titan }));
+              reactRoot.render(renderedElement || React.createElement(Widget, { titan }));
               console.log('[sandbox] react render dispatched');
             } catch (renderErr) {
               throw new Error('React render failed: ' + renderErr.message);

@@ -117,20 +117,33 @@ export function setSkillEnabled(skillName: string, enabled: boolean): void {
     saveDisabledSkills(disabled);
 }
 
-/** Load disabled skills list from disk */
+// ── Disabled-skills disk cache (30s TTL) ─────────────────────────
+let _disabledSkillsCache: string[] | null = null;
+let _disabledSkillsCacheAt = 0;
+const DISABLED_SKILLS_CACHE_TTL_MS = 30_000;
+
+/** Load disabled skills list from disk (cached for 30 s to avoid ~7 k reads/req) */
 function loadDisabledSkills(): string[] {
+    const now = Date.now();
+    if (_disabledSkillsCache !== null && now - _disabledSkillsCacheAt < DISABLED_SKILLS_CACHE_TTL_MS) {
+        return _disabledSkillsCache;
+    }
+    let result: string[] = [];
     try {
         if (existsSync(DISABLED_SKILLS_PATH)) {
-            return JSON.parse(readFileSync(DISABLED_SKILLS_PATH, 'utf-8')) as string[];
+            result = JSON.parse(readFileSync(DISABLED_SKILLS_PATH, 'utf-8')) as string[];
         }
     } catch {
         // Corrupt file — treat as empty
     }
-    return [];
+    _disabledSkillsCache = result;
+    _disabledSkillsCacheAt = now;
+    return result;
 }
 
-/** Save disabled skills list to disk */
+/** Save disabled skills list to disk and invalidate the in-memory cache */
 function saveDisabledSkills(disabled: string[]): void {
+    _disabledSkillsCache = null; // Invalidate cache on write
     try {
         const dir = dirname(DISABLED_SKILLS_PATH);
         if (!existsSync(dir)) {

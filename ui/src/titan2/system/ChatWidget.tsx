@@ -6,9 +6,17 @@
  * _____widget, _____tool).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { Space, AgentMessage, ExecutionResult, WidgetDef } from '../types';
+import type {
+  AgentCanvasAction,
+  AgentMessage,
+  ExecutionResult,
+  GalleryRunRequest,
+  Space,
+  WidgetDef,
+} from '../types';
 import { streamMessage } from '@/api/client';
 import {
+  blockToAction,
   extractExecutionBlocks,
   buildFrameworkMessage,
   validateExecutionContent,
@@ -480,6 +488,62 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
   const spaceRef = useRef(space);
   useEffect(() => { spaceRef.current = space; }, [space]);
 
+  const applyAction = useCallback((action: AgentCanvasAction) => {
+    const s = spaceRef.current;
+
+    if (action.type === 'render_widget') {
+      const widget = action.widget;
+      const width = Number.isFinite(widget.w) ? Number(widget.w) : 4;
+      const height = Number.isFinite(widget.h) ? Number(widget.h) : 4;
+      const spot =
+        Number.isFinite(widget.x) && Number.isFinite(widget.y)
+          ? { x: Number(widget.x), y: Number(widget.y) }
+          : findFirstFreeSlot(s.widgets || [], width, height);
+      const newWidget = SpaceEngine.addWidget(s.id, {
+        name: widget.name || 'Widget',
+        format: widget.format || 'react',
+        source: widget.source,
+        x: spot.x,
+        y: spot.y,
+        w: width,
+        h: height,
+      });
+      window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+      return newWidget.id;
+    }
+
+    if (action.type === 'update_widget') {
+      SpaceEngine.updateWidget(s.id, action.widgetId, action.patch || {});
+      window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+      return action.widgetId;
+    }
+
+    if (action.type === 'set_runtime_state') {
+      localStorage.setItem(`titan:runtime:${s.id}:${action.key}`, JSON.stringify(action.value));
+      return action.key;
+    }
+
+    if (action.type === 'emit_event') {
+      window.dispatchEvent(new CustomEvent(action.eventName, { detail: action.detail }));
+      return action.eventName;
+    }
+
+    return null;
+  }, []);
+
+  const runGalleryTemplate = useCallback((request: GalleryRunRequest) => {
+    applyAction({
+      type: 'render_widget',
+      widget: {
+        name: request.templateName,
+        format: request.format,
+        source: request.source,
+        w: request.defaultSize?.w ?? 4,
+        h: request.defaultSize?.h ?? 4,
+      },
+    });
+  }, [applyAction]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -493,9 +557,19 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
         handleSend(text);
       }
     };
+    const galleryHandler = (e: Event) => {
+      const detail = (e as CustomEvent<GalleryRunRequest>).detail;
+      if (detail?.source) {
+        runGalleryTemplate(detail);
+      }
+    };
     window.addEventListener('titan:chat:prompt', handler);
-    return () => window.removeEventListener('titan:chat:prompt', handler);
-  }, []);
+    window.addEventListener('titan:gallery:run-template', galleryHandler);
+    return () => {
+      window.removeEventListener('titan:chat:prompt', handler);
+      window.removeEventListener('titan:gallery:run-template', galleryHandler);
+    };
+  }, [runGalleryTemplate]);
 
   // Initialise sandbox runtime once
   useEffect(() => {
@@ -599,11 +673,6 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
       }
 
       if (gate === '_____react') {
-        // Create a widget from React source
-        const s = spaceRef.current;
-        // v5.4.2: Parse optional size metadata from gallery template comments.
-        // Templates prepend `// __WIDGET_META__ w=6 h=6` so created widgets match
-        // the template's defaultSize instead of always 4x4.
         let targetW = 4;
         let targetH = 4;
         const metaMatch = code.match(/\/\/\s*__WIDGET_META__\s+w=(\d+)\s+h=(\d+)/);
@@ -611,23 +680,22 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
           targetW = parseInt(metaMatch[1], 10) || 4;
           targetH = parseInt(metaMatch[2], 10) || 4;
         }
-        const spot = findFirstFreeSlot(s.widgets || [], targetW, targetH);
         try {
-          const newWidget = SpaceEngine.addWidget(s.id, {
-            name: 'React Widget',
-            format: 'react',
-            source: code,
-            x: spot.x,
-            y: spot.y,
-            w: targetW,
-            h: targetH,
+          const widgetId = applyAction({
+            type: 'render_widget',
+            widget: {
+              name: 'React Widget',
+              format: 'react',
+              source: code,
+              w: targetW,
+              h: targetH,
+            },
           });
-          window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
           return {
             status: 'success',
-            logs: [{ level: 'info', text: `Created widget ${newWidget.id}` }],
-            result: { widgetId: newWidget.id },
-            resultText: `Created widget ${newWidget.id}`,
+            logs: [{ level: 'info', text: `Created widget ${widgetId}` }],
+            result: { widgetId },
+            resultText: `Created widget ${widgetId}`,
             runId: Date.now(),
           };
         } catch (err: any) {
@@ -642,70 +710,34 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
       }
 
       if (gate === '_____widget') {
-        const s = spaceRef.current;
-        // Try JSON parse first
-        let parsed: any;
-        try {
-          parsed = JSON.parse(code);
-        } catch {
-          // Not JSON — treat as raw React source
-          parsed = { name: 'Widget', format: 'react', source: code };
+        const action = blockToAction({ gate: '_____widget', code, leadingText: '' });
+        if (!action) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: 'Invalid widget payload' }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: 'Invalid widget payload', name: 'WidgetError', stack: '', text: 'Invalid widget payload' },
+          };
         }
-
-        if (parsed.id) {
-          // Update existing widget
-          try {
-            SpaceEngine.updateWidget(s.id, parsed.id, {
-              source: parsed.source,
-              name: parsed.name,
-              format: parsed.format,
-            });
-            window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
-            return {
-              status: 'success',
-              logs: [{ level: 'info', text: `Updated widget ${parsed.id}` }],
-              resultText: `Updated widget ${parsed.id}`,
-              runId: Date.now(),
-            };
-          } catch (err: any) {
-            return {
-              status: 'error',
-              logs: [{ level: 'error', text: err.message || String(err) }],
-              resultText: '',
-              runId: Date.now(),
-              error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
-            };
-          }
-        } else {
-          // Create new widget
-          const spot = findFirstFreeSlot(s.widgets || [], parsed.w || 4, parsed.h || 4);
-          try {
-            const newWidget = SpaceEngine.addWidget(s.id, {
-              name: parsed.name || 'Widget',
-              format: parsed.format || 'react',
-              source: parsed.source || code,
-              x: spot.x,
-              y: spot.y,
-              w: parsed.w || 4,
-              h: parsed.h || 4,
-            });
-            window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
-            return {
-              status: 'success',
-              logs: [{ level: 'info', text: `Created widget ${newWidget.id}` }],
-              result: { widgetId: newWidget.id },
-              resultText: `Created widget ${newWidget.id}`,
-              runId: Date.now(),
-            };
-          } catch (err: any) {
-            return {
-              status: 'error',
-              logs: [{ level: 'error', text: err.message || String(err) }],
-              resultText: '',
-              runId: Date.now(),
-              error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
-            };
-          }
+        try {
+          const target = applyAction(action);
+          const verb = action.type === 'update_widget' ? 'Updated' : 'Created';
+          return {
+            status: 'success',
+            logs: [{ level: 'info', text: `${verb} widget ${target}` }],
+            result: target ? { widgetId: target } : undefined,
+            resultText: `${verb} widget ${target ?? ''}`.trim(),
+            runId: Date.now(),
+          };
+        } catch (err: any) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: err.message || String(err) }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: err.message || String(err), name: 'WidgetError', stack: '', text: String(err) },
+          };
         }
       }
 
@@ -935,7 +967,7 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask TITAN to build something…"
+          placeholder="Ask TITAN to create an agent, run a task, or build a widget…"
           disabled={isStreaming}
           style={{
             flex: 1,

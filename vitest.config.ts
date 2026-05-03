@@ -29,6 +29,20 @@ const HEAVY_TESTS_EXCLUDED_IN_CI = IS_CI && !process.env.RUN_HEAVY ? [
 ] : [];
 
 export default defineConfig({
+    esbuild: {
+        target: 'es2022',
+        tsconfigRaw: JSON.stringify({
+            compilerOptions: {
+                target: 'ES2022',
+                module: 'ESNext',
+                moduleResolution: 'bundler',
+                lib: ['ES2022'],
+                esModuleInterop: true,
+                skipLibCheck: true,
+                forceConsistentCasingInFileNames: true,
+            },
+        }),
+    },
     test: {
         globals: true,
         environment: 'node',

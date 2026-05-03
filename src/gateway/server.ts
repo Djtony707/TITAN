@@ -1552,7 +1552,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         res.setHeader('X-Accel-Buffering', 'no');
         res.flushHeaders();
 
-        req.on('close', () => { clientDisconnected = true; });
+        req.on('close', () => {
+          clientDisconnected = true;
+          // Abort the in-progress LLM call so we don't keep streaming to a gone client.
+          abortController.abort('client disconnected');
+        });
 
         const safeWrite = (data: string) => {
           if (clientDisconnected) return;
@@ -2538,6 +2542,50 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     titanActiveSessions,
     titanRequestDuration,
   ));
+
+  // ── Mesh (extracted) ───────────────────────────────────────
+  app.use('/api', createMeshRouter(broadcast));
+
+  // ── Organism (extracted) ───────────────────────────────────
+  app.use('/api', createOrganismRouter());
+
+  // ── Widget Gallery ────────────────────────────────────────
+  app.get('/api/widget-gallery', async (_req, res) => {
+    try {
+      const { listTemplates, listCategories } = await import('../skills/builtin/widget_gallery.js');
+      res.json({ templates: listTemplates(), categories: listCategories() });
+    } catch (e) {
+      logger.error(COMPONENT, `widget-gallery error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Widget gallery unavailable' });
+    }
+  });
+
+  // ── GraphiTI / Knowledge Graph ───────────────────────────
+  app.get('/api/graphiti', async (_req, res) => {
+    try {
+      const { getGraphData, getGraphStats } = await import('../memory/graph.js');
+      const { nodes, edges } = getGraphData();
+      const stats = getGraphStats();
+      res.json({ graphReady: true, nodes, edges, stats });
+    } catch (e) {
+      logger.error(COMPONENT, `graphiti error: ${(e as Error).message}`);
+      res.json({ graphReady: false, nodes: [], edges: [], stats: {} });
+    }
+  });
+
+  // ── OpenAPI docs (/api/docs JSON + /docs HTML) ────────────
+  app.get('/api/docs', (_req, res) => {
+    res.json({
+      openapi: '3.0.0',
+      info: { title: 'TITAN Gateway API', version: TITAN_VERSION },
+      paths: {},
+    });
+  });
+
+  app.get('/docs', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!doctype html><html><head><title>TITAN API</title></head><body><h1>TITAN API Documentation</h1><p>See <a href="/api/docs">/api/docs</a> for the OpenAPI spec (v${TITAN_VERSION}).</p></body></html>`);
+  });
 
   // ── SPA fallback (must be after all API routes) ──────────
   if (hasReactUI) {

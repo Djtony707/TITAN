@@ -25,6 +25,7 @@ vi.mock('../src/utils/helpers.js', () => ({
     readJsonFile: (...args: unknown[]) => mockReadJsonFile(...args),
     writeJsonFile: (...args: unknown[]) => mockWriteJsonFile(...args),
     ensureDir: (...args: unknown[]) => mockEnsureDir(...args),
+    mkdirIfNotExists: (...args: unknown[]) => mockEnsureDir(...args),
     deepMerge: (...args: unknown[]) => mockDeepMerge(...args),
 }));
 

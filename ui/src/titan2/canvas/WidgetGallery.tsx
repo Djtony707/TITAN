@@ -1,11 +1,11 @@
 /**
  * WidgetGallery — Displays all curated widget templates from the server-side
- * gallery. Clicking a card dispatches `titan:chat:prompt` so the chat agent
- * uses gallery_search then gallery_get to emit the pre-built template.
+ * gallery. Clicking a card fetches the full template and adds it to the canvas.
  */
-import React, { useEffect, useState } from 'react';
-import { X, Sparkles, Send, LayoutGrid } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Sparkles, Send, LayoutGrid, Search } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import type { GalleryRunRequest, WidgetFormat } from '../types';
 
 interface Props {
     open: boolean;
@@ -21,6 +21,10 @@ interface GalleryTemplate {
     triggers: string[];
     defaultSize?: { w: number; h: number };
     placeholders?: Array<{ name: string; description: string; default?: string }>;
+}
+
+function inferTemplateFormat(source: string): WidgetFormat {
+    return String(source || '').startsWith('system:') ? 'system' : 'react';
 }
 
 interface CategoryInfo {
@@ -71,6 +75,8 @@ export function WidgetGallery({ open, onClose }: Props) {
     const [templates, setTemplates] = useState<GalleryTemplate[]>([]);
     const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [active, setActive] = useState<string>('All');
+    const [query, setQuery] = useState('');
+    const [addingId, setAddingId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -97,19 +103,47 @@ export function WidgetGallery({ open, onClose }: Props) {
         return () => window.removeEventListener('keydown', onKey);
     }, [open, onClose]);
 
+    const filtered = useMemo(() => {
+        const scoped = active === 'All'
+            ? templates
+            : templates.filter(t => t.category === active);
+        const q = query.trim().toLowerCase();
+        if (!q) return scoped;
+        return scoped.filter(t => [
+            t.name,
+            t.description,
+            t.category,
+            ...(t.tags || []),
+            ...(t.triggers || []),
+        ].join(' ').toLowerCase().includes(q));
+    }, [active, query, templates]);
+
     if (!open) return null;
 
-    const filtered = active === 'All'
-        ? templates
-        : templates.filter(t => t.category === active);
-
-    const runTemplate = (t: GalleryTemplate) => {
-        const prompt = `Create a "${t.name}" widget using the gallery template "${t.id}". Call gallery_search with "${t.name}" to find it, then gallery_get to fetch the source, and emit it onto the canvas.`;
-        window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }));
-        setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('titan:chat:prompt', { detail: { text: prompt } }));
-        }, 120);
-        onClose();
+    const runTemplate = async (t: GalleryTemplate) => {
+        setAddingId(t.id);
+        setError(null);
+        try {
+            const res = await apiFetch(`/api/widget-gallery/${encodeURIComponent(t.id)}`);
+            if (!res.ok) throw new Error(`Could not load template (${res.status})`);
+            const full = await res.json();
+            const detail: GalleryRunRequest = {
+                templateId: t.id,
+                templateName: full.name || t.name,
+                source: full.source,
+                format: inferTemplateFormat(full.source),
+                defaultSize: {
+                    w: full.defaultSize?.w ?? t.defaultSize?.w ?? 4,
+                    h: full.defaultSize?.h ?? t.defaultSize?.h ?? 4,
+                },
+            };
+            window.dispatchEvent(new CustomEvent<GalleryRunRequest>('titan:gallery:run-template', { detail }));
+            onClose();
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setAddingId(null);
+        }
     };
 
     const catList = ['All', ...categories.map(c => c.category)];
@@ -165,6 +199,18 @@ export function WidgetGallery({ open, onClose }: Props) {
                     ))}
                 </div>
 
+                <div className="px-5 py-2 border-b border-[#27272a]">
+                    <label className="flex items-center gap-2 rounded-lg border border-[#27272a] bg-[#18181b]/60 px-3 py-2">
+                        <Search className="w-3.5 h-3.5 text-[#71717a]" />
+                        <input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Search templates..."
+                            className="flex-1 bg-transparent text-xs text-white placeholder:text-[#71717a] outline-none"
+                        />
+                    </label>
+                </div>
+
                 {/* Template grid */}
                 <div className="flex-1 overflow-auto p-4">
                     {loading && (
@@ -184,6 +230,7 @@ export function WidgetGallery({ open, onClose }: Props) {
                                     <button
                                         key={t.id}
                                         onClick={() => runTemplate(t)}
+                                        disabled={addingId !== null}
                                         className="text-left p-3 rounded-lg border border-[#27272a] bg-[#18181b]/60 hover:border-[#6366f1]/50 hover:bg-[#18181b] transition-colors group"
                                     >
                                         <div className="flex items-center justify-between gap-2 mb-1">
@@ -197,7 +244,7 @@ export function WidgetGallery({ open, onClose }: Props) {
                                             <Send className="w-3 h-3 text-[#52525b] group-hover:text-[#a5b4fc] transition-colors shrink-0" />
                                         </div>
                                         <div className="text-[11px] text-[#a1a1aa] leading-relaxed line-clamp-2">
-                                            {t.description}
+                                            {addingId === t.id ? 'Adding to canvas...' : t.description}
                                         </div>
                                         {t.tags && t.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-1 mt-1.5">

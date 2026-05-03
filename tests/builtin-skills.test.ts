@@ -62,6 +62,7 @@ describe('Apply Patch Skill', () => {
 
         vi.doMock('../src/utils/helpers.js', () => ({
             ensureDir: vi.fn(),
+            mkdirIfNotExists: vi.fn(),
         }));
 
         const { registerApplyPatchSkill } = await import('../src/skills/builtin/apply_patch.js');

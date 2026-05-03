@@ -91,6 +91,7 @@ export default function SomaView() {
     const [setpointOverride, setSetpointOverride] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
         setToast({ message, type });
@@ -103,8 +104,35 @@ export default function SomaView() {
             if (res.ok) {
                 const s = await res.json() as SomaStateResponse;
                 setState(s);
+                setLoadError(null);
+            } else {
+                throw new Error(`${res.status} ${res.statusText}`);
             }
-        } catch { /* ignore */ }
+        } catch (e) {
+            try {
+                const fallback = await apiFetch('/api/watch/snapshot');
+                if (fallback.ok) {
+                    const snapshot = await fallback.json() as SomaStateResponse;
+                    setState({
+                        enabled: true,
+                        timestamp: snapshot.timestamp,
+                        drives: snapshot.drives || [],
+                        totalPressure: snapshot.totalPressure || 0,
+                        dominantDrives: snapshot.dominantDrives || [],
+                        message: 'Showing live watch snapshot because Soma state is unavailable.',
+                    });
+                    setLoadError('using watch snapshot');
+                } else {
+                    throw new Error(`${fallback.status} ${fallback.statusText}`);
+                }
+            } catch {
+                setState({
+                    enabled: false,
+                    message: `Soma state is unavailable: ${(e as Error).message}`,
+                });
+                setLoadError((e as Error).message);
+            }
+        }
         try {
             const res = await apiFetch('/api/soma/history?hours=24');
             if (res.ok) {
@@ -261,6 +289,11 @@ export default function SomaView() {
                                 ? `Body state: ${state.hormonal.elevated.map(e => `${e.label.toLowerCase()} ${Math.round(e.satisfaction * 100)}%`).join(' · ')}`
                                 : 'All drives satiated — routine operation'}
                         </div>
+                        {loadError && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(251,191,36,0.78)' }}>
+                                Live fallback active — {loadError}
+                            </div>
+                        )}
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
                         total pressure: {(state.totalPressure ?? 0).toFixed(2)}
