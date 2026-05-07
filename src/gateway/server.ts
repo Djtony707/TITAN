@@ -47,6 +47,7 @@ import { createOpenAICompatRouter } from '../gateway/openai-compat.js';
 import type { ChannelAdapter, InboundMessage } from '../channels/base.js';
 import logger, { initFileLogger } from '../utils/logger.js';
 import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/constants.js';
+import { getRestartStats as getRestartStatsSync } from '../utils/restartTracker.js';
 import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
 import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
@@ -773,6 +774,32 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
 
+  // Persist this boot so we can detect restart loops across systemd-managed
+  // restarts. See src/utils/restartTracker.ts for why a single process can't
+  // see its own loop.
+  try {
+    const { recordBoot, getRestartStats } = await import('../utils/restartTracker.js');
+    recordBoot(TITAN_VERSION);
+    const stats = getRestartStats();
+    if (stats.severity !== 'ok' && stats.reason) {
+      const { sendAlert } = await import('../agent/alerts.js');
+      sendAlert(
+        stats.severity,
+        'Gateway restart loop detected',
+        stats.reason,
+        'restart-tracker',
+        {
+          restartsLast10Min: stats.restartsLast10Min,
+          restartsLastHour: stats.restartsLastHour,
+          nRestartsSystemd: stats.nRestartsSystemd,
+          previousBootAt: stats.previousBootAt,
+        },
+      );
+    }
+  } catch (err) {
+    logger.warn(COMPONENT, `restart tracker init failed: ${(err as Error).message}`);
+  }
+
   // ── First-run guard: refuse to start with no usable provider ──
   // Without this, the gateway boots fine but every chat call fails with a
   // generic 500. Users have no idea they need to configure a provider.
@@ -1228,6 +1255,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         uptimeSeconds: Math.round(process.uptime()),
         memoryUsageMB: Math.round(mem.heapUsed / 1024 / 1024),
         activeLlmRequests,
+        restarts: (() => { try { return getRestartStatsSync(); } catch { return null; } })(),
       },
       activeAgents,
       activeSessions,

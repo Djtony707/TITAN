@@ -5,6 +5,31 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.12] — 2026-05-07
+
+### Added — restart-rate alert closes the 3-day blind spot
+
+The 5-minute gateway restart loop fixed in v5.5.6 ran for ~3 days before anyone noticed. systemd was tracking `NRestarts=700+`, but every individual `/api/health` response looked fine because `process.uptime()` reset on each boot. No single process could see its own loop.
+
+### What changed
+
+- New `src/utils/restartTracker.ts` — appends a record to `~/.titan/restart-history.jsonl` on every gateway boot (timestamp, pid, version, systemd `NRestarts` when on Linux). Reads back the file and computes `restartsLast10Min` / `restartsLastHour`, excluding the current process so a healthy boot reports 0.
+- Boot tracker fires through the existing `sendAlert()` pipeline on critical/warning thresholds — webhook + history + SSE event for any subscribed Mission Control panel. Threshold: `warning` at 5 restarts/hour, `critical` at 2 restarts in any 10-minute window.
+- Exposed the stats in two places:
+  - `GET /api/stats` → `health.restarts` (always present, null on failure)
+  - `GET /api/health` → `restarts` field with full structure
+- Mission Control or external monitoring (Grafana, n8n, your phone's curl) can now poll either endpoint and surface the loop in seconds, not days.
+
+### Tests
+- `tests/utils/restartTracker.test.ts` (9 tests) covering: append on boot, idempotent within process, empty-history baseline, current-process exclusion, critical threshold (2+ in 10 min), warning threshold (5+/hour), malformed-line tolerance, previous-boot tracking, systemd-unavailable graceful fallback.
+- 6633 tests pass / 2 skipped / 0 failing across 253 files.
+
+### Why this matters
+
+The original health-check.sh bug was insidious: gateway _functioned_ between restarts, so per-request health probes saw "ok". The signal lived in the rate of process births, which only systemd was tracking. By writing one line per boot and looking back, we surface that rate to any consumer of /api/stats or /api/health. If this had shipped before v5.5.6, the loop would have been caught the first hour instead of the third day.
+
+---
+
 ## [5.5.11] — 2026-05-07
 
 ### Fixed — module-cached state no longer lies about disk
