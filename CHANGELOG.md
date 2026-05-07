@@ -5,6 +5,30 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.19] — 2026-05-07
+
+### Fixed — Dream Mode: strip thinking-mode preambles
+
+Live verify on Titan PC (running `ollama/kimi-k2.6:cloud` as default agent model — a thinking-mode model) showed the dream prompt fix from v5.5.18 wasn't enough on its own: Kimi was still leaking its planning phase as numbered "Key constraints:" lists *inside* the response, before any prose.
+
+Added `sanitizeJournalSection()` post-processor that runs on every section's response before the markdown is assembled. Five strip passes:
+
+1. Remove `<think>...</think>` and `<thinking>...</thinking>` blocks (DeepSeek, R1-style models).
+2. Drop preamble headers like "Key constraints:", "Facts to interpret:", "ABSOLUTE RULES:", "Plan:", "Reasoning:", "Possible angle:", "Notes:" — followed by everything until the first prose paragraph.
+3. If the response *starts* with a numbered or bulleted list, find the first prose paragraph (≥30 chars, capital start, not list-marker, not header) and skip everything before it.
+4. Strip leftover markdown headers and list markers anywhere in the body.
+5. Collapse 3+ blank lines.
+
+Conservative on purpose — if no prose paragraph is found, the sanitizer leaves the response intact so the operator sees the model failed rather than getting a blank entry. 5 new sanitizer tests cover think-block, key-constraints preamble, leading numbered list, already-clean prose passthrough, and the all-preamble failure mode.
+
+Bumped per-section maxTokens from 400 → 600 since reasoning models pay a token cost on chain-of-thought even when we strip it.
+
+### Together with v5.5.18
+
+These two ships make Dream Mode work on *any* model — strong or weak, thinking or not. Combined with the prompt strengthening in v5.5.18, the journal is now actually a journal regardless of which provider Tony has wired in.
+
+---
+
 ## [5.5.18] — 2026-05-07
 
 ### Fixed — Dream Mode prompt: prose only, no fact-listing
