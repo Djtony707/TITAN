@@ -32,6 +32,11 @@ vi.mock('../src/utils/helpers.js', () => ({
 
 let mockFiles: Record<string, string> = {};
 
+// v5.5.11: per-path mtime simulation. Each writeFileSync bumps the mock
+// mtime so mtimeCache (used inside learning.ts) can detect external writes.
+let mockMtimes: Record<string, number> = {};
+let mockTimeNow = 1_000_000;
+
 vi.mock('fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('fs')>();
     return {
@@ -43,12 +48,25 @@ vi.mock('fs', async (importOriginal) => {
         }),
         writeFileSync: vi.fn().mockImplementation((p: string, data: string) => {
             mockFiles[p] = data;
+            mockMtimes[p] = ++mockTimeNow;
         }),
         renameSync: vi.fn().mockImplementation((src: string, dest: string) => {
             if (src in mockFiles) {
                 mockFiles[dest] = mockFiles[src];
+                mockMtimes[dest] = ++mockTimeNow;
                 delete mockFiles[src];
+                delete mockMtimes[src];
             }
+        }),
+        // v5.5.11: mtimeCache calls statSync(path).mtimeMs to detect external writes.
+        // Return mock mtime so the cache treats simulated writes as fresh.
+        statSync: vi.fn().mockImplementation((p: string) => {
+            if (!(p in mockFiles)) {
+                const err = new Error('ENOENT');
+                (err as NodeJS.ErrnoException).code = 'ENOENT';
+                throw err;
+            }
+            return { mtimeMs: mockMtimes[p] ?? mockTimeNow };
         }),
         mkdirSync: vi.fn(),
     };
@@ -69,6 +87,8 @@ describe('Learning Engine', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         mockFiles = {}; // Start with no knowledge file (fresh KB will be created)
+        mockMtimes = {};
+        mockTimeNow = 1_000_000;
     });
 
     afterEach(() => {
