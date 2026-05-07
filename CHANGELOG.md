@@ -5,6 +5,32 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.14] — 2026-05-07
+
+### Removed — `swarm.ts` Kimi-K2.5 delegation hack (Phase C, sub-agent consolidation)
+
+`src/agent/swarm.ts` was a 175-line shadow execution path written for `kimi-k2.5:cloud` to work around its tendency to context-collapse on the full tool catalog. It pre-decomposed the 248-tool registry into 4 hardcoded "domains" (file/web/system/memory) and ran its own miniature 3-round agent loop in parallel with the canonical one. The condition that activated it (`activeModel.includes('kimi-k2.5')`) hasn't fired in any current TITAN deployment — we run `kimi-k2.6:cloud` (and earlier moved off Kimi entirely for the Ollama bridge). `subAgent.ts`'s own header already says it "generalizes the swarm.ts pattern into a universal delegation system."
+
+### What changed
+
+- Deleted `src/agent/swarm.ts` and `tests/swarm.test.ts`.
+- Removed 11 `isKimiSwarm` conditional branches from `src/agent/agent.ts` (tool-pre-filter, brain, tool-search, pipeline-ensure, context plumbing) — collapses to the always-true branch.
+- Removed the `isKimiSwarm: boolean` field from `LoopContext` in `src/agent/agentLoop.ts`, plus the entire alternate `if (ctx.isKimiSwarm) { ... } else { ... }` tool execution branch.
+- Stripped `getSwarmRouterTools` / `runSubAgent` mocks and 3 dedicated test blocks from `tests/agent.test.ts`, `tests/agent-modules.test.ts`, `tests/agent-loop.test.ts`, `tests/stress/large-context.test.ts`, `tests/stress/provider-fallback.test.ts`.
+- Cleaned stale "agent swarm" comments from `src/providers/ollama.ts`.
+
+### Impact
+
+- Net code: −245 lines src, −330 lines tests (one whole test file gone).
+- 6638 → 6542 tests across 254 → 253 files (−96 swarm-specific assertions, all 6542 remaining still green).
+- One fewer mental model for new contributors reading the agent loop. The "five sub-agent abstractions" framing in the consolidation plan is now four (subAgent, structuredSpawn, orchestrator, agentPool — multiAgent and commandPost agents serve different concerns and stay).
+
+### Why this matters
+
+A workaround that lives past its provoking condition is a permanent tax on every reader of `agent.ts`. The kimi-k2.5 branch was the last one written for a model we no longer ship — and it forked the tool execution path, which is the hottest code in the framework. Removing it means there is now one canonical answer to "how does TITAN execute a tool call." Phase C continues — but the rest of the work (specialist registry vs commandPost agent registry, mesh peer model) needs design discussion, not just deletion.
+
+---
+
 ## [5.5.13] — 2026-05-07
 
 ### Changed — `/api/organism/*` 501 placeholders implemented or deleted

@@ -27,7 +27,7 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'glm-5.1:cloud': 198656,
     // GLM-5 — 128K context
     'glm-5:cloud': 131072,
-    // Kimi K2.5 — 256K context (native multimodal agentic, agent swarm)
+    // Kimi K2.5 — 256K context (native multimodal agentic)
     'kimi-k2.5:cloud': 262144,
     // Kimi K2.6 — 256K context (next-gen agentic, enhanced reasoning)
     'kimi-k2.6:cloud': 262144,
@@ -160,7 +160,7 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     'nemotron-3-super': { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: true, toolTemperature: 0.4 },
     'nemotron-3-nano':  { selfSelectsTools: false, thinkingWithTools: false, needsSystemMerge: true, toolTemperature: 0.3 },
 
-    // ── Kimi K2.5 — 256K, native agentic, agent swarm decomposition ──
+    // ── Kimi K2.5 / K2.6 — 256K, native agentic ──
     'kimi-k2.5':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
     'kimi-k2.6':        { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
 

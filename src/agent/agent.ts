@@ -20,7 +20,6 @@ import { heartbeat, clearSession, setStallHandler, setAutonomousMode } from './s
 import { routeModel } from './costOptimizer.js';
 import { getPlugins } from '../plugins/registry.js';
 import { runAfterTurn } from '../plugins/contextEngine.js';
-import { getSwarmRouterTools } from './swarm.js';
 import { shouldDeliberate, analyze, generatePlan, executePlan, handleApproval, getDeliberation, cancelDeliberation, formatPlanResults } from './deliberation.js';
 import type { ChatMessage } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
@@ -1440,20 +1439,13 @@ export async function processMessage(
     }
     modelUsed = activeModel;
 
-    // ── Swarm Interceptor: ──────────────────────────────────────
-    // If using kimi-k2.5, proxy the tools through Swarm Routers
-    // to prevent context collapse from the massive generic 23-tool schema.
-    const isKimiSwarm = activeModel.includes('kimi-k2.5');
-    let activeTools = isKimiSwarm ? getSwarmRouterTools() : tools;
-    if (isKimiSwarm) {
-        logger.info(COMPONENT, `[Swarm] Intercepted kimi-k2.5 payload. Downgrading context from ${tools.length} to ${activeTools.length} router agents.`);
-    }
+    let activeTools = tools;
 
     // Small-model tool reduction — prevent tool hallucination on models <8B
     // Validated on Ryzen 7 5825U: llama3.2:3b hallucinates web_search on trivial questions
     const SMALL_MODEL_PATTERNS = ['llama3.2', 'llama3.1:8b', 'phi', 'gemma:2b', 'qwen3.5:4b', 'tinyllama', 'dolphin3'];
     const isSmallModel = SMALL_MODEL_PATTERNS.some(p => activeModel.toLowerCase().includes(p));
-    if (isSmallModel && !isKimiSwarm) {
+    if (isSmallModel) {
         // web_search removed: small models hallucinate tool calls for trivial questions
         const CORE_TOOL_NAMES = ['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory'];
         const coreTools = activeTools.filter(t => CORE_TOOL_NAMES.includes(t.function.name));
@@ -1462,7 +1454,7 @@ export async function processMessage(
     }
 
     // ── Brain: intelligent tool pre-filtering ──────────────────
-    if (!voiceFastPath && !isKimiSwarm && !isSmallModel && isBrainAvailable()) {
+    if (!voiceFastPath && !isSmallModel && isBrainAvailable()) {
         const brainFiltered = await brainSelectTools(message, activeTools);
         if (brainFiltered.length > 0 && brainFiltered.length < activeTools.length) {
             logger.info(COMPONENT, `[Brain] Filtered: ${activeTools.length} → ${brainFiltered.length} tools`);
@@ -1481,7 +1473,7 @@ export async function processMessage(
     const allToolsBackup = activeTools;
 
     // Always ensure pipeline tools are in the active set, even when toolSearch is disabled
-    if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12)) {
+    if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isSmallModel && activeTools.length > 12)) {
         const activeNames = new Set(activeTools.map(t => t.function.name));
         const missing = pipelineEnsureTools.filter(name => !activeNames.has(name));
         if (missing.length > 0) {
@@ -1493,7 +1485,7 @@ export async function processMessage(
         }
     }
 
-    if (toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12) {
+    if (toolSearchEnabled && !isSmallModel && activeTools.length > 12) {
         // Voice gets a minimal tool set for speed (fewer tool schemas = less prompt tokens)
         const VOICE_CORE_TOOLS = ['shell', 'web_search', 'weather', 'memory', 'ha_control', 'ha_devices', 'ha_status', 'ha_setup', 'tool_search'];
         // Use config coreTools only if non-empty; otherwise fall back to DEFAULT_CORE_TOOLS
@@ -1594,7 +1586,6 @@ export async function processMessage(
         reflectionEnabled,
         reflectionInterval,
         toolSearchEnabled,
-        isKimiSwarm,
         selfHealEnabled,
         smartExitEnabled: pipelineSmartExit,
         thinkingOverride: session.thinkingOverride,
@@ -1660,8 +1651,7 @@ export async function processMessage(
                 reflectionEnabled: false,
                 reflectionInterval: 99,
                 toolSearchEnabled,
-                isKimiSwarm,
-                selfHealEnabled: false,
+                        selfHealEnabled: false,
                 thinkingOverride: session.thinkingOverride,
             });
 
