@@ -81,6 +81,11 @@ export class OpenAICompatProvider extends LLMProvider {
         const model = this.config.keepModelPrefix
             ? (rawModel.includes('/') ? rawModel : `${this.name}/${rawModel}`)
             : rawModel.replace(`${this.name}/`, '');
+
+        // Kimi API uses dash model IDs (kimi-k2-6) but TITAN uses dots (kimi-k2.6)
+        const apiModel = this.config.configKey === 'kimi'
+            ? model.replace(/kimi-k2\.6/g, 'kimi-k2-6').replace(/kimi-k2\.5/g, 'kimi-k2-5')
+            : model;
         const apiKey = this.apiKey;
         if (!apiKey) throw new Error(`${this.displayName} API key not configured (set ${this.config.envKey} or providers.${this.config.configKey}.apiKey)`);
 
@@ -88,7 +93,7 @@ export class OpenAICompatProvider extends LLMProvider {
 
         const sanitized = this.sanitizeMessages(options.messages);
         const body: Record<string, unknown> = {
-            model,
+            model: apiModel,
             messages: sanitized.map((m) => {
                 if (m.role === 'tool') {
                     return { role: 'tool', content: m.content || ' ', tool_call_id: m.toolCallId };
@@ -471,11 +476,11 @@ export const PROVIDER_PRESETS: OpenAICompatConfig[] = [
     {
         name: 'kimi',
         displayName: 'Kimi (Moonshot)',
-        defaultBaseUrl: 'https://api.moonshot.cn/v1',
+        defaultBaseUrl: 'https://platform.kimi.com/v1',
         envKey: 'MOONSHOT_API_KEY',
         configKey: 'kimi',
         defaultModel: 'kimi-k2.5',
-        knownModels: ['kimi-k2.5', 'kimi-k2', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+        knownModels: ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
         supportsModelList: true,
     },
     {
