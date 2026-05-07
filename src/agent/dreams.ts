@@ -381,7 +381,27 @@ export function sanitizeJournalSection(raw: string): string {
     text = text.replace(/^#+\s+.*$/gm, '').trim();
     text = text.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '').trim();
 
-    // 5. Collapse 3+ blank lines to 2.
+    // 5. Strip trailing self-check blocks. Reasoning models often append a
+    //    "Check constraints:" / "Word count check:" / "Verification:"
+    //    section after writing the prose, validating their own output
+    //    against the system prompt. That belongs in their head, not the
+    //    journal. We find the first such marker and truncate from there.
+    const EPILOGUE_HEADERS = [
+        /\n\s*check\s+constraints?:\s*$/im,
+        /\n\s*word\s+count\s+check:\s*$/im,
+        /\n\s*verification:\s*$/im,
+        /\n\s*validation:\s*$/im,
+        /\n\s*self[- ]check:\s*$/im,
+        /\n\s*compliance\s+check:\s*$/im,
+    ];
+    for (const re of EPILOGUE_HEADERS) {
+        const match = re.exec(text);
+        if (match) {
+            text = text.slice(0, match.index).trim();
+        }
+    }
+
+    // 6. Collapse 3+ blank lines to 2.
     text = text.replace(/\n{3,}/g, '\n\n').trim();
 
     return text;

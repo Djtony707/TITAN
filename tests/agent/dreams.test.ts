@@ -249,6 +249,17 @@ describe('dreams', () => {
             expect(out).toMatch(/^When I look/);
         });
 
+        it('strips trailing "Check constraints:" / "Word count check:" self-validation blocks', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            // Real Kimi K2.6 output shape — prose followed by self-check
+            const input = `Most of my cycles feel like keeping a heartbeat steady. The PONG tasks blur together, but the Mastra research stands out clearly.\n\nCheck constraints:\nProse only? Yes.\nNo headers? Yes.\nFirst person present tense? Yes ("feel", "send").\n\nWord count check:\n- 38 words total`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/Check constraints/);
+            expect(out).not.toMatch(/Word count check/);
+            expect(out).toMatch(/Most of my cycles/);
+            expect(out).toMatch(/Mastra research stands out clearly\.$/);
+        });
+
         it('returns the original when only preamble exists (model failure visible to operator)', async () => {
             const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
             const allPreamble = `Key constraints:\n- Narrative prose only\n- No bullets\n\nFacts to interpret:\n- Window: today\n- Trajectories: 6/6`;
