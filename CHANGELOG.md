@@ -5,6 +5,14 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.4] — 2026-05-07
+
+### Fixed
+
+- **Kimi (Moonshot) provider auth (HTTP 401 storm)** — provider preset still pointed at the legacy `https://api.moonshot.cn/v1` and sent dotted model IDs (`kimi-k2.6`). The current Kimi platform API requires `https://platform.kimi.com/v1` and dashed IDs (`kimi-k2-6`). Updated the `kimi` preset's `defaultBaseUrl` and added an outbound model-ID translation (dot → dash) when `configKey === 'kimi'`. Adds `kimi-k2.6` to `knownModels`. With `agent.model = kimi/kimi-k2.6` configured, every chat was hitting 401 first, then failing over to `ollama/kimi-k2.6:cloud` — the gateway log accumulated 209,000+ identical 401s. Direct Kimi calls now succeed; Ollama failover stays as a backup.
+
+---
+
 ## [5.5.3] — 2026-05-01
 
 ### Fixed
