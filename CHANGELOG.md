@@ -5,6 +5,25 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.7] — 2026-05-07
+
+### Security
+
+- Merged 4 Dependabot PRs (#68, #69, #70, #71). npm audit went from **5 vulnerabilities (4 moderate, 1 high) → 1 moderate** (the only remaining vuln is uuid v3/v5/v6 buffer-bounds in transitive deps under `@browserbasehq/stagehand` and `matrix-js-sdk`; no direct fix without ejecting those deps).
+
+### Changed
+
+- **hono** 4.12.15 → 4.12.18 (#69) — patch fix for unvalidated JSX tag names that could allow HTML injection (GHSA-69xw-7hcm-h432).
+- **basic-ftp** 5.3.0 → 5.3.1 (#70) — patch.
+- **ip-address** + **express-rate-limit** (#68) — fixes XSS in Address6 HTML-emitting methods (GHSA-v2v4-37r5-5v8g) and the express-rate-limit advisory chain.
+- **dev-deps** group (#71) — `@types/uuid` 10 → 11 (note: now a deprecated stub since uuid 11+ ships own types), `@typescript-eslint/eslint-plugin` 8.58 → 8.59.
+
+### Deferred
+
+- PR #67 (production-deps group, 12 updates including 8 major version bumps: `@inquirer/prompts` 7→8, `commander` 12→14, `dotenv` 16→17, `jsdom` 28→29, `node-cron` 3→4, `ora` 8→9, `undici` 7→8, `pdf-parse` 1→2). Needs careful manual review — major bumps can have semantic changes the test suite won't catch (e.g. CLI prompt API changes). Currently has merge conflicts after #71 merged; Dependabot will auto-rebase.
+
+---
+
 ## [5.5.6] — 2026-05-07
 
 ### Fixed
