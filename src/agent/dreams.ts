@@ -358,6 +358,28 @@ export function sanitizeJournalSection(raw: string): string {
         /^\s*notes?:\s*$/im,
         /^\s*outline:\s*$/im,
     ];
+
+    // Prompt-analysis mode: weaker models occasionally start with sentences
+    // like "The user says:" or "Let me parse carefully" and never emerge
+    // from meta-commentary into actual prose. We don't have a clean prose
+    // boundary to find here, so we only strip when the prompt-analysis
+    // line happens at the very start AND there's a clear prose paragraph
+    // somewhere after it. If the whole response is meta, leave it so the
+    // operator sees the model failed.
+    const META_OPENERS = [
+        /^\s*the user (?:says?|wrote|asks?|wants?|provided|gives?)/i,
+        /^\s*let me (?:parse|analyze|think|carefully|read)/i,
+        /^\s*looking at the (?:prompt|user|system|instructions)/i,
+        /^\s*the (?:prompt|user|message) (?:contains?|has|seems|appears)/i,
+        /^\s*wait[,.]/i,
+        /^\s*hmm[,.]/i,
+        /^\s*okay[,.]/i,
+        /^\s*so the/i,
+    ];
+    if (META_OPENERS.some(re => re.test(text))) {
+        const proseStart = findProseStart(text);
+        if (proseStart > 0) text = text.slice(proseStart).trim();
+    }
     for (const re of PREAMBLE_HEADERS) {
         const match = re.exec(text);
         if (!match) continue;
@@ -416,18 +438,25 @@ export function sanitizeJournalSection(raw: string): string {
 function findProseStart(text: string): number {
     const lines = text.split('\n');
     let charsSeen = 0;
+    // Lines that contain these phrases are still meta-commentary about the
+    // prompt or the task, not the journal itself. We skip them even when
+    // they otherwise look like prose. Without this guard, a model that
+    // says "The instructions are clear. I am to write a journal." would be
+    // accepted as prose and the actual journal hidden in the next paragraph
+    // would be missed.
+    const META_PHRASES = /\b(?:the (?:user|prompt|system|message|instructions?|rules?)|let me (?:parse|analyze|think)|i am to write|i should (?:write|note|aim)|i need to|the task is|my task is|i'?m being asked|the question is)\b/i;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        // Prose paragraph candidate: capital-letter start, ≥30 chars, no marker
         if (
             line.length >= 30 &&
             /^[A-Z]/.test(line) &&
             !/^(?:[-*•]|\d+[.)])\s/.test(line) &&
-            !/:$/.test(line) // ends with colon = still a header
+            !/:$/.test(line) && // ends with colon = still a header
+            !META_PHRASES.test(line) // skip prompt-meta lines
         ) {
             return charsSeen;
         }
-        charsSeen += lines[i].length + 1; // +1 for the newline
+        charsSeen += lines[i].length + 1;
     }
     return -1;
 }

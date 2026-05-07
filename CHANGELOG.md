@@ -5,6 +5,23 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.22] — 2026-05-07
+
+### Fixed — Dream Mode: meta-commentary preamble + meta-aware prose detection
+
+Live verify of v5.5.21 produced one beautiful "What happened" section and one "What surprised me" section that went into prompt-archeology mode ("The user says:" / "Let me parse carefully" / "The instructions are clear"). Two additional sanitizer passes:
+
+- `META_OPENERS` regex set: detects responses that start with prompt-analysis sentences ("The user says/wrote/asks", "Let me parse/analyze/think", "Looking at the prompt", "Wait,", "Hmm,", "Okay,", "So the").
+- `META_PHRASES` skip in `findProseStart()`: lines that contain prompt-meta phrases ("the instructions", "I am to write", "the task is", "I need to", "I'm being asked") are now skipped as prose-paragraph candidates. Without this, a line like "The instructions are clear. I am to write a journal." matched the basic prose heuristic (capital, ≥30 chars, no marker) and the actual journal in the next paragraph was hidden.
+
+Two new tests pin the meta-commentary stripping. 20/20 dream tests pass; full suite 254/6562/0.
+
+### Operator note
+
+Tony — for the demo, I recommend setting `dream.model` to a strong non-thinking model (anthropic/claude-sonnet-4 or openai/gpt-4o). Kimi K2.6 produces ~50/50 between gorgeous prose and prompt-archeology. The sanitizer is now defensive enough to handle both, but the journal entry quality is bounded by model capability and a strong model produces consistently shippable output. The framework is done — model choice is a config decision.
+
+---
+
 ## [5.5.21] — 2026-05-07
 
 ### Fixed — Dream Mode: strip trailing self-check blocks

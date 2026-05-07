@@ -260,6 +260,17 @@ describe('dreams', () => {
             expect(out).toMatch(/Mastra research stands out clearly\.$/);
         });
 
+        it('strips meta-commentary preambles ("The user says:", "Let me parse")', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            // Real Kimi K2.6 failure mode — model goes into prompt-analysis
+            // and never emerges. We strip if there IS a prose paragraph after.
+            const input = `The user says they want first person prose. Looking at the system prompt, I see "ABSOLUTE RULES". Let me parse carefully.\n\nThe instructions are clear. I am to write a journal.\n\nWhen I think about today, what comes to mind first is how mechanical most of it felt. PONG after PONG, with one bright spot in the middle when I had to learn something new about Mastra.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/The user says/);
+            expect(out).not.toMatch(/Let me parse/);
+            expect(out).toMatch(/^When I think about today/);
+        });
+
         it('returns the original when only preamble exists (model failure visible to operator)', async () => {
             const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
             const allPreamble = `Key constraints:\n- Narrative prose only\n- No bullets\n\nFacts to interpret:\n- Window: today\n- Trajectories: 6/6`;
