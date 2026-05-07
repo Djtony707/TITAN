@@ -1130,31 +1130,23 @@ export function createApproval(opts: {
     // so the thing never reaches the human queue. Off by default — the
     // (config as any).autoApprove check keeps legacy callers happy
     // before the config schema is loaded.
+    let autoApproveDeferred = false;
     try {
         const auto = (config as unknown as { autoApprove?: { enabled?: boolean; rules?: unknown[] } })?.autoApprove;
         if (auto?.enabled) {
             const rules = (auto.rules as ApprovalRule[]) || [];
             if (shouldAutoApprove({ type: opts.type, payload: opts.payload }, { enabled: true, rules })) {
-                const approved: CPApproval = {
-                    id: uuid().slice(0, 8),
-                    type: opts.type,
-                    status: 'approved',
-                    requestedBy: opts.requestedBy,
-                    payload: opts.payload,
-                    decidedBy: 'auto:path-classifier',
-                    decidedAt: new Date().toISOString(),
-                    decisionNote: 'Auto-approved by path-scoped classifier',
-                    linkedIssueIds: opts.linkedIssueIds || [],
-                    createdAt: new Date().toISOString(),
-                };
-                approvals.set(approved.id, approved);
-                saveState();
-                addActivity({
-                    type: 'goal_created',
-                    message: `Approval auto-approved: ${approved.type} (${opts.payload.kind ?? '-'}) from ${opts.requestedBy}`,
-                    metadata: { approvalId: approved.id, auto: true, path: opts.payload.path ?? null },
-                });
-                return approved;
+                // v5.5.9 fix: previously this short-circuited to status:'approved'
+                // and SKIPPED approveApproval(), meaning side-effects like
+                // createGoal()/spawnAgent()/applyStagedPR() never fired. The
+                // approval looked done but no goal landed in goals.json.
+                //
+                // Now: persist as 'pending' first (so dedupe + addActivity
+                // pre-conditions hold), then immediately call approveApproval()
+                // below to fire all the same dispatch logic a human approval
+                // would. The 'auto:path-classifier' decidedBy + decisionNote
+                // mark the provenance.
+                autoApproveDeferred = true;
             }
         }
     } catch (err) {
@@ -1198,6 +1190,22 @@ export function createApproval(opts: {
     }
     saveState();
     addActivity({ type: 'goal_created', message: `Approval requested: ${approval.type} by ${approval.requestedBy}`, metadata: { approvalId: approval.id } });
+
+    // v5.5.9: if auto-approve classifier matched, dispatch through the same
+    // approveApproval pipeline a human would so side-effects (createGoal,
+    // spawnAgent, applyStagedPR, etc.) actually fire. Fire-and-forget — the
+    // approval object is the same Map reference, so the caller will see
+    // status flip from 'pending' to 'approved' on the next read. Errors are
+    // logged but never thrown to caller.
+    if (autoApproveDeferred) {
+        approveApproval(approval.id, 'auto:path-classifier', 'Auto-approved by path-scoped classifier')
+            .catch((err: unknown) => {
+                logger.error(
+                    COMPONENT,
+                    `Auto-approve dispatch failed for ${approval.id}: ${(err as Error).message}`,
+                );
+            });
+    }
     return approval;
 }
 
