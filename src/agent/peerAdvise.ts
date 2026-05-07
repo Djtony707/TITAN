@@ -44,12 +44,16 @@ export interface PeerAdviseOpts {
      * research-gap → scout, etc.). Unknown kinds get sage.
      */
     advisor?: 'sage' | 'analyst' | 'scout' | 'builder' | 'writer' | 'default';
-    /** Max wait. Default 20000 (20s) — advisor should be quick or fail open. */
+    /** Max wait. Default 30000 (30s) — advisor should be quick or fail open. */
     timeoutMs?: number;
 }
 
 const DEFAULT_ADVISOR = 'sage';
-const DEFAULT_TIMEOUT_MS = 20_000;
+// v5.5.6: bumped from 20s. Observed sage runs often take 13-25s (one
+// round + thinking-fallback + tool turn), so 20s caused frequent
+// time-outs that fell open as 'escalate'. 30s gives normal runs
+// headroom while still bounding latency.
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
  * Consult a peer specialist about whether a concern warrants escalation.

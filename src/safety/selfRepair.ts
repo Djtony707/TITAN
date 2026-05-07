@@ -53,13 +53,20 @@ export interface SelfRepairFinding {
     firstSeenAt: string;
     /** Severity drives proposal priority. */
     severity: 'low' | 'medium' | 'high';
+    /**
+     * Stable identity for cross-tick deduplication. When set, used in place of
+     * JSON.stringify(evidence) so rolling stats (sample counts, age) inside
+     * evidence don't break dedupe. v5.5.6: emit per (kind,target) only.
+     */
+    dedupeKey?: string;
 }
 
 // ── Cached findings (dedupe across ticks) ────────────────────────
 
 const findingsByKey = new Map<string, SelfRepairFinding>();
 
-function findingKey(f: Pick<SelfRepairFinding, 'kind' | 'evidence'>): string {
+function findingKey(f: Pick<SelfRepairFinding, 'kind' | 'evidence' | 'dedupeKey'>): string {
+    if (f.dedupeKey) return f.dedupeKey;
     return `${f.kind}:${JSON.stringify(f.evidence)}`;
 }
 
@@ -153,6 +160,7 @@ async function checkDrivesStuckHigh(out: SelfRepairFinding[]): Promise<void> {
                 suggestedAction: `Temporarily dampen ${driveId} drive (lower its weight to 0.5× or disable for 24h) and investigate why satisfaction can't recover.`,
                 firstSeenAt: new Date().toISOString(),
                 severity: driveId === 'safety' ? 'high' : 'medium',
+                dedupeKey: `drive_stuck_high:${driveId}`,
             });
         }
     } catch { /* ok */ }
@@ -176,6 +184,7 @@ async function checkGoalsStuckActive(out: SelfRepairFinding[]): Promise<void> {
                 suggestedAction: `Split this goal into smaller concrete subtasks OR close it as infeasible.`,
                 firstSeenAt: new Date().toISOString(),
                 severity: 'medium',
+                dedupeKey: `goal_stuck_active:${g.id}`,
             });
         }
     } catch { /* ok */ }
@@ -194,6 +203,7 @@ async function checkEpisodicAnomaly(out: SelfRepairFinding[]): Promise<void> {
                 suggestedAction: `Review recent goals — either the proposal quality dropped or an underlying subsystem is failing. Consider pausing autopilot until root cause identified.`,
                 firstSeenAt: new Date().toISOString(),
                 severity: 'high',
+                dedupeKey: 'episodic_anomaly:goal_failed_24h',
             });
         }
     } catch { /* ok */ }

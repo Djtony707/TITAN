@@ -5,6 +5,19 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.6] — 2026-05-07
+
+### Fixed
+
+- **Self-repair sweep dedupe noise** — `drive_stuck_high` (and sibling findings) fired every sweep tick because the dedupe key was `JSON.stringify(evidence)`, and evidence included rolling stats (`sampleCount`, `ageHours`, `avgSatisfaction`) that varied between ticks. Added optional `dedupeKey` field to `SelfRepairFinding` and set stable per-(kind, target) keys for `drive_stuck_high`, `goal_stuck_active`, and `episodic_anomaly`. Production log noise on Titan PC dropped from ~1 finding/min to ~1/24h per stuck drive.
+- **fix-oscillation false positives on transient files** — LLM-generated `/tmp/verdict.json` (and similar tmp artefacts) triggered `[FixOscillation] Oscillation on file …` warnings every time a sage subagent ran. Added `TRANSIENT_FILE_PATTERNS` skip-list in `src/safety/fixOscillation.ts` covering `/tmp/`, `/var/tmp/`, `/private/tmp/`, `/run/user/`, `*.tmp`, and `*~` paths. Repeated writes to tmpfs are by design and don't represent oscillating state.
+- **peerAdvise sage timeout** — default raised from 20s → 30s. Observed sage subagent runs often took 13–25s (single round + thinking fallback + tool turn), causing 20s timeouts that fell open as `escalate`. 30s gives normal runs headroom while still bounding latency.
+
+### Tests
+- Added `tests/safety/selfRepair-dedupe.test.ts` (4 tests) covering the dedupeKey precedence, per-target distinctness, and transient-path patterns.
+
+---
+
 ## [5.5.5] — 2026-05-07
 
 ### Fixed

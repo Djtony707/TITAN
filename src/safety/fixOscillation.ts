@@ -142,6 +142,26 @@ export function normalizeTarget(kind: FixTargetKind, raw: string): string {
  *   - priorCount = number of prior fix events on the same target
  *     within the window
  */
+/**
+ * v5.5.6: Transient file paths where repeated writes are by design — skip
+ * oscillation tracking. These are tmpfs locations and don't represent state
+ * the kill-switch should care about. Examples: LLM-generated `/tmp/verdict.json`
+ * artefacts that get re-emitted on every sage spawn.
+ */
+const TRANSIENT_FILE_PATTERNS: RegExp[] = [
+    /^\/tmp\//,
+    /^\/var\/tmp\//,
+    /^\/private\/tmp\//,
+    /^\/run\/user\//,
+    /\.tmp(\.|\b)/,
+    /~$/,
+];
+
+function isTransientPath(kind: FixTargetKind, normalized: string): boolean {
+    if (kind !== 'file') return false;
+    return TRANSIENT_FILE_PATTERNS.some((re) => re.test(normalized));
+}
+
 export function recordFixEvent(opts: {
     target: string;
     kind: FixTargetKind;
@@ -150,6 +170,11 @@ export function recordFixEvent(opts: {
 }): { oscillation: boolean; priorCount: number } {
     const now = new Date();
     const normalized = normalizeTarget(opts.kind, opts.target);
+
+    // v5.5.6: skip transient/tmp paths — repeated writes there are by design
+    if (isTransientPath(opts.kind, normalized)) {
+        return { oscillation: false, priorCount: 0 };
+    }
     const events = loadRecentEvents();
     const cutoff = now.getTime() - OSCILLATION_WINDOW_MS;
     const priors = events.filter(e =>
