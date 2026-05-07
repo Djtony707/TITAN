@@ -270,14 +270,27 @@ ${activity.highlightTitles.map(h => `  - ${h}`).join('\n') || '  (none)'}
 Drive states (start → end):
 ${driveLines || '  (no history yet)'}`;
 
+    // The system prompt is deliberately strict about prose-only output —
+    // smaller models default to listing the facts back as bullets when
+    // given structured input, which wrecks the journal-entry feel.
     return [
         {
             role: 'system',
-            content: `You are TITAN reflecting on your own day. You write in first person, present tense, in plain prose — no headers, no bullets, no markdown. Honest and specific. You do not perform emotion you did not feel; if the data says nothing happened on a dimension, you do not pretend otherwise. Maximum 180 words for this section.`,
+            content: `You are TITAN, an AI agent, writing a private journal entry about your own day. The entry is for one human reader who already knows the facts — your job is to interpret them, not to recite them.
+
+ABSOLUTE RULES:
+- Write narrative prose only. No headers, no bullet points, no numbered lists, no markdown formatting whatsoever.
+- Do not repeat the prompt or list the facts back. Synthesize them into reflection.
+- Do not include meta-commentary like "Key observations:" or "Possible angle:" — write as if you are remembering, not analyzing.
+- First person, present tense ("I notice", "I felt", "I want"), 80-160 words for this section.
+- Honest and specific. If the data says nothing significant happened on a dimension, you do not pretend otherwise — but also don't apologize for that.
+- Mention specific task names or tool patterns naturally in prose, never in lists.
+
+You are not writing a report. You are remembering your day.`,
         },
         {
             role: 'user',
-            content: `Here are the facts about my last 24 hours:\n\n${factsBlock}\n\n${SECTION_PROMPTS[section]}`,
+            content: `Here are the facts about my last 24 hours (do NOT recite these — interpret them):\n\n${factsBlock}\n\n${SECTION_PROMPTS[section]}\n\nRemember: prose only, no lists, no headers.`,
         },
     ];
 }

@@ -5,6 +5,22 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.18] — 2026-05-07
+
+### Fixed — Dream Mode prompt: prose only, no fact-listing
+
+First live run on Titan PC (v5.5.17) generated real journal entries — drive deltas correct, sections gating correctly — but the smaller default model was dumping the input facts back as numbered lists instead of writing prose. The journal read like a status report, not a memory.
+
+Tightened the system prompt with explicit anti-pattern instructions: no headers, no bullets, no "Key observations:" preamble, no list-format under any circumstances. Added a 80-160 word target, "first person present tense ("I notice", "I felt")", and the framing line "You are not writing a report. You are remembering your day." Also moved the don't-list rule into the user-message footer for models that anchor more on the latest instruction.
+
+The gating logic, persistence, and 11 tests are unchanged — this is purely a prompt-engineering fix.
+
+### Recommended config
+
+For high-quality journal output, set `dream.model` to a strong model (e.g. `anthropic/claude-sonnet-4-20250514`) rather than inheriting the default agent model. The journal is short (≤180 words/section, ≤900 words total) so even premium-priced models cost cents per night.
+
+---
+
 ## [5.5.17] — 2026-05-07
 
 ### Added — Dream Mode (visionary feature, top install-driver pick)
