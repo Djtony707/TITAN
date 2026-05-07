@@ -5,6 +5,35 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.8] — 2026-05-07
+
+### Fixed — root-cause fix for the curiosity drive
+
+Diagnostic uncovered the actual reason the curiosity drive was stuck at zero satisfaction (the symptom that v5.5.6 dedupe-key fix was *suppressing* rather than fixing): TITAN had accumulated **139 unresolved error patterns** in `~/.titan/knowledge.json` — but they weren't real errors. They were stale junk from old test failures and old Next.js builds, all 7-30 days old. The curiosity drive's `errorPatternSat` formula then capped at zero with anything > 12 patterns, indefinitely.
+
+**Three changes:**
+
+1. **`src/memory/learning.ts` — better classifier** (`classifyErrorPattern`):
+   - Catches Next.js build output ("▲ Next.js X.Y.Z", "Creating an optimized production build", "Linting and checking validity") → rolls up to `build-noise:nextjs-output`
+   - Catches vitest assertion failures ("expected X to be Y", "to deeply equal", "to have a length") → rolls up to `test-noise:vitest-assertion:<predicate>`
+   - Catches already-classified `build-dumped-source:` entries that got re-recorded as raw errors
+
+2. **`src/memory/learning.ts` — staleness threshold lowered** (`verifyMemoryStaleness`):
+   - Was: prune patterns >30 days old
+   - Now: also prune **unresolved** patterns >7 days old (a pattern that hasn't recurred in a week is stale signal, not a current problem). Resolved patterns retain the 30-day window.
+
+3. **`src/organism/drives.ts` — smoother curiosity formula**:
+   - Was: `errorPatternSat = 1 - (n - 2) / 10` — saturates to 0 at just 12 patterns, stays flat indefinitely
+   - Now: `errorPatternSat = 1 / (1 + (n - 2) / 10)` — softer logarithmic decay, never hits zero (12 patterns → 0.59, 50 → 0.29, 139 → 0.16). Self-Improve pipeline still triggers via pressure, but Curiosity is no longer permanently flat-lined when there's an accumulation of stale patterns.
+
+### Tests
+- Added `tests/memory/classifyErrorPattern.test.ts` (14 tests) covering the new categories + regression on existing classifier branches.
+
+### Operational follow-up
+- Existing 139 stale patterns on Titan PC will be cleared by the next call to `verifyMemoryStaleness()` (already runs in the daemon loop). Manual one-time prune via `pruneFileContentErrorPatterns()` can be invoked from a node REPL if immediate cleanup is desired.
+
+---
+
 ## [5.5.7] — 2026-05-07
 
 ### Security
