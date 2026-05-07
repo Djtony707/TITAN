@@ -2,15 +2,22 @@
 
 > This file is read automatically by Claude Code. It contains everything needed to understand, build, test, and contribute to TITAN.
 
-## Current Live Status — 2026-04-25 — v5.0.0 "Spacewalk" STAGED FOR RELEASE
+## Current Live Status — 2026-05-07 — v5.5.6 SHIPPED
 
-- **Local HEAD:** `bf57cf7c v5.0.0 — Spacewalk: full release` (Mac authoring checkout)
-- **Local tag:** `v5.0.0`
-- **Stats:** 450 files changed, +69,846 / −18,147 lines
-- **`origin/main` is at:** `1c04ca71 v4.13.0` — 11 commits behind local
-- **Release commit not yet pushed.** Tony pushes from Titan PC, not this Mac.
+- **Mac HEAD:** v5.5.6 + tests cleanup commits (`5619f1a`)
+- **Titan PC `/opt/TITAN`:** v5.5.6, systemd `titan.service` running clean (NRestarts=0 after fix)
+- **`origin/main`:** synced
+- **Tags pushed:** v5.5.4, v5.5.5, v5.5.6
+- **npm:** v5.5.6 published as `@next`. `@latest` still on v5.4.2 (24h soak, then promote)
+- **Test suite:** 250 files / 6602 passed / 2 documented-skipped / 0 failing / ~3:25 runtime
+- **Live errors since last clean restart:** 0
+- **Kimi 401 storm:** fixed (model swapped to `ollama/kimi-k2.6:cloud`, preset URL corrected)
+- **Self-repair sweep noise:** fixed (per-(kind, target) dedupeKey)
+- **fix-oscillation /tmp/ false positives:** fixed (TRANSIENT_FILE_PATTERNS skip-list)
+- **Gateway 5-min restart loop:** fixed (rewrote `~/.titan/health-check.sh` as passive monitor — was killing+nohup'ing systemd-managed process due to stale auth token)
 
-Full release report: `docs/HANDOFF-2026-04-25.md`. Release-day breakdown: `AGENTS.md`.
+Latest handoff: `docs/HANDOFF-2026-05-07.md` (Hour 7 deliverable).
+Recent: `docs/HANDOFF-2026-05-03.md`, `docs/COO-MASTER-PLAN-2026-05-02.md`.
 
 ### Standing rules (Tony, do not violate)
 
@@ -344,7 +351,7 @@ See `CHANGELOG.md` for full history. Key milestones:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **TITAN** (30166 symbols, 45519 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **TITAN** (30180 symbols, 45534 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
