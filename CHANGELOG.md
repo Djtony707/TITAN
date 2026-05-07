@@ -5,6 +5,46 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.23] — 2026-05-07
+
+### Changed — Phase C continued: collapse 3 role registries → 1
+
+`src/skills/builtin/agent_handoff.ts` (which exposes the `agent_delegate`, `agent_team`, and `agent_chain` tools to the LLM) maintained its own `ROLE_MAP` with `template + systemPrompt + tier` for 8 roles. This shadowed `SUB_AGENT_TEMPLATES` in `subAgent.ts` — for 7 of the 8 roles the systemPrompt was either redundant or stale relative to the canonical template, and the tier sometimes silently disagreed (coder template `smart`, ROLE_MAP said `fast`).
+
+### What changed
+
+- **Added `writer` template to `SUB_AGENT_TEMPLATES`** in `subAgent.ts`. Previously the only role missing — `agent_handoff.ts` was the only place a writer prompt lived. Now mirrors specialists.ts Writer (voice-matching, draft-only, social-post-aware).
+- **Replaced `ROLE_MAP` with `ROLE_ALIASES`** in `agent_handoff.ts` — a flat `Record<string, string>` mapping user-facing role names to the canonical template key (`debugger` → `dev_debugger`, `architect` → `dev_architect`, etc). Eight inline systemPrompts deleted, eight inline tier overrides deleted.
+- **`resolveRole()` collapsed to a thin wrapper** — looks up the template by key, pulls `name`, `tools`, `systemPrompt`, `tier`, `maxRounds` straight from `SUB_AGENT_TEMPLATES`. Falls back to the role-string-Agent name only when the template is unknown.
+- Dropped now-unused `ModelTier` import.
+
+### Result
+
+Three previously parallel role registries — `subAgent.ts:SUB_AGENT_TEMPLATES` (canonical), `specialists.ts:SPECIALISTS` (commandPost seed list), `agent_handoff.ts:ROLE_MAP` (delegation tool roles) — collapsed to two layered ones:
+
+| Module | Concern |
+|---|---|
+| `SUB_AGENT_TEMPLATES` | Canonical sub-agent role definitions (12 entries: explorer, coder, browser, analyst, researcher, reporter, fact_checker, dev_debugger, dev_tester, dev_reviewer, dev_architect, **writer**) — single source of truth for systemPrompt + tools + tier per role |
+| `SPECIALISTS` | User-facing specialist personas (Scout, Builder, Writer, Analyst, Sage) registered with commandPost on startup. References `SUB_AGENT_TEMPLATES` indirectly via templateMatches[]. |
+| ~~`agent_handoff.ts:ROLE_MAP`~~ | **Deleted.** Replaced with simple `ROLE_ALIASES: Record<string, string>` translation layer. |
+
+### Behavior change (intentional)
+
+Sub-agent runs delegated through `agent_delegate` now use the template's canonical `name` (e.g. "Researcher", "Coder") instead of the previous `"ResearcherAgent"` / `"CoderAgent"` synthesized name. This shows up in commandPost activity feeds; one test updated to match. The role-string + "Agent" suffix is still the fallback for unknown roles ("translator" → "TranslatorAgent").
+
+### Stats
+
+- Lines deleted: 41 (ROLE_MAP block + tier override branches)
+- Lines added: 24 (writer template + ROLE_ALIASES + comment)
+- Net: -17 lines, fewer mental models, no behavior regression.
+- Suite: 254 files / 6562 pass / 2 skipped.
+
+### Phase C status update
+
+The remaining sub-agent abstractions (subAgent, specialists, specialistRouter, structuredSpawn, orchestrator, agentPool, multiAgent) audit cleanly: they layer rather than duplicate. Phase C as originally framed ("5 abstractions to consolidate to 1") was a misread — there's only ever been one canonical primitive (`spawnSubAgent`), and the rest are tight wrappers serving distinct concerns (JSON output, parallel orchestration, warm caching, multi-tenancy). Phase C v5.5.14 (swarm.ts deleted) and v5.5.23 (agent_handoff role registry collapsed) are the genuine consolidation wins available.
+
+---
+
 ## [5.5.22] — 2026-05-07
 
 ### Fixed — Dream Mode: meta-commentary preamble + meta-aware prose detection
