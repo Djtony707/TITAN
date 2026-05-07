@@ -1319,6 +1319,63 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch { res.json({ alerts: [] }); }
   });
 
+  // ── Dream Mode API (v5.5.17) ──────────────────────────────────
+  // Three reads + one on-demand generator. The cron handles scheduled
+  // generation; the POST endpoint exists so an operator can force-run the
+  // pipeline mid-day without waiting for 03:30 (e.g. to demo the feature
+  // or backfill after a long offline stretch).
+  app.get('/api/dreams/latest', async (_req, res) => {
+    try {
+      const { getLatestDream } = await import('../agent/dreams.js');
+      const dream = getLatestDream();
+      if (!dream) { res.status(404).json({ error: 'no dreams yet' }); return; }
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/latest: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.get('/api/dreams', async (_req, res) => {
+    try {
+      const { listDreamDates } = await import('../agent/dreams.js');
+      const limit = Math.min(Math.max(parseInt(String(_req.query.limit ?? '30'), 10) || 30, 1), 365);
+      res.json({ dates: listDreamDates(limit) });
+    } catch (e) {
+      logger.error(COMPONENT, `dreams list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.get('/api/dreams/:date', async (req, res) => {
+    try {
+      const { getDreamByDate } = await import('../agent/dreams.js');
+      // Date param is YYYY-MM-DD; reject anything else to keep the
+      // filesystem read inside DREAMS_DIR.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) {
+        res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+        return;
+      }
+      const dream = getDreamByDate(req.params.date);
+      if (!dream) { res.status(404).json({ error: 'no dream for that date' }); return; }
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/:date: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.post('/api/dreams/generate', async (_req, res) => {
+    try {
+      const { generateDream } = await import('../agent/dreams.js');
+      const dream = await generateDream();
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/generate: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dream generation failed', message: (e as Error).message });
+    }
+  });
+
   app.get('/api/health/deep', async (_req, res) => {
     const checks: Record<string, { status: 'ok' | 'degraded' | 'down'; detail?: string }> = {};
     let overall: 'ok' | 'degraded' | 'down' = 'ok';
@@ -3484,6 +3541,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     startDailyDigestCron();
   } catch (e) {
     logger.warn(COMPONENT, `Daily digest cron skipped: ${(e as Error).message}`);
+  }
+
+  // v5.5.17: Dream Mode cron — opt-in via config.dream.enabled. Default
+  // 03:30 local. Skips quietly when disabled. See src/agent/dreams.ts.
+  try {
+    const { startDreamCron } = await import('../agent/dreams.js');
+    startDreamCron();
+  } catch (e) {
+    logger.warn(COMPONENT, `Dream cron skipped: ${(e as Error).message}`);
   }
 
   // v4.10.0-local (Phase C): mission scheduler — ticks active missions

@@ -1274,6 +1274,50 @@ export const TitanConfigSchema = z.object({
         /** Which TITAN version the user was on when they consented. */
         consentedVersion: z.string().optional(),
     }).default({}),
+
+    /**
+     * Dream Mode (v5.5.17+) — TITAN runs an offline cycle in the small hours
+     * to consolidate the day, reflect on what it learned, write a first-
+     * person journal entry, and (optionally) narrate it in a cloned voice.
+     * Reads existing trajectory log + drive ring buffer + run history; no
+     * new data persistence beyond `~/.titan/dreams/<date>.{md,json}`.
+     */
+    dream: z.object({
+        /** Master switch. Default off — opt in via Mission Control or config. */
+        enabled: z.boolean().default(false),
+        /**
+         * Local-time HH:MM at which to start the dream cycle. Default 03:30
+         * — chosen so the journal is ready before any human is awake but
+         * after the GPU has cooled from late-night autonomous work.
+         */
+        cronAt: z.string().regex(/^\d{2}:\d{2}$/).default('03:30'),
+        /**
+         * Model used for the journal-writing prompts. Falls back to
+         * agent.model when unset. The journal is monologue-style prose so a
+         * cheaper model is fine; default empty = inherit.
+         */
+        model: z.string().default(''),
+        /**
+         * Generate audio narration via the F5-TTS bridge after the journal
+         * is written. Saves an mp3 next to the markdown. Default off —
+         * requires the voice subsystem to be running and a voice ID set.
+         */
+        includeAudio: z.boolean().default(false),
+        /** Voice ID for the narration. When unset, uses voice.defaultVoice. */
+        voiceId: z.string().default(''),
+        /**
+         * Drive-delta thresholds gating which sections appear. Reflect
+         * fires when 24h curiosity rose by ≥ this; worry fires when safety
+         * dropped by ≥ this; etc. Keeps the journal honest — TITAN
+         * doesn't fabricate emotion when nothing changed.
+         */
+        thresholds: z.object({
+            reflect: z.number().min(0).max(1).default(0.1),
+            worry: z.number().min(0).max(1).default(0.1),
+            plan: z.number().min(0).max(1).default(0.05),
+            gratitude: z.number().min(0).max(1).default(0.05),
+        }).default({}),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;

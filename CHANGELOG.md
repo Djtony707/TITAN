@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.17] — 2026-05-07
+
+### Added — Dream Mode (visionary feature, top install-driver pick)
+
+TITAN now writes a journal about its day. Once a night (default 03:30 local), a daemon replays the last 24h of trajectories + drive ring buffer + Command Post run history and writes a first-person markdown journal entry the operator reads with their coffee.
+
+This is the first of the 8 visionary features documented in `docs/VISIONARY-IDEAS-2026-05-07.md`. Picked first because every dependency already exists in the framework — trajectoryLogger, drive ring buffer, daemon scheduler, chat router — so the v1 implementation is plumbing, not new infrastructure.
+
+### Why "dream"
+
+The Soma drives already simulate emotion (purpose, hunger, curiosity, safety, social) and tick every 60s, but until now nothing in TITAN read that history back. Drive state is a substrate — Dream Mode is the first feature that turns it into narrative. The journal is gated honestly: each section only fires when the underlying drive actually moved.
+
+### Five-section structure
+
+| Section | Header | Fires when |
+|---|---|---|
+| consolidate | "What happened" | always (when there was activity) |
+| reflect | "What surprised me" | curiosity rose ≥ `dream.thresholds.reflect` (default 0.1) |
+| worry | "What feels unsafe" | safety **dropped** ≥ `dream.thresholds.worry` (default 0.1) |
+| plan | "What I want tomorrow" | purpose moved ≥ `dream.thresholds.plan` (default 0.05) |
+| gratitude | "Who I want to thank" | social rose ≥ `dream.thresholds.gratitude` (default 0.05) |
+
+Sections that don't fire are simply absent from the markdown — TITAN doesn't fabricate emotion when nothing changed. Skipped sections are recorded in `sectionsSkipped` with the reason ("safety Δ=0.020 (drop must exceed 0.1)") so the operator can see why a section is missing.
+
+### What ships
+
+- `src/agent/dreams.ts` (~340 lines) — generator, persistence, cron, three read APIs
+- Config schema additions: `dream.{enabled, cronAt, model, includeAudio, voiceId, thresholds}` — opt-in, defaults to disabled
+- Four API endpoints:
+  - `GET /api/dreams/latest` — most recent dream
+  - `GET /api/dreams` — list of dates (param: `limit`, default 30)
+  - `GET /api/dreams/:date` — specific date (validated `YYYY-MM-DD`)
+  - `POST /api/dreams/generate` — force-run mid-day (for demo or backfill)
+- SSE broadcast on topic `dream:nightly` for any subscribed UI panel
+- Persisted to `~/.titan/dreams/<YYYY-MM-DD>.{md,json}` (markdown for humans, JSON sidecar for tooling)
+- 11 vitest tests pinning the gating contract — verifies that worry only fires on safety *drops*, that subthreshold movement skips with a recorded reason, that empty activity emits only "consolidate", and that one chat call fires per emitted section.
+
+### What's next for Dream Mode
+
+- Audio narration via F5-TTS (gated by `dream.includeAudio`) — needs a batched-synthesis API on the voice bridge first.
+- Mission Control widget `dream-journal` so the operator sees the latest entry on the dashboard. v5.5.17 ships the API; the React widget is a follow-up.
+- "Wake me up if you dreamed something concerning" — automatic alert escalation when the worry section fires with severity above a threshold.
+
+### How to enable
+
+```json
+{
+  "dream": { "enabled": true, "cronAt": "03:30" }
+}
+```
+
+Then `POST /api/dreams/generate` to write the first entry without waiting for 03:30.
+
+---
+
 ## [5.5.16] — 2026-05-07
 
 ### Changed — Phase D.2: all 8 stacked major dependency bumps
