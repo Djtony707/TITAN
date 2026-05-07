@@ -295,6 +295,107 @@ You are not writing a report. You are remembering your day.`,
     ];
 }
 
+// ── Output sanitization ────────────────────────────────────────────
+
+/**
+ * Many local/cloud models with thinking-mode enabled (Kimi K2.6, Qwen3,
+ * etc.) leak their chain-of-thought into the response — emitting
+ * `<think>...</think>` blocks or numbered "Key constraints:" preambles
+ * before the actual prose. Some weaker models also restate the rules from
+ * the system prompt instead of writing the journal. We can't fix the
+ * model from here, but we CAN find the prose in the response and discard
+ * everything else.
+ *
+ * Heuristics, ordered:
+ *  1. Strip explicit `<think>...</think>` blocks (DeepSeek-style).
+ *  2. Drop everything before the last block of bulleted/numbered items
+ *     followed by a paragraph break — that's the model's planning
+ *     phase, the prose comes after.
+ *  3. Drop common preamble headers: "Key constraints:", "Facts to
+ *     interpret:", "ABSOLUTE RULES:", "Plan:", "Reasoning:".
+ *  4. Trim leading/trailing markdown headers, bullets, list markers.
+ *  5. Collapse repeated blank lines.
+ *
+ * The function is conservative — it only strips when it finds a clear
+ * prose paragraph after the noise. If the whole response is preamble
+ * (model wrote no prose at all), we return whatever we have so the
+ * operator can see the failure mode.
+ */
+export function sanitizeJournalSection(raw: string): string {
+    let text = raw;
+
+    // 1. Strip <think>...</think> blocks (multi-line, including nested).
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+
+    // 2. Find the last "preamble-then-prose" boundary. A preamble is any
+    //    block of lines starting with bullet/number markers, ending in a
+    //    blank line followed by a non-marker paragraph. We try several
+    //    common preamble headers.
+    const PREAMBLE_HEADERS = [
+        /^\s*key\s+constraints?:\s*$/im,
+        /^\s*facts\s+to\s+interpret:\s*$/im,
+        /^\s*absolute\s+rules:\s*$/im,
+        /^\s*plan:\s*$/im,
+        /^\s*reasoning:\s*$/im,
+        /^\s*possible\s+angle:\s*$/im,
+        /^\s*key\s+observations?:\s*$/im,
+        /^\s*notes?:\s*$/im,
+    ];
+    for (const re of PREAMBLE_HEADERS) {
+        const match = re.exec(text);
+        if (!match) continue;
+        // Find the end of the preamble block (next blank line that's
+        // followed by a non-list paragraph).
+        const after = text.slice(match.index + match[0].length);
+        const proseStart = findProseStart(after);
+        if (proseStart >= 0) {
+            text = after.slice(proseStart).trim();
+        }
+    }
+
+    // 3. If the response STARTS with a numbered or bulleted list, find
+    //    the first prose paragraph after it.
+    if (/^\s*(?:[-*•]|\d+[.)])\s/.test(text)) {
+        const proseStart = findProseStart(text);
+        if (proseStart > 0) text = text.slice(proseStart).trim();
+    }
+
+    // 4. Strip leading markdown headers / list markers if they slipped in.
+    text = text.replace(/^#+\s+.*$/gm, '').trim();
+    text = text.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '').trim();
+
+    // 5. Collapse 3+ blank lines to 2.
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+    return text;
+}
+
+/**
+ * Given a block of text that starts with list-shaped content, return the
+ * character index where the first prose paragraph begins, or -1 if none
+ * is found. A "prose paragraph" is at least 30 chars on a single line
+ * starting with a capital letter and not a list marker.
+ */
+function findProseStart(text: string): number {
+    const lines = text.split('\n');
+    let charsSeen = 0;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        // Prose paragraph candidate: capital-letter start, ≥30 chars, no marker
+        if (
+            line.length >= 30 &&
+            /^[A-Z]/.test(line) &&
+            !/^(?:[-*•]|\d+[.)])\s/.test(line) &&
+            !/:$/.test(line) // ends with colon = still a header
+        ) {
+            return charsSeen;
+        }
+        charsSeen += lines[i].length + 1; // +1 for the newline
+    }
+    return -1;
+}
+
 // ── Generation ─────────────────────────────────────────────────────
 
 const SECTION_HEADERS: Record<DreamSection, string> = {
@@ -320,8 +421,8 @@ export async function generateDream(now: Date = new Date()): Promise<DreamSnapsh
     for (const section of emit) {
         try {
             const messages = buildPrompt(section, window, delta, activity);
-            const response = await chat({ model, messages, maxTokens: 400, temperature: 0.7 });
-            sectionTexts[section] = (response.content || '').trim();
+            const response = await chat({ model, messages, maxTokens: 600, temperature: 0.7 });
+            sectionTexts[section] = sanitizeJournalSection(response.content || '');
         } catch (err) {
             logger.warn(COMPONENT, `${section} generation failed: ${(err as Error).message}`);
             sectionTexts[section] = `(generation failed: ${(err as Error).message})`;

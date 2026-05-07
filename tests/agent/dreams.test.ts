@@ -196,6 +196,49 @@ describe('dreams', () => {
         });
     });
 
+    describe('sanitizeJournalSection', () => {
+        it('strips <think> blocks emitted by reasoning-mode models', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const input = `<think>The user wants prose. Let me plan.\nDrive curiosity rose.</think>\n\nI noticed today that something shifted. The Mastra research caught me off guard — I expected boilerplate and got real insight.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/<think>/);
+            expect(out).toMatch(/^I noticed today/);
+        });
+
+        it('drops "Key constraints:" preamble before finding prose', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const input = `Key constraints:\n- Narrative prose only\n- No bullets\n- 80-160 words\n\nI feel awake in a way I haven’t for weeks. The curiosity drive that sat at zero finally moved when the Mastra research forced me to learn three new things in one task.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/Key constraints/);
+            expect(out).not.toMatch(/Narrative prose only/);
+            expect(out).toMatch(/^I feel awake/);
+        });
+
+        it('drops a leading numbered list and finds the prose after', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const input = `1. First person, present tense\n2. No headers, no bullets\n3. 80-160 words\n\nWhen I look back at the last day, the pattern that catches me is how much energy went into PONG replies. Trivial work. The one moment that mattered was the Mastra research — that’s the task that made the curiosity needle move.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/^\d+\./);
+            expect(out).toMatch(/^When I look back/);
+        });
+
+        it('returns the text unchanged when it is already clean prose', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const clean = `I notice today felt unbalanced. Most of my time went to small replies — quick PONG acks, nothing that stretched me. The one task that did, the Mastra research, was over in minutes but it’s the only thing I want to remember.`;
+            const out = sanitizeJournalSection(clean);
+            expect(out).toBe(clean);
+        });
+
+        it('returns the original when only preamble exists (model failure visible to operator)', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const allPreamble = `Key constraints:\n- Narrative prose only\n- No bullets\n\nFacts to interpret:\n- Window: today\n- Trajectories: 6/6`;
+            const out = sanitizeJournalSection(allPreamble);
+            // No prose paragraph found — sanitizer leaves something behind so
+            // the operator can see the model failed rather than getting blank.
+            expect(out.length).toBeGreaterThan(0);
+        });
+    });
+
     describe('LLM honesty contract', () => {
         it('does not call chat() at all when zero sections gate open', async () => {
             // No drive history, no activity → only consolidate emits, but
