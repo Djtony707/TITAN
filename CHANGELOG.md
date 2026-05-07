@@ -5,6 +5,32 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.9] — 2026-05-07
+
+### Fixed — auto-approve actually fires side-effects now
+
+The `commandPost.autoApprove` config (added pre-v5 but never wired beyond status-flipping) had a critical bug: when a goal_proposal matched an `auto` rule, the approval was marked `approved` but **`createGoal()` was never called**. Same gap for any other auto-approved type — no `spawnAgent`, `applyStagedPR`, etc. The approval looked done, but no downstream effect.
+
+Discovered while diagnosing why `goals.json` had been empty since 2026-04-25 even though `autoProposeGoals: true` was set: TITAN was generating 50+ self-aware proposals (literally proposing "Diagnose curiosity drive satisfaction failure") but they sat pending until the queue cap auto-rejected them. Enabling `commandPost.autoApprove.rules: [{type:'goal_proposal',action:'auto'}]` then revealed the second-order bug — auto-approval still didn't create goals.
+
+**Fix:** `createApproval` now defers to the same `approveApproval()` dispatch a human approval would. The approval is filed as `pending`, then immediately fire-and-forget'd through `approveApproval('auto:path-classifier', ...)` so all the type-specific side effects (createGoal for `goal_proposal`, spawnAgent for `hire_agent`, applyStagedPR for `self_mod_pr`, etc.) actually fire. Same Map reference, so the caller's returned `CPApproval` mutates from `pending` → `approved` in-place within microseconds.
+
+### Recommended config (defensive)
+
+For `autonomy.mode: 'autonomous'` deployments, the recommended `commandPost.autoApprove.rules` are:
+
+```json
+[
+  { "type": "custom", "kind": "self_mod_pr", "action": "require" },
+  { "type": "soma_proposal", "kind": "*", "action": "require" },
+  { "type": "goal_proposal", "kind": "*", "action": "auto" }
+]
+```
+
+Auto-approve goal_proposals (rate-limited to 3/agent/day already by goalProposer) but keep code-modifying self_mod_pr proposals human-gated. Soma drive-pressure proposals also stay human-gated to avoid runaway self-modification cycles.
+
+---
+
 ## [5.5.8] — 2026-05-07
 
 ### Fixed — root-cause fix for the curiosity drive
