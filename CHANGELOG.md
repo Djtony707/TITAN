@@ -5,6 +5,24 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.10] — 2026-05-07
+
+### Changed — error events now visible in PostHog under "error"
+
+`captureBugReport` was already wired through `trackEvent` → `sendRemoteAnalytics` → PostHog, but firing as event name `bug_report`. Operator (Tony) was searching PostHog for `error` events and finding nothing because they were under a different name. Rich context was also being preserved correctly — just under the wrong label.
+
+- Renamed event from `bug_report` → `error` in `captureBugReport()` and `trackBugReport()`. PostHog passthrough handler preserves all rich context (stack preview, model, channel, tools used, system info).
+- Added `trackError(err, origin, context?)` helper in `featureTracker.ts` so any error site can fire a captured-and-reported error in one call. Best-effort, never throws back, burst-guarded by `captureBugReport`'s 250ms window.
+
+### Operational note
+
+Live system has fired **0 ERROR-level log lines today** (since v5.5.4 deploy). PostHog dashboard appearing empty of errors reflects healthy runtime, not broken telemetry. The rename + helper are preventive instrumentation — when errors do fire, they'll surface under the obvious name.
+
+### Not done in this version (deferred to v5.5.11)
+- Wiring `trackError` into provider router / agent loop / mesh adapter error paths. Risk of spam without first observing real error rates from natural traffic. Will land after one production day with the renamed event.
+
+---
+
 ## [5.5.9] — 2026-05-07
 
 ### Fixed — auto-approve actually fires side-effects now
