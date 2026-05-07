@@ -5,6 +5,21 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.15] — 2026-05-07
+
+### Changed — Phase D.1: low-risk dependency bumps
+
+Splitting Dependabot's PR #67 (12 stacked deps, 8 of them majors) into a series of focused ships. This is the "no API breakage possible" batch — minor/patch bumps within their existing major:
+
+- `typescript`: ^5.6.3 → ^5.9.3 (compiler, type-narrowing improvements, no API change)
+- `@langchain/core`: ^1.1.32 → ^1.1.45 (patch run within v1)
+- `imapflow`: ^1.0.0 → ^1.3.3 (within v1, used by email channel)
+- `matrix-js-sdk`: ^41.1.0 → ^41.4.0 (within v41, used by matrix channel)
+
+Build clean, 6542/6542 tests pass, 0 type errors. The 8 majors (`@inquirer/prompts` 7→8, `commander` 12→14, `dotenv` 16→17, `jsdom` 28→29, `node-cron` 3→4, `ora` 8→9, `pdf-parse` 1→2, `undici` 7→8) are queued one-per-version starting v5.5.16, easier to bisect any regression than the bundled PR.
+
+---
+
 ## [5.5.14] — 2026-05-07
 
 ### Removed — `swarm.ts` Kimi-K2.5 delegation hack (Phase C, sub-agent consolidation)
