@@ -38,7 +38,6 @@ vi.mock('../../src/memory/learning.js', () => ({
     recordToolPreference: vi.fn(), getErrorResolution: vi.fn().mockReturnValue(null), recordErrorResolution: vi.fn(),
 }));
 vi.mock('../../src/agent/userProfile.js', () => ({ recordToolUsage: vi.fn() }));
-vi.mock('../../src/agent/swarm.js', () => ({ runSubAgent: vi.fn() }));
 
 import { runAgentLoop, type LoopContext } from '../../src/agent/agentLoop.js';
 import type { ChatResponse } from '../../src/providers/base.js';
@@ -57,7 +56,7 @@ function makeCtx(overrides: Partial<LoopContext> = {}): LoopContext {
         sessionId: 'stress-sess', channel: 'test', message: 'Test',
         isAutonomous: false, voiceFastPath: false, effectiveMaxRounds: 10,
         taskEnforcementActive: false, reflectionEnabled: false, reflectionInterval: 5,
-        toolSearchEnabled: false, isKimiSwarm: false, selfHealEnabled: false,
+        toolSearchEnabled: false, selfHealEnabled: false,
         ...overrides,
     };
 }
