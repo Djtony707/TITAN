@@ -180,9 +180,13 @@ export async function captureBugReport(err: unknown, context: BugReportContext =
 
         // Forward to PostHog if telemetry is on. featureTracker handles
         // the opt-in gate, sanitizer, and best-effort fetch.
+        // v5.5.10: event renamed from 'bug_report' to 'error' so it lands
+        // under the obvious name in PostHog Events. Operator (Tony) was
+        // searching for 'error' events and finding nothing because they
+        // were all under 'bug_report'.
         try {
             const { trackEvent } = await import('./featureTracker.js');
-            await trackEvent('bug_report', {
+            await trackEvent('error', {
                 bug_id: report.id,
                 error_name: report.error.name,
                 error_message: report.error.message,

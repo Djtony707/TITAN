@@ -164,7 +164,9 @@ export function trackSelfModPR(action: 'created' | 'approved' | 'merged' | 'reje
     }).catch(() => {});
 }
 
-/** Track a bug report with rich context. */
+/** Track a bug report with rich context.
+ *  v5.5.10: now fires as 'error' event so it surfaces under the obvious name
+ *  in PostHog. */
 export function trackBugReport(properties: {
     bug_id: string;
     error_name: string;
@@ -182,5 +184,33 @@ export function trackBugReport(properties: {
     gpu_vram_gb?: number;
     stack_preview?: string;
 }): void {
-    trackEvent('bug_report', properties).catch(() => {});
+    trackEvent('error', properties).catch(() => {});
+}
+
+/**
+ * v5.5.10: Convenience wrapper that captures an error to bug-reports.jsonl
+ * AND fires the 'error' event to PostHog. Use this instead of bare
+ * `logger.error(err)` at error sites the operator wants visibility into.
+ *
+ * Best-effort: never throws back to caller. Burst-guarded by captureBugReport
+ * itself (250ms).
+ *
+ * Example:
+ *   try { await riskyThing(); }
+ *   catch (err) {
+ *       trackError(err, 'router.chat', { model: activeModel });
+ *       throw err; // or fallback path
+ *   }
+ */
+export async function trackError(
+    err: unknown,
+    origin: string,
+    context: Record<string, unknown> = {},
+): Promise<void> {
+    try {
+        const { captureBugReport } = await import('./bugReports.js');
+        await captureBugReport(err, { origin, ...context });
+    } catch {
+        // Never let error tracking become a new error path
+    }
 }
