@@ -157,7 +157,10 @@ describe('agent_delegate', () => {
 
         expect(mockSpawnSubAgent).toHaveBeenCalledTimes(1);
         const config = mockSpawnSubAgent.mock.calls[0][0];
-        expect(config.name).toBe('ResearcherAgent');
+        // v5.5.23: when a SUB_AGENT_TEMPLATES entry exists for the role,
+        // its canonical `name` ("Researcher") is used. The role-string +
+        // "Agent" suffix fallback only fires for unknown roles.
+        expect(config.name).toBe('Researcher');
         expect(config.task).toContain('Research AI trends');
         expect(result).toContain('Research findings about AI');
         expect(result).toContain('SUCCESS');
