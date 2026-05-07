@@ -332,15 +332,31 @@ export function sanitizeJournalSection(raw: string): string {
     //    block of lines starting with bullet/number markers, ending in a
     //    blank line followed by a non-marker paragraph. We try several
     //    common preamble headers.
+    // Special case: many models structure their response as
+    // "<thinking-as-headers>... \n\nDraft:\n<actual prose>". The "Draft:"
+    // marker is a high-confidence signal — strip everything before it.
+    const draftMatch = /^\s*(?:final\s+)?(?:draft|response|answer|output|journal\s+entry)\s*:?\s*$/im.exec(text);
+    if (draftMatch) {
+        const after = text.slice(draftMatch.index + draftMatch[0].length);
+        const proseStart = findProseStart(after);
+        if (proseStart >= 0) {
+            text = after.slice(proseStart).trim();
+        }
+    }
+
     const PREAMBLE_HEADERS = [
         /^\s*key\s+constraints?:\s*$/im,
-        /^\s*facts\s+to\s+interpret:\s*$/im,
+        /^\s*key\s+facts?:\s*$/im,
+        /^\s*key\s+observations?:\s*$/im,
+        /^\s*facts(?:\s+to\s+interpret)?:\s*$/im,
         /^\s*absolute\s+rules:\s*$/im,
+        /^\s*constraints?:\s*$/im,
+        /^\s*structure:\s*$/im,
         /^\s*plan:\s*$/im,
         /^\s*reasoning:\s*$/im,
         /^\s*possible\s+angle:\s*$/im,
-        /^\s*key\s+observations?:\s*$/im,
         /^\s*notes?:\s*$/im,
+        /^\s*outline:\s*$/im,
     ];
     for (const re of PREAMBLE_HEADERS) {
         const match = re.exec(text);
@@ -421,7 +437,10 @@ export async function generateDream(now: Date = new Date()): Promise<DreamSnapsh
     for (const section of emit) {
         try {
             const messages = buildPrompt(section, window, delta, activity);
-            const response = await chat({ model, messages, maxTokens: 600, temperature: 0.7 });
+            // 1200 tokens because thinking-mode models pay heavy budget on
+            // chain-of-thought even when we strip it from the final body.
+            // Final prose is still capped at 80–160 words by the prompt.
+            const response = await chat({ model, messages, maxTokens: 1200, temperature: 0.7 });
             sectionTexts[section] = sanitizeJournalSection(response.content || '');
         } catch (err) {
             logger.warn(COMPONENT, `${section} generation failed: ${(err as Error).message}`);
