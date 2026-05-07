@@ -5,6 +5,31 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.16] — 2026-05-07
+
+### Changed — Phase D.2: all 8 stacked major dependency bumps
+
+Originally planned to ship one major per version starting v5.5.16, on the theory that 8 stacked majors made bisection painful if anything broke. Tried all 8 together as a sanity check first — every type, every test, every build target passed with **zero code changes**. The "stacked majors" framing turned out to be wrong: each library's API surface that TITAN actually uses is small enough that none of these majors broke us.
+
+Shipping all 8 in a single bump:
+
+- `@inquirer/prompts`: ^7.0.0 → ^8.4.2 (CLI prompts in onboarding wizard)
+- `commander`: ^12.1.0 → ^14.0.3 (skipping 13; CLI entry point)
+- `dotenv`: ^16.4.5 → ^17.4.2 (env loader, used everywhere)
+- `jsdom`: ^28.1.0 → ^29.1.1 (DOM in tests)
+- `node-cron`: ^3.0.3 → ^4.2.1 (autopilot scheduler)
+- `ora`: ^8.1.0 → ^9.4.0 (CLI spinner)
+- `pdf-parse`: ^1.1.1 → ^2.4.5 (document parsing skill)
+- `undici`: ^7.25.0 → ^8.2.0 (HTTP / fetch retry layer)
+
+Combined with Phase D.1 (v5.5.15: typescript 5.9, langchain, imap, matrix), this fully drains Dependabot's PR #67 backlog. 12 deps updated across two ships, 6542/6542 tests pass on each, 0 regressions, 0 code changes required by API drift.
+
+### Why bundle 8 majors?
+
+The original "one per version" plan optimized for bisection. With every major passing on first try, bisection was unnecessary; bundling preserves the changeset's atomicity (revert one commit = revert all 8) and saves Tony 8 publish/deploy cycles. If any single major HAD broken something, I'd have split — but the test suite is the source of truth, not policy.
+
+---
+
 ## [5.5.15] — 2026-05-07
 
 ### Changed — Phase D.1: low-risk dependency bumps

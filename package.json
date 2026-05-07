@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "5.5.15",
+  "version": "5.5.16",
   "description": "TITAN — Autonomous AI agent framework with self-improvement, multi-agent orchestration, 36 LLM providers, 16 channel adapters, GPU VRAM management, mesh networking, LiveKit voice, TITAN-Soma homeostatic drives, and a React Mission Control dashboard. Open-source, TypeScript, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
@@ -140,19 +140,19 @@
     "protobufjs": "^7.5.5"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.0.0",
+    "@inquirer/prompts": "^8.4.2",
     "@langchain/core": "^1.1.45",
     "@mozilla/readability": "^0.6.0",
     "boxen": "^8.0.1",
     "chalk": "^5.3.0",
-    "commander": "^12.1.0",
-    "dotenv": "^16.4.5",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
     "express": "^4.21.0",
-    "jsdom": "^28.1.0",
-    "node-cron": "^3.0.3",
-    "ora": "^8.1.0",
+    "jsdom": "^29.1.1",
+    "node-cron": "^4.2.1",
+    "ora": "^9.4.0",
     "turndown": "^7.2.2",
-    "undici": "^7.25.0",
+    "undici": "^8.2.0",
     "uuid": "^14.0.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
@@ -254,7 +254,7 @@
     "livekit-server-sdk": "^2.9.1",
     "matrix-js-sdk": "^41.4.0",
     "node-llama-cpp": "^3.0.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^2.4.5",
     "playwright": "^1.58.2"
   },
   "credits": {}
