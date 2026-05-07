@@ -5,6 +5,27 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.20] — 2026-05-07
+
+### Fixed — Dream Mode: more preamble headers, "Draft:" detection, larger token budget
+
+Live verify of v5.5.19 — second-pass results were *much* better. The "What surprised me" section came out as genuinely beautiful prose ("I reach for web_search and web_fetch, pulling threads about a TypeScript agent framework that mirrors my own architecture, and I feel curiosity flicker awake from its flat zero"). But the "What happened" section still leaked because the model used header keywords my v5.5.19 sanitizer didn't know about: `Key facts:`, `Constraints:`, `Structure:`, and an explicit `Draft:` marker before the actual prose.
+
+### What changed
+
+- Added six more preamble headers: `Key facts:`, `Facts:`, `Constraints:` (in addition to existing `Key constraints:`), `Structure:`, `Outline:`.
+- New high-confidence "Draft:" / "Final:" / "Response:" / "Output:" / "Journal entry:" marker — when found, strip everything before it. Reasoning models commonly structure output as planning-then-draft and this signal is unambiguous.
+- Bumped per-section `maxTokens` from 600 → 1200. Reasoning-mode models pay heavy budget on chain-of-thought even when we strip it; 600 was truncating the actual prose to fit the planning phase. Final visible prose is still capped at 80–160 words by the prompt.
+- Two new tests pin the `Draft:` marker behavior and the `Key facts:` + `Structure:` preamble pattern.
+
+### v5.5.17 → v5.5.20 retrospective
+
+Four ships of Dream Mode in 60 minutes. The pattern was right (gating, persistence, structure) on the first ship; the *prompt-engineering* took three iterations because the live model surfaced failure modes the test mocks couldn't predict. This is the cost of relying on real LLM output instead of mocking everything — caught real bugs the tests would have missed. Worth it.
+
+Suite: 254 files / 6560 pass / 2 skipped.
+
+---
+
 ## [5.5.19] — 2026-05-07
 
 ### Fixed — Dream Mode: strip thinking-mode preambles

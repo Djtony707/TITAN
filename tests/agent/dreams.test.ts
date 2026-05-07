@@ -229,6 +229,26 @@ describe('dreams', () => {
             expect(out).toBe(clean);
         });
 
+        it('strips "Draft:" / "Final:" / "Response:" markers and finds the prose after', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            // The shape Kimi K2.6 outputs in practice — multi-section header
+            // outline followed by a "Draft:" line then the prose.
+            const input = `Key facts:\n- Window: today\n- Trajectories: 6/6\n\nConstraints:\n- 80-160 words\n- prose only\n\nDraft:\nI spend much of the day bouncing back single-word acknowledgments. The PONG tasks blur into a steady ping of compliance.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/Key facts/);
+            expect(out).not.toMatch(/Draft:/);
+            expect(out).toMatch(/^I spend much of the day/);
+        });
+
+        it('strips "Key facts:" and "Structure:" preambles', async () => {
+            const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
+            const input = `Key facts:\n- something\n- something\n\nStructure:\n- 2-3 paragraphs\n- present tense\n\nWhen I look at the cycle as a whole, what stands out is how little of it asked anything of me. Six tasks, six successes, but only one — the Mastra dive — actually moved me.`;
+            const out = sanitizeJournalSection(input);
+            expect(out).not.toMatch(/Key facts/);
+            expect(out).not.toMatch(/Structure:/);
+            expect(out).toMatch(/^When I look/);
+        });
+
         it('returns the original when only preamble exists (model failure visible to operator)', async () => {
             const { sanitizeJournalSection } = await import('../../src/agent/dreams.js');
             const allPreamble = `Key constraints:\n- Narrative prose only\n- No bullets\n\nFacts to interpret:\n- Window: today\n- Trajectories: 6/6`;
