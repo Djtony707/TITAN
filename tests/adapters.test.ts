@@ -147,8 +147,12 @@ describe('Bash Adapter', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    it.skip('should return helpful error when CLI not found', async () => {
-        // Claude Code binary likely not in PATH during tests
+    it('should return a non-empty result (success or helpful error)', async () => {
+        // v5.5.6: relaxed from string-coupling. The adapter should always
+        // return a result; if it fails, the failure message should be
+        // non-trivial. Behavior across environments (binary present /
+        // missing / nested sessions / JSON-stream output) is too varied
+        // to assert specific strings.
         const adapter = getAdapter('claude-code')!;
         const ctx: AdapterContext = {
             task: 'echo test',
@@ -158,18 +162,21 @@ describe('Claude Code Adapter', () => {
             timeoutMs: 5_000,
         };
         const result = await adapter.execute(ctx);
-        // Either succeeds, returns "not found" error, or refuses nesting
+        expect(result).toBeDefined();
+        expect(typeof result.success).toBe('boolean');
         if (!result.success) {
-            const isExpected = result.content.includes('Claude Code CLI not found')
-                || result.content.includes('cannot be launched inside another')
-                || result.content.includes('Nested sessions');
-            expect(isExpected).toBe(true);
+            expect(result.content.length).toBeGreaterThan(0);
         }
     });
 });
 
 describe('Codex Adapter', () => {
-    it.skip('should return helpful error when CLI not found', async () => {
+    it('should return a non-empty result (success or helpful error)', async () => {
+        // v5.5.6: relaxed from string-coupling. Codex now returns JSON-
+        // stream output on failure rather than a plain "not found"
+        // string, so the original assertion was wrong. Verify the shape
+        // contract instead: result is well-formed and any failure
+        // includes diagnostic content.
         const adapter = getAdapter('codex')!;
         const ctx: AdapterContext = {
             task: 'echo test',
@@ -179,8 +186,10 @@ describe('Codex Adapter', () => {
             timeoutMs: 5_000,
         };
         const result = await adapter.execute(ctx);
+        expect(result).toBeDefined();
+        expect(typeof result.success).toBe('boolean');
         if (!result.success) {
-            expect(result.content).toContain('Codex CLI not found');
+            expect(result.content.length).toBeGreaterThan(0);
         }
     });
 });
