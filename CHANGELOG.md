@@ -5,6 +5,28 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.21] — 2026-05-07
+
+### Fixed — Dream Mode: strip trailing self-check blocks
+
+Live verify of v5.5.20 produced *beautiful* prose ("Most of my cycles feel like keeping a heartbeat steady. I send PONG, I wait, I send PONG again.") — but Kimi K2.6 was now appending a self-validation epilogue after the prose: "Check constraints: Yes." / "Word count check: 131 words". The model was validating its own output against the system prompt rules, which is fine for it but doesn't belong in the operator's journal.
+
+Added trailing-block stripper to `sanitizeJournalSection`. New `EPILOGUE_HEADERS` patterns truncate from any of:
+- `Check constraints:`
+- `Word count check:`
+- `Verification:`
+- `Validation:`
+- `Self-check:` / `Self check:`
+- `Compliance check:`
+
+One test pinning the behavior. 19/19 dream tests pass; full suite 254/6562/0.
+
+### Final state
+
+The journal entry from this version's verification run reads cleanly end-to-end. Two paragraphs each, prose only, first person, specific to TITAN's actual day, no model self-talk visible. This is the artifact the Twitter demo needs.
+
+---
+
 ## [5.5.20] — 2026-05-07
 
 ### Fixed — Dream Mode: more preamble headers, "Draft:" detection, larger token budget
