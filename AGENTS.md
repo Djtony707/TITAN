@@ -1,16 +1,20 @@
 # TITAN Agent Context
 
-## Current Focus: v5.0.0 "Spacewalk" — STAGED FOR RELEASE
+## Current Focus: v5.5.6 — SHIPPED + STABILIZED (2026-05-07)
 
-**Status (2026-04-25):** v5.0.0 commit + tag staged locally on Mac. Awaiting
-push from Titan PC to GitHub + `npm publish --tag next`.
+**Status (2026-05-07):** v5.5.4, v5.5.5, v5.5.6 all shipped to origin + tagged.
+v5.5.6 published to npm as `@next`. `@latest` stays at v5.4.2 for 24h soak,
+then promote.
 
-- Local HEAD: `bf57cf7c v5.0.0 — Spacewalk: full release`
-- Tag: `v5.0.0`
-- Stats: 450 files, +69,846 / −18,147 lines
-- 11 commits ahead of `origin/main` (origin still at `1c04ca71 v4.13.0`)
+- Mac HEAD: `5619f1a` (test cleanup on top of v5.5.6)
+- Titan PC `/opt/TITAN`: v5.5.6, systemd-managed, clean (NRestarts=0)
+- npm `@next`: 5.5.6 / npm `@latest`: 5.4.2
+- Tests: 250 files / 6,602 passed / 2 documented-skipped / 0 failing
+- Critical fix shipped: gateway no longer auto-restarts every 5 min
+  (root cause: stale auth token in `~/.titan/health-check.sh`)
 
-See `docs/HANDOFF-2026-04-25.md` for the full release report.
+See `docs/HANDOFF-2026-05-07.md` for the 7-hour stabilization handoff
+(Hour 7 deliverable).
 
 ### Headline features in v5.0
 
@@ -178,7 +182,7 @@ env. Full content available via `get_persona` tool.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **TITAN** (30166 symbols, 45519 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **TITAN** (30180 symbols, 45534 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

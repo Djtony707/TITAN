@@ -2,7 +2,9 @@
 > **TITAN** — The AI that actually *does* things. It remembers your name. It learns what you like. It writes your emails, codes your ideas, posts for you, and keeps getting smarter while you sleep. Oh, and it has a little floating mascot. `npm i -g titan-agent`
 [//]: # (npm-text-end)
 
-# TITAN 5.0 — "Spacewalk" 🚀
+# TITAN 5.5 — "Spacewalk" 🚀
+
+<sub><em>Current: v5.5.6 · npm `@next` 5.5.6 · `@latest` 5.4.2 · live on Titan PC</em></sub>
 
 <p align="center">
   <img src="assets/titan-logo.png" alt="TITAN Logo" width="280"/>
