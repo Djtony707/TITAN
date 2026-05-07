@@ -476,7 +476,7 @@ export const PROVIDER_PRESETS: OpenAICompatConfig[] = [
     {
         name: 'kimi',
         displayName: 'Kimi (Moonshot)',
-        defaultBaseUrl: 'https://platform.kimi.com/v1',
+        defaultBaseUrl: 'https://api.moonshot.ai/v1',
         envKey: 'MOONSHOT_API_KEY',
         configKey: 'kimi',
         defaultModel: 'kimi-k2.5',

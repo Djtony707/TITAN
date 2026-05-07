@@ -5,6 +5,14 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.5] — 2026-05-07
+
+### Fixed
+
+- **Kimi (Moonshot) provider preset URL** — v5.5.4 set the `defaultBaseUrl` to `https://platform.kimi.com/v1` which is the dashboard SPA, not the API. Corrected to `https://api.moonshot.ai/v1` (canonical international Moonshot endpoint). Inert in default TITAN setups (no key configured by default), but corrects the preset for any user setting `MOONSHOT_API_KEY`. The dot→dash model-ID translation introduced in v5.5.4 stays. Impact: LOW (`gitnexus impact PROVIDER_PRESETS` reports 0 upstream callers).
+
+---
+
 ## [5.5.4] — 2026-05-07
 
 ### Fixed
