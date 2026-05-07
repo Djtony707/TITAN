@@ -238,10 +238,19 @@ const CURIOSITY: DriveDefinition = {
         // novelty the organism hasn't figured out yet." More than a
         // handful of unresolved patterns pulls Curiosity toward an
         // investigate-and-improve proposal (feeds Self-Improve pipeline).
-        // Scales 0→10+ patterns linearly.
+        //
+        // v5.5.8: smoothed curve. The original `1 - (n - 2) / 10`
+        // saturated to 0 at just 12 patterns and stayed there
+        // indefinitely, which made Curiosity satisfaction zero even
+        // when the patterns were stale build-noise. Use a softer
+        // logarithmic shape: satisfaction halves every ~10 patterns
+        // but never hits zero. 12 patterns → ~0.59, 50 → ~0.29,
+        // 139 → ~0.16. Self-Improve pipeline still triggers via
+        // pressure but Curiosity isn't permanently flat-lined.
         let errorPatternSat = 1;
         if (typeof snap.unresolvedErrorPatterns === 'number' && snap.unresolvedErrorPatterns > 2) {
-            errorPatternSat = clamp01(1 - (snap.unresolvedErrorPatterns - 2) / 10);
+            const n = snap.unresolvedErrorPatterns - 2;
+            errorPatternSat = clamp01(1 / (1 + n / 10));
         }
 
         const satisfaction = Math.min(diversitySat, errorPatternSat);

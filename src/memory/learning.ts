@@ -187,6 +187,27 @@ function classifyErrorPattern(error: string): { pattern: string; isFileDump: boo
         return { pattern: 'build-dumped-source:import-block', isFileDump: true };
     }
 
+    // v5.5.8: Next.js build output — "▲ Next.js X.Y.Z ... Compiled successfully ..."
+    // Was being recorded as 100s of "error patterns" because builds dump to stderr
+    // even on success. Roll up to a single canonical entry.
+    if (/▲\s+Next\.js\s+[\d.]+|Creating an optimized production build|Linting and checking validity/.test(trimmed)) {
+        return { pattern: 'build-noise:nextjs-output', isFileDump: true };
+    }
+
+    // v5.5.8: Vitest assertion failures — "expected X to be Y // Object.is equality"
+    // These are stale test failures from past runs, not recurring runtime errors.
+    // Roll up by assertion shape rather than specific values.
+    const vitestMatch = trimmed.match(/^expected\s+.+\s+to\s+(be|deeply equal|have|contain|match)\b/);
+    if (vitestMatch) {
+        return { pattern: `test-noise:vitest-assertion:${vitestMatch[1]}`, isFileDump: true };
+    }
+
+    // v5.5.8: bare "build-dumped-source:..." lines (already-classified entries
+    // that got re-recorded as errors). Treat as same canonical pattern.
+    if (trimmed.startsWith('build-dumped-source:')) {
+        return { pattern: trimmed.split('\n')[0].slice(0, 200), isFileDump: true };
+    }
+
     // Too long to be a useful signature
     if (trimmed.length > 1200) {
         return { pattern: 'oversized-error:' + trimmed.slice(0, 60).replace(/\s+/g, ' '), isFileDump: true };
@@ -365,8 +386,18 @@ export function verifyMemoryStaleness(): { pruned: number; decayed: number } {
     pruned = before - k.entries.length;
 
     // Remove error patterns not seen in 30+ days
+    // v5.5.8: ALSO remove unresolved patterns not seen in 7+ days. These have
+    // stopped recurring (no count increment for a week) so they're stale signal,
+    // not a current problem. Was inflating Curiosity's `unresolvedErrorPatterns`
+    // count to 139 with build-noise/test-noise from 2-3 weeks ago.
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
     for (const [pattern, info] of Object.entries(k.errorPatterns)) {
-        if (now - new Date(info.lastSeen).getTime() > THIRTY_DAYS) {
+        const ageMs = now - new Date(info.lastSeen).getTime();
+        if (ageMs > THIRTY_DAYS) {
+            delete k.errorPatterns[pattern];
+            pruned++;
+        } else if (ageMs > SEVEN_DAYS && !info.resolution) {
+            // Unresolved + dormant ≥7d → stale, not real
             delete k.errorPatterns[pattern];
             pruned++;
         }
