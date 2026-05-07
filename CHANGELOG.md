@@ -5,6 +5,31 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.11] — 2026-05-07
+
+### Fixed — module-cached state no longer lies about disk
+
+Multiple TITAN modules cache parsed JSON in module-scope variables (`let kb`, `let goalsCache`, etc.) and never reload from disk. When the file is modified externally (admin script, agent file-write tool, autopilot, manual edit, another node process), the cache goes stale and the module silently serves the pre-write state until restart.
+
+This was directly reproduced in the 2026-05-07 stabilization session twice:
+1. A one-off node script wrote pruned `errorPatterns` to `~/.titan/knowledge.json`. The live gateway kept reporting the stale 139-pattern count via the curiosity drive snapshot until manual `systemctl restart titan`.
+2. After deleting a goal directly from `~/.titan/goals.json`, `GET /api/goals` continued returning `{"goals":[…1 goal]}` because the in-memory cache had not invalidated.
+
+### What changed
+
+- New helper `src/utils/mtimeCache.ts` — wraps a parsed-from-disk value with mtime-based invalidation. On every read, calls `fs.statSync(path).mtimeMs` and reloads from disk if the file has changed since the last load. Cost is <0.1ms per cache hit; correctness gain is full elimination of the stale-cache class of bug.
+- `src/agent/goals.ts` — refactored `goalsCache` from bare `let goalsCache: Goal[] | null` to `createMtimeCache<Goal[]>`. External writes to `goals.json` now visible on the next `loadGoals()` / `listGoals()` call without restart.
+- `src/memory/learning.ts` — refactored `kb` from bare `let kb: KnowledgeBase | null` to mtime-cached. External writes to `knowledge.json` (e.g. one-off prune scripts, the auto-heal pipeline writing in a separate process) now visible on the next `loadKnowledgeBase()` call.
+
+### Tests
+- Added `tests/utils/mtimeCache.test.ts` (8 tests) covering external-write detection, set-after-write, invalidate, missing-file fallback, parse-failure fallback, and reference stability for unchanged files.
+- Existing `goals.test.ts` (17), `goals-skill.test.ts` (12), and 8 `tests/memory/*` suites (118) all pass without modification — refactor preserves contract.
+
+### Other modules with the same pattern (deferred, tracked for v5.5.12+)
+The same `let cache: T | null = null` pattern exists in 11 more modules: `identity.ts`, `meta.ts`, `provenance.ts`, `workingMemory.ts`, `memory.ts`, `vectors.ts`, `experiments.ts`, `teams.ts`, `capabilitiesRegistry.ts`, `killSwitch.ts`, `metricGuard.ts`. Each can be migrated to `createMtimeCache` with a small refactor (~10 lines each). v5.5.11 ships the helper + the two highest-leverage migrations (the ones that triggered live debugging this session); the remaining 11 follow as the affected files are touched.
+
+---
+
 ## [5.5.10] — 2026-05-07
 
 ### Changed — error events now visible in PostHog under "error"

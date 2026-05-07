@@ -9,6 +9,7 @@ import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { mkdirIfNotExists } from '../utils/helpers.js';
 import { titanEvents } from './daemon.js';
+import { createMtimeCache } from '../utils/mtimeCache.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Goals';
@@ -125,33 +126,32 @@ interface GoalsStore {
     lastUpdated: string;
 }
 
-/** In-memory cache of goals */
-let goalsCache: Goal[] | null = null;
-
-/** Load goals from disk */
-function loadGoals(): Goal[] {
-    if (goalsCache) return goalsCache;
-
-    if (!existsSync(GOALS_PATH)) {
-        goalsCache = [];
-        return goalsCache;
-    }
-
-    try {
-        const raw = readFileSync(GOALS_PATH, 'utf-8');
+/**
+ * v5.5.11: mtime-validated cache. Previously this was a bare module-scope
+ * variable that never reloaded from disk — so external writes (admin script,
+ * agent file-write tool, autopilot, manual edit) were invisible to the live
+ * gateway until restart. mtimeCache stat()s the file on every read; if the
+ * mtime has advanced since the last load, it reloads from disk before
+ * returning. Cost: <0.1ms per read in exchange for correctness.
+ */
+const goalsCache = createMtimeCache<Goal[]>({
+    path: GOALS_PATH,
+    parse: (raw) => {
         const store = JSON.parse(raw) as GoalsStore;
-        goalsCache = store.goals || [];
-        return goalsCache;
-    } catch (err) {
-        logger.warn(COMPONENT, `Failed to load goals: ${(err as Error).message}`);
-        goalsCache = [];
-        return goalsCache;
-    }
+        return store.goals || [];
+    },
+    initial: () => [],
+    component: COMPONENT,
+});
+
+/** Load goals from disk (cached + mtime-checked) */
+function loadGoals(): Goal[] {
+    return goalsCache.read();
 }
 
-/** Save goals to disk */
-function saveGoals(): void {
-    const goals = goalsCache || [];
+/** Save goals to disk and update the cache so the next read sees the new state. */
+function saveGoals(goalsOverride?: Goal[]): void {
+    const goals = goalsOverride ?? goalsCache.read();
     try {
         mkdirIfNotExists(TITAN_HOME);
         const store: GoalsStore = {
@@ -159,6 +159,7 @@ function saveGoals(): void {
             lastUpdated: new Date().toISOString(),
         };
         writeFileSync(GOALS_PATH, JSON.stringify(store, null, 2), 'utf-8');
+        goalsCache.set(goals, 'saveGoals');
     } catch (err) {
         logger.error(COMPONENT, `Failed to save goals: ${(err as Error).message}`);
     }
@@ -283,8 +284,7 @@ export function createGoal(options: {
     };
 
     goals.push(goal);
-    goalsCache = goals;
-    saveGoals();
+    saveGoals(goals);
 
     logger.info(COMPONENT, `Goal created: "${goal.title}" (${goal.id}) with ${goal.subtasks.length} subtasks`);
     titanEvents.emit('goal:created', { goalId: goal.id, title: goal.title, subtasks: goal.subtasks.length });
@@ -333,8 +333,7 @@ export function updateGoal(goalId: string, updates: {
     }
 
     goal.updatedAt = new Date().toISOString();
-    goalsCache = goals;
-    saveGoals();
+    saveGoals(goals);
 
     logger.info(COMPONENT, `Goal updated: "${goal.title}" (${goal.id})`);
     return goal;
@@ -347,8 +346,7 @@ export function deleteGoal(goalId: string): boolean {
     if (idx === -1) return false;
 
     goals.splice(idx, 1);
-    goalsCache = goals;
-    saveGoals();
+    saveGoals(goals);
 
     logger.info(COMPONENT, `Goal deleted: ${goalId}`);
     return true;
@@ -579,9 +577,15 @@ export function addDynamicSubtask(goalId: string, afterSubtaskId: string, title:
     return subtask;
 }
 
-/** Force reload from disk (useful after external edits) */
+/**
+ * Force reload from disk.
+ *
+ * v5.5.11: largely obsolete since the cache now mtime-checks every read,
+ * but kept for backward compatibility and for callers that want an explicit
+ * "throw away in-memory state" signal (e.g. test setup).
+ */
 export function reloadGoals(): void {
-    goalsCache = null;
+    goalsCache.invalidate();
     loadGoals();
 }
 
@@ -613,8 +617,7 @@ export function dedupeGoalsBulk(): { scanned: number; closed: number; kept: numb
     }
 
     if (closed > 0) {
-        goalsCache = goals;
-        saveGoals();
+        saveGoals(goals);
     }
     return { scanned: goals.length, closed, kept: seen.size };
 }

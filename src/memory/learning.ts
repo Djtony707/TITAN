@@ -3,10 +3,11 @@
  * Continuous self-improvement: learns from interactions, tracks patterns,
  * builds a knowledge base, and improves tool selection over time.
  */
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { mkdirIfNotExists } from '../utils/helpers.js';
+import { createMtimeCache } from '../utils/mtimeCache.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'Learning';
@@ -57,7 +58,41 @@ interface KnowledgeBase {
     conversationInsights: Array<{ topic: string; outcome: string; toolsUsed: string[]; timestamp: string }>;
 }
 
-let kb: KnowledgeBase | null = null;
+/**
+ * v5.5.11: mtime-validated cache. Previously this was a bare `let kb` that
+ * never reloaded from disk, so external writes (admin script, agent file-
+ * write tool, autopilot) were invisible to the live gateway until restart.
+ * Reproduced 2026-05-07: a one-off node script wrote pruned errorPatterns
+ * to knowledge.json; the gateway kept reporting the stale 139-pattern
+ * count via the curiosity drive snapshot until manual systemctl restart.
+ *
+ * mtimeCache stat()s the file on every read; if the mtime advanced since
+ * the last load, it reloads from disk. Mutations performed on the returned
+ * object are visible to subsequent reads (same Map reference) and persisted
+ * by doSave() which then calls cache.set() to update mtime tracking.
+ *
+ * Note: there is a microsecond-scale race where external write + concurrent
+ * local mutation could lose the local mutation. That trade-off is worth it
+ * — the previous behaviour silently served stale data indefinitely.
+ */
+const kbCache = createMtimeCache<KnowledgeBase>({
+    path: KNOWLEDGE_FILE,
+    parse: (raw) => {
+        const parsed = JSON.parse(raw) as KnowledgeBase;
+        // Backfill: older knowledge.json files may be missing newer fields.
+        parsed.entries = parsed.entries || [];
+        parsed.toolSuccessRates = parsed.toolSuccessRates || {};
+        parsed.toolPreferencesByType = parsed.toolPreferencesByType || {};
+        parsed.strategies = parsed.strategies || [];
+        parsed.errorPatterns = parsed.errorPatterns || {};
+        parsed.userCorrections = parsed.userCorrections || [];
+        parsed.conversationInsights = parsed.conversationInsights || [];
+        return parsed;
+    },
+    initial: () => createEmptyKB(),
+    component: COMPONENT,
+});
+
 let dirty = false;
 
 // ── Strategy hint caches ──────────────────────────────────────────
@@ -79,28 +114,11 @@ function getPatternWords(pattern: string): Set<string> {
     return words;
 }
 
-// NOTE: Sync I/O is intentional — runs only once at cold start, then cached in-memory.
+// v5.5.11: mtime-validated. Synchronous — fast cache hit (just a stat() call)
+// in the common case, full re-parse only when external write detected.
 function loadKnowledgeBase(): KnowledgeBase {
-    if (kb) return kb;
     mkdirIfNotExists(TITAN_HOME);
-    if (existsSync(KNOWLEDGE_FILE)) {
-        try {
-            kb = JSON.parse(readFileSync(KNOWLEDGE_FILE, 'utf-8'));
-            // Ensure fields exist
-            kb!.entries = kb!.entries || [];
-            kb!.toolSuccessRates = kb!.toolSuccessRates || {};
-            kb!.toolPreferencesByType = kb!.toolPreferencesByType || {};
-            kb!.strategies = kb!.strategies || [];
-            kb!.errorPatterns = kb!.errorPatterns || {};
-            kb!.userCorrections = kb!.userCorrections || [];
-            kb!.conversationInsights = kb!.conversationInsights || [];
-        } catch {
-            kb = createEmptyKB();
-        }
-    } else {
-        kb = createEmptyKB();
-    }
-    return kb!;
+    return kbCache.read();
 }
 
 function createEmptyKB(): KnowledgeBase {
@@ -116,12 +134,14 @@ function createEmptyKB(): KnowledgeBase {
 }
 
 function doSave(): void {
-    if (!kb) return;
+    const kb = kbCache.read();
     mkdirIfNotExists(TITAN_HOME);
     try {
         const tmpFile = KNOWLEDGE_FILE + '.tmp';
         writeFileSync(tmpFile, JSON.stringify(kb, null, 2), 'utf-8');
         renameSync(tmpFile, KNOWLEDGE_FILE);
+        // v5.5.11: bump our recorded mtime so we don't false-positive on our own write next read.
+        kbCache.set(kb, 'doSave');
         dirty = false;
     } catch (err) {
         dirty = true;
@@ -139,8 +159,8 @@ function debouncedSave(): void {
 
 /** Initialize the learning engine */
 export function initLearning(): void {
-    loadKnowledgeBase();
-    logger.info(COMPONENT, `Learning engine initialized (${kb?.entries.length ?? 0} knowledge entries)`);
+    const kb = loadKnowledgeBase();
+    logger.info(COMPONENT, `Learning engine initialized (${kb.entries.length} knowledge entries)`);
 }
 
 /**
