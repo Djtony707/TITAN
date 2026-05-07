@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '5.5.12';
+export const TITAN_VERSION = '5.5.13';
 export const TITAN_CODENAME = 'Spacewalk';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';

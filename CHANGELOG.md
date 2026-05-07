@@ -5,6 +5,25 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.13] — 2026-05-07
+
+### Changed — `/api/organism/*` 501 placeholders implemented or deleted
+
+Three `/api/organism/*` routes were stubbed with `501 Not implemented` since the router was extracted from server.ts. They've been resolved per Phase B.4 of the consolidation plan: implement the ones the UI actually calls, delete the dead one.
+
+- **Implemented `GET /api/organism/safety-metrics`** — returns drive satisfactions (0–1 each, one entry per registered drive: purpose, hunger, curiosity, safety, social) plus `totalPressure`. Source: `loadDriveHistory().latest`. Empty object when the daemon hasn't ticked yet. Shape matches `OrganismPanel.tsx`'s `Record<string, number>` contract — every value is a finite number, panel renders each with `.toFixed(2)`.
+- **Implemented `GET /api/organism/history`** — returns the persisted ring buffer (≤1440 ticks, ~24h at 60s cadence) mapped to `{history: [{timestamp, event:'drive-tick', data: satisfactions}]}`. Source: `loadDriveHistory().history`. Empty array when `~/.titan/drive-state.json` doesn't exist.
+- **Deleted `GET /api/organism/safety-trend`** — no UI client wrapper, no caller anywhere in the repo, no documented purpose. Was a 501 stub since extraction. Removed entirely; route now returns the express default 404.
+
+### Tests
+- `tests/gateway/organismRoutes.test.ts` (5 tests): empty-state for both implementations, persisted-tick mapping for history, drive satisfactions + totalPressure for safety-metrics, deletion of safety-trend.
+
+### Why this matters
+
+Mission Control's Organism panel calls both safety-metrics and getOrganismAlerts on every refresh; the 501 made the metrics grid silently empty. With the route wired to `loadDriveHistory()`, the panel now shows the same drive satisfactions the soma daemon is computing every 60s — including the curiosity satisfaction recovery from the v5.5.8 fix. The history endpoint exposes the 24h ring buffer so a future trend widget can chart drift without adding new persistence.
+
+---
+
 ## [5.5.12] — 2026-05-07
 
 ### Added — restart-rate alert closes the 3-day blind spot
