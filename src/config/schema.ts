@@ -1419,6 +1419,41 @@ export const TitanConfigSchema = z.object({
                 description: 'Evening family-safe persona. Dinner through bedtime — no shell, no code, no posting. Autopilot paused.',
             },
         ]),
+        /**
+         * Persona A/B rollout (v5.5.27+, visionary V2 #3) — canary a new
+         * persona against an existing baseline on a subset of traffic, with
+         * automatic revert when the candidate cohort underperforms or
+         * Safety drive drops. Cohorts themselves are runtime state stored
+         * at `~/.titan/persona-cohorts.json` (created via API), not config.
+         * This block sets the policy thresholds + monitor cadence.
+         */
+        rollout: z.object({
+            /** Master switch. Default off. When false, cohorts are inert. */
+            enabled: z.boolean().default(false),
+            /** How often to re-evaluate cohort health and consider auto-revert. */
+            monitorIntervalMins: z.number().min(1).max(60).default(5),
+            /** Minimum sample size per cohort role before auto-revert can fire. */
+            minSampleSize: z.number().min(1).default(10),
+            /**
+             * Pass-rate margin: candidate cohort's pass-rate may be at most
+             * this much lower than baseline before auto-revert fires.
+             * Default 0.05 = candidate can be up to 5% worse before revert.
+             */
+            passRateMargin: z.number().min(0).max(1).default(0.05),
+            /**
+             * Safety-drive drop threshold: candidate cohort's average Safety
+             * drive may drop by at most this much below baseline before
+             * auto-revert fires. Default 0.2.
+             */
+            safetyDropThreshold: z.number().min(0).max(1).default(0.2),
+            /**
+             * Window over which to compute cohort stats. Older outcomes
+             * fall out of the rolling sample. Default 30 minutes — fast
+             * enough to catch a regression in time, slow enough to gather
+             * a meaningful sample on most workloads.
+             */
+            windowMins: z.number().min(1).max(1440).default(30),
+        }).default({}),
     }).default({}),
 });
 

@@ -5,6 +5,78 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.27] — 2026-05-08
+
+### Added — Persona A/B + Auto-Revert (visionary V2 #3)
+
+**Argo Rollouts for prompts.** Operators canary a candidate persona against a baseline persona on a percentage of traffic, with deterministic per-session hash assignment, rolling-window outcome tracking, and **automatic revert when the candidate cohort regresses on pass-rate or Safety drive.** This is the V2 visionary doc's clearest "$100K/yr enterprise line-item" pick — it directly extends the persona resolver shipped v5.5.24 and turns the Phase E eval framework from table-stakes into a moat.
+
+### What ships
+
+- **`src/agent/personaRollout.ts`** (~370 lines) — pure persistence + assignment + evaluation + revert logic.
+  - `createCohort({baselineId, candidateId, percent, hashKey, note})` — persists to `~/.titan/persona-cohorts.json`. Validates baseline ≠ candidate and 0 ≤ percent ≤ 100.
+  - `pickCohortAssignment(personaId, {sessionId, channel})` — deterministic SHA256-based bucket. Same session always lands in same arm. Returns null when rollout disabled or cohort reverted.
+  - `recordOutcome({cohortId, role, success, latencyMs, safetySat})` — appends to `~/.titan/persona-cohort-events.jsonl`.
+  - `evaluateCohort(cohort, opts)` — splits events by role over rolling window (default 30min), computes pass-rate + avg Safety per arm. **Cold-start guard:** never recommends revert when either arm has < `minSampleSize` (default 10) samples.
+  - `revertCohort(id, reason, source)` — flips percent to 0, stamps `revertedAt`/`revertReason`, fires alert at `warning` severity for auto-reverts (info for manual).
+- **Config schema:** `personas.rollout.{enabled, monitorIntervalMins, minSampleSize, passRateMargin, safetyDropThreshold, windowMins}` — defaults are conservative (5%-margin, 0.2-safety-drop, 30-min window, 10-sample minimum).
+- **Wired into `src/agent/agent.ts`:**
+  - **Cohort assignment** runs after the baseline persona resolver. If a cohort is active for the resolved persona and the (cohortId, sessionId) hash falls below the candidate percent, persona is swapped to candidate. Cohort role is captured for the post-response outcome record.
+  - **Outcome recording** fires once per `processMessage` on the post-response path — captures `success` (no budget exhaustion + non-empty content), `latencyMs`, and **the Safety drive satisfaction at response time** (read from drives' ring buffer). Best-effort, fire-and-forget.
+- **Monitor cron** (`startRolloutMonitor`) — re-evaluates every active cohort every `monitorIntervalMins` (default 5). Auto-reverts cohorts that cross threshold. Fires once at boot so a freshly-rebooted gateway picks up anything that should already revert.
+- **Five new API endpoints:**
+  - `GET /api/persona-cohorts` — list all cohorts (active + reverted)
+  - `POST /api/persona-cohorts` — create a cohort (`{baselineId, candidateId, percent, hashKey?, note?}`)
+  - `DELETE /api/persona-cohorts/:id` — remove a cohort entirely
+  - `POST /api/persona-cohorts/:id/revert` — manual revert (kill switch)
+  - `GET /api/persona-cohorts/:id/health` — per-arm pass-rate + latency + safety + revert recommendation
+  - `GET /api/persona-cohorts/health` — same shape, all cohorts
+- **24 vitest tests** pinning every contract — hash determinism, bucket distribution (10k samples, decile uniformity), reversion on pass-rate margin, reversion on Safety drop, cold-start guard, rolling-window cutoff, idempotent revert, fail-open when disabled.
+
+### Engineer-credible math
+
+- **Bad-prompt blast radius:** 10% × 30min instead of 100% × N days. Concrete: a candidate with -10pp pass-rate at 50% rollout reverts in ≤ `monitorIntervalMins`+ time-to-min-sample-size.
+- **MTTR from a regression:** sub-30-min automatic vs. 2-5 days manual.
+- **Determinism:** SHA256-based bucketing means a given (cohort, sessionId) pair always lands in the same arm — no flapping mid-session, no need for sticky cookies.
+
+### Why this matters strategically
+
+This is the V2 doc's lock-criterion winner: *"would Replit pay $100K/yr for this?"* — yes, because bad-prompt regressions on enterprise customer traffic cost real revenue, and the auto-revert + audit trail solves a problem their on-call team currently manages with Slack threads and dread. Mastra/Vercel/Anthropic SDK can't ship this without first building a homeostatic substrate (Soma drives) — they have no signal to auto-revert against.
+
+### How to use
+
+```json
+// ~/.titan/titan.json
+{
+  "personas": {
+    "enabled": true,
+    "rollout": { "enabled": true }
+  }
+}
+```
+
+Then:
+```bash
+TOKEN=$(curl -X POST http://localhost:48420/api/login -d '{"password":"titan2026"}' | jq -r .token)
+
+# Roll out the new persona to 10% of traffic
+curl -X POST http://localhost:48420/api/persona-cohorts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"baselineId":"worker","candidateId":"worker_v2","percent":10,"note":"new system prompt"}'
+
+# Watch health every 30 seconds
+watch -n 30 "curl -sH 'Authorization: Bearer $TOKEN' http://localhost:48420/api/persona-cohorts/health | jq '.cohorts[].health'"
+```
+
+If the candidate regresses, the next monitor tick auto-reverts and fires a `warning`-severity alert through the existing alerts pipeline.
+
+### Suite
+
+256 files / 6610 pass / 2 skipped / 0 failing.
+
+---
+
 ## [5.5.26] — 2026-05-07
 
 ### Added — Mission Control widgets for Dream Mode + Persona Profiles

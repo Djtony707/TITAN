@@ -1409,7 +1409,32 @@ export async function processMessage(
     // personas.enabled=false, resolveActivePersona returns null and this
     // block is a no-op.
     const { resolveActivePersona: __resolvePersona } = await import('./personaProfiles.js');
-    const earlyPersona = __resolvePersona({ channel });
+    let earlyPersona = __resolvePersona({ channel });
+    // v5.5.27: Persona A/B cohort override. After the baseline resolver
+    // picks a persona, check for an active canary that uses it as
+    // baseline. If the (cohortId, sessionId) hash falls in the candidate
+    // bucket, swap to candidate and remember the cohort role for the
+    // post-response outcome record. Disabled when personas.rollout is off.
+    let __cohortAssignment: { cohortId: string; role: 'baseline' | 'candidate' } | null = null;
+    if (earlyPersona) {
+        try {
+            const { pickCohortAssignment } = await import('./personaRollout.js');
+            const assignment = pickCohortAssignment(earlyPersona.id, { sessionId: session.id, channel });
+            if (assignment) {
+                __cohortAssignment = { cohortId: assignment.cohortId, role: assignment.role };
+                if (assignment.role === 'candidate' && assignment.personaId !== earlyPersona.id) {
+                    const { resolveActivePersona } = await import('./personaProfiles.js');
+                    const candidate = resolveActivePersona({ forceId: assignment.personaId });
+                    if (candidate) {
+                        logger.info(COMPONENT, `[Cohort:${assignment.cohortId}] swap ${earlyPersona.id} → ${candidate.id}`);
+                        earlyPersona = candidate;
+                    }
+                }
+            }
+        } catch (err) {
+            logger.warn(COMPONENT, `cohort assignment skipped: ${(err as Error).message}`);
+        }
+    }
     if (earlyPersona?.systemPromptAppendix) {
         enrichedSystemPrompt += earlyPersona.systemPromptAppendix;
         logger.info(COMPONENT, `[Persona:${earlyPersona.id}] system prompt appendix injected`);
@@ -1770,6 +1795,32 @@ export async function processMessage(
 
     const durationMs = Date.now() - startTime;
     logger.info(COMPONENT, `Response generated in ${durationMs}ms (${totalPromptTokens + totalCompletionTokens} tokens)`);
+
+    // v5.5.27: Persona cohort outcome recording. The rollout monitor
+    // reads these events to compute per-arm pass-rate + Safety drive trend.
+    // Best-effort, fire-and-forget.
+    if (__cohortAssignment) {
+        void (async () => {
+            try {
+                const { recordOutcome } = await import('./personaRollout.js');
+                let safetySat: number | null = null;
+                try {
+                    const { loadDriveHistory } = await import('../organism/drives.js');
+                    const persisted = loadDriveHistory();
+                    const safety = persisted?.latest?.drives?.find(d => d.id === 'safety');
+                    safetySat = safety ? safety.satisfaction : null;
+                } catch { /* drives optional */ }
+                recordOutcome({
+                    cohortId: __cohortAssignment!.cohortId,
+                    role: __cohortAssignment!.role,
+                    sessionId: session.id,
+                    success: !budgetExhausted && finalContent.length > 0,
+                    latencyMs: durationMs,
+                    safetySat,
+                });
+            } catch { /* outcome recording is optional */ }
+        })();
+    }
 
     // ── Post-conversation learning: record insights from tool usage ───
     if (toolsUsed.length > 0) {
