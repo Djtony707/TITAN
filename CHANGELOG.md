@@ -5,6 +5,39 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.29] — 2026-05-08
+
+### Fixed — `sweepAtomicTmpOrphans` actually deletes orphans now (it didn't in v5.5.28)
+
+The v5.5.28 boot-time tmp-file sweep was a **silent no-op**. Live verification on Titan PC right after deploy showed the same 188MB of orphans (`vectors.json.tmp.*` ×2 + `test-history.json.tmp`) still on disk, with **no log output** from the sweep code.
+
+Root cause: I wrote `const fs = require('fs')` inside an ESM module. Node throws `ReferenceError: require is not defined in ES module scope` — which the surrounding `try/catch` swallowed, returning `{removed: 0, bytes: 0}` every time. Classic fail-silent: the function "ran" but did nothing.
+
+**Fix:** Replaced both runtime-import calls with the module-level `import { ... } from 'fs'` that helpers.ts already had. Also extended the regex from `\.tmp\.\d+\.[a-z0-9]+$` to `\.tmp(?:\.\d+\.[a-z0-9]+)?$` so it also matches the bare `.tmp` convention (which is what `test-history.json.tmp` uses — a separate code path with the older naming).
+
+**8 new vitest tests** in `tests/utils/sweepAtomicTmpOrphans.test.ts` pin the contract:
+- Empty / missing directory baseline
+- Removes `.tmp.<ts>.<rand>` older than maxAgeMs
+- Removes bare `.tmp`
+- Skips real (non-tmp) files
+- Skips fresh tmps
+- Skips directories named like tmp files (won't unlink a dir)
+- Reproduces the v5.5.28 → v5.5.29 fix scenario (3 orphans matching what was found on prod, all removed, no real data lost)
+
+These tests use the real filesystem under a `mkdtempSync` directory — so a future "let me lazily import fs to avoid circulars" attempt will fail the suite immediately rather than silently returning 0.
+
+### Why this happened
+
+The lesson, again: a `try/catch` around a block that's "expected to maybe fail" hides the broken-from-day-one case. The sweep code looked plausible in review — the `eslint-disable` comment + `require('fs') as typeof import('fs')` cast hid that this was an ESM file where `require` simply doesn't exist. Tests would have caught it. I shipped without them.
+
+This is a cousin of the Dream Mode prompt-engineering issue — you can't tell from the code alone whether it works; you need to run it. v5.5.28 fixed 5 audit bugs, this one fix actually delivers fix #5 (tmp sweep) end-to-end.
+
+### Suite
+
+257 files / 6618 pass / 2 skipped / 0 failing.
+
+---
+
 ## [5.5.28] — 2026-05-08
 
 ### Fixed — Triage release: 5 P0/P1 bugs from the 2026-05-08 audit
