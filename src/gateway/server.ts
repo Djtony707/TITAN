@@ -1408,6 +1408,112 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Persona Cohorts API (v5.5.27, A/B rollout) ────────────────
+  // Cohorts are runtime state — this is the operator's control surface
+  // for canarying a candidate persona against a baseline. Health endpoint
+  // returns per-arm stats over the rolling window so MC can render
+  // sparkline cards. Auto-revert fires from the monitor cron, but manual
+  // POST /:id/revert is also exposed for kill-switch use.
+  app.get('/api/persona-cohorts', async (_req, res) => {
+    try {
+      const { listCohorts } = await import('../agent/personaRollout.js');
+      res.json({ cohorts: listCohorts() });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'persona-cohorts unavailable' });
+    }
+  });
+
+  app.post('/api/persona-cohorts', async (req, res) => {
+    try {
+      const { createCohort } = await import('../agent/personaRollout.js');
+      const body = (req.body || {}) as { baselineId?: string; candidateId?: string; percent?: number; hashKey?: 'sessionId' | 'channel'; note?: string; id?: string };
+      if (!body.baselineId || !body.candidateId || typeof body.percent !== 'number') {
+        res.status(400).json({ error: 'baselineId, candidateId, and percent are required' });
+        return;
+      }
+      const cohort = createCohort({
+        baselineId: body.baselineId,
+        candidateId: body.candidateId,
+        percent: body.percent,
+        hashKey: body.hashKey,
+        note: body.note,
+        id: body.id,
+      });
+      res.json(cohort);
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts create: ${(e as Error).message}`);
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  app.delete('/api/persona-cohorts/:id', async (req, res) => {
+    try {
+      const { deleteCohort } = await import('../agent/personaRollout.js');
+      const ok = deleteCohort(req.params.id);
+      if (!ok) { res.status(404).json({ error: 'cohort not found' }); return; }
+      res.json({ deleted: true });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts delete: ${(e as Error).message}`);
+      res.status(500).json({ error: 'delete failed' });
+    }
+  });
+
+  app.post('/api/persona-cohorts/:id/revert', async (req, res) => {
+    try {
+      const { revertCohort } = await import('../agent/personaRollout.js');
+      const reason = (req.body && typeof req.body.reason === 'string') ? req.body.reason : 'manual revert via API';
+      const cohort = revertCohort(req.params.id, reason, 'manual');
+      if (!cohort) { res.status(404).json({ error: 'cohort not found' }); return; }
+      res.json(cohort);
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts revert: ${(e as Error).message}`);
+      res.status(500).json({ error: 'revert failed' });
+    }
+  });
+
+  app.get('/api/persona-cohorts/:id/health', async (req, res) => {
+    try {
+      const { getCohort, evaluateCohort } = await import('../agent/personaRollout.js');
+      const cohort = getCohort(req.params.id);
+      if (!cohort) { res.status(404).json({ error: 'cohort not found' }); return; }
+      const cfg = loadConfig();
+      const rollout = (cfg.personas as { rollout?: { windowMins?: number; minSampleSize?: number; passRateMargin?: number; safetyDropThreshold?: number } } | undefined)?.rollout;
+      const health = evaluateCohort(cohort, {
+        windowMins: rollout?.windowMins,
+        minSampleSize: rollout?.minSampleSize,
+        passRateMargin: rollout?.passRateMargin,
+        safetyDropThreshold: rollout?.safetyDropThreshold,
+      });
+      res.json({ cohort, health });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts health: ${(e as Error).message}`);
+      res.status(500).json({ error: 'health unavailable' });
+    }
+  });
+
+  app.get('/api/persona-cohorts/health', async (_req, res) => {
+    try {
+      const { listCohorts, evaluateCohort } = await import('../agent/personaRollout.js');
+      const cohorts = listCohorts();
+      const cfg = loadConfig();
+      const rollout = (cfg.personas as { rollout?: { windowMins?: number; minSampleSize?: number; passRateMargin?: number; safetyDropThreshold?: number } } | undefined)?.rollout;
+      const out = cohorts.map(cohort => ({
+        cohort,
+        health: evaluateCohort(cohort, {
+          windowMins: rollout?.windowMins,
+          minSampleSize: rollout?.minSampleSize,
+          passRateMargin: rollout?.passRateMargin,
+          safetyDropThreshold: rollout?.safetyDropThreshold,
+        }),
+      }));
+      res.json({ cohorts: out });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts health-all: ${(e as Error).message}`);
+      res.status(500).json({ error: 'health unavailable' });
+    }
+  });
+
   app.get('/api/health/deep', async (_req, res) => {
     const checks: Record<string, { status: 'ok' | 'degraded' | 'down'; detail?: string }> = {};
     let overall: 'ok' | 'degraded' | 'down' = 'ok';
@@ -3582,6 +3688,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     startDreamCron();
   } catch (e) {
     logger.warn(COMPONENT, `Dream cron skipped: ${(e as Error).message}`);
+  }
+
+  // v5.5.27: Persona A/B rollout monitor — opt-in via
+  // personas.rollout.enabled. Re-evaluates every cohort on a cadence
+  // (default 5 min) and auto-reverts candidates that regress vs
+  // baseline. Skips quietly when disabled.
+  try {
+    const { startRolloutMonitor } = await import('../agent/personaRollout.js');
+    startRolloutMonitor();
+  } catch (e) {
+    logger.warn(COMPONENT, `Persona rollout monitor skipped: ${(e as Error).message}`);
   }
 
   // v4.10.0-local (Phase C): mission scheduler — ticks active missions
