@@ -1,7 +1,7 @@
 /**
  * TITAN Helper Utilities
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 
 /** Ensure a directory exists, creating it recursively if needed */
@@ -44,39 +44,37 @@ export function atomicWriteFileSync(filePath: string, data: string | Buffer): vo
         // writeFileSync and renameSync), the .tmp.<ts>.<rand> file would
         // be orphaned. Found 188MB of orphans on Titan PC during the
         // 2026-05-08 audit (3 vectors.json + test-history tmp files).
-        try {
-            // unlink only — synchronous import to avoid circulars
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const fs = require('fs') as typeof import('fs');
-            if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        } catch { /* best-effort cleanup */ }
+        try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best-effort */ }
         throw err;
     }
 }
 
 /**
- * Sweep stale `.tmp.<ts>.<rand>` orphans from a directory. Files older than
- * `maxAgeMs` are removed. Called at gateway boot to recover from crashes
- * that happened between writeFileSync and renameSync. v5.5.28+.
+ * Sweep stale `.tmp.<ts>.<rand>` and bare `.tmp` orphans from a directory.
+ * Files older than `maxAgeMs` are removed. Called at gateway boot to
+ * recover from crashes that happened between writeFileSync and renameSync.
+ * v5.5.28+ (v5.5.29 fixed the bug where `require('fs')` silently failed
+ * inside ESM modules — now uses the module-level static imports).
  */
 export function sweepAtomicTmpOrphans(dir: string, maxAgeMs = 60 * 60 * 1000): { removed: number; bytes: number } {
     let removed = 0;
     let bytes = 0;
     try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fs = require('fs') as typeof import('fs');
-        if (!fs.existsSync(dir)) return { removed, bytes };
-        const entries = fs.readdirSync(dir);
-        const tmpRe = /\.tmp\.\d+\.[a-z0-9]+$/;
+        if (!existsSync(dir)) return { removed, bytes };
+        const entries = readdirSync(dir);
+        // Match both .tmp.<ts>.<rand> (atomic-write convention) and bare
+        // .tmp (older callsite convention found on Titan PC).
+        const tmpRe = /\.tmp(?:\.\d+\.[a-z0-9]+)?$/;
         const cutoff = Date.now() - maxAgeMs;
         for (const name of entries) {
             if (!tmpRe.test(name)) continue;
             const full = `${dir}/${name}`;
             try {
-                const st = fs.statSync(full);
+                const st = statSync(full);
+                if (!st.isFile()) continue;
                 if (st.mtimeMs < cutoff) {
                     bytes += st.size;
-                    fs.unlinkSync(full);
+                    unlinkSync(full);
                     removed += 1;
                 }
             } catch { /* skip */ }
