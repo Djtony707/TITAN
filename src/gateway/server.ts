@@ -1376,6 +1376,39 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Persona Profiles API (v5.5.24) ────────────────────────────
+  // Two reads — list of all defined personas + the one currently active.
+  // No POST yet; persona definitions are config-managed (static across a
+  // gateway boot). When Mission Control needs an "override" UI, it'll
+  // POST a forceId here and we can persist it via the existing config
+  // mutation path.
+  app.get('/api/personas', async (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const personas = cfg.personas;
+      res.json({
+        enabled: personas?.enabled ?? false,
+        defaultPersona: personas?.defaultPersona ?? null,
+        channelPins: personas?.channelPins ?? {},
+        profiles: personas?.profiles ?? [],
+      });
+    } catch (e) {
+      logger.error(COMPONENT, `personas list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'personas unavailable' });
+    }
+  });
+
+  app.get('/api/personas/active', async (req, res) => {
+    try {
+      const { describeActivePersona } = await import('../agent/personaProfiles.js');
+      const channel = typeof req.query.channel === 'string' ? req.query.channel : undefined;
+      res.json(describeActivePersona({ channel }));
+    } catch (e) {
+      logger.error(COMPONENT, `personas active: ${(e as Error).message}`);
+      res.status(500).json({ error: 'personas unavailable' });
+    }
+  });
+
   app.get('/api/health/deep', async (_req, res) => {
     const checks: Record<string, { status: 'ok' | 'degraded' | 'down'; detail?: string }> = {};
     let overall: 'ok' | 'degraded' | 'down' = 'ok';
