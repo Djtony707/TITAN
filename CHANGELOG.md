@@ -5,6 +5,37 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.26] — 2026-05-07
+
+### Added — Mission Control widgets for Dream Mode + Persona Profiles
+
+The two backends shipped earlier this session (Dream Mode v5.5.17–v5.5.22, Persona Profiles v5.5.24–v5.5.25) lacked UI surfaces. v5.5.26 ships both:
+
+- **`PersonaProfilesPanel`** at canvas widget `system:intelligence-persona-profiles`. Shows enabled banner with config snippet to opt in (or active-persona summary with reason if enabled), channel pins, and a card per profile (id, name, schedule, windDown badge, voiceId badge, allowedTools/deniedTools chips, active-now highlight).
+- **`DreamPanel`** at canvas widget `system:intelligence-dream`. Two-pane layout: history list of dates on the left, selected dream's content on the right. Header strip shows date + model + activity stats. Section badges show emitted vs skipped (with skip reason on hover). Drive deltas as 5-cell grid with start→end and direction arrow. Markdown body parsed via H2 splitting (lightweight — no extra deps). "Generate now" button fires `POST /api/dreams/generate` for force-runs without waiting for the 03:30 cron.
+
+Both widgets registered in `TitanCanvas.tsx` `SYSTEM_COMPONENTS` map. Both lazy-loaded via React Suspense, mirroring the existing OrganismWidget pattern.
+
+### Added — `docs/VISIONARY-IDEAS-V2-2026-05-07.md`
+
+Tony reviewed the original visionary doc (`VISIONARY-IDEAS-2026-05-07.md`) and judged it weak — too biographical, demo-shaped, optimized for viral clips rather than engineer-credible problems. Spawned a fresh Plan agent with sharper criteria: solve real problems competitors don't even know are gaps, tie to TITAN's structural assets (mesh, drives, persona resolver, VRAM orchestrator), put numbers on the win, and pass the lock criterion ("would Replit pay $100k/year for this?").
+
+Result: 7 features, all of them install-driver-shaped for senior engineers at AI-infra startups:
+
+1. **Drive-Aware Model Router** — router consults Soma drives as a routing input. +12-18% pass-rate under degraded conditions.
+2. **Trajectory Replay Test Harness** — `titan replay <id>` reconstructs production turns as deterministic test fixtures. Pin-to-vitest in one click.
+3. **Persona A/B + Auto-Revert** — canary persona changes against drive health, auto-revert in <30min on regression. **Argo Rollouts for prompts.**
+4. **Mesh-Aware VRAM Lease Market** — borrow VRAM from a peer for the duration of a tool call. **Ray for the rest of us.**
+5. **Drive-Indexed Failure Forensics** — embed drive-state-at-failure as a vector, surface 3 nearest historical failures. APM for agents.
+6. **Federated Failure Patterns (opt-in)** — anonymized embedding upload, see how 14 sibling installs hit the same drive-shape failure 36h ago. Sentry-shaped network effect.
+7. **Stateful Fork & 3-Way Merge** — git for agents. Snapshot full state, fork to a port, run an experiment, merge back.
+
+V2 doc top picks: **#3 Persona A/B + Auto-Revert** (clearest "$100K/yr line-item" pitch, leverages just-shipped persona resolver + on-roadmap evals into a moat) and **#4 Mesh-Aware VRAM Lease Market** (most unique structural claim, every substrate piece already shipping). Honorable mention: #5 forensics is the lowest-cost ship and pairs with #6 to become a Sentry-shaped business.
+
+The original V1 doc is kept as historical context; V2 is now the active reference for visionary work.
+
+---
+
 ## [5.5.25] — 2026-05-07
 
 ### Fixed — persona-profiles API route collision
