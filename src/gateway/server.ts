@@ -1659,6 +1659,28 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       return;
     }
 
+    // v5.5.30 FIX: validate `model` early so a bad provider ID returns 400
+    // before the agent loop runs. Previously a typoed provider crashed
+    // deep inside processMessage with 500 + stack trace AFTER the prompt
+    // had been built — wasted work and a confusing error for the caller.
+    if (requestedModel && typeof requestedModel === 'string') {
+      const { tryResolveModel, getKnownProviderNames } = await import('../providers/router.js');
+      if (!tryResolveModel(requestedModel)) {
+        const providers = getKnownProviderNames();
+        const requestedProviderName = requestedModel.split('/')[0] || requestedModel;
+        // Naive "did you mean" — find providers whose name shares a prefix
+        const lc = requestedProviderName.toLowerCase();
+        const suggestions = providers.filter(p => p.startsWith(lc.slice(0, 3)) || lc.includes(p)).slice(0, 5);
+        res.status(400).json({
+          error: 'unknown_model',
+          message: `Unknown model "${requestedModel}". Provider "${requestedProviderName}" is not registered.`,
+          suggestions: suggestions.length > 0 ? suggestions.map(p => `${p}/...`) : undefined,
+          availableProviders: providers,
+        });
+        return;
+      }
+    }
+
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
     // ═─ System Widget Shortcut ─═════════════════════════════════════

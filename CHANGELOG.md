@@ -5,6 +5,54 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.30] — 2026-05-08
+
+### Fixed — `resolveModel` graceful fallback + audit triage continuation
+
+Continuing the 2026-05-08 audit triage. Investigated 4 more findings; 3 were resolved or invalidated, 1 needed a real fix.
+
+#### Audit #3 (Gateway flapping) — INVALIDATED
+
+The audit's "5 restarts in 7 hours today" turned out to be **mostly my own deploys** during the v5.5.10–v5.5.29 ship cadence (each `systemctl restart titan` writes a Started/Stopped pair). The one real flap cluster — 5 boots in 42 seconds at 2026-05-07 23:21 PDT — was a historical event that's not currently active. The current `health-check.sh` (v2, rewritten 2026-05-07 morning) is genuinely passive: just curls `/api/login` + `/api/health` every 5min and logs OK/UNHEALTHY without killing anything. Live verify: gateway uptime growing steadily, restart severity `ok`, no SIGTERMs in titan.log since the v5.5.29 deploy. **Not a current bug — flagging as resolved-by-virtue-of-being-historical.**
+
+#### Audit #6 (Soma drives missing fields) — MISREAD
+
+The audit pointed at `~/.titan/soma-drive-state.json` (29 bytes, contains `{"hunger": 1778235370011}`) and concluded "only hunger drive populated, others missing." That's the **wrong file**: `soma-drive-state.json` is the per-drive **proposal-damping-timestamp cache** maintained by `src/organism/pressure.ts` (one entry = "this drive last fired a goal proposal at this timestamp, don't fire again for 2h"). The actual drive state lives in `~/.titan/drive-state.json` — 347KB, all 5 drives populated, ticking every 60s. Verified live: latest tick has `purpose: 0.95, hunger: 0.15, curiosity: 0.4, safety: 1.0, social: 0.95, totalPressure: 0.53, dominantDrives: ['hunger', 'curiosity']`. **Not a bug.**
+
+The genuinely-stale file the audit also flagged is `~/.titan/hormone-state.json` (29 bytes, last modified 2026-04-20). No source code writes to it — orphan from a code path that got refactored out. Hormones now stream live via `traceBus.emit('hormone:update', ...)` instead of persisting to disk. Safe to delete; tracked as future cleanup.
+
+#### Audit #11 (`POST /api/dreams/generate` empty body) — SELF-FIXED
+
+Reproduced live: returned 7292 bytes of valid JSON in ~30s. Most likely fixed earlier in the session by the v5.5.20+ Dream Mode prompt-engineering iterations (sanitizer + reasoning-token budget bump). **Not a bug now.**
+
+#### My audit #5 (`resolveModel` throws on unknown provider) — REAL, FIXED
+
+Live reproduced: `POST /api/message` with `{model: "definitely-fake-provider/model-x"}` returned `500` with a stack-trace dump from inside the agent loop **after** the prompt had been built. Wasted work; bad UX.
+
+**Fix:** Added `tryResolveModel()` (non-throwing variant) and `getKnownProviderNames()` to `src/providers/router.ts`. Wired early validation into `/api/message` — if the caller provides a `model` field, validate before the agent loop. Bad model now returns `400` with:
+- `error: 'unknown_model'`
+- A clear `message` naming the bad provider
+- `suggestions: ['groq/...', ...]` — naive prefix-overlap match for "did you mean"
+- `availableProviders: [...]` — full list
+
+Existing `resolveModel` keeps its throw semantics (internal callers depend on it). The graceful path is a separate `tryResolveModel` — opt-in for endpoints that prefer fail-fast validation.
+
+### Suite
+
+257 files / 6618 pass / 2 skipped / 0 failing.
+
+### Audit progress
+
+| Status | Count |
+|---|---|
+| Fixed | 9 (#1, #2/#13, #6, #9, #11, #14, #16, my #2 zombie session, my #5 resolveModel) |
+| Invalidated / misread / self-fixed | 4 (#3, #6, #11, #25) |
+| Remaining | 12 (titan-analytics zombie, hardcoded /home/dj paths, ~10 routes 404, /api/health/deep threshold, mesh peer count, IRC TODO, etc.) |
+
+The remaining are mostly P2 cleanup. The big P0/P1 user-facing chat breaks are now fixed.
+
+---
+
 ## [5.5.29] — 2026-05-08
 
 ### Fixed — `sweepAtomicTmpOrphans` actually deletes orphans now (it didn't in v5.5.28)
