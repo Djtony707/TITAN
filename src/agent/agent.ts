@@ -1403,6 +1403,18 @@ export async function processMessage(
         }
     } catch { /* proceduralMemory not available — non-critical */ }
 
+    // v5.5.24: Persona profile appendix. Resolved here (early) so the
+    // system prompt carries the persona context AND so the tool filter
+    // pass below can use the same persona without re-resolving. When
+    // personas.enabled=false, resolveActivePersona returns null and this
+    // block is a no-op.
+    const { resolveActivePersona: __resolvePersona } = await import('./personaProfiles.js');
+    const earlyPersona = __resolvePersona({ channel });
+    if (earlyPersona?.systemPromptAppendix) {
+        enrichedSystemPrompt += earlyPersona.systemPromptAppendix;
+        logger.info(COMPONENT, `[Persona:${earlyPersona.id}] system prompt appendix injected`);
+    }
+
     const messages: ChatMessage[] = [
         { role: 'system', content: enrichedSystemPrompt },
         ...historyMessages,
@@ -1440,6 +1452,18 @@ export async function processMessage(
     modelUsed = activeModel;
 
     let activeTools = tools;
+
+    // v5.5.24: Persona-level tool filter. earlyPersona was already
+    // resolved when we built enrichedSystemPrompt above; reuse that
+    // resolution rather than calling the resolver twice per request.
+    if (earlyPersona) {
+        const { applyPersonaToolFilter } = await import('./personaProfiles.js');
+        const before = activeTools.length;
+        activeTools = applyPersonaToolFilter(activeTools, earlyPersona);
+        if (activeTools.length !== before) {
+            logger.info(COMPONENT, `[Persona:${earlyPersona.id}] tools ${before} → ${activeTools.length}`);
+        }
+    }
 
     // Small-model tool reduction — prevent tool hallucination on models <8B
     // Validated on Ryzen 7 5825U: llama3.2:3b hallucinates web_search on trivial questions

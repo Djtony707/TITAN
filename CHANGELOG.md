@@ -5,6 +5,46 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.24] — 2026-05-07
+
+### Added — Persona Profile infrastructure (Dad Mode plumbing, visionary feature #8)
+
+TITAN can now run as different personas based on time-of-day, channel, or explicit override. The active persona controls which tools the LLM sees, what system-prompt suffix is injected, and whether autonomous activity (autopilot) pauses for a wind-down window.
+
+This is the second visionary feature from `docs/VISIONARY-IDEAS-2026-05-07.md` — strategic moat pick. The plumbing also unblocks #5 Beat-Match Mode and #7 Stage Mode (both want a "this is who TITAN is right now" resolver). One feature, three downstream wins.
+
+### What ships
+
+- **`src/agent/personaProfiles.ts`** (~180 lines) — pure resolver. Priority order: `forceId` > channel pin > schedule window > default persona. Midnight-crossing schedules supported (e.g. 22:00 → 06:00).
+- **Config schema additions**: `personas.{enabled, defaultPersona, channelPins, profiles[]}`. Each profile has `id`, `name`, `voiceId`, `allowedTools[]`, `deniedTools[]`, `systemPromptAppendix`, `schedule?`, `windDown`, `description`. Defaults to two profiles: **Worker** (full toolkit, default) and **Dad** (family-safe 18:00–21:00, no shell/code/posting, autopilot paused).
+- **Tool filter wiring** in `src/agent/agent.ts` — `applyPersonaToolFilter` runs after tools are built, before LLM call. Persona's `deniedTools` always wins over `allowedTools`.
+- **System prompt suffix injection** — persona's `systemPromptAppendix` concatenated to `enrichedSystemPrompt` so the LLM knows what role it's playing.
+- **Wind-down gate in `src/agent/autopilot.ts`** — autopilot soft-exits when `isWindDownActive()` returns true, parallel to the existing kill-switch gate. Tony's family time = no autonomous goal grinding.
+- **Two new API endpoints**:
+  - `GET /api/personas` — full persona config (enabled, defaultPersona, channelPins, profiles)
+  - `GET /api/personas/active?channel=X` — currently-active persona with reason explainer ("time window 18:00–21:00", "channel pin: telegram → dad", "forced via forceId=stagehost", "default persona (worker)")
+- **24 vitest tests** covering: enabled gate, empty profiles, default fallback, forceId precedence, unknown forceId fallthrough, channel pin precedence, schedule windows, end-exclusive boundary, midnight-crossing schedule, missing-defaultPersona resilience, loadConfig error handling, tool filter contracts (denied wins, empty allowlist behavior, both `name` and `function.name` shapes), wind-down active/inactive, describe-resolution explainer.
+
+### Why this shape
+
+- **Pure resolver** — no I/O, no async, no config caching. One config read per call. Cheap enough to run on every request without a perf cost.
+- **Empty allowedTools = inherit, not restrict** — `allowedTools: []` means "no extra restriction beyond denials." A persona only narrows the tool set when its allowedTools list is non-empty. Avoids the "default config strips all tools" trap.
+- **Denial wins** — when a tool is in both `allowedTools` and `deniedTools` for the same persona, denial wins. Prevents accidental privilege escalation through config typos.
+- **Fail-open** — if loadConfig throws, the resolver returns null and TITAN behaves as it did before personas. The persona system can never make TITAN *less* available.
+
+### What's next for Dad Mode
+
+- **`bedtime_story` skill** — picks a 500-1000 word story from `~/.titan/stories/`, narrates via F5-TTS in dad's cloned voice. Requires the voice bridge to grow a batched-synthesis API first.
+- **Storyteller persona** — fourth default profile, uses bedtime_story exclusively, narrates in cloned voice.
+- **Telegram channel pin demo** — wire the family iPad's Telegram bot to force `dad` persona, pinning `bedtime_story` + `weather_kid` + `homework_reminder` + `silly_fact` tools only.
+- **Mission Control persona panel** — list profiles, show currently-active with reason, manual override toggle. Backend is done.
+
+### Suite
+
+255 files / 6586 pass / 2 skipped / 0 failing. Clean typecheck, clean build.
+
+---
+
 ## [5.5.23] — 2026-05-07
 
 ### Changed — Phase C continued: collapse 3 role registries → 1

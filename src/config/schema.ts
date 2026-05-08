@@ -1318,6 +1318,108 @@ export const TitanConfigSchema = z.object({
             gratitude: z.number().min(0).max(1).default(0.05),
         }).default({}),
     }).default({}),
+
+    /**
+     * Persona Profiles (v5.5.24+ — Dad Mode plumbing) — TITAN can run as
+     * different personas based on time-of-day, channel, or caller. The
+     * active persona controls which tools are exposed to the LLM, what
+     * system-prompt suffix is appended, and whether autonomous activity
+     * (autopilot, social posting, shell) is gated by a wind-down window.
+     *
+     * Same plumbing also unblocks the visionary Beat-Match Mode (#5) and
+     * Stage Mode (#7) which both want a "this is who TITAN is right now"
+     * resolver. Ships with two defaults: Worker (default, full toolkit)
+     * and Dad (family-safe, evening hours, no shell/code/posting).
+     *
+     * If `personas.enabled` is false, persona resolution is skipped
+     * entirely — TITAN behaves exactly as before.
+     */
+    personas: z.object({
+        enabled: z.boolean().default(false),
+        /**
+         * The persona that's active when no time-window or channel rule
+         * matches. Default 'worker' — full-toolkit baseline.
+         */
+        defaultPersona: z.string().default('worker'),
+        /**
+         * Per-channel persona pin. Messages arriving on these channels
+         * force the named persona regardless of time-of-day. Useful for:
+         * - Family iPad's Telegram bot → forced 'dad'
+         * - Stream chat IRC → forced 'stagehost'
+         * Channel names match the runtime channel string set by adapters
+         * (e.g. 'telegram', 'discord', 'slack').
+         */
+        channelPins: z.record(z.string(), z.string()).default({}),
+        /**
+         * Persona definitions. Each entry overlays on the security policy.
+         * - allowedTools=[] inherits security.allowedTools (no override).
+         * - allowedTools=['x','y'] restricts to JUST x and y on top of
+         *   whatever security already allowed (intersection).
+         * - schedule defines a daily local-time window when this persona
+         *   takes over from defaultPersona. Format: { from: 'HH:MM',
+         *   to: 'HH:MM' }. Crosses midnight is supported.
+         * - windDown=true gates all autopilot and outbound posting tools
+         *   while this persona is active.
+         */
+        profiles: z.array(z.object({
+            id: z.string(),
+            name: z.string(),
+            /** Voice clone ID for TTS-routed responses. Empty = inherit. */
+            voiceId: z.string().default(''),
+            /** Tools allowed under this persona (empty = no extra restriction). */
+            allowedTools: z.array(z.string()).default([]),
+            /** Tools explicitly denied (overrides allowedTools — denial wins). */
+            deniedTools: z.array(z.string()).default([]),
+            /** Concatenated to the agent system prompt while this persona is active. */
+            systemPromptAppendix: z.string().default(''),
+            /** Daily activation window. Optional — most personas activate by channel pin. */
+            schedule: z.object({
+                from: z.string().regex(/^\d{2}:\d{2}$/),
+                to: z.string().regex(/^\d{2}:\d{2}$/),
+            }).optional(),
+            /** When true, autopilot and outbound channels are paused while this persona is active. */
+            windDown: z.boolean().default(false),
+            /** Optional descriptive note for Mission Control. */
+            description: z.string().default(''),
+        })).default([
+            // Default: full-toolkit baseline. Empty allowedTools means
+            // inherit the security layer's policy unchanged.
+            {
+                id: 'worker',
+                name: 'Worker',
+                voiceId: '',
+                allowedTools: [],
+                deniedTools: [],
+                systemPromptAppendix: '',
+                windDown: false,
+                description: 'Default work-mode persona. Full toolkit, no time gating.',
+            },
+            // Dad Mode: family-safe evening hours. No shell, no code, no
+            // outbound posting. Wind-down halts autopilot. Persona-level
+            // appendix re-frames TITAN as "the dad's assistant who's off
+            // the clock for the rest of the night."
+            {
+                id: 'dad',
+                name: 'Dad',
+                voiceId: '',
+                allowedTools: [
+                    'memory', 'goal_list', 'system_info', 'weather',
+                    'ha_status', 'ha_control', 'ha_devices',
+                    'web_search', 'web_fetch',
+                ],
+                deniedTools: [
+                    'shell', 'write_file', 'edit_file', 'append_file',
+                    'spawn_agent', 'agent_team', 'agent_chain', 'agent_delegate',
+                    'fb_post', 'x_post', 'x_reply',
+                    'titan_self_modify', 'self_proposal_pr',
+                ],
+                systemPromptAppendix: '\n\n── PERSONA: DAD ──\nYou are off the clock for the rest of the night. Tony is with his family. Keep responses short, warm, and helpful — no work tasks, no autonomous actions, no shipping code. If asked about a family-relevant topic (weather, smart-home, a quick fact for a kid) handle it. If asked about work, gently say it can wait until morning.',
+                schedule: { from: '18:00', to: '21:00' },
+                windDown: true,
+                description: 'Evening family-safe persona. Dinner through bedtime — no shell, no code, no posting. Autopilot paused.',
+            },
+        ]),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;
