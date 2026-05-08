@@ -5,6 +5,50 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.31] — 2026-05-08
+
+### Fixed — Driver-state zombie reaper + audit P2 cleanup
+
+#### Driver-state zombies actually die now (audit my-#2)
+
+`cancelDriver(goalId)` previously **only flipped a `cancelRequested: true` flag** and saved the file back. Nothing in the system ever deleted the file. Result: the 2026-05-08 audit found `~/.titan/driver-state/mtime-cache-test.json` ticking continuously for 14h+ after the test that created it had finished, plus 5 driver-state files at 395+ hours old (16-17 days) from earlier sessions.
+
+Two fixes:
+
+- **New `deleteDriverState(goalId)`** — actually `rmSync()`s the state file. Returns true on success, false if not present. Idempotent.
+- **New `sweepStaleDriverStates(maxAgeMs = 24h)`** — walks the driver-state directory, parses each `*.json`, removes files whose `lastTickAt` is older than `maxAgeMs`. Skips corrupt/non-JSON files defensively (won't unlink something it couldn't parse).
+- **`resumeDriversAfterRestart()` now sweeps + actually-deletes:** runs `sweepStaleDriverStates()` first, then for each driver whose goal isn't active, calls `deleteDriverState()` instead of the flag-flip. Return shape extended with `sweptStale: number`.
+
+9 vitest tests in `tests/agent/driverStateSweep.test.ts` pin the contract — empty-dir baseline, threshold-respecting reap, 16-day-old zombies cleared, custom maxAgeMs honored, corrupt-file skip, non-JSON skip, idempotent delete, single-call returns true then false on the same id.
+
+#### IRC channel TODO comment (audit #20)
+
+The `// TODO: Install irc-framework` comment inside `src/channels/irc.ts`'s dynamic import made the channel look broken. It's not — `irc-framework` is an **optional dependency** (lazy import + try/catch). The adapter ships in TITAN's distribution, but the channel only attempts the import when `channels.irc.enabled = true` AND the user has run `npm install irc-framework` separately. Comment rewritten to make the optional-dep design explicit; module-level docstring expanded to spell out the install path.
+
+#### CLAUDE.md headline + skill counts (audit #18, #17)
+
+The "Current Live Status" header was 24 versions stale (`v5.5.6` shipped vs current `v5.5.31`). Replaced with current state + a recent-ships summary so future Claude Code sessions opening the file get accurate ground truth instead of historical snapshots.
+
+The "Skills 143 loaded / Tools 248" stats were also misleading — `src/skills/builtin/` actually has **83 source files**, each of which can register multiple tools. The runtime totals are still ~143 skills and ~248 tools, verified by `tests/unit/readme-claims.test.ts`. Quick-reference table now distinguishes file count from runtime count.
+
+### Suite
+
+258 files / 6627 pass / 2 skipped / 0 failing.
+
+### Audit progress
+
+| Status | Count |
+|---|---|
+| Fixed | 11 (incl. driver-state zombies, IRC comment, CLAUDE.md drift) |
+| Invalidated / misread / self-fixed | 4 |
+| Remaining | 10 (mostly P2 — titan-analytics zombie, hardcoded /home/dj paths, ~10 routes 404, /api/health/deep threshold, mesh peer count, kill-switch semantics, hormone-state.json orphan delete, log retention, dashboard.ts silent catches, brain.ts type escapes, fixture pollution refactor) |
+
+### Note on `~/.titan/hormone-state.json`
+
+This is a 29-byte orphan file from 2026-04-20 with no writers in current source. The fix is just `rm` it — but doing that on Tony's Titan PC requires explicit ack since it's a state file. **Recommendation:** delete via `ssh dj@192.168.1.11 'rm ~/.titan/hormone-state.json'` whenever Tony has 5 seconds to ack. Not blocking anything.
+
+---
+
 ## [5.5.30] — 2026-05-08
 
 ### Fixed — `resolveModel` graceful fallback + audit triage continuation

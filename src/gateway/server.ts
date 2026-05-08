@@ -3718,7 +3718,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     registerSomaVerifier();
     const { startDriverScheduler, resumeDriversAfterRestart } = await import('../agent/driverScheduler.js');
     const resumed = await resumeDriversAfterRestart();
-    logger.info(COMPONENT, `Goal Driver resume: ${resumed.resumed} drivers re-activated, ${resumed.cancelled} cancelled (goal no longer active)`);
+    logger.info(COMPONENT, `Goal Driver resume: ${resumed.resumed} re-activated, ${resumed.cancelled} cancelled (goal no longer active), ${resumed.sweptStale} stale (>24h since lastTick) reaped`);
     startDriverScheduler(10_000, 5); // 10s tick, max 5 concurrent drivers
   } catch (e) {
     logger.warn(COMPONENT, `Goal Driver scheduler bootstrap skipped: ${(e as Error).message}`);

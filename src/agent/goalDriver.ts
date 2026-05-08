@@ -1038,6 +1038,55 @@ export function cancelDriver(goalId: string): boolean {
     return true;
 }
 
+/**
+ * Permanently remove a driver state file. Used by `resumeDriversAfterRestart`
+ * to reap drivers whose goal no longer exists, and by the boot-time stale
+ * sweep to cull drivers that haven't ticked in a long time.
+ *
+ * v5.5.31+. Before this, `cancelDriver` only flipped a `cancelRequested`
+ * flag without deleting — meaning orphan driver files (e.g. tests pointing
+ * at deleted goals) accumulated forever and the scheduler could re-tick
+ * them. Audit 2026-05-08 found `mtime-cache-test.json` actively ticking
+ * for 14h+ after the test that created it had finished.
+ */
+export function deleteDriverState(goalId: string): boolean {
+    const path = statePath(goalId);
+    if (!existsSync(path)) return false;
+    try { rmSync(path, { force: true }); return true; }
+    catch (err) { logger.warn(COMPONENT, `deleteDriverState ${goalId}: ${(err as Error).message}`); return false; }
+}
+
+/**
+ * Sweep stale driver-state files. Returns count + ids of removed files.
+ * A driver is considered stale if its `lastTickAt` is older than `maxAgeMs`
+ * (default 24h). Called on gateway boot via `resumeDriversAfterRestart`.
+ *
+ * The audit found 5 driver-state files at 395+ hours old (16-17 days)
+ * that resumeDriversAfterRestart kept "cancelling" via the flag but never
+ * actually removing.
+ */
+export function sweepStaleDriverStates(maxAgeMs = 24 * 60 * 60 * 1000): { removed: number; ids: string[] } {
+    ensureStateDir();
+    const removed: string[] = [];
+    const cutoff = Date.now() - maxAgeMs;
+    try {
+        const entries = readdirSync(STATE_DIR);
+        for (const name of entries) {
+            if (!name.endsWith('.json')) continue;
+            const goalId = name.replace(/\.json$/, '');
+            const s = loadState(goalId);
+            if (!s) continue;
+            const lastTickMs = new Date(s.lastTickAt || s.startedAt).getTime();
+            if (Number.isFinite(lastTickMs) && lastTickMs < cutoff) {
+                if (deleteDriverState(goalId)) removed.push(goalId);
+            }
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `sweepStaleDriverStates: ${(err as Error).message}`);
+    }
+    return { removed: removed.length, ids: removed };
+}
+
 export function reprioritizeDriver(goalId: string, priority: 1 | 2 | 3 | 4 | 5): boolean {
     const s = loadState(goalId);
     if (!s) return false;

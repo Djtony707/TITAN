@@ -1,7 +1,18 @@
 /**
  * TITAN — IRC Channel Adapter
- * Connects to IRC servers and relays messages.
- * Requires an IRC client library (e.g. irc-framework).
+ *
+ * Connects to IRC servers and relays messages. **Optional dependency:**
+ * `irc-framework` is NOT a required dependency in package.json. The
+ * adapter ships in TITAN's distribution but the import is lazy and
+ * graceful — if the channel is enabled in config but `irc-framework`
+ * isn't installed, `connect()` logs an actionable error and returns
+ * without throwing. To enable IRC, run `npm install irc-framework` in
+ * the TITAN install directory and set `channels.irc.enabled = true`.
+ *
+ * v5.5.31 audit clarification: a "TODO: Install irc-framework" comment
+ * inside the dynamic import block previously made this look broken.
+ * It's not broken — it's optional-dep design. The comment is now
+ * accurate about the install path.
  */
 import { ChannelAdapter, type InboundMessage, type OutboundMessage, type ChannelStatus } from './base.js';
 import { loadConfig } from '../config/config.js';
@@ -31,8 +42,11 @@ export class IRCChannel extends ChannelAdapter {
         }
 
         try {
-            // TODO: Install irc-framework: npm install irc-framework
-            // @ts-expect-error — irc-framework is an optional dependency
+            // irc-framework is an optional dependency — install with
+            // `npm install irc-framework` to enable. The dynamic import
+            // throws ERR_MODULE_NOT_FOUND when not installed; we catch
+            // below and log the actionable install command.
+            // @ts-expect-error — irc-framework is an optional dependency, not in package.json
             const { Client } = await import('irc-framework');
             const [host, portStr] = token.split(':');
             const port = parseInt(portStr || '6667', 10);
