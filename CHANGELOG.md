@@ -5,6 +5,26 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.25] — 2026-05-07
+
+### Fixed — persona-profiles API route collision
+
+v5.5.24 mounted the persona-profile endpoints at `/api/personas` and `/api/personas/active`. First live verify on Titan PC revealed `/api/personas` was already taken by the skills router — it returns the **agency-agent** persona list (Accessibility Auditor, AI Engineer, API Designer, etc.) which is a separate concept from runtime persona profiles. Express matched the older route first; my new endpoint never hit.
+
+### What changed
+
+- Renamed the v5.5.24 endpoints:
+  - `GET /api/personas` → `GET /api/persona-profiles`
+  - `GET /api/personas/active` → `GET /api/persona-profiles/active`
+- The pre-existing `/api/personas` (agency-agents) is unchanged — backward compatible for any tooling that depended on it.
+- `/api/personas/active` worked in v5.5.24 because Express matches the more-specific path first, but renaming both for consistency.
+
+### Why a separate endpoint instead of merging
+
+The two concepts collide on the URL but not in shape: agency-agents are *templates* (id + name + description + division), persona-profiles are *runtime contexts* (allowedTools, schedule, windDown, voiceId). Merging would require operators to read two unrelated payloads to find their answer. Two endpoints, one concept each.
+
+---
+
 ## [5.5.24] — 2026-05-07
 
 ### Added — Persona Profile infrastructure (Dad Mode plumbing, visionary feature #8)
