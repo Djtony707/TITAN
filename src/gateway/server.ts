@@ -1377,12 +1377,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Persona Profiles API (v5.5.24) ────────────────────────────
-  // Two reads — list of all defined personas + the one currently active.
-  // No POST yet; persona definitions are config-managed (static across a
-  // gateway boot). When Mission Control needs an "override" UI, it'll
-  // POST a forceId here and we can persist it via the existing config
-  // mutation path.
-  app.get('/api/personas', async (_req, res) => {
+  // Note path is `/api/persona-profiles` not `/api/personas` —
+  // /api/personas already returns the agency-agent persona list (a
+  // separate concept from runtime persona profiles). Renamed to avoid
+  // route collision discovered on first deploy of v5.5.24.
+  app.get('/api/persona-profiles', async (_req, res) => {
     try {
       const cfg = loadConfig();
       const personas = cfg.personas;
@@ -1393,18 +1392,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         profiles: personas?.profiles ?? [],
       });
     } catch (e) {
-      logger.error(COMPONENT, `personas list: ${(e as Error).message}`);
+      logger.error(COMPONENT, `persona-profiles list: ${(e as Error).message}`);
       res.status(500).json({ error: 'personas unavailable' });
     }
   });
 
-  app.get('/api/personas/active', async (req, res) => {
+  app.get('/api/persona-profiles/active', async (req, res) => {
     try {
       const { describeActivePersona } = await import('../agent/personaProfiles.js');
       const channel = typeof req.query.channel === 'string' ? req.query.channel : undefined;
       res.json(describeActivePersona({ channel }));
     } catch (e) {
-      logger.error(COMPONENT, `personas active: ${(e as Error).message}`);
+      logger.error(COMPONENT, `persona-profiles active: ${(e as Error).message}`);
       res.status(500).json({ error: 'personas unavailable' });
     }
   });
