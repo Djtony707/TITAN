@@ -749,7 +749,8 @@ describe('Gateway Extended', () => {
             });
             expect(res.status).toBe(400);
             const body = await res.json() as any;
-            expect(body.error).toBe('content must be a non-empty string');
+            // v5.5.28: error string updated to mention {message} fallback shape
+            expect(body.error).toBe('content (or message) must be a non-empty string');
         });
 
         it('POST /api/message with content should route and respond', async () => {

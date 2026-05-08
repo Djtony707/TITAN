@@ -1336,7 +1336,15 @@ export async function processMessage(
         { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, widget: 'system:paperclip', name: 'Paperclip' },
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, widget: 'system:eval', name: 'Test Lab' },
     ];
-    const matchedWidget = systemWidgetPatterns.find(p => p.pattern.test(message));
+    // v5.5.28 FIX: same widget-intent gate as server.ts. A bare keyword like
+    // "models" used to inject a widget-emit instruction into the system
+    // prompt; that nudged the LLM toward emitting widget gates on normal
+    // questions about models/cron/mesh/etc. Now requires the user to
+    // explicitly mention a widget-noun.
+    const hasWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(message);
+    const matchedWidget = hasWidgetIntent
+        ? systemWidgetPatterns.find(p => p.pattern.test(message))
+        : null;
     if (matchedWidget && !taskEnforcementActive) {
         systemPrompt += `\n\nThe user is asking about ${matchedWidget.name}. You MUST call gallery_search for "${matchedWidget.widget}" FIRST to find the widget template, then call gallery_get to fetch it, and emit it through the _____widget gate as JSON with format "system":\n\n_____widget\n{ "name": "${matchedWidget.name}", "format": "system", "source": "${matchedWidget.widget}", "w": 6, "h": 6 }\n\nDo NOT just describe it — actually create the widget on the canvas.`;
         taskEnforcementActive = true;

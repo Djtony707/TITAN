@@ -607,10 +607,31 @@ export function startDreamCron(): void {
             try { await generateDream(); } catch (err) { logger.warn(COMPONENT, `cron dream: ${(err as Error).message}`); }
             scheduleNext();
         }, msUntil);
-        dreamTimer.unref?.();
+        // v5.5.28 FIX: removed dreamTimer.unref?.(). The gateway is a long-
+        // running service whose event loop is kept alive by the HTTP server
+        // anyway — unref-ing the cron timer was defensive cargo that gave
+        // no benefit and made it look (incorrectly) like the timer might be
+        // dropped during shutdown.
         logger.info(COMPONENT, `Next dream scheduled at ${target.toISOString()} (${Math.round(msUntil / 60_000)} min from now)`);
     }
     scheduleNext();
+
+    // v5.5.28 FIX: catch-up. If the gateway booted AFTER today's cron time
+    // and we don't have a dream for today on disk, fire one immediately so
+    // a restart at 04:00 doesn't silently skip today's entry. Idempotent —
+    // re-running on a date that already has a dream is fine (overwrites).
+    try {
+        const now = new Date();
+        const [hh, mm] = cronAt.split(':').map((p) => parseInt(p, 10));
+        const todayCronMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0).getTime();
+        const todayKey = now.toISOString().slice(0, 10);
+        if (now.getTime() > todayCronMs && !getDreamByDate(todayKey)) {
+            logger.info(COMPONENT, `Dream catch-up: gateway booted at ${now.toISOString()} after today's ${cronAt} cron — running now (no entry on disk for ${todayKey})`);
+            void generateDream().catch((err) => logger.warn(COMPONENT, `catch-up dream: ${(err as Error).message}`));
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `catch-up check failed: ${(err as Error).message}`);
+    }
 }
 
 export function stopDreamCron(): void {

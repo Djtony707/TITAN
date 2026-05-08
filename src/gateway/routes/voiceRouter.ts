@@ -120,7 +120,12 @@ export function createVoiceRouter(
       }
       results.tts = resp ? resp.status < 500 : false;
     } catch { results.tts = false; }
-    results.overall = results.tts;
+    // v5.5.28 FIX: `overall` previously aliased to `results.tts`, which
+    // returned `overall: true` even when LiveKit, STT, and the voice
+    // agent were all dead. End-to-end voice requires all four
+    // components — surface that honestly so dashboards / monitoring
+    // catch real outages.
+    results.overall = results.livekit && results.stt && results.tts && results.agent;
     res.json(results);
   });
 

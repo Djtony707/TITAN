@@ -5,6 +5,56 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.28] — 2026-05-08
+
+### Fixed — Triage release: 5 P0/P1 bugs from the 2026-05-08 audit
+
+Tony reported "a lot doesn't work correctly yet." A code+runtime audit (foreground live probe + background Plan agent, see `docs/AUDIT-2026-05-08.md`) surfaced 25 issues. This ship fixes the 5 most user-visible:
+
+#### #1 (P0) Widget shortcut regex hijacking normal chat
+
+**Symptom:** Asking "tell me about the models you support" returned the **Training Dashboard widget** with no LLM call. Saying "what cron jobs are running" returned the **Cron Scheduler widget**. Mentioning "memory" or "mesh" or "jobs" anywhere in a message hijacked it. The patterns matched single keywords (`\b(?:training|train|specialists?|models?)\b`) anywhere in the input. **This is the headline reason chat felt broken.**
+
+**Fix:** Both copies of the widget-shortcut block (`src/gateway/server.ts`'s pre-LLM bypass + `src/agent/agent.ts`'s system-prompt injection) now require **explicit widget intent** — the user must use a widget-noun (`widget`, `panel`, `dashboard`, `monitor`, `hub`, `tab`, `page`, `view`, `gallery`, `kitchen`, `scheduler`, `router`, `lab`, `tools`) for the shortcut to fire. "Open the cron widget" still works. "What cron jobs are running" now goes to the LLM as intended.
+
+#### #2/#13 (P1) Dream Mode silently skipped today's cycle
+
+**Symptom:** No `~/.titan/dreams/2026-05-08.md` despite the gateway running. Cron scheduled with `setTimeout` chained per day; combined with the gateway flapping (5 restarts in 7 hours), every restart past 03:30 missed today entirely. `dreamTimer.unref?.()` made the situation look like the timer might be GC'd, though the real bug was no catch-up logic.
+
+**Fix:** Removed the `.unref()` call (defensive cargo with no benefit on a long-running gateway). **Added catch-up:** on `startDreamCron()`, if we booted past today's cron time AND no dream exists for today on disk, generate one immediately. Idempotent — re-running on a populated date overwrites cleanly.
+
+#### #9 (P1) `/api/message` rejected `{message: ...}`
+
+**Symptom:** Community SDKs and older clients send `{message: "..."}`; TITAN only accepted `{content: "..."}`. Returns `400 content must be a non-empty string` with no clue.
+
+**Fix:** Endpoint now accepts either `content` (canonical) or `message` (legacy). Error string updated to `content (or message) must be a non-empty string` so future 400s are self-documenting.
+
+#### #14 (P1) Atomic-write tmp files leaking on crash
+
+**Symptom:** `~/.titan/` had **188MB of orphaned `.tmp.<ts>.<rand>` files** — `vectors.json.tmp.*` (×2, 135MB) and `test-history.json.tmp` (53MB). `atomicWriteFileSync` writes to a tmp path then renames; if the process is killed between those steps the tmp leaks forever. The 5-restart-in-7-hours pattern is precisely what produces this.
+
+**Fix:** `atomicWriteFileSync` now `try/catch`-cleans the tmp on rename failure. Added `sweepAtomicTmpOrphans(dir, maxAgeMs)` — fires on gateway boot, removes any `.tmp.<ts>.<rand>` files older than 1 hour from `TITAN_HOME`. First boot recovers the 188MB.
+
+#### #16 (P1) `/api/voice/health` says `overall:true` with everything dead
+
+**Symptom:** Endpoint returned `{livekit:false, stt:false, tts:true, agent:false, overall:true}`. The `overall` field aliased to `tts` only — voice could be 75% dead and still report "healthy."
+
+**Fix:** `overall` now requires all four critical components — `livekit && stt && tts && agent`. Dashboards / monitors that gate alerts on `overall:true` will catch real outages instead of suppressing them.
+
+### Audit findings deferred to future ships
+
+20 more issues in `docs/AUDIT-2026-05-08.md`, including: `titan-analytics` zombie on port 48430, `failed_trajectories.jsonl` polluted with `test-session-1` fixtures from tests writing into prod home, Soma `hormone-state.json` 18 days stale, `/api/health/deep` "ok" with 1/37 providers, ~10 routes 404 vs source/docs, hardcoded `/home/dj/...` paths in 3 source files, `kill-switch.json` armed since 2026-04-26 with unclear semantics, persona-cohorts smoke-test untested in production, CLAUDE.md headline 21 versions behind. These are tech debt + cosmetic, not user-facing chat breaks.
+
+### Suite
+
+256 files / 6610 pass / 2 skipped / 0 failing. One test (`gateway-extended.test.ts:752`) updated to match the new error string.
+
+### Why this ship matters
+
+If a user said "tell me about the models you support" before this ship, TITAN responded by adding a Training Dashboard widget to their canvas. That's the bug Tony was hitting and calling "broken." Fixed.
+
+---
+
 ## [5.5.27] — 2026-05-08
 
 ### Added — Persona A/B + Auto-Revert (visionary V2 #3)
