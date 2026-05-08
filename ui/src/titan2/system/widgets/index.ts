@@ -9,6 +9,8 @@ export { IntelligenceWorkflowsWidget } from './IntelligenceWorkflowsWidget';
 export { IntelligenceLearningWidget } from './IntelligenceLearningWidget';
 export { IntelligenceSelfImproveWidget } from './IntelligenceSelfImproveWidget';
 export { IntelligencePersonasWidget } from './IntelligencePersonasWidget';
+export { IntelligencePersonaProfilesWidget } from './IntelligencePersonaProfilesWidget';
+export { IntelligenceDreamWidget } from './IntelligenceDreamWidget';
 
 export { InfraHomelabWidget } from './InfraHomelabWidget';
 export { InfraGpuWidget } from './InfraGpuWidget';
