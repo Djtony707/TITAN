@@ -774,6 +774,20 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
 
+  // v5.5.28 FIX: sweep orphaned atomic-write tmp files. atomicWriteFileSync
+  // writes to .tmp.<ts>.<rand> then renames; if the process is killed
+  // between those steps the tmp file leaks. The 2026-05-08 audit found
+  // 188MB of these (vectors.json + test-history). Best-effort.
+  try {
+    const { sweepAtomicTmpOrphans } = await import('../utils/helpers.js');
+    const swept = sweepAtomicTmpOrphans(TITAN_HOME);
+    if (swept.removed > 0) {
+      logger.info(COMPONENT, `Swept ${swept.removed} orphaned tmp file(s) from ${TITAN_HOME} — recovered ${(swept.bytes / 1024 / 1024).toFixed(1)} MB`);
+    }
+  } catch (e) {
+    logger.warn(COMPONENT, `tmp sweep failed: ${(e as Error).message}`);
+  }
+
   // Persist this boot so we can detect restart loops across systemd-managed
   // restarts. See src/utils/restartTracker.ts for why a single process can't
   // see its own loop.
@@ -1629,22 +1643,36 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
-    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel, systemPromptAppendix } = req.body;
+    // v5.5.28 FIX: accept either {content} (canonical) or {message} (legacy
+    // shape used by community SDKs / older clients). Previously rejected
+    // {message} with 400. The body destructuring uses `content` internally
+    // either way.
+    const body = (req.body || {}) as Record<string, unknown>;
+    const content = (typeof body.content === 'string' && body.content) || (typeof body.message === 'string' && body.message) || '';
+    const { channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel, systemPromptAppendix } = body as { channel?: string; userId?: string; agentId?: string; sessionId?: string; model?: string; systemPromptAppendix?: string };
     // Default channel to 'webchat' for browser-based Mission Control clients.
     // This enables the interactive plan approval flow (show plan → user approves/denies).
     // Programmatic API callers can explicitly pass channel: 'api' to auto-approve plans.
     const channel = rawChannel || (req.headers.accept === 'text/event-stream' ? 'webchat' : 'api');
     if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'content must be a non-empty string' });
+      res.status(400).json({ error: 'content (or message) must be a non-empty string' });
       return;
     }
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
     // ═─ System Widget Shortcut ─═════════════════════════════════════
-    // Fast-path: if the user is asking for a known system widget, bypass
-    // the LLM entirely and emit the _____widget gate directly. This is
-    // reliable, instant, and avoids model tool-call unpredictability.
+    // Fast-path: if the user is **explicitly asking for a known widget**,
+    // bypass the LLM and emit the _____widget gate directly. This is fast
+    // and reliable for unambiguous requests like "open the cron widget" or
+    // "show me the VRAM dashboard."
+    //
+    // v5.5.28 FIX: previously matched on a single keyword (e.g. `\bmodels?\b`)
+    // which hijacked normal chat — "tell me about the models you support"
+    // returned a Training Dashboard widget instead of an LLM response. Now
+    // gated on **explicit widget intent**: the user must use a widget-noun
+    // ("widget", "panel", "dashboard", etc.) for the shortcut to fire.
+    const hasExplicitWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(content);
     const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
         { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
         { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
@@ -1659,7 +1687,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
     ];
-    const matchedShortcut = systemWidgetShortcuts.find(s => s.pattern.test(content));
+    const matchedShortcut = hasExplicitWidgetIntent
+        ? systemWidgetShortcuts.find(s => s.pattern.test(content))
+        : null;
     if (matchedShortcut) {
         const gateText = `_____widget\n{ "name": "${matchedShortcut.name}", "format": "system", "source": "${matchedShortcut.source}", "w": ${matchedShortcut.w}, "h": ${matchedShortcut.h} }`;
         const responseText = `Added the **${matchedShortcut.name}** widget to your canvas.`;

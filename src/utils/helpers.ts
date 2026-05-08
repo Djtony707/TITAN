@@ -35,8 +35,54 @@ export function writeJsonFile(filePath: string, data: unknown): void {
 export function atomicWriteFileSync(filePath: string, data: string | Buffer): void {
     ensureDir(dirname(filePath));
     const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-    writeFileSync(tmpPath, data, 'utf-8');
-    renameSync(tmpPath, filePath);
+    try {
+        writeFileSync(tmpPath, data, 'utf-8');
+        renameSync(tmpPath, filePath);
+    } catch (err) {
+        // v5.5.28 FIX: clean up the tmp file on failure. Previously, if the
+        // rename step crashed (or the process was killed between
+        // writeFileSync and renameSync), the .tmp.<ts>.<rand> file would
+        // be orphaned. Found 188MB of orphans on Titan PC during the
+        // 2026-05-08 audit (3 vectors.json + test-history tmp files).
+        try {
+            // unlink only — synchronous import to avoid circulars
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const fs = require('fs') as typeof import('fs');
+            if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch { /* best-effort cleanup */ }
+        throw err;
+    }
+}
+
+/**
+ * Sweep stale `.tmp.<ts>.<rand>` orphans from a directory. Files older than
+ * `maxAgeMs` are removed. Called at gateway boot to recover from crashes
+ * that happened between writeFileSync and renameSync. v5.5.28+.
+ */
+export function sweepAtomicTmpOrphans(dir: string, maxAgeMs = 60 * 60 * 1000): { removed: number; bytes: number } {
+    let removed = 0;
+    let bytes = 0;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fs = require('fs') as typeof import('fs');
+        if (!fs.existsSync(dir)) return { removed, bytes };
+        const entries = fs.readdirSync(dir);
+        const tmpRe = /\.tmp\.\d+\.[a-z0-9]+$/;
+        const cutoff = Date.now() - maxAgeMs;
+        for (const name of entries) {
+            if (!tmpRe.test(name)) continue;
+            const full = `${dir}/${name}`;
+            try {
+                const st = fs.statSync(full);
+                if (st.mtimeMs < cutoff) {
+                    bytes += st.size;
+                    fs.unlinkSync(full);
+                    removed += 1;
+                }
+            } catch { /* skip */ }
+        }
+    } catch { /* nothing to do */ }
+    return { removed, bytes };
 }
 
 /** Atomic JSON file write — uses atomicWriteFileSync internally */
