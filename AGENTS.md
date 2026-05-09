@@ -81,21 +81,25 @@ review stay on Claude.
 The TITAN Canvas (`/command` route) renders LLM-generated widgets as
 draggable grid items. Each widget runs in a sandboxed `iframe` with
 `sandbox="allow-scripts"`. The iframe loads React 18 UMD + ReactDOM 18 UMD
-+ Babel standalone from local `/` paths and renders the component via
-`render(<X/>)`.
+
+- Babel standalone from local `/` paths and renders the component via
+  `render(<X/>)`.
 
 **Server-side:**
+
 - Serves static files: `/react.development.js`, `/react-dom.development.js`,
   `/babel.min.js` (self-hosted)
 - CSP header includes `'unsafe-eval'` for `srcdoc` iframe compatibility
 - `POST /api/message` accepts `systemPromptAppendix` for per-turn context
 
 **Parent window (`TitanCanvas.tsx`):**
+
 - Renders `react-grid-layout` with system widgets and sandboxed widgets
 - `GridWidgetRaw` creates one `SandboxRuntime` per widget
 - Passes `(format, source)` to sandbox via `postMessage`
 
 **Iframe sandbox (`SandboxRuntime.ts`):**
+
 - Uses `srcdoc` (NOT blob URL) to inject HTML directly
 - CSP meta tag: `script-src 'self' 'unsafe-inline' 'unsafe-eval'`
 - `window.eval` disabled; `window.Function` wrapped to block dynamic imports
@@ -105,6 +109,7 @@ draggable grid items. Each widget runs in a sandboxed `iframe` with
 - Bidirectional postMessage protocol with numeric IDs
 
 **Widget gallery loader (`src/skills/builtin/widget_gallery.ts`):**
+
 - Loads `assets/widget-templates/**/*.json` at startup
 - Primary path: `dist/skills/builtin/../../../assets/widget-templates`
 - Fallback path: `process.cwd()/assets/widget-templates` (defensive for bundles)
@@ -118,15 +123,15 @@ draggable grid items. Each widget runs in a sandboxed `iframe` with
 
 File-location rules — keep these consistent or `agent-live claim-safe` will scream at you.
 
-| Test type | Location | Purpose | Speed |
-|---|---|---|---|
-| Pure-function unit | `tests/unit/*.test.ts` | Regex, classifiers, gate extraction, token math, secret scanner. Zero LLM calls, zero I/O. | < 1 ms each |
-| Mock LLM provider | `tests/__mocks__/MockOllamaProvider.ts` + `tests/__mocks__/*.test.ts` | Replay/record harness for tape fixtures. | < 1 ms each |
-| Tape fixtures | `tests/fixtures/tapes/<name>.json` | Recorded LLM responses for deterministic replay. Schema: `{ name, model, recorded_at, titan_version, exchanges: [{ request?, response }] }`. **Response side is what playback uses; request side is cosmetic for human reviewers.** | n/a |
-| Trajectory eval | `tests/eval/trajectory.test.ts` | Asserts `expectedToolSequence` end-to-end through `MockOllamaProvider`. Catches "called the wrong tool first" / "hallucinated extras" / "forgot a step". | < 250 ms / suite |
-| Cross-model parity | `tests/eval/parity.test.ts` | Replays the same scenario across multiple provider tapes; reports behavioural divergence (tool, args, finish reason, content presence). | < 1 s |
-| Live eval harness | `src/eval/harness.ts` (cases) → `/api/eval/run` (runner) | 11 suites of behavioural tests against the running agent. CI gate at 80 % per suite. | 5–15 min |
-| Auto-recorded tapes | `tests/fixtures/tapes/auto/*.json` (Phase 6) | Production traces that failed eval get recorded here for replay. 30-day retention by default. | n/a |
+| Test type           | Location                                                              | Purpose                                                                                                                                                                                                                             | Speed            |
+| ------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Pure-function unit  | `tests/unit/*.test.ts`                                                | Regex, classifiers, gate extraction, token math, secret scanner. Zero LLM calls, zero I/O.                                                                                                                                          | < 1 ms each      |
+| Mock LLM provider   | `tests/__mocks__/MockOllamaProvider.ts` + `tests/__mocks__/*.test.ts` | Replay/record harness for tape fixtures.                                                                                                                                                                                            | < 1 ms each      |
+| Tape fixtures       | `tests/fixtures/tapes/<name>.json`                                    | Recorded LLM responses for deterministic replay. Schema: `{ name, model, recorded_at, titan_version, exchanges: [{ request?, response }] }`. **Response side is what playback uses; request side is cosmetic for human reviewers.** | n/a              |
+| Trajectory eval     | `tests/eval/trajectory.test.ts`                                       | Asserts `expectedToolSequence` end-to-end through `MockOllamaProvider`. Catches "called the wrong tool first" / "hallucinated extras" / "forgot a step".                                                                            | < 250 ms / suite |
+| Cross-model parity  | `tests/eval/parity.test.ts`                                           | Replays the same scenario across multiple provider tapes; reports behavioural divergence (tool, args, finish reason, content presence).                                                                                             | < 1 s            |
+| Live eval harness   | `src/eval/harness.ts` (cases) → `/api/eval/run` (runner)              | 11 suites of behavioural tests against the running agent. CI gate at 80 % per suite.                                                                                                                                                | 5–15 min         |
+| Auto-recorded tapes | `tests/fixtures/tapes/auto/*.json` (Phase 6)                          | Production traces that failed eval get recorded here for replay. 30-day retention by default.                                                                                                                                       | n/a              |
 
 ### Naming
 
@@ -149,18 +154,19 @@ Push to `main` or open a PR triggers `.github/workflows/eval-gate.yml`. It boots
 
 ## Open Items / Known Gaps
 
-| Item | Severity | Notes |
-|---|---|---|
-| `titan.api.call` proxy bug in canvas widgets | medium | Stock Analyzer "Analyze" button returns "No response." Backend works via curl. Investigate after v5.0 ships. |
-| Pomodoro UI generation 90s+ hang | medium | Direct curl 33s. SSE timing suspected. Non-blocking. |
-| Vitest worker OOM on full suite | low | Tests pass individually; flake on full run. |
-| Mini PC cannot build Tailwind 4 | infrastructural | Always build `ui/dist/` on Mac or Titan PC, never Mini PC. |
+| Item                                         | Severity        | Notes                                                                                                        |
+| -------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `titan.api.call` proxy bug in canvas widgets | medium          | Stock Analyzer "Analyze" button returns "No response." Backend works via curl. Investigate after v5.0 ships. |
+| Pomodoro UI generation 90s+ hang             | medium          | Direct curl 33s. SSE timing suspected. Non-blocking.                                                         |
+| Vitest worker OOM on full suite              | low             | Tests pass individually; flake on full run.                                                                  |
+| Mini PC cannot build Tailwind 4              | infrastructural | Always build `ui/dist/` on Mac or Titan PC, never Mini PC.                                                   |
 
 ---
 
 ## v4.x Audit (preserved from prior session)
 
 Self-awareness modules **restored and wired** in v5.0:
+
 - identity + self-model inject into system prompt
 - experiments feed `goalProposer`
 - `workingMemory` tracks session state
@@ -179,6 +185,7 @@ caps at 4 KB with section-aware truncation. Override via `TITAN_PERSONA_CAP`
 env. Full content available via `get_persona` tool.
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **TITAN** (30602 symbols, 45667 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -202,12 +209,12 @@ This project is indexed by GitNexus as **TITAN** (30602 symbols, 45667 relations
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/TITAN/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/TITAN/clusters` | All functional areas |
-| `gitnexus://repo/TITAN/processes` | All execution flows |
-| `gitnexus://repo/TITAN/process/{name}` | Step-by-step execution trace |
+| Resource                               | Use for                                  |
+| -------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/TITAN/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/TITAN/clusters`       | All functional areas                     |
+| `gitnexus://repo/TITAN/processes`      | All execution flows                      |
+| `gitnexus://repo/TITAN/process/{name}` | Step-by-step execution trace             |
 
 ## Cross-Repo Groups
 
@@ -215,13 +222,13 @@ This repository is listed under GitNexus **group(s): titan-cross-machine** (see 
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
