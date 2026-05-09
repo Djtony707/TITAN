@@ -16,6 +16,17 @@
 - **workaround:** Use `npx vitest run --reporter=basic` or wait longer. For fast feedback, run `npx vitest run tests/unit/` (~8s).
 - **review_after:** 2026-05-10
 
+## Issue: npm test hang — RESOLVED
+
+- **type:** RESOLVED
+- **date:** 2026-05-09
+- **source:** Fix applied to package.json
+- **confidence:** high
+- **verified_by:** `npm test` now uses `--reporter=basic` which streams progress
+- **content:** The default vitest reporter buffers all output until completion. With a ~180s suite, this looks like a hang. Fixed by changing `"test": "vitest run"` to `"test": "vitest run --reporter=basic"`.
+- **workaround:** N/A — fixed.
+- **review_after:** N/A
+
 ## Issue: Version mismatch between package.json and README
 
 - **type:** BUG
