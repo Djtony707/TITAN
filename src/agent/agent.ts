@@ -20,7 +20,6 @@ import { heartbeat, clearSession, setStallHandler, setAutonomousMode } from './s
 import { routeModel } from './costOptimizer.js';
 import { getPlugins } from '../plugins/registry.js';
 import { runAfterTurn } from '../plugins/contextEngine.js';
-import { getSwarmRouterTools } from './swarm.js';
 import { shouldDeliberate, analyze, generatePlan, executePlan, handleApproval, getDeliberation, cancelDeliberation, formatPlanResults } from './deliberation.js';
 import type { ChatMessage } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
@@ -1337,7 +1336,15 @@ export async function processMessage(
         { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, widget: 'system:paperclip', name: 'Paperclip' },
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, widget: 'system:eval', name: 'Test Lab' },
     ];
-    const matchedWidget = systemWidgetPatterns.find(p => p.pattern.test(message));
+    // v5.5.28 FIX: same widget-intent gate as server.ts. A bare keyword like
+    // "models" used to inject a widget-emit instruction into the system
+    // prompt; that nudged the LLM toward emitting widget gates on normal
+    // questions about models/cron/mesh/etc. Now requires the user to
+    // explicitly mention a widget-noun.
+    const hasWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(message);
+    const matchedWidget = hasWidgetIntent
+        ? systemWidgetPatterns.find(p => p.pattern.test(message))
+        : null;
     if (matchedWidget && !taskEnforcementActive) {
         systemPrompt += `\n\nThe user is asking about ${matchedWidget.name}. You MUST call gallery_search for "${matchedWidget.widget}" FIRST to find the widget template, then call gallery_get to fetch it, and emit it through the _____widget gate as JSON with format "system":\n\n_____widget\n{ "name": "${matchedWidget.name}", "format": "system", "source": "${matchedWidget.widget}", "w": 6, "h": 6 }\n\nDo NOT just describe it — actually create the widget on the canvas.`;
         taskEnforcementActive = true;
@@ -1404,6 +1411,43 @@ export async function processMessage(
         }
     } catch { /* proceduralMemory not available — non-critical */ }
 
+    // v5.5.24: Persona profile appendix. Resolved here (early) so the
+    // system prompt carries the persona context AND so the tool filter
+    // pass below can use the same persona without re-resolving. When
+    // personas.enabled=false, resolveActivePersona returns null and this
+    // block is a no-op.
+    const { resolveActivePersona: __resolvePersona } = await import('./personaProfiles.js');
+    let earlyPersona = __resolvePersona({ channel });
+    // v5.5.27: Persona A/B cohort override. After the baseline resolver
+    // picks a persona, check for an active canary that uses it as
+    // baseline. If the (cohortId, sessionId) hash falls in the candidate
+    // bucket, swap to candidate and remember the cohort role for the
+    // post-response outcome record. Disabled when personas.rollout is off.
+    let __cohortAssignment: { cohortId: string; role: 'baseline' | 'candidate' } | null = null;
+    if (earlyPersona) {
+        try {
+            const { pickCohortAssignment } = await import('./personaRollout.js');
+            const assignment = pickCohortAssignment(earlyPersona.id, { sessionId: session.id, channel });
+            if (assignment) {
+                __cohortAssignment = { cohortId: assignment.cohortId, role: assignment.role };
+                if (assignment.role === 'candidate' && assignment.personaId !== earlyPersona.id) {
+                    const { resolveActivePersona } = await import('./personaProfiles.js');
+                    const candidate = resolveActivePersona({ forceId: assignment.personaId });
+                    if (candidate) {
+                        logger.info(COMPONENT, `[Cohort:${assignment.cohortId}] swap ${earlyPersona.id} → ${candidate.id}`);
+                        earlyPersona = candidate;
+                    }
+                }
+            }
+        } catch (err) {
+            logger.warn(COMPONENT, `cohort assignment skipped: ${(err as Error).message}`);
+        }
+    }
+    if (earlyPersona?.systemPromptAppendix) {
+        enrichedSystemPrompt += earlyPersona.systemPromptAppendix;
+        logger.info(COMPONENT, `[Persona:${earlyPersona.id}] system prompt appendix injected`);
+    }
+
     const messages: ChatMessage[] = [
         { role: 'system', content: enrichedSystemPrompt },
         ...historyMessages,
@@ -1440,20 +1484,25 @@ export async function processMessage(
     }
     modelUsed = activeModel;
 
-    // ── Swarm Interceptor: ──────────────────────────────────────
-    // If using kimi-k2.5, proxy the tools through Swarm Routers
-    // to prevent context collapse from the massive generic 23-tool schema.
-    const isKimiSwarm = activeModel.includes('kimi-k2.5');
-    let activeTools = isKimiSwarm ? getSwarmRouterTools() : tools;
-    if (isKimiSwarm) {
-        logger.info(COMPONENT, `[Swarm] Intercepted kimi-k2.5 payload. Downgrading context from ${tools.length} to ${activeTools.length} router agents.`);
+    let activeTools = tools;
+
+    // v5.5.24: Persona-level tool filter. earlyPersona was already
+    // resolved when we built enrichedSystemPrompt above; reuse that
+    // resolution rather than calling the resolver twice per request.
+    if (earlyPersona) {
+        const { applyPersonaToolFilter } = await import('./personaProfiles.js');
+        const before = activeTools.length;
+        activeTools = applyPersonaToolFilter(activeTools, earlyPersona);
+        if (activeTools.length !== before) {
+            logger.info(COMPONENT, `[Persona:${earlyPersona.id}] tools ${before} → ${activeTools.length}`);
+        }
     }
 
     // Small-model tool reduction — prevent tool hallucination on models <8B
     // Validated on Ryzen 7 5825U: llama3.2:3b hallucinates web_search on trivial questions
     const SMALL_MODEL_PATTERNS = ['llama3.2', 'llama3.1:8b', 'phi', 'gemma:2b', 'qwen3.5:4b', 'tinyllama', 'dolphin3'];
     const isSmallModel = SMALL_MODEL_PATTERNS.some(p => activeModel.toLowerCase().includes(p));
-    if (isSmallModel && !isKimiSwarm) {
+    if (isSmallModel) {
         // web_search removed: small models hallucinate tool calls for trivial questions
         const CORE_TOOL_NAMES = ['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory'];
         const coreTools = activeTools.filter(t => CORE_TOOL_NAMES.includes(t.function.name));
@@ -1462,7 +1511,7 @@ export async function processMessage(
     }
 
     // ── Brain: intelligent tool pre-filtering ──────────────────
-    if (!voiceFastPath && !isKimiSwarm && !isSmallModel && isBrainAvailable()) {
+    if (!voiceFastPath && !isSmallModel && isBrainAvailable()) {
         const brainFiltered = await brainSelectTools(message, activeTools);
         if (brainFiltered.length > 0 && brainFiltered.length < activeTools.length) {
             logger.info(COMPONENT, `[Brain] Filtered: ${activeTools.length} → ${brainFiltered.length} tools`);
@@ -1481,7 +1530,7 @@ export async function processMessage(
     const allToolsBackup = activeTools;
 
     // Always ensure pipeline tools are in the active set, even when toolSearch is disabled
-    if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12)) {
+    if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isSmallModel && activeTools.length > 12)) {
         const activeNames = new Set(activeTools.map(t => t.function.name));
         const missing = pipelineEnsureTools.filter(name => !activeNames.has(name));
         if (missing.length > 0) {
@@ -1493,7 +1542,7 @@ export async function processMessage(
         }
     }
 
-    if (toolSearchEnabled && !isKimiSwarm && !isSmallModel && activeTools.length > 12) {
+    if (toolSearchEnabled && !isSmallModel && activeTools.length > 12) {
         // Voice gets a minimal tool set for speed (fewer tool schemas = less prompt tokens)
         const VOICE_CORE_TOOLS = ['shell', 'web_search', 'weather', 'memory', 'ha_control', 'ha_devices', 'ha_status', 'ha_setup', 'tool_search'];
         // Use config coreTools only if non-empty; otherwise fall back to DEFAULT_CORE_TOOLS
@@ -1594,7 +1643,6 @@ export async function processMessage(
         reflectionEnabled,
         reflectionInterval,
         toolSearchEnabled,
-        isKimiSwarm,
         selfHealEnabled,
         smartExitEnabled: pipelineSmartExit,
         thinkingOverride: session.thinkingOverride,
@@ -1660,8 +1708,7 @@ export async function processMessage(
                 reflectionEnabled: false,
                 reflectionInterval: 99,
                 toolSearchEnabled,
-                isKimiSwarm,
-                selfHealEnabled: false,
+                        selfHealEnabled: false,
                 thinkingOverride: session.thinkingOverride,
             });
 
@@ -1756,6 +1803,32 @@ export async function processMessage(
 
     const durationMs = Date.now() - startTime;
     logger.info(COMPONENT, `Response generated in ${durationMs}ms (${totalPromptTokens + totalCompletionTokens} tokens)`);
+
+    // v5.5.27: Persona cohort outcome recording. The rollout monitor
+    // reads these events to compute per-arm pass-rate + Safety drive trend.
+    // Best-effort, fire-and-forget.
+    if (__cohortAssignment) {
+        void (async () => {
+            try {
+                const { recordOutcome } = await import('./personaRollout.js');
+                let safetySat: number | null = null;
+                try {
+                    const { loadDriveHistory } = await import('../organism/drives.js');
+                    const persisted = loadDriveHistory();
+                    const safety = persisted?.latest?.drives?.find(d => d.id === 'safety');
+                    safetySat = safety ? safety.satisfaction : null;
+                } catch { /* drives optional */ }
+                recordOutcome({
+                    cohortId: __cohortAssignment!.cohortId,
+                    role: __cohortAssignment!.role,
+                    sessionId: session.id,
+                    success: !budgetExhausted && finalContent.length > 0,
+                    latencyMs: durationMs,
+                    safetySat,
+                });
+            } catch { /* outcome recording is optional */ }
+        })();
+    }
 
     // ── Post-conversation learning: record insights from tool usage ───
     if (toolsUsed.length > 0) {

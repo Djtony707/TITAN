@@ -2,22 +2,26 @@
 
 > This file is read automatically by Claude Code. It contains everything needed to understand, build, test, and contribute to TITAN.
 
-## Current Live Status — 2026-05-07 — v5.5.6 SHIPPED
+## Current Live Status — 2026-05-08 — v5.5.31 SHIPPED
 
-- **Mac HEAD:** v5.5.6 + tests cleanup commits (`5619f1a`)
-- **Titan PC `/opt/TITAN`:** v5.5.6, systemd `titan.service` running clean (NRestarts=0 after fix)
+- **Mac HEAD:** v5.5.31
+- **Titan PC `/opt/TITAN`:** v5.5.31 running clean
 - **`origin/main`:** synced
-- **Tags pushed:** v5.5.4, v5.5.5, v5.5.6
-- **npm:** v5.5.6 published as `@next`. `@latest` still on v5.4.2 (24h soak, then promote)
-- **Test suite:** 250 files / 6602 passed / 2 documented-skipped / 0 failing / ~3:25 runtime
-- **Live errors since last clean restart:** 0
-- **Kimi 401 storm:** fixed (model swapped to `ollama/kimi-k2.6:cloud`, preset URL corrected)
-- **Self-repair sweep noise:** fixed (per-(kind, target) dedupeKey)
-- **fix-oscillation /tmp/ false positives:** fixed (TRANSIENT_FILE_PATTERNS skip-list)
-- **Gateway 5-min restart loop:** fixed (rewrote `~/.titan/health-check.sh` as passive monitor — was killing+nohup'ing systemd-managed process due to stale auth token)
+- **npm `@latest`:** v5.5.31
+- **Test suite:** 257 files / 6618 passed / 2 documented-skipped / 0 failing / ~3:25 runtime
 
-Latest handoff: `docs/HANDOFF-2026-05-07.md` (Hour 7 deliverable).
-Recent: `docs/HANDOFF-2026-05-03.md`, `docs/COO-MASTER-PLAN-2026-05-02.md`.
+### Recent ships in this session
+
+- **v5.5.7–v5.5.13:** Phase A/B stabilization (PostHog visibility, mtime caches, restart-rate alert, organism placeholders implemented)
+- **v5.5.14:** Phase C — `swarm.ts` deleted (Kimi-K2.5 dead path)
+- **v5.5.15–v5.5.16:** Phase D — Dependabot PR #67 fully drained (12 deps, 8 majors, all in 2 ships)
+- **v5.5.17–v5.5.22:** Visionary V1 #1 Dream Mode + 5 prompt-engineering iterations
+- **v5.5.23:** Phase C — `agent_handoff` role registry collapsed
+- **v5.5.24–v5.5.25:** Visionary V1 #8 Dad Mode (persona profile resolver) + route-collision fix
+- **v5.5.26:** Mission Control widgets for Dream + Persona Profiles + V2 visionary doc
+- **v5.5.27:** Visionary V2 #3 Persona A/B + Auto-Revert (Argo Rollouts for prompts)
+- **v5.5.28–v5.5.30:** 2026-05-08 audit triage — widget hijack fix (was returning Training Dashboard for "models" anywhere in chat), Dream cron catch-up, /api/message {message:} accepted, /api/voice/health correctness, atomic-tmp sweep (and the v5.5.28 → v5.5.29 fix where the sweep itself was a silent no-op due to ESM/require), resolveModel graceful 400
+- **v5.5.31:** Audit P2 cleanup — driver-state stale-sweep + actual-delete on cancel (was leaking 16-day-old zombies), CLAUDE.md headline refresh, IRC channel comment polish
 
 ### Standing rules (Tony, do not violate)
 
@@ -86,8 +90,9 @@ If the v5.0 commit isn't on Titan PC yet, rsync from Mac first (exclude `node_mo
 | Stat | Value |
 |------|-------|
 | Providers | 36 (4 native + 32 OpenAI-compatible) |
-| Skills | 143 loaded |
-| Tools | 248 across 143 loaded skills |
+| Skill files | 83 in `src/skills/builtin/` (each can register multiple tools) |
+| Skills loaded at runtime | ~143 (verified via `GET /api/skills`) |
+| Tools | ~248 across loaded skills (verified at runtime by `tests/unit/readme-claims.test.ts`) |
 | Channels | 16 (Discord, Telegram, Slack, WhatsApp, Matrix, IRC, Line, Zulip, etc.) |
 | Soma | Homeostatic drive layer (v4.0+, opt-in via `organism.enabled`) |
 | Tests | 5,840+ across 211 files (vitest) |
@@ -351,7 +356,7 @@ See `CHANGELOG.md` for full history. Key milestones:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **TITAN** (30180 symbols, 45534 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **TITAN** (30602 symbols, 45667 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

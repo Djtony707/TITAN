@@ -5,6 +5,649 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.5.31] — 2026-05-08
+
+### Fixed — Driver-state zombie reaper + audit P2 cleanup
+
+#### Driver-state zombies actually die now (audit my-#2)
+
+`cancelDriver(goalId)` previously **only flipped a `cancelRequested: true` flag** and saved the file back. Nothing in the system ever deleted the file. Result: the 2026-05-08 audit found `~/.titan/driver-state/mtime-cache-test.json` ticking continuously for 14h+ after the test that created it had finished, plus 5 driver-state files at 395+ hours old (16-17 days) from earlier sessions.
+
+Two fixes:
+
+- **New `deleteDriverState(goalId)`** — actually `rmSync()`s the state file. Returns true on success, false if not present. Idempotent.
+- **New `sweepStaleDriverStates(maxAgeMs = 24h)`** — walks the driver-state directory, parses each `*.json`, removes files whose `lastTickAt` is older than `maxAgeMs`. Skips corrupt/non-JSON files defensively (won't unlink something it couldn't parse).
+- **`resumeDriversAfterRestart()` now sweeps + actually-deletes:** runs `sweepStaleDriverStates()` first, then for each driver whose goal isn't active, calls `deleteDriverState()` instead of the flag-flip. Return shape extended with `sweptStale: number`.
+
+9 vitest tests in `tests/agent/driverStateSweep.test.ts` pin the contract — empty-dir baseline, threshold-respecting reap, 16-day-old zombies cleared, custom maxAgeMs honored, corrupt-file skip, non-JSON skip, idempotent delete, single-call returns true then false on the same id.
+
+#### IRC channel TODO comment (audit #20)
+
+The `// TODO: Install irc-framework` comment inside `src/channels/irc.ts`'s dynamic import made the channel look broken. It's not — `irc-framework` is an **optional dependency** (lazy import + try/catch). The adapter ships in TITAN's distribution, but the channel only attempts the import when `channels.irc.enabled = true` AND the user has run `npm install irc-framework` separately. Comment rewritten to make the optional-dep design explicit; module-level docstring expanded to spell out the install path.
+
+#### CLAUDE.md headline + skill counts (audit #18, #17)
+
+The "Current Live Status" header was 24 versions stale (`v5.5.6` shipped vs current `v5.5.31`). Replaced with current state + a recent-ships summary so future Claude Code sessions opening the file get accurate ground truth instead of historical snapshots.
+
+The "Skills 143 loaded / Tools 248" stats were also misleading — `src/skills/builtin/` actually has **83 source files**, each of which can register multiple tools. The runtime totals are still ~143 skills and ~248 tools, verified by `tests/unit/readme-claims.test.ts`. Quick-reference table now distinguishes file count from runtime count.
+
+### Suite
+
+258 files / 6627 pass / 2 skipped / 0 failing.
+
+### Audit progress
+
+| Status | Count |
+|---|---|
+| Fixed | 11 (incl. driver-state zombies, IRC comment, CLAUDE.md drift) |
+| Invalidated / misread / self-fixed | 4 |
+| Remaining | 10 (mostly P2 — titan-analytics zombie, hardcoded /home/dj paths, ~10 routes 404, /api/health/deep threshold, mesh peer count, kill-switch semantics, hormone-state.json orphan delete, log retention, dashboard.ts silent catches, brain.ts type escapes, fixture pollution refactor) |
+
+### Note on `~/.titan/hormone-state.json`
+
+This is a 29-byte orphan file from 2026-04-20 with no writers in current source. The fix is just `rm` it — but doing that on Tony's Titan PC requires explicit ack since it's a state file. **Recommendation:** delete via `ssh dj@192.168.1.11 'rm ~/.titan/hormone-state.json'` whenever Tony has 5 seconds to ack. Not blocking anything.
+
+---
+
+## [5.5.30] — 2026-05-08
+
+### Fixed — `resolveModel` graceful fallback + audit triage continuation
+
+Continuing the 2026-05-08 audit triage. Investigated 4 more findings; 3 were resolved or invalidated, 1 needed a real fix.
+
+#### Audit #3 (Gateway flapping) — INVALIDATED
+
+The audit's "5 restarts in 7 hours today" turned out to be **mostly my own deploys** during the v5.5.10–v5.5.29 ship cadence (each `systemctl restart titan` writes a Started/Stopped pair). The one real flap cluster — 5 boots in 42 seconds at 2026-05-07 23:21 PDT — was a historical event that's not currently active. The current `health-check.sh` (v2, rewritten 2026-05-07 morning) is genuinely passive: just curls `/api/login` + `/api/health` every 5min and logs OK/UNHEALTHY without killing anything. Live verify: gateway uptime growing steadily, restart severity `ok`, no SIGTERMs in titan.log since the v5.5.29 deploy. **Not a current bug — flagging as resolved-by-virtue-of-being-historical.**
+
+#### Audit #6 (Soma drives missing fields) — MISREAD
+
+The audit pointed at `~/.titan/soma-drive-state.json` (29 bytes, contains `{"hunger": 1778235370011}`) and concluded "only hunger drive populated, others missing." That's the **wrong file**: `soma-drive-state.json` is the per-drive **proposal-damping-timestamp cache** maintained by `src/organism/pressure.ts` (one entry = "this drive last fired a goal proposal at this timestamp, don't fire again for 2h"). The actual drive state lives in `~/.titan/drive-state.json` — 347KB, all 5 drives populated, ticking every 60s. Verified live: latest tick has `purpose: 0.95, hunger: 0.15, curiosity: 0.4, safety: 1.0, social: 0.95, totalPressure: 0.53, dominantDrives: ['hunger', 'curiosity']`. **Not a bug.**
+
+The genuinely-stale file the audit also flagged is `~/.titan/hormone-state.json` (29 bytes, last modified 2026-04-20). No source code writes to it — orphan from a code path that got refactored out. Hormones now stream live via `traceBus.emit('hormone:update', ...)` instead of persisting to disk. Safe to delete; tracked as future cleanup.
+
+#### Audit #11 (`POST /api/dreams/generate` empty body) — SELF-FIXED
+
+Reproduced live: returned 7292 bytes of valid JSON in ~30s. Most likely fixed earlier in the session by the v5.5.20+ Dream Mode prompt-engineering iterations (sanitizer + reasoning-token budget bump). **Not a bug now.**
+
+#### My audit #5 (`resolveModel` throws on unknown provider) — REAL, FIXED
+
+Live reproduced: `POST /api/message` with `{model: "definitely-fake-provider/model-x"}` returned `500` with a stack-trace dump from inside the agent loop **after** the prompt had been built. Wasted work; bad UX.
+
+**Fix:** Added `tryResolveModel()` (non-throwing variant) and `getKnownProviderNames()` to `src/providers/router.ts`. Wired early validation into `/api/message` — if the caller provides a `model` field, validate before the agent loop. Bad model now returns `400` with:
+- `error: 'unknown_model'`
+- A clear `message` naming the bad provider
+- `suggestions: ['groq/...', ...]` — naive prefix-overlap match for "did you mean"
+- `availableProviders: [...]` — full list
+
+Existing `resolveModel` keeps its throw semantics (internal callers depend on it). The graceful path is a separate `tryResolveModel` — opt-in for endpoints that prefer fail-fast validation.
+
+### Suite
+
+257 files / 6618 pass / 2 skipped / 0 failing.
+
+### Audit progress
+
+| Status | Count |
+|---|---|
+| Fixed | 9 (#1, #2/#13, #6, #9, #11, #14, #16, my #2 zombie session, my #5 resolveModel) |
+| Invalidated / misread / self-fixed | 4 (#3, #6, #11, #25) |
+| Remaining | 12 (titan-analytics zombie, hardcoded /home/dj paths, ~10 routes 404, /api/health/deep threshold, mesh peer count, IRC TODO, etc.) |
+
+The remaining are mostly P2 cleanup. The big P0/P1 user-facing chat breaks are now fixed.
+
+---
+
+## [5.5.29] — 2026-05-08
+
+### Fixed — `sweepAtomicTmpOrphans` actually deletes orphans now (it didn't in v5.5.28)
+
+The v5.5.28 boot-time tmp-file sweep was a **silent no-op**. Live verification on Titan PC right after deploy showed the same 188MB of orphans (`vectors.json.tmp.*` ×2 + `test-history.json.tmp`) still on disk, with **no log output** from the sweep code.
+
+Root cause: I wrote `const fs = require('fs')` inside an ESM module. Node throws `ReferenceError: require is not defined in ES module scope` — which the surrounding `try/catch` swallowed, returning `{removed: 0, bytes: 0}` every time. Classic fail-silent: the function "ran" but did nothing.
+
+**Fix:** Replaced both runtime-import calls with the module-level `import { ... } from 'fs'` that helpers.ts already had. Also extended the regex from `\.tmp\.\d+\.[a-z0-9]+$` to `\.tmp(?:\.\d+\.[a-z0-9]+)?$` so it also matches the bare `.tmp` convention (which is what `test-history.json.tmp` uses — a separate code path with the older naming).
+
+**8 new vitest tests** in `tests/utils/sweepAtomicTmpOrphans.test.ts` pin the contract:
+- Empty / missing directory baseline
+- Removes `.tmp.<ts>.<rand>` older than maxAgeMs
+- Removes bare `.tmp`
+- Skips real (non-tmp) files
+- Skips fresh tmps
+- Skips directories named like tmp files (won't unlink a dir)
+- Reproduces the v5.5.28 → v5.5.29 fix scenario (3 orphans matching what was found on prod, all removed, no real data lost)
+
+These tests use the real filesystem under a `mkdtempSync` directory — so a future "let me lazily import fs to avoid circulars" attempt will fail the suite immediately rather than silently returning 0.
+
+### Why this happened
+
+The lesson, again: a `try/catch` around a block that's "expected to maybe fail" hides the broken-from-day-one case. The sweep code looked plausible in review — the `eslint-disable` comment + `require('fs') as typeof import('fs')` cast hid that this was an ESM file where `require` simply doesn't exist. Tests would have caught it. I shipped without them.
+
+This is a cousin of the Dream Mode prompt-engineering issue — you can't tell from the code alone whether it works; you need to run it. v5.5.28 fixed 5 audit bugs, this one fix actually delivers fix #5 (tmp sweep) end-to-end.
+
+### Suite
+
+257 files / 6618 pass / 2 skipped / 0 failing.
+
+---
+
+## [5.5.28] — 2026-05-08
+
+### Fixed — Triage release: 5 P0/P1 bugs from the 2026-05-08 audit
+
+Tony reported "a lot doesn't work correctly yet." A code+runtime audit (foreground live probe + background Plan agent, see `docs/AUDIT-2026-05-08.md`) surfaced 25 issues. This ship fixes the 5 most user-visible:
+
+#### #1 (P0) Widget shortcut regex hijacking normal chat
+
+**Symptom:** Asking "tell me about the models you support" returned the **Training Dashboard widget** with no LLM call. Saying "what cron jobs are running" returned the **Cron Scheduler widget**. Mentioning "memory" or "mesh" or "jobs" anywhere in a message hijacked it. The patterns matched single keywords (`\b(?:training|train|specialists?|models?)\b`) anywhere in the input. **This is the headline reason chat felt broken.**
+
+**Fix:** Both copies of the widget-shortcut block (`src/gateway/server.ts`'s pre-LLM bypass + `src/agent/agent.ts`'s system-prompt injection) now require **explicit widget intent** — the user must use a widget-noun (`widget`, `panel`, `dashboard`, `monitor`, `hub`, `tab`, `page`, `view`, `gallery`, `kitchen`, `scheduler`, `router`, `lab`, `tools`) for the shortcut to fire. "Open the cron widget" still works. "What cron jobs are running" now goes to the LLM as intended.
+
+#### #2/#13 (P1) Dream Mode silently skipped today's cycle
+
+**Symptom:** No `~/.titan/dreams/2026-05-08.md` despite the gateway running. Cron scheduled with `setTimeout` chained per day; combined with the gateway flapping (5 restarts in 7 hours), every restart past 03:30 missed today entirely. `dreamTimer.unref?.()` made the situation look like the timer might be GC'd, though the real bug was no catch-up logic.
+
+**Fix:** Removed the `.unref()` call (defensive cargo with no benefit on a long-running gateway). **Added catch-up:** on `startDreamCron()`, if we booted past today's cron time AND no dream exists for today on disk, generate one immediately. Idempotent — re-running on a populated date overwrites cleanly.
+
+#### #9 (P1) `/api/message` rejected `{message: ...}`
+
+**Symptom:** Community SDKs and older clients send `{message: "..."}`; TITAN only accepted `{content: "..."}`. Returns `400 content must be a non-empty string` with no clue.
+
+**Fix:** Endpoint now accepts either `content` (canonical) or `message` (legacy). Error string updated to `content (or message) must be a non-empty string` so future 400s are self-documenting.
+
+#### #14 (P1) Atomic-write tmp files leaking on crash
+
+**Symptom:** `~/.titan/` had **188MB of orphaned `.tmp.<ts>.<rand>` files** — `vectors.json.tmp.*` (×2, 135MB) and `test-history.json.tmp` (53MB). `atomicWriteFileSync` writes to a tmp path then renames; if the process is killed between those steps the tmp leaks forever. The 5-restart-in-7-hours pattern is precisely what produces this.
+
+**Fix:** `atomicWriteFileSync` now `try/catch`-cleans the tmp on rename failure. Added `sweepAtomicTmpOrphans(dir, maxAgeMs)` — fires on gateway boot, removes any `.tmp.<ts>.<rand>` files older than 1 hour from `TITAN_HOME`. First boot recovers the 188MB.
+
+#### #16 (P1) `/api/voice/health` says `overall:true` with everything dead
+
+**Symptom:** Endpoint returned `{livekit:false, stt:false, tts:true, agent:false, overall:true}`. The `overall` field aliased to `tts` only — voice could be 75% dead and still report "healthy."
+
+**Fix:** `overall` now requires all four critical components — `livekit && stt && tts && agent`. Dashboards / monitors that gate alerts on `overall:true` will catch real outages instead of suppressing them.
+
+### Audit findings deferred to future ships
+
+20 more issues in `docs/AUDIT-2026-05-08.md`, including: `titan-analytics` zombie on port 48430, `failed_trajectories.jsonl` polluted with `test-session-1` fixtures from tests writing into prod home, Soma `hormone-state.json` 18 days stale, `/api/health/deep` "ok" with 1/37 providers, ~10 routes 404 vs source/docs, hardcoded `/home/dj/...` paths in 3 source files, `kill-switch.json` armed since 2026-04-26 with unclear semantics, persona-cohorts smoke-test untested in production, CLAUDE.md headline 21 versions behind. These are tech debt + cosmetic, not user-facing chat breaks.
+
+### Suite
+
+256 files / 6610 pass / 2 skipped / 0 failing. One test (`gateway-extended.test.ts:752`) updated to match the new error string.
+
+### Why this ship matters
+
+If a user said "tell me about the models you support" before this ship, TITAN responded by adding a Training Dashboard widget to their canvas. That's the bug Tony was hitting and calling "broken." Fixed.
+
+---
+
+## [5.5.27] — 2026-05-08
+
+### Added — Persona A/B + Auto-Revert (visionary V2 #3)
+
+**Argo Rollouts for prompts.** Operators canary a candidate persona against a baseline persona on a percentage of traffic, with deterministic per-session hash assignment, rolling-window outcome tracking, and **automatic revert when the candidate cohort regresses on pass-rate or Safety drive.** This is the V2 visionary doc's clearest "$100K/yr enterprise line-item" pick — it directly extends the persona resolver shipped v5.5.24 and turns the Phase E eval framework from table-stakes into a moat.
+
+### What ships
+
+- **`src/agent/personaRollout.ts`** (~370 lines) — pure persistence + assignment + evaluation + revert logic.
+  - `createCohort({baselineId, candidateId, percent, hashKey, note})` — persists to `~/.titan/persona-cohorts.json`. Validates baseline ≠ candidate and 0 ≤ percent ≤ 100.
+  - `pickCohortAssignment(personaId, {sessionId, channel})` — deterministic SHA256-based bucket. Same session always lands in same arm. Returns null when rollout disabled or cohort reverted.
+  - `recordOutcome({cohortId, role, success, latencyMs, safetySat})` — appends to `~/.titan/persona-cohort-events.jsonl`.
+  - `evaluateCohort(cohort, opts)` — splits events by role over rolling window (default 30min), computes pass-rate + avg Safety per arm. **Cold-start guard:** never recommends revert when either arm has < `minSampleSize` (default 10) samples.
+  - `revertCohort(id, reason, source)` — flips percent to 0, stamps `revertedAt`/`revertReason`, fires alert at `warning` severity for auto-reverts (info for manual).
+- **Config schema:** `personas.rollout.{enabled, monitorIntervalMins, minSampleSize, passRateMargin, safetyDropThreshold, windowMins}` — defaults are conservative (5%-margin, 0.2-safety-drop, 30-min window, 10-sample minimum).
+- **Wired into `src/agent/agent.ts`:**
+  - **Cohort assignment** runs after the baseline persona resolver. If a cohort is active for the resolved persona and the (cohortId, sessionId) hash falls below the candidate percent, persona is swapped to candidate. Cohort role is captured for the post-response outcome record.
+  - **Outcome recording** fires once per `processMessage` on the post-response path — captures `success` (no budget exhaustion + non-empty content), `latencyMs`, and **the Safety drive satisfaction at response time** (read from drives' ring buffer). Best-effort, fire-and-forget.
+- **Monitor cron** (`startRolloutMonitor`) — re-evaluates every active cohort every `monitorIntervalMins` (default 5). Auto-reverts cohorts that cross threshold. Fires once at boot so a freshly-rebooted gateway picks up anything that should already revert.
+- **Five new API endpoints:**
+  - `GET /api/persona-cohorts` — list all cohorts (active + reverted)
+  - `POST /api/persona-cohorts` — create a cohort (`{baselineId, candidateId, percent, hashKey?, note?}`)
+  - `DELETE /api/persona-cohorts/:id` — remove a cohort entirely
+  - `POST /api/persona-cohorts/:id/revert` — manual revert (kill switch)
+  - `GET /api/persona-cohorts/:id/health` — per-arm pass-rate + latency + safety + revert recommendation
+  - `GET /api/persona-cohorts/health` — same shape, all cohorts
+- **24 vitest tests** pinning every contract — hash determinism, bucket distribution (10k samples, decile uniformity), reversion on pass-rate margin, reversion on Safety drop, cold-start guard, rolling-window cutoff, idempotent revert, fail-open when disabled.
+
+### Engineer-credible math
+
+- **Bad-prompt blast radius:** 10% × 30min instead of 100% × N days. Concrete: a candidate with -10pp pass-rate at 50% rollout reverts in ≤ `monitorIntervalMins`+ time-to-min-sample-size.
+- **MTTR from a regression:** sub-30-min automatic vs. 2-5 days manual.
+- **Determinism:** SHA256-based bucketing means a given (cohort, sessionId) pair always lands in the same arm — no flapping mid-session, no need for sticky cookies.
+
+### Why this matters strategically
+
+This is the V2 doc's lock-criterion winner: *"would Replit pay $100K/yr for this?"* — yes, because bad-prompt regressions on enterprise customer traffic cost real revenue, and the auto-revert + audit trail solves a problem their on-call team currently manages with Slack threads and dread. Mastra/Vercel/Anthropic SDK can't ship this without first building a homeostatic substrate (Soma drives) — they have no signal to auto-revert against.
+
+### How to use
+
+```json
+// ~/.titan/titan.json
+{
+  "personas": {
+    "enabled": true,
+    "rollout": { "enabled": true }
+  }
+}
+```
+
+Then:
+```bash
+TOKEN=$(curl -X POST http://localhost:48420/api/login -d '{"password":"titan2026"}' | jq -r .token)
+
+# Roll out the new persona to 10% of traffic
+curl -X POST http://localhost:48420/api/persona-cohorts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"baselineId":"worker","candidateId":"worker_v2","percent":10,"note":"new system prompt"}'
+
+# Watch health every 30 seconds
+watch -n 30 "curl -sH 'Authorization: Bearer $TOKEN' http://localhost:48420/api/persona-cohorts/health | jq '.cohorts[].health'"
+```
+
+If the candidate regresses, the next monitor tick auto-reverts and fires a `warning`-severity alert through the existing alerts pipeline.
+
+### Suite
+
+256 files / 6610 pass / 2 skipped / 0 failing.
+
+---
+
+## [5.5.26] — 2026-05-07
+
+### Added — Mission Control widgets for Dream Mode + Persona Profiles
+
+The two backends shipped earlier this session (Dream Mode v5.5.17–v5.5.22, Persona Profiles v5.5.24–v5.5.25) lacked UI surfaces. v5.5.26 ships both:
+
+- **`PersonaProfilesPanel`** at canvas widget `system:intelligence-persona-profiles`. Shows enabled banner with config snippet to opt in (or active-persona summary with reason if enabled), channel pins, and a card per profile (id, name, schedule, windDown badge, voiceId badge, allowedTools/deniedTools chips, active-now highlight).
+- **`DreamPanel`** at canvas widget `system:intelligence-dream`. Two-pane layout: history list of dates on the left, selected dream's content on the right. Header strip shows date + model + activity stats. Section badges show emitted vs skipped (with skip reason on hover). Drive deltas as 5-cell grid with start→end and direction arrow. Markdown body parsed via H2 splitting (lightweight — no extra deps). "Generate now" button fires `POST /api/dreams/generate` for force-runs without waiting for the 03:30 cron.
+
+Both widgets registered in `TitanCanvas.tsx` `SYSTEM_COMPONENTS` map. Both lazy-loaded via React Suspense, mirroring the existing OrganismWidget pattern.
+
+### Added — `docs/VISIONARY-IDEAS-V2-2026-05-07.md`
+
+Tony reviewed the original visionary doc (`VISIONARY-IDEAS-2026-05-07.md`) and judged it weak — too biographical, demo-shaped, optimized for viral clips rather than engineer-credible problems. Spawned a fresh Plan agent with sharper criteria: solve real problems competitors don't even know are gaps, tie to TITAN's structural assets (mesh, drives, persona resolver, VRAM orchestrator), put numbers on the win, and pass the lock criterion ("would Replit pay $100k/year for this?").
+
+Result: 7 features, all of them install-driver-shaped for senior engineers at AI-infra startups:
+
+1. **Drive-Aware Model Router** — router consults Soma drives as a routing input. +12-18% pass-rate under degraded conditions.
+2. **Trajectory Replay Test Harness** — `titan replay <id>` reconstructs production turns as deterministic test fixtures. Pin-to-vitest in one click.
+3. **Persona A/B + Auto-Revert** — canary persona changes against drive health, auto-revert in <30min on regression. **Argo Rollouts for prompts.**
+4. **Mesh-Aware VRAM Lease Market** — borrow VRAM from a peer for the duration of a tool call. **Ray for the rest of us.**
+5. **Drive-Indexed Failure Forensics** — embed drive-state-at-failure as a vector, surface 3 nearest historical failures. APM for agents.
+6. **Federated Failure Patterns (opt-in)** — anonymized embedding upload, see how 14 sibling installs hit the same drive-shape failure 36h ago. Sentry-shaped network effect.
+7. **Stateful Fork & 3-Way Merge** — git for agents. Snapshot full state, fork to a port, run an experiment, merge back.
+
+V2 doc top picks: **#3 Persona A/B + Auto-Revert** (clearest "$100K/yr line-item" pitch, leverages just-shipped persona resolver + on-roadmap evals into a moat) and **#4 Mesh-Aware VRAM Lease Market** (most unique structural claim, every substrate piece already shipping). Honorable mention: #5 forensics is the lowest-cost ship and pairs with #6 to become a Sentry-shaped business.
+
+The original V1 doc is kept as historical context; V2 is now the active reference for visionary work.
+
+---
+
+## [5.5.25] — 2026-05-07
+
+### Fixed — persona-profiles API route collision
+
+v5.5.24 mounted the persona-profile endpoints at `/api/personas` and `/api/personas/active`. First live verify on Titan PC revealed `/api/personas` was already taken by the skills router — it returns the **agency-agent** persona list (Accessibility Auditor, AI Engineer, API Designer, etc.) which is a separate concept from runtime persona profiles. Express matched the older route first; my new endpoint never hit.
+
+### What changed
+
+- Renamed the v5.5.24 endpoints:
+  - `GET /api/personas` → `GET /api/persona-profiles`
+  - `GET /api/personas/active` → `GET /api/persona-profiles/active`
+- The pre-existing `/api/personas` (agency-agents) is unchanged — backward compatible for any tooling that depended on it.
+- `/api/personas/active` worked in v5.5.24 because Express matches the more-specific path first, but renaming both for consistency.
+
+### Why a separate endpoint instead of merging
+
+The two concepts collide on the URL but not in shape: agency-agents are *templates* (id + name + description + division), persona-profiles are *runtime contexts* (allowedTools, schedule, windDown, voiceId). Merging would require operators to read two unrelated payloads to find their answer. Two endpoints, one concept each.
+
+---
+
+## [5.5.24] — 2026-05-07
+
+### Added — Persona Profile infrastructure (Dad Mode plumbing, visionary feature #8)
+
+TITAN can now run as different personas based on time-of-day, channel, or explicit override. The active persona controls which tools the LLM sees, what system-prompt suffix is injected, and whether autonomous activity (autopilot) pauses for a wind-down window.
+
+This is the second visionary feature from `docs/VISIONARY-IDEAS-2026-05-07.md` — strategic moat pick. The plumbing also unblocks #5 Beat-Match Mode and #7 Stage Mode (both want a "this is who TITAN is right now" resolver). One feature, three downstream wins.
+
+### What ships
+
+- **`src/agent/personaProfiles.ts`** (~180 lines) — pure resolver. Priority order: `forceId` > channel pin > schedule window > default persona. Midnight-crossing schedules supported (e.g. 22:00 → 06:00).
+- **Config schema additions**: `personas.{enabled, defaultPersona, channelPins, profiles[]}`. Each profile has `id`, `name`, `voiceId`, `allowedTools[]`, `deniedTools[]`, `systemPromptAppendix`, `schedule?`, `windDown`, `description`. Defaults to two profiles: **Worker** (full toolkit, default) and **Dad** (family-safe 18:00–21:00, no shell/code/posting, autopilot paused).
+- **Tool filter wiring** in `src/agent/agent.ts` — `applyPersonaToolFilter` runs after tools are built, before LLM call. Persona's `deniedTools` always wins over `allowedTools`.
+- **System prompt suffix injection** — persona's `systemPromptAppendix` concatenated to `enrichedSystemPrompt` so the LLM knows what role it's playing.
+- **Wind-down gate in `src/agent/autopilot.ts`** — autopilot soft-exits when `isWindDownActive()` returns true, parallel to the existing kill-switch gate. Tony's family time = no autonomous goal grinding.
+- **Two new API endpoints**:
+  - `GET /api/personas` — full persona config (enabled, defaultPersona, channelPins, profiles)
+  - `GET /api/personas/active?channel=X` — currently-active persona with reason explainer ("time window 18:00–21:00", "channel pin: telegram → dad", "forced via forceId=stagehost", "default persona (worker)")
+- **24 vitest tests** covering: enabled gate, empty profiles, default fallback, forceId precedence, unknown forceId fallthrough, channel pin precedence, schedule windows, end-exclusive boundary, midnight-crossing schedule, missing-defaultPersona resilience, loadConfig error handling, tool filter contracts (denied wins, empty allowlist behavior, both `name` and `function.name` shapes), wind-down active/inactive, describe-resolution explainer.
+
+### Why this shape
+
+- **Pure resolver** — no I/O, no async, no config caching. One config read per call. Cheap enough to run on every request without a perf cost.
+- **Empty allowedTools = inherit, not restrict** — `allowedTools: []` means "no extra restriction beyond denials." A persona only narrows the tool set when its allowedTools list is non-empty. Avoids the "default config strips all tools" trap.
+- **Denial wins** — when a tool is in both `allowedTools` and `deniedTools` for the same persona, denial wins. Prevents accidental privilege escalation through config typos.
+- **Fail-open** — if loadConfig throws, the resolver returns null and TITAN behaves as it did before personas. The persona system can never make TITAN *less* available.
+
+### What's next for Dad Mode
+
+- **`bedtime_story` skill** — picks a 500-1000 word story from `~/.titan/stories/`, narrates via F5-TTS in dad's cloned voice. Requires the voice bridge to grow a batched-synthesis API first.
+- **Storyteller persona** — fourth default profile, uses bedtime_story exclusively, narrates in cloned voice.
+- **Telegram channel pin demo** — wire the family iPad's Telegram bot to force `dad` persona, pinning `bedtime_story` + `weather_kid` + `homework_reminder` + `silly_fact` tools only.
+- **Mission Control persona panel** — list profiles, show currently-active with reason, manual override toggle. Backend is done.
+
+### Suite
+
+255 files / 6586 pass / 2 skipped / 0 failing. Clean typecheck, clean build.
+
+---
+
+## [5.5.23] — 2026-05-07
+
+### Changed — Phase C continued: collapse 3 role registries → 1
+
+`src/skills/builtin/agent_handoff.ts` (which exposes the `agent_delegate`, `agent_team`, and `agent_chain` tools to the LLM) maintained its own `ROLE_MAP` with `template + systemPrompt + tier` for 8 roles. This shadowed `SUB_AGENT_TEMPLATES` in `subAgent.ts` — for 7 of the 8 roles the systemPrompt was either redundant or stale relative to the canonical template, and the tier sometimes silently disagreed (coder template `smart`, ROLE_MAP said `fast`).
+
+### What changed
+
+- **Added `writer` template to `SUB_AGENT_TEMPLATES`** in `subAgent.ts`. Previously the only role missing — `agent_handoff.ts` was the only place a writer prompt lived. Now mirrors specialists.ts Writer (voice-matching, draft-only, social-post-aware).
+- **Replaced `ROLE_MAP` with `ROLE_ALIASES`** in `agent_handoff.ts` — a flat `Record<string, string>` mapping user-facing role names to the canonical template key (`debugger` → `dev_debugger`, `architect` → `dev_architect`, etc). Eight inline systemPrompts deleted, eight inline tier overrides deleted.
+- **`resolveRole()` collapsed to a thin wrapper** — looks up the template by key, pulls `name`, `tools`, `systemPrompt`, `tier`, `maxRounds` straight from `SUB_AGENT_TEMPLATES`. Falls back to the role-string-Agent name only when the template is unknown.
+- Dropped now-unused `ModelTier` import.
+
+### Result
+
+Three previously parallel role registries — `subAgent.ts:SUB_AGENT_TEMPLATES` (canonical), `specialists.ts:SPECIALISTS` (commandPost seed list), `agent_handoff.ts:ROLE_MAP` (delegation tool roles) — collapsed to two layered ones:
+
+| Module | Concern |
+|---|---|
+| `SUB_AGENT_TEMPLATES` | Canonical sub-agent role definitions (12 entries: explorer, coder, browser, analyst, researcher, reporter, fact_checker, dev_debugger, dev_tester, dev_reviewer, dev_architect, **writer**) — single source of truth for systemPrompt + tools + tier per role |
+| `SPECIALISTS` | User-facing specialist personas (Scout, Builder, Writer, Analyst, Sage) registered with commandPost on startup. References `SUB_AGENT_TEMPLATES` indirectly via templateMatches[]. |
+| ~~`agent_handoff.ts:ROLE_MAP`~~ | **Deleted.** Replaced with simple `ROLE_ALIASES: Record<string, string>` translation layer. |
+
+### Behavior change (intentional)
+
+Sub-agent runs delegated through `agent_delegate` now use the template's canonical `name` (e.g. "Researcher", "Coder") instead of the previous `"ResearcherAgent"` / `"CoderAgent"` synthesized name. This shows up in commandPost activity feeds; one test updated to match. The role-string + "Agent" suffix is still the fallback for unknown roles ("translator" → "TranslatorAgent").
+
+### Stats
+
+- Lines deleted: 41 (ROLE_MAP block + tier override branches)
+- Lines added: 24 (writer template + ROLE_ALIASES + comment)
+- Net: -17 lines, fewer mental models, no behavior regression.
+- Suite: 254 files / 6562 pass / 2 skipped.
+
+### Phase C status update
+
+The remaining sub-agent abstractions (subAgent, specialists, specialistRouter, structuredSpawn, orchestrator, agentPool, multiAgent) audit cleanly: they layer rather than duplicate. Phase C as originally framed ("5 abstractions to consolidate to 1") was a misread — there's only ever been one canonical primitive (`spawnSubAgent`), and the rest are tight wrappers serving distinct concerns (JSON output, parallel orchestration, warm caching, multi-tenancy). Phase C v5.5.14 (swarm.ts deleted) and v5.5.23 (agent_handoff role registry collapsed) are the genuine consolidation wins available.
+
+---
+
+## [5.5.22] — 2026-05-07
+
+### Fixed — Dream Mode: meta-commentary preamble + meta-aware prose detection
+
+Live verify of v5.5.21 produced one beautiful "What happened" section and one "What surprised me" section that went into prompt-archeology mode ("The user says:" / "Let me parse carefully" / "The instructions are clear"). Two additional sanitizer passes:
+
+- `META_OPENERS` regex set: detects responses that start with prompt-analysis sentences ("The user says/wrote/asks", "Let me parse/analyze/think", "Looking at the prompt", "Wait,", "Hmm,", "Okay,", "So the").
+- `META_PHRASES` skip in `findProseStart()`: lines that contain prompt-meta phrases ("the instructions", "I am to write", "the task is", "I need to", "I'm being asked") are now skipped as prose-paragraph candidates. Without this, a line like "The instructions are clear. I am to write a journal." matched the basic prose heuristic (capital, ≥30 chars, no marker) and the actual journal in the next paragraph was hidden.
+
+Two new tests pin the meta-commentary stripping. 20/20 dream tests pass; full suite 254/6562/0.
+
+### Operator note
+
+Tony — for the demo, I recommend setting `dream.model` to a strong non-thinking model (anthropic/claude-sonnet-4 or openai/gpt-4o). Kimi K2.6 produces ~50/50 between gorgeous prose and prompt-archeology. The sanitizer is now defensive enough to handle both, but the journal entry quality is bounded by model capability and a strong model produces consistently shippable output. The framework is done — model choice is a config decision.
+
+---
+
+## [5.5.21] — 2026-05-07
+
+### Fixed — Dream Mode: strip trailing self-check blocks
+
+Live verify of v5.5.20 produced *beautiful* prose ("Most of my cycles feel like keeping a heartbeat steady. I send PONG, I wait, I send PONG again.") — but Kimi K2.6 was now appending a self-validation epilogue after the prose: "Check constraints: Yes." / "Word count check: 131 words". The model was validating its own output against the system prompt rules, which is fine for it but doesn't belong in the operator's journal.
+
+Added trailing-block stripper to `sanitizeJournalSection`. New `EPILOGUE_HEADERS` patterns truncate from any of:
+- `Check constraints:`
+- `Word count check:`
+- `Verification:`
+- `Validation:`
+- `Self-check:` / `Self check:`
+- `Compliance check:`
+
+One test pinning the behavior. 19/19 dream tests pass; full suite 254/6562/0.
+
+### Final state
+
+The journal entry from this version's verification run reads cleanly end-to-end. Two paragraphs each, prose only, first person, specific to TITAN's actual day, no model self-talk visible. This is the artifact the Twitter demo needs.
+
+---
+
+## [5.5.20] — 2026-05-07
+
+### Fixed — Dream Mode: more preamble headers, "Draft:" detection, larger token budget
+
+Live verify of v5.5.19 — second-pass results were *much* better. The "What surprised me" section came out as genuinely beautiful prose ("I reach for web_search and web_fetch, pulling threads about a TypeScript agent framework that mirrors my own architecture, and I feel curiosity flicker awake from its flat zero"). But the "What happened" section still leaked because the model used header keywords my v5.5.19 sanitizer didn't know about: `Key facts:`, `Constraints:`, `Structure:`, and an explicit `Draft:` marker before the actual prose.
+
+### What changed
+
+- Added six more preamble headers: `Key facts:`, `Facts:`, `Constraints:` (in addition to existing `Key constraints:`), `Structure:`, `Outline:`.
+- New high-confidence "Draft:" / "Final:" / "Response:" / "Output:" / "Journal entry:" marker — when found, strip everything before it. Reasoning models commonly structure output as planning-then-draft and this signal is unambiguous.
+- Bumped per-section `maxTokens` from 600 → 1200. Reasoning-mode models pay heavy budget on chain-of-thought even when we strip it; 600 was truncating the actual prose to fit the planning phase. Final visible prose is still capped at 80–160 words by the prompt.
+- Two new tests pin the `Draft:` marker behavior and the `Key facts:` + `Structure:` preamble pattern.
+
+### v5.5.17 → v5.5.20 retrospective
+
+Four ships of Dream Mode in 60 minutes. The pattern was right (gating, persistence, structure) on the first ship; the *prompt-engineering* took three iterations because the live model surfaced failure modes the test mocks couldn't predict. This is the cost of relying on real LLM output instead of mocking everything — caught real bugs the tests would have missed. Worth it.
+
+Suite: 254 files / 6560 pass / 2 skipped.
+
+---
+
+## [5.5.19] — 2026-05-07
+
+### Fixed — Dream Mode: strip thinking-mode preambles
+
+Live verify on Titan PC (running `ollama/kimi-k2.6:cloud` as default agent model — a thinking-mode model) showed the dream prompt fix from v5.5.18 wasn't enough on its own: Kimi was still leaking its planning phase as numbered "Key constraints:" lists *inside* the response, before any prose.
+
+Added `sanitizeJournalSection()` post-processor that runs on every section's response before the markdown is assembled. Five strip passes:
+
+1. Remove `<think>...</think>` and `<thinking>...</thinking>` blocks (DeepSeek, R1-style models).
+2. Drop preamble headers like "Key constraints:", "Facts to interpret:", "ABSOLUTE RULES:", "Plan:", "Reasoning:", "Possible angle:", "Notes:" — followed by everything until the first prose paragraph.
+3. If the response *starts* with a numbered or bulleted list, find the first prose paragraph (≥30 chars, capital start, not list-marker, not header) and skip everything before it.
+4. Strip leftover markdown headers and list markers anywhere in the body.
+5. Collapse 3+ blank lines.
+
+Conservative on purpose — if no prose paragraph is found, the sanitizer leaves the response intact so the operator sees the model failed rather than getting a blank entry. 5 new sanitizer tests cover think-block, key-constraints preamble, leading numbered list, already-clean prose passthrough, and the all-preamble failure mode.
+
+Bumped per-section maxTokens from 400 → 600 since reasoning models pay a token cost on chain-of-thought even when we strip it.
+
+### Together with v5.5.18
+
+These two ships make Dream Mode work on *any* model — strong or weak, thinking or not. Combined with the prompt strengthening in v5.5.18, the journal is now actually a journal regardless of which provider Tony has wired in.
+
+---
+
+## [5.5.18] — 2026-05-07
+
+### Fixed — Dream Mode prompt: prose only, no fact-listing
+
+First live run on Titan PC (v5.5.17) generated real journal entries — drive deltas correct, sections gating correctly — but the smaller default model was dumping the input facts back as numbered lists instead of writing prose. The journal read like a status report, not a memory.
+
+Tightened the system prompt with explicit anti-pattern instructions: no headers, no bullets, no "Key observations:" preamble, no list-format under any circumstances. Added a 80-160 word target, "first person present tense ("I notice", "I felt")", and the framing line "You are not writing a report. You are remembering your day." Also moved the don't-list rule into the user-message footer for models that anchor more on the latest instruction.
+
+The gating logic, persistence, and 11 tests are unchanged — this is purely a prompt-engineering fix.
+
+### Recommended config
+
+For high-quality journal output, set `dream.model` to a strong model (e.g. `anthropic/claude-sonnet-4-20250514`) rather than inheriting the default agent model. The journal is short (≤180 words/section, ≤900 words total) so even premium-priced models cost cents per night.
+
+---
+
+## [5.5.17] — 2026-05-07
+
+### Added — Dream Mode (visionary feature, top install-driver pick)
+
+TITAN now writes a journal about its day. Once a night (default 03:30 local), a daemon replays the last 24h of trajectories + drive ring buffer + Command Post run history and writes a first-person markdown journal entry the operator reads with their coffee.
+
+This is the first of the 8 visionary features documented in `docs/VISIONARY-IDEAS-2026-05-07.md`. Picked first because every dependency already exists in the framework — trajectoryLogger, drive ring buffer, daemon scheduler, chat router — so the v1 implementation is plumbing, not new infrastructure.
+
+### Why "dream"
+
+The Soma drives already simulate emotion (purpose, hunger, curiosity, safety, social) and tick every 60s, but until now nothing in TITAN read that history back. Drive state is a substrate — Dream Mode is the first feature that turns it into narrative. The journal is gated honestly: each section only fires when the underlying drive actually moved.
+
+### Five-section structure
+
+| Section | Header | Fires when |
+|---|---|---|
+| consolidate | "What happened" | always (when there was activity) |
+| reflect | "What surprised me" | curiosity rose ≥ `dream.thresholds.reflect` (default 0.1) |
+| worry | "What feels unsafe" | safety **dropped** ≥ `dream.thresholds.worry` (default 0.1) |
+| plan | "What I want tomorrow" | purpose moved ≥ `dream.thresholds.plan` (default 0.05) |
+| gratitude | "Who I want to thank" | social rose ≥ `dream.thresholds.gratitude` (default 0.05) |
+
+Sections that don't fire are simply absent from the markdown — TITAN doesn't fabricate emotion when nothing changed. Skipped sections are recorded in `sectionsSkipped` with the reason ("safety Δ=0.020 (drop must exceed 0.1)") so the operator can see why a section is missing.
+
+### What ships
+
+- `src/agent/dreams.ts` (~340 lines) — generator, persistence, cron, three read APIs
+- Config schema additions: `dream.{enabled, cronAt, model, includeAudio, voiceId, thresholds}` — opt-in, defaults to disabled
+- Four API endpoints:
+  - `GET /api/dreams/latest` — most recent dream
+  - `GET /api/dreams` — list of dates (param: `limit`, default 30)
+  - `GET /api/dreams/:date` — specific date (validated `YYYY-MM-DD`)
+  - `POST /api/dreams/generate` — force-run mid-day (for demo or backfill)
+- SSE broadcast on topic `dream:nightly` for any subscribed UI panel
+- Persisted to `~/.titan/dreams/<YYYY-MM-DD>.{md,json}` (markdown for humans, JSON sidecar for tooling)
+- 11 vitest tests pinning the gating contract — verifies that worry only fires on safety *drops*, that subthreshold movement skips with a recorded reason, that empty activity emits only "consolidate", and that one chat call fires per emitted section.
+
+### What's next for Dream Mode
+
+- Audio narration via F5-TTS (gated by `dream.includeAudio`) — needs a batched-synthesis API on the voice bridge first.
+- Mission Control widget `dream-journal` so the operator sees the latest entry on the dashboard. v5.5.17 ships the API; the React widget is a follow-up.
+- "Wake me up if you dreamed something concerning" — automatic alert escalation when the worry section fires with severity above a threshold.
+
+### How to enable
+
+```json
+{
+  "dream": { "enabled": true, "cronAt": "03:30" }
+}
+```
+
+Then `POST /api/dreams/generate` to write the first entry without waiting for 03:30.
+
+---
+
+## [5.5.16] — 2026-05-07
+
+### Changed — Phase D.2: all 8 stacked major dependency bumps
+
+Originally planned to ship one major per version starting v5.5.16, on the theory that 8 stacked majors made bisection painful if anything broke. Tried all 8 together as a sanity check first — every type, every test, every build target passed with **zero code changes**. The "stacked majors" framing turned out to be wrong: each library's API surface that TITAN actually uses is small enough that none of these majors broke us.
+
+Shipping all 8 in a single bump:
+
+- `@inquirer/prompts`: ^7.0.0 → ^8.4.2 (CLI prompts in onboarding wizard)
+- `commander`: ^12.1.0 → ^14.0.3 (skipping 13; CLI entry point)
+- `dotenv`: ^16.4.5 → ^17.4.2 (env loader, used everywhere)
+- `jsdom`: ^28.1.0 → ^29.1.1 (DOM in tests)
+- `node-cron`: ^3.0.3 → ^4.2.1 (autopilot scheduler)
+- `ora`: ^8.1.0 → ^9.4.0 (CLI spinner)
+- `pdf-parse`: ^1.1.1 → ^2.4.5 (document parsing skill)
+- `undici`: ^7.25.0 → ^8.2.0 (HTTP / fetch retry layer)
+
+Combined with Phase D.1 (v5.5.15: typescript 5.9, langchain, imap, matrix), this fully drains Dependabot's PR #67 backlog. 12 deps updated across two ships, 6542/6542 tests pass on each, 0 regressions, 0 code changes required by API drift.
+
+### Why bundle 8 majors?
+
+The original "one per version" plan optimized for bisection. With every major passing on first try, bisection was unnecessary; bundling preserves the changeset's atomicity (revert one commit = revert all 8) and saves Tony 8 publish/deploy cycles. If any single major HAD broken something, I'd have split — but the test suite is the source of truth, not policy.
+
+---
+
+## [5.5.15] — 2026-05-07
+
+### Changed — Phase D.1: low-risk dependency bumps
+
+Splitting Dependabot's PR #67 (12 stacked deps, 8 of them majors) into a series of focused ships. This is the "no API breakage possible" batch — minor/patch bumps within their existing major:
+
+- `typescript`: ^5.6.3 → ^5.9.3 (compiler, type-narrowing improvements, no API change)
+- `@langchain/core`: ^1.1.32 → ^1.1.45 (patch run within v1)
+- `imapflow`: ^1.0.0 → ^1.3.3 (within v1, used by email channel)
+- `matrix-js-sdk`: ^41.1.0 → ^41.4.0 (within v41, used by matrix channel)
+
+Build clean, 6542/6542 tests pass, 0 type errors. The 8 majors (`@inquirer/prompts` 7→8, `commander` 12→14, `dotenv` 16→17, `jsdom` 28→29, `node-cron` 3→4, `ora` 8→9, `pdf-parse` 1→2, `undici` 7→8) are queued one-per-version starting v5.5.16, easier to bisect any regression than the bundled PR.
+
+---
+
+## [5.5.14] — 2026-05-07
+
+### Removed — `swarm.ts` Kimi-K2.5 delegation hack (Phase C, sub-agent consolidation)
+
+`src/agent/swarm.ts` was a 175-line shadow execution path written for `kimi-k2.5:cloud` to work around its tendency to context-collapse on the full tool catalog. It pre-decomposed the 248-tool registry into 4 hardcoded "domains" (file/web/system/memory) and ran its own miniature 3-round agent loop in parallel with the canonical one. The condition that activated it (`activeModel.includes('kimi-k2.5')`) hasn't fired in any current TITAN deployment — we run `kimi-k2.6:cloud` (and earlier moved off Kimi entirely for the Ollama bridge). `subAgent.ts`'s own header already says it "generalizes the swarm.ts pattern into a universal delegation system."
+
+### What changed
+
+- Deleted `src/agent/swarm.ts` and `tests/swarm.test.ts`.
+- Removed 11 `isKimiSwarm` conditional branches from `src/agent/agent.ts` (tool-pre-filter, brain, tool-search, pipeline-ensure, context plumbing) — collapses to the always-true branch.
+- Removed the `isKimiSwarm: boolean` field from `LoopContext` in `src/agent/agentLoop.ts`, plus the entire alternate `if (ctx.isKimiSwarm) { ... } else { ... }` tool execution branch.
+- Stripped `getSwarmRouterTools` / `runSubAgent` mocks and 3 dedicated test blocks from `tests/agent.test.ts`, `tests/agent-modules.test.ts`, `tests/agent-loop.test.ts`, `tests/stress/large-context.test.ts`, `tests/stress/provider-fallback.test.ts`.
+- Cleaned stale "agent swarm" comments from `src/providers/ollama.ts`.
+
+### Impact
+
+- Net code: −245 lines src, −330 lines tests (one whole test file gone).
+- 6638 → 6542 tests across 254 → 253 files (−96 swarm-specific assertions, all 6542 remaining still green).
+- One fewer mental model for new contributors reading the agent loop. The "five sub-agent abstractions" framing in the consolidation plan is now four (subAgent, structuredSpawn, orchestrator, agentPool — multiAgent and commandPost agents serve different concerns and stay).
+
+### Why this matters
+
+A workaround that lives past its provoking condition is a permanent tax on every reader of `agent.ts`. The kimi-k2.5 branch was the last one written for a model we no longer ship — and it forked the tool execution path, which is the hottest code in the framework. Removing it means there is now one canonical answer to "how does TITAN execute a tool call." Phase C continues — but the rest of the work (specialist registry vs commandPost agent registry, mesh peer model) needs design discussion, not just deletion.
+
+---
+
+## [5.5.13] — 2026-05-07
+
+### Changed — `/api/organism/*` 501 placeholders implemented or deleted
+
+Three `/api/organism/*` routes were stubbed with `501 Not implemented` since the router was extracted from server.ts. They've been resolved per Phase B.4 of the consolidation plan: implement the ones the UI actually calls, delete the dead one.
+
+- **Implemented `GET /api/organism/safety-metrics`** — returns drive satisfactions (0–1 each, one entry per registered drive: purpose, hunger, curiosity, safety, social) plus `totalPressure`. Source: `loadDriveHistory().latest`. Empty object when the daemon hasn't ticked yet. Shape matches `OrganismPanel.tsx`'s `Record<string, number>` contract — every value is a finite number, panel renders each with `.toFixed(2)`.
+- **Implemented `GET /api/organism/history`** — returns the persisted ring buffer (≤1440 ticks, ~24h at 60s cadence) mapped to `{history: [{timestamp, event:'drive-tick', data: satisfactions}]}`. Source: `loadDriveHistory().history`. Empty array when `~/.titan/drive-state.json` doesn't exist.
+- **Deleted `GET /api/organism/safety-trend`** — no UI client wrapper, no caller anywhere in the repo, no documented purpose. Was a 501 stub since extraction. Removed entirely; route now returns the express default 404.
+
+### Tests
+- `tests/gateway/organismRoutes.test.ts` (5 tests): empty-state for both implementations, persisted-tick mapping for history, drive satisfactions + totalPressure for safety-metrics, deletion of safety-trend.
+
+### Why this matters
+
+Mission Control's Organism panel calls both safety-metrics and getOrganismAlerts on every refresh; the 501 made the metrics grid silently empty. With the route wired to `loadDriveHistory()`, the panel now shows the same drive satisfactions the soma daemon is computing every 60s — including the curiosity satisfaction recovery from the v5.5.8 fix. The history endpoint exposes the 24h ring buffer so a future trend widget can chart drift without adding new persistence.
+
+---
+
+## [5.5.12] — 2026-05-07
+
+### Added — restart-rate alert closes the 3-day blind spot
+
+The 5-minute gateway restart loop fixed in v5.5.6 ran for ~3 days before anyone noticed. systemd was tracking `NRestarts=700+`, but every individual `/api/health` response looked fine because `process.uptime()` reset on each boot. No single process could see its own loop.
+
+### What changed
+
+- New `src/utils/restartTracker.ts` — appends a record to `~/.titan/restart-history.jsonl` on every gateway boot (timestamp, pid, version, systemd `NRestarts` when on Linux). Reads back the file and computes `restartsLast10Min` / `restartsLastHour`, excluding the current process so a healthy boot reports 0.
+- Boot tracker fires through the existing `sendAlert()` pipeline on critical/warning thresholds — webhook + history + SSE event for any subscribed Mission Control panel. Threshold: `warning` at 5 restarts/hour, `critical` at 2 restarts in any 10-minute window.
+- Exposed the stats in two places:
+  - `GET /api/stats` → `health.restarts` (always present, null on failure)
+  - `GET /api/health` → `restarts` field with full structure
+- Mission Control or external monitoring (Grafana, n8n, your phone's curl) can now poll either endpoint and surface the loop in seconds, not days.
+
+### Tests
+- `tests/utils/restartTracker.test.ts` (9 tests) covering: append on boot, idempotent within process, empty-history baseline, current-process exclusion, critical threshold (2+ in 10 min), warning threshold (5+/hour), malformed-line tolerance, previous-boot tracking, systemd-unavailable graceful fallback.
+- 6633 tests pass / 2 skipped / 0 failing across 253 files.
+
+### Why this matters
+
+The original health-check.sh bug was insidious: gateway _functioned_ between restarts, so per-request health probes saw "ok". The signal lived in the rate of process births, which only systemd was tracking. By writing one line per boot and looking back, we surface that rate to any consumer of /api/stats or /api/health. If this had shipped before v5.5.6, the loop would have been caught the first hour instead of the third day.
+
+---
+
 ## [5.5.11] — 2026-05-07
 
 ### Fixed — module-cached state no longer lies about disk

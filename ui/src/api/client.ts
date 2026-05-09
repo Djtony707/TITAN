@@ -1139,6 +1139,83 @@ export async function acknowledgeAlert(id: string): Promise<{ success: boolean }
   return request(`/api/organism/alerts/${id}/acknowledge`, { method: 'POST' });
 }
 
+// ---- Dream Mode (v5.5.17+) ----
+
+export interface Dream {
+  date: string;
+  generatedAt: string;
+  model: string;
+  drives: { start: Record<string, number>; end: Record<string, number>; delta: Record<string, number> };
+  activity: {
+    trajectories: number;
+    successfulTrajectories: number;
+    runs: number;
+    successfulRuns: number;
+    toolsExercised: string[];
+  };
+  sectionsEmitted: string[];
+  sectionsSkipped: Record<string, string>;
+  markdown: string;
+  audioPath?: string;
+}
+
+export async function getLatestDream(): Promise<Dream | null> {
+  try { return await request<Dream>('/api/dreams/latest'); }
+  catch { return null; }
+}
+
+export async function listDreamDates(limit = 30): Promise<{ dates: string[] }> {
+  return request(`/api/dreams?limit=${limit}`);
+}
+
+export async function getDreamByDate(date: string): Promise<Dream | null> {
+  try { return await request<Dream>(`/api/dreams/${encodeURIComponent(date)}`); }
+  catch { return null; }
+}
+
+export async function generateDream(): Promise<Dream> {
+  return request<Dream>('/api/dreams/generate', { method: 'POST' });
+}
+
+// ---- Persona Profiles (v5.5.24+) ----
+
+export interface PersonaProfile {
+  id: string;
+  name: string;
+  voiceId: string;
+  allowedTools: string[];
+  deniedTools: string[];
+  systemPromptAppendix: string;
+  schedule?: { from: string; to: string };
+  windDown: boolean;
+  description: string;
+}
+
+export interface PersonaList {
+  enabled: boolean;
+  defaultPersona: string | null;
+  channelPins: Record<string, string>;
+  profiles: PersonaProfile[];
+}
+
+export interface ActivePersona {
+  enabled: boolean;
+  activeId: string | null;
+  activeName: string | null;
+  windDown: boolean;
+  voiceId: string | null;
+  reason: string;
+}
+
+export async function getPersonaProfiles(): Promise<PersonaList> {
+  return request('/api/persona-profiles');
+}
+
+export async function getActivePersona(channel?: string): Promise<ActivePersona> {
+  const q = channel ? `?channel=${encodeURIComponent(channel)}` : '';
+  return request(`/api/persona-profiles/active${q}`);
+}
+
 // ---- Fleet ----
 
 export async function getFleet(): Promise<{ nodes: import('./types').FleetNode[] }> {

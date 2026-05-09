@@ -146,20 +146,41 @@ export async function ensureDrivers(): Promise<{ started: number; active: number
  * the driver state is marked `cancelled` so it doesn't keep ticking
  * a zombie goal.
  */
-export async function resumeDriversAfterRestart(): Promise<{ resumed: number; cancelled: number }> {
+export async function resumeDriversAfterRestart(): Promise<{ resumed: number; cancelled: number; sweptStale: number }> {
     let resumed = 0;
     let cancelled = 0;
+    let sweptStale = 0;
     try {
+        // v5.5.31: first reap files older than 24h with no recent tick.
+        // Audit 2026-05-08 found 5 driver-state files at 395+ hours old
+        // that previous resume calls had only marked `cancelRequested`
+        // without deleting — they accumulated forever.
+        try {
+            const { sweepStaleDriverStates } = await import('./goalDriver.js');
+            const swept = sweepStaleDriverStates();
+            sweptStale = swept.removed;
+            if (swept.removed > 0) {
+                logger.info(COMPONENT, `Reaped ${swept.removed} stale driver state(s) (>24h since lastTick): ${swept.ids.join(', ')}`);
+            }
+        } catch (err) {
+            logger.warn(COMPONENT, `stale-driver sweep: ${(err as Error).message}`);
+        }
+
         const drivers = listActiveDrivers();
         const { listGoals } = await import('./goals.js');
         const active = new Set(listGoals('active').map(g => g.id));
         for (const d of drivers) {
             if (!active.has(d.goalId)) {
                 try {
-                    const { cancelDriver } = await import('./goalDriver.js');
-                    cancelDriver(d.goalId);
-                    cancelled++;
-                    logger.info(COMPONENT, `Cancelled driver for inactive goal ${d.goalId}`);
+                    // v5.5.31: actually delete the state file. Previously
+                    // cancelDriver only flipped `cancelRequested` and the
+                    // scheduler kept ticking the same zombie. Now the file
+                    // goes away on this orphan-goal path.
+                    const { deleteDriverState } = await import('./goalDriver.js');
+                    if (deleteDriverState(d.goalId)) {
+                        cancelled++;
+                        logger.info(COMPONENT, `Removed driver state for inactive goal ${d.goalId}`);
+                    }
                 } catch { /* ok */ }
             } else {
                 resumed++;
@@ -169,7 +190,7 @@ export async function resumeDriversAfterRestart(): Promise<{ resumed: number; ca
     } catch (err) {
         logger.warn(COMPONENT, `resumeDriversAfterRestart: ${(err as Error).message}`);
     }
-    return { resumed, cancelled };
+    return { resumed, cancelled, sweptStale };
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────

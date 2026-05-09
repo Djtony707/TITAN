@@ -10,6 +10,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import fs from 'fs';
 import logger from '../../utils/logger.js';
+import { setupSSEFlush } from '../../utils/sseFlush.js';
 
 // Daemon events (for SSE)
 import { titanEvents } from '../../agent/daemon.js';
@@ -49,6 +50,7 @@ export function createWatchRouter(): Router {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    const sseWrite = setupSSEFlush(res);
 
     // Every event topic the Pane cares about — union of drive ticks,
     // soma proposals, tool calls, goals, initiative, command-post, health,
@@ -56,7 +58,7 @@ export function createWatchRouter(): Router {
     const topics = PANE_SSE_TOPICS;
 
     const send = (data: unknown) => {
-      try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+      try { sseWrite(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
     // Initial snapshot — read drive state + recent goals so the UI has
@@ -90,7 +92,7 @@ export function createWatchRouter(): Router {
     }
 
     const keepalive = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch { /* gone */ }
+      try { sseWrite(': keepalive\n\n'); } catch { /* gone */ }
     }, 15_000);
 
     req.on('close', () => {

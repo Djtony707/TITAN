@@ -192,6 +192,24 @@ export function resolveModel(modelId: string): { provider: LLMProvider; model: s
     return { provider, model };
 }
 
+/**
+ * Non-throwing variant of resolveModel — returns null on an unknown
+ * provider instead of throwing. Used by gateway endpoints to fail-fast
+ * with a helpful 400 BEFORE the agent loop builds the prompt and burns
+ * tokens. v5.5.30+. Bug from 2026-05-08 audit: requests with bad model
+ * IDs (e.g. typoed providers) used to crash deep inside the agent loop
+ * after prompt assembly, returning 500 with a stack trace.
+ */
+export function tryResolveModel(modelId: string): { provider: LLMProvider; model: string } | null {
+    try { return resolveModel(modelId); } catch { return null; }
+}
+
+/** List of provider names known to this gateway (for "did you mean" suggestions). */
+export function getKnownProviderNames(): string[] {
+    initProviders();
+    return Array.from(providers.keys()).sort();
+}
+
 /** Check if a model is allowed by the allowlist. Empty list = all allowed. */
 export function isModelAllowed(modelId: string): boolean {
     const config = loadConfig();

@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../../memory/memory.js';
 import { loadConfig } from '../../config/config.js';
 import { TITAN_HOME } from '../../utils/constants.js';
+import { setupSSEFlush } from '../../utils/sseFlush.js';
 
 const COMPONENT = 'SystemRouter';
 
@@ -85,7 +86,8 @@ export function createSystemRouter(): Router {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    res.write('data: {"type":"connected","message":"Training progress stream connected"}\n\n');
+    const sseWrite = setupSSEFlush(res);
+    sseWrite('data: {"type":"connected","message":"Training progress stream connected"}\n\n');
 
     // Import training events emitter
     let handler: ((event: unknown) => void) | null = null;
@@ -93,7 +95,7 @@ export function createSystemRouter(): Router {
       const { trainingEvents } = await import('../../skills/builtin/model_trainer.js');
       handler = (event: unknown) => {
         try {
-          res.write(`data: ${JSON.stringify(event)}\n\n`);
+          sseWrite(`data: ${JSON.stringify(event)}\n\n`);
         } catch { /* client disconnected */ }
       };
       trainingEvents.on('progress', handler);
@@ -109,14 +111,14 @@ export function createSystemRouter(): Router {
         const lines = readFileSync(logPath, 'utf-8').split('\n').filter((l: string) => l.trim());
         const recent = lines.slice(-50);
         for (const line of recent) {
-          try { res.write(`data: ${line}\n\n`); } catch { break; }
+          try { sseWrite(`data: ${line}\n\n`); } catch { break; }
         }
       }
     } catch { /* best-effort */ }
 
     // Keep alive
     const keepAlive = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch { clearInterval(keepAlive); }
+      try { sseWrite(': keepalive\n\n'); } catch { clearInterval(keepAlive); }
     }, 15_000);
 
     req.on('close', () => {

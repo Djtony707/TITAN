@@ -9,6 +9,7 @@ import { loadConfig } from '../config/config.js';
 import { TITAN_VERSION } from '../utils/constants.js';
 import { v4 as uuid } from 'uuid';
 import logger from '../utils/logger.js';
+import { setupSSEFlush } from '../utils/sseFlush.js';
 
 const COMPONENT = 'OpenAI-Compat';
 
@@ -59,6 +60,7 @@ export function createOpenAICompatRouter(): Router {
                     'Cache-Control': 'no-cache',
                     Connection: 'keep-alive',
                 });
+                const sseWrite = setupSSEFlush(res);
 
                 for await (const chunk of chatStream({
                     model: effectiveModel,
@@ -78,19 +80,19 @@ export function createOpenAICompatRouter(): Router {
                                 finish_reason: null,
                             }],
                         };
-                        res.write(`data: ${JSON.stringify(data)}\n\n`);
+                        sseWrite(`data: ${JSON.stringify(data)}\n\n`);
                     }
                 }
 
                 // Send final chunk
-                res.write(`data: ${JSON.stringify({
+                sseWrite(`data: ${JSON.stringify({
                     id: chatId,
                     object: 'chat.completion.chunk',
                     created: Math.floor(Date.now() / 1000),
                     model: effectiveModel,
                     choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
                 })}\n\n`);
-                res.write('data: [DONE]\n\n');
+                sseWrite('data: [DONE]\n\n');
                 res.end();
             } else {
                 // Non-streaming response

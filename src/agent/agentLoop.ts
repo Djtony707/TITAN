@@ -65,7 +65,6 @@ export function pushSteer(sessionId: string, message: string): boolean {
     return true;
 }
 import { recordToolUsage } from './userProfile.js';
-import { runSubAgent, type Domain } from './swarm.js';
 import { compressToolResult, recordStep, getProgressSummary } from './trajectoryCompressor.js';
 import { verifyFileWrite } from './autoVerify.js';
 import type { ChatMessage, ChatResponse, ToolCall, ToolDefinition } from '../providers/base.js';
@@ -408,7 +407,6 @@ export interface LoopContext {
     reflectionEnabled: boolean;
     reflectionInterval: number;
     toolSearchEnabled: boolean;
-    isKimiSwarm: boolean;
     selfHealEnabled: boolean;
     smartExitEnabled?: boolean;
     thinkingOverride?: string;
@@ -1642,26 +1640,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             let toolResults: ToolResult[] = [];
             try {
-                if (ctx.isKimiSwarm) {
-                    for (const tc of pendingToolCalls) {
-                        if (tc.function.name.startsWith('delegate_to_')) {
-                            const domainMatch = tc.function.name.match(/delegate_to_(.*)_agent/);
-                            const domain = (domainMatch ? domainMatch[1] : 'file') as Domain;
-                            let args;
-                            try { args = JSON.parse(tc.function.arguments); } catch { args = { instruction: '' }; }
-                            const startMs = Date.now();
-                            const resultString = await runSubAgent(domain, args.instruction, activeModel);
-                            toolResults.push({
-                                toolCallId: tc.id, name: tc.function.name, content: resultString,
-                                success: !resultString.includes('Error'), durationMs: Date.now() - startMs,
-                            });
-                        }
-                    }
-                } else {
-                    const toolExecStart = Date.now();
-                    toolResults = await executeTools(pendingToolCalls, ctx.channel);
-                    fireSpan(traceCtx, 'tool_execution', Date.now() - toolExecStart, { round: String(round), tools: pendingToolCalls.map(t => t.function.name).join(',') });
-                }
+                const toolExecStart = Date.now();
+                toolResults = await executeTools(pendingToolCalls, ctx.channel);
+                fireSpan(traceCtx, 'tool_execution', Date.now() - toolExecStart, { round: String(round), tools: pendingToolCalls.map(t => t.function.name).join(',') });
             } catch (err) {
                 logger.error(COMPONENT, `Tool execution error: ${(err as Error).message}`);
                 result.content = 'An error occurred while executing tools. Please try again.';
