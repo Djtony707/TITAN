@@ -86,6 +86,17 @@
 - **workaround:** Skipped; test file otherwise passes 60 tests.
 - **review_after:** v5.5.7 — investigate `src/gateway/server.ts maxConcurrentMessages` and the route guard.
 
+## Issue: gateway concurrent-503 test resolved
+
+- **type:** RESOLVED
+- **date:** 2026-05-09
+- **source:** Re-test after v5.5.31
+- **confidence:** high
+- **verified_by:** `npx vitest run tests/gateway-extended.test.ts -t "concurrent"` passes
+- **content:** Test was unskipped and passes reliably. Root cause of earlier failure unknown — likely fixed by concurrent-limit refactoring in v5.5.12–v5.5.28.
+- **workaround:** N/A — test is now active.
+- **review_after:** N/A
+
 ## Issue: agent.test.ts loop-detection test crashes vitest worker
 
 - **type:** BUG

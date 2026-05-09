@@ -929,12 +929,7 @@ describe('Gateway Extended', () => {
     // ── Concurrent LLM request limit ────────────────────────────────
 
     describe('Concurrent LLM limit', () => {
-        // TODO(v5.5.7): concurrent-503 test failing — either maxConcurrent
-        // limit was raised since this was written, the routeMessage mock
-        // isn't actually saturating the limiter, or the 503 path is broken.
-        // Investigate src/gateway/server.ts maxConcurrentMessages handling.
-        // Tracked in docs/agent-memory/known-issues.md.
-        it.skip('returns 503 when too many concurrent requests', async () => {
+        it('returns 503 when too many concurrent requests', async () => {
             // Make routeMessage slow so we can saturate the concurrency limit
             const mockRoute = routeMessage as ReturnType<typeof vi.fn>;
             const originalImpl = mockRoute.getMockImplementation();
