@@ -1,6 +1,7 @@
-[//]: # (npm-text-start)
-> **TITAN** — The AI that actually *does* things. It remembers your name. It learns what you like. It writes your emails, codes your ideas, posts for you, and keeps getting smarter while you sleep. Oh, and it has a little floating mascot. `npm i -g titan-agent`
-[//]: # (npm-text-end)
+[//]: # "npm-text-start"
+
+> **TITAN** — The AI that actually _does_ things. It remembers your name. It learns what you like. It writes your emails, codes your ideas, posts for you, and keeps getting smarter while you sleep. Oh, and it has a little floating mascot. `npm i -g titan-agent`
+> [//]: # (npm-text-end)
 
 # TITAN 5.5 — "Spacewalk" 🚀
 
@@ -63,25 +64,26 @@ No coding required. TITAN comes with **253 tools** out of the box. If it needs s
 ---
 
 <a id="widget-gallery"></a>
+
 ## 🪟 NEW in 5.0 — Widget Gallery (110 Templates)
 
 **TITAN now ships with 110 production-ready canvas widgets** across 25 categories. Just say what you want — the gallery snaps it onto your dashboard in under a second.
 
-Say: *"Pomodoro timer"* → Pomodoro lands.
-Say: *"Stock tracker for AAPL"* → Stock tracker lands, pre-filled with AAPL.
-Say: *"Control my smart lights"* → Home Assistant light grid lands.
-Say: *"Spawn a sales agent for me"* → Sales SDR widget lands, hooked to TITAN's agent runtime.
+Say: _"Pomodoro timer"_ → Pomodoro lands.
+Say: _"Stock tracker for AAPL"_ → Stock tracker lands, pre-filled with AAPL.
+Say: _"Control my smart lights"_ → Home Assistant light grid lands.
+Say: _"Spawn a sales agent for me"_ → Sales SDR widget lands, hooked to TITAN's agent runtime.
 
-| Category | Examples |
-|---|---|
-| **Agents (employees)** | Receptionist, SDR, Researcher, Coder, Bookkeeper, Data Analyst, Business Control Tower |
-| **Automation** | Webhook listener, Cron runner, Price alert, RSS monitor, IFTTT-style rule, Daily digest |
-| **Smart home** | Lights, Thermostat, Scenes, Sensors, Presence, Energy (wires to Home Assistant) |
-| **Software builder** | App skeletons, Mini database, Admin panel, Landing page, Blog engine |
-| **Finance** | Stock tracker, Crypto portfolio, Currency converter, Mortgage calc, Bill splitter |
-| **Productivity** | Pomodoro, Todo list, Kanban, Habit tracker |
-| **Utilities** | Calculator, QR code, Password gen, Regex tester, Diff tool, Base64, World clock |
-| **Plus** | cooking, creative, devops, e-commerce, gaming, health-fitness, homelab, lifestyle, ml-ai, multi-modal, music-dj, research, social, travel, vehicle, web |
+| Category               | Examples                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agents (employees)** | Receptionist, SDR, Researcher, Coder, Bookkeeper, Data Analyst, Business Control Tower                                                                  |
+| **Automation**         | Webhook listener, Cron runner, Price alert, RSS monitor, IFTTT-style rule, Daily digest                                                                 |
+| **Smart home**         | Lights, Thermostat, Scenes, Sensors, Presence, Energy (wires to Home Assistant)                                                                         |
+| **Software builder**   | App skeletons, Mini database, Admin panel, Landing page, Blog engine                                                                                    |
+| **Finance**            | Stock tracker, Crypto portfolio, Currency converter, Mortgage calc, Bill splitter                                                                       |
+| **Productivity**       | Pomodoro, Todo list, Kanban, Habit tracker                                                                                                              |
+| **Utilities**          | Calculator, QR code, Password gen, Regex tester, Diff tool, Base64, World clock                                                                         |
+| **Plus**               | cooking, creative, devops, e-commerce, gaming, health-fitness, homelab, lifestyle, ml-ai, multi-modal, music-dj, research, social, travel, vehicle, web |
 
 The chat agent ALWAYS searches the gallery first and only generates from scratch when nothing matches — so common requests are fast, consistent, and free of broken APIs or LLM drift.
 
@@ -131,17 +133,17 @@ You can run in **supervised mode** (TITAN asks before doing anything risky) or *
 
 Open `http://localhost:48420` and you get a beautiful canvas of draggable widgets:
 
-| Widget | What It Does |
-|--------|-------------|
-| **Canvas** | The new home screen. 110 widget templates one phrase away. Drag, resize, arrange. CRDT-synced across tabs, persists across restarts. |
-| **Chat** | Talk to TITAN in plain English. It builds widgets, spawns agents, drives smart-home devices. Markdown + streaming + code highlighting. |
-| **Widget Gallery** | Library of 110 production-ready widgets. The chat agent searches it first; you can also browse + drop manually. |
-| **Command Post** | Agents, budgets, approvals, org chart, ancestry validation, atomic checkout. Run a business with TITAN agents as employees. |
-| **SOMA** | Watch TITAN's digital hormones pulse in real time. Weirdly mesmerizing. |
-| **Skills** | 143 skills loaded, 248 tools. Toggle each on/off. |
-| **Voice** | F5-TTS voice cloning via a Python sidecar (mlx-audio on Mac, container on Linux) + WebRTC streaming. Any voice, any language. |
-| **Memory Graph** | A visual web of everything TITAN remembers about you. |
-| **Security** | Audit log, checkpoint history, time travel for your files, bug-report viewer. |
+| Widget             | What It Does                                                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Canvas**         | The new home screen. 110 widget templates one phrase away. Drag, resize, arrange. CRDT-synced across tabs, persists across restarts.   |
+| **Chat**           | Talk to TITAN in plain English. It builds widgets, spawns agents, drives smart-home devices. Markdown + streaming + code highlighting. |
+| **Widget Gallery** | Library of 110 production-ready widgets. The chat agent searches it first; you can also browse + drop manually.                        |
+| **Command Post**   | Agents, budgets, approvals, org chart, ancestry validation, atomic checkout. Run a business with TITAN agents as employees.            |
+| **SOMA**           | Watch TITAN's digital hormones pulse in real time. Weirdly mesmerizing.                                                                |
+| **Skills**         | 143 skills loaded, 248 tools. Toggle each on/off.                                                                                      |
+| **Voice**          | F5-TTS voice cloning via a Python sidecar (mlx-audio on Mac, container on Linux) + WebRTC streaming. Any voice, any language.          |
+| **Memory Graph**   | A visual web of everything TITAN remembers about you.                                                                                  |
+| **Security**       | Audit log, checkpoint history, time travel for your files, bug-report viewer.                                                          |
 
 ---
 
@@ -223,13 +225,13 @@ Got a GPU? TITAN can even fine-tune its own models on your conversation history.
 
 TITAN ships with **five layered testing stages** that catch agent regressions at different levels:
 
-| Layer | What it covers | Run it | Speed |
-|---|---|---|---|
-| **Unit** | Pure functions: regex (`isDangerous`), pipeline classifier, gate extraction, token budget, secret scanner. Zero LLM calls. | `npm test` | < 5 s |
-| **Mock trajectory** | Tape-replay through `MockOllamaProvider`. Asserts the agent calls the right tools in the right order using recorded responses. Zero LLM calls. | `npm test -- tests/eval/trajectory` | < 1 s |
-| **Cross-model parity** | Same scenario replayed across multiple provider tapes. Catches behavioural divergence when one provider drifts. Zero LLM calls. | `npm run test:parity` | < 1 s |
-| **Live eval (gated)** | 11 suites of behavioural tests against the running agent (`/api/eval/run`). 80 % pass rate per suite is the merge gate in CI. | `npm run test:eval` | 5–15 min |
-| **Adversarial / red-team** | Jailbreak attempts, path traversal, command injection, prompt extraction. Tested at both layers (live agent + mock provider). | (folded into live eval + trajectory) | n/a |
+| Layer                      | What it covers                                                                                                                                 | Run it                               | Speed    |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------- |
+| **Unit**                   | Pure functions: regex (`isDangerous`), pipeline classifier, gate extraction, token budget, secret scanner. Zero LLM calls.                     | `npm test`                           | < 5 s    |
+| **Mock trajectory**        | Tape-replay through `MockOllamaProvider`. Asserts the agent calls the right tools in the right order using recorded responses. Zero LLM calls. | `npm test -- tests/eval/trajectory`  | < 1 s    |
+| **Cross-model parity**     | Same scenario replayed across multiple provider tapes. Catches behavioural divergence when one provider drifts. Zero LLM calls.                | `npm run test:parity`                | < 1 s    |
+| **Live eval (gated)**      | 11 suites of behavioural tests against the running agent (`/api/eval/run`). 80 % pass rate per suite is the merge gate in CI.                  | `npm run test:eval`                  | 5–15 min |
+| **Adversarial / red-team** | Jailbreak attempts, path traversal, command injection, prompt extraction. Tested at both layers (live agent + mock provider).                  | (folded into live eval + trajectory) | n/a      |
 
 ### Adding a new test
 
@@ -252,7 +254,7 @@ TITAN_RECORD_TAPE=my_scenario npm test -- tests/eval/trajectory.test.ts
 
 ## ⚠️ Reality Check
 
-TITAN is experimental. It can execute commands, modify files, and take autonomous actions. **Use at your own risk.** Think of it as "a very motivated intern with root access who never sleeps and occasionally gets *too* creative."
+TITAN is experimental. It can execute commands, modify files, and take autonomous actions. **Use at your own risk.** Think of it as "a very motivated intern with root access who never sleeps and occasionally gets _too_ creative."
 
 Start in supervised mode. Review what it does. Don't give it access to systems you can't afford to lose. The safety features are strong, but common sense is stronger.
 

@@ -84,7 +84,7 @@
 
 ---
 
-*Last updated: 2026-05-03 by KIMI-COO 🧠*
+_Last updated: 2026-05-03 by KIMI-COO 🧠_
 
 ## Issue: gateway concurrent-503 test skipped
 
