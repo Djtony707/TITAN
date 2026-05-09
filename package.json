@@ -47,7 +47,7 @@
     "start": "node dist/cli/index.js",
     "lint": "eslint src/ --ext .ts",
     "lint:fix": "eslint src/ --ext .ts --fix",
-    "test": "vitest run",
+    "test": "vitest run --reporter=basic",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npx playwright test",
