@@ -160,7 +160,7 @@ vi.mock('../src/providers/router.js', () => ({
 }));
 
 vi.mock('../src/utils/updater.js', () => ({
-    getUpdateInfo: vi.fn().mockResolvedValue({ current: '5.4.1', latest: '5.4.1', upToDate: true }),
+    getUpdateInfo: vi.fn().mockResolvedValue({ current: '5.5.31', latest: '5.5.31', upToDate: true }),
 }));
 
 vi.mock('../src/skills/registry.js', () => ({
@@ -325,7 +325,7 @@ describe('Mission Control v2', () => {
             const res = await fetch(`${BASE}/api/update`);
             expect(res.status).toBe(200);
             const body = await res.json() as any;
-            expect(body.current).toBe('5.4.1');
+            expect(body.current).toBe('5.5.31');
         });
     });
 
