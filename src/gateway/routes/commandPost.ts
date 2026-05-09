@@ -7,6 +7,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import logger from '../../utils/logger.js';
+import { setupSSEFlush } from '../../utils/sseFlush.js';
 
 // Command Post core
 import {
@@ -413,9 +414,10 @@ export function createCommandPostRouter(): Router {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    const sseWrite = setupSSEFlush(res);
 
     const onEvent = (event: string, data: unknown) => {
-      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+      try { sseWrite(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
     const listeners = new Map<string, (data: unknown) => void>();
@@ -426,7 +428,7 @@ export function createCommandPostRouter(): Router {
     }
 
     const keepalive = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch { /* client gone */ }
+      try { sseWrite(': keepalive\n\n'); } catch { /* client gone */ }
     }, 15_000);
 
     req.on('close', () => {

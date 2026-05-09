@@ -7,6 +7,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import logger from '../../utils/logger.js';
+import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { loadConfig } from '../../config/config.js';
 
 // Autopilot
@@ -199,9 +200,10 @@ export function createLifecycleRouter(): Router {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    const sseWrite = setupSSEFlush(res);
 
     const onEvent = (event: string, data: unknown) => {
-      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+      try { sseWrite(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
     const events = DAEMON_SSE_EVENTS;
@@ -215,7 +217,7 @@ export function createLifecycleRouter(): Router {
     }
 
     const keepalive = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch { /* client gone */ }
+      try { sseWrite(': keepalive\n\n'); } catch { /* client gone */ }
     }, 15_000);
 
     req.on('close', () => {

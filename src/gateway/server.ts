@@ -96,6 +96,7 @@ import { createVoiceRouter } from './routes/voiceRouter.js';
 
 import { createSocialRouter } from './routes/socialRouter.js';
 import { createWatchRouter } from './routes/watchRouter.js';
+import { setupSSEFlush } from '../utils/sseFlush.js';
 import { createLifecycleRouter } from './routes/agents.js';
 
 import { getLifecycleManager } from '../utils/lifecycle.js';
@@ -1719,9 +1720,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (req.headers.accept === 'text/event-stream') {
             res.setHeader('Content-Type', 'text/event-stream');
             res.flushHeaders();
-            res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
-            res.write(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
-            res.write(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
+            const sseWrite = setupSSEFlush(res);
+            sseWrite(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
+            sseWrite(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
+            sseWrite(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
             res.end();
         } else {
             res.json({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, toolsUsed: [], model: 'system', durationMs: 0 });
@@ -1762,7 +1764,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           res.setHeader('Connection', 'keep-alive');
           res.setHeader('X-Accel-Buffering', 'no');
           res.flushHeaders();
-          res.write(`event: done\ndata: ${JSON.stringify({ content: slashResult.response, sessionId: null, durationMs: 0 })}\n\n`);
+          const sseWrite = setupSSEFlush(res);
+          sseWrite(`event: done\ndata: ${JSON.stringify({ content: slashResult.response, sessionId: null, durationMs: 0 })}\n\n`);
           res.end();
         } else {
           res.json({ content: slashResult.response, sessionId: null, toolsUsed: [], model: 'system' });
@@ -1808,7 +1811,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.flushHeaders();
-        res.write(`event: done\ndata: ${JSON.stringify({ error: 'Server busy' })}\n\n`);
+        const sseWrite = setupSSEFlush(res);
+        sseWrite(`event: done\ndata: ${JSON.stringify({ error: 'Server busy' })}\n\n`);
         res.end();
       } else {
         res.status(503).json({ error: 'Server busy — too many concurrent requests. Try again shortly.' });
@@ -1819,6 +1823,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     titanActiveSessions.inc();
     // Track client disconnect to avoid writing to dead connections
     let clientDisconnected = false;
+    let sseWrite: ((data: string) => void) | null = null;
     try {
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -1833,9 +1838,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           abortController.abort('client disconnected');
         });
 
+        sseWrite = setupSSEFlush(res);
         const safeWrite = (data: string) => {
           if (clientDisconnected) return;
-          try { res.write(data); } catch { clientDisconnected = true; }
+          try { sseWrite!(data); } catch { clientDisconnected = true; }
         };
 
         const response = await routeMessage(content, channel, safeUserId, {
@@ -1952,8 +1958,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       } catch { /* never let bug capture break the request path */ }
       // Classify the error so the UI can render an actionable banner instead of a stack trace
       const structured = classifyChatError(error as Error);
-      if (wantsSSE && !clientDisconnected) {
-        try { res.write(`event: done\ndata: ${JSON.stringify(structured)}\n\n`); res.end(); } catch { /* client gone */ }
+      if (wantsSSE && !clientDisconnected && sseWrite) {
+        try { sseWrite(`event: done\ndata: ${JSON.stringify(structured)}\n\n`); res.end(); } catch { /* client gone */ }
       } else if (!wantsSSE) {
         res.status(structured.status).json(structured);
       }
@@ -1976,6 +1982,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+    const sseWrite = setupSSEFlush(res);
 
     try {
       const config = loadConfig();
@@ -1984,12 +1991,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const userMessages = [{ role: 'user' as const, content }];
 
       for await (const chunk of chatStream({ model: modelId, messages: [...systemMessages, ...userMessages], maxTokens: config.agent.maxTokens, temperature: config.agent.temperature })) {
-        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        sseWrite(`data: ${JSON.stringify(chunk)}\n\n`);
         if (chunk.type === 'done' || chunk.type === 'error') break;
       }
     } catch (error) {
       logger.error(COMPONENT, `Stream error: ${(error as Error).message}`);
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'The assistant hit a snag. Please refresh and try again.' })}\n\n`);
+      sseWrite(`data: ${JSON.stringify({ type: 'error', error: 'The assistant hit a snag. Please refresh and try again.' })}\n\n`);
     }
     res.end();
   });

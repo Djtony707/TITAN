@@ -487,7 +487,12 @@ export function mountMcpHttpEndpoints(app: Express): void {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sock = (res as any).socket;
+        if (sock && typeof sock.setNoDelay === 'function') sock.setNoDelay(true);
         res.write('event: endpoint\ndata: /mcp\n\n');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (typeof (res as any).flush === 'function') (res as any).flush();
         // Keep connection open for future notifications
         // Client can close when done
     });
