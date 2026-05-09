@@ -12,6 +12,7 @@ import fs from 'fs';
 import { execSync, spawn } from 'child_process';
 import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
+import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { processMessage } from '../../agent/agent.js';
 import { routeMessage } from '../../agent/multiAgent.js';
 
@@ -195,10 +196,11 @@ export function createVoiceRouter(
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+    const sseWrite = setupSSEFlush(res);
 
     let clientDisconnected = false;
     res.on('close', () => { clientDisconnected = true; });
-    const safeWrite = (data: string) => { if (!clientDisconnected) { try { res.write(data); } catch { clientDisconnected = true; } } };
+    const safeWrite = (data: string) => { if (!clientDisconnected) { try { sseWrite(data); } catch { clientDisconnected = true; } } };
 
     const heartbeat = setInterval(() => { if (clientDisconnected) { clearInterval(heartbeat); return; } safeWrite(': heartbeat\n\n'); }, 2000);
 
@@ -444,7 +446,8 @@ export function createVoiceRouter(
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.flushHeaders();
-    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => { res.write(`data: ${JSON.stringify({ step, status, detail })}\n\n`); };
+    const sseWrite = setupSSEFlush(res);
+    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => { sseWrite(`data: ${JSON.stringify({ step, status, detail })}\n\n`); };
     const venvPath = join(homedir(), '.titan', 'qwen3tts-venv');
     const voicesDir = join(homedir(), '.titan', 'voices');
     try {
