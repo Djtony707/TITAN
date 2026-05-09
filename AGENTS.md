@@ -1,20 +1,19 @@
 # TITAN Agent Context
 
-## Current Focus: v5.5.6 — SHIPPED + STABILIZED (2026-05-07)
+## Current Focus: v5.5.31 — SHIPPED + STABILIZED (2026-05-09)
 
-**Status (2026-05-07):** v5.5.4, v5.5.5, v5.5.6 all shipped to origin + tagged.
-v5.5.6 published to npm as `@next`. `@latest` stays at v5.4.2 for 24h soak,
-then promote.
+**Status (2026-05-09):** v5.5.7 through v5.5.31 shipped to origin + tagged.
+v5.5.31 published to npm as `@next`. `@latest` stays at v5.4.2.
 
-- Mac HEAD: `5619f1a` (test cleanup on top of v5.5.6)
-- Titan PC `/opt/TITAN`: v5.5.6, systemd-managed, clean (NRestarts=0)
-- npm `@next`: 5.5.6 / npm `@latest`: 5.4.2
-- Tests: 250 files / 6,602 passed / 2 documented-skipped / 0 failing
+- Mac HEAD: latest on main
+- Titan PC `/opt/TITAN`: v5.5.31, systemd-managed, clean (NRestarts=0)
+- npm `@next`: 5.5.31 / npm `@latest`: 5.4.2
+- Tests: 258 files / 6,628 passed / 1 documented-skipped / 0 failing
 - Critical fix shipped: gateway no longer auto-restarts every 5 min
   (root cause: stale auth token in `~/.titan/health-check.sh`)
 
 See `docs/HANDOFF-2026-05-07.md` for the 7-hour stabilization handoff
-(Hour 7 deliverable).
+(Hour 7 deliverable) and subsequent changelogs for v5.5.7–v5.5.31.
 
 ### Headline features in v5.0
 
@@ -182,7 +181,7 @@ env. Full content available via `get_persona` tool.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **TITAN** (30583 symbols, 45637 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **TITAN** (30602 symbols, 45667 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

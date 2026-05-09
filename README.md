@@ -4,7 +4,7 @@
 
 # TITAN 5.5 — "Spacewalk" 🚀
 
-<sub><em>Current: v5.5.6 · npm `@next` 5.5.6 · `@latest` 5.4.2 · live on Titan PC</em></sub>
+<sub><em>Current: v5.5.31 · npm `@next` 5.5.31 · `@latest` 5.4.2 · live on Titan PC</em></sub>
 
 <p align="center">
   <img src="assets/titan-logo.png" alt="TITAN Logo" width="280"/>
