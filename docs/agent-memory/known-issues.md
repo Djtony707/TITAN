@@ -16,6 +16,17 @@
 - **workaround:** Use `npx vitest run --reporter=basic` or wait longer. For fast feedback, run `npx vitest run tests/unit/` (~8s).
 - **review_after:** 2026-05-10
 
+## Issue: npm test hang — RESOLVED
+
+- **type:** RESOLVED
+- **date:** 2026-05-09
+- **source:** Fix applied to package.json
+- **confidence:** high
+- **verified_by:** `npm test` now uses `--reporter=basic` which streams progress
+- **content:** The default vitest reporter buffers all output until completion. With a ~180s suite, this looks like a hang. Fixed by changing `"test": "vitest run"` to `"test": "vitest run --reporter=basic"`.
+- **workaround:** N/A — fixed.
+- **review_after:** N/A
+
 ## Issue: Version mismatch between package.json and README
 
 - **type:** BUG
@@ -73,7 +84,7 @@
 
 ---
 
-*Last updated: 2026-05-03 by KIMI-COO 🧠*
+_Last updated: 2026-05-03 by KIMI-COO 🧠_
 
 ## Issue: gateway concurrent-503 test skipped
 
@@ -85,6 +96,17 @@
 - **content:** The test "Concurrent LLM limit > returns 503 when too many concurrent requests" was unskipped in v5.5.6 then re-skipped after failing. Fires 7 requests with a slow-mock routeMessage expecting at least one 503; gets all-success. Either `gateway.maxConcurrentMessages` was raised past 7 since this test was written, the slow-mock isn't actually saturating the limiter, or the 503 path is broken.
 - **workaround:** Skipped; test file otherwise passes 60 tests.
 - **review_after:** v5.5.7 — investigate `src/gateway/server.ts maxConcurrentMessages` and the route guard.
+
+## Issue: gateway concurrent-503 test resolved
+
+- **type:** RESOLVED
+- **date:** 2026-05-09
+- **source:** Re-test after v5.5.31
+- **confidence:** high
+- **verified_by:** `npx vitest run tests/gateway-extended.test.ts -t "concurrent"` passes
+- **content:** Test was unskipped and passes reliably. Root cause of earlier failure unknown — likely fixed by concurrent-limit refactoring in v5.5.12–v5.5.28.
+- **workaround:** N/A — test is now active.
+- **review_after:** N/A
 
 ## Issue: agent.test.ts loop-detection test crashes vitest worker
 

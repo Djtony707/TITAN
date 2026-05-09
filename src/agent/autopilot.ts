@@ -250,6 +250,26 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
             } as unknown as AutopilotResult;
         }
     } catch { /* fail-open — safety optional */ }
+
+    // v5.5.24: persona wind-down gate. When a persona with windDown=true
+    // is active (e.g. Dad Mode 18:00–21:00), autopilot pauses so TITAN
+    // doesn't grind through autonomous goals during family time. Same
+    // soft-exit shape as kill switch.
+    try {
+        const { isWindDownActive, resolveActivePersona } = await import('./personaProfiles.js');
+        if (isWindDownActive()) {
+            const persona = resolveActivePersona();
+            isRunning = false;
+            return {
+                success: false,
+                timestamp: new Date().toISOString(),
+                duration: 0,
+                summary: `Autopilot paused by persona wind-down (${persona?.name ?? 'unknown'}) — autonomous activity resumes when window ends`,
+                cost: 0,
+                tokensUsed: 0,
+            } as unknown as AutopilotResult;
+        }
+    } catch { /* fail-open — personas optional */ }
     const startTime = Date.now();
     const config = loadConfig();
     const configDryRun = (config.autopilot as Record<string, unknown>).dryRun === true;

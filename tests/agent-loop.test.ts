@@ -34,7 +34,6 @@ const mockRecordToolPreference = vi.hoisted(() => vi.fn());
 const mockGetErrorResolution = vi.hoisted(() => vi.fn());
 const mockRecordErrorResolution = vi.hoisted(() => vi.fn());
 const mockRecordToolUsage = vi.hoisted(() => vi.fn());
-const mockRunSubAgent = vi.hoisted(() => vi.fn());
 
 // ── Module mocks ─────────────────────────────────────────────────────────
 vi.mock('../src/utils/logger.js', () => ({
@@ -105,10 +104,6 @@ vi.mock('../src/agent/userProfile.js', () => ({
     recordToolUsage: mockRecordToolUsage,
 }));
 
-vi.mock('../src/agent/swarm.js', () => ({
-    runSubAgent: mockRunSubAgent,
-}));
-
 // ── Import AFTER mocks ──────────────────────────────────────────────────
 import { runAgentLoop, type LoopContext, type LoopResult } from '../src/agent/agentLoop.js';
 import type { ChatResponse } from '../src/providers/base.js';
@@ -168,7 +163,6 @@ function makeLoopContext(overrides: Partial<LoopContext> = {}): LoopContext {
         reflectionEnabled: false,
         reflectionInterval: 5,
         toolSearchEnabled: false,
-        isKimiSwarm: false,
         selfHealEnabled: false,
         // Tests opt out of smart-exit by default so multi-round assertions actually
         // exercise the THINK→ACT→THINK loop. Override per-test to test smart-exit itself.

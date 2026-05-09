@@ -1274,6 +1274,187 @@ export const TitanConfigSchema = z.object({
         /** Which TITAN version the user was on when they consented. */
         consentedVersion: z.string().optional(),
     }).default({}),
+
+    /**
+     * Dream Mode (v5.5.17+) — TITAN runs an offline cycle in the small hours
+     * to consolidate the day, reflect on what it learned, write a first-
+     * person journal entry, and (optionally) narrate it in a cloned voice.
+     * Reads existing trajectory log + drive ring buffer + run history; no
+     * new data persistence beyond `~/.titan/dreams/<date>.{md,json}`.
+     */
+    dream: z.object({
+        /** Master switch. Default off — opt in via Mission Control or config. */
+        enabled: z.boolean().default(false),
+        /**
+         * Local-time HH:MM at which to start the dream cycle. Default 03:30
+         * — chosen so the journal is ready before any human is awake but
+         * after the GPU has cooled from late-night autonomous work.
+         */
+        cronAt: z.string().regex(/^\d{2}:\d{2}$/).default('03:30'),
+        /**
+         * Model used for the journal-writing prompts. Falls back to
+         * agent.model when unset. The journal is monologue-style prose so a
+         * cheaper model is fine; default empty = inherit.
+         */
+        model: z.string().default(''),
+        /**
+         * Generate audio narration via the F5-TTS bridge after the journal
+         * is written. Saves an mp3 next to the markdown. Default off —
+         * requires the voice subsystem to be running and a voice ID set.
+         */
+        includeAudio: z.boolean().default(false),
+        /** Voice ID for the narration. When unset, uses voice.defaultVoice. */
+        voiceId: z.string().default(''),
+        /**
+         * Drive-delta thresholds gating which sections appear. Reflect
+         * fires when 24h curiosity rose by ≥ this; worry fires when safety
+         * dropped by ≥ this; etc. Keeps the journal honest — TITAN
+         * doesn't fabricate emotion when nothing changed.
+         */
+        thresholds: z.object({
+            reflect: z.number().min(0).max(1).default(0.1),
+            worry: z.number().min(0).max(1).default(0.1),
+            plan: z.number().min(0).max(1).default(0.05),
+            gratitude: z.number().min(0).max(1).default(0.05),
+        }).default({}),
+    }).default({}),
+
+    /**
+     * Persona Profiles (v5.5.24+ — Dad Mode plumbing) — TITAN can run as
+     * different personas based on time-of-day, channel, or caller. The
+     * active persona controls which tools are exposed to the LLM, what
+     * system-prompt suffix is appended, and whether autonomous activity
+     * (autopilot, social posting, shell) is gated by a wind-down window.
+     *
+     * Same plumbing also unblocks the visionary Beat-Match Mode (#5) and
+     * Stage Mode (#7) which both want a "this is who TITAN is right now"
+     * resolver. Ships with two defaults: Worker (default, full toolkit)
+     * and Dad (family-safe, evening hours, no shell/code/posting).
+     *
+     * If `personas.enabled` is false, persona resolution is skipped
+     * entirely — TITAN behaves exactly as before.
+     */
+    personas: z.object({
+        enabled: z.boolean().default(false),
+        /**
+         * The persona that's active when no time-window or channel rule
+         * matches. Default 'worker' — full-toolkit baseline.
+         */
+        defaultPersona: z.string().default('worker'),
+        /**
+         * Per-channel persona pin. Messages arriving on these channels
+         * force the named persona regardless of time-of-day. Useful for:
+         * - Family iPad's Telegram bot → forced 'dad'
+         * - Stream chat IRC → forced 'stagehost'
+         * Channel names match the runtime channel string set by adapters
+         * (e.g. 'telegram', 'discord', 'slack').
+         */
+        channelPins: z.record(z.string(), z.string()).default({}),
+        /**
+         * Persona definitions. Each entry overlays on the security policy.
+         * - allowedTools=[] inherits security.allowedTools (no override).
+         * - allowedTools=['x','y'] restricts to JUST x and y on top of
+         *   whatever security already allowed (intersection).
+         * - schedule defines a daily local-time window when this persona
+         *   takes over from defaultPersona. Format: { from: 'HH:MM',
+         *   to: 'HH:MM' }. Crosses midnight is supported.
+         * - windDown=true gates all autopilot and outbound posting tools
+         *   while this persona is active.
+         */
+        profiles: z.array(z.object({
+            id: z.string(),
+            name: z.string(),
+            /** Voice clone ID for TTS-routed responses. Empty = inherit. */
+            voiceId: z.string().default(''),
+            /** Tools allowed under this persona (empty = no extra restriction). */
+            allowedTools: z.array(z.string()).default([]),
+            /** Tools explicitly denied (overrides allowedTools — denial wins). */
+            deniedTools: z.array(z.string()).default([]),
+            /** Concatenated to the agent system prompt while this persona is active. */
+            systemPromptAppendix: z.string().default(''),
+            /** Daily activation window. Optional — most personas activate by channel pin. */
+            schedule: z.object({
+                from: z.string().regex(/^\d{2}:\d{2}$/),
+                to: z.string().regex(/^\d{2}:\d{2}$/),
+            }).optional(),
+            /** When true, autopilot and outbound channels are paused while this persona is active. */
+            windDown: z.boolean().default(false),
+            /** Optional descriptive note for Mission Control. */
+            description: z.string().default(''),
+        })).default([
+            // Default: full-toolkit baseline. Empty allowedTools means
+            // inherit the security layer's policy unchanged.
+            {
+                id: 'worker',
+                name: 'Worker',
+                voiceId: '',
+                allowedTools: [],
+                deniedTools: [],
+                systemPromptAppendix: '',
+                windDown: false,
+                description: 'Default work-mode persona. Full toolkit, no time gating.',
+            },
+            // Dad Mode: family-safe evening hours. No shell, no code, no
+            // outbound posting. Wind-down halts autopilot. Persona-level
+            // appendix re-frames TITAN as "the dad's assistant who's off
+            // the clock for the rest of the night."
+            {
+                id: 'dad',
+                name: 'Dad',
+                voiceId: '',
+                allowedTools: [
+                    'memory', 'goal_list', 'system_info', 'weather',
+                    'ha_status', 'ha_control', 'ha_devices',
+                    'web_search', 'web_fetch',
+                ],
+                deniedTools: [
+                    'shell', 'write_file', 'edit_file', 'append_file',
+                    'spawn_agent', 'agent_team', 'agent_chain', 'agent_delegate',
+                    'fb_post', 'x_post', 'x_reply',
+                    'titan_self_modify', 'self_proposal_pr',
+                ],
+                systemPromptAppendix: '\n\n── PERSONA: DAD ──\nYou are off the clock for the rest of the night. Tony is with his family. Keep responses short, warm, and helpful — no work tasks, no autonomous actions, no shipping code. If asked about a family-relevant topic (weather, smart-home, a quick fact for a kid) handle it. If asked about work, gently say it can wait until morning.',
+                schedule: { from: '18:00', to: '21:00' },
+                windDown: true,
+                description: 'Evening family-safe persona. Dinner through bedtime — no shell, no code, no posting. Autopilot paused.',
+            },
+        ]),
+        /**
+         * Persona A/B rollout (v5.5.27+, visionary V2 #3) — canary a new
+         * persona against an existing baseline on a subset of traffic, with
+         * automatic revert when the candidate cohort underperforms or
+         * Safety drive drops. Cohorts themselves are runtime state stored
+         * at `~/.titan/persona-cohorts.json` (created via API), not config.
+         * This block sets the policy thresholds + monitor cadence.
+         */
+        rollout: z.object({
+            /** Master switch. Default off. When false, cohorts are inert. */
+            enabled: z.boolean().default(false),
+            /** How often to re-evaluate cohort health and consider auto-revert. */
+            monitorIntervalMins: z.number().min(1).max(60).default(5),
+            /** Minimum sample size per cohort role before auto-revert can fire. */
+            minSampleSize: z.number().min(1).default(10),
+            /**
+             * Pass-rate margin: candidate cohort's pass-rate may be at most
+             * this much lower than baseline before auto-revert fires.
+             * Default 0.05 = candidate can be up to 5% worse before revert.
+             */
+            passRateMargin: z.number().min(0).max(1).default(0.05),
+            /**
+             * Safety-drive drop threshold: candidate cohort's average Safety
+             * drive may drop by at most this much below baseline before
+             * auto-revert fires. Default 0.2.
+             */
+            safetyDropThreshold: z.number().min(0).max(1).default(0.2),
+            /**
+             * Window over which to compute cohort stats. Older outcomes
+             * fall out of the rolling sample. Default 30 minutes — fast
+             * enough to catch a regression in time, slow enough to gather
+             * a meaningful sample on most workloads.
+             */
+            windowMins: z.number().min(1).max(1440).default(30),
+        }).default({}),
+    }).default({}),
 });
 
 export type TitanConfig = z.infer<typeof TitanConfigSchema>;

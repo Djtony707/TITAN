@@ -1,7 +1,7 @@
 /**
  * TITAN — Agent Loop Tests
  * Tests processMessage: the main agent loop, tool calling, caching, stall detection,
- * loop detection, swarm routing, cost optimization, and error handling.
+ * loop detection, cost optimization, and error handling.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -32,8 +32,6 @@ const mockRecordTokenUsage = vi.hoisted(() => vi.fn());
 const mockGetCachedResponse = vi.hoisted(() => vi.fn());
 const mockSetCachedResponse = vi.hoisted(() => vi.fn());
 const mockBuildSmartContext = vi.hoisted(() => vi.fn());
-const mockGetSwarmRouterTools = vi.hoisted(() => vi.fn());
-const mockRunSubAgent = vi.hoisted(() => vi.fn());
 const mockInitGraph = vi.hoisted(() => vi.fn());
 const mockAddEpisode = vi.hoisted(() => vi.fn());
 const mockGetGraphContext = vi.hoisted(() => vi.fn());
@@ -174,11 +172,6 @@ vi.mock('../src/agent/contextManager.js', () => ({
     compactContextWithPlugins: vi.fn().mockImplementation((msgs: unknown[]) => Promise.resolve(msgs)),
 }));
 
-vi.mock('../src/agent/swarm.js', () => ({
-    getSwarmRouterTools: mockGetSwarmRouterTools,
-    runSubAgent: mockRunSubAgent,
-}));
-
 vi.mock('../src/memory/graph.js', () => ({
     initGraph: mockInitGraph,
     addEpisode: mockAddEpisode,
@@ -293,7 +286,6 @@ beforeEach(async () => {
     mockCheckForLoop.mockReturnValue({ allowed: true, level: 'ok' });
     mockRecordToolCallStall.mockReturnValue(null);
     mockChat.mockResolvedValue(makeChatResponse());
-    mockGetSwarmRouterTools.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
 
     // Dynamically re-import to get a fresh module each time
@@ -593,57 +585,6 @@ describe('Agent processMessage', () => {
         expect(result.content).toBeTruthy();
     });
 
-    // ── Swarm mode (kimi-k2.5) ──────────────────────────────────────
-
-    it('should use swarm router tools for kimi-k2.5 model', async () => {
-        mockRouteModel.mockReturnValue({
-            model: 'kimi-k2.5:cloud',
-            reason: 'user override',
-            willSaveMoney: false,
-        });
-
-        const swarmTools = [
-            { type: 'function', function: { name: 'delegate_to_file_agent', description: 'File ops', parameters: {} } },
-        ];
-        mockGetSwarmRouterTools.mockReturnValue(swarmTools);
-
-        mockChat.mockResolvedValue(makeChatResponse({ content: 'Done via swarm' }));
-
-        await processMessage('List files');
-
-        expect(mockGetSwarmRouterTools).toHaveBeenCalled();
-        expect(mockChat).toHaveBeenCalledWith(expect.objectContaining({
-            tools: swarmTools,
-        }));
-    });
-
-    it('should route swarm tool calls to sub-agents for kimi-k2.5', async () => {
-        mockRouteModel.mockReturnValue({
-            model: 'kimi-k2.5:cloud',
-            reason: 'user override',
-            willSaveMoney: false,
-        });
-
-        const swarmTools = [
-            { type: 'function', function: { name: 'delegate_to_file_agent', description: 'File ops', parameters: {} } },
-        ];
-        mockGetSwarmRouterTools.mockReturnValue(swarmTools);
-
-        const toolCalls = [
-            { id: 'tc-1', type: 'function' as const, function: { name: 'delegate_to_file_agent', arguments: '{"instruction":"list files"}' } },
-        ];
-
-        mockChat
-            .mockResolvedValueOnce(makeChatResponse({ toolCalls, content: '' }))
-            .mockResolvedValueOnce(makeChatResponse({ content: 'Files listed by sub-agent' }));
-
-        mockRunSubAgent.mockResolvedValue('file1.txt\nfile2.txt');
-
-        await processMessage('List files');
-
-        expect(mockRunSubAgent).toHaveBeenCalledWith('file', 'list files', 'kimi-k2.5:cloud');
-    });
-
     // ── Context compression ─────────────────────────────────────────
 
     it('should apply context compression via buildSmartContext for large contexts', async () => {
@@ -823,36 +764,6 @@ describe('Agent processMessage', () => {
         const result = await processMessage('List files');
 
         expect(mockGetNudgeMessage).toHaveBeenCalledWith(stallEvent);
-    });
-
-    // ── Swarm: malformed delegate arguments ──────────────────────────
-
-    it('should handle malformed swarm delegate arguments gracefully', async () => {
-        mockRouteModel.mockReturnValue({
-            model: 'kimi-k2.5:cloud',
-            reason: 'user override',
-            willSaveMoney: false,
-        });
-
-        const swarmTools = [
-            { type: 'function', function: { name: 'delegate_to_file_agent', description: 'File ops', parameters: {} } },
-        ];
-        mockGetSwarmRouterTools.mockReturnValue(swarmTools);
-
-        const toolCalls = [
-            { id: 'tc-1', type: 'function' as const, function: { name: 'delegate_to_file_agent', arguments: 'NOT_VALID_JSON' } },
-        ];
-
-        mockChat
-            .mockResolvedValueOnce(makeChatResponse({ toolCalls, content: '' }))
-            .mockResolvedValueOnce(makeChatResponse({ content: 'Handled gracefully.' }));
-
-        // runSubAgent should still be called with empty instruction (fallback)
-        mockRunSubAgent.mockResolvedValue('result');
-
-        const result = await processMessage('Do something');
-
-        expect(mockRunSubAgent).toHaveBeenCalledWith('file', '', 'kimi-k2.5:cloud');
     });
 
     // ── Default channel and userId ──────────────────────────────────

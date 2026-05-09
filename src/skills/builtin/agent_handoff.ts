@@ -4,7 +4,7 @@
  * Uses TITAN's sub-agent infrastructure for isolated execution.
  */
 import { registerSkill } from '../registry.js';
-import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentConfig, type ModelTier } from '../../agent/subAgent.js';
+import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentConfig } from '../../agent/subAgent.js';
 import logger from '../../utils/logger.js';
 
 // v4.14.0: role → specialist ID mapping for CP status tracking
@@ -30,63 +30,44 @@ async function setAgentStatus(role: string, status: 'active' | 'idle'): Promise<
 
 const COMPONENT = 'AgentHandoff';
 
-/** Role-to-template mapping with fallback system prompts */
-const ROLE_MAP: Record<string, { template?: string; systemPrompt: string; tier: ModelTier }> = {
-    researcher: {
-        template: 'researcher',
-        systemPrompt: 'You are a research specialist. Thoroughly investigate the given topic using available tools. Cite sources and provide structured findings.',
-        tier: 'cloud',
-    },
-    coder: {
-        template: 'coder',
-        systemPrompt: 'You are a coding specialist. Write clean, well-structured code. Read existing files before modifying. Test your work.',
-        tier: 'fast',
-    },
-    analyst: {
-        template: 'analyst',
-        systemPrompt: 'You are an analysis specialist. Examine data, identify patterns, and produce structured analytical reports with confidence levels.',
-        tier: 'cloud',
-    },
-    writer: {
-        systemPrompt: 'You are a writing specialist. Produce clear, well-structured, publication-quality content. Match the requested tone and format.',
-        tier: 'smart',
-    },
-    reviewer: {
-        template: 'dev_reviewer',
-        systemPrompt: 'You are a review specialist. Critically evaluate the given content for accuracy, completeness, quality, and potential issues. Provide specific, actionable feedback.',
-        tier: 'smart',
-    },
-    explorer: {
-        template: 'explorer',
-        systemPrompt: 'You are a web research specialist. Search the web, fetch pages, and gather information from multiple sources.',
-        tier: 'smart',
-    },
-    debugger: {
-        template: 'dev_debugger',
-        systemPrompt: 'You are a debugging specialist. Diagnose issues systematically — read code, reproduce errors, identify root causes, and verify fixes.',
-        tier: 'smart',
-    },
-    architect: {
-        template: 'dev_architect',
-        systemPrompt: 'You are a system architecture specialist. Analyze structure, dependencies, and design patterns. Propose well-reasoned improvements.',
-        tier: 'cloud',
-    },
+/**
+ * Role-aliases → SUB_AGENT_TEMPLATES key. The user-facing role names this
+ * skill exposes (researcher, coder, analyst, writer, reviewer, explorer,
+ * debugger, architect) sometimes match the canonical template name and
+ * sometimes need translation (debugger → dev_debugger). All system prompts,
+ * tier, and tools come from SUB_AGENT_TEMPLATES — this map is just the
+ * vocabulary translation layer.
+ *
+ * v5.5.23: Eliminated parallel `ROLE_MAP` that duplicated systemPrompt and
+ * tier per role. Eight inline systemPrompts removed; SUB_AGENT_TEMPLATES is
+ * now the single source of truth for sub-agent role definitions, shared
+ * across spawn_agent, agent_delegate, agent_team, and agent_chain.
+ */
+const ROLE_ALIASES: Record<string, string> = {
+    researcher: 'researcher',
+    coder: 'coder',
+    analyst: 'analyst',
+    writer: 'writer',
+    explorer: 'explorer',
+    reviewer: 'dev_reviewer',
+    debugger: 'dev_debugger',
+    architect: 'dev_architect',
 };
 
-/** Resolve a role string into a SubAgentConfig */
+/** Resolve a role string into a SubAgentConfig from SUB_AGENT_TEMPLATES. */
 function resolveRole(role: string, task: string, context?: string, maxRounds?: number): SubAgentConfig {
     const roleLower = role.toLowerCase().trim();
-    const mapping = ROLE_MAP[roleLower];
-    const template = mapping?.template ? SUB_AGENT_TEMPLATES[mapping.template] : undefined;
+    const templateKey = ROLE_ALIASES[roleLower] || roleLower;
+    const template = SUB_AGENT_TEMPLATES[templateKey];
 
     const fullTask = context ? `${task}\n\nContext:\n${context}` : task;
 
     return {
-        name: `${role.charAt(0).toUpperCase() + role.slice(1)}Agent`,
+        name: template?.name || `${role.charAt(0).toUpperCase() + role.slice(1)}Agent`,
         task: fullTask,
         tools: template?.tools,
-        systemPrompt: template?.systemPrompt || mapping?.systemPrompt || `You are a ${role} specialist. Complete the given task thoroughly and return a clear summary.`,
-        tier: mapping?.tier || 'smart',
+        systemPrompt: template?.systemPrompt || `You are a ${role} specialist. Complete the given task thoroughly and return a clear summary.`,
+        tier: template?.tier || 'smart',
         maxRounds: maxRounds || template?.maxRounds || 10,
     };
 }

@@ -47,6 +47,7 @@ import { createOpenAICompatRouter } from '../gateway/openai-compat.js';
 import type { ChannelAdapter, InboundMessage } from '../channels/base.js';
 import logger, { initFileLogger } from '../utils/logger.js';
 import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/constants.js';
+import { getRestartStats as getRestartStatsSync } from '../utils/restartTracker.js';
 import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
 import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
@@ -95,6 +96,7 @@ import { createVoiceRouter } from './routes/voiceRouter.js';
 
 import { createSocialRouter } from './routes/socialRouter.js';
 import { createWatchRouter } from './routes/watchRouter.js';
+import { setupSSEFlush } from '../utils/sseFlush.js';
 import { createLifecycleRouter } from './routes/agents.js';
 
 import { getLifecycleManager } from '../utils/lifecycle.js';
@@ -773,6 +775,46 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   logger.info(COMPONENT, `Starting ${TITAN_NAME} Gateway v${TITAN_VERSION}`);
 
+  // v5.5.28 FIX: sweep orphaned atomic-write tmp files. atomicWriteFileSync
+  // writes to .tmp.<ts>.<rand> then renames; if the process is killed
+  // between those steps the tmp file leaks. The 2026-05-08 audit found
+  // 188MB of these (vectors.json + test-history). Best-effort.
+  try {
+    const { sweepAtomicTmpOrphans } = await import('../utils/helpers.js');
+    const swept = sweepAtomicTmpOrphans(TITAN_HOME);
+    if (swept.removed > 0) {
+      logger.info(COMPONENT, `Swept ${swept.removed} orphaned tmp file(s) from ${TITAN_HOME} — recovered ${(swept.bytes / 1024 / 1024).toFixed(1)} MB`);
+    }
+  } catch (e) {
+    logger.warn(COMPONENT, `tmp sweep failed: ${(e as Error).message}`);
+  }
+
+  // Persist this boot so we can detect restart loops across systemd-managed
+  // restarts. See src/utils/restartTracker.ts for why a single process can't
+  // see its own loop.
+  try {
+    const { recordBoot, getRestartStats } = await import('../utils/restartTracker.js');
+    recordBoot(TITAN_VERSION);
+    const stats = getRestartStats();
+    if (stats.severity !== 'ok' && stats.reason) {
+      const { sendAlert } = await import('../agent/alerts.js');
+      sendAlert(
+        stats.severity,
+        'Gateway restart loop detected',
+        stats.reason,
+        'restart-tracker',
+        {
+          restartsLast10Min: stats.restartsLast10Min,
+          restartsLastHour: stats.restartsLastHour,
+          nRestartsSystemd: stats.nRestartsSystemd,
+          previousBootAt: stats.previousBootAt,
+        },
+      );
+    }
+  } catch (err) {
+    logger.warn(COMPONENT, `restart tracker init failed: ${(err as Error).message}`);
+  }
+
   // ── First-run guard: refuse to start with no usable provider ──
   // Without this, the gateway boots fine but every chat call fails with a
   // generic 500. Users have no idea they need to configure a provider.
@@ -1228,6 +1270,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         uptimeSeconds: Math.round(process.uptime()),
         memoryUsageMB: Math.round(mem.heapUsed / 1024 / 1024),
         activeLlmRequests,
+        restarts: (() => { try { return getRestartStatsSync(); } catch { return null; } })(),
       },
       activeAgents,
       activeSessions,
@@ -1289,6 +1332,201 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const limit = parseInt(_req.query.limit as string || '50', 10);
       res.json({ alerts: getAlertHistory(limit) });
     } catch { res.json({ alerts: [] }); }
+  });
+
+  // ── Dream Mode API (v5.5.17) ──────────────────────────────────
+  // Three reads + one on-demand generator. The cron handles scheduled
+  // generation; the POST endpoint exists so an operator can force-run the
+  // pipeline mid-day without waiting for 03:30 (e.g. to demo the feature
+  // or backfill after a long offline stretch).
+  app.get('/api/dreams/latest', async (_req, res) => {
+    try {
+      const { getLatestDream } = await import('../agent/dreams.js');
+      const dream = getLatestDream();
+      if (!dream) { res.status(404).json({ error: 'no dreams yet' }); return; }
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/latest: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.get('/api/dreams', async (_req, res) => {
+    try {
+      const { listDreamDates } = await import('../agent/dreams.js');
+      const limit = Math.min(Math.max(parseInt(String(_req.query.limit ?? '30'), 10) || 30, 1), 365);
+      res.json({ dates: listDreamDates(limit) });
+    } catch (e) {
+      logger.error(COMPONENT, `dreams list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.get('/api/dreams/:date', async (req, res) => {
+    try {
+      const { getDreamByDate } = await import('../agent/dreams.js');
+      // Date param is YYYY-MM-DD; reject anything else to keep the
+      // filesystem read inside DREAMS_DIR.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) {
+        res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+        return;
+      }
+      const dream = getDreamByDate(req.params.date);
+      if (!dream) { res.status(404).json({ error: 'no dream for that date' }); return; }
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/:date: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dreams unavailable' });
+    }
+  });
+
+  app.post('/api/dreams/generate', async (_req, res) => {
+    try {
+      const { generateDream } = await import('../agent/dreams.js');
+      const dream = await generateDream();
+      res.json(dream);
+    } catch (e) {
+      logger.error(COMPONENT, `dreams/generate: ${(e as Error).message}`);
+      res.status(500).json({ error: 'dream generation failed', message: (e as Error).message });
+    }
+  });
+
+  // ── Persona Profiles API (v5.5.24) ────────────────────────────
+  // Note path is `/api/persona-profiles` not `/api/personas` —
+  // /api/personas already returns the agency-agent persona list (a
+  // separate concept from runtime persona profiles). Renamed to avoid
+  // route collision discovered on first deploy of v5.5.24.
+  app.get('/api/persona-profiles', async (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const personas = cfg.personas;
+      res.json({
+        enabled: personas?.enabled ?? false,
+        defaultPersona: personas?.defaultPersona ?? null,
+        channelPins: personas?.channelPins ?? {},
+        profiles: personas?.profiles ?? [],
+      });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-profiles list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'personas unavailable' });
+    }
+  });
+
+  app.get('/api/persona-profiles/active', async (req, res) => {
+    try {
+      const { describeActivePersona } = await import('../agent/personaProfiles.js');
+      const channel = typeof req.query.channel === 'string' ? req.query.channel : undefined;
+      res.json(describeActivePersona({ channel }));
+    } catch (e) {
+      logger.error(COMPONENT, `persona-profiles active: ${(e as Error).message}`);
+      res.status(500).json({ error: 'personas unavailable' });
+    }
+  });
+
+  // ── Persona Cohorts API (v5.5.27, A/B rollout) ────────────────
+  // Cohorts are runtime state — this is the operator's control surface
+  // for canarying a candidate persona against a baseline. Health endpoint
+  // returns per-arm stats over the rolling window so MC can render
+  // sparkline cards. Auto-revert fires from the monitor cron, but manual
+  // POST /:id/revert is also exposed for kill-switch use.
+  app.get('/api/persona-cohorts', async (_req, res) => {
+    try {
+      const { listCohorts } = await import('../agent/personaRollout.js');
+      res.json({ cohorts: listCohorts() });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts list: ${(e as Error).message}`);
+      res.status(500).json({ error: 'persona-cohorts unavailable' });
+    }
+  });
+
+  app.post('/api/persona-cohorts', async (req, res) => {
+    try {
+      const { createCohort } = await import('../agent/personaRollout.js');
+      const body = (req.body || {}) as { baselineId?: string; candidateId?: string; percent?: number; hashKey?: 'sessionId' | 'channel'; note?: string; id?: string };
+      if (!body.baselineId || !body.candidateId || typeof body.percent !== 'number') {
+        res.status(400).json({ error: 'baselineId, candidateId, and percent are required' });
+        return;
+      }
+      const cohort = createCohort({
+        baselineId: body.baselineId,
+        candidateId: body.candidateId,
+        percent: body.percent,
+        hashKey: body.hashKey,
+        note: body.note,
+        id: body.id,
+      });
+      res.json(cohort);
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts create: ${(e as Error).message}`);
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  app.delete('/api/persona-cohorts/:id', async (req, res) => {
+    try {
+      const { deleteCohort } = await import('../agent/personaRollout.js');
+      const ok = deleteCohort(req.params.id);
+      if (!ok) { res.status(404).json({ error: 'cohort not found' }); return; }
+      res.json({ deleted: true });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts delete: ${(e as Error).message}`);
+      res.status(500).json({ error: 'delete failed' });
+    }
+  });
+
+  app.post('/api/persona-cohorts/:id/revert', async (req, res) => {
+    try {
+      const { revertCohort } = await import('../agent/personaRollout.js');
+      const reason = (req.body && typeof req.body.reason === 'string') ? req.body.reason : 'manual revert via API';
+      const cohort = revertCohort(req.params.id, reason, 'manual');
+      if (!cohort) { res.status(404).json({ error: 'cohort not found' }); return; }
+      res.json(cohort);
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts revert: ${(e as Error).message}`);
+      res.status(500).json({ error: 'revert failed' });
+    }
+  });
+
+  app.get('/api/persona-cohorts/:id/health', async (req, res) => {
+    try {
+      const { getCohort, evaluateCohort } = await import('../agent/personaRollout.js');
+      const cohort = getCohort(req.params.id);
+      if (!cohort) { res.status(404).json({ error: 'cohort not found' }); return; }
+      const cfg = loadConfig();
+      const rollout = (cfg.personas as { rollout?: { windowMins?: number; minSampleSize?: number; passRateMargin?: number; safetyDropThreshold?: number } } | undefined)?.rollout;
+      const health = evaluateCohort(cohort, {
+        windowMins: rollout?.windowMins,
+        minSampleSize: rollout?.minSampleSize,
+        passRateMargin: rollout?.passRateMargin,
+        safetyDropThreshold: rollout?.safetyDropThreshold,
+      });
+      res.json({ cohort, health });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts health: ${(e as Error).message}`);
+      res.status(500).json({ error: 'health unavailable' });
+    }
+  });
+
+  app.get('/api/persona-cohorts/health', async (_req, res) => {
+    try {
+      const { listCohorts, evaluateCohort } = await import('../agent/personaRollout.js');
+      const cohorts = listCohorts();
+      const cfg = loadConfig();
+      const rollout = (cfg.personas as { rollout?: { windowMins?: number; minSampleSize?: number; passRateMargin?: number; safetyDropThreshold?: number } } | undefined)?.rollout;
+      const out = cohorts.map(cohort => ({
+        cohort,
+        health: evaluateCohort(cohort, {
+          windowMins: rollout?.windowMins,
+          minSampleSize: rollout?.minSampleSize,
+          passRateMargin: rollout?.passRateMargin,
+          safetyDropThreshold: rollout?.safetyDropThreshold,
+        }),
+      }));
+      res.json({ cohorts: out });
+    } catch (e) {
+      logger.error(COMPONENT, `persona-cohorts health-all: ${(e as Error).message}`);
+      res.status(500).json({ error: 'health unavailable' });
+    }
   });
 
   app.get('/api/health/deep', async (_req, res) => {
@@ -1406,22 +1644,58 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
-    const { content, channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel, systemPromptAppendix } = req.body;
+    // v5.5.28 FIX: accept either {content} (canonical) or {message} (legacy
+    // shape used by community SDKs / older clients). Previously rejected
+    // {message} with 400. The body destructuring uses `content` internally
+    // either way.
+    const body = (req.body || {}) as Record<string, unknown>;
+    const content = (typeof body.content === 'string' && body.content) || (typeof body.message === 'string' && body.message) || '';
+    const { channel: rawChannel, userId = 'api-user', agentId, sessionId: requestedSessionId, model: requestedModel, systemPromptAppendix } = body as { channel?: string; userId?: string; agentId?: string; sessionId?: string; model?: string; systemPromptAppendix?: string };
     // Default channel to 'webchat' for browser-based Mission Control clients.
     // This enables the interactive plan approval flow (show plan → user approves/denies).
     // Programmatic API callers can explicitly pass channel: 'api' to auto-approve plans.
     const channel = rawChannel || (req.headers.accept === 'text/event-stream' ? 'webchat' : 'api');
     if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'content must be a non-empty string' });
+      res.status(400).json({ error: 'content (or message) must be a non-empty string' });
       return;
+    }
+
+    // v5.5.30 FIX: validate `model` early so a bad provider ID returns 400
+    // before the agent loop runs. Previously a typoed provider crashed
+    // deep inside processMessage with 500 + stack trace AFTER the prompt
+    // had been built — wasted work and a confusing error for the caller.
+    if (requestedModel && typeof requestedModel === 'string') {
+      const { tryResolveModel, getKnownProviderNames } = await import('../providers/router.js');
+      if (!tryResolveModel(requestedModel)) {
+        const providers = getKnownProviderNames();
+        const requestedProviderName = requestedModel.split('/')[0] || requestedModel;
+        // Naive "did you mean" — find providers whose name shares a prefix
+        const lc = requestedProviderName.toLowerCase();
+        const suggestions = providers.filter(p => p.startsWith(lc.slice(0, 3)) || lc.includes(p)).slice(0, 5);
+        res.status(400).json({
+          error: 'unknown_model',
+          message: `Unknown model "${requestedModel}". Provider "${requestedProviderName}" is not registered.`,
+          suggestions: suggestions.length > 0 ? suggestions.map(p => `${p}/...`) : undefined,
+          availableProviders: providers,
+        });
+        return;
+      }
     }
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
     // ═─ System Widget Shortcut ─═════════════════════════════════════
-    // Fast-path: if the user is asking for a known system widget, bypass
-    // the LLM entirely and emit the _____widget gate directly. This is
-    // reliable, instant, and avoids model tool-call unpredictability.
+    // Fast-path: if the user is **explicitly asking for a known widget**,
+    // bypass the LLM and emit the _____widget gate directly. This is fast
+    // and reliable for unambiguous requests like "open the cron widget" or
+    // "show me the VRAM dashboard."
+    //
+    // v5.5.28 FIX: previously matched on a single keyword (e.g. `\bmodels?\b`)
+    // which hijacked normal chat — "tell me about the models you support"
+    // returned a Training Dashboard widget instead of an LLM response. Now
+    // gated on **explicit widget intent**: the user must use a widget-noun
+    // ("widget", "panel", "dashboard", etc.) for the shortcut to fire.
+    const hasExplicitWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(content);
     const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
         { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
         { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
@@ -1436,7 +1710,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
     ];
-    const matchedShortcut = systemWidgetShortcuts.find(s => s.pattern.test(content));
+    const matchedShortcut = hasExplicitWidgetIntent
+        ? systemWidgetShortcuts.find(s => s.pattern.test(content))
+        : null;
     if (matchedShortcut) {
         const gateText = `_____widget\n{ "name": "${matchedShortcut.name}", "format": "system", "source": "${matchedShortcut.source}", "w": ${matchedShortcut.w}, "h": ${matchedShortcut.h} }`;
         const responseText = `Added the **${matchedShortcut.name}** widget to your canvas.`;
@@ -1444,9 +1720,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (req.headers.accept === 'text/event-stream') {
             res.setHeader('Content-Type', 'text/event-stream');
             res.flushHeaders();
-            res.write(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
-            res.write(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
-            res.write(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
+            const sseWrite = setupSSEFlush(res);
+            sseWrite(`event: token\ndata: ${JSON.stringify({ text: responseText })}\n\n`);
+            sseWrite(`event: token\ndata: ${JSON.stringify({ text: '\n\n' + gateText })}\n\n`);
+            sseWrite(`event: done\ndata: ${JSON.stringify({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, durationMs: 0, toolsUsed: [] })}\n\n`);
             res.end();
         } else {
             res.json({ content: responseText + '\n\n' + gateText, sessionId: requestedSessionId || null, toolsUsed: [], model: 'system', durationMs: 0 });
@@ -1487,7 +1764,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           res.setHeader('Connection', 'keep-alive');
           res.setHeader('X-Accel-Buffering', 'no');
           res.flushHeaders();
-          res.write(`event: done\ndata: ${JSON.stringify({ content: slashResult.response, sessionId: null, durationMs: 0 })}\n\n`);
+          const sseWrite = setupSSEFlush(res);
+          sseWrite(`event: done\ndata: ${JSON.stringify({ content: slashResult.response, sessionId: null, durationMs: 0 })}\n\n`);
           res.end();
         } else {
           res.json({ content: slashResult.response, sessionId: null, toolsUsed: [], model: 'system' });
@@ -1533,7 +1811,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.flushHeaders();
-        res.write(`event: done\ndata: ${JSON.stringify({ error: 'Server busy' })}\n\n`);
+        const sseWrite = setupSSEFlush(res);
+        sseWrite(`event: done\ndata: ${JSON.stringify({ error: 'Server busy' })}\n\n`);
         res.end();
       } else {
         res.status(503).json({ error: 'Server busy — too many concurrent requests. Try again shortly.' });
@@ -1544,6 +1823,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     titanActiveSessions.inc();
     // Track client disconnect to avoid writing to dead connections
     let clientDisconnected = false;
+    let sseWrite: ((data: string) => void) | null = null;
     try {
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -1558,9 +1838,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           abortController.abort('client disconnected');
         });
 
+        sseWrite = setupSSEFlush(res);
         const safeWrite = (data: string) => {
           if (clientDisconnected) return;
-          try { res.write(data); } catch { clientDisconnected = true; }
+          try { sseWrite!(data); } catch { clientDisconnected = true; }
         };
 
         const response = await routeMessage(content, channel, safeUserId, {
@@ -1677,8 +1958,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       } catch { /* never let bug capture break the request path */ }
       // Classify the error so the UI can render an actionable banner instead of a stack trace
       const structured = classifyChatError(error as Error);
-      if (wantsSSE && !clientDisconnected) {
-        try { res.write(`event: done\ndata: ${JSON.stringify(structured)}\n\n`); res.end(); } catch { /* client gone */ }
+      if (wantsSSE && !clientDisconnected && sseWrite) {
+        try { sseWrite(`event: done\ndata: ${JSON.stringify(structured)}\n\n`); res.end(); } catch { /* client gone */ }
       } else if (!wantsSSE) {
         res.status(structured.status).json(structured);
       }
@@ -1701,6 +1982,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+    const sseWrite = setupSSEFlush(res);
 
     try {
       const config = loadConfig();
@@ -1709,12 +1991,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const userMessages = [{ role: 'user' as const, content }];
 
       for await (const chunk of chatStream({ model: modelId, messages: [...systemMessages, ...userMessages], maxTokens: config.agent.maxTokens, temperature: config.agent.temperature })) {
-        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        sseWrite(`data: ${JSON.stringify(chunk)}\n\n`);
         if (chunk.type === 'done' || chunk.type === 'error') break;
       }
     } catch (error) {
       logger.error(COMPONENT, `Stream error: ${(error as Error).message}`);
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'The assistant hit a snag. Please refresh and try again.' })}\n\n`);
+      sseWrite(`data: ${JSON.stringify({ type: 'error', error: 'The assistant hit a snag. Please refresh and try again.' })}\n\n`);
     }
     res.end();
   });
@@ -3443,7 +3725,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     registerSomaVerifier();
     const { startDriverScheduler, resumeDriversAfterRestart } = await import('../agent/driverScheduler.js');
     const resumed = await resumeDriversAfterRestart();
-    logger.info(COMPONENT, `Goal Driver resume: ${resumed.resumed} drivers re-activated, ${resumed.cancelled} cancelled (goal no longer active)`);
+    logger.info(COMPONENT, `Goal Driver resume: ${resumed.resumed} re-activated, ${resumed.cancelled} cancelled (goal no longer active), ${resumed.sweptStale} stale (>24h since lastTick) reaped`);
     startDriverScheduler(10_000, 5); // 10s tick, max 5 concurrent drivers
   } catch (e) {
     logger.warn(COMPONENT, `Goal Driver scheduler bootstrap skipped: ${(e as Error).message}`);
@@ -3456,6 +3738,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     startDailyDigestCron();
   } catch (e) {
     logger.warn(COMPONENT, `Daily digest cron skipped: ${(e as Error).message}`);
+  }
+
+  // v5.5.17: Dream Mode cron — opt-in via config.dream.enabled. Default
+  // 03:30 local. Skips quietly when disabled. See src/agent/dreams.ts.
+  try {
+    const { startDreamCron } = await import('../agent/dreams.js');
+    startDreamCron();
+  } catch (e) {
+    logger.warn(COMPONENT, `Dream cron skipped: ${(e as Error).message}`);
+  }
+
+  // v5.5.27: Persona A/B rollout monitor — opt-in via
+  // personas.rollout.enabled. Re-evaluates every cohort on a cadence
+  // (default 5 min) and auto-reverts candidates that regress vs
+  // baseline. Skips quietly when disabled.
+  try {
+    const { startRolloutMonitor } = await import('../agent/personaRollout.js');
+    startRolloutMonitor();
+  } catch (e) {
+    logger.warn(COMPONENT, `Persona rollout monitor skipped: ${(e as Error).message}`);
   }
 
   // v4.10.0-local (Phase C): mission scheduler — ticks active missions
