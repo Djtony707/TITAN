@@ -5,6 +5,12 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.5.34 — 2026-05-10 — Hygiene round 2
+
+- chore: strip CLAUDE.md (local Claude Code project guide — never should have been public) and 19 more internal docs from docs/ (visionary plans, hunt log, pipeline plans, capability gaps, internal CI guide, research notes, reliability report, launch posts, TITAN_3 overhaul). No runtime code change vs v5.5.33.
+- chore: extend .gitignore so the same patterns can never be re-committed.
+
+
 ## v5.5.33 — 2026-05-10 — Public-repo hygiene release
 
 - chore: strip 33 internal-only docs from the public repo and the npm tarball (handoff notes, audit reports, COO state, recon, master plans, competitive analysis, agent-memory dump, superpowers/plans, internal task/issue lists). No runtime code change vs v5.5.32.
