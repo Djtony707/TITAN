@@ -5,6 +5,12 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.5.33 — 2026-05-10 — Public-repo hygiene release
+
+- chore: strip 33 internal-only docs from the public repo and the npm tarball (handoff notes, audit reports, COO state, recon, master plans, competitive analysis, agent-memory dump, superpowers/plans, internal task/issue lists). No runtime code change vs v5.5.32.
+- chore: expand .gitignore so the same patterns can never be re-committed from the Mac authoring host.
+
+
 ## [5.5.31] — 2026-05-08
 
 ### Fixed — Driver-state zombie reaper + audit P2 cleanup
