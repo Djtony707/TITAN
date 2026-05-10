@@ -78,6 +78,29 @@ ISSUES.md
 TASKS.md
 VALIDATION-RESULTS.md
 
+# Claude Code project guide — local-only, never committed
+CLAUDE.md
+**/CLAUDE.md
+
+# Internal planning / research / launch material — local-only, never committed
+docs/EXAMPLES-PUBLISHING-PLAN.md
+docs/HUNT-LOG.md
+docs/PIPELINE-NEXT-STEPS.md
+docs/TITAN_3_OVERHAUL.md
+docs/ULTRAPLAN-PIPELINE-EXCELLENCE.md
+docs/VISIONARY-IDEAS*.md
+docs/CAPABILITY-GAPS.md
+docs/ANALYTICS-DEPLOYMENT.md
+docs/CI-FIX-GUIDE.md
+docs/analytics-research.md
+docs/bleeding-edge-agents-*.md
+docs/langchain-analysis.md
+docs/langchain-code-analysis.md
+docs/launch-posts.md
+docs/reliability-report-*.md
+docs/space-agent-*.md
+docs/system-prompt-research.md
+
 # Stray scratch files — keep out of commits
 ai_poem.txt
 pingpong.py
