@@ -597,8 +597,10 @@ describe('Messenger Channel — Smoke', () => {
         expect(containsPII('Call me at 555-123-4567')).toBe(true);
         // Email
         expect(containsPII('Email tony@example.com for more')).toBe(true);
-        // IP addresses
-        expect(containsPII('Server is at <titan-host>')).toBe(true);
+        // IP addresses — use RFC 5737 TEST-NET-1 (192.0.2.0/24) so the
+        // assertion exercises the IPv4 regex without baking a real homelab
+        // address into a public test.
+        expect(containsPII('Server is at 192.0.2.42')).toBe(true);
         // Credentials
         expect(containsPII('api_key = sk-1234abc')).toBe(true);
         // Home paths
