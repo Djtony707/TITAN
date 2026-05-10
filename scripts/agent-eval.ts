@@ -15,7 +15,7 @@
  * Usage: npx tsx scripts/agent-eval.ts [--gateway URL] [--verbose]
  */
 
-const GATEWAY = process.argv.find(a => a.startsWith('--gateway='))?.split('=')[1] || 'https://192.168.1.11:48420';
+const GATEWAY = process.argv.find(a => a.startsWith('--gateway='))?.split('=')[1] || 'https://localhost:48420';
 const VERBOSE = process.argv.includes('--verbose');
 const TIMEOUT = 120_000;
 
@@ -125,7 +125,7 @@ async function main() {
     console.log('── Tier 1: Tool Correctness ──');
 
     await runTest('write_file called for file creation',
-        'Create a file at /home/dj/eval-test-1.txt containing "eval test 1"',
+        'Create a file at /tmp/titan-eval/eval-test-1.txt containing "eval test 1"',
         (r) => ({
             pass: r.toolsUsed?.includes('write_file') === true,
             reason: `Expected write_file, got: [${r.toolsUsed?.join(', ')}]`
@@ -133,7 +133,7 @@ async function main() {
     );
 
     await runTest('read_file called for file reading',
-        'Read the file /home/dj/eval-test-1.txt and tell me what it says',
+        'Read the file /tmp/titan-eval/eval-test-1.txt and tell me what it says',
         (r) => ({
             pass: r.toolsUsed?.includes('read_file') === true,
             reason: `Expected read_file, got: [${r.toolsUsed?.join(', ')}]`
@@ -157,7 +157,7 @@ async function main() {
     );
 
     await runTest('list_dir called for directory listing',
-        'List the files in /home/dj/TITAN/src/agent/',
+        'List the files in /tmp/titan-eval/TITAN/src/agent/',
         (r) => ({
             pass: r.toolsUsed?.includes('list_dir') === true || r.toolsUsed?.includes('shell') === true,
             reason: `Expected list_dir or shell, got: [${r.toolsUsed?.join(', ')}]`
@@ -170,7 +170,7 @@ async function main() {
     console.log('\n── Tier 2: Task Completion ──');
 
     await runTest('file creation produces correct content',
-        'Write exactly "TITAN_EVAL_PASS" to /home/dj/eval-verify.txt',
+        'Write exactly "TITAN_EVAL_PASS" to /tmp/titan-eval/eval-verify.txt',
         (r) => ({
             pass: r.toolsUsed?.includes('write_file') === true && r.content?.includes('eval-verify'),
             reason: 'File was not created or wrong tool used'
@@ -199,7 +199,7 @@ async function main() {
     console.log('\n── Tier 3: Step Efficiency ──');
 
     await runTest('single-action task completes in 1 tool call',
-        'Write "hello" to /home/dj/eval-efficiency.txt',
+        'Write "hello" to /tmp/titan-eval/eval-efficiency.txt',
         (r) => ({
             pass: (r.toolsUsed?.length || 0) <= 2,
             reason: `Expected ≤2 tool calls, got ${r.toolsUsed?.length}: [${r.toolsUsed?.join(', ')}]`
@@ -228,7 +228,7 @@ async function main() {
     );
 
     await runTest('does not fabricate tool execution',
-        'What files are in /home/dj/eval-nonexistent-dir-xyz/',
+        'What files are in /tmp/titan-eval/eval-nonexistent-dir-xyz/',
         (r) => ({
             pass: r.toolsUsed?.length > 0,
             reason: 'Agent should have called a tool, not fabricated an answer'
@@ -241,7 +241,7 @@ async function main() {
     console.log('\n── Tier 5: Multi-Step ──');
 
     await runTest('spawn_agent for complex tasks',
-        'Research what Node.js version is latest, then create a file /home/dj/eval-node-version.txt with the answer. Use sub-agents if needed.',
+        'Research what Node.js version is latest, then create a file /tmp/titan-eval/eval-node-version.txt with the answer. Use sub-agents if needed.',
         (r) => ({
             pass: r.toolsUsed?.length >= 1,
             reason: 'Expected at least one tool call for multi-step task'
@@ -253,10 +253,10 @@ async function main() {
     // ════════════════════════════════════════════════════════
     console.log('\n── Cleanup ──');
     await cleanup([
-        '/home/dj/eval-test-1.txt',
-        '/home/dj/eval-verify.txt', 
-        '/home/dj/eval-efficiency.txt',
-        '/home/dj/eval-node-version.txt',
+        '/tmp/titan-eval/eval-test-1.txt',
+        '/tmp/titan-eval/eval-verify.txt', 
+        '/tmp/titan-eval/eval-efficiency.txt',
+        '/tmp/titan-eval/eval-node-version.txt',
     ]);
     log('🧹', 'Test files cleaned up');
 
@@ -284,10 +284,10 @@ async function main() {
     }
 
     // Save results as JSON
-    const reportPath = '/home/dj/.titan/eval-results.json';
+    const reportPath = '/tmp/titan-eval/.titan/eval-results.json';
     try {
         const { writeFileSync, mkdirSync, existsSync } = await import('fs');
-        if (!existsSync('/home/dj/.titan')) mkdirSync('/home/dj/.titan', { recursive: true });
+        if (!existsSync('/tmp/titan-eval/.titan')) mkdirSync('/tmp/titan-eval/.titan', { recursive: true });
         writeFileSync(reportPath, JSON.stringify({
             timestamp: new Date().toISOString(),
             gateway: GATEWAY,

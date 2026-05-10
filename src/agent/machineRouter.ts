@@ -48,14 +48,14 @@ const FLEET: MachineCapabilities[] = [
     {
         id: 'titan-pc',
         name: 'Titan PC',
-        address: '192.168.1.11',
+        address: '<titan-host>',
         capabilities: ['gpu-heavy', 'cuda', 'training', 'inference', 'ollama', 'browser'],
         online: true,
     },
     {
         id: 'mini-pc',
         name: 'Mini PC',
-        address: '192.168.1.95',
+        address: '<minipc-host>',
         capabilities: ['edge', 'always-on', 'homeassistant', 'background'],
         online: true,
     },

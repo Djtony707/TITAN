@@ -73,7 +73,7 @@ const VERB_PATTERNS: Array<{
     targetGroup?: number;
 }> = [
     // Past-tense file writes — Hunt #47 lineage. Catches "I have written X
-    // to /tmp/foo.md", "I saved the report at /home/dj/report.txt".
+    // to /tmp/foo.md", "I saved the report at <dir>/report.txt".
     {
         regex: /\b(?:I(?:'ve| have| just)?)\s+(written|saved|wrote|created|generated|produced)\s+(?:[^.!?\n]*?)(?:to|at|in)\s+["'`]?(\/[\w/.-]+\.[a-z0-9]+|\.\/[\w/.-]+|~\/[\w/.-]+|[\w./_-]+\.[a-z0-9]{1,5})["'`]?/i,
         category: 'file_write',

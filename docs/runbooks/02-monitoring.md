@@ -51,7 +51,7 @@ Supported webhook formats:
 
 | Log | Path | Rotation |
 |-----|------|----------|
-| Application | `/home/dj/titan.log` | systemd-managed |
+| Application | `~/titan.log` | systemd-managed |
 | Daily files | `~/.titan/logs/titan-YYYY-MM-DD.log` | Daily |
 | Audit | `~/.titan/audit.jsonl` | 90-day retention |
 | systemd | `journalctl -u titan` | journald-managed |
@@ -60,14 +60,14 @@ Supported webhook formats:
 
 ```bash
 # Live log tail
-ssh titan "tail -f /home/dj/titan.log"
+ssh <titan-host> "tail -f ~/titan.log"
 
 # Filter errors
-ssh titan "grep ERROR /home/dj/titan.log | tail -20"
+ssh <titan-host> "grep ERROR ~/titan.log | tail -20"
 
 # Check metrics
-ssh titan "curl -s http://127.0.0.1:48420/api/metrics/summary"
+ssh <titan-host> "curl -s http://127.0.0.1:48420/api/metrics/summary"
 
 # Health check
-ssh titan "curl -s http://127.0.0.1:48420/api/health/deep | jq"
+ssh <titan-host> "curl -s http://127.0.0.1:48420/api/health/deep | jq"
 ```

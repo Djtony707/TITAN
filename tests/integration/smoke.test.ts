@@ -598,7 +598,7 @@ describe('Messenger Channel — Smoke', () => {
         // Email
         expect(containsPII('Email tony@example.com for more')).toBe(true);
         // IP addresses
-        expect(containsPII('Server is at 192.168.1.11')).toBe(true);
+        expect(containsPII('Server is at <titan-host>')).toBe(true);
         // Credentials
         expect(containsPII('api_key = sk-1234abc')).toBe(true);
         // Home paths

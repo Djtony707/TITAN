@@ -7,7 +7,7 @@
 
 const API = process.argv.find(a => a.startsWith('--api='))?.split('=')[1]
     || process.env.TITAN_API
-    || 'https://192.168.1.11:48420';
+    || 'https://localhost:48420';
 
 interface TestCase {
     name: string;

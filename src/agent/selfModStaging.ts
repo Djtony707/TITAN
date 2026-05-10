@@ -8,7 +8,7 @@
  * human reviews and either applies or rejects.
  *
  * This exists because on 2026-04-18 TITAN completed 100% of a "self-healing
- * framework" goal by writing to `/home/dj/titan-saas/` — an unrelated Next.js
+ * framework" goal by writing to `<sibling-project>/` — an unrelated Next.js
  * app. Not a single byte landed in `/opt/TITAN/`. The v4.8.0 self-proposal
  * pipeline never fired because the writes weren't even trying to reach TITAN's
  * source tree. The fix is three-layered:

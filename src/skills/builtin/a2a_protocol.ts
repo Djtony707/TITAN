@@ -390,7 +390,7 @@ export function registerA2AProtocolSkill(): void {
                 properties: {
                     url: {
                         type: 'string',
-                        description: 'The remote agent\'s base URL (e.g., "http://192.168.1.11:48420")',
+                        description: 'The remote agent\'s base URL (e.g., "http://localhost:48420")',
                     },
                 },
                 required: ['url'],

@@ -29,7 +29,7 @@ from typing import Any
 TITAN_HOME = Path.home() / ".titan"
 OUTPUT_DIR = TITAN_HOME / "autoresearch" / "data"
 OUTPUT_FILE = OUTPUT_DIR / "agent_training.jsonl"
-OLLAMA_URL = "http://192.168.1.11:11434/api/generate"
+OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen3.5:35b"
 
 SYSTEM_PROMPT = (
@@ -182,7 +182,7 @@ SEARCH_PHRASES = [
 ]
 
 FILE_PATHS = [
-    ("/etc/hosts", "127.0.0.1 localhost\n::1 localhost\n192.168.1.11 titan-pc\n192.168.1.1 router"),
+    ("/etc/hosts", "127.0.0.1 localhost\n::1 localhost\n<titan-host> titan-pc\n192.168.1.1 router"),
     ("~/project/config.yaml", "server:\n  port: 3000\n  host: 0.0.0.0\ndatabase:\n  url: postgres://localhost:5432/myapp\n  pool: 10"),
     ("~/notes/todo.md", "# TODO\n- [x] Set up CI pipeline\n- [ ] Write unit tests\n- [ ] Deploy to staging\n- [ ] Update documentation"),
     ("/var/log/app.log", "[2026-03-13 10:15:32] INFO: Server started on port 8080\n[2026-03-13 10:15:33] INFO: Database connected\n[2026-03-13 10:16:01] WARN: High memory usage: 85%"),

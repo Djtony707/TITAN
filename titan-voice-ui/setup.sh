@@ -25,7 +25,7 @@ fi
 # Create .env.local with TITAN-specific config
 cat > "$SCRIPT_DIR/.env.local" << 'EOF'
 # LiveKit Server (self-hosted on Titan PC)
-LIVEKIT_URL=ws://192.168.1.11:7880
+LIVEKIT_URL=ws://<titan-host>:7880
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
 

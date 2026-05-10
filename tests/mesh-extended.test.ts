@@ -232,7 +232,7 @@ describe('Mesh Discovery', () => {
 
         it('should register multiple peers', () => {
             registerPeer({ ...basePeer, nodeId: 'peer-a' });
-            registerPeer({ ...basePeer, nodeId: 'peer-b', hostname: 'host-b', address: '192.168.1.11' });
+            registerPeer({ ...basePeer, nodeId: 'peer-b', hostname: 'host-b', address: '<titan-host>' });
             registerPeer({ ...basePeer, nodeId: 'peer-c', hostname: 'host-c', address: '192.168.1.12' });
 
             expect(getPeers().length).toBe(3);

@@ -21,14 +21,14 @@ describe('VoiceConfigSchema', () => {
     const { VoiceConfigSchema } = await import('../src/config/schema.js');
     const result = VoiceConfigSchema.parse({
       enabled: true,
-      livekitUrl: 'ws://192.168.1.11:7880',
+      livekitUrl: 'ws://<titan-host>:7880',
       livekitApiKey: 'mykey',
       livekitApiSecret: 'mysecret',
-      agentUrl: 'http://192.168.1.11:8081',
+      agentUrl: 'http://localhost:8081',
       ttsVoice: 'af_bella',
     });
     expect(result.enabled).toBe(true);
-    expect(result.livekitUrl).toBe('ws://192.168.1.11:7880');
+    expect(result.livekitUrl).toBe('ws://<titan-host>:7880');
     expect(result.livekitApiKey).toBe('mykey');
     expect(result.ttsVoice).toBe('af_bella');
   });

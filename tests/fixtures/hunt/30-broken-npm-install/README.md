@@ -109,7 +109,7 @@ Both scenarios complete successfully. The defense holds whether or not the scrip
 After deploying 3.2.4 to Titan PC:
 
 ```
-$ curl https://192.168.1.11:48420/api/health
+$ curl https://localhost:48420/api/health
 {"status":"ok","version":"3.2.4","uptime":11.96,"onboarded":true}
 ```
 

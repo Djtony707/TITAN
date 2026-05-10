@@ -4,23 +4,23 @@
 
 1. **Is the process running?**
    ```bash
-   ssh titan "systemctl status titan --no-pager"
+   ssh <titan-host> "systemctl status titan --no-pager"
    ```
 
 2. **Check health endpoint**
    ```bash
-   ssh titan "curl -sk https://127.0.0.1:48420/api/health/deep"
+   ssh <titan-host> "curl -sk https://127.0.0.1:48420/api/health/deep"
    ```
 
 3. **Check recent logs**
    ```bash
-   ssh titan "journalctl -u titan -n 50 --no-pager"
-   ssh titan "tail -n 100 /home/dj/titan.log"
+   ssh <titan-host> "journalctl -u titan -n 50 --no-pager"
+   ssh <titan-host> "tail -n 100 ~/titan.log"
    ```
 
 4. **Check resource usage**
    ```bash
-   ssh titan "free -h && df -h / && ps -o pid,etime,%mem,rss,command -p \$(pgrep -f 'node dist/cli/index.js')"
+   ssh <titan-host> "free -h && df -h / && ps -o pid,etime,%mem,rss,command -p \$(pgrep -f 'node dist/cli/index.js')"
    ```
 
 ## Common Scenarios
@@ -30,7 +30,7 @@
 
 **Response**:
 ```bash
-ssh titan "sudo systemctl restart titan && sleep 3 && systemctl status titan --no-pager"
+ssh <titan-host> "sudo systemctl restart titan && sleep 3 && systemctl status titan --no-pager"
 ```
 
 If it crashes repeatedly, check for:
@@ -43,9 +43,9 @@ If it crashes repeatedly, check for:
 
 **Response**:
 ```bash
-ssh titan "curl http://localhost:11434/api/tags"  # Should return model list
-ssh titan "systemctl status ollama --no-pager"
-ssh titan "sudo systemctl restart ollama"
+ssh <titan-host> "curl http://localhost:11434/api/tags"  # Should return model list
+ssh <titan-host> "systemctl status ollama --no-pager"
+ssh <titan-host> "sudo systemctl restart ollama"
 ```
 
 If Ollama is healthy but TITAN can't reach it, check:
@@ -67,8 +67,8 @@ If Ollama is healthy but TITAN can't reach it, check:
 
 **Response**:
 ```bash
-ssh titan "du -sh ~/.titan/* | sort -rh | head -10"
-ssh titan "ls -la ~/.titan/logs/ | tail -20"
+ssh <titan-host> "du -sh ~/.titan/* | sort -rh | head -10"
+ssh <titan-host> "ls -la ~/.titan/logs/ | tail -20"
 ```
 
 Clean up:

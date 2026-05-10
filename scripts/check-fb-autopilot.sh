@@ -11,32 +11,32 @@ echo ""
 
 # Service status
 echo "─── Service ───"
-ssh titan "systemctl is-active titan.service"
+ssh "${TITAN_HOST}" "systemctl is-active titan.service"
 echo ""
 
 # Get session token
 PASSWORD='06052021Aell!'
-SESSION=$(ssh titan "curl -sk -X POST https://localhost:48420/api/login -H 'Content-Type: application/json' --data-raw '{\"password\":\"$PASSWORD\"}'" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+SESSION=$(ssh "${TITAN_HOST}" "curl -sk -X POST https://localhost:48420/api/login -H 'Content-Type: application/json' --data-raw '{\"password\":\"$PASSWORD\"}'" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
 
 # Health
 echo "─── Gateway Health ───"
-ssh titan "curl -sk https://localhost:48420/api/health -H 'Authorization: Bearer $SESSION'" | python3 -m json.tool
+ssh "${TITAN_HOST}" "curl -sk https://localhost:48420/api/health -H 'Authorization: Bearer $SESSION'" | python3 -m json.tool
 echo ""
 
 # Recent FB autopilot activity
 echo "─── Recent FB Autopilot activity (last 20 events) ───"
-ssh titan "grep -E 'FBAutopilot|OutboundSanitizer' /home/dj/titan.log | tail -20"
+ssh "${TITAN_HOST}" "grep -E 'FBAutopilot|OutboundSanitizer' ~/titan.log | tail -20"
 echo ""
 
 # Sanitizer blocks (if any)
 echo "─── Sanitizer blocks ever ───"
-BLOCK_COUNT=$(ssh titan "grep -c 'OutboundSanitizer.*Content blocked' /home/dj/titan.log 2>/dev/null || echo 0")
+BLOCK_COUNT=$(ssh "${TITAN_HOST}" "grep -c 'OutboundSanitizer.*Content blocked' ~/titan.log 2>/dev/null || echo 0")
 echo "Total content blocks: $BLOCK_COUNT"
 echo ""
 
 # Errors
 echo "─── Errors in last hour ───"
-ssh titan "grep ERROR /home/dj/titan.log | tail -5"
+ssh "${TITAN_HOST}" "grep ERROR ~/titan.log | tail -5"
 echo ""
 
 echo "═══════════════════════════════════════"

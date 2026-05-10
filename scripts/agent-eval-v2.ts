@@ -15,7 +15,7 @@
  *   npx tsx scripts/agent-eval-v2.ts [options]
  *
  * Options:
- *   --gateway URL     TITAN gateway (default: https://192.168.1.11:48420)
+ *   --gateway URL     TITAN gateway (default: https://localhost:48420)
  *   --model MODEL     Model to test (default: uses gateway default)
  *   --category CAT    Run only one category
  *   --verbose         Show full responses
@@ -34,7 +34,7 @@ const getArg = (flag: string) => {
     return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
 };
 
-const GATEWAY = getArg('--gateway') || 'https://192.168.1.11:48420';
+const GATEWAY = getArg('--gateway') || 'https://localhost:48420';
 const MODEL = getArg('--model');
 const CATEGORY_FILTER = getArg('--category');
 const VERBOSE = args.includes('--verbose');

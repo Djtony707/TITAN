@@ -334,7 +334,7 @@ def generate_multi_step_examples():
         },
         {
             "instruction": "Check if the TITAN gateway is running on the Titan PC",
-            "output": 'I\'ll run a command to check the process status.\n\n{"tool": "shell", "args": {"command": "curl -s http://192.168.1.11:48420/api/health | jq ."}}',
+            "output": 'I\'ll run a command to check the process status.\n\n{"tool": "shell", "args": {"command": "curl -s http://localhost:48420/api/health | jq ."}}',
             "category": "multi_step",
         },
         {
@@ -354,7 +354,7 @@ def generate_multi_step_examples():
         },
         {
             "instruction": "Check GPU usage on Titan PC and if it's idle, start a training run",
-            "output": 'I\'ll first check the GPU status.\n\n{"tool": "shell", "args": {"command": "ssh 192.168.1.11 nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv"}}',
+            "output": 'I\'ll first check the GPU status.\n\n{"tool": "shell", "args": {"command": "ssh <titan-host> nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv"}}',
             "category": "multi_step",
         },
         {
@@ -364,7 +364,7 @@ def generate_multi_step_examples():
         },
         {
             "instruction": "Check the disk space on Titan PC and clean up old training runs if it's low",
-            "output": 'I\'ll check the disk space first.\n\n{"tool": "shell", "args": {"command": "ssh 192.168.1.11 df -h / | tail -1"}}',
+            "output": 'I\'ll check the disk space first.\n\n{"tool": "shell", "args": {"command": "ssh <titan-host> df -h / | tail -1"}}',
             "category": "multi_step",
         },
         {
@@ -394,7 +394,7 @@ def generate_multi_step_examples():
         },
         {
             "instruction": "Check the Ollama models on Titan PC and pull the latest qwen3.5 if needed",
-            "output": 'I\'ll check what models are currently available.\n\n{"tool": "shell", "args": {"command": "ssh 192.168.1.11 ollama list"}}',
+            "output": 'I\'ll check what models are currently available.\n\n{"tool": "shell", "args": {"command": "ssh <titan-host> ollama list"}}',
             "category": "multi_step",
         },
         {
@@ -549,7 +549,7 @@ def generate_json_output_examples():
             "output": json.dumps({"tool": "memory", "args": {
                 "action": "store",
                 "key": "homelab_network",
-                "value": "Titan PC: 192.168.1.11, Mini PC: 192.168.1.95, T610: 192.168.1.67, Gateway: 48420"
+                "value": "Titan PC: <titan-host>, Mini PC: <minipc-host>, T610: <t610-host>, Gateway: 48420"
             }}, indent=2),
         },
         {
