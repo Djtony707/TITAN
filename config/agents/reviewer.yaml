@@ -3,7 +3,7 @@ specialist: analyst
 tools: [read, grep, delegate]
 model: ollama/qwen3.5:27b
 maxRounds: 10
-workspace: /Users/michaelelliott/Desktop/TitanBot/TITAN-main
+workspace: .
 approvals: []
 autoApprove: true
 heartbeatInterval: 3

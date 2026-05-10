@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-TITAN_DIR="/Users/michaelelliott/Desktop/TitanBot/TITAN-main"
+# Resolve repo root from the location of this script
+TITAN_DIR="${TITAN_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$TITAN_DIR"
 
 # Ensure gateway is running
