@@ -5,6 +5,16 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.5.35 — 2026-05-10 — Hygiene rounds 3 + 4
+
+- chore: strip personal local-dev configs (.claude/, .codex/, .opencode/, .agents/), edit-server.js, and benchmark raw-output dirs (eval-results/, gaia-results/, results/, swe-bench-results/) from the public repo and the npm tarball.
+- chore: replace hardcoded personal IPs (192.168.1.11, .95, .67) with localhost / <titan-host> placeholders across scripts/, autoresearch/, e2e/, src/, tests/, docs/runbooks/.
+- chore: replace absolute Mac paths in config/agents/*.yaml and scripts/start-workers.sh with relative paths or environment-resolved paths.
+- chore: drop personal email line from docs/FAQ.md (GitHub Issues + Discussions remain as the contact channels).
+- chore: extend .gitignore to keep all of these patterns local going forward.
+- No runtime code change vs v5.5.34. Functional /home/dj/ references in src/safety/killSwitch.ts, src/agent/editedFiles.ts, and src/channels/messenger-voice.ts are NOT touched here — they need a real TITAN_HOME / os.homedir() refactor.
+
+
 ## v5.5.34 — 2026-05-10 — Hygiene round 2
 
 - chore: strip CLAUDE.md (local Claude Code project guide — never should have been public) and 19 more internal docs from docs/ (visionary plans, hunt log, pipeline plans, capability gaps, internal CI guide, research notes, reliability report, launch posts, TITAN_3 overhaul). No runtime code change vs v5.5.33.
