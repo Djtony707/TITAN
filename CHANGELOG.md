@@ -5,6 +5,31 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.0 — 2026-05-10 — README truth pass, widget runtime fix, agent-skills sync, v6.0 roadmap
+
+### Fixed
+
+- **`titan.api.call` widget proxy bug** — Stock Analyzer and other agent-powered widgets used to return "No response." because the runtime returned `{status, body}` but widget code (and the example shown to the LLM in ChatWidget) read `res.content` directly. SandboxRuntime now spreads JSON-body fields onto the top-level result and auto-unwraps the legacy fetch-style call shape (`{method, body, headers}`), so both call patterns and both read patterns work. Templates `agent-data-analyst`, `agent-coder`, `daily-digest`, `email-watcher` updated to the resilient read pattern.
+- **`tests/integration/smoke.test.ts`** PII regression — a round-4 sanitization replaced `192.168.1.11` with `<titan-host>` inside an assertion that needed a real IPv4 to exercise the PII regex. Replaced with RFC 5737 TEST-NET-1 `192.0.2.42`.
+
+### Changed
+
+- **README rewritten for truth.** Every numerical claim was audited against the source and corrected: 36 providers (was 37), 109 widget templates in 28 categories (was "110 widgets / 25 categories"), 45 admin panels (was 25), 19 channel adapters (was 16), 6,100+ tests (was 5,840+). Outdated version text removed. The "Guest Mode" feature claim was removed — there's no code for it.
+- **`tests/unit/readme-claims.test.ts`** expanded from 5 soft tests to 31 hard tests. Anti-aspirational guard catches future "Guest Mode" style claims that don't have backing code.
+- **`assets/agent-skills/`** synced to upstream [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills). 4 drifted skills updated (`frontend-ui-engineering`, `incremental-implementation`, `performance-optimization`, `test-driven-development`); 3 new skills added: `doubt-driven-development`, `source-driven-development`, `using-agent-skills`.
+
+### Added
+
+- **3 new TITAN personas** wired to the new agent-skills — `doubter`, `source-citer`, `skill-discoverer`. Available via the `persona_manager` skill or any sub-agent's persona slot.
+- **`docs/ROADMAP.md`** — public v6.0 plan compared against OpenClaw, Hermes Agent (Nous Research), and Space Agent. Eight tracks, ranked: TitanHub (public skill registry), `titan onboard` polish, TITAN-as-ACP-COO, skill-level learning loop, `titan import openclaw|hermes`, agent-authored live widgets, hierarchical AGENTS.md governance, serverless hibernate.
+
+### Notes
+
+- No runtime contract break vs v5.5.35. Widgets that read `res.content` AND widgets that read `res.body.content` both work.
+- Test suite: 258 files, 6,654 passed, 0 failing, 1 documented-skipped, ~3:25 wall.
+
+---
+
 ## v5.5.35 — 2026-05-10 — Hygiene rounds 3 + 4
 
 - chore: strip personal local-dev configs (.claude/, .codex/, .opencode/, .agents/), edit-server.js, and benchmark raw-output dirs (eval-results/, gaia-results/, results/, swe-bench-results/) from the public repo and the npm tarball.

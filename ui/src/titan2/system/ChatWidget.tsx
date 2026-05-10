@@ -375,7 +375,10 @@ function REPLACE_WITH_RELEVANT_NAME() {
       const res = await titan.api.call('/api/message', {
         content: \`Use the REPLACE_WITH_TEMPLATE sub-agent to REPLACE_WITH_TASK for \${input}. Be concise.\`,
       });
-      setReport(res?.content || 'No response.');
+      // titan.api.call returns { status, body, ok, ...flattened body fields }.
+      // The /api/message response is { content, sessionId, ... } so either
+      // res.body?.content (canonical) or res.content (flattened) works.
+      setReport(res?.body?.content || res?.content || 'No response.');
     } catch (e) {
       setReport('Error: ' + (e?.message || e));
     } finally { setBusy(false); }
