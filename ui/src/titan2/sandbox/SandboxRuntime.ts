@@ -418,10 +418,32 @@ export class SandboxRuntime {
         try { json = JSON.parse(text); } catch {}
         result = { ok: res.ok, status: res.status, text, json };
       } else if (type === 'api') {
-        const { endpoint, body } = payload || {};
+        const { endpoint, body: rawBody } = payload || {};
         const token = localStorage.getItem('titan-token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+        // Forgiving call shape:
+        //   titan.api.call(endpoint, { content: '...' })                          ← preferred
+        //   titan.api.call(endpoint, { method: 'POST', body: { ... }, headers })  ← fetch-style (legacy/LLM habit)
+        //   titan.api.call(endpoint, { method: 'GET' })                           ← read-only call
+        // Detect the fetch-style envelope (it has at least one of method/body/headers
+        // AND none of the keys the gateway expects on its body schemas).
+        let method = 'POST';
+        let requestBody: unknown = rawBody;
+        if (
+          rawBody &&
+          typeof rawBody === 'object' &&
+          ('method' in rawBody || 'headers' in rawBody) &&
+          !('content' in rawBody) && !('message' in rawBody) && !('action' in rawBody)
+        ) {
+          const env = rawBody as { method?: string; body?: unknown; headers?: Record<string, string> };
+          if (typeof env.method === 'string') method = env.method.toUpperCase();
+          if (env.headers) Object.assign(headers, env.headers);
+          requestBody = env.body;
+        }
+
         if (token) headers['Authorization'] = `Bearer ${token}`;
+
         // Normalize: widgets may pass '/api/message' or '/message' —
         // ensure exactly one '/api' prefix so we don't 404 on '/api/api/...'.
         let path = typeof endpoint === 'string' ? endpoint : '';
@@ -432,16 +454,29 @@ export class SandboxRuntime {
         } else {
           path = '/api/' + path;
         }
-        const res = await fetch(path, {
-          method: 'POST',
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-        });
+
+        const fetchInit: RequestInit = { method, headers };
+        if (method !== 'GET' && method !== 'HEAD' && requestBody !== undefined) {
+          fetchInit.body = typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody);
+        }
+        const res = await fetch(path, fetchInit);
         const text = await res.text();
-        let json = undefined;
-        try { json = JSON.parse(text); } catch {}
-        // Widgets expect { status, body } not { ok, status, text, json }
-        result = { status: res.status, body: json ?? text };
+        let json: unknown = undefined;
+        try { json = JSON.parse(text); } catch { /* not JSON, ignore */ }
+
+        // Result shape contract:
+        //   { status, body, ok, ...flat }
+        // - `status` and `body` are the canonical fields (older docs).
+        // - `ok` is true for 2xx (matches Fetch API ergonomics).
+        // - When the body is a JSON object, its top-level fields are spread onto
+        //   the result so widgets that read `r.content` / `r.text` / `r.messages`
+        //   directly (a very common LLM-generated pattern) work correctly. Spread
+        //   happens BEFORE we set `status`/`body`/`ok` so the canonical fields
+        //   always win on collision.
+        const flat = (json && typeof json === 'object' && !Array.isArray(json))
+          ? (json as Record<string, unknown>)
+          : {};
+        result = { ...flat, status: res.status, body: json ?? text, ok: res.ok };
       } else if (type === 'state') {
         const { action, key, value } = payload || {};
         if (action === 'get') {
