@@ -266,7 +266,6 @@ Open an issue: https://github.com/Djtony707/TITAN/issues
 
 - **GitHub Issues**: https://github.com/Djtony707/TITAN/issues
 - **Discussions**: https://github.com/Djtony707/TITAN/discussions
-- **Email**: djtony707@gmail.com (Tony Elliott)
 
 ---
 

@@ -101,6 +101,19 @@ docs/reliability-report-*.md
 docs/space-agent-*.md
 docs/system-prompt-research.md
 
+# Personal Claude Code / Codex / OpenCode / agent-bus configs — local-only
+.claude/
+.codex/
+.opencode/
+.agents/
+
+# One-off Mac dev hacks — never committed
+edit-server.js
+
+# Benchmark output dirs — raw data, may include $USER
+benchmarks/results/
+benchmarks/swe-bench-results/
+
 # Stray scratch files — keep out of commits
 ai_poem.txt
 pingpong.py
