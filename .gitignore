@@ -51,6 +51,32 @@ venv/
 # Handoff + audit documents — local-only, never committed
 HANDOFF*.md
 AUDIT*.md
+**/HANDOFF*.md
+**/AUDIT*.md
+docs/HANDOFF/
+docs/agent-memory/
+docs/superpowers/plans/
+
+# Internal planning, recon, COO, competitive — local-only, never committed
+KIMI_COO_STATE.md
+PHASE0_BASELINE.md
+TITAN-HARNESS-AUDIT.md
+TITAN_SOURCE_OF_TRUTH_PLAN.md
+TITAN_UNIVERSE_RECON*.md
+TITAN-100-PLAN.md
+MASTER-PLAN.md
+COMPETITIVE-ANALYSIS*.md
+COMPETITIVE_ANALYSIS*.md
+docs/COO-MASTER-PLAN*.md
+docs/COMPETITIVE-RESEARCH*.md
+docs/competitive-research.md
+docs/qa-audit-report.md
+docs/TITAN-PC-AUDIT*.md
+ARCHITECTURE-TODO.md
+DEPLOY_TASKS.md
+ISSUES.md
+TASKS.md
+VALIDATION-RESULTS.md
 
 # Stray scratch files — keep out of commits
 ai_poem.txt
