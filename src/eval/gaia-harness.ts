@@ -72,7 +72,7 @@ const TITAN_URL = process.env.TITAN_EVAL_URL || 'https://localhost:48420';
 const TITAN_TOKEN = process.env.TITAN_EVAL_TOKEN || '';
 
 // Alternatively, talk directly to Ollama for raw model benchmarking
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://192.168.1.11:11434';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.GAIA_MODEL || 'glm-5.1:cloud';
 
 // Eval settings

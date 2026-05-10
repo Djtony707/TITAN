@@ -6,7 +6,7 @@
  *   npx tsx scripts/benchmark.ts [options]
  *
  * Options:
- *   --gateway URL       TITAN gateway URL (default: http://192.168.1.11:48420)
+ *   --gateway URL       TITAN gateway URL (default: http://localhost:48420)
  *   --models LIST       Comma-separated model filters (e.g. "anthropic/*,openai/gpt-4o")
  *   --categories LIST   Comma-separated categories (e.g. "reasoning,code_generation")
  *   --timeout MS        Per-request timeout in ms (default: 60000)

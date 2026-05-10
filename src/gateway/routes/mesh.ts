@@ -194,9 +194,9 @@ export function createMeshRouter(broadcast: (data: Record<string, unknown>, user
         homelab?: { machines?: Array<{ name: string; ip: string; role?: string; port?: number; protocol?: 'http' | 'https'; path?: string }> };
       };
       const machines = cfg.homelab?.machines ?? [
-        { name: 'Titan PC', ip: '192.168.1.11', role: 'Primary GPU (RTX 5090)', port: 48420, protocol: 'https' as const, path: '/api/health' },
-        { name: 'Mini PC', ip: '192.168.1.95', role: 'Docker Host', port: 48420, protocol: 'https' as const, path: '/api/health' },
-        { name: 'T610 Server', ip: '192.168.1.67', role: 'Always-on Backbone', port: 48420, protocol: 'https' as const, path: '/api/health' },
+        { name: 'Titan PC', ip: '<titan-host>', role: 'Primary GPU (RTX 5090)', port: 48420, protocol: 'https' as const, path: '/api/health' },
+        { name: 'Mini PC', ip: '<minipc-host>', role: 'Docker Host', port: 48420, protocol: 'https' as const, path: '/api/health' },
+        { name: 'T610 Server', ip: '<t610-host>', role: 'Always-on Backbone', port: 48420, protocol: 'https' as const, path: '/api/health' },
       ];
       const https = await import('https');
       const http = await import('http');

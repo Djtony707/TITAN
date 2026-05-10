@@ -57,7 +57,7 @@ export const MODEL_ROSTER: ModelSpec[] = [
 
 /* ── Default CLI options ────────────────────────────────────────────────── */
 export const DEFAULTS = {
-  gateway:  'http://192.168.1.11:48420',
+  gateway:  'http://localhost:48420',
   timeout:  60_000,
   delay:    500,
   output:   'benchmarks',

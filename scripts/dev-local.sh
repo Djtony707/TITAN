@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # --- Environment ---
-export OLLAMA_BASE_URL="http://192.168.1.11:11434"
+export OLLAMA_BASE_URL="http://localhost:11434"
 export TITAN_GATEWAY_PORT=48421
 export TITAN_GATEWAY_HOST="127.0.0.1"
 export TITAN_LOG_LEVEL="debug"
@@ -31,7 +31,7 @@ echo "  Ollama URL:   $OLLAMA_BASE_URL"
 echo "  Gateway URL:  http://localhost:$TITAN_GATEWAY_PORT"
 echo ""
 echo "  WARNING: This is LOCAL testing"
-echo "  Production is at 192.168.1.11:48420"
+echo "  Production is at localhost:48420"
 echo ""
 echo "============================================="
 echo ""

@@ -20,7 +20,7 @@
  * Usage: npx tsx scripts/smoke-test.ts [--gateway URL] [--skip-voice] [--skip-chat] [--verbose]
  */
 
-const GATEWAY = process.argv.find(a => a.startsWith('--gateway='))?.split('=')[1] || 'https://192.168.1.11:48420';
+const GATEWAY = process.argv.find(a => a.startsWith('--gateway='))?.split('=')[1] || 'https://localhost:48420';
 const SKIP_VOICE = process.argv.includes('--skip-voice');
 const SKIP_CHAT = process.argv.includes('--skip-chat');
 const VERBOSE = process.argv.includes('--verbose');

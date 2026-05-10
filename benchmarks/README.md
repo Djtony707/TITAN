@@ -61,20 +61,20 @@ npm run dev:gateway
 
 ### 9. Titan PC Gateway Health (Remote)
 ```bash
-ssh titan 'curl -sS http://127.0.0.1:48420/api/health | head -20'
+ssh <titan-host> 'curl -sS http://127.0.0.1:48420/api/health | head -20'
 ```
 
 ### 10. Repo Sync Status
 ```bash
 cd ~/Desktop/TitanBot/TITAN-main
 git log --oneline --graph --left-right --decorate origin/main...HEAD
-ssh titan 'cd /opt/TITAN && git log --oneline -1'
+ssh <titan-host> 'cd /opt/TITAN && git log --oneline -1'
 ```
 
 ### 11. GitNexus Index Status
 ```bash
 cat ~/.gitnexus/registry.json
-ssh titan 'cat ~/.gitnexus/registry.json'
+ssh <titan-host> 'cat ~/.gitnexus/registry.json'
 ```
 
 ---

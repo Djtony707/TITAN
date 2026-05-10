@@ -52,9 +52,9 @@ echo ""
 TARGET="${1:-all}"
 
 declare -a MACHINES=(
-  "Titan PC|192.168.1.11|dj"
-  "Mini PC|192.168.1.95|djtony707"
-  "T610|192.168.1.67|t610"
+  "Titan PC|<titan-host>|dj"
+  "Mini PC|<minipc-host>|djtony707"
+  "T610|<t610-host>|t610"
 )
 
 for m in "${MACHINES[@]}"; do

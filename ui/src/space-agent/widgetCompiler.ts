@@ -195,7 +195,7 @@ const TERMINAL_CODE = `function TerminalWidget({ runtime }) {
   const [lines, setLines] = React.useState([
     { text: 'TITAN Canvas v2.0.0', type: 'info' },
     { text: 'Initializing panel runtime...', type: 'success' },
-    { text: 'Connected to TITAN backend [192.168.1.11]', type: 'info' },
+    { text: 'Connected to TITAN backend [<titan-host>]', type: 'info' },
     { text: 'Loading extensions... OK', type: 'success' },
     { text: 'Ready for commands', type: 'prompt' }
   ]);

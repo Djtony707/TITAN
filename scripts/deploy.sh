@@ -33,7 +33,7 @@ cd "$PROJECT_DIR"
 REMOTE="titan"
 REMOTE_PATH="/opt/TITAN"
 SERVICE_NAME="titan"
-LOG_FILE="/home/dj/titan.log"
+LOG_FILE="~/titan.log"
 
 # ── Parse flags ────────────────────────────────────────────────────
 FORCE_UI=false
@@ -295,7 +295,7 @@ if $SYNC_DEPS; then
 fi
 
 echo "║                                       ║"
-echo "║  Dashboard: http://192.168.1.11:48420  ║"
+echo "║  Dashboard: http://localhost:48420  ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
@@ -315,7 +315,7 @@ if $PUBLISH && ! $DRY_RUN; then
   else
     echo ""
     echo "  ⚠ npm publish returned status $PUBLISH_STATUS"
-    echo "  Run manually on Titan PC: ssh titan 'cd $REMOTE_PATH && npm publish --tag latest'"
+    echo "  Run manually on Titan PC: ssh "${TITAN_HOST}" 'cd $REMOTE_PATH && npm publish --tag latest'"
     echo ""
   fi
 fi

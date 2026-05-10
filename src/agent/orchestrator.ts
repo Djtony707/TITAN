@@ -82,10 +82,10 @@ CRITICAL RULES FOR CODING TASKS:
 - NEVER give a coder agent a task that requires writing >50 lines of code at once
 - Break large file changes into MULTIPLE small coder tasks:
   Example: "Add network scanner to dashboard" becomes:
-  1. coder: "Read /home/dj/TITAN/dashboard.html and add a new <section> after the machines grid with id='network-scanner' and a heading 'Network Scanner'"
-  2. coder: "Add CSS styles for .scanner-grid and .scanner-card to the <style> block in /home/dj/TITAN/dashboard.html"
-  3. coder: "Add a JavaScript function scanNetwork() that fetches IPs 192.168.1.1-254 and updates the scanner section in /home/dj/TITAN/dashboard.html"
-  4. coder: "Add a call to scanNetwork() in the initialization block and a 60-second interval refresh in /home/dj/TITAN/dashboard.html"
+  1. coder: "Read <repo>/dashboard.html and add a new <section> after the machines grid with id='network-scanner' and a heading 'Network Scanner'"
+  2. coder: "Add CSS styles for .scanner-grid and .scanner-card to the <style> block in <repo>/dashboard.html"
+  3. coder: "Add a JavaScript function scanNetwork() that fetches IPs 192.168.1.1-254 and updates the scanner section in <repo>/dashboard.html"
+  4. coder: "Add a call to scanNetwork() in the initialization block and a 60-second interval refresh in <repo>/dashboard.html"
 
 Each coder task should edit ONE section of ONE file. Use edit_file, not write_file for existing files.
 

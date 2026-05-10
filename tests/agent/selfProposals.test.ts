@@ -125,7 +125,7 @@ describe('selfProposals', () => {
         it('creates a new proposal and stores the file', () => {
             const p = captureWrite({
                 toolName: 'write_file',
-                filePath: '/home/dj/test-project/src/foo.ts',
+                filePath: '<test-project>/src/foo.ts',
                 content: 'export const x = 1;\n',
                 sessionId: 'sess-1',
                 agentId: 'agent-1',
@@ -137,7 +137,7 @@ describe('selfProposals', () => {
             expect(p!.files).toHaveLength(1);
             expect(p!.drive).toBe('curiosity');
             expect(p!.status).toBe('captured');
-            expect(p!.files[0].sourcePath).toBe('/home/dj/test-project/src/foo.ts');
+            expect(p!.files[0].sourcePath).toBe('<test-project>/src/foo.ts');
 
             // File content should be retrievable
             const content = getProposalFileContent(p!.id, p!.files[0].capturedPath);

@@ -171,7 +171,7 @@ export async function checkInitiative(options: InitiativeOptions = {}): Promise<
         // target. Previously only soma-tagged goals flowed, leaving the
         // proposer-approved "self-healing framework" goals with no tag
         // signal — which is exactly how TITAN ended up LARPing self-mods
-        // into /home/dj/titan-saas all afternoon.
+        // into <sibling-project> all afternoon.
         const somaTag = (goal.tags || []).find(t => t.startsWith('soma:')) || null;
         const overrides = {
             goalContext: {

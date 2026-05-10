@@ -14,7 +14,7 @@
  *   npx tsx scripts/benchmark/swe-bench.ts [options]
  *
  * Options:
- *   --gateway URL      TITAN gateway (default: https://192.168.1.11:48420)
+ *   --gateway URL      TITAN gateway (default: https://localhost:48420)
  *   --model MODEL      Model to test
  *   --timeout MS       Per-task timeout (default: 180000)
  *   --verbose          Show full responses
@@ -32,7 +32,7 @@ const getArg = (flag: string) => {
     return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
 };
 
-const GATEWAY = getArg('--gateway') || 'https://192.168.1.11:48420';
+const GATEWAY = getArg('--gateway') || 'https://localhost:48420';
 const MODEL = getArg('--model');
 const TIMEOUT = parseInt(getArg('--timeout') || '180000', 10);
 const VERBOSE = args.includes('--verbose');

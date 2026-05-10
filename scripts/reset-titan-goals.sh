@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REMOTE="${1:-titan}"
-TITAN_HOME="${TITAN_HOME:-/home/dj/.titan}"
+TITAN_HOME="${TITAN_HOME:-~/.titan}"
 TS=$(date +%Y%m%dT%H%M%S)
 ARCHIVE_DIR="${TITAN_HOME}/archive-${TS}"
 
@@ -79,4 +79,4 @@ echo "Restarting titan service so new state takes effect..."
 ssh "${REMOTE}" "sudo systemctl restart titan"
 sleep 5
 echo "Done. Check logs:"
-ssh "${REMOTE}" "tail -15 /home/dj/titan.log"
+ssh "${REMOTE}" "tail -15 ~/titan.log"

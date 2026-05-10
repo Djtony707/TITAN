@@ -779,7 +779,7 @@ export const TitanConfigSchema = z.object({
          * MUST target a path inside `target`. Writes to any other path
          * are rejected by the toolRunner scope-lock. This stops the
          * "TITAN hallucinates self-modifying its own framework but
-         * actually writes to /home/dj/titan-saas or /home/titan/"
+         * actually writes to <sibling-project> or /home/titan/"
          * pattern observed 2026-04-18.
          *
          * When `staging` is enabled, writes to `target` are redirected

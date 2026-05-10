@@ -30,7 +30,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ollama': {
-        target: 'http://192.168.1.11:11434',
+        target: 'http://localhost:11434',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ollama/, ''),
       },

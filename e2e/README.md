@@ -155,7 +155,7 @@ npx playwright show-report
 
 Example:
 ```bash
-TITAN_BASE_URL=http://192.168.1.11:48420 npx playwright test
+TITAN_BASE_URL=http://localhost:48420 npx playwright test
 ```
 
 ## Test Configuration
