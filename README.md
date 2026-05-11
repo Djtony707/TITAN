@@ -3,6 +3,31 @@
 > **TITAN** — The AI that actually _does_ things. It remembers your name. It learns what you like. It writes your emails, codes your ideas, posts for you, and keeps getting smarter while you sleep. Oh, and it has a little floating mascot. `npm i -g titan-agent`
 > [//]: # (npm-text-end)
 
+<div align="center">
+
+# 📡 INCOMING TRANSMISSION
+
+## 🚨 TITAN v6.0 — "Living Canvas" — Dropping This Week 🚨
+
+</div>
+
+> **Every other AI gives you a chat box.**
+> **TITAN moves in.**
+
+v6.0 ships **Presence** — the first AI agent that:
+
+- 🧠 **Feels** what you're working on — Soma's homeostatic drive layer modulates behavior in real time (curiosity, focus, fatigue, satisfaction).
+- 👁️ **Acts without being asked** — surveys your work every few minutes, builds the surface you needed before you knew you did.
+- 🛠️ **Builds tools on the spot** — ask for any widget, dashboard, tracker, automation. TITAN materializes it. Right then. Yours forever.
+- 🌌 **Infinite Spaces** — workspaces you create on demand, each shaped around what you're doing.
+- 🪞 **Learns YOU specifically** — six months in, your TITAN is irreplaceable, because nobody else's TITAN knows you the same way.
+
+The transmission resumes when it lands.
+
+📡 Watch this space. 🔥
+
+---
+
 # TITAN 5.5 — "Spacewalk" 🚀
 
 <p align="center">
