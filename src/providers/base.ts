@@ -175,6 +175,24 @@ export abstract class LLMProvider {
     /** Check if the provider is configured and reachable */
     abstract healthCheck(): Promise<boolean>;
 
+    /**
+     * Whether this provider has the credentials it needs to make a real
+     * request. Returning `false` here causes the router's chat()/chatStream()
+     * to fail FAST with a clear "configure key for {provider}" error,
+     * BEFORE it would otherwise burn circuit-breaker budget on a request
+     * that has zero chance of succeeding.
+     *
+     * Default implementation: assume the provider doesn't need credentials.
+     * Override in providers that do (the cloud ones).
+     *
+     * Note: this is intentionally synchronous and cheap. It must NOT make
+     * network calls. If the provider's credential store is async (very
+     * unusual), keep a cached snapshot.
+     */
+    isConfigured(): boolean {
+        return true;
+    }
+
     /** Get the provider identifier from a model string like "anthropic/claude-3" */
     static parseModelId(modelId: string): { provider: string; model: string } {
         // E3: Guard against empty/whitespace model IDs

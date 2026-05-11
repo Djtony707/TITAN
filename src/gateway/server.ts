@@ -2512,19 +2512,32 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Models endpoint — lists all providers + live Ollama models
   // Model discovery + management endpoints
-  app.get('/api/models', async (_req, res) => {
+  app.get('/api/models', async (req, res) => {
     const cfg = loadConfig();
-    const models = await discoverAllModels();
-    // Group by provider
+    // ?refresh=1 bypasses the 60s discovery cache so the user sees a
+    // catalogue change immediately after configuring a provider key.
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const models = await discoverAllModels(forceRefresh);
+    // Group by provider, plus a sibling map of provider → key state so the
+    // Settings UI can show "needs key" badges next to providers the user
+    // hasn't configured yet (and ideally block selection of those models).
     const grouped: Record<string, string[]> = {};
+    const keyConfigured: Record<string, boolean> = {};
     for (const m of models) {
       if (!grouped[m.provider]) grouped[m.provider] = [];
       grouped[m.provider].push(m.id);
+      // First-write wins, but every model from the same provider has the
+      // same flag so order doesn't matter.
+      if (!(m.provider in keyConfigured)) keyConfigured[m.provider] = m.keyConfigured;
     }
     res.json({
       ...grouped,
       current: cfg.agent.model,
       aliases: getModelAliases(),
+      _meta: {
+        keyConfigured,
+        cacheRefreshed: forceRefresh,
+      },
     });
   });
 

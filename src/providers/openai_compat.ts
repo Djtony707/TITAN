@@ -323,6 +323,10 @@ export class OpenAICompatProvider extends LLMProvider {
         }
     }
 
+    isConfigured(): boolean {
+        return !!this.apiKey;
+    }
+
     async healthCheck(): Promise<boolean> {
         try {
             if (!this.apiKey) return false;
