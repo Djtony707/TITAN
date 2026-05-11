@@ -251,6 +251,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerRagSkill } = await import('./builtin/rag.js');
     const { registerDeepResearchSkill } = await import('./builtin/deep_research.js');
     const { registerSystemInfoSkill } = await import('./builtin/system_info.js');
+    const { registerCurrentModelSkill } = await import('./builtin/current_model.js');
     const { registerPersonaManagerSkill } = await import('./builtin/persona_manager.js');
     const { registerResearchPipelineSkill } = await import('./builtin/research_pipeline.js');
     const { registerAutoresearchSkill } = await import('./builtin/autoresearch.js');
@@ -346,6 +347,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['rag', registerRagSkill],
         ['deep_research', registerDeepResearchSkill],
         ['system_info', registerSystemInfoSkill],
+        ['current_model', registerCurrentModelSkill],
         ['persona_manager', registerPersonaManagerSkill],
         ['research_pipeline', registerResearchPipelineSkill],
         ['autoresearch', registerAutoresearchSkill],
