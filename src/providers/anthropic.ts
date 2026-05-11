@@ -279,13 +279,40 @@ export class AnthropicProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        return [
+        // Hardcoded fallback used when no key is configured or the live
+        // discovery call fails. Keep this in step with the latest stable
+        // generation so a fresh-clone TITAN without a key still picks a
+        // reasonable default.
+        const FALLBACK = [
             'claude-opus-4-0',
             'claude-sonnet-4-20250514',
             'claude-haiku-4-20250414',
             'claude-3-5-sonnet-20241022',
             'claude-3-5-haiku-20241022',
         ];
+        if (!this.apiKey) return FALLBACK;
+
+        // Live discovery — Anthropic's /v1/models is paginated (page size 1000)
+        // and returns objects shaped like `{ id, type: 'model', display_name, created_at }`.
+        try {
+            const response = await fetch(`${this.baseUrl}/v1/models?limit=1000`, {
+                headers: {
+                    'x-api-key': this.apiKey,
+                    'anthropic-version': '2023-06-01',
+                },
+                signal: AbortSignal.timeout(5000),
+            });
+            if (!response.ok) {
+                logger.debug(COMPONENT, `listModels: ${response.status} from /v1/models, using fallback`);
+                return FALLBACK;
+            }
+            const data = await response.json() as { data?: Array<{ id: string }> };
+            const ids = (data.data || []).map((m) => m.id).filter(Boolean);
+            return ids.length > 0 ? ids : FALLBACK;
+        } catch (err) {
+            logger.debug(COMPONENT, `listModels failed: ${(err as Error).message}, using fallback`);
+            return FALLBACK;
+        }
     }
 
     async healthCheck(): Promise<boolean> {

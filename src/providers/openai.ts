@@ -268,7 +268,35 @@ export class OpenAIProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini', 'o3-mini'];
+        // Hardcoded fallback used when no key is configured or live discovery fails.
+        const FALLBACK = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini', 'o3-mini'];
+        if (!this.apiKey) return FALLBACK;
+
+        // Live discovery via /v1/models. The response includes embeddings,
+        // image-gen, audio, moderation, etc. — filter to chat-capable
+        // generation models so the picker doesn't drown in noise.
+        const isChatModel = (id: string): boolean => {
+            if (/^(text-embedding|whisper|tts|dall-e|moderation|davinci-002|babbage-002|computer-use|omni-moderation)/.test(id)) return false;
+            return /^(gpt|o1|o3|o4|chatgpt|ft:gpt)/.test(id);
+        };
+        try {
+            const response = await fetch(`${this.baseUrl}/v1/models`, {
+                headers: { Authorization: `Bearer ${this.apiKey}` },
+                signal: AbortSignal.timeout(5000),
+            });
+            if (!response.ok) {
+                logger.debug(COMPONENT, `listModels: ${response.status} from /v1/models, using fallback`);
+                return FALLBACK;
+            }
+            const data = await response.json() as { data?: Array<{ id: string }> };
+            const ids = (data.data || []).map((m) => m.id).filter(isChatModel);
+            // Sort newest first by name (alphabetical desc tends to bubble new generations up).
+            ids.sort().reverse();
+            return ids.length > 0 ? ids : FALLBACK;
+        } catch (err) {
+            logger.debug(COMPONENT, `listModels failed: ${(err as Error).message}, using fallback`);
+            return FALLBACK;
+        }
     }
 
     async healthCheck(): Promise<boolean> {
