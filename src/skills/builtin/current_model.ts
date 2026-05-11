@@ -27,7 +27,7 @@ import logger from '../../utils/logger.js';
 
 const COMPONENT = 'CurrentModel';
 
-interface ModelReport {
+export interface ModelReport {
     titanVersion: string;
     activeModel: string;
     provider: string;
@@ -38,7 +38,7 @@ interface ModelReport {
     summary: string;
 }
 
-function buildReport(): ModelReport {
+export function buildCurrentModelReport(): ModelReport {
     const config = loadConfig();
     const activeModel = config.agent.model || 'unknown';
     const persona = config.agent.persona || 'default';
@@ -108,7 +108,7 @@ export function registerCurrentModelSkill(): void {
             },
             execute: async () => {
                 logger.info(COMPONENT, 'current_model called');
-                const report = buildReport();
+                const report = buildCurrentModelReport();
                 // Return a structured + summary so the LLM can either quote the
                 // summary verbatim or compose a fresh sentence from the fields.
                 return JSON.stringify(report, null, 2);

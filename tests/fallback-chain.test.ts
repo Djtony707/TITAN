@@ -55,6 +55,7 @@ vi.mock('../src/providers/anthropic.js', () => ({
         chat = vi.fn();
         chatStream = vi.fn(async function* () {});
         listModels = vi.fn(async () => ['claude-sonnet-4-20250514']);
+        isConfigured = vi.fn(() => true);
         healthCheck = vi.fn(async () => true);
     },
 }));
@@ -66,6 +67,7 @@ vi.mock('../src/providers/openai.js', () => ({
         chat = vi.fn();
         chatStream = vi.fn(async function* () {});
         listModels = vi.fn(async () => ['gpt-4o', 'gpt-4']);
+        isConfigured = vi.fn(() => true);
         healthCheck = vi.fn(async () => true);
     },
 }));
@@ -77,6 +79,7 @@ vi.mock('../src/providers/google.js', () => ({
         chat = vi.fn();
         chatStream = vi.fn(async function* () {});
         listModels = vi.fn(async () => ['gemini-2.0-flash']);
+        isConfigured = vi.fn(() => true);
         healthCheck = vi.fn(async () => true);
     },
 }));
@@ -88,6 +91,7 @@ vi.mock('../src/providers/ollama.js', () => ({
         chat = vi.fn();
         chatStream = vi.fn(async function* () {});
         listModels = vi.fn(async () => ['llama3.1']);
+        isConfigured = vi.fn(() => true);
         healthCheck = vi.fn(async () => true);
     },
 }));
@@ -99,6 +103,7 @@ vi.mock('../src/providers/openai_compat.js', () => ({
         chat = vi.fn();
         chatStream = vi.fn(async function* () {});
         listModels = vi.fn(async () => ['gpt-4']);
+        isConfigured = vi.fn(() => true);
         healthCheck = vi.fn(async () => true);
     },
     PROVIDER_PRESETS: [],

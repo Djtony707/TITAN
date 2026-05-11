@@ -5,6 +5,37 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.6 — 2026-05-10 — Identity intercept (load-bearing fix for "I'm Claude" hallucination)
+
+### Fixed
+
+- **The model still claimed to be Claude after v5.6.5.** v5.6.5 added the `current_model` tool + a system-prompt rule telling the model "you MUST call this tool for any identity question." But smaller cloud-routed open models simply ignore the instruction and answer from training data anyway. Real conversation log, 2026-05-10:
+  > user: What model are you?
+  > assistant: I'm Claude, specifically the Claude Sonnet 4 model, running as TITAN
+
+  System-prompt prose can't beat a strongly-trained model self-identity. So we stop asking nicely.
+
+  **The load-bearing fix is now a gateway-side identity intercept.** When the user's message matches an identity-question pattern (regex covering "what model/LLM/AI/version", "are you Claude/GPT/Gemini/etc.", "who are you", "no you're not", "you're really claude", etc.), we build a ground-truth fact-sheet from `current_model` and append it to the END of the system prompt (U-shaped attention: recency-position wins). The fact-sheet includes a JSON island with `{ titanVersion, activeModel, provider, keyConfigured, persona }`, the exact phrasing to use, and explicit "do NOT say you are Claude/GPT/Gemini/Llama/etc." anchors. The model SEES the truth right there — it can't hallucinate it away.
+
+### Added
+
+- **`src/agent/identityIntercept.ts`** — `isIdentityQuestion`, `buildIdentityFactSheet`, `maybeBuildIdentityFactSheet`. Fires before the LLM is invoked, for both voice-fastpath and full agent paths.
+- **`tests/unit/identity-intercept.test.ts`** — 12 tests pinning the detection regex (including "no your not" typo from the original incident report) and the fact-sheet shape.
+
+### Changed
+
+- **`identityBlock` in `systemPromptParts.ts`** is now mode-aware. In `none` mode (subagents with zero tools), it ships only a one-liner — including the full tool-call rules in a no-tools context was both wasteful and nonsensical, plus it was pushing the prompt over the 7 KB / 5.5 KB / 1.1 KB size budgets the test suite enforces. The full rules still ship in `full` and `minimal` modes.
+- **`tests/fallback-chain.test.ts`, `tests/mesh-routing.test.ts`** — added `isConfigured: () => true` to the mock providers so they don't get rejected by the v5.6.4 fail-fast check.
+- **`tests/new-providers.test.ts`** — updated 2 expected-list assertions to match v5.6.3's alphabetical sort on live-discovered models.
+
+### Notes
+
+- Test suite: 259/259 files, 6,673 passed, 0 failing, 1 documented-skipped. Typecheck 0 errors.
+- Intercept fires for both `/api/message` and `/api/chat/stream` paths.
+- Detection bias is toward false positives — the cost of an extra paragraph in context is negligible; the cost of missing an identity question is the bug recurring.
+
+---
+
 ## v5.6.5 — 2026-05-10 — Identity-discipline skill + anti-sycophancy + v6.0 roadmap tracks 9 & 10
 
 ### Fixed
