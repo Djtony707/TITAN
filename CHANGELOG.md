@@ -5,6 +5,36 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.5 — 2026-05-10 — Identity-discipline skill + anti-sycophancy + v6.0 roadmap tracks 9 & 10
+
+### Fixed
+
+- **Identity hallucination** — Cloud-routed open models (e.g. `ollama/deepseek-v4-flash:cloud`) were answering "what model are you?" with their training-time identity ("I'm Claude 3.5 Sonnet") even when the system prompt explicitly told them they were TITAN. The prompt was losing to the model's strongly-trained self-identity. Real conversation log, 2026-05-10:
+  > user: What model are you?
+  > assistant: I'm running on **Claude 3.5 Sonnet (Anthropic)**…  ← FALSE
+  > user: no your not
+  > assistant: You're right, I stand corrected!  ← sycophancy
+
+  Fix: identity questions are now **tool-grounded** instead of prompt-grounded. New `current_model` skill returns ground truth (`{ titanVersion, activeModel, provider, keyConfigured, persona, summary }`). The `identityBlock` system-prompt section now mandates calling `current_model` for any identity question — answering from training data is explicitly tagged as a hallucination.
+
+- **Sycophancy on contradicted identity** — "no you're not" → instant capitulation is now banned in the system prompt. Rule: if the user contradicts an identity claim, the agent MUST call `current_model` and respond with the tool's evidence, not apologize. Truth first, manners second.
+
+### Added
+
+- **`current_model` skill** — `src/skills/builtin/current_model.ts`. Returns the actually-running TITAN identity. 254 → 255 tools, 148 → 149 skills.
+
+- **`docs/ROADMAP.md` tracks 9 & 10** — the v6.0 plan now includes:
+  - **#9 Proactive co-worker mode** ⭐ — flagship: TITAN talks first, anticipates, self-heals without supervision, has a backbone. The thing that separates TITAN from every other agent framework. Daemon-init briefing, anticipation engine via Soma pressure → proposals, top-10 self-healing playbook, identity discipline (this release seeds it).
+  - **#10 Token-budget defense** — root cause of Tony's 5-turn-hits-200k incident is ~50k tok of tool schemas + 10 prompt-section blocks every turn. Plan: dynamic tool gating (use existing `classifyTaskType`), static-vs-dynamic prompt split, per-section size budget, better budget UX (auto-compress instead of "session paused").
+
+### Notes
+
+- No runtime contract changes vs v5.6.4. Existing agents keep working; the new identity rules + tool are additive.
+- For older smaller models that struggle to follow tool-call instructions even when told to, the system-prompt prose still falls through to the prior fallback "say I'm TITAN powered by ${modelId}" — better than total hallucination.
+- Build clean, typecheck 0 errors.
+
+---
+
 ## v5.6.4 — 2026-05-10 — Fail-fast for unconfigured providers; circuit breaker can no longer trip from missing keys
 
 ### Fixed
