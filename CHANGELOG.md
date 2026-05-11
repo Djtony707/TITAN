@@ -5,6 +5,34 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.1 — 2026-05-10 — Service-worker rewrite, lint cleanup, leaked-version unpublish
+
+### Fixed
+
+- **Black-page-after-deploy on Mission Control.** The previous service worker pinned `CACHE_NAME = 'titan-v1'` and used a generic cache-first handler. After every `npm run build:ui`, the asset hashes in `index.html` change, but the SW kept serving the OLD HTML, which referenced JS bundles that no longer existed → black page until the user did a manual hard refresh. (Real incident, today.)
+
+  Rewrite (`ui/public/sw.js`):
+  - Network-first for navigations (`/`, `/login`, `/legacy`) so deploys are visible immediately.
+  - Cache-first for `/assets/*` (immutable by content hash, safe to cache forever).
+  - `skipWaiting()` + `clients.claim()` so a new SW takes over open tabs without a refresh.
+  - Old caches (`titan-*`) get deleted on activate.
+  - `CACHE_NAME` now bumps every build via a Vite plugin (`stampServiceWorkerBuildId` in `ui/vite.config.ts`) that stamps a timestamp into `dist/sw.js` at `closeBundle`.
+
+### Changed
+
+- **ESLint:** 247 → 237 warnings (mechanical `_paramName` prefix on intentionally-unused function args across 9 files). Build still 0 errors.
+
+### Removed
+
+- **npm:** unpublished `titan-agent@5.5.32`, `5.5.33`, `5.5.34`, `5.5.35` — these were the four hygiene-cycle versions that briefly leaked internal docs in the `docs/` folder before the cleanup landed. `@latest` continues to point at 5.6.0 → 5.6.1.
+
+### Notes
+
+- The "tunnel URL not in log" issue noticed earlier was a false alarm — today's TITAN log goes to `~/.titan/logs/titan-YYYY-MM-DD.log`, not the legacy `~/titan.log`. The Tunnel logger and cloudflared are working fine; current quick-tunnel URL printed correctly.
+- No runtime contract changes vs v5.6.0.
+
+---
+
 ## v5.6.0 — 2026-05-10 — README truth pass, widget runtime fix, agent-skills sync, v6.0 roadmap
 
 ### Fixed

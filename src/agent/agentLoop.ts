@@ -1324,7 +1324,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                         response.content = '';
                         // Store remaining actions for subsequent rounds
                         if (compiled.length > 1) {
-                            const remaining = compiled.slice(1).map((a, i) => `ACTION: ${a.tool} ${a.args.path || a.args.command || ''}`).join('\n');
+                            const remaining = compiled.slice(1).map((a, _i) => `ACTION: ${a.tool} ${a.args.path || a.args.command || ''}`).join('\n');
                             ctx.messages.push({ role: 'user', content: `[Queued actions]\n${remaining}\nExecute the next ACTION.` });
                         }
                     }

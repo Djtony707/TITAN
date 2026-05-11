@@ -274,7 +274,7 @@ function scoreContent(
     original: string,
     cleaned: string,
     validation: ValidationResult,
-    opts: GuardrailOptions,
+    _opts: GuardrailOptions,
 ): number {
     let score = 100;
 

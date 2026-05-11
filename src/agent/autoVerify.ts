@@ -19,7 +19,7 @@ export interface VerifyResult {
  * Verify a file after a write/append operation.
  * Returns pass/fail with optional fix suggestion.
  */
-export function verifyFileWrite(toolName: string, args: Record<string, unknown>, toolResult: string): VerifyResult {
+export function verifyFileWrite(toolName: string, args: Record<string, unknown>, _toolResult: string): VerifyResult {
     // Only verify write_file and append_file
     if (toolName !== 'write_file' && toolName !== 'append_file') {
         return { passed: true };

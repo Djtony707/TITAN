@@ -26,7 +26,7 @@ export function createOpenAICompatRouter(): Router {
             { id: currentModel, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'titan' },
             ...Object.entries(aliases)
                 .filter(([, v]) => v && v !== currentModel)
-                .map(([key, value]) => ({
+                .map(([_key, value]) => ({
                     id: value as string,
                     object: 'model' as const,
                     created: Math.floor(Date.now() / 1000),

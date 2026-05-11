@@ -80,7 +80,7 @@ export const codexAdapter: ExternalAdapter = {
             child.stdin.write(ctx.task);
             child.stdin.end();
 
-            child.on('close', (code, signal) => {
+            child.on('close', (code, _signal) => {
                 clearTimeout(timer);
                 const durationMs = Date.now() - startMs;
 

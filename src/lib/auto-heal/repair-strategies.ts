@@ -196,7 +196,7 @@ export class ConfigErrorRepair {
     return issue.category === 'config_error' && this.config.enabledCategories.includes('config_error');
   }
 
-  planActions(issue: DependencyIssue): RepairAction[] {
+  planActions(_issue: DependencyIssue): RepairAction[] {
     return [
       { type: 'fix_config', description: `Regenerate package-lock.json and node_modules`, command: 'npm ci' },
     ];
@@ -237,7 +237,7 @@ export class BuildFailureRepair {
     return issue.category === 'build_failure' && this.config.enabledCategories.includes('build_failure');
   }
 
-  planActions(issue: DependencyIssue): RepairAction[] {
+  planActions(_issue: DependencyIssue): RepairAction[] {
     return [
       { type: 'fix_config', description: 'Clean install dependencies', command: 'rm -rf node_modules && npm install' },
       { type: 'restart', description: 'Clear Next.js build cache', command: 'rm -rf .next' },
