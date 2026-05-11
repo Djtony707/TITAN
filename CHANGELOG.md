@@ -5,6 +5,24 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.2 — 2026-05-10 — Live model discovery for Anthropic, OpenAI, Google
+
+### Fixed
+
+- **Settings → Main Model picker only showed a curated subset of each provider's catalogue.** `AnthropicProvider.listModels()`, `OpenAIProvider.listModels()`, and `GoogleProvider.listModels()` all returned a hardcoded ~5-model array even when an API key was configured — so the dropdown was missing every recent Claude/GPT/Gemini variant. (Real bug report, 2026-05-10.)
+
+  - **Anthropic:** now hits `GET https://api.anthropic.com/v1/models?limit=1000` with `x-api-key` + `anthropic-version: 2023-06-01`. Returns every model the key can access.
+  - **OpenAI:** now hits `GET https://api.openai.com/v1/models` with `Bearer` auth, then filters to chat-capable families (`gpt-*`, `o1*`, `o3*`, `o4*`, `chatgpt-*`, `ft:gpt-*`). Skips embedding/whisper/tts/dall-e/moderation IDs so the picker stays useful.
+  - **Google:** now hits `GET https://generativelanguage.googleapis.com/v1beta/models?pageSize=200` with `x-goog-api-key`, then filters to models whose `supportedGenerationMethods` includes `generateContent`. Skips embedding/tts/image-only models.
+  - All three fall back gracefully to the previous hardcoded list on no key, non-2xx, or 5-second timeout. Results sort newest-first and feed into the existing 60-second `discoverAllModels` cache, so this adds at most one cold-start round trip per provider.
+
+### Notes
+
+- Ollama already did live discovery via `/api/tags` ✅; the 32 OpenAI-compat providers already had opt-in live discovery via `supportsModelList: true` ✅. This release brings the three remaining native providers in line.
+- No tests broke. Build: 0 errors, 237 lint warnings (unchanged from v5.6.1).
+
+---
+
 ## v5.6.1 — 2026-05-10 — Service-worker rewrite, lint cleanup, leaked-version unpublish
 
 ### Fixed

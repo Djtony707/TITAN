@@ -333,7 +333,37 @@ export class GoogleProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        return ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+        // Hardcoded fallback used when no key is configured or live discovery fails.
+        const FALLBACK = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+        if (!this.apiKey) return FALLBACK;
+
+        // Live discovery via /v1beta/models. Response shape:
+        //   { models: [{ name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent", ...] }] }
+        // Filter to models that support generateContent (chat) — skip embedding-only,
+        // image-gen, and aqa models so the picker stays useful.
+        try {
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+                headers: { 'x-goog-api-key': this.apiKey },
+                signal: AbortSignal.timeout(5000),
+            });
+            if (!response.ok) {
+                logger.debug(COMPONENT, `listModels: ${response.status} from /v1beta/models, using fallback`);
+                return FALLBACK;
+            }
+            const data = await response.json() as {
+                models?: Array<{ name: string; supportedGenerationMethods?: string[] }>;
+            };
+            const ids = (data.models || [])
+                .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+                .map((m) => m.name.replace(/^models\//, ''))
+                .filter((id) => /gemini/i.test(id) && !/embedding|tts|image/i.test(id));
+            // Sort: newest gemini families first (2.5 > 2.0 > 1.5).
+            ids.sort().reverse();
+            return ids.length > 0 ? ids : FALLBACK;
+        } catch (err) {
+            logger.debug(COMPONENT, `listModels failed: ${(err as Error).message}, using fallback`);
+            return FALLBACK;
+        }
     }
 
     async healthCheck(): Promise<boolean> {
