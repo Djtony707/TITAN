@@ -140,7 +140,7 @@
     "protobufjs": "^7.5.5"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.4.2",
+    "@inquirer/prompts": "^8.4.3",
     "@langchain/core": "^1.1.45",
     "@mozilla/readability": "^0.6.0",
     "boxen": "^8.0.1",
