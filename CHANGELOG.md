@@ -5,6 +5,36 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.7.0 — 2026-05-10 — Budget action=compress actually compresses; harness-pattern self-audit doc
+
+### Fixed
+
+- **`action: 'compress'` on prompt budget silently behaved like `action: 'stop'`.** Default config has been `'compress'` since the budget feature shipped, but `promptBudget.checkBudget()` returned a single string for all three actions, and `agentLoop.ts` treated any non-null result as a hard stop and broke out with `"Session paused to control costs."`. The compression machinery (`buildSmartContext` + `compressContext`) already existed — nothing called it on budget exceed. Real incident, 2026-05-10: a 5-turn chat hit 216,713 / 200,000 tokens and stopped instead of compressing.
+
+  **Fix:**
+  1. **`promptBudget.checkBudget()` now returns a structured `BudgetCheckResult`** with `{ action: 'compress' | 'downgrade' | 'stop', message, used, max, downgradeModel? }` instead of a single message string.
+  2. **`agentLoop.ts` honors `action: 'compress'`** — invokes `buildSmartContext` with 60 % of the budget as the target, swaps the message history, resets the budget counter via the new `resetBudgetUsage()` helper, and continues the loop. Both think-phase and respond-phase budget checks updated.
+  3. **The user-facing message** for the compress path no longer says "Session paused" — it says "Context budget hit. Trimming older turns and continuing."
+  4. **`tests/unit/promptBudget-compress.test.ts`** (7 tests, all pass) pins the structured return shape, the message wording, the action-driven branching, and `resetBudgetUsage` behavior so this regression cannot silently recur.
+
+### Added
+
+- **`docs/HARNESS-PATTERNS.md`** — TITAN's self-audit against the [`Picrew/awesome-agent-harness`](https://github.com/Picrew/awesome-agent-harness) catalogue and the [12 Factor Agents](https://github.com/humanlayer/12-factor-agents) principles. True table: 7 of 10 top-10 patterns ✅, 2 ⚠️ partial, 1 ❌ missing-by-design. 12 Factor Agents: 9 ✅, 3 ⚠️ partial. With reading list.
+
+### Notes
+
+- `action: 'downgrade'` is now in the result type but not yet wired through the router (mid-loop provider swap needs more plumbing). Falls through to stop until a separate change lands.
+- The deferred-tools (`/api/skills/list`-style discovery via `tool_search`) optimisation that bigger harnesses use is already in TITAN as the existing Compact Mode (`255 → 23 tools per turn` per real session log). v5.7.0 didn't need to add this.
+- Test suite: 260 files, 6,680 passed, 0 failing. Typecheck 0 errors.
+
+### Sources cited in the fix
+
+- Anthropic — "Effective context engineering for AI agents" — context-as-bottleneck framing.
+- 12 Factor Agents — §3 (Own your context window), §10 (Small, focused agents).
+- awesome-agent-harness top-10 pattern #3 — "Context Compaction & Working-State Management".
+
+---
+
 ## v5.6.6 — 2026-05-10 — Identity intercept (load-bearing fix for "I'm Claude" hallucination)
 
 ### Fixed

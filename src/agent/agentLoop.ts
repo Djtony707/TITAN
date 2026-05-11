@@ -26,7 +26,7 @@ import { updateIssue, startRun, endRun, addIssueComment, recordSpend } from './c
 import { recordTokenUsage, routeModel, type TurnContext } from './costOptimizer.js';
 import { calculateActualCost } from './costEstimator.js';
 import { getSessionGoal } from './autonomyContext.js';
-import { initBudget, checkBudget, recordUsage, markExceeded, cleanupBudget, getDefaultBudget } from './promptBudget.js';
+import { initBudget, checkBudget, recordUsage, markExceeded, cleanupBudget, getDefaultBudget, resetBudgetUsage } from './promptBudget.js';
 import { scanForSecrets } from '../security/secretGuard.js';
 import { fullExfilScan } from '../security/exfilScan.js';
 import { runShellHooks } from '../hooks/shellHooks.js';
@@ -1078,13 +1078,39 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 logger.info(COMPONENT, '[ExplicitIntent] User explicitly requested tool use — forcing tool_choice=required for round 1');
             }
 
-            // Prompt budget check (Space Agent parity)
-            const budgetMsg = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
-            if (budgetMsg) {
-                markExceeded(ctx.sessionId);
-                result.content = budgetMsg;
-                phase = 'done';
-                break;
+            // Prompt budget check (Space Agent parity).
+            //
+            // Pre-v5.7.0 this branch ALWAYS stopped the loop, regardless of
+            // the configured action. With action: 'compress' (the default)
+            // we now actually compress instead — buildSmartContext is the
+            // same machinery /compact uses, so we get TITAN's existing
+            // structured-summary compression for free. After compression
+            // we reset the budget counter (the next-round context is
+            // smaller) and let the loop continue.
+            //
+            // Reference: Anthropic "Effective context engineering for AI
+            // agents" — "context as a bottleneck" — and 12 Factor Agents
+            // §10 "small, focused agents". See awesome-agent-harness top-10
+            // pattern #3: "Context Compaction & Working-State Management".
+            const budgetCheck = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
+            if (budgetCheck) {
+                if (budgetCheck.action === 'compress') {
+                    const before = (ctx.messages as ChatMessage[]).length;
+                    const compressed = buildSmartContext(ctx.messages as ChatMessage[], Math.floor(budgetConfig.maxTokens * 0.6));
+                    ctx.messages = compressed;
+                    resetBudgetUsage(ctx.sessionId);
+                    logger.info(COMPONENT, `[Budget] Compressed context: ${before} → ${compressed.length} messages, budget reset`);
+                    // Fall through and continue the loop with the compressed history.
+                } else {
+                    // 'stop' (and 'downgrade' which is not yet wired through the
+                    // router; falls through to stop until provider-mid-loop swap
+                    // lands as a separate change). Preserves the old hard-pause
+                    // path for callers that explicitly opt in via config.
+                    markExceeded(ctx.sessionId);
+                    result.content = `⚠️ ${budgetCheck.message}`;
+                    phase = 'done';
+                    break;
+                }
             }
 
             let response: ChatResponse;
@@ -2137,13 +2163,24 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
 
             logger.info(COMPONENT, `Respond phase — calling LLM without tools to generate final answer`);
 
-            // Prompt budget check (Space Agent parity)
-            const respondBudgetMsg = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
-            if (respondBudgetMsg) {
-                markExceeded(ctx.sessionId);
-                result.content = respondBudgetMsg;
-                phase = 'done';
-                break;
+            // Prompt budget check (Space Agent parity). Same compress-vs-stop
+            // logic as the think-phase check above — see comment there for
+            // full reasoning and citations.
+            const respondBudgetCheck = budgetConfig.maxTokens > 0 ? checkBudget(ctx.sessionId, budgetConfig) : null;
+            if (respondBudgetCheck) {
+                if (respondBudgetCheck.action === 'compress') {
+                    const before = (ctx.messages as ChatMessage[]).length;
+                    const compressed = buildSmartContext(ctx.messages as ChatMessage[], Math.floor(budgetConfig.maxTokens * 0.6));
+                    ctx.messages = compressed;
+                    resetBudgetUsage(ctx.sessionId);
+                    logger.info(COMPONENT, `[Budget] Respond-phase compressed: ${before} → ${compressed.length} messages`);
+                } else {
+                    // stop / downgrade-not-yet-wired — see think-phase comment.
+                    markExceeded(ctx.sessionId);
+                    result.content = `⚠️ ${respondBudgetCheck.message}`;
+                    phase = 'done';
+                    break;
+                }
             }
 
             // Context compression for respond phase
