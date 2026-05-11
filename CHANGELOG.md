@@ -5,6 +5,30 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.3 — 2026-05-10 — OpenRouter no-key public catalogue + comprehensive native fallbacks
+
+### Fixed
+
+- **Settings → Main Model dropdown was sparse on a fresh-clone TITAN with no API keys.** v5.6.2 added live discovery for Anthropic/OpenAI/Google, but those endpoints all require auth — so users without keys still saw only 4-6 models per cloud provider.
+
+  **Two fixes:**
+  1. **OpenRouter public catalogue** — OpenRouter's `/api/v1/models` is publicly accessible. New `publicModelList: true` flag on `OpenAICompatConfig` lets a provider fetch its catalogue without an API key. OpenRouter is the canonical case: 365 models from every major provider become visible immediately, key-free. (Other openai-compat providers can opt in if their `/models` is also public.)
+  2. **Comprehensive native fallbacks** — Anthropic, OpenAI, Google `FALLBACK` arrays expanded from 4-6 entries each to comprehensive current-2026 lists. Anthropic 5→17 (Claude 4.x family + 3.7/3.5/3 stable), OpenAI 6→22 (GPT-5/4.5/4o + o4/o3/o1 series), Google 4→17 (Gemini 3.x/2.5/2.0/1.5).
+
+### Numbers
+
+- `/api/models` total: **145 models → 540 models** without any keys configured (3.7x).
+- OpenRouter: **11 → 365 models** with no key.
+- Anthropic / OpenAI / Google: **15 combined → 56 combined** in fallback mode.
+
+### Notes
+
+- Live discovery (when keys ARE configured) still fully replaces the fallback — users with valid keys see their actual catalogue, not a static list.
+- 8s timeout on the OpenRouter fetch (slightly longer than other providers because the response is ~365 entries).
+- Build clean, typecheck 0 errors.
+
+---
+
 ## v5.6.2 — 2026-05-10 — Live model discovery for Anthropic, OpenAI, Google
 
 ### Fixed

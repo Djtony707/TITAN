@@ -39,6 +39,14 @@ export interface OpenAICompatConfig {
     extraHeaders?: Record<string, string>;
     /** Whether to fetch models from /v1/models endpoint */
     supportsModelList?: boolean;
+    /**
+     * The /models catalogue is publicly accessible (no API key required).
+     * When true, listModels() will fetch the catalogue even when the user
+     * has not configured an API key — useful for picker UIs that want to
+     * show the full catalogue before the user has chosen / paid for a key.
+     * OpenRouter is the canonical example.
+     */
+    publicModelList?: boolean;
     /** Keep org/ prefix in model name (e.g. NIM API expects 'nvidia/model-name') */
     keepModelPrefix?: boolean;
 }
@@ -281,20 +289,35 @@ export class OpenAICompatProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        if (!this.config.supportsModelList || !this.apiKey) {
+        if (!this.config.supportsModelList) {
             return this.config.knownModels;
         }
+
+        // Some upstream catalogues are public (no auth needed) — those
+        // providers set `publicModelList: true` so the picker can show
+        // the full catalogue even before the user configures a key.
+        // OpenRouter is the canonical example (~365 models, no key).
+        const isPublic = this.config.publicModelList === true;
+        if (!isPublic && !this.apiKey) {
+            return this.config.knownModels;
+        }
+
         try {
+            const headers: Record<string, string> = {
+                ...(this.config.extraHeaders || {}),
+            };
+            if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
             const response = await fetch(`${this.baseUrl}/models`, {
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    ...(this.config.extraHeaders || {}),
-                },
-                signal: AbortSignal.timeout(5000),
+                headers,
+                signal: AbortSignal.timeout(8000),
             });
             if (!response.ok) return this.config.knownModels;
             const data = await response.json() as { data?: Array<{ id: string }> };
-            return (data.data || []).map((m) => m.id);
+            const ids = (data.data || []).map((m) => m.id).filter(Boolean);
+            // Sort alphabetically for stable UX (the catalogue is
+            // already typically grouped by family).
+            ids.sort();
+            return ids.length > 0 ? ids : this.config.knownModels;
         } catch {
             return this.config.knownModels;
         }
@@ -634,6 +657,11 @@ export const PROVIDER_PRESETS: OpenAICompatConfig[] = [
             'nvidia/llama-3.1-nemotron-70b-instruct',
         ],
         supportsModelList: true,
+        // OpenRouter's /api/v1/models is publicly accessible — TITAN can
+        // pull the full ~365-model catalogue even before the user has
+        // configured an OPENROUTER_API_KEY. Lets the picker show every
+        // available model so the user can choose first, then add the key.
+        publicModelList: true,
         extraHeaders: {
             'HTTP-Referer': 'https://titan.local',
             'X-Title': 'TITAN',
