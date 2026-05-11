@@ -237,6 +237,8 @@ export interface DiscoveredModel {
     model: string;       // Model name e.g. "llama3.1"
     displayName: string; // Provider display name e.g. "Ollama (Local)"
     source: 'static' | 'live'; // Whether discovered via live API or hardcoded list
+    /** True if the provider has the credentials it needs to actually serve a request for this model. */
+    keyConfigured: boolean;
 }
 
 /** Cache for discovered models (refreshed on demand, 60s TTL) */
@@ -262,6 +264,7 @@ export async function discoverAllModels(forceRefresh = false): Promise<Discovere
         try {
             const models = await provider.listModels();
             const isLive = health[name] === true;
+            const keyConfigured = provider.isConfigured();
             for (const model of models) {
                 discovered.push({
                     id: `${name}/${model}`,
@@ -269,6 +272,7 @@ export async function discoverAllModels(forceRefresh = false): Promise<Discovere
                     model,
                     displayName: provider.displayName,
                     source: (name === 'ollama' && isLive) ? 'live' : 'static',
+                    keyConfigured,
                 });
             }
         } catch (err) {
@@ -787,6 +791,22 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
     logger.info(COMPONENT, `Routing to ${provider.displayName} (model: ${model})`);
 
+    // Fail-fast: reject before the circuit breaker if the provider has no
+    // configured credentials. Without this guard, picking a model from a
+    // provider you haven't configured a key for sends N requests that can
+    // never succeed, trips the circuit breaker, and locks the provider out
+    // for the reset window. (Real incident, 2026-05-10: openrouter circuit
+    // tripped after 8 failures because OPENROUTER_API_KEY wasn't set.)
+    if (!provider.isConfigured()) {
+        const errorMsg = `Provider ${providerName} has no API key configured. Set ${
+            providerName.toUpperCase().replace(/-/g, '_')
+        }_API_KEY in env or via Settings → Integrations to use ${providerName} models.`;
+        logger.warn(COMPONENT, errorMsg);
+        const enhancedError = new Error(errorMsg);
+        Object.assign(enhancedError, { status: 401, provider: providerName, model, missingKey: true });
+        throw enhancedError;
+    }
+
     // G4: Track fallback attempts for structured error reporting (OpenClaw pattern)
     const fallbackAttempts: Array<{ provider: string; model: string; error: string; reason: string }> = [];
 
@@ -1111,6 +1131,18 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
     const providerName = provider.name;
 
     logger.info(COMPONENT, `Streaming via ${provider.displayName} (model: ${model})`);
+
+    // Fail-fast: see chat() for full reasoning. Reject before the circuit
+    // breaker if the provider has no configured credentials, so picking
+    // an unconfigured model can't trip the breaker.
+    if (!provider.isConfigured()) {
+        const errorMsg = `Provider ${providerName} has no API key configured. Set ${
+            providerName.toUpperCase().replace(/-/g, '_')
+        }_API_KEY in env or via Settings → Integrations to use ${providerName} models.`;
+        logger.warn(COMPONENT, errorMsg);
+        yield { type: 'error', error: errorMsg };
+        return;
+    }
 
     // Check circuit breaker before attempting request
     if (!canRequest(providerName)) {

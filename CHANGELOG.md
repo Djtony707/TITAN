@@ -5,6 +5,40 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.6.4 — 2026-05-10 — Fail-fast for unconfigured providers; circuit breaker can no longer trip from missing keys
+
+### Fixed
+
+- **Circuit breaker tripped on a provider the user never had a key for.** v5.6.3 made OpenRouter's full 365-model catalogue pickable without a key. Picking one (`openrouter/deepseek/deepseek-v4-pro`) sent 8 consecutive requests with no auth, all failed, the circuit breaker opened for the entire `openrouter` provider, and the user was locked out of all 365 OpenRouter models for the reset window. (Real incident, 2026-05-10 17:58:58.)
+
+### Changed
+
+- **`LLMProvider.isConfigured()`** is a new abstract-with-default method on the provider base class. Returns `true` by default (Ollama doesn't need keys). Anthropic, OpenAI, Google, and `OpenAICompatProvider` all override it to return `!!this.apiKey`.
+
+- **`router.chat()` and `router.chatStream()`** check `provider.isConfigured()` BEFORE the circuit-breaker check. If the provider has no credentials, they throw / yield a clear error (`status: 401, missingKey: true`) instead of firing a request that can never succeed. The circuit breaker stays untouched.
+
+  Error message format:
+  ```
+  Provider openrouter has no API key configured. Set OPENROUTER_API_KEY
+  in env or via Settings → Integrations to use openrouter models.
+  ```
+
+### Added
+
+- **`/api/models`** now returns a `_meta.keyConfigured` map: `{ anthropic: false, ollama: true, openrouter: false, ... }`. The Settings UI can use this to render a "needs key" badge on each provider group and disable selection of models from unconfigured providers.
+
+- **`/api/models?refresh=1`** now actually does a force-refresh of the discovery cache (the query param was previously silently ignored). Useful right after configuring a key in Settings → Integrations.
+
+- **`DiscoveredModel.keyConfigured`** field, surfaced through `discoverAllModels()`.
+
+### Notes
+
+- No runtime change for users who already have keys configured (Ollama, or anyone who's set up cloud keys via Settings → Integrations).
+- For users without cloud keys, the picker still shows the full 569-model catalogue (no regression on v5.6.3) — but selecting a model from an unconfigured provider now fails-fast with a clear "configure key" message instead of silently burning circuit-breaker budget.
+- Build clean, typecheck 0 errors, 160 provider+smoke tests pass.
+
+---
+
 ## v5.6.3 — 2026-05-10 — OpenRouter no-key public catalogue + comprehensive native fallbacks
 
 ### Fixed
