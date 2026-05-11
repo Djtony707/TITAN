@@ -44,7 +44,7 @@ export async function compressToolResult(
     toolName: string,
     toolCallId: string,
     result: string,
-    round: number,
+    _round: number,
 ): Promise<string> {
     // Persist full result to disk (fire-and-forget)
     persistResult(sessionId, toolCallId, toolName, result).catch(e => logger.debug(COMPONENT, `Background result persistence failed: ${(e as Error).message}`));

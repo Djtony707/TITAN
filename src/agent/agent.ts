@@ -120,7 +120,7 @@ function estimateRoundBudget(message: string, config: { agent: { dynamicBudget?:
 export function verifyTaskCompletion(
     message: string,
     toolsUsed: string[],
-    response: string,
+    _response: string,
 ): { complete: boolean; reason: string } {
     const lower = message.toLowerCase();
 

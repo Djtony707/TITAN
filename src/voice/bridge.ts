@@ -6,7 +6,8 @@
  * visible to the TITAN core graph (GitNexus Process tracing).
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
 import fs from 'fs';

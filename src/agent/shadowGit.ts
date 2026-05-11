@@ -230,7 +230,7 @@ export function listCheckpoints(dirOrFile: string): FileCheckpoint[] {
 /**
  * Get the diff between a checkpoint and the current file.
  */
-export function diffCheckpoint(checkpointId: string, dirPath?: string): string {
+export function diffCheckpoint(checkpointId: string, _dirPath?: string): string {
     // Search all shadow repos for this checkpoint
     if (!existsSync(CHECKPOINTS_BASE)) return 'No checkpoints found.';
 

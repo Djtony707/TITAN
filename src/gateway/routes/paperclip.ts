@@ -13,7 +13,8 @@
  *   ALL  /paperclip/*            → proxy to Paperclip web UI
  */
 
-import { Router, Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import { Router } from 'express';
 import { startPaperclip, stopPaperclip, getPaperclipStatus } from '../../addons/paperclipSidecar.js';
 import logger from '../../utils/logger.js';
 import { titanEvents } from '../../agent/daemon.js';
