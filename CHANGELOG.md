@@ -5,6 +5,43 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v5.7.1 — 2026-05-10 — 📡 v6.0 "Living Canvas" incoming-transmission announcement
+
+> **Marketing patch — no functional code changes.** Adds the v6.0 incoming-
+> transmission banner to the top of `README.md` so anyone landing on
+> github.com/Djtony707/TITAN or npmjs.com/package/titan-agent sees the v6.0
+> announcement. Full v6.0 release ships after the hardening + upgrade-safety
+> gates close.
+
+### Changed
+
+- **`README.md`** — Adds the **📡 INCOMING TRANSMISSION** banner announcing
+  v6.0 "Living Canvas" with the **Presence** thesis at the very top of the
+  README. The banner covers the five v6.0 differentiators:
+  feels (Soma drives modulate behavior) /
+  acts without being asked (idle-time proactive widget creation) /
+  builds tools on the spot (`create_widget` reflex) /
+  infinite Spaces (workspaces on demand) /
+  learns YOU specifically (per-user Soma profile).
+
+### Unchanged
+
+- All code paths, tool schemas, skill registrations, gateway behavior.
+- Tool/skill counts identical to v5.7.0.
+- Test suite identical to v5.7.0: 6,810 tests pass, 1 skipped, 0 failing.
+- Functional surface 100% identical to v5.7.0 — this is a docs-only patch.
+
+### Why a patch release for docs
+
+npm doesn't surface README updates without a version bump. v5.7.1 is the
+minimal viable bump that lets the announcement reach existing
+`titan-agent @latest` users on npm. The v6.0 build itself is locked behind
+the hardening gate (`docs/PIPELINES.md` once H5 lands) and the upgrade-
+safety gate (backup skill + migration runner) — no shortcuts on the actual
+release.
+
+---
+
 ## v5.7.0 — 2026-05-10 — Budget action=compress actually compresses; harness-pattern self-audit doc
 
 ### Fixed
