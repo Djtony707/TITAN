@@ -268,8 +268,38 @@ export class OpenAIProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // Hardcoded fallback used when no key is configured or live discovery fails.
-        const FALLBACK = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini', 'o3-mini'];
+        // Hardcoded comprehensive fallback used when no key is configured
+        // or live discovery fails. Covers OpenAI's chat-capable production
+        // models as of 2026-05. Live discovery (when a key IS set) replaces
+        // this with the user's actual catalogue.
+        const FALLBACK = [
+            // GPT-5 family (2026)
+            'gpt-5',
+            'gpt-5-mini',
+            'gpt-5-nano',
+            // GPT-4.5 / 4o family
+            'gpt-4.5-preview',
+            'gpt-4o',
+            'gpt-4o-2024-11-20',
+            'gpt-4o-2024-08-06',
+            'gpt-4o-mini',
+            'gpt-4o-mini-2024-07-18',
+            'gpt-4-turbo',
+            'gpt-4-turbo-2024-04-09',
+            'gpt-4',
+            'chatgpt-4o-latest',
+            // o-series reasoning models
+            'o4-mini',
+            'o3',
+            'o3-mini',
+            'o3-pro',
+            'o1',
+            'o1-pro',
+            'o1-mini',
+            'o1-preview',
+            // Legacy still in production
+            'gpt-3.5-turbo',
+        ];
         if (!this.apiKey) return FALLBACK;
 
         // Live discovery via /v1/models. The response includes embeddings,

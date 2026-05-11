@@ -333,8 +333,31 @@ export class GoogleProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // Hardcoded fallback used when no key is configured or live discovery fails.
-        const FALLBACK = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+        // Hardcoded comprehensive fallback used when no key is configured
+        // or live discovery fails. Covers Gemini families currently in
+        // production as of 2026-05.
+        const FALLBACK = [
+            // Gemini 3.x (2026)
+            'gemini-3.1-pro',
+            'gemini-3.1-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-3.0-pro',
+            'gemini-3.0-flash',
+            // Gemini 2.5 / 2.0
+            'gemini-2.5-pro',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite',
+            'gemini-2.0-flash-thinking-exp',
+            'gemini-2.0-pro-exp',
+            // Gemini 1.5 (still production-supported)
+            'gemini-1.5-pro',
+            'gemini-1.5-pro-002',
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-flash-8b',
+        ];
         if (!this.apiKey) return FALLBACK;
 
         // Live discovery via /v1beta/models. Response shape:

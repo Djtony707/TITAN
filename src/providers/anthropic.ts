@@ -279,16 +279,34 @@ export class AnthropicProvider extends LLMProvider {
     }
 
     async listModels(): Promise<string[]> {
-        // Hardcoded fallback used when no key is configured or the live
-        // discovery call fails. Keep this in step with the latest stable
-        // generation so a fresh-clone TITAN without a key still picks a
-        // reasonable default.
+        // Hardcoded comprehensive fallback used when no key is configured
+        // or the live discovery call fails. Covers every Claude API model
+        // ID currently in production as of 2026-05. Keeps the picker
+        // useful even on a fresh-clone TITAN with no key — the user can
+        // browse and choose, then configure the key. Live discovery (when
+        // a key IS configured) will replace this with whatever the upstream
+        // /v1/models returns, which may include models the key doesn't
+        // have access to.
         const FALLBACK = [
+            // Claude 4.x family (2025-2026)
+            'claude-opus-4-7',
+            'claude-opus-4-6',
+            'claude-opus-4-5',
             'claude-opus-4-0',
+            'claude-sonnet-4-6',
+            'claude-sonnet-4-5',
             'claude-sonnet-4-20250514',
+            'claude-haiku-4-6',
+            'claude-haiku-4-5-20251001',
             'claude-haiku-4-20250414',
+            // Claude 3.7 / 3.5 / 3.0 (still production-supported)
+            'claude-3-7-sonnet-20250219',
             'claude-3-5-sonnet-20241022',
+            'claude-3-5-sonnet-20240620',
             'claude-3-5-haiku-20241022',
+            'claude-3-opus-20240229',
+            'claude-3-sonnet-20240229',
+            'claude-3-haiku-20240307',
         ];
         if (!this.apiKey) return FALLBACK;
 
