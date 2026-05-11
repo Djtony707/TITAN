@@ -1,13 +1,13 @@
 # ─── Stage 1: Dependencies ───────────────────────────────────
 # Separate deps stage for better layer caching — only changes when package.json changes
-FROM node:22-slim AS deps
+FROM node:26-slim AS deps
 WORKDIR /app
 COPY package*.json ./
 COPY scripts ./scripts
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ─── Stage 2: Build ──────────────────────────────────────────
-FROM node:22-slim AS builder
+FROM node:26-slim AS builder
 WORKDIR /app
 COPY package*.json ./
 COPY scripts ./scripts
@@ -21,7 +21,7 @@ COPY ui ./ui
 RUN npm run build && npm run build:ui
 
 # ─── Stage 3: Production ─────────────────────────────────────
-FROM node:22-alpine
+FROM node:26-alpine
 WORKDIR /app
 
 # Install runtime deps only — no build tools needed at runtime
