@@ -61,24 +61,28 @@ vi.mock('../src/providers/anthropic.js', () => ({
     AnthropicProvider: vi.fn().mockImplementation(() => ({
         name: 'anthropic', displayName: 'Anthropic', chat: mockChat, chatStream: mockChatStream,
         healthCheck: mockHealthCheck, listModels: mockListModels,
+        isConfigured: () => true,
     })),
 }));
 vi.mock('../src/providers/openai.js', () => ({
     OpenAIProvider: vi.fn().mockImplementation(() => ({
         name: 'openai', displayName: 'OpenAI', chat: vi.fn().mockRejectedValue(new Error('no')),
         chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+        isConfigured: () => true,
     })),
 }));
 vi.mock('../src/providers/google.js', () => ({
     GoogleProvider: vi.fn().mockImplementation(() => ({
         name: 'google', displayName: 'Google', chat: vi.fn().mockRejectedValue(new Error('no')),
         chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+        isConfigured: () => true,
     })),
 }));
 vi.mock('../src/providers/ollama.js', () => ({
     OllamaProvider: vi.fn().mockImplementation(() => ({
         name: 'ollama', displayName: 'Ollama', chat: vi.fn().mockRejectedValue(new Error('no')),
         chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+        isConfigured: () => true,
     })),
 }));
 vi.mock('../src/providers/openai_compat.js', () => ({

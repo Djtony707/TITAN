@@ -25,6 +25,7 @@ import type { ChatMessage } from '../providers/base.js';
 import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
 import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensureLoaded as ensureBrainLoaded } from './brain.js';
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
+import { maybeBuildIdentityFactSheet } from './identityIntercept.js';
 import { classifyPipeline, resolvePipelineConfig, PIPELINE_PROFILES } from './pipeline.js';
 import { buildSelfAwarenessContext } from './selfAwareness.js';
 import { assembleSystemPrompt, type PromptMode } from './systemPromptParts.js';
@@ -1250,6 +1251,17 @@ export async function processMessage(
         systemPrompt = await buildSystemPrompt(config, message, overrides?.agentId, 'full', overrides?.sessionId);
         if (overrides?.systemPrompt) systemPrompt = overrides.systemPrompt + '\n\n' + systemPrompt;
         if (preRoutedContext) systemPrompt += preRoutedContext;
+    }
+
+    // Identity intercept — if the user asked anything that looks like
+    // "what model are you?", append a hard fact-sheet at the END of the
+    // system prompt (recency-position wins under U-shaped attention).
+    // This is the load-bearing fix for the long-running "model claims to
+    // be Claude when it's actually deepseek-v4-flash:cloud" bug. The
+    // intercept runs for both voice and full paths.
+    const identityFactSheet = maybeBuildIdentityFactSheet(message);
+    if (identityFactSheet) {
+        systemPrompt += '\n\n' + identityFactSheet;
     }
 
     // Task-aware enforcement injection — strengthen tool-use requirements based on message intent

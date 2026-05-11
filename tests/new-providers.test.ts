@@ -881,7 +881,10 @@ describe('New Providers — Edge Cases', () => {
         }));
 
         const models = await litellm.listModels();
-        expect(models).toEqual(['gpt-4o', 'claude-sonnet-4-20250514', 'custom-model']);
+        // OpenAICompatProvider.listModels now sorts results alphabetically for
+        // stable picker UX (added in v5.6.3 alongside OpenRouter no-key
+        // catalogue support). Reflect that here.
+        expect(models).toEqual(['claude-sonnet-4-20250514', 'custom-model', 'gpt-4o']);
     });
 
     it('Bedrock with supportsModelList=false should never call fetch for listModels', async () => {
@@ -940,7 +943,8 @@ describe('New Providers — Edge Cases', () => {
         }));
 
         const models = await deepinfra.listModels();
-        expect(models).toEqual(['meta-llama/Llama-3.3-70B-Instruct', 'custom-model']);
+        // Sorted alphabetically (see LiteLLM test above for context).
+        expect(models).toEqual(['custom-model', 'meta-llama/Llama-3.3-70B-Instruct']);
     });
 
     it('SambaNova with supportsModelList=true should fetch models from API on success', async () => {
