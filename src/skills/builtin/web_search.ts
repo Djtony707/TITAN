@@ -87,7 +87,32 @@ export function registerWebSearchSkill(): void {
         { name: 'web_search', description: 'Search the web', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'web_search',
-            description: 'Search the web and return the top results with titles, URLs, and snippets.\n\nUSE THIS WHEN Tony says: "search for X" / "look up X" / "find info on X" / "what is X" / "latest news on X" / "google X" / "who is X" / "how do I X"\n\nWORKFLOW:\n1. Call web_search with the query\n2. ALWAYS follow up by calling web_fetch on the most relevant result URL(s) to get the full content — snippets alone are not enough\n3. Synthesize the full content into an answer\n\nNEVER just return snippets as the final answer — always fetch the full page.\nFor weather queries ("what\'s the weather in X"), this tool auto-detects and returns real-time weather data directly.',
+            description: `Search the web and return the top results with titles, URLs, and snippets. Snippets are SUMMARIES, not answers — always follow up with web_fetch on the most relevant URL to get the full content.
+
+USE WHEN: "search for X" / "look up X" / "find info on X" / "what is X" / "latest news on X" / "google X" / "who is X" / "how do I X" / "is X true" — anything where the answer isn't in local memory and isn't a known URL.
+
+DO NOT USE FOR:
+- A known URL → use web_fetch directly (skip the search round-trip).
+- Internal/private network → use shell with curl (web_search hits public search engines only).
+- Real-time prices/quotes → call a specific API tool if available (stock, crypto), otherwise web_fetch a known data source.
+- Weather: web_search auto-detects "weather in X" queries and routes to a dedicated weather API — that path returns directly, no web_fetch needed.
+
+Parameters:
+- query (string, required) — what to search for. Specific queries return better results.
+- maxResults (number, optional) — default 5; max 10.
+
+Returns: { results: Array<{ title, url, snippet }>, query, count }. Plus a weather-shaped object when the query matches "weather in X".
+
+Errors:
+- "Search backend timed out" — slow upstream; retry once with a shorter query.
+- "Rate limited" — too many searches in the past minute; wait 30 s.
+
+WORKFLOW you should follow:
+1. web_search(query)
+2. web_fetch(top result URL) — full content
+3. Synthesize the answer with citations to the URL.
+
+NEVER return snippets as the final answer. Snippets are advertisements; pages are answers.`,
             parameters: {
                 type: 'object',
                 properties: {

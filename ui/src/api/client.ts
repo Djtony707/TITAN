@@ -122,12 +122,30 @@ export function streamMessage(
         let buffer = '';
         let currentEventType = '';
 
+        // v6.0 Step 15 — SSE heartbeat / read timeout. If we go more than
+        // STREAM_QUIET_TIMEOUT_MS without ANY data from the server, the
+        // stream is treated as silently dead and the promise rejects so
+        // the UI can surface an error instead of hanging forever. Reset
+        // on every chunk.
+        const STREAM_QUIET_TIMEOUT_MS = 60_000; // 60s — generous for slow models
+        let quietTimer: ReturnType<typeof setTimeout> | null = null;
+        const resetQuietTimer = () => {
+          if (quietTimer) clearTimeout(quietTimer);
+          quietTimer = setTimeout(() => {
+            try { reader?.cancel('stream-quiet-timeout'); } catch { /* gone */ }
+            reject(new Error('SSE stream went silent for over 60s — connection appears dead.'));
+          }, STREAM_QUIET_TIMEOUT_MS);
+        };
+        resetQuietTimer();
+
         function read(): void {
           reader!.read().then(({ done, value }) => {
             if (done) {
+              if (quietTimer) clearTimeout(quietTimer);
               resolve();
               return;
             }
+            resetQuietTimer();
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
@@ -178,6 +196,18 @@ export function streamMessage(
                     }
                   } else if (eventType === 'error') {
                     onEvent?.({ type: 'error', data: parsed.error ?? parsed.message ?? '' });
+                  } else if (eventType === 'widget') {
+                    // Canvas widget side-channel (v5.8.x). The server-side
+                    // `create_widget` / `update_widget` / `remove_widget`
+                    // tools fire these so the canvas mutates without the
+                    // model having to emit a `_____react` fence.
+                    onEvent?.({
+                      type: 'widget',
+                      data: '',
+                      widgetMode: parsed.mode,
+                      widget: parsed.widget,
+                      timestamp: parsed.timestamp,
+                    });
                   } else {
                     onEvent?.({ type: parsed.type ?? 'token', data: parsed.text ?? parsed.data ?? '', ...parsed });
                   }
@@ -192,7 +222,10 @@ export function streamMessage(
               }
             }
             read();
-          }).catch(reject);
+          }).catch((err) => {
+            if (quietTimer) clearTimeout(quietTimer);
+            reject(err);
+          });
         }
         read();
       })

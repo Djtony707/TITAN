@@ -10,7 +10,33 @@ export function registerMemorySkill(): void {
         { name: 'memory', description: 'Persistent memory management', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'memory',
-            description: 'Store and recall persistent facts, preferences, and project details that should survive across conversations.\n\nUSE THIS WHEN Tony says: "remember X" / "don\'t forget X" / "save that" / "what do you know about X" / "do you remember X" / "forget X"\n\nACTIONS:\n- remember: save a fact (requires key + value)\n- recall: retrieve a specific fact by key\n- search: find memories matching a query\n- list: show all stored memories\n\nRULES:\n- Auto-save important facts without being asked — if Tony shares preferences, project details, or key decisions, call memory:remember proactively\n- Use descriptive keys (e.g., "preferred_editor", "project_name", "api_key_location")\n- Search before recalling if you\'re not sure of the exact key',
+            description: `Store and recall persistent key/value facts that survive across conversations. Auto-saving is encouraged — when the user shares a preference, project detail, or decision worth remembering, call memory remember without being explicitly asked.
+
+USE WHEN: "remember X" / "don't forget X" / "save that" / "what do you know about X" / "do you remember X" / "forget X" — anything where the answer depends on something the user said in an earlier session. Also use proactively when the user shares a stable fact (their preferred editor, a recurring project path, an IP they always reach).
+
+DO NOT USE FOR:
+- Multi-fact semantic recall ("what did we discuss about X?") → use graph_search (vector + relationship store).
+- Cross-session episodic recall ("last week we agreed Y") → use hindsight hints (long-term retention layer).
+- Temporary state during one chat → keep it in context, don't pollute the memory store.
+
+Parameters:
+- action (string, required) — one of: "remember", "recall", "search", "list".
+- key (string, required for remember/recall) — descriptive snake_case identifier (e.g., "preferred_editor", "homelab_titan_ip").
+- value (string, required for remember) — the fact to store.
+- query (string, required for search) — free-text, matched semantically.
+- category (string, optional) — bucket like "preference" / "fact" / "project" for filtering.
+
+Returns:
+- remember → "Saved: <key> = <value>"
+- recall → the stored value, or "Not found: <key>"
+- search → list of matching { key, value, score }
+- list → all stored memories grouped by category
+
+Errors:
+- "Key not found" (recall) — try search to discover the right key, or list to see everything.
+- "Vector store unavailable" (search) — Ollama embed not ready; fall back to list and manual scan.
+
+Use descriptive keys. "user_likes_coffee" recalls cleanly. "fact1" doesn't.`,
             parameters: {
                 type: 'object',
                 properties: {

@@ -24,7 +24,7 @@ export { ToolsIntegrationsWidget } from './ToolsIntegrationsWidget';
 export { ToolsChannelsWidget } from './ToolsChannelsWidget';
 export { ToolsMeshWidget } from './ToolsMeshWidget';
 
-export { DaemonWidget } from './DaemonWidget';
+// v6.0 step 1 — DaemonWidget removed (overlapped with OrganismWidget).
 export { MemoryWikiWidget } from './MemoryWikiWidget';
 export { AutoresearchWidget } from './AutoresearchWidget';
 export { SelfProposalsWidget } from './SelfProposalsWidget';
@@ -42,5 +42,5 @@ export { CheckpointsWidget } from './CheckpointsWidget';
 export { OrganismWidget } from './OrganismWidget';
 export { FleetWidget } from './FleetWidget';
 export { BrowserWidget } from './BrowserWidget';
-export { PaperclipWidget } from './PaperclipWidget';
+// v6.0 step 1 — PaperclipWidget removed (pre-v5 branding).
 export { EvalWidget } from './EvalWidget';

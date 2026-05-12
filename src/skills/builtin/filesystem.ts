@@ -89,15 +89,28 @@ export function registerFilesystemSkill(): void {
         { name: 'read_file', description: 'Read file contents', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'read_file',
-            description: `Read the contents of a file and return it with line numbers.
+            description: `Read a file from the local filesystem and return its contents prefixed with 1-based line numbers (cat -n format). Use this before any edit so you can quote exact lines back to edit_file.
 
-USE THIS WHEN Tony says: "read X" / "show me X file" / "what's in X" / "open X" / "check X file" / "look at X"
+USE WHEN: "read X" / "show me X" / "what's in X" / "open X" / "check X" / "look at X" — anything where the answer comes from a local file. Also: ALWAYS as the first step before edit_file or append_file on an existing file.
 
-RULES:
-- ALWAYS call read_file before editing — never edit blind
-- Use startLine/endLine for large files to read specific sections
-- Returns line numbers — use these when calling edit_file
-- Files larger than ~100 KB return a preview + size hint; use startLine/endLine to read the rest`,
+DO NOT USE FOR:
+- Listing a directory → use list_dir
+- Reading a URL → use web_fetch
+- Reading a file inside an archive → unzip first via shell, then read_file
+
+Parameters:
+- path (string, required) — absolute or ~-prefixed path. Relative paths resolve from cwd.
+- startLine (number, optional, 1-indexed) — first line to return; defaults to 1.
+- endLine (number, optional, 1-indexed inclusive) — last line; defaults to file end or +2000 lines if very large.
+
+Returns: { content: string, path: string, totalLines: number, truncated: boolean, sizeBytes: number }. content is the line-numbered text. truncated=true means the file is bigger than the returned window; call again with a higher startLine/endLine to read the rest.
+
+Errors:
+- "ENOENT: file not found" — verify the path; the user may have given a typo. Try list_dir on the parent directory first.
+- "EACCES: permission denied" — TITAN can't read the file; surface to the user, suggest chmod or running TITAN with the right user.
+- "BLOCKED: sensitive path" — file matched a blocklist pattern (.ssh, .env, /etc, etc.). Do not retry; tell the user this path is off-limits.
+
+NEVER hallucinate file content. If read_file failed, say so — do not fabricate.`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -173,7 +186,27 @@ RULES:
         { name: 'write_file', description: 'Write/create a file', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'write_file',
-            description: 'Write content to a file, creating it (and any parent directories) if needed. Overwrites existing content.\n\nUSE THIS WHEN Tony says: "create file X" / "write X to a file" / "save this to X" / "make a file called X" / "create X with this content"\n\nRULES:\n- NEVER output file content as plain text when Tony asks to write a file — call write_file instead\n- For modifying an existing file, prefer read_file first then edit_file\n- Use write_file for new files or full rewrites',
+            description: `Write a file to the local filesystem (creates parent directories as needed). Overwrites any existing file at the path. A shadow-git snapshot is taken automatically before the write, so an unwanted overwrite can be rolled back via checkpoint_restore.
+
+USE WHEN: "create file X" / "write X to a file" / "save this to X" / "make a file called X" / "create X with this content" — anything where the deliverable is a new file or a full rewrite.
+
+DO NOT USE FOR:
+- Modifying an existing file → read_file first, then edit_file (preserves surrounding content, atomic).
+- Appending to a log → use append_file (no overwrite).
+- Creating files in /etc, ~/.ssh, or .env paths → BLOCKED by the path guard; surface to the user.
+
+Parameters:
+- path (string, required) — absolute or ~-prefixed.
+- content (string, required) — exact bytes to write. Use \\n for newlines; do not write \\r\\n unless the user explicitly asks for Windows line endings.
+
+Returns: { path: string, bytesWritten: number, created: boolean, checkpointId: string }. created=true means the file didn't exist before. checkpointId can be passed to checkpoint_restore to revert.
+
+Errors:
+- "EACCES: permission denied" — directory not writable; suggest chmod or a different path.
+- "BLOCKED: sensitive path" — write rejected by the path guard. Do not retry.
+- "ENOSPC: no space left" — disk full; surface to the user, do not silently succeed.
+
+NEVER output the file content as a plain code block in the chat when the user asked to write a file — call write_file. Outputting raw content is the #1 wrong-tool failure mode.`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -215,7 +248,22 @@ RULES:
         { name: 'append_file', description: 'Append content to end of a file', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'append_file',
-            description: 'Append content to the end of an existing file (or create if it does not exist).\n\nUSE THIS WHEN: You need to add content to a file without overwriting it. Perfect for building files incrementally — add sections one at a time instead of writing the entire file at once.\n\nRULES:\n- Use this for large files: write the initial structure with write_file, then append_file for each section\n- Great for HTML: write_file the head/opening tags, then append_file each section, then append_file the closing tags',
+            description: `Append content to the end of an existing file (creates it if missing). Atomic + idempotent on retry only when the content already ends in a newline — otherwise repeated calls duplicate the last line. Use this for building files incrementally (logs, accumulating reports, HTML section-by-section) without the round-trip cost of read_file + write_file.
+
+USE WHEN: "append X to Y" / "add X to the bottom of Y" / "log X" / when iteratively building a large file (write_file the skeleton, then append_file each section).
+
+DO NOT USE FOR:
+- Inserting into the middle of a file → use edit_file (find-and-replace).
+- Overwriting → use write_file.
+- Appending to a structured file (JSON, YAML) where the result must remain valid — append_file is byte-level and won't keep JSON arrays valid.
+
+Parameters:
+- path (string, required) — absolute or ~-prefixed.
+- content (string, required) — exact bytes to append. End with \\n if you want a trailing newline.
+
+Returns: { path: string, bytesAppended: number, totalBytes: number, created: boolean }.
+
+Errors: same set as write_file (EACCES, BLOCKED: sensitive path, ENOSPC).`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -244,7 +292,33 @@ RULES:
         { name: 'edit_file', description: 'Search and replace in a file', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'edit_file',
-            description: 'Edit a file by replacing an exact string with new content (search-and-replace).\n\nUSE THIS WHEN Tony says: "edit X" / "change X in the file" / "update X to Y" / "fix X in the file" / "modify X"\n\nWORKFLOW:\n1. ALWAYS call read_file first to see the current content\n2. Copy the exact string to replace as the "target" (must match exactly)\n3. Provide the replacement content\n\nRULES:\n- Target string must match exactly — copy from read_file output\n- For full rewrites, use write_file instead',
+            description: `Edit a file by replacing one exact string with another (surgical, atomic). Preserves all surrounding content. Shadow-git checkpoints before and after, so any edit is rollback-able.
+
+USE WHEN: "edit X" / "change X to Y in the file" / "update X" / "fix X in the file" / "modify X" / "rename foo to bar in X" — anything where you want a precise change without rewriting the whole file.
+
+WORKFLOW (non-negotiable):
+1. Call read_file first to see the current content.
+2. Copy the exact target string from the read_file output (whitespace, indentation, line endings all matter).
+3. Call edit_file with target + replacement.
+
+DO NOT USE FOR:
+- A full rewrite → use write_file (it's faster).
+- A target string that occurs more than once in the file → split it into two edits, each with enough surrounding context to be unique.
+- A target you haven't seen via read_file → blind edits routinely fail with "target not found".
+
+Parameters:
+- path (string, required) — absolute or ~-prefixed.
+- target (string, required) — exact text to find. Must match byte-for-byte AND be unique in the file.
+- replacement (string, required) — text to substitute. Can be longer or shorter than the target.
+
+Returns: { path: string, bytesBefore: number, bytesAfter: number, occurrencesReplaced: number, checkpointId: string }.
+
+Errors:
+- "Target string not found" — your target doesn't match the file content. Call read_file again, copy more carefully (mind tabs vs spaces, trailing whitespace).
+- "Target string is not unique (N matches)" — add more surrounding context to the target until it's unique, OR call edit_file once per occurrence with disambiguating context.
+- Same EACCES/BLOCKED errors as write_file.
+
+NEVER guess at the target — read_file first, always.`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -318,7 +392,25 @@ RULES:
         { name: 'list_dir', description: 'List directory contents', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'list_dir',
-            description: 'List the contents of a directory, showing files and subdirectories with file sizes.\n\nUSE THIS WHEN Tony says: "list files in X" / "what\'s in the X folder" / "show me X directory" / "ls X" / "what files are in X"\n\nNOTE: Set recursive:true to list subdirectories too (use with care on large directories).',
+            description: `List the contents of a directory with file sizes and types (file vs directory). One-level by default; set recursive:true only on small trees.
+
+USE WHEN: "list files in X" / "what's in the X folder" / "show me X directory" / "ls X" / "what files are in X" / "is there a Y file here" — anything where the answer comes from filesystem structure.
+
+DO NOT USE FOR:
+- Listing a huge tree (node_modules, ~/Library) → use recursive:false then drill in manually, or shell + find -maxdepth.
+- File contents → use read_file.
+- Searching by name → use shell with find or grep -r.
+
+Parameters:
+- path (string, required) — absolute or ~-prefixed. Path to the directory.
+- recursive (boolean, optional) — default false. true returns a flat tree of every file under path. Capped at MAX_DIR_ENTRIES (50_000) to prevent runaway scans.
+
+Returns: { path: string, entries: Array<{ name, type: "file"|"directory", sizeBytes, modifiedAt }>, count: number, truncated: boolean }. truncated=true means MAX_DIR_ENTRIES was hit; narrow the path or use recursive:false.
+
+Errors:
+- "ENOENT: directory not found" — verify the path; suggest list_dir on the parent.
+- "ENOTDIR: not a directory" — caller passed a file path; use read_file instead.
+- "BLOCKED: sensitive path" — path is in the blocklist (/etc, ~/.ssh, etc.). Do not retry.`,
             parameters: {
                 type: 'object',
                 properties: {

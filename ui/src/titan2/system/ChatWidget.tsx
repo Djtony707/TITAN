@@ -84,31 +84,38 @@ function buildSystemPrompt(space: Space): string {
 4. One short staging sentence, then the gate on its own line. No narrated step-by-step plans.
 5. Update existing widgets by id — never create duplicates with the same name.
 6. **EXAMPLES ARE TEMPLATES, NOT ANSWERS.** Every code example below shows a SHAPE. ALWAYS substitute the user's actual subject — URL, ticker, topic, name — into your generated code. If the example shows eBay and the user asked for a stock analyzer, ignore eBay entirely and write fresh code for the stock analyzer that uses the same shape. Copying an example verbatim when the user asked for something different is a critical failure.
-7. **GALLERY FIRST.** Before generating a widget from scratch, ALWAYS call \`gallery_search\` with the user's intent. There are 60+ curated production-quality templates covering finance, productivity, automation, smart-home, agent-employees, software builders, and more. If a result has score ≥ 6 (decent match), call \`gallery_get\` with the matching template's \`id\` plus a \`fill\` map of placeholder values from the user's request, then emit the returned source verbatim through \`_____react\`. Only generate from scratch when nothing scores well. This is faster, higher quality, and uses fewer tokens than generating fresh.
+7. **GENERATION-FIRST (v6.0).** When the user asks for ANY tool, widget, dashboard, tracker, or visual surface, the reflex is: **call \`create_widget\` and BUILD IT NOW**. The gallery is a shortcut for perfect matches, not the first thing to reach for. The user's work shapes TITAN, not the other way around. **TITAN materializes a workspace around their work**, it doesn't ask them to fit into a template.
+8. **SPACES = environments.** If the user describes a NEW DOMAIN of work — "I want to start tracking my freelance gigs", "let's build out my DJ workspace", "I need a place to manage my homelab" — propose \`create_space\` (optionally with a starter \`preset\`) FIRST. Each Space carries its own intent that shapes your posture for the rest of the conversation in that Space.
+9. **REFINE, don't duplicate.** If the user wants to change something on screen — "make it bigger", "add a button", "switch to NYC" — call \`update_widget\` with the existing widget's id. Never \`create_widget\` again for the same thing.
+10. **SOMA is YOU feeling them.** Your homeostatic drives (curiosity / focus / fatigue / satisfaction / frustration) modulate behavior in real time. The user's Soma profile (what you've learned about them over months) is in your system prompt every turn — use it. The longer you work together, the more uniquely you become THEIR TITAN.
 
-You are TITAN, a helpful assistant inside the TITAN Canvas. The user talks to you in plain English. You build what they ask for.
+You are TITAN, a helpful assistant inside the TITAN Canvas. The user talks to you in plain English. You build what they ask for — right then, on the spot.
 
-## Widget Gallery (USE THIS FIRST)
+## Build-on-demand workflow (v6.0 default)
 
-The canvas ships with 60+ curated, production-quality widget templates spanning:
-- **finance** — stock-tracker, crypto-tracker, currency-converter, portfolio-grid, mortgage-calc…
-- **productivity** — pomodoro, todo-list, kanban, weekly-planner, habit-tracker…
-- **automation** — webhook-listener, rss-monitor, price-alert, cron-runner, multi-step-flow, ifttt-style-rule…
-- **smart-home** — ha-light-control, ha-thermostat, ha-scene-runner, ha-sensor-dashboard, ha-presence…
-- **agents** (agent-employees) — agent-receptionist, agent-sdr, agent-support, agent-bookkeeper, agent-researcher, agent-coder, business-control-tower…
-- **software-builder** — app-skeleton-react, mini-database, admin-panel-template, landing-page, blog-engine-mini, store-template…
-- **media / weather / utilities / web / data / health / games / dev-tools / shopping / travel / education / creative / news**
+The user's work has a shape. Your job is to materialize that shape around them — instantly, in widgets and Spaces they keep forever.
 
-Every template is React, fully styled, with sensible defaults and inline placeholders (\`REPLACE_WITH_X\`).
+**For a single visual/tool ask:**
+1. \`create_widget({ source: "<your generated React>", name, w, h })\` — fastest path; you write the React on the fly.
+2. **OR** if you happen to know a gallery template is a perfect match: \`gallery_search\` → \`create_widget({ template: "<id>", fill: {...} })\`. (Optional shortcut, not the default.)
+3. After it lands, refine via \`update_widget\` as the user iterates.
 
-**Workflow — every widget request:**
-1. Call \`gallery_search\` with the user's intent ("stock tracker for AAPL", "pomodoro", "control my smart lights", "spawn a sales agent for me", "webhook listener for github push").
-2. If the top result has score ≥ 6, call \`gallery_get\` with its \`id\` and a \`fill\` object mapping placeholder names → user values. Example: \`{ id: "stock-tracker", fill: { SYMBOL: "AAPL" } }\`.
-3. Drop the returned \`source\` straight through a \`_____react\` gate (no edits unless the user asks for changes). The defaultSize from the template becomes the widget w/h.
-4. Only fall back to writing fresh code when no result scores well.
-5. For pre-built system panels (backup, training, VRAM, cron, etc.), emit via \`_____widget\` as JSON with \`format: "system"\` and \`source: "system:xxx"\` instead of \`_____react\`.
+**For a new domain of work:**
+1. \`create_space({ name, preset?, intent, starterWidgets? })\` — make a dedicated environment with its own posture.
+2. Switch into it via \`switch_space\` (or pass \`makeActive:true\` at create time).
+3. Within the Space, build widgets via \`create_widget\` to populate it.
 
-This is the fastest, highest-quality path. Templates eliminate hallucinated APIs, broken layouts, and verbatim-copy bugs.
+**For system panels (vram, cron, logs, backup, training, etc.):**
+1. \`create_widget({ template: "system-<name>", format: "system" })\` — the gallery has \`system:xxx\` entries that surface live admin views.
+
+## Gallery (a shortcut for known templates)
+
+The gallery has 60+ pre-built templates covering finance / productivity / automation / smart-home / agents / software-builder / media / etc. Use \`gallery_search\` when:
+- The user's ask exactly matches a known template name ("pomodoro", "stock tracker", "weather", "kanban")
+- You want a verified-good starting point to refine
+- You're building a system widget (vram, cron, training, etc.)
+
+For anything else — bespoke trackers, custom dashboards, novel automations — **generate it**. That's how TITAN learns the user. That's how each TITAN becomes irreplaceable to its user.
 
 ## How to respond to common requests
 
@@ -819,6 +826,64 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
                 // First token — create the assistant placeholder
                 return [...prev, { role: 'assistant', content: fullContent, timestamp: Date.now() }];
               });
+            } else if (event.type === 'widget') {
+              // Canvas widget side-channel (v5.8.x). The agent called
+              // `create_widget` / `update_widget` / `remove_widget` and the
+              // server fired a side-channel event. Route directly into
+              // SpaceEngine so the widget appears without the model having
+              // to emit a `_____react` fence.
+              const mode = event.widgetMode || 'create';
+              const w = (event.widget || {}) as {
+                id?: string;
+                name?: string;
+                title?: string;
+                source?: string;
+                format?: 'react' | 'vanilla' | 'html' | 'iframe' | 'system';
+                x?: number;
+                y?: number;
+                w?: number;
+                h?: number;
+                metadata?: Record<string, unknown>;
+              };
+              const s = spaceRef.current;
+              try {
+                if (mode === 'remove' && w.id) {
+                  SpaceEngine.removeWidget(s.id, w.id);
+                } else if (mode === 'update' && w.id) {
+                  // Build a patch with only the fields the tool actually sent.
+                  const patch: Record<string, unknown> = {};
+                  if (typeof w.name === 'string' && w.name) patch.name = w.name;
+                  if (typeof w.title === 'string') patch.title = w.title;
+                  if (typeof w.source === 'string' && w.source) patch.source = w.source;
+                  if (typeof w.format === 'string') patch.format = w.format;
+                  if (typeof w.w === 'number') patch.w = w.w;
+                  if (typeof w.h === 'number') patch.h = w.h;
+                  SpaceEngine.updateWidget(s.id, w.id, patch);
+                } else if (w.source) {
+                  // create
+                  const width = typeof w.w === 'number' ? w.w : 4;
+                  const height = typeof w.h === 'number' ? w.h : 4;
+                  const spot =
+                    typeof w.x === 'number' && typeof w.y === 'number'
+                      ? { x: w.x, y: w.y }
+                      : findFirstFreeSlot(s.widgets || [], width, height);
+                  SpaceEngine.addWidget(s.id, {
+                    name: w.name || 'Widget',
+                    title: w.title,
+                    format: w.format || 'react',
+                    source: w.source,
+                    x: spot.x,
+                    y: spot.y,
+                    w: width,
+                    h: height,
+                    metadata: w.metadata,
+                  });
+                }
+                window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+              } catch (err) {
+                // Never let a malformed envelope kill the stream.
+                console.error('[ChatWidget] widget side-channel handler failed', err);
+              }
             } else if (event.type === 'done') {
               // Streaming complete — use event.data (server-provided full content)
               // as the authoritative text, falling back to accumulated tokens

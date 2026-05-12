@@ -122,3 +122,6 @@ pingpong.py
 # Codex/agent-bus session notes — local-only, never committed
 AGENTS.md
 **/AGENTS.md
+
+# Internal-only draft notes (CHANGELOG-DRAFT, v6.0 planning, etc.) — never published
+docs/internal/

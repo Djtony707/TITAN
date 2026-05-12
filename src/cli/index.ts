@@ -329,6 +329,138 @@ program
         process.exit(0);
     });
 
+// ─── BACKUP + MIGRATE (U4 — CLI exposure for upgrade safety) ─────
+program
+    .command('backup')
+    .description('TITAN backup management — create / list / restore / verify')
+    .option('--create', 'Create a new backup of ~/.titan/')
+    .option('--label <label>', 'Label appended to the backup filename for findability')
+    .option('--list', 'List all available backups (newest first)')
+    .option('--restore <id>', 'Restore from a backup (id = filename, prefix, or "latest")')
+    .option('--verify <id>', 'Verify a backup\'s integrity (id = filename, prefix, or "latest")')
+    .option('--skip-verify', 'Skip pre-restore integrity check (use with --restore)')
+    .option('--no-retention', 'Skip retention policy after --create (default: apply)')
+    .action(async (options) => {
+        const { createBackup, listBackups, restoreBackup, verifyBackup, applyBackupRetention } =
+            await import('../storage/backup.js');
+        try {
+            if (options.create) {
+                const info = await createBackup({ includeWorkspace: true });
+                let finalPath = info.path;
+                let finalName = info.filename;
+                if (options.label) {
+                    const safe = String(options.label).replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40);
+                    if (safe) {
+                        const fs = await import('fs');
+                        const labelled = info.filename.replace(/\.tar\.gz$/, `-${safe}.tar.gz`);
+                        const newPath = info.path.replace(info.filename, labelled);
+                        try { fs.renameSync(info.path, newPath); finalPath = newPath; finalName = labelled; }
+                        catch { /* keep unlabelled */ }
+                    }
+                }
+                if (options.retention !== false) applyBackupRetention();
+                console.log(chalk.green(`✓ Backup created: ${finalName}`));
+                console.log(chalk.gray(`  ${(info.sizeBytes / 1024).toFixed(1)} KB, ${info.manifest?.files.length ?? 0} items`));
+                console.log(chalk.gray(`  ${finalPath}`));
+            } else if (options.list) {
+                const all = listBackups();
+                if (all.length === 0) {
+                    console.log(chalk.gray('No backups yet. Create one: titan backup --create'));
+                } else {
+                    console.log(chalk.cyan(`${all.length} backup(s):`));
+                    for (const b of all) {
+                        console.log(`  ${b.createdAt}  ${(b.sizeBytes / 1024).toFixed(1).padStart(8)} KB  ${b.filename}`);
+                    }
+                }
+            } else if (options.verify) {
+                const path = await resolveBackupCliId(options.verify, listBackups());
+                if (!path) { console.error(chalk.red(`✗ No backup matches "${options.verify}"`)); process.exit(1); }
+                const r = await verifyBackup(path);
+                if (r.valid) {
+                    console.log(chalk.green(`✓ Valid: ${path}`));
+                    if (r.manifest) {
+                        const hashCount = r.manifest.files.filter(f => f.hash).length;
+                        console.log(chalk.gray(`  TITAN ${r.manifest.titanVersion}, ${r.manifest.files.length} files, ${hashCount} hashes`));
+                    }
+                } else {
+                    console.error(chalk.red(`✗ Invalid: ${r.error}`));
+                    process.exit(1);
+                }
+            } else if (options.restore) {
+                const path = await resolveBackupCliId(options.restore, listBackups());
+                if (!path) { console.error(chalk.red(`✗ No backup matches "${options.restore}"`)); process.exit(1); }
+                if (!options.skipVerify) {
+                    const r = await verifyBackup(path);
+                    if (!r.valid) {
+                        console.error(chalk.red(`✗ Pre-restore verify failed: ${r.error}`));
+                        console.error(chalk.gray('  Re-run with --skip-verify if you trust the archive anyway.'));
+                        process.exit(1);
+                    }
+                }
+                const result = await restoreBackup(path);
+                console.log(chalk.green(`✓ Restored ${result.restored.length} items from ${path}`));
+            } else {
+                console.log(chalk.yellow('Specify one of: --create, --list, --restore <id>, --verify <id>'));
+            }
+        } catch (err) {
+            console.error(chalk.red(`✗ ${(err as Error).message}`));
+            process.exit(1);
+        }
+    });
+
+program
+    .command('migrate')
+    .description('Run pending TITAN data migrations with safety net (backup + smoke check + auto-rollback)')
+    .option('--dry-run', 'Show what migrations would run without applying them')
+    .option('--skip-backup', 'Skip the pre-flight backup (DANGEROUS — use only in tests)')
+    .action(async (options) => {
+        const { safeRunMigrations } = await import('../migrations/safeRun.js');
+        const { ALL_MIGRATIONS, planMigrations } = await import('../migrations/index.js');
+        const { TITAN_VERSION } = await import('../utils/constants.js');
+
+        if (options.dryRun) {
+            const plan = planMigrations(ALL_MIGRATIONS);
+            console.log(chalk.cyan('Migration plan:'));
+            console.log(chalk.gray(`  Already applied: ${plan.alreadyApplied.length}`));
+            for (const id of plan.alreadyApplied) console.log(chalk.gray(`    ✓ ${id}`));
+            console.log(chalk.cyan(`  Pending: ${plan.pending.length}`));
+            for (const id of plan.pending) console.log(chalk.yellow(`    → ${id}`));
+            if (plan.pending.length === 0) {
+                console.log(chalk.green('\nNothing to do. Database is up to date.'));
+            } else {
+                console.log(chalk.gray(`\nRun without --dry-run to apply.`));
+            }
+            return;
+        }
+
+        console.log(chalk.cyan('Running TITAN migrations...'));
+        const result = await safeRunMigrations(ALL_MIGRATIONS, {
+            titanVersion: TITAN_VERSION,
+            skipBackup: Boolean(options.skipBackup),
+        });
+        console.log(result.success ? chalk.green(result.summary) : chalk.red(result.summary));
+        if (result.preflightBackupPath) {
+            console.log(chalk.gray(`Pre-flight backup: ${result.preflightBackupPath}`));
+        }
+        for (const check of result.smokeChecks) {
+            const icon = check.passed ? chalk.green('✓') : chalk.red('✗');
+            console.log(`  ${icon} ${check.name}${check.error ? `  ${chalk.red(check.error)}` : ''}`);
+        }
+        if (!result.success) process.exit(1);
+    });
+
+/** Resolve a CLI backup id (filename, prefix, or "latest") to absolute path. */
+async function resolveBackupCliId(id: string, backups: Array<{ filename: string; path: string }>): Promise<string | null> {
+    if (backups.length === 0) return null;
+    if (id === 'latest') return backups[0].path;
+    const exact = backups.find(b => b.filename === id);
+    if (exact) return exact.path;
+    const prefix = backups.find(b => b.filename.startsWith(id));
+    if (prefix) return prefix.path;
+    const sub = backups.find(b => b.filename.includes(id));
+    return sub?.path ?? null;
+}
+
 // ─── SKILLS ──────────────────────────────────────────────────────
 program
     .command('skills')

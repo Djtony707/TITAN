@@ -299,22 +299,28 @@ export function createTestsRouter(): Router {
 
       // Local agent call — replicates the system-widget shortcut inline
       // so eval tests exercise the same fast-path users get via HTTP.
+      // v6.0 widget-hijack tightening: same gate as gateway/server.ts +
+      // agent/agent.ts — imperative verb + widget noun together, not just
+      // a single trigger word. Bucket C panels (paperclip) removed.
       const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
         { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
         { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
         { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, source: 'system:recipes', name: 'Recipe Kitchen', w: 6, h: 6 },
-        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:vram|gpu|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
         { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, source: 'system:teams', name: 'Team Hub', w: 6, h: 6 },
         { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, source: 'system:cron', name: 'Cron Scheduler', w: 6, h: 6 },
         { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, source: 'system:checkpoints', name: 'Checkpoints', w: 6, h: 5 },
-        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:organism|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
         { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5 },
-        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
-        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
+        { pattern: /\b(?:captcha|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
+        // v6.0 step 1 — paperclip Bucket C / killed
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
       ];
+      const imperativeRe = /\b(?:add|open|show|pin|create|launch|put|give\s+me|i\s+want|let'?s\s+see|i\s+need)\b/i;
+      const widgetNounRe = /\b(?:widget|panel|dashboard|hub|gallery|kitchen|scheduler)\b/i;
       const agentCall = async (input: string, testName?: string) => {
-        const shortcut = systemWidgetShortcuts.find(s => s.pattern.test(input));
+        const hasExplicitIntent = imperativeRe.test(input) && widgetNounRe.test(input);
+        const shortcut = hasExplicitIntent ? systemWidgetShortcuts.find(s => s.pattern.test(input)) : null;
         if (shortcut) {
           return {
             content: `Added the **${shortcut.name}** widget to your canvas.\n\n_____widget\n{ "name": "${shortcut.name}", "format": "system", "source": "${shortcut.source}", "w": ${shortcut.w}, "h": ${shortcut.h} }`,

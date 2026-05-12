@@ -294,6 +294,10 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerFacebookSkill } = await import('./builtin/facebook.js');
     const { registerFBAutopilotSkill } = await import('./builtin/fb_autopilot.js');
     const { registerWidgetGallerySkill } = await import('./builtin/widget_gallery.js');
+    const { registerCanvasWidgetsSkill } = await import('./builtin/canvas_widgets.js');
+    const { registerCanvasSpacesSkill } = await import('./builtin/canvas_spaces.js');
+    const { registerPersonalGallerySkill } = await import('./builtin/personal_gallery.js');
+    const { registerBackupSkill } = await import('./builtin/backup.js');
 
     const config = loadConfig();
     const primitiveMode = config.skills.primitiveMode;
@@ -391,6 +395,10 @@ export async function initBuiltinSkills(): Promise<void> {
         ['fb_autopilot', registerFBAutopilotSkill],
         ['widget_gallery', registerWidgetGallerySkill],
         ['widget_gallery', registerWidgetGallerySkill],
+        ['canvas_widgets', registerCanvasWidgetsSkill],
+        ['canvas_spaces', registerCanvasSpacesSkill],
+        ['personal_gallery', registerPersonalGallerySkill],
+        ['backup', registerBackupSkill],
         );
     }
     for (const [name, fn] of registrations) {

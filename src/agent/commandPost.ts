@@ -20,6 +20,7 @@ import logger from '../utils/logger.js';
 import type { CommandPostConfig } from '../config/schema.js';
 import { loadConfig } from '../config/config.js';
 import { shouldAutoApprove, type ApprovalRule } from './approvalClassifier.js';
+import { recordJournalEvent } from './durableJournal.js';
 
 const COMPONENT = 'CommandPost';
 const STATE_PATH = join(TITAN_HOME, 'command-post.json');
@@ -291,6 +292,36 @@ export function getActivity(opts?: { limit?: number; type?: string }): ActivityE
 const STALE_LOCK_ADOPTION_MS = 5 * 60 * 1000;
 
 export function checkoutTask(goalId: string, subtaskId: string, agentId: string): TaskCheckout | null {
+    // v6.0 Command Post upgrade #3 — HARD pre-checkout budget guard.
+    //
+    // The pre-existing enforcement was reactive: budget breach was only
+    // detected AFTER spend was already recorded. That meant a runaway
+    // agent could blow through its limit by the time the warn-or-pause
+    // path fired. Per awesome-agent-harness pattern #7 (Budget enforcement
+    // as a first-class control plane), the guard now runs BEFORE we
+    // grant the lease — if any applicable policy is already at-or-over
+    // limit with a non-warn action, the checkout is refused.
+    //
+    // Warnings still surface via the soft enforcement path; only `pause`
+    // and `stop` actions block the checkout. This preserves the existing
+    // "warn at 80%, act at 100%" UX, just enforced at the right moment.
+    try {
+        const enforcement = enforceBudgetForAgent(agentId);
+        if (!enforcement.budgetOk) {
+            const breached = enforcement.policies.find(p => p.pct >= 100 && (p.action === 'pause' || p.action === 'stop'));
+            if (breached) {
+                addActivity({
+                    type: 'task_checkout',
+                    agentId,
+                    goalId,
+                    message: `Checkout DENIED for "${subtaskId}" — budget "${breached.name}" at ${breached.pct.toFixed(0)}% (action=${breached.action})`,
+                    metadata: { reason: 'budget_breached', policyName: breached.name, pct: breached.pct, action: breached.action },
+                });
+                return null;
+            }
+        }
+    } catch { /* enforcement is best-effort — never crash the checkout path itself */ }
+
     // Atomic: single-threaded Node.js event loop = synchronous check-and-lock
     const existing = checkouts.get(subtaskId);
     if (existing && existing.status === 'locked') {
@@ -335,6 +366,16 @@ export function checkoutTask(goalId: string, subtaskId: string, agentId: string)
             message: `Agent "${agentId}" adopted stale lock on ${subtaskId} (prev holder "${existing.agentId}" heartbeat ${holder ? Math.round((Date.now() - holderLastBeat) / 1000) + 's ago' : 'missing'})`,
             metadata: { runId: adopted.runId, adoptedFrom: existing.agentId, previousRunId: existing.runId },
         });
+        recordJournalEvent(
+            { goalId, agentId },
+            'task_abandoned',
+            { previousAgentId: existing.agentId, subtaskId },
+        );
+        recordJournalEvent(
+            { goalId, agentId },
+            'task_started',
+            { agentId, subtaskId, runId: adopted.runId, adoptedFrom: existing.agentId },
+        );
         titanEvents.emit('commandpost:task:checkout', adopted);
         return adopted;
     }
@@ -360,6 +401,14 @@ export function checkoutTask(goalId: string, subtaskId: string, agentId: string)
         metadata: { runId: checkout.runId },
     });
 
+    // v6.0 CP upgrade #4 — record into the durable per-context journal so
+    // a resuming process can replay what each goal/agent was doing.
+    recordJournalEvent(
+        { goalId, agentId },
+        'task_started',
+        { agentId, subtaskId, runId: checkout.runId },
+    );
+
     titanEvents.emit('commandpost:task:checkout', checkout);
     return checkout;
 }
@@ -378,6 +427,13 @@ export function checkinTask(subtaskId: string, runId: string): boolean {
         goalId: checkout.goalId,
         message: `Agent "${checkout.agentId}" released subtask ${subtaskId}`,
     });
+
+    // v6.0 CP upgrade #4 — durable journal: task ended cleanly.
+    recordJournalEvent(
+        { goalId: checkout.goalId, agentId: checkout.agentId },
+        'task_completed',
+        { subtaskId, runId },
+    );
 
     titanEvents.emit('commandpost:task:checkin', { subtaskId, runId });
     return true;

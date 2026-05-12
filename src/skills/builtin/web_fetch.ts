@@ -99,7 +99,30 @@ export function registerWebFetchSkill(): void {
         { name: 'web_fetch', description: 'Fetch URL content', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'web_fetch',
-            description: 'Fetch a URL and return its full content as markdown or plain text.\n\nUSE THIS WHEN:\n- Tony gives you a URL directly: "go to X" / "open X" / "read X" / "check out X"\n- After web_search, to get full page content from the top result URLs\n- Tony says "summarize this article" and provides a link\n\nRULES:\n- Always call this after web_search — never rely on search snippets alone\n- For JS-heavy or interactive sites (SPAs, apps), prefer browse_url or web_act instead\n- Returns clean markdown by default; use extractMode:"text" for plain text',
+            description: `Fetch a URL and return its full content as markdown (default) or plain text. HTTP-level fetch with redirects + content sniffing — does NOT run JavaScript, so SPAs return their initial HTML shell.
+
+USE WHEN: the user gives you a URL directly ("read X" / "open X" / "summarize this article: X") OR after web_search to get full content of the top result. Also use to read raw API responses (set extractMode:"text" to skip markdown conversion).
+
+DO NOT USE FOR:
+- JS-heavy / SPA / interactive sites where the content is rendered client-side → use browse_url (Playwright; runs JS).
+- Pages that need login or interaction → use web_act or browser_screenshot.
+- Local files → use read_file (web_fetch only does HTTP/HTTPS).
+- Search-then-fetch combined → just call web_search first; it returns URLs you then fetch.
+
+Parameters:
+- url (string, required) — full http(s) URL.
+- extractMode (string, optional) — "markdown" (default) converts HTML to clean markdown; "text" returns stripped plain text; "html" returns the raw HTML (rare).
+- maxLength (number, optional) — truncation cap in chars; default 50_000.
+
+Returns: { url, finalUrl (after redirects), status, contentType, content, truncated, sizeBytes }.
+
+Errors:
+- "ECONNREFUSED" / "ENOTFOUND" — the host is down or DNS failed; verify URL spelling, don't retry blindly.
+- "HTTP 4xx" — page returned an error; surface the status to the user.
+- "HTTP 403 / blocked by anti-bot" — switch to browse_url which uses a real browser fingerprint.
+- "Timed out" — page took too long; retry once with a smaller maxLength.
+
+NEVER hallucinate page content. If web_fetch failed, say so.`,
             parameters: {
                 type: 'object',
                 properties: {

@@ -6,6 +6,7 @@ import type { ToolCall, ToolDefinition } from '../providers/base.js';
 import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
+import { capToolOutput } from './toolOutputCap.js';
 import { runPreTool, runPostTool } from '../plugins/contextEngine.js';
 import type { ContextEnginePlugin } from '../plugins/contextEngine.js';
 
@@ -783,10 +784,30 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
 }
 
 /** Execute multiple tool calls (in parallel where possible, with write-conflict detection) */
+/**
+ * Apply the tool-output cap to every result. v5.8.0 — Anthropic's "Writing
+ * effective tools for AI agents" recommends a 25k-token cap on tool results
+ * with a tool-aware truncation hint. We do it here at the boundary so every
+ * caller (agent loop, sub-agent, voice path) benefits without each having
+ * to remember to wrap individually.
+ * Reference: docs/HARNESS-PATTERNS.md, src/agent/toolOutputCap.ts
+ */
+function applyOutputCaps(results: ToolResult[]): ToolResult[] {
+    return results.map((r) => {
+        const capped = capToolOutput(r.name, r.content);
+        if (!capped.truncated) return r;
+        // Only mutate when truncation actually happened, preserving identity
+        // when content was already small.
+        logger.info(COMPONENT, `[OutputCap] ${r.name} truncated ${capped.originalSize} → ${capped.content.length} chars`);
+        return { ...r, content: capped.content };
+    });
+}
+
 export async function executeTools(toolCalls: ToolCall[], channel?: string): Promise<ToolResult[]> {
     // Single tool — fast path
     if (toolCalls.length <= 1) {
-        return Promise.all(toolCalls.map(tc => executeTool(tc, channel)));
+        const results = await Promise.all(toolCalls.map(tc => executeTool(tc, channel)));
+        return applyOutputCaps(results);
     }
 
     // Multiple tools — use parallelTools engine with write-conflict detection
@@ -809,14 +830,15 @@ export async function executeTools(toolCalls: ToolCall[], channel?: string): Pro
 
     const parallelResults = await executeToolsParallel(parallelCalls, executor);
 
-    // Map back to ToolResult format with full metadata
-    return parallelResults.map(pr => ({
+    // Map back to ToolResult format with full metadata, then apply output cap.
+    const mapped: ToolResult[] = parallelResults.map(pr => ({
         toolCallId: pr.toolCallId,
         name: pr.name,
         content: pr.content,
         success: !pr.content.startsWith('Error:'),
         durationMs: 0,
     }));
+    return applyOutputCaps(mapped);
 }
 
 // ── Self-proposal capture helper (v4.8.0) ────────────────────────────────

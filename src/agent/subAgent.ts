@@ -19,6 +19,7 @@ import { registerMailbox, unregisterMailbox, drainMessages, formatMessagesForCon
 import { acquireAgent, releaseAgent, createPooledAgent, type PooledAgent } from './agentPool.js';
 import { getActivePersonaContent } from '../personas/manager.js';
 import { assembleSystemPrompt } from './systemPromptParts.js';
+import { recordJournalEvent } from './durableJournal.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -58,6 +59,12 @@ export interface SubAgentConfig {
     workspaceDir?: string;
     /** Tags for observability / filtering */
     tags?: string[];
+    /** Optional goalId — when set, spawn/return events are written into the
+     *  goal's durable journal (CP upgrade #4) so replayGoal sees them. */
+    goalId?: string;
+    /** Optional parent agentId — written into the journal as the spawning
+     *  agent so the per-agent journal shows what each agent kicked off. */
+    parentAgentId?: string;
     /** Stream callbacks for Agent Watcher — tool_call, tool_end, round events */
     streamCallbacks?: {
         onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -450,6 +457,15 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
 
     logger.info(COMPONENT, `Spawning ${agentName}: "${config.task.slice(0, 80)}..." (model: ${model}, maxRounds: ${maxRounds})`);
 
+    // v6.0 CP upgrade #4 — durable journal: per-context replay needs to
+    // see sub-agent spawns so the next process can decide whether the
+    // child is still in flight or needs respawning.
+    recordJournalEvent(
+        { goalId: config.goalId, agentId: config.parentAgentId },
+        'subagent_spawned',
+        { childName: agentName, task: config.task.slice(0, 200), depth: currentDepth },
+    );
+
     // ── Message Bus: register mailbox for inter-agent communication ──
     registerMailbox(agentName);
 
@@ -712,6 +728,12 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             logActivity({ event: 'agent_complete', agent: agentName, task: config.task.slice(0, 200), rounds, success: !finalContent.toLowerCase().startsWith('error') && validated });
         } catch { /* non-critical */ }
 
+        recordJournalEvent(
+            { goalId: config.goalId, agentId: config.parentAgentId },
+            'subagent_returned',
+            { childName: agentName, success: !finalContent.toLowerCase().startsWith('error') && validated, rounds, durationMs },
+        );
+
         return {
             content: finalContent,
             toolsUsed: [...new Set(toolsUsed)],
@@ -728,6 +750,11 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             const { logActivity } = await import('../telemetry/activityLog.js');
             logActivity({ event: 'agent_complete', agent: agentName, task: config.task.slice(0, 200), rounds, success: false, error: (err as Error).message });
         } catch { /* non-critical */ }
+        recordJournalEvent(
+            { goalId: config.goalId, agentId: config.parentAgentId },
+            'subagent_returned',
+            { childName: agentName, success: false, error: (err as Error).message, rounds, durationMs },
+        );
         return {
             content: `Sub-agent error: ${(err as Error).message}`,
             toolsUsed: [...new Set(toolsUsed)],

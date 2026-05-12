@@ -55,6 +55,9 @@ import type { ResizeHandleAxis, Layout } from 'react-grid-layout';
 import { NavWidget } from '../system/NavWidget';
 import { ChatWidget, findFirstFreeSlot } from '../system/ChatWidget';
 import { FloatingChatDock } from '../system/FloatingChatDock';
+// v6.0 step 2 — Spaces sidebar mounted inside TitanCanvas (the canvas
+// surface owns its own layout; AppShell doesn't wrap canvas routes).
+import { SpacesSidebar } from '@/components/shell/SpacesSidebar';
 import { SpaceInstructionsEditor } from './SpaceInstructionsEditor';
 import { WidgetEditor } from './WidgetEditor';
 import { WidgetGallery } from './WidgetGallery';
@@ -76,11 +79,13 @@ import {
   IntelligencePersonaProfilesWidget, IntelligenceDreamWidget,
   InfraHomelabWidget, InfraGpuWidget, InfraFilesWidget, InfraLogsWidget, InfraTelemetryWidget,
   ToolsSkillsWidget, ToolsMcpWidget, ToolsIntegrationsWidget, ToolsChannelsWidget, ToolsMeshWidget,
-  DaemonWidget, MemoryWikiWidget, AutoresearchWidget, SelfProposalsWidget,
+  // v6.0 step 1 — DaemonWidget + PaperclipWidget removed (Bucket C / killed).
+  // Daemon overlapped with Organism; Paperclip was pre-v5 branding.
+  MemoryWikiWidget, AutoresearchWidget, SelfProposalsWidget,
   OverviewWidget, SessionsWidget, WatchWidget,
   BackupWidget, TrainingWidget, RecipesWidget, VramWidget,
   TeamsWidget, CronWidget, CheckpointsWidget, OrganismWidget,
-  FleetWidget, BrowserWidget, PaperclipWidget, EvalWidget,
+  FleetWidget, BrowserWidget, EvalWidget,
 } from '../system/widgets';
 
 import { AgentsWidget } from '../system/AgentsWidget';
@@ -127,7 +132,7 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:health': HealthWidget,
   'system:stats': StatsWidget,
   'system:quick-links': QuickLinksWidget,
-  'system:daemon': DaemonWidget,
+  // v6.0 step 1 — 'system:daemon' removed (overlapped with system:organism).
   'system:memory-wiki': MemoryWikiWidget,
   'system:autoresearch': AutoresearchWidget,
   'system:self-proposals': SelfProposalsWidget,
@@ -144,7 +149,7 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:organism': OrganismWidget,
   'system:fleet': FleetWidget,
   'system:browser': BrowserWidget,
-  'system:paperclip': PaperclipWidget,
+  // v6.0 step 1 — 'system:paperclip' removed (pre-v5 branding).
   'system:eval': EvalWidget,
 };
 
@@ -687,7 +692,14 @@ export default function TitanCanvas() {
   }
 
   return (
-    <div ref={canvasRef} className="h-screen w-screen bg-[#0a0a0f] relative overflow-auto">
+    // v6.0 step 2 — Canvas layout is now a two-column flex: SpacesSidebar
+    // on the left (always visible on canvas routes), canvas surface on
+    // the right. The inner `<div ref={canvasRef}>` keeps its ref + classes
+    // so the existing ResizeObserver + scroll + grid-handle styles all
+    // continue working unchanged.
+    <div className="h-screen w-screen flex bg-[#0a0a0f]">
+      <SpacesSidebar />
+      <div ref={canvasRef} className="flex-1 relative overflow-auto">
       {/*
         Resize-handle overrides — fix "cannot resize bigger than a
         smaller square" (Tony, v5.0). The default react-resizable SVG
@@ -1052,6 +1064,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       )}
 
       <ShortcutsHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      </div>{/* /flex-1 canvas surface */}
     </div>
   );
 }
@@ -1089,7 +1102,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
     { label: 'Organism', source: 'system:organism', w: 6, h: 6 },
     { label: 'Fleet', source: 'system:fleet', w: 6, h: 5 },
     { label: 'Browser', source: 'system:browser', w: 6, h: 5 },
-    { label: 'Paperclip', source: 'system:paperclip', w: 6, h: 5 },
+    // v6.0 step 1 — system:paperclip removed (Bucket C / killed branding).
     { label: 'Eval', source: 'system:eval', w: 6, h: 6 },
   ];
 

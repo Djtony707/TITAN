@@ -21,7 +21,24 @@ export function initModelSwitchTool(): void {
         enabled: true,
     }, {
         name: 'switch_model',
-        description: 'Switch which AI model TITAN uses mid-session. Call this when the user says "switch to a faster model", "use the smart model for this", "switch to qwen", "use Claude", "go local", or any similar intent. Model aliases: fast → devstral-small-2 (quick/cheap), smart or cloud → qwen3.5:397b-cloud (best reasoning), local → qwen3.5:35b (local GPU, no internet needed). Also call proactively when a task clearly needs a different tier — e.g. switch to smart for deep analysis, fast for simple lookups.',
+        description: `Switch which LLM TITAN routes to mid-session. Persisted in config — survives restarts. Use full provider/model IDs (e.g. "ollama/qwen3.5:cloud", "anthropic/claude-opus-4-0") OR the configured aliases ("fast", "smart", "cloud", "local").
+
+USE WHEN: "switch to a faster model" / "use the smart model" / "switch to qwen" / "use Claude" / "go local" — or proactively when the task obviously needs a different tier (smart for deep analysis, fast for simple lookups).
+
+DO NOT USE FOR:
+- Looking up what models are available → use /api/models or list_models.
+- Identity questions ("what model are you running?") → use current_model (read-only).
+- One-off task with a different model → just route the single call; don't permanently switch.
+
+Parameters:
+- model (string, required) — full provider/model id ("ollama/qwen3.5:cloud", "anthropic/claude-opus-4-0") OR alias ("fast", "smart", "cloud", "local").
+- reason (string, optional) — why; helpful for audit logs.
+
+Returns: "Switched to model: <id>". Persisted in titan.json under agent.model.
+
+Errors:
+- "Provider X has no API key configured" — switching to a provider without a key works (it gets stored), but the next request will fail-fast until a key is set. Tell the user to configure the key first.
+- "Unknown alias" — aliases are configured in titan.json under agent.modelAliases; check there.`,
         parameters: {
             type: 'object',
             properties: {

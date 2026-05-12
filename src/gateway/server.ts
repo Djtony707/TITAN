@@ -395,20 +395,41 @@ function trackUsage(model: string, tokenUsage: { prompt?: number; completion?: n
 /** Active session tokens (persisted to disk so they survive restarts) */
 const AUTH_TOKENS_PATH = join(TITAN_HOME, 'auth-tokens.json');
 
+/**
+ * Session-token TTL — configurable via `gateway.auth.tokenTtlMs`.
+ * Pre-v5.7.2 this was hardcoded to 24h, which silently expired Tony's
+ * sessions overnight and (combined with the cleanup timer) wiped
+ * auth-tokens.json to `[]`. Default is now 30 days for self-hosted use.
+ */
+function getAuthTokenTtlMs(): number {
+    try {
+        const cfg = loadConfig();
+        const v = cfg.gateway?.auth?.tokenTtlMs;
+        if (typeof v === 'number' && v > 0) return v;
+    } catch { /* fall through */ }
+    return 30 * 24 * 60 * 60 * 1000; // 30 days
+}
+
 function loadAuthTokens(): Map<string, { createdAt: number; userId: string }> {
     const map = new Map<string, { createdAt: number; userId: string }>();
     try {
         if (fs.existsSync(AUTH_TOKENS_PATH)) {
             const raw = JSON.parse(fs.readFileSync(AUTH_TOKENS_PATH, 'utf-8'));
             if (Array.isArray(raw)) {
-                const ttlMs = 24 * 60 * 60 * 1000;
+                const ttlMs = getAuthTokenTtlMs();
                 const now = Date.now();
+                let dropped = 0;
                 for (const item of raw) {
                     if (item && typeof item.token === 'string' && typeof item.createdAt === 'number' && typeof item.userId === 'string') {
                         if (now - item.createdAt <= ttlMs) {
                             map.set(item.token, { createdAt: item.createdAt, userId: item.userId });
+                        } else {
+                            dropped++;
                         }
                     }
+                }
+                if (dropped > 0) {
+                    logger.info(COMPONENT, `[Auth] Dropped ${dropped} expired session token(s) at boot (TTL: ${Math.round(ttlMs / 3600_000)}h).`);
                 }
             }
         }
@@ -463,14 +484,23 @@ sessionAbortCleanupInterval = setInterval(() => {
 }, 60_000);
 sessionAbortCleanupInterval.unref();
 
-// Clean expired tokens every 10 minutes
+// Clean expired tokens every 10 minutes.
+// Pre-v5.7.2 this used a hardcoded 24h TTL which clobbered auth-tokens.json
+// to `[]` overnight on self-hosted single-user TITANs. Now reads the
+// configured `gateway.auth.tokenTtlMs` (default 30 days).
 tokenCleanupInterval = setInterval(() => {
     const now = Date.now();
-    const ttlMs = 24 * 60 * 60 * 1000;
+    const ttlMs = getAuthTokenTtlMs();
+    let purged = 0;
     for (const [tok, entry] of authTokens) {
-        if (now - entry.createdAt > ttlMs) authTokens.delete(tok);
+        if (now - entry.createdAt > ttlMs) { authTokens.delete(tok); purged++; }
     }
-    saveAuthTokens();
+    // Only persist if something actually changed — avoids needless disk writes
+    // on idle TITANs and avoids the "everything got nuked" failure mode.
+    if (purged > 0) {
+        logger.info(COMPONENT, `[Auth] Purged ${purged} expired session token(s).`);
+        saveAuthTokens();
+    }
 }, 600_000);
 tokenCleanupInterval.unref();
 
@@ -914,6 +944,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   await initBuiltinSkills();
   initAgents();
 
+  // v6.0 step 11 — Start the somaInitiative proactive loop on gateway boot.
+  // Without this, the loop's `startSomaInitiative()` function is dead code
+  // and the "TITAN acts without being asked" v6.0 promise is unobservable.
+  // The loop is self-throttling (5-min pulse, conservative confidence
+  // floor, frustration-aware throttling) so we can wire it on without
+  // risk of spam. Errors are swallowed so a Soma bug never breaks boot.
+  try {
+    const { startSomaInitiative } = await import('../agent/somaInitiative.js');
+    startSomaInitiative({ userId: 'default-user' });
+  } catch (err) {
+    logger.warn(COMPONENT, `somaInitiative failed to start: ${(err as Error).message}`);
+  }
+
   // ── Rate limiter (inline, no deps) ─────────────────────────
   const defaultRateLimitWindowMs = options?.rateLimitWindowMs ?? 60000;
   const defaultRateLimitMax = options?.rateLimitMax ?? 30;
@@ -1241,6 +1284,279 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // API routes
+  /**
+   * v6.0 Step 13 helper — pick the drive that deviates most from its
+   * baseline as the "dominant" mood. Returns a label the mascot uses for
+   * its status text. Neutral when no drive deviates more than 0.1.
+   */
+  function pickDominantDrive(
+    current: Record<string, number>,
+    baseline: Record<string, number>,
+  ): { drive: string; label: string; delta: number } {
+    let best = { drive: 'neutral', label: 'TITAN is steady', delta: 0 };
+    for (const drive of Object.keys(current)) {
+      const delta = (current[drive] ?? 0) - (baseline[drive] ?? 0);
+      const abs = Math.abs(delta);
+      if (abs <= 0.1) continue;
+      if (abs > Math.abs(best.delta)) {
+        const direction = delta > 0 ? 'elevated' : 'low';
+        const label = direction === 'elevated'
+          ? `TITAN is ${driveAdjective(drive, true)}`
+          : `TITAN is ${driveAdjective(drive, false)}`;
+        best = { drive, label, delta };
+      }
+    }
+    return best;
+  }
+
+  function driveAdjective(drive: string, elevated: boolean): string {
+    const map: Record<string, [string, string]> = {
+      curiosity:    ['curious',     'incurious'],
+      focus:        ['focused',     'unfocused'],
+      fatigue:      ['tired',       'energized'],
+      satisfaction: ['satisfied',   'restless'],
+      frustration:  ['frustrated',  'calm'],
+    };
+    const pair = map[drive];
+    if (!pair) return drive;
+    return elevated ? pair[0] : pair[1];
+  }
+
+  // v6.0 Step 8 — Widget runtime `titan.*` API surface.
+  // These endpoints let widgets inside the iframe sandbox call back into
+  // TITAN as first-class clients of the agent (not just dumb React UI).
+
+  /**
+   * GET /api/tools — list registered tool names + descriptions.
+   * v4.12 shape preserved: { tools, total, count } with optional `?q=` filter.
+   * v6.0 step 8 expanded by adding `parameters` per tool so widgets can
+   * discover the call shape dynamically.
+   */
+  app.get('/api/tools', async (req, res) => {
+    try {
+      const { getRegisteredTools } = await import('../agent/toolRunner.js');
+      const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase().trim() : '';
+      const all = getRegisteredTools().map(t => ({
+        name: t.name,
+        description: typeof t.description === 'string' ? t.description.slice(0, 500) : '',
+        parameters: t.parameters,
+      }));
+      const filtered = q
+        ? all.filter(t => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q))
+        : all;
+      res.json({ tools: filtered, total: all.length, count: filtered.length });
+    } catch (err) {
+      res.status(500).json({ error: 'tools_unavailable', message: (err as Error).message });
+    }
+  });
+
+  /**
+   * POST /api/tools/run — invoke a tool by name. Widget runtime entry point
+   * for `titan.tools.run(name, args)`. Subject to the same intent / approval
+   * gates as the agent's own calls.
+   */
+  app.post('/api/tools/run', async (req, res) => {
+    try {
+      const { name, args } = (req.body || {}) as { name?: string; args?: Record<string, unknown> };
+      if (!name || typeof name !== 'string') {
+        res.status(400).json({ error: 'invalid_input', message: '"name" is required.' });
+        return;
+      }
+      const { executeTool } = await import('../agent/toolRunner.js');
+      const result = await executeTool({
+        id: `widget-${Date.now()}`,
+        type: 'function',
+        function: { name, arguments: JSON.stringify(args || {}) },
+      });
+      res.json({
+        name: result.name,
+        success: result.success !== false,
+        content: result.content,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'tool_run_failed', message: (err as Error).message });
+    }
+  });
+
+  /**
+   * GET /api/memory/:key — read a single memory value. Widget-friendly
+   * minimal surface; uses the `widget` category to keep widget-scoped
+   * facts separate from the agent's general memory namespace.
+   */
+  app.get('/api/memory/:key', async (req, res) => {
+    try {
+      const { recallFact } = await import('../memory/memory.js');
+      const value = recallFact('widget', req.params.key);
+      res.json({ key: req.params.key, value: value ?? null });
+    } catch (err) {
+      res.status(500).json({ error: 'memory_read_failed', message: (err as Error).message });
+    }
+  });
+
+  /** POST /api/memory — write a single key/value to the widget memory category. */
+  app.post('/api/memory', async (req, res) => {
+    try {
+      const { key, value } = (req.body || {}) as { key?: string; value?: unknown };
+      if (!key || typeof key !== 'string') {
+        res.status(400).json({ error: 'invalid_input', message: '"key" is required.' });
+        return;
+      }
+      const { rememberFact } = await import('../memory/memory.js');
+      const v = typeof value === 'string' ? value : JSON.stringify(value);
+      rememberFact('widget', key, v);
+      res.json({ key, stored: true });
+    } catch (err) {
+      res.status(500).json({ error: 'memory_write_failed', message: (err as Error).message });
+    }
+  });
+
+  /** GET /api/persona/current — convenience endpoint for `titan.persona`. */
+  app.get('/api/persona/current', async (_req, res) => {
+    try {
+      const { getActivePersonaContent } = await import('../personas/manager.js');
+      const cfg = loadConfig();
+      const personaId = cfg.agent?.persona || 'default';
+      const content = getActivePersonaContent(personaId);
+      res.json({ content: content || null, personaId });
+    } catch (err) {
+      res.status(500).json({ error: 'persona_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0 Step 4 — Spaces REST API. The SPA's Spaces sidebar reads + writes
+  // the server-side `~/.titan/spaces.json` via these endpoints. The agent's
+  // canvas_spaces tools mutate the same file, so the SPA + agent agree on
+  // a single source of truth regardless of which one made the change.
+  app.get('/api/spaces', async (_req, res) => {
+    try {
+      const { readSpaces, getActiveSpace } = await import('../storage/spaces.js');
+      const file = readSpaces();
+      const active = getActiveSpace();
+      res.json({
+        spaces: file.spaces,
+        activeSpaceId: active?.id ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'spaces_unavailable', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/spaces', async (req, res) => {
+    try {
+      const { createSpace } = await import('../storage/spaces.js');
+      const { name, icon, color, agentInstructions, starterWidgets, makeActive } = (req.body || {}) as Record<string, unknown>;
+      if (typeof name !== 'string' || !name.trim()) {
+        res.status(400).json({ error: 'invalid_input', message: '"name" is required.' });
+        return;
+      }
+      const space = createSpace({
+        name: name.trim(),
+        icon: typeof icon === 'string' ? icon : undefined,
+        color: typeof color === 'string' ? color : undefined,
+        agentInstructions: typeof agentInstructions === 'string' ? agentInstructions : undefined,
+        starterWidgets: Array.isArray(starterWidgets) ? starterWidgets : undefined,
+        makeActive: Boolean(makeActive),
+      });
+      res.json({ space });
+    } catch (err) {
+      res.status(500).json({ error: 'create_failed', message: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/spaces/:id', async (req, res) => {
+    try {
+      const { updateSpace } = await import('../storage/spaces.js');
+      const patch = (req.body || {}) as Record<string, unknown>;
+      const space = updateSpace(req.params.id, {
+        name: typeof patch.name === 'string' ? patch.name : undefined,
+        icon: typeof patch.icon === 'string' ? patch.icon : undefined,
+        color: typeof patch.color === 'string' ? patch.color : undefined,
+        agentInstructions: typeof patch.agentInstructions === 'string' ? patch.agentInstructions : undefined,
+        widgets: Array.isArray(patch.widgets) ? patch.widgets : undefined,
+      });
+      if (!space) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.json({ space });
+    } catch (err) {
+      res.status(500).json({ error: 'update_failed', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/spaces/:id/activate', async (req, res) => {
+    try {
+      const { switchSpace } = await import('../storage/spaces.js');
+      const space = switchSpace(req.params.id);
+      if (!space) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.json({ space });
+    } catch (err) {
+      res.status(500).json({ error: 'switch_failed', message: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/spaces/:id', async (req, res) => {
+    try {
+      const { archiveSpace } = await import('../storage/spaces.js');
+      const result = archiveSpace(req.params.id);
+      if (!result) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.json({ archived: result.archived, remaining: result.remaining });
+    } catch (err) {
+      res.status(500).json({ error: 'archive_failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/spaces/presets', async (_req, res) => {
+    try {
+      const { listStarterPresets } = await import('../storage/starterSpaces.js');
+      res.json({ presets: listStarterPresets() });
+    } catch (err) {
+      res.status(500).json({ error: 'presets_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0 Step 13 — Soma drive state surface for the mascot + status bar.
+  // Returns CURRENT drive levels (organism layer) + per-user BASELINE
+  // (Soma profile). The SPA's mascot listens to this and renders the
+  // mood-tint, breathing animation, and "TITAN is curious / focused /
+  // frustrated" status-bar text.
+  app.get('/api/soma/drives', async (req, res) => {
+    try {
+      const userId = getUserIdFromReq(req as Parameters<typeof getUserIdFromReq>[0]);
+      const { readSomaProfile } = await import('../storage/somaProfile.js');
+      const profile = readSomaProfile(userId);
+      let current: Record<string, number> | null = null;
+      try {
+        const { getHormonalState } = await import('../organism/hormones.js');
+        const state = getHormonalState();
+        current = {
+          // Map hormone field names to drive names the frontend expects.
+          curiosity: (state as { dopamine?: number }).dopamine ?? profile.baseline.curiosity,
+          focus: (state as { norepinephrine?: number }).norepinephrine ?? profile.baseline.focus,
+          fatigue: (state as { fatigue?: number }).fatigue ?? profile.baseline.fatigue,
+          satisfaction: (state as { serotonin?: number }).serotonin ?? profile.baseline.satisfaction,
+          frustration: (state as { cortisol?: number }).cortisol ?? profile.baseline.frustration,
+        };
+      } catch { /* organism may be off — fall back to baseline */ }
+      res.json({
+        userId,
+        baseline: profile.baseline,
+        current: current ?? profile.baseline,
+        // Convenience: dominant drive label for the mascot status text.
+        // Picks whichever drive deviates most from its baseline.
+        dominant: pickDominantDrive(current ?? profile.baseline, profile.baseline),
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'soma_drives_unavailable', message: (err as Error).message });
+    }
+  });
+
   app.get('/api/stats', (_req, res) => {
     const usage = getUsageStats();
     const cfg = loadConfig();
@@ -1684,30 +2000,45 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     const safeUserId = channel === 'api' ? 'api-user' : (userId || 'api-user');
 
-    // ═─ System Widget Shortcut ─═════════════════════════════════════
-    // Fast-path: if the user is **explicitly asking for a known widget**,
-    // bypass the LLM and emit the _____widget gate directly. This is fast
-    // and reliable for unambiguous requests like "open the cron widget" or
-    // "show me the VRAM dashboard."
+    // ═─ System Widget Shortcut (v6.0 — TIGHTENED + Bucket-C-aware) ─═══
+    // Fast-path: when the user is EXPLICITLY asking to add a known system
+    // widget — "add the cron widget", "open the VRAM dashboard", "pin the
+    // training panel" — bypass the LLM and emit the _____widget gate
+    // directly. Faster + deterministic for unambiguous asks.
     //
-    // v5.5.28 FIX: previously matched on a single keyword (e.g. `\bmodels?\b`)
-    // which hijacked normal chat — "tell me about the models you support"
-    // returned a Training Dashboard widget instead of an LLM response. Now
-    // gated on **explicit widget intent**: the user must use a widget-noun
-    // ("widget", "panel", "dashboard", etc.) for the shortcut to fire.
-    const hasExplicitWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(content);
+    // ## History
+    //
+    // - v5.5.28 fix: gated the shortcut on `hasExplicitWidgetIntent` (the
+    //   message must mention a widget-noun). Helped, but still too loose.
+    //   Words like "tools" or "panel" appear in normal English ("the
+    //   fb_post tool", "control panel") and would flip the gate to true,
+    //   then any inner trigger like "backup" or "training" would hijack
+    //   the prompt.
+    //
+    // - v6.0 fix (now): **require an IMPERATIVE verb + widget noun
+    //   together**, NOT just one of them. The whole point of v6.0 is
+    //   "generation-first" — TITAN builds custom widgets on demand,
+    //   doesn't shove users into a pre-built shortcut. The shortcut now
+    //   only fires for true imperative asks. Also drops 'tools' and
+    //   'monitor' from the noun list (both too noisy). Also drops the
+    //   killed-Bucket-C panels (paperclip).
+    //
+    // Test coverage: tests/unit/widget-shortcut-hijack.test.ts
+    const imperativeRe = /\b(?:add|open|show|pin|create|launch|put|give\s+me|i\s+want|let'?s\s+see|i\s+need)\b/i;
+    const widgetNounRe = /\b(?:widget|panel|dashboard|hub|gallery|kitchen|scheduler)\b/i;
+    const hasExplicitWidgetIntent = imperativeRe.test(content) && widgetNounRe.test(content);
     const systemWidgetShortcuts: Array<{ pattern: RegExp; source: string; name: string; w: number; h: number }> = [
         { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, source: 'system:backup', name: 'Backup Manager', w: 6, h: 6 },
         { pattern: /\b(?:training|train|specialists?|models?)\b/i, source: 'system:training', name: 'Training Dashboard', w: 6, h: 6 },
         { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, source: 'system:recipes', name: 'Recipe Kitchen', w: 6, h: 6 },
-        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:vram|gpu|nvidia)\b/i, source: 'system:vram', name: 'VRAM Monitor', w: 6, h: 6 },
         { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, source: 'system:teams', name: 'Team Hub', w: 6, h: 6 },
         { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, source: 'system:cron', name: 'Cron Scheduler', w: 6, h: 6 },
         { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, source: 'system:checkpoints', name: 'Checkpoints', w: 6, h: 5 },
-        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
+        { pattern: /\b(?:organism|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6 },
         { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5 },
-        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
-        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5 },
+        { pattern: /\b(?:captcha|form fill|web automation)\b/i, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5 },
+        // v6.0 step 1 — system:paperclip removed (Bucket C / killed branding).
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, source: 'system:eval', name: 'Test Lab', w: 6, h: 6 },
     ];
     const matchedShortcut = hasExplicitWidgetIntent
@@ -1824,6 +2155,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Track client disconnect to avoid writing to dead connections
     let clientDisconnected = false;
     let sseWrite: ((data: string) => void) | null = null;
+    // Hoisted so the `finally` block can release the widget side-channel
+    // subscription whether the request streamed, errored, or finished early.
+    let unsubscribeWidgets: (() => void) | null = null;
     try {
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -1843,6 +2177,21 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           if (clientDisconnected) return;
           try { sseWrite!(data); } catch { clientDisconnected = true; }
         };
+
+        // Canvas widget side-channel — subscribe to the per-session widget
+        // bus for the duration of this stream and forward events as their
+        // own SSE event type. Released in the finally block below so we
+        // never leak listeners. See src/agent/widgetEmitter.ts.
+        if (requestedSessionId) {
+          try {
+            const { subscribe: subscribeWidgets } = await import('../agent/widgetEmitter.js');
+            unsubscribeWidgets = subscribeWidgets(requestedSessionId, (evt) => {
+              safeWrite(`event: widget\ndata: ${JSON.stringify({ mode: evt.mode, widget: evt.widget, timestamp: evt.timestamp })}\n\n`);
+            });
+          } catch (err) {
+            logger.warn(COMPONENT, `widgetEmitter subscribe failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
 
         const response = await routeMessage(content, channel, safeUserId, {
           streamCallbacks: {
@@ -1870,6 +2219,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
             onFailover: (info) => {
               safeWrite(`event: failover\ndata: ${JSON.stringify({ ...info, timestamp: Date.now() })}\n\n`);
             },
+            // onWidget is wired through the widgetEmitter subscription above
+            // rather than through this callback bag, because the tool that
+            // fires it (create_widget) runs in toolRunner.ts and has its own
+            // direct path to the per-session bus.
           },
           overrideAgentId: agentId,
           signal: abortController.signal,
@@ -1969,6 +2322,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
       titanRequestDuration.observe(durationSec, { channel });
       if (requestedSessionId) sessionAborts.delete(requestedSessionId);
+      // Release the canvas-widget side-channel subscription (if any) so the
+      // emitter doesn't accumulate dead listeners across long-lived servers.
+      if (unsubscribeWidgets) {
+        try { unsubscribeWidgets(); } catch { /* never let cleanup break the request */ }
+      }
     }
   });
 

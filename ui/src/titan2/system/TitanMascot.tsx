@@ -25,7 +25,22 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 export type MascotState = 'idle' | 'thinking' | 'executing' | 'listening' | 'error';
-export type MascotMood = 'neutral' | 'happy' | 'focused' | 'tired';
+/**
+ * v6.0 — Mood now maps 1:1 onto Soma's drive vocabulary so the mascot
+ * literally renders what the agent is feeling. `somaPoll` (the new prop)
+ * auto-fetches `/api/soma/drives` every 10s and resolves the dominant
+ * drive to one of these moods, so callers can pass `somaPoll` instead of
+ * threading mood manually.
+ */
+export type MascotMood =
+    | 'neutral'      // (default) — baseline expression
+    | 'happy'        // satisfaction high — gentle squint smile
+    | 'focused'      // focus high — furrowed brow, narrowed eye, slight forward lean
+    | 'tired'        // fatigue high — heavy lids, slower float
+    | 'curious'      // curiosity high — eyebrow raise, eye darts
+    | 'excited'      // satisfaction + curiosity — bigger smile, bouncier float
+    | 'frustrated'   // frustration high — furrowed brow + downturned mouth
+    | 'proud';       // satisfaction sustained — straight posture, slight smile
 export type BubblePhase = 'entering' | 'visible' | 'leaving';
 
 interface Props {
@@ -42,6 +57,13 @@ interface Props {
     followCursor?: boolean;
     /** When true, the halo pulses in a slow Soma/hormonal rhythm. */
     somaActive?: boolean;
+    /**
+     * v6.0 — When true, the mascot polls `/api/soma/drives` every 10s and
+     * resolves the dominant drive to a mood automatically. Overrides the
+     * `mood` prop when polling succeeds. Falls back to `mood` (or
+     * 'neutral') when the endpoint is unreachable. Default true.
+     */
+    somaPoll?: boolean;
     /** After this many ms of `state === 'idle'` with no interaction, mascot
      *  drops into sleep mode (closed eye + drifting Zs). Default 90s. */
     sleepAfterMs?: number;
@@ -68,12 +90,13 @@ const SLEEP_DEFAULT = 90_000;
 
 export function TitanMascot({
     state = 'idle',
-    mood = 'neutral',
+    mood: moodProp = 'neutral',
     size = 96,
     quip = null,
     bubblePhase = null,
     followCursor = true,
     somaActive = false,
+    somaPoll = true,
     sleepAfterMs = SLEEP_DEFAULT,
     className = '',
     onClick,
@@ -81,6 +104,11 @@ export function TitanMascot({
     faceFlip = false,
     edgeHidden = false,
 }: Props) {
+    // v6.0 — Mood is now derived from live Soma drive state when somaPoll
+    // is on. Falls back to the `mood` prop when polling is off / fails.
+    const [polledMood, setPolledMood] = useState<MascotMood | null>(null);
+    const mood: MascotMood = polledMood ?? moodProp;
+
     const p = PALETTE[state] ?? PALETTE.idle;
     const [tilt, setTilt] = useState({ x: 0, y: 0 });
     const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 });
@@ -197,6 +225,57 @@ export function TitanMascot({
         };
     }, [state, sleepAfterMs]);
 
+    // ── v6.0 — Soma drive polling → live mood ──────────────────
+    // Fetches /api/soma/drives every 10s, picks the dominant drive (max
+    // deviation from baseline), maps it to a mood. The whole effect is a
+    // soft-fail: any error reverts to the `mood` prop fallback.
+    useEffect(() => {
+        if (!somaPoll) { setPolledMood(null); return; }
+        let cancelled = false;
+
+        const driveToMood = (drive: string, delta: number, current: Record<string, number>): MascotMood => {
+            // Compound "excited" = curiosity + satisfaction both elevated.
+            if ((current.curiosity ?? 0.5) > 0.65 && (current.satisfaction ?? 0.5) > 0.6) return 'excited';
+            switch (drive) {
+                case 'curiosity':    return 'curious';
+                case 'focus':        return 'focused';
+                case 'fatigue':      return 'tired';
+                case 'satisfaction': return delta > 0 ? 'happy' : 'neutral';
+                case 'frustration':  return 'frustrated';
+                default:             return 'neutral';
+            }
+        };
+
+        const tick = async () => {
+            try {
+                const token = (typeof localStorage !== 'undefined')
+                    ? localStorage.getItem('titan-token')
+                    : null;
+                const headers: Record<string, string> = {};
+                if (token) headers.Authorization = `Bearer ${token}`;
+                const res = await fetch('/api/soma/drives', { headers });
+                if (!res.ok) return;
+                const body = await res.json() as {
+                    baseline?: Record<string, number>;
+                    current?: Record<string, number>;
+                    dominant?: { drive: string; delta: number };
+                };
+                if (cancelled) return;
+                if (!body.dominant || body.dominant.drive === 'neutral' || !body.current) {
+                    setPolledMood(null); // fall back to mood prop
+                    return;
+                }
+                setPolledMood(driveToMood(body.dominant.drive, body.dominant.delta, body.current));
+            } catch {
+                // network blip — just keep the last polledMood
+            }
+        };
+
+        tick();
+        const id = setInterval(tick, 10_000);
+        return () => { cancelled = true; clearInterval(id); };
+    }, [somaPoll]);
+
     // ── Listening wave (right hand) ────────────────────────────
     useEffect(() => {
         if (state !== 'listening') { setWaving(false); return; }
@@ -256,9 +335,88 @@ export function TitanMascot({
     // ── Derived eye metrics ────────────────────────────────────
     const eyeRx = blinking ? 0.6 : yawning ? 5.5 : 4.5;
     const eyeRy = blinking ? 0.4 : yawning ? 3 : 5.5;
-    const moodEye = {
-        squintTop: mood === 'happy' || mood === 'tired',
-    };
+
+    /**
+     * v6.0 — Mood-driven facial geometry.
+     *
+     * Each mood produces a coordinated set of shapes:
+     *   - browL / browR — eyebrow SVG paths (above the eye band)
+     *   - mouthD — mouth shape SVG path (below the eye band)
+     *   - eyeSquintTop — clip top edge of the eye (smile / sleepy)
+     *   - bodyLean — degrees of forward/back lean (focused/excited)
+     *   - tintShift — overlay color the palette interpolates toward
+     *
+     * Returns sensible neutral defaults for unknown moods.
+     */
+    const moodFace = (() => {
+        switch (mood) {
+            case 'happy':
+                return {
+                    browL: 'M 35 33 Q 42 30 47 33',
+                    browR: 'M 53 33 Q 58 30 65 33',
+                    mouthD: 'M 42 56 Q 50 62 58 56',
+                    eyeSquintTop: true,
+                    bodyLean: 0,
+                };
+            case 'focused':
+                return {
+                    browL: 'M 35 33 L 47 35',
+                    browR: 'M 53 35 L 65 33',
+                    mouthD: 'M 44 58 L 56 58',
+                    eyeSquintTop: false,
+                    bodyLean: 2.5,
+                };
+            case 'tired':
+                return {
+                    browL: 'M 35 35 Q 41 35 47 36',
+                    browR: 'M 53 36 Q 59 35 65 35',
+                    mouthD: 'M 44 58 Q 50 58 56 58',
+                    eyeSquintTop: true,
+                    bodyLean: -1.5,
+                };
+            case 'curious':
+                return {
+                    browL: 'M 35 32 Q 41 28 47 32',
+                    browR: 'M 53 33 Q 58 31 65 33',
+                    mouthD: 'M 46 58 Q 50 59 54 58',
+                    eyeSquintTop: false,
+                    bodyLean: 1,
+                };
+            case 'excited':
+                return {
+                    browL: 'M 35 31 Q 41 27 47 31',
+                    browR: 'M 53 31 Q 58 27 65 31',
+                    mouthD: 'M 40 55 Q 50 64 60 55',
+                    eyeSquintTop: false,
+                    bodyLean: 0,
+                };
+            case 'frustrated':
+                return {
+                    browL: 'M 35 32 L 47 36',
+                    browR: 'M 53 36 L 65 32',
+                    mouthD: 'M 42 60 Q 50 56 58 60',
+                    eyeSquintTop: false,
+                    bodyLean: 0,
+                };
+            case 'proud':
+                return {
+                    browL: 'M 35 33 Q 41 31 47 33',
+                    browR: 'M 53 33 Q 58 31 65 33',
+                    mouthD: 'M 43 56 Q 50 59 57 56',
+                    eyeSquintTop: false,
+                    bodyLean: -1,
+                };
+            case 'neutral':
+            default:
+                return {
+                    browL: 'M 35 34 L 47 34',
+                    browR: 'M 53 34 L 65 34',
+                    mouthD: null,
+                    eyeSquintTop: false,
+                    bodyLean: 0,
+                };
+        }
+    })();
 
     const bodyWidth = size;
 
@@ -327,6 +485,40 @@ export function TitanMascot({
                 .mascot-body {
                     animation: mascot-float 8.4s ease-in-out infinite;
                     overflow: visible;
+                }
+                /* v6.0 — smooth state transitions on every animated SVG fill/stroke.
+                   Replaces the v5 snap-flip palette change with a 600ms morph,
+                   so flipping between idle/thinking/executing feels alive. */
+                .mascot-body path,
+                .mascot-body ellipse,
+                .mascot-body rect,
+                .mascot-body circle {
+                    transition: fill 600ms ease-out, stroke 600ms ease-out, opacity 400ms ease-out;
+                }
+                /* Excited mood gets a faster, bouncier float. */
+                .mascot-body.mood-excited {
+                    animation-duration: 5.5s;
+                }
+                /* Tired mood slows the float way down. */
+                .mascot-body.mood-tired {
+                    animation-duration: 14s;
+                }
+                /* Frustrated mood adds a subtle twitch. */
+                @keyframes mascot-twitch {
+                    0%, 96%, 100% { transform: translate3d(0, 0, 0); }
+                    97% { transform: translate3d(-1.5px, 0, 0); }
+                    98% { transform: translate3d(1.5px, 0, 0); }
+                    99% { transform: translate3d(-0.5px, 0, 0); }
+                }
+                .mascot-body.mood-frustrated {
+                    animation: mascot-float 8.4s ease-in-out infinite, mascot-twitch 3.2s linear infinite;
+                }
+                /* Eyebrow + mouth strokes get the same smooth transition so
+                   mood switches morph the face instead of snapping. */
+                .mascot-eyebrow, .mascot-mouth {
+                    transition: d 500ms cubic-bezier(0.34, 1.2, 0.64, 1),
+                                stroke 500ms ease-out,
+                                opacity 400ms ease-out;
                 }
                 .mascot-body.sleeping { animation: mascot-float 12s ease-in-out infinite; }
                 .mascot-body.poking { animation: mascot-poke-bounce 520ms cubic-bezier(0.28, 0.84, 0.42, 1) both; }
@@ -407,10 +599,20 @@ export function TitanMascot({
                     className={[
                         'mascot-body',
                         state,
+                        `mood-${mood}`,
                         sleeping ? 'sleeping' : '',
                         poking ? 'poking' : '',
                     ].join(' ').trim()}
-                    style={{ display: 'block', overflow: 'visible' }}
+                    style={{
+                        display: 'block',
+                        overflow: 'visible',
+                        // v6.0 — focused / curious / proud / tired moods lean
+                        // the body forward or back. Smooth so it reads as
+                        // posture, not jitter.
+                        transform: `rotate(${moodFace.bodyLean}deg)`,
+                        transformOrigin: '50% 110%',
+                        transition: 'transform 600ms cubic-bezier(0.34, 1.2, 0.64, 1)',
+                    }}
                 >
                     <defs>
                         <radialGradient id={`mascot-glow-${state}`} cx="50%" cy="50%" r="50%">
@@ -495,8 +697,8 @@ export function TitanMascot({
                                 <animate attributeName="rx" values="4.5;6;4.5" dur="0.8s" repeatCount="indefinite" />
                             )}
                         </ellipse>
-                        {/* Happy/tired top-lid hint — thin rect that clips the top of the eye */}
-                        {moodEye.squintTop && !blinking && !yawning && (
+                        {/* Squint top-lid — driven by moodFace, not just happy/tired now */}
+                        {moodFace.eyeSquintTop && !blinking && !yawning && (
                             <rect x="43" y="40.5" width="14" height="2" rx="1" fill={p.body} opacity="0.85" />
                         )}
                         {/* Highlight — hidden while sleeping */}
@@ -504,6 +706,36 @@ export function TitanMascot({
                             <circle cx={48 + eyeOffset.x * 0.4} cy="43" r="1" fill="#ffffff" opacity="0.7" />
                         )}
                     </g>
+
+                    {/*
+                      v6.0 — Eyebrows. Two strokes above the eye band that
+                      shape into the current mood. Hidden during yawn / blink
+                      so they don't fight the eye animation. Hidden in 'error'
+                      state — the X crosses out the face there anyway.
+                    */}
+                    {!yawning && !sleeping && state !== 'error' && (
+                        <g stroke={p.eye} strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.85">
+                            <path d={moodFace.browL} className="mascot-eyebrow" />
+                            <path d={moodFace.browR} className="mascot-eyebrow" />
+                        </g>
+                    )}
+
+                    {/*
+                      v6.0 — Mouth. A single stroke below the eye band. Some
+                      moods (neutral) hide it entirely so the face stays
+                      minimalist when there's nothing to say.
+                    */}
+                    {moodFace.mouthD && !sleeping && state !== 'error' && (
+                        <path
+                            d={moodFace.mouthD}
+                            stroke={p.eye}
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            fill="none"
+                            opacity="0.85"
+                            className="mascot-mouth"
+                        />
+                    )}
 
                     {/* Chin vent */}
                     <rect x="42" y="66" width="16" height="2" rx="0.6" fill={p.ring} opacity="0.35" />
