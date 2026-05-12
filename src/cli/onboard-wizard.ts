@@ -816,7 +816,10 @@ async function setupGateway(existingGateway: Record<string, unknown>): Promise<R
       { name: 'Token (recommended for most setups)', value: 'token' },
       { name: 'Password (for shared/public access)', value: 'password' },
     ],
-    default: (existingAuth?.mode as string) || 'token',
+    // v6.0.0-beta.3 — @inquirer/prompts 8.4.3 narrowed `default` to the
+    // exact literal-union of the choice `value` fields. Cast through the
+    // union so a stored config value outside that set still works.
+    default: ((existingAuth?.mode as string) === 'password' ? 'password' : 'token') as 'token' | 'password',
   });
 
   const auth: Record<string, unknown> = { mode: authMode };
