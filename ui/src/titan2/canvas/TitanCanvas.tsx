@@ -88,6 +88,8 @@ import {
   TeamsWidget, CronWidget, CheckpointsWidget, OrganismWidget,
   FleetWidget, BrowserWidget, EvalWidget,
   TimeTravelWidget,
+  MissionDriverWidget,
+  DailyDigestWidget,
 } from '../system/widgets';
 
 import { AgentsWidget } from '../system/AgentsWidget';
@@ -155,6 +157,9 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:eval': EvalWidget,
   // v6.0.5 — Time Travel panel against shadow-git file checkpoints.
   'system:time-travel': TimeTravelWidget,
+  // v6.0.0-beta.4 — Long-running autonomy surface.
+  'system:mission-driver': MissionDriverWidget,
+  'system:daily-digest': DailyDigestWidget,
 };
 
 // ── Grid Config ───────────────────────────────────────────────
@@ -1116,6 +1121,9 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
     { label: 'Eval', source: 'system:eval', w: 6, h: 6 },
     // v6.0.5 — Time Travel panel: file-checkpoint history with diff + restore.
     { label: 'Time Travel', source: 'system:time-travel', w: 8, h: 6 },
+    // v6.0.0-beta.4 — Long-running autonomy: live driver state + overnight digest.
+    { label: 'Mission Driver', source: 'system:mission-driver', w: 7, h: 7 },
+    { label: 'Daily Digest', source: 'system:daily-digest', w: 5, h: 7 },
   ];
 
   return (
