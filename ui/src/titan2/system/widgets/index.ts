@@ -46,3 +46,6 @@ export { BrowserWidget } from './BrowserWidget';
 export { EvalWidget } from './EvalWidget';
 // v6.0.5 — Time Travel panel against the shadow-git file-checkpoint layer.
 export { TimeTravelWidget } from './TimeTravelWidget';
+// v6.0.0-beta.4 — Long-running autonomy surface: live driver state + digest.
+export { MissionDriverWidget } from './MissionDriverWidget';
+export { DailyDigestWidget } from './DailyDigestWidget';

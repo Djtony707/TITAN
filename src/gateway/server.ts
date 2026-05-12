@@ -1702,6 +1702,253 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // v6.0.0-beta.4 — Mission API. The "work without me" surface.
+  //
+  // TITAN already has a deep autonomy stack: durable journal, stateless
+  // reducer, 11-phase goal driver, crash recovery, budget enforcement.
+  // What was missing was an ergonomic entry point (one prompt → an
+  // autonomous mission) and live visibility (what's the driver doing
+  // right now? what got done overnight?). These five endpoints close that
+  // gap and feed the Mission Driver + Daily Digest canvas widgets.
+  //
+  //   POST /api/mission/run            → single-prompt mission creation
+  //   GET  /api/missions/active        → live driver state for every active goal
+  //   GET  /api/missions/recent?hours= → completed goals in last N hours
+  //   GET  /api/missions/digest?hours= → human-readable "what got done" summary
+  //   POST /api/mission/:id/cancel     → cancel a running mission
+
+  app.post('/api/mission/run', async (req, res) => {
+    try {
+      const description = String(req.body?.description ?? req.body?.prompt ?? '').trim();
+      if (!description || description.length < 10) {
+        res.status(400).json({ error: 'description_required', message: 'Provide a description (>=10 chars) of what TITAN should accomplish autonomously.' });
+        return;
+      }
+      const title = String(req.body?.title ?? '').trim() || description.split(/[.!?\n]/)[0].slice(0, 80);
+      const priority = Math.max(1, Math.min(5, Number(req.body?.priority) || 3));
+      const budgetLimit = Math.max(0.01, Math.min(50, Number(req.body?.budgetUsd) || 2));
+      const tags: string[] = Array.isArray(req.body?.tags) ? req.body.tags.map(String) : ['mission', 'autonomous'];
+
+      // Decompose the description into 3–6 subtasks via the LLM. Use the
+      // small/fast tier — this is a one-shot planning call, not an agent
+      // loop. The driver then ticks through the subtasks autonomously.
+      let subtasks: Array<{ title: string; description: string; dependsOn?: string[] }> | undefined = undefined;
+      try {
+        const { spawnSubAgent } = await import('../agent/subAgent.js');
+        const decomposePrompt = [
+          `Decompose this autonomous mission into 3-6 concrete, independently-runnable subtasks.`,
+          ``,
+          `Mission: ${description}`,
+          ``,
+          `Return STRICT JSON: { "subtasks": [ { "title": "...", "description": "..." }, ... ] }.`,
+          `Each title <= 60 chars, each description <= 200 chars.`,
+          `Order subtasks dependency-aware (later ones may reference earlier output).`,
+          `Do NOT add a verification subtask — the driver verifies automatically.`,
+          `Do NOT wrap in markdown — pure JSON.`,
+        ].join('\n');
+        const result = await spawnSubAgent({
+          name: 'mission-decomposer',
+          task: decomposePrompt,
+          tier: 'fast',
+          maxRounds: 1,
+        });
+        const raw = (result.content || '').trim();
+        const jsonStart = raw.indexOf('{');
+        const jsonEnd = raw.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as { subtasks?: Array<{ title?: string; description?: string }> };
+          if (Array.isArray(parsed.subtasks) && parsed.subtasks.length >= 1) {
+            subtasks = parsed.subtasks
+              .filter(s => typeof s?.title === 'string' && typeof s?.description === 'string')
+              .slice(0, 6)
+              .map(s => ({ title: String(s.title).slice(0, 80), description: String(s.description).slice(0, 280) }));
+          }
+        }
+      } catch (err) {
+        logger.warn(COMPONENT, `Mission decomposition failed, creating goal with no subtasks: ${(err as Error).message}`);
+      }
+
+      const { createGoal } = await import('../agent/goals.js');
+      const goal = createGoal({
+        title,
+        description,
+        priority,
+        budgetLimit,
+        tags,
+        subtasks,
+        force: req.body?.force === true,
+      });
+      logger.info(COMPONENT, `[Mission] Created mission goal "${title}" (id=${goal.id}, subtasks=${(subtasks?.length ?? 0)})`);
+      res.json({
+        ok: true,
+        goal: { id: goal.id, title: goal.title, status: goal.status, priority: goal.priority, subtaskCount: goal.subtasks?.length ?? 0 },
+        message: subtasks?.length
+          ? `Mission "${title}" created with ${subtasks.length} subtasks. Driver will pick it up on the next tick (within 10s).`
+          : `Mission "${title}" created. Decomposition skipped — add subtasks via the Goals API or chat.`,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'mission_create_failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/missions/active', async (_req, res) => {
+    try {
+      const { listActiveDrivers } = await import('../agent/goalDriver.js');
+      const { listGoals } = await import('../agent/goals.js');
+      const drivers = listActiveDrivers();
+      const goals = listGoals('active');
+      const goalsById = new Map(goals.map(g => [g.id, g]));
+      const missions = drivers.map(d => {
+        const goal = goalsById.get(d.goalId);
+        const completed = Object.values(d.subtaskStates).filter(s => s.verificationResult?.passed === true).length;
+        const total = Object.keys(d.subtaskStates).length || (goal?.subtasks?.length ?? 0);
+        return {
+          goalId: d.goalId,
+          title: goal?.title || '(unknown goal)',
+          phase: d.phase,
+          startedAt: d.startedAt,
+          currentSubtaskId: d.currentSubtaskId ?? null,
+          subtasks: { total, completed },
+          budget: d.budget,
+          blockedReason: d.blockedReason ?? null,
+          lastHistory: (d.history || []).slice(-3),
+        };
+      });
+      res.json({ count: missions.length, missions });
+    } catch (err) {
+      res.status(500).json({ error: 'missions_active_failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/missions/recent', async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(168, parseInt(String(req.query.hours ?? '24'), 10) || 24));
+      const { listAllDrivers } = await import('../agent/goalDriver.js');
+      const { listGoals } = await import('../agent/goals.js');
+      const all = listAllDrivers();
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
+      const goalsById = new Map(listGoals().map(g => [g.id, g]));
+      const recent = all
+        .filter(d => ['done', 'failed', 'cancelled'].includes(d.phase))
+        .filter(d => {
+          const completedAt = d.history?.[d.history.length - 1]?.at ?? d.startedAt;
+          return new Date(completedAt).getTime() >= cutoff;
+        })
+        .map(d => {
+          const goal = goalsById.get(d.goalId);
+          const completedAt = d.history?.[d.history.length - 1]?.at ?? d.startedAt;
+          return {
+            goalId: d.goalId,
+            title: goal?.title || '(unknown goal)',
+            phase: d.phase as 'done' | 'failed' | 'cancelled',
+            startedAt: d.startedAt,
+            completedAt,
+            durationMs: new Date(completedAt).getTime() - new Date(d.startedAt).getTime(),
+            subtaskCount: Object.keys(d.subtaskStates).length || (goal?.subtasks?.length ?? 0),
+            budget: d.budget,
+            lessonsLearned: d.retrospective?.lessonsLearned ?? [],
+          };
+        })
+        .sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1));
+      res.json({ hours, count: recent.length, missions: recent });
+    } catch (err) {
+      res.status(500).json({ error: 'missions_recent_failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/missions/digest', async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(168, parseInt(String(req.query.hours ?? '24'), 10) || 24));
+      const { listAllDrivers, listActiveDrivers } = await import('../agent/goalDriver.js');
+      const { listGoals } = await import('../agent/goals.js');
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
+      const all = listAllDrivers();
+      const active = listActiveDrivers();
+      const goalsById = new Map(listGoals().map(g => [g.id, g]));
+      const completed = all.filter(d => d.phase === 'done').filter(d => {
+        const at = d.history?.[d.history.length - 1]?.at ?? d.startedAt;
+        return new Date(at).getTime() >= cutoff;
+      });
+      const failed = all.filter(d => d.phase === 'failed').filter(d => {
+        const at = d.history?.[d.history.length - 1]?.at ?? d.startedAt;
+        return new Date(at).getTime() >= cutoff;
+      });
+      const blocked = active.filter(d => d.phase === 'blocked');
+      const totalCostUsd = [...completed, ...failed].reduce((sum, d) => sum + (d.budget?.costUsd ?? 0), 0);
+      const totalTokens = [...completed, ...failed].reduce((sum, d) => sum + (d.budget?.tokensUsed ?? 0), 0);
+      const lessons = completed.flatMap(d => d.retrospective?.lessonsLearned ?? []).slice(0, 10);
+
+      const summary: string[] = [];
+      summary.push(`Last ${hours}h: ${completed.length} mission(s) completed, ${failed.length} failed, ${active.length} active, ${blocked.length} blocked for approval.`);
+      if (completed.length > 0) {
+        summary.push(``);
+        summary.push(`Completed:`);
+        for (const d of completed.slice(0, 10)) {
+          const g = goalsById.get(d.goalId);
+          summary.push(`  • ${g?.title ?? d.goalId} (${Math.round((d.budget?.costUsd ?? 0) * 100) / 100} USD, ${Math.round(((d.history?.[d.history.length - 1]?.at ? new Date(d.history[d.history.length - 1].at).getTime() : Date.now()) - new Date(d.startedAt).getTime()) / 1000)}s)`);
+        }
+      }
+      if (failed.length > 0) {
+        summary.push(``);
+        summary.push(`Failed (need review):`);
+        for (const d of failed.slice(0, 5)) {
+          const g = goalsById.get(d.goalId);
+          summary.push(`  • ${g?.title ?? d.goalId}`);
+        }
+      }
+      if (blocked.length > 0) {
+        summary.push(``);
+        summary.push(`Blocked for approval:`);
+        for (const d of blocked.slice(0, 5)) {
+          const g = goalsById.get(d.goalId);
+          summary.push(`  • ${g?.title ?? d.goalId} — ${d.blockedReason?.question ?? '(no reason given)'}`);
+        }
+      }
+      if (active.length > 0 && blocked.length < active.length) {
+        summary.push(``);
+        summary.push(`In progress:`);
+        for (const d of active.filter(a => a.phase !== 'blocked').slice(0, 10)) {
+          const g = goalsById.get(d.goalId);
+          summary.push(`  • ${g?.title ?? d.goalId} [${d.phase}]`);
+        }
+      }
+
+      res.json({
+        hours,
+        stats: {
+          completed: completed.length,
+          failed: failed.length,
+          active: active.length,
+          blocked: blocked.length,
+          totalCostUsd: Math.round(totalCostUsd * 1000) / 1000,
+          totalTokens,
+        },
+        summaryText: summary.join('\n'),
+        recentLessons: lessons,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'mission_digest_failed', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/mission/:id/cancel', async (req, res) => {
+    try {
+      const goalId = String(req.params.id || '').trim();
+      if (!goalId) { res.status(400).json({ error: 'missing_goal_id' }); return; }
+      const { getDriverState } = await import('../agent/goalDriver.js');
+      const { updateGoal } = await import('../agent/goals.js');
+      const state = getDriverState(goalId);
+      if (state) {
+        state.userControls.cancelRequested = true;
+        // The driver will observe this on its next tick and transition.
+      }
+      updateGoal(goalId, { status: 'paused' });
+      res.json({ ok: true, message: `Mission ${goalId} marked for cancellation. Driver will stop on the next tick.` });
+    } catch (err) {
+      res.status(500).json({ error: 'mission_cancel_failed', message: (err as Error).message });
+    }
+  });
+
   // v6.0.3 — Manual trigger for the daily-gift loop. The 22h cron path
   // still fires on its own; this endpoint lets the user click "send me
   // something now" in the SOMA panel and see what Soma comes up with

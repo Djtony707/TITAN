@@ -5,6 +5,76 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.0-beta.4 — 2026-05-12 — Mission Driver surface 🚀
+
+> **The "work without me" surface.** TITAN's 11-phase goal driver state
+> machine has been running missions autonomously for several minor
+> releases — durable journal, crash recovery, budget enforcement, the
+> works. What was missing was an **ergonomic entry point** (one prompt
+> launches an autonomous mission) and **live visibility** (what's the
+> driver doing right now? what got done overnight?). This release closes
+> both gaps.
+
+### New API
+- **`POST /api/mission/run`** — single-prompt mission creation. Body:
+  `{ description, title?, priority?, budgetUsd?, tags?, force? }`. The
+  server uses the `fast` model tier to decompose `description` into 3–6
+  concrete subtasks (JSON), calls `createGoal()`, and the driver
+  scheduler picks it up within 10s. Returns the goal id + decomposition
+  count.
+- **`GET /api/missions/active`** — live `DriverState` snapshot for every
+  non-terminal driver, joined with the underlying goal title. Returns
+  phase, current subtask, subtask progress (completed/total), budget
+  spent, blocked reason (if any), and the last 3 history entries.
+- **`GET /api/missions/recent?hours=24`** — completed / failed /
+  cancelled drivers within the window, newest-first, with
+  duration + cost + retrospective lessons.
+- **`GET /api/missions/digest?hours=24`** — human-readable summary text
+  + stats (`completed / failed / active / blocked / totalCostUsd /
+  totalTokens`) + the 10 most recent Reflexion lessons. Powers the
+  daily-digest widget.
+- **`POST /api/mission/:id/cancel`** — flips
+  `state.userControls.cancelRequested` + pauses the goal. The driver
+  observes on its next tick and transitions to `cancelled`.
+
+### New canvas widgets (registered as `system:mission-driver` and
+`system:daily-digest`; available in the EmptyCanvas chip row)
+
+- **`MissionDriverWidget`** — live view of every active mission. Cards
+  show title, current phase (colour-coded), subtask progress, budget
+  spent, elapsed time, the blocked reason (when phase = `blocked`), and
+  the last 3 history entries. Polls `/api/missions/active` every 5s.
+  Plus an in-canvas composer at the top: textarea + budget cap +
+  "🚀 Launch" button. Calls `POST /api/mission/run` and the new mission
+  card appears below within 10s.
+- **`DailyDigestWidget`** — "what TITAN did while you were away."
+  6h / 24h / 7d selector. Stat grid (Done / Failed / Active / Blocked).
+  Spend line (USD + tokens). Human-readable summary + a Reflexion
+  lessons block at the bottom. Polls `/api/missions/digest` every 60s.
+
+### Competitive landscape update
+- The competitive memory doc (`titan-competitive-landscape.md`) was
+  written in April 2026 and called out 6 critical gaps. **5 of the 6
+  are now shipped:** state graphs (✅ 11-phase driver), durable
+  execution (✅ durableJournal), time-travel (✅ TimeTravelWidget),
+  Reflexion (✅ agentLessons), recitation (✅ goalPlanFile). One
+  remains (visual workflow builder). The doc has been refreshed with
+  the v6.0 vs LangGraph / CrewAI / Mastra / OpenAI Agents SDK /
+  Anthropic Managed Agents / Replit Agent matrix.
+
+### Standing positioning line (use it in posts)
+> "TITAN is the only open-source agent framework that combines a
+> durable 11-phase mission driver, 36 LLM providers, 19 channels, a
+> homeostatic drive layer, and a canvas the agent can reshape on
+> demand — and runs entirely on your own hardware via MIT-licensed npm."
+
+### Verification
+- typecheck clean
+- 287 test files / **7,057 cases** passed / 1 skipped / 0 failing
+- Server + UI build clean on Mac and Titan PC
+
+---
+
 ## v6.0.0-beta.3 — 2026-05-12 — Dependency refresh
 
 > Housekeeping ship. No behavior changes — just the dependency tree
