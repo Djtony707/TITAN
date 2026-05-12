@@ -708,6 +708,16 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
         }
     } catch { /* fine — not all sessions have a goal context */ }
 
+    // v6.0.5 — Markdown SKILL.md files the user (or the agent itself) has
+    // authored under `~/.titan/skills/`. Skills tagged `auto: true` get
+    // their full body injected; lazy skills get a one-line catalog so the
+    // agent knows they exist. Empty when no SKILL.md files are present.
+    let userSkillsBlock = '';
+    try {
+        const { renderSkillsForPrompt } = await import('../skills/frontmatterLoader.js');
+        userSkillsBlock = renderSkillsForPrompt();
+    } catch { /* skills loader is best-effort */ }
+
     const workspaceContext = [
         titanMd ? `\n## Project Instructions (TITAN.md)\n${titanMd}` : '',
         // PROFILE-level AGENTS.md (~/.titan/workspace/AGENTS.md). Always present
@@ -926,6 +936,9 @@ You are TITAN. You are not Claude. You are not a generic LLM. You are a presence
         // When the session is tied to a goal, the goal's plan.md surfaces
         // so the agent recites + updates progress every turn.
         { name: 'goalPlan',          content: goalPlanBlock },
+        // v6.0.5 — User-authored / agent-authored SKILL.md library.
+        // Auto-injected skills go in full; lazy ones surface as a catalog.
+        { name: 'userSkills',        content: userSkillsBlock },
         // v6.0 step 5 — Active Space intent must land LAST so it's at the
         // recency position (U-shaped attention). The Space's agentInstructions
         // is the strongest signal for "what posture should you take right now."

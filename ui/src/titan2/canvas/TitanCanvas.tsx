@@ -55,6 +55,7 @@ import type { ResizeHandleAxis, Layout } from 'react-grid-layout';
 import { NavWidget } from '../system/NavWidget';
 import { ChatWidget, findFirstFreeSlot } from '../system/ChatWidget';
 import { FloatingChatDock } from '../system/FloatingChatDock';
+import { SomaAdvisoryToast } from '../system/SomaAdvisoryToast';
 // v6.0 step 2 — Spaces sidebar mounted inside TitanCanvas (the canvas
 // surface owns its own layout; AppShell doesn't wrap canvas routes).
 import { SpacesSidebar } from '@/components/shell/SpacesSidebar';
@@ -86,6 +87,7 @@ import {
   BackupWidget, TrainingWidget, RecipesWidget, VramWidget,
   TeamsWidget, CronWidget, CheckpointsWidget, OrganismWidget,
   FleetWidget, BrowserWidget, EvalWidget,
+  TimeTravelWidget,
 } from '../system/widgets';
 
 import { AgentsWidget } from '../system/AgentsWidget';
@@ -151,6 +153,8 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:browser': BrowserWidget,
   // v6.0 step 1 — 'system:paperclip' removed (pre-v5 branding).
   'system:eval': EvalWidget,
+  // v6.0.5 — Time Travel panel against shadow-git file checkpoints.
+  'system:time-travel': TimeTravelWidget,
 };
 
 // ── Grid Config ───────────────────────────────────────────────
@@ -285,7 +289,7 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
 
     const timeout = setTimeout(() => {
       setLoading(false);
-      setError('Sandbox timeout: widget took longer than 30s to render. Babel (~2MB) or React may be slow to load from unpkg.com. Check network tab in DevTools (F12).');
+      setError('Sandbox timeout: widget took longer than 30s to render. The widget source may have an infinite loop or an unhandled exception. Open DevTools (F12) → Console to see the iframe-side error.');
     }, 30000);
 
     sandboxRef.current.render(
@@ -1007,6 +1011,12 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       */}
       <FloatingChatDock space={space} defaultExpanded={chatOpen} />
 
+      {/* v6.0.3 — Soma "TITAN noticed…" advisory toast. Polls every 30s
+          and surfaces any new initiative-pulse decision as a floating card
+          near the mascot. Brings the previously log-only Presence layer
+          out into the user's actual line of sight. */}
+      <SomaAdvisoryToast />
+
       {/* Per-space agent instructions editor — opened from the header. */}
       <SpaceInstructionsEditor
         space={space}
@@ -1104,6 +1114,8 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
     { label: 'Browser', source: 'system:browser', w: 6, h: 5 },
     // v6.0 step 1 — system:paperclip removed (Bucket C / killed branding).
     { label: 'Eval', source: 'system:eval', w: 6, h: 6 },
+    // v6.0.5 — Time Travel panel: file-checkpoint history with diff + restore.
+    { label: 'Time Travel', source: 'system:time-travel', w: 8, h: 6 },
   ];
 
   return (

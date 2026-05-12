@@ -263,18 +263,26 @@ export interface GiftBrief {
     context: string;
 }
 
-export function decideDailyGift(userId = 'default-user', now = Date.now()): GiftBrief | null {
-    const since = now - lastGiftAt(userId);
-    if (since < DAILY_GIFT_MIN_GAP_MS) return null;
+export function decideDailyGift(userId = 'default-user', now = Date.now(), opts?: { force?: boolean }): GiftBrief | null {
+    const force = opts?.force === true;
+    if (!force) {
+        const since = now - lastGiftAt(userId);
+        if (since < DAILY_GIFT_MIN_GAP_MS) return null;
+    }
 
     // Pull what we know about the user.
     const profile = readSomaProfile(userId);
-    if (profile.learnedAboutUser.length < 3) {
-        // Not enough learned yet — skip until we've seen the user for a bit.
+    // v6.0.3 — When force=true (manual user trigger from the SOMA panel),
+    // skip the "learned >= 3 observations" gate. The user explicitly asked
+    // for a gift; Soma should at least try, even on day-one with a thin
+    // profile. The agent prompt still lets the LLM decline if nothing
+    // meaningful comes to mind.
+    if (!force && profile.learnedAboutUser.length < 3) {
         return null;
     }
     // Don't gift when frustrated — same throttling as advisories.
-    if (profile.baseline.frustration > 0.7) return null;
+    // Manual trigger overrides this too.
+    if (!force && profile.baseline.frustration > 0.7) return null;
 
     const recent = profile.learnedAboutUser.slice(-10);
     const aggs = aggregatePatterns(userId, { windowDays: 7, topN: 5 });
@@ -304,8 +312,8 @@ export function decideDailyGift(userId = 'default-user', now = Date.now()): Gift
  * a widget or politely decline. The agent's create_widget call (if it
  * makes one) routes through the normal widgetEmitter side-channel.
  */
-export async function tryDailyGift(userId = 'default-user'): Promise<{ attempted: boolean; reason: string }> {
-    const brief = decideDailyGift(userId);
+export async function tryDailyGift(userId = 'default-user', opts?: { force?: boolean }): Promise<{ attempted: boolean; reason: string }> {
+    const brief = decideDailyGift(userId, Date.now(), opts);
     if (!brief) {
         return { attempted: false, reason: 'cooldown / not enough profile / soma blocked' };
     }

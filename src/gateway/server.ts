@@ -1311,11 +1311,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   function driveAdjective(drive: string, elevated: boolean): string {
     const map: Record<string, [string, string]> = {
+      // Soma profile (per-user moods).
       curiosity:    ['curious',     'incurious'],
       focus:        ['focused',     'unfocused'],
       fatigue:      ['tired',       'energized'],
       satisfaction: ['satisfied',   'restless'],
       frustration:  ['frustrated',  'calm'],
+      // v6.0.3 — Soma organism drives (the real homeostatic layer).
+      // `elevated` here means satisfaction > baseline; "low" satisfaction
+      // is the side that produces visible pressure.
+      purpose:      ['aligned',     'aimless'],
+      hunger:       ['fed',         'hungry'],
+      safety:       ['secure',      'on edge'],
+      social:       ['social',      'isolated'],
     };
     const pair = map[drive];
     if (!pair) return drive;
@@ -1526,34 +1534,195 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // (Soma profile). The SPA's mascot listens to this and renders the
   // mood-tint, breathing animation, and "TITAN is curious / focused /
   // frustrated" status-bar text.
+  //
+  // v6.0.3 — Previously this endpoint mapped neurotransmitter names
+  // (dopamine, cortisol, norepinephrine) onto drive ids, but Soma stores
+  // drives by id (curiosity, hunger, safety, social, purpose), so every
+  // field always missed and the mascot read a flat baseline. Now we
+  // surface the REAL drive levels — the mascot's mood actually moves.
   app.get('/api/soma/drives', async (req, res) => {
     try {
       const userId = getUserIdFromReq(req as Parameters<typeof getUserIdFromReq>[0]);
       const { readSomaProfile } = await import('../storage/somaProfile.js');
       const profile = readSomaProfile(userId);
       let current: Record<string, number> | null = null;
+      let asOf: string | null = null;
       try {
         const { getHormonalState } = await import('../organism/hormones.js');
         const state = getHormonalState();
-        current = {
-          // Map hormone field names to drive names the frontend expects.
-          curiosity: (state as { dopamine?: number }).dopamine ?? profile.baseline.curiosity,
-          focus: (state as { norepinephrine?: number }).norepinephrine ?? profile.baseline.focus,
-          fatigue: (state as { fatigue?: number }).fatigue ?? profile.baseline.fatigue,
-          satisfaction: (state as { serotonin?: number }).serotonin ?? profile.baseline.satisfaction,
-          frustration: (state as { cortisol?: number }).cortisol ?? profile.baseline.frustration,
-        };
+        if (state.available) {
+          current = { ...state.levels };
+          asOf = state.asOf;
+        }
       } catch { /* organism may be off — fall back to baseline */ }
+      // Build a baseline that includes every drive present in `current`
+      // (the Soma drive layer ships purpose/hunger/curiosity/safety/social;
+      // the per-user Soma profile stores per-drive baselines — but those
+      // are keyed by feel-name, not drive-id, so we synthesise a neutral
+      // 0.7 baseline for any drive id the profile doesn't cover. Without
+      // this the deviation math compares hunger=0.15 to baseline=0
+      // and reports an artificial delta of +0.15, instead of correctly
+      // flagging hunger as low).
+      const baseline: Record<string, number> = { ...profile.baseline };
+      if (current) {
+        for (const k of Object.keys(current)) {
+          if (!(k in baseline)) baseline[k] = 0.7;
+        }
+      }
       res.json({
         userId,
-        baseline: profile.baseline,
-        current: current ?? profile.baseline,
-        // Convenience: dominant drive label for the mascot status text.
-        // Picks whichever drive deviates most from its baseline.
-        dominant: pickDominantDrive(current ?? profile.baseline, profile.baseline),
+        baseline,
+        current: current ?? baseline,
+        asOf,
+        dominant: pickDominantDrive(current ?? baseline, baseline),
       });
     } catch (err) {
       res.status(500).json({ error: 'soma_drives_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0.3 — Full Soma state. Returns the latest persisted drive tick + the
+  // hormonal block the SOMA page needs to render the elevated-drive line
+  // ("Body state: hunger 15% · curiosity 37%") and the inspector
+  // sparklines. Previously this endpoint didn't exist; the SomaView fell
+  // back to /api/watch/snapshot which doesn't include the hormonal block,
+  // so it always showed "All drives satiated — routine operation."
+  app.get('/api/soma/state', async (_req, res) => {
+    try {
+      const cfg = loadConfig();
+      const organismEnabled = (cfg.organism as { enabled?: boolean } | undefined)?.enabled ?? true;
+      const { loadDriveHistory } = await import('../organism/drives.js');
+      const { buildBlock } = await import('../organism/hormones.js');
+      const history = loadDriveHistory();
+      if (!history) {
+        res.json({
+          enabled: organismEnabled,
+          message: organismEnabled
+            ? 'Soma is enabled but no drive tick has run yet. Wait ~60s.'
+            : 'Soma is disabled. Enable via organism.enabled in config.',
+          drives: [],
+          totalPressure: 0,
+          dominantDrives: [],
+          hormonal: { available: false, asOf: null, levels: {}, elevated: [], dominant: null },
+        });
+        return;
+      }
+      const block = buildBlock(history.latest.drives, history.latest.timestamp);
+      res.json({
+        enabled: organismEnabled,
+        timestamp: history.latest.timestamp,
+        drives: history.latest.drives,
+        totalPressure: history.latest.totalPressure,
+        dominantDrives: history.latest.dominantDrives,
+        hormonal: block,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'soma_state_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0.3 — Ring-buffered drive history. Used by the SOMA page for
+  // sparklines + the "last 24h" trend graphs. `hours` query param caps
+  // the slice; default 24h.
+  app.get('/api/soma/history', async (req, res) => {
+    try {
+      const cfg = loadConfig();
+      const organismEnabled = (cfg.organism as { enabled?: boolean } | undefined)?.enabled ?? true;
+      const { loadDriveHistory } = await import('../organism/drives.js');
+      const hours = Math.max(1, Math.min(168, parseInt(String(req.query.hours ?? '24'), 10) || 24));
+      const history = loadDriveHistory();
+      if (!history) {
+        res.json({ enabled: organismEnabled, history: [], latest: null });
+        return;
+      }
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
+      const slice = history.history.filter(p => new Date(p.timestamp).getTime() >= cutoff);
+      res.json({ enabled: organismEnabled, history: slice, latest: history.latest });
+    } catch (err) {
+      res.status(500).json({ error: 'soma_history_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0.3 — Recent Soma advisories (somaInitiative pulses that didn't
+  // map to 'nothing'). The canvas notification card polls this; the
+  // mascot speech bubble can quote the most recent one.
+  app.get('/api/soma/advisories', async (req, res) => {
+    try {
+      const userId = getUserIdFromReq(req as Parameters<typeof getUserIdFromReq>[0]);
+      const { readRecentAdvisories } = await import('../agent/somaInitiative.js');
+      const limit = Math.max(1, Math.min(50, parseInt(String(req.query.limit ?? '10'), 10) || 10));
+      const advisories = readRecentAdvisories(userId, limit);
+      res.json({ userId, advisories });
+    } catch (err) {
+      res.status(500).json({ error: 'advisories_unavailable', message: (err as Error).message });
+    }
+  });
+
+  // v6.0.5 — Time Travel surface. TITAN's shadow-git layer
+  // (~/.titan/file-checkpoints/) already snapshots every file before any
+  // write/edit/append tool runs, but pre-v6.0.5 we had no UI for it.
+  // These three endpoints expose:
+  //   GET  /api/time-travel/checkpoints      → newest-first list, optional ?file= filter
+  //   GET  /api/time-travel/diff/:id         → diff vs current file
+  //   POST /api/time-travel/restore/:id      → restore the file to that checkpoint
+  app.get('/api/time-travel/checkpoints', async (req, res) => {
+    try {
+      const { listAllCheckpoints, listCheckpoints } = await import('../agent/shadowGit.js');
+      const file = typeof req.query.file === 'string' ? req.query.file : '';
+      const limit = Math.max(1, Math.min(500, parseInt(String(req.query.limit ?? '100'), 10) || 100));
+      const checkpoints = file ? listCheckpoints(file) : listAllCheckpoints(limit);
+      res.json({ count: checkpoints.length, checkpoints });
+    } catch (err) {
+      res.status(500).json({ error: 'time_travel_list_failed', message: (err as Error).message });
+    }
+  });
+
+  app.get('/api/time-travel/diff/:id', async (req, res) => {
+    try {
+      const { diffCheckpoint } = await import('../agent/shadowGit.js');
+      const id = String(req.params.id || '').trim();
+      if (!id) { res.status(400).json({ error: 'missing_checkpoint_id' }); return; }
+      const diff = diffCheckpoint(id);
+      res.json({ checkpointId: id, diff });
+    } catch (err) {
+      res.status(500).json({ error: 'time_travel_diff_failed', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/time-travel/restore/:id', async (req, res) => {
+    try {
+      const { restoreCheckpoint } = await import('../agent/shadowGit.js');
+      const id = String(req.params.id || '').trim();
+      if (!id) { res.status(400).json({ error: 'missing_checkpoint_id' }); return; }
+      const result = restoreCheckpoint(id);
+      const ok = !result.toLowerCase().startsWith('restore failed') && !result.toLowerCase().startsWith('no checkpoints') && !result.toLowerCase().includes('not found');
+      res.json({ ok, checkpointId: id, message: result });
+    } catch (err) {
+      res.status(500).json({ error: 'time_travel_restore_failed', message: (err as Error).message });
+    }
+  });
+
+  // v6.0.3 — Manual trigger for the daily-gift loop. The 22h cron path
+  // still fires on its own; this endpoint lets the user click "send me
+  // something now" in the SOMA panel and see what Soma comes up with
+  // without waiting a day. We bypass the 18h cooldown by passing a
+  // `force` flag (the gift module respects this).
+  app.post('/api/soma/gift', async (req, res) => {
+    try {
+      const userId = getUserIdFromReq(req as Parameters<typeof getUserIdFromReq>[0]);
+      const force = req.body?.force !== false;
+      const { tryDailyGift } = await import('../agent/somaInitiative.js');
+      // Fire-and-forget — the LLM call inside can take 20-60s; we don't
+      // want the HTTP request to block that long. The result lands as a
+      // create_widget side-channel event on the user's open SSE stream.
+      void tryDailyGift(userId, { force }).then(result => {
+        logger.info(COMPONENT, `[SomaGift] manual trigger: attempted=${result.attempted} reason=${result.reason}`);
+      }).catch(err => {
+        logger.warn(COMPONENT, `[SomaGift] manual trigger failed: ${(err as Error).message}`);
+      });
+      res.json({ ok: true, message: 'Soma is thinking about what to gift you. A widget will appear on your canvas shortly (or Soma will decline if nothing fits).' });
+    } catch (err) {
+      res.status(500).json({ error: 'gift_unavailable', message: (err as Error).message });
     }
   });
 
@@ -2158,6 +2327,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Hoisted so the `finally` block can release the widget side-channel
     // subscription whether the request streamed, errored, or finished early.
     let unsubscribeWidgets: (() => void) | null = null;
+    // v6.0.2 — SSE keep-alive heartbeat. Cloud models (e.g. deepseek-v4-pro)
+    // can spend 60-180s in a single non-streaming `think` phase. The frontend
+    // (ui/src/api/client.ts) treats >60s of total silence as a dead stream
+    // and aborts. SSE comment lines (`:<text>\n\n`) reset the client read
+    // timer without affecting event parsing. Emit one every 15s for the
+    // lifetime of the stream so long thinks no longer trigger phantom
+    // "stream went silent" errors.
+    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     try {
       if (wantsSSE) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -2177,6 +2354,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           if (clientDisconnected) return;
           try { sseWrite!(data); } catch { clientDisconnected = true; }
         };
+
+        // Fire the first heartbeat immediately + every 15s thereafter. Stays
+        // under the client's 60s quiet ceiling with plenty of headroom even
+        // if one heartbeat is delayed by event-loop pressure.
+        heartbeatInterval = setInterval(() => {
+          if (clientDisconnected) return;
+          safeWrite(`: heartbeat ${Date.now()}\n\n`);
+        }, 15_000);
 
         // Canvas widget side-channel — subscribe to the per-session widget
         // bus for the duration of this stream and forward events as their
@@ -2326,6 +2511,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       // emitter doesn't accumulate dead listeners across long-lived servers.
       if (unsubscribeWidgets) {
         try { unsubscribeWidgets(); } catch { /* never let cleanup break the request */ }
+      }
+      // Stop the SSE heartbeat — must clear on every exit path or the
+      // interval leaks for the lifetime of the process.
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
       }
     }
   });

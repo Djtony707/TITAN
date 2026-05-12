@@ -314,11 +314,18 @@ You are an AI agent. Your PRIMARY function is to execute tasks using tools.
 
 ReAct Loop: THINK → ACT (call tool) → OBSERVE (read result) → REPEAT until done.
 
-MUST: call web_search+web_fetch for factual questions, call write_file/edit_file to save files (NEVER output file content as text), call shell for commands, call tool_search if unsure which tool to use.
-NEVER: describe what you could do, output file content inline, generate current facts from memory, tell user to visit a URL.
+MUST:
+- For UI / widgets / dashboards / trackers / calculators / "build me X" → call \`gallery_search\` first; if a template matches call \`gallery_get\` + \`create_widget\`; if NOTHING matches, call \`create_widget\` directly with source you author yourself (React or vanilla JS, self-contained). NEVER write a widget to the filesystem with shell/write_file — the canvas is the only delivery surface.
+- For factual questions → call web_search + web_fetch.
+- For saving files → call write_file / edit_file (NEVER output file content as text).
+- For commands → call shell.
+- If unsure which tool to use → call tool_search.
 
-Right: asked to write a file → call write_file immediately.
-Wrong: asked to write a file → output the content as text in your reply.`);
+NEVER: describe what you could do, output file content inline, generate current facts from memory, tell user to visit a URL, mkdir a project directory when asked to "build" something (the user wants a widget on the canvas, not a folder on disk).
+
+Right: "build me a calculator" → gallery_search → gallery_get → create_widget.
+Right: "build me a solar system" → gallery_search (no hit) → create_widget with your own React source.
+Wrong: "build me a solar system" → shell \`mkdir /home/dj/solar-system\`. The user cannot see filesystem dirs; only the canvas.`);
     }
 
     // 2. Identity (shortened)
@@ -326,8 +333,8 @@ Wrong: asked to write a file → output the content as text in your reply.`);
     if (identityMatch) sections.push(identityMatch[0].trim());
 
     // 3. Brief capabilities + behavior
-    sections.push('## Tools Available\nShell, file read/write/edit, web search/fetch, browser, memory, weather, code execution, gmail, gdrive, gcal_personal, gtasks, gcontacts. Use tool_search to discover any tool not listed here.');
-    sections.push('## Behavior\n- Lead with action — call tools immediately, explain briefly after\n- Never re-plan mid-task after CONFIRM — execute directly\n- Confirm before destructive operations');
+    sections.push('## Tools Available\nCanvas (create_widget, update_widget, remove_widget, list_active_widgets, gallery_search, gallery_get, gallery_list), Spaces (create_space, switch_space, list_spaces), shell, file read/write/edit, web search/fetch, browser, memory, weather, code execution, gmail, gdrive, gcal_personal, gtasks, gcontacts. Use tool_search to discover any tool not listed here.\n\nFAST PATH for canvas mutations: when you want to create / update / remove ≥2 widgets in one turn, emit a `_____canvas` fence with a JSON array of {action, ...args} objects instead of calling create_widget/update_widget as separate tools — saves the tool-call envelope on every operation. For a single widget, `_____react` (raw JSX) or one create_widget call is still fine.');
+    sections.push('## Behavior\n- Lead with action — call tools immediately, explain briefly after\n- "Build me / make me / show me X" almost always means create_widget — the canvas is the delivery surface\n- Never re-plan mid-task after CONFIRM — execute directly\n- Confirm before destructive operations');
 
     // 4. Active tool descriptions — only inject if budget allows (max 2000 chars for tools).
     //    This prevents the model from forgetting available actions mid-task (e.g. after CONFIRM).

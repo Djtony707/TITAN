@@ -39,7 +39,13 @@ const SIZE_STORAGE_KEY = 'titan2:chat-dock:size';
 const EDGE_STORAGE_KEY = 'titan2:chat-dock:hidden-edge';
 const HINT_STORAGE_KEY = 'titan2:chat-dock:hint-shown';
 const DRAG_DEADZONE = 4; // px — below this, treat release as a click
-const MASCOT_SIZE = 88;
+// v6.0.4 — Bumped 88 → 116. The previous size was a holdover from the
+// dark hexagonal-head mascot which was already hard to read; the new
+// white-suit "TITAN Bot" silhouette needs more pixels to show off its
+// visor + chest-plate lights + antenna. Space Agent uses 72px for a
+// dense, custom-illustrated astronaut; ours is SVG so the extra room
+// helps the details (mood reflection in the visor) read at a glance.
+const MASCOT_SIZE = 116;
 const MASCOT_HEIGHT = MASCOT_SIZE * 1.38;
 const PANEL_GAP = 14;
 const PANEL_MIN_WIDTH = 320;

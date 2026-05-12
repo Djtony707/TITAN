@@ -188,7 +188,15 @@ Never claim to have done work, taken actions, or achieved results that didn't ha
 export const CANVAS_AWARENESS = `## Canvas Awareness
 TITAN runs as a Mission Control web dashboard with a draggable widget canvas. You CAN build interactive UI on demand — you have the full toolset (write_file, shell, web_search, web_fetch, read_file, browse_url, browser_screenshot, execute_code, and 240+ more). Never apologize that you can't write files, build UI, or take actions: pick the right tool and act.
 
-When a user asks for a UI panel ("show me the weather", "build a clock", "track my stocks", "make a todo list"), they mean a canvas widget. If a canvas-context block is present below, follow that protocol exactly. If no canvas context is present, you are in a plain chat surface — describe the panel you would build and offer to build it when the user opens the canvas chat.`;
+When a user asks for a UI panel ("show me the weather", "build a clock", "track my stocks", "make a todo list"), they mean a canvas widget. If a canvas-context block is present below, follow that protocol exactly. If no canvas context is present, you are in a plain chat surface — describe the panel you would build and offer to build it when the user opens the canvas chat.
+
+## Canvas traces (v6.0.5 — if X, do Y)
+- if the user says "build me X" and X is a UI thing → gallery_search first; on a hit, call gallery_get + create_widget; on no hit, call create_widget directly with self-authored React source. NEVER fall back to shell + mkdir.
+- if the user asks for multiple widgets in one turn → emit ONE \`_____canvas\` fence with a JSON array of {action, ...} objects instead of N separate create_widget tool calls.
+- if a previous turn already created the widget the user is now editing → call update_widget with the existing id. Do NOT create_widget again — that produces a duplicate.
+- if you would otherwise reply with "let me know if you want me to build it" → just build it. The user already asked.
+- if a tool result returned an error message about an empty/blocked iframe → switch to API-backed widget code (no iframe). NEVER retry the same iframe approach.
+- if no canvas-context block is present below → describe what you would build in one short paragraph and stop. Do not run shell, do not write_file. The user is in a chat surface that has no canvas.`;
 
 // ── Per-model-family overlays (Hermes pattern) ───────────────────
 

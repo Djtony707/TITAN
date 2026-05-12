@@ -22,6 +22,14 @@ export interface FrontmatterSkill {
   tags: string[];
   content: string;
   sourcePath: string;
+  /**
+   * v6.0.5 — Space Agent parity. When `auto: true` is set in the
+   * frontmatter (or `placement: system`), the skill's body is injected
+   * directly into the agent's system prompt every turn instead of
+   * waiting to be invoked as a tool. Use for behavior overlays + standing
+   * preferences. Inspired by Space Agent's auto-loaded memory skill.
+   */
+  auto: boolean;
 }
 
 const SKILL_DIRS = [
@@ -108,6 +116,11 @@ export function loadFrontmatterSkills(): FrontmatterSkill[] {
           ? frontmatter.tags.map(String)
           : String(frontmatter.tags || '').split(',').map(s => s.trim()).filter(Boolean);
 
+        const auto =
+          frontmatter.auto === true ||
+          String(frontmatter.auto).toLowerCase() === 'true' ||
+          String(frontmatter.placement || '').toLowerCase() === 'system';
+
         skills.push({
           name,
           version: String(frontmatter.version || '1.0.0'),
@@ -116,6 +129,7 @@ export function loadFrontmatterSkills(): FrontmatterSkill[] {
           tags,
           content: body,
           sourcePath: path,
+          auto,
         });
       } catch (e) {
         logger.warn(COMPONENT, `Failed to parse ${path}: ${(e as Error).message}`);
@@ -149,4 +163,54 @@ export function getFrontmatterToolHandlers(): Array<{ name: string; description:
       },
     },
   }));
+}
+
+/**
+ * v6.0.5 — Render the auto-injected skills + a one-line catalog of the
+ * lazy-loaded ones for the agent's system prompt.
+ *
+ * Auto skills get their FULL body injected. Lazy skills get one-line
+ * name + description so the agent knows what's available without bloating
+ * the prompt — it can call them as tools if it needs the body.
+ *
+ * Empty string when no SKILL.md files exist. Capped at ~6KB total so a
+ * runaway skills directory can't blow the prompt budget.
+ */
+const SKILL_PROMPT_CAP = 6000;
+
+export function renderSkillsForPrompt(): string {
+  const skills = loadFrontmatterSkills();
+  if (skills.length === 0) return '';
+
+  const auto = skills.filter(s => s.auto);
+  const lazy = skills.filter(s => !s.auto);
+  const parts: string[] = [];
+
+  if (auto.length > 0) {
+    parts.push('## Skills you\'ve authored (auto-injected)');
+    let used = 0;
+    for (const s of auto) {
+      const section = `### ${s.name}\n${s.content.trim()}\n`;
+      if (used + section.length > SKILL_PROMPT_CAP) {
+        parts.push(`(${auto.length - parts.length + 1} more auto skills truncated to fit prompt budget)`);
+        break;
+      }
+      parts.push(section);
+      used += section.length;
+    }
+  }
+
+  if (lazy.length > 0) {
+    parts.push('## Skills available on demand');
+    parts.push('Call them like any other tool. Each runs its body as a markdown reference (helpers + examples).');
+    for (const s of lazy.slice(0, 30)) {
+      const desc = s.description ? `: ${s.description.slice(0, 120)}` : '';
+      parts.push(`- \`${s.name}\`${desc}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('You can author a new skill at any time by writing `~/.titan/skills/<name>.skill.md` with `--- name: <id>\\ndescription: <text>\\nauto: true|false\\n--- <body>`. Auto skills inject every turn; lazy skills are tool-callable.');
+
+  return '\n' + parts.join('\n') + '\n';
 }

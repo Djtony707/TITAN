@@ -44,3 +44,5 @@ export { FleetWidget } from './FleetWidget';
 export { BrowserWidget } from './BrowserWidget';
 // v6.0 step 1 — PaperclipWidget removed (pre-v5 branding).
 export { EvalWidget } from './EvalWidget';
+// v6.0.5 — Time Travel panel against the shadow-git file-checkpoint layer.
+export { TimeTravelWidget } from './TimeTravelWidget';

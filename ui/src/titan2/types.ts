@@ -72,7 +72,7 @@ export interface SandboxAPI {
 
 // ── Agent Protocol Types ──────────────────────────────────────
 
-export type AgentGate = '_____javascript' | '_____react' | '_____tool' | '_____widget' | '_____framework' | '_____transient';
+export type AgentGate = '_____javascript' | '_____react' | '_____tool' | '_____widget' | '_____framework' | '_____transient' | '_____canvas';
 
 export interface ExecutionBlock {
   gate: AgentGate;
@@ -84,6 +84,7 @@ export interface ExecutionBlock {
 export type AgentCanvasActionType =
   | 'render_widget'
   | 'update_widget'
+  | 'remove_widget'
   | 'run_javascript'
   | 'tool_request'
   | 'emit_event'
@@ -126,9 +127,15 @@ export interface AgentSetRuntimeStateAction extends AgentCanvasActionBase {
   value: unknown;
 }
 
+export interface AgentRemoveWidgetAction extends AgentCanvasActionBase {
+  type: 'remove_widget';
+  widgetId: string;
+}
+
 export type AgentCanvasAction =
   | AgentRenderWidgetAction
   | AgentUpdateWidgetAction
+  | AgentRemoveWidgetAction
   | AgentRunJavascriptAction
   | AgentToolRequestAction
   | AgentEmitEventAction

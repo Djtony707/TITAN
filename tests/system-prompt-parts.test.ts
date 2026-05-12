@@ -144,22 +144,30 @@ describe('systemPromptParts — size budget', () => {
     // full / 5500 for minimal so the next round of natural growth
     // doesn't trip the gate while a real regression (creeping back
     // toward 25 KB) still does.
-    it('full mode without dynamicContext stays under ~7KB', () => {
+    //
+    // v6.0.5 — Ceilings bumped to 8000 / 6800 to fit the new "Canvas
+    // traces" block in CANVAS_AWARENESS (six "if X, do Y" lines
+    // targeting the specific production failures from Tony's logs —
+    // mkdir-when-user-wanted-widget, multi-widget-without-fence,
+    // duplicate-create-on-edit, etc.). +~970 chars in both modes; still
+    // ~3× smaller than the legacy 25 KB template, well under any
+    // creeping-regression threshold.
+    it('full mode without dynamicContext stays under ~8KB', () => {
         const p = assembleSystemPrompt({
             modelId: 'ollama/gemma4:31b-cloud',
             persona: 'default',
             mode: 'full',
         });
-        expect(p.length, `full mode is ${p.length} chars, ceiling 7000`).toBeLessThan(7000);
+        expect(p.length, `full mode is ${p.length} chars, ceiling 8000`).toBeLessThan(8000);
     });
 
-    it('minimal mode without dynamicContext stays under ~5.5KB', () => {
+    it('minimal mode without dynamicContext stays under ~6.8KB', () => {
         const p = assembleSystemPrompt({
             modelId: 'ollama/gemma4:31b-cloud',
             persona: 'default',
             mode: 'minimal',
         });
-        expect(p.length, `minimal mode is ${p.length} chars, ceiling 5500`).toBeLessThan(5500);
+        expect(p.length, `minimal mode is ${p.length} chars, ceiling 6800`).toBeLessThan(6800);
     });
 
     it('none mode stays under ~1.1KB', () => {

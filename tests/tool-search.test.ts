@@ -176,9 +176,21 @@ describe('Tool Search', () => {
             expect(DEFAULT_CORE_TOOLS).toContain('tool_search');
         });
 
-        it('is a reasonable size (5-25 tools)', () => {
+        it('is a reasonable size (5-32 tools)', () => {
+            // v6.0.2 — bumped ceiling from 25 → 32 to fit canvas (create_widget
+            // + siblings) and spaces tools alongside the v5 core set. The
+            // canvas tools must be in core (not tool-search-only) because
+            // "build me X" prompts otherwise fall through to shell + mkdir.
             expect(DEFAULT_CORE_TOOLS.length).toBeGreaterThanOrEqual(5);
-            expect(DEFAULT_CORE_TOOLS.length).toBeLessThanOrEqual(25);
+            expect(DEFAULT_CORE_TOOLS.length).toBeLessThanOrEqual(32);
+        });
+
+        it('includes canvas widget + spaces tools (v6.0 thesis)', () => {
+            expect(DEFAULT_CORE_TOOLS).toContain('create_widget');
+            expect(DEFAULT_CORE_TOOLS).toContain('update_widget');
+            expect(DEFAULT_CORE_TOOLS).toContain('list_active_widgets');
+            expect(DEFAULT_CORE_TOOLS).toContain('create_space');
+            expect(DEFAULT_CORE_TOOLS).toContain('switch_space');
         });
     });
 });

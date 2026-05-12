@@ -103,11 +103,24 @@ describe('v6.0 Step 8 — widget runtime endpoints', () => {
         const res = await fetch(`${BASE}/api/soma/drives`);
         expect(res.status).toBe(200);
         const body = await res.json() as { baseline: Record<string, number>; current: Record<string, number>; dominant: { drive: string; label: string } };
+        // v6.0.5 — Per-user Soma profile baseline keys (the feel-name set —
+        // these are what the per-user EMA learner tracks).
         for (const k of ['curiosity', 'focus', 'fatigue', 'satisfaction', 'frustration']) {
             expect(typeof body.baseline[k]).toBe('number');
+        }
+        // v6.0.5 — `current` now reflects the REAL Soma organism drive layer
+        // (purpose / hunger / curiosity / safety / social). Previously this
+        // endpoint mapped neurotransmitter field names (dopamine, cortisol,
+        // …) which always missed and returned the baseline as a fallback —
+        // the mascot read a flat signal. We assert at least one real drive
+        // id is present in `current` so the mascot polling has live data.
+        const currentKeys = Object.keys(body.current || {});
+        expect(currentKeys.length, 'current drive map should have entries').toBeGreaterThan(0);
+        for (const k of currentKeys) {
             expect(typeof body.current[k]).toBe('number');
         }
         expect(typeof body.dominant.label).toBe('string');
+        expect(typeof body.dominant.drive).toBe('string');
     });
 
     it('POST /api/memory + GET /api/memory/:key round-trips widget memory', async () => {

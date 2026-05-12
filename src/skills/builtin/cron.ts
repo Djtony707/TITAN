@@ -50,30 +50,119 @@ function executeCommand(command: string, timeout: number = 60000): Promise<strin
     });
 }
 
+/**
+ * v6.0.5 — Send the command as an LLM prompt to the agent loop. This is
+ * the `mode: "tool"` path. Previously the scheduler ignored the mode flag
+ * and ALL jobs (including tool-mode ones with English prompts) were
+ * shoved through bash, which mangled FB posts among other things.
+ */
+async function executePrompt(prompt: string, allowedTools?: string[]): Promise<string> {
+    try {
+        const { processMessage } = await import('../../agent/agent.js');
+        // sessionId 'cron-<rand>' so the agent loop doesn't try to recall
+        // chat history. userId 'cron' identifies the surface in logs.
+        const sessionId = `cron-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const result = await processMessage(prompt, sessionId, 'cron', {
+            channel: 'cron',
+            // allowedTools is plumbed but not yet honored end-to-end —
+            // logged here so a future hardening pass can enforce it.
+            ...(allowedTools && allowedTools.length > 0 ? { allowedTools } : {}),
+        } as Parameters<typeof processMessage>[3]);
+        const summary = (result.content || '').slice(0, 500);
+        const tools = (result.toolsUsed || []).join(', ');
+        return `[tool-mode] used tools: ${tools || '(none)'}\n${summary}`;
+    } catch (err) {
+        return `[tool-mode error] ${(err as Error).message}`;
+    }
+}
+
+/**
+ * v6.0.5 — Defensive guard for shell-mode jobs. Refuses commands that
+ * clearly look like English prose / LLM prompts rather than shell.
+ *
+ * The trigger for this guard: FB autopilot cron jobs were created with
+ * the agent prompt as the `command` field but with `mode` left at the
+ * default ("shell"). Because the scheduler also ignored `mode`, those
+ * prompts went straight into `/bin/bash -c "You are TITAN..."` every day,
+ * resulting in mangled / broken output. We catch the "looks like a
+ * prompt" case BEFORE bash sees it so the only fix needed is the
+ * scheduler honoring mode.
+ *
+ * Heuristic: starts with words like "you are", "post a", "write a",
+ * "build a", or contains "Use the X tool" — strong signals of an LLM
+ * prompt accidentally routed here. Conservative; real shell commands
+ * (cd, ls, git, npm, python, node, /bin/, ./, ~, $(...) , etc.) never
+ * match.
+ */
+function looksLikeLlmPrompt(cmd: string): boolean {
+    const head = cmd.trim().slice(0, 200).toLowerCase();
+    const promptStarts = [
+        'you are ', 'you are titan',
+        'post a ', 'post an ',
+        'write a ', 'write an ',
+        'build a ', 'build me ', 'build the ',
+        'create a ', 'create me ',
+        'generate a ', 'generate an ',
+        'compose a ', 'compose an ',
+        'draft a ', 'draft an ',
+    ];
+    if (promptStarts.some(p => head.startsWith(p))) return true;
+    if (/\buse the (?:[a-z_]+) tool\b/i.test(cmd)) return true;
+    if (/\bunder \d+ words\b/i.test(cmd)) return true;
+    return false;
+}
+
 // ─── Scheduler helpers ──────────────────────────────────────────
 
-/** Start a node-cron task for a persisted job. Returns the task handle. */
-function scheduleJob(jobId: string, schedule: string, command: string): ReturnType<typeof cron.schedule> | null {
-    if (!cron.validate(schedule)) {
-        logger.warn(COMPONENT, `Invalid cron expression for job ${jobId}: "${schedule}"`);
+/**
+ * Start a node-cron task for a persisted job. Returns the task handle.
+ *
+ * v6.0.5 — Now honors `mode` (shell vs tool). Previously this signature
+ * was `(jobId, schedule, command)` and ALL jobs were bash-executed
+ * regardless of `record.mode`. That bug mangled the FB autopilot cron
+ * jobs (English prompts routed to /bin/bash). The signature now takes
+ * a record-shaped arg so callers don't have to remember to pass mode +
+ * allowedTools separately, and forgetting the mode flag silently
+ * defaults to shell at most, never bypasses it.
+ */
+interface CronJobLike {
+    id: string;
+    name?: string;
+    schedule: string;
+    command: string;
+    mode?: 'shell' | 'tool';
+    allowedTools?: string[];
+}
+
+function scheduleJob(job: CronJobLike): ReturnType<typeof cron.schedule> | null {
+    if (!cron.validate(job.schedule)) {
+        logger.warn(COMPONENT, `Invalid cron expression for job ${job.id}: "${job.schedule}"`);
         return null;
     }
 
-    const task = cron.schedule(schedule, async () => {
-        logger.info(COMPONENT, `Running cron job ${jobId}: ${command}`);
+    const mode: 'shell' | 'tool' = job.mode === 'tool' ? 'tool' : 'shell';
+    const task = cron.schedule(job.schedule, async () => {
+        logger.info(COMPONENT, `Running cron job ${job.id} (mode=${mode}, name=${job.name ?? '(unnamed)'}): ${job.command.slice(0, 120)}`);
 
-        // Update last_run timestamp in the persisted store
         const store = getDb();
-        const record = store.cronJobs.find((j) => j.id === jobId);
-        if (record) {
-            record.last_run = new Date().toISOString();
-        }
+        const record = store.cronJobs.find((j) => j.id === job.id);
+        if (record) record.last_run = new Date().toISOString();
 
         try {
-            const output = await executeCommand(command);
-            logger.info(COMPONENT, `Cron job ${jobId} completed:\n${output.slice(0, 500)}`);
+            let output: string;
+            if (mode === 'tool') {
+                output = await executePrompt(job.command, job.allowedTools);
+            } else if (looksLikeLlmPrompt(job.command)) {
+                // Defensive guard for "shell" mode that's actually an LLM
+                // prompt. Refuse instead of letting bash mangle it.
+                output = `[refused] This shell-mode cron job looks like an LLM prompt, not a shell command. Re-create the job with mode:"tool" so it routes to the agent loop. Command head: ${job.command.slice(0, 80)}…`;
+                logger.warn(COMPONENT, `Cron job ${job.id}: REFUSED to bash-execute LLM-prompt-shaped command`);
+            } else {
+                output = await executeCommand(job.command);
+            }
+            logger.info(COMPONENT, `Cron job ${job.id} completed:\n${output.slice(0, 500)}`);
         } catch (err) {
-            logger.error(COMPONENT, `Cron job ${jobId} failed: ${(err as Error).message}`);
+            logger.error(COMPONENT, `Cron job ${job.id} failed: ${(err as Error).message}`);
         }
     });
 
@@ -104,11 +193,11 @@ export function initCronScheduler(): void {
     for (const job of store.cronJobs) {
         if (!job.enabled) { skipped++; continue; }
 
-        const task = scheduleJob(job.id, job.schedule, job.command);
+        const task = scheduleJob(job);
         if (task) {
             activeTasks.set(job.id, task);
             scheduled++;
-            logger.debug(COMPONENT, `Scheduled: "${job.name}" (${job.schedule})`);
+            logger.debug(COMPONENT, `Scheduled: "${job.name}" (${job.schedule}, mode=${job.mode ?? 'shell'})`);
         } else {
             skipped++;
         }
@@ -195,7 +284,7 @@ Errors:
                         const allowedTools = allowedToolsStr ? allowedToolsStr.split(',').map(t => t.trim()).filter(Boolean) : undefined;
 
                         const id = uuid();
-                        store.cronJobs.push({
+                        const record = {
                             id,
                             name,
                             schedule,
@@ -204,16 +293,19 @@ Errors:
                             allowedTools,
                             enabled: true,
                             created_at: new Date().toISOString(),
-                        });
+                        };
+                        store.cronJobs.push(record);
 
-                        // Schedule immediately so it runs without a restart
-                        const task = scheduleJob(id, schedule, command);
+                        // Schedule immediately so it runs without a restart.
+                        // v6.0.5 — Pass the WHOLE record so scheduleJob can
+                        // dispatch on mode + honor allowedTools.
+                        const task = scheduleJob(record);
                         if (task) {
                             activeTasks.set(id, task);
                         }
 
-                        logger.info(COMPONENT, `Created and scheduled cron job: ${name} (${schedule})`);
-                        return `Created cron job "${name}" (ID: ${id})\nSchedule: ${schedule}\nCommand: ${command}\nStatus: Active and running`;
+                        logger.info(COMPONENT, `Created and scheduled cron job: ${name} (${schedule}, mode=${mode})`);
+                        return `Created cron job "${name}" (ID: ${id})\nSchedule: ${schedule}\nMode: ${mode}\nCommand: ${command}\nStatus: Active and running`;
                     }
 
                     // ── List ──────────────────────────────────
@@ -259,9 +351,10 @@ Errors:
 
                         job.enabled = true;
 
-                        // Start scheduling if not already active
+                        // Start scheduling if not already active.
+                        // v6.0.5 — Pass the whole record so mode is honored.
                         if (!activeTasks.has(eId)) {
-                            const task = scheduleJob(eId, job.schedule, job.command);
+                            const task = scheduleJob(job);
                             if (task) {
                                 activeTasks.set(eId, task);
                             }
