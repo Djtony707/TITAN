@@ -27,6 +27,8 @@ import { classifyProviderError, shouldAffectCircuitBreaker, FailoverReason } fro
 import { getExistingPool } from './credentialPool.js';
 import { buildSmartContext } from '../agent/contextManager.js';
 import { shouldBackOff } from './rateLimitTracker.js';
+// v6.0.1 — Model-agnostic default picker.
+import { getDefaultModelId } from './defaultModel.js';
 
 const COMPONENT = 'Router';
 
@@ -785,7 +787,8 @@ function createEnhancedErrorMessage(error: Error, providerName: string, model: s
  * Automatically routes to the correct provider with error recovery and fallback chain.
  */
 export async function chat(options: ChatOptions): Promise<ChatResponse> {
-    const modelId = options.model || 'anthropic/claude-sonnet-4-20250514';
+    // v6.0.1 — use the credential-aware default when no model is supplied.
+    const modelId = options.model || getDefaultModelId();
     const { provider, model } = resolveModel(modelId);
     const providerName = provider.name;
 
@@ -1126,7 +1129,8 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
  * Send a streaming chat request with exponential backoff retry and circuit breaker protection.
  */
 export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStreamChunk> {
-    const modelId = options.model || 'anthropic/claude-sonnet-4-20250514';
+    // v6.0.1 — use the credential-aware default when no model is supplied.
+    const modelId = options.model || getDefaultModelId();
     const { provider, model } = resolveModel(modelId);
     const providerName = provider.name;
 

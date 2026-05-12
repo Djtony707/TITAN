@@ -5,6 +5,76 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.1 — 2026-05-12 — Provider-agnostic defaults
+
+> **The "model agnostic" patch.** Pre-v6.0.1, `DEFAULT_MODEL` was hardcoded
+> to `anthropic/claude-sonnet-4-20250514` and `modelAliases` hardcoded
+> to Ollama. A new install with only an OpenAI key (or only a Google
+> key) would try to talk to a provider the user never configured. This
+> release wires a credential-aware picker that detects what's actually
+> available and routes accordingly.
+
+### What changed
+
+- **New `src/providers/defaultModel.ts`** — a pure, env-only picker
+  function. Order of preference (highest tier first):
+  1. `agent.model` in user config — explicit override, always wins.
+  2. `ANTHROPIC_API_KEY` → `anthropic/claude-sonnet-4`
+  3. `OPENAI_API_KEY`    → `openai/gpt-4o`
+  4. `GOOGLE_API_KEY`    → `google/gemini-2.5-pro`
+  5. `OPENROUTER_API_KEY` → `openrouter/anthropic/claude-sonnet-4`
+  6. Any other `*_API_KEY` for the 32 OpenAI-compatible adapters → uses
+     the Ollama floor and logs a hint to override `agent.model`.
+  7. Nothing set → falls back to `ollama/qwen3.5:cloud` so a clean
+     laptop with `ollama serve` running still works out of the box.
+- **`modelAliases` is now provider-aware.** When the picker chooses
+  Anthropic, the `fast` / `smart` / `cheap` / `reasoning` tiers all
+  resolve to Anthropic models (haiku-4 / sonnet-4). Same for OpenAI
+  (`gpt-4o-mini` / `gpt-4o`) and Google. `local` and `cloud` tier
+  entries stay on the Ollama floor as escape hatches.
+- **Config schema's `agent.model` default** is now a thunk that calls
+  `getDefaultModelId()` at parse time instead of a hardcoded string.
+- **Router's silent fallback** (`router.chat()` and `router.chatStream()`
+  when `options.model` is empty) now uses the picker too.
+- **Gateway boot log** prints `Default model: <model> (<provider>) —
+  <reason>` so users can see at a glance what got selected and why.
+
+### Tests
+
+- 13 new unit tests in `tests/unit/default-model-picker.test.ts`
+  pinning provider preference order, env precedence, the Ollama
+  fallback, and provider-aware tier resolution.
+- 2 existing tests updated for the new default behaviour
+  (`tests/core.test.ts` — schema empty-config default;
+  `tests/providers-extended.test.ts` — router silent-fallback test now
+  forces `ANTHROPIC_API_KEY` + an isolated `TITAN_HOME` so it doesn't
+  pick up the dev box's real user config).
+- **288 test files / 7,070 cases** passing (was 287 / 7,057 in v6.0.0).
+- Typecheck clean. Builds clean.
+
+### What this means for users
+
+```bash
+# Anthropic-only setup
+export ANTHROPIC_API_KEY=sk-ant-...
+titan gateway
+# → Default model: anthropic/claude-sonnet-4-20250514 (anthropic)
+
+# OpenAI-only setup
+export OPENAI_API_KEY=sk-...
+titan gateway
+# → Default model: openai/gpt-4o (openai)
+
+# No cloud keys — local Ollama
+titan gateway
+# → Default model: ollama/qwen3.5:cloud (ollama)
+#   no cloud API keys detected — set ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY to switch
+```
+
+Explicit `agent.model` in `~/.titan/titan.json` always wins.
+
+---
+
 ## v6.0.0 — 2026-05-12 — **"Living Canvas"** 🌌 (GA release)
 
 > **TITAN moves in.** Every other AI agent gives the user a chat box. v6.0

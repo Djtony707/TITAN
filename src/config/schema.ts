@@ -12,6 +12,10 @@ import {
     DEFAULT_SANDBOX_MODE,
     ALLOWED_TOOLS_DEFAULT,
 } from '../utils/constants.js';
+// v6.0.1 — Provider-agnostic default picker. Detects available API keys
+// and falls back to local Ollama if none are set, so TITAN runs out of
+// the box on any provider the user has configured.
+import { getDefaultModelId, getDefaultModelAliases } from '../providers/defaultModel.js';
 
 export const AuthProfileSchema = z.object({
     name: z.string(),
@@ -167,7 +171,12 @@ export const GatewayConfigSchema = z.object({
 });
 
 export const AgentConfigSchema = z.object({
-    model: z.string().default(DEFAULT_MODEL),
+    // v6.0.1 — Provider-agnostic default. `DEFAULT_MODEL` is the
+    // hardcoded fallback (anthropic/claude-sonnet-4); `getDefaultModelId()`
+    // picks based on the user's actual environment (ANTHROPIC_API_KEY →
+    // anthropic, OPENAI_API_KEY → openai, etc.) and falls back to local
+    // Ollama if no cloud keys are set.
+    model: z.string().default(() => getDefaultModelId()),
     maxTokens: z.number().default(DEFAULT_MAX_TOKENS),
     temperature: z.number().min(0).max(2).default(DEFAULT_TEMPERATURE),
     systemPrompt: z.string().optional(),
@@ -203,22 +212,16 @@ export const AgentConfigSchema = z.object({
     // their file would LOSE the built-ins. Use .transform() to merge user
     // overrides on top of the built-ins.
     modelAliases: z.record(z.string(), z.string())
-        .default({
-            fast: 'ollama/qwen3.5:cloud',
-            smart: 'ollama/glm-5:cloud',
-            reasoning: 'ollama/kimi-k2.6:cloud',
-            cheap: 'ollama/qwen3.5:cloud',
-            local: 'ollama/qwen3.5:4b',
-            cloud: 'ollama/kimi-k2.6:cloud',
-        })
+        // v6.0.1 — Default to provider-appropriate aliases. The thunk
+        // detects which API keys are set and picks aliases that route to
+        // the same provider as agent.model — so sub-agents that select
+        // a tier ('fast' / 'smart' / 'reasoning' / etc.) hit a working
+        // provider, not a hardcoded Ollama default the user can't reach.
+        .default(() => getDefaultModelAliases())
         .transform((userAliases): Record<string, string> => ({
-            // Ollama cloud-first built-ins (always present as a floor)
-            fast: 'ollama/qwen3.5:cloud',
-            smart: 'ollama/glm-5:cloud',
-            cheap: 'ollama/qwen3.5:cloud',
-            reasoning: 'ollama/kimi-k2.6:cloud',
-            local: 'ollama/qwen3.5:4b',
-            cloud: 'ollama/kimi-k2.6:cloud',
+            // Provider-aware floor (re-resolved on transform so a config
+            // file with partial aliases still gets sensible fallbacks).
+            ...getDefaultModelAliases(),
             // User overrides win
             ...userAliases,
         })),

@@ -5092,6 +5092,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     logger.info(COMPONENT, `Skills: ${getSkills().length} loaded`);
     logger.info(COMPONENT, `Tools: ${getRegisteredTools().length} registered`);
 
+    // v6.0.1 — Model-agnostic boot diagnostic. Log which provider TITAN
+    // resolved for the default agent model + why. Users see at a glance
+    // whether the picker chose what they expected (e.g. "openai because
+    // OPENAI_API_KEY is set") and can correct their env / config.
+    try {
+      // Lazy require so the picker stays tree-shakeable + side-effect-free.
+      void import('../providers/defaultModel.js').then(({ pickDefaultModel }) => {
+        const pick = pickDefaultModel();
+        logger.info(COMPONENT, `Default model: ${pick.model} (${pick.provider}) — ${pick.reason}`);
+      }).catch(() => { /* non-critical */ });
+    } catch { /* non-critical */ }
+
     // Friendly update notice for upgraders
     try {
       const markerPath = join(homedir(), '.titan', 'install-marker.json');
