@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '6.0.0';
+export const TITAN_VERSION = '6.0.1';
 export const TITAN_CODENAME = 'Living Canvas';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
@@ -77,6 +77,12 @@ export const DEFAULT_GATEWAY_PORT = 48420;
 export const DEFAULT_WEB_PORT = 48421;
 
 // Agent defaults
+// v6.0.1 — Hardcoded floor only. The actual default at runtime is picked
+// by `getDefaultModelId()` in `src/providers/defaultModel.ts`, which
+// detects the user's available API keys (Anthropic / OpenAI / Google /
+// OpenRouter) and selects accordingly. Falls back to local Ollama when
+// no cloud keys are set. This constant is the last-resort fallback for
+// callsites that don't go through the schema thunk.
 export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514';
 /** v5.4.1: User-preference ceiling.  Providers clamp per-model via
  *  clampMaxTokens() so this can be high without causing 400s on

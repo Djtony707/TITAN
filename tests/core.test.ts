@@ -14,7 +14,7 @@ import { LLMProvider } from '../src/providers/base.js';
 // ─── Constants ──────────────────────────────────────────────────
 describe('Constants', () => {
     it('should have correct version', () => {
-        expect(TITAN_VERSION).toBe('6.0.0');
+        expect(TITAN_VERSION).toBe('6.0.1');
     });
 
     it('should have correct name', () => {
@@ -104,7 +104,12 @@ describe('Helpers', () => {
 describe('Config Schema', () => {
     it('should parse empty config with defaults', () => {
         const result = TitanConfigSchema.parse({});
-        expect(result.agent.model).toContain('anthropic/');
+        // v6.0.1 — Model is now provider-agnostic: the picker selects
+        // anthropic/openai/google/ollama based on which API keys are set
+        // in the env. In CI / no-key environments it falls back to local
+        // Ollama. Assert against the `provider/model` shape rather than a
+        // specific provider so the test passes in any environment.
+        expect(result.agent.model).toMatch(/^[a-z][a-z0-9-]*\/[^\s]+$/);
         expect(result.agent.maxTokens).toBe(200000);
         expect(result.agent.temperature).toBe(0.7);
         expect(result.gateway.port).toBe(48420);

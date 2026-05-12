@@ -1744,16 +1744,34 @@ describe('Router (extended)', () => {
         });
 
         it('should use default model when none specified', async () => {
-            const anthropicProvider = router.getProvider('anthropic')!;
-            vi.spyOn(anthropicProvider, 'chat').mockResolvedValueOnce({
-                id: 'msg_default',
-                content: 'Default',
-                finishReason: 'stop',
-                model: 'claude-sonnet-4-20250514',
-            });
+            // v6.0.1 — Router's default is now picked from available env
+            // keys via getDefaultModelId(). Isolate the test from any
+            // real `~/.titan/titan.json` on the dev box (which would
+            // otherwise win and route to the user's chosen provider)
+            // AND force ANTHROPIC_API_KEY for the duration of this
+            // test so the picker resolves to Anthropic, matching the
+            // pre-v6.0.1 behaviour the test was written against.
+            const prevKey = process.env.ANTHROPIC_API_KEY;
+            const prevHome = process.env.TITAN_HOME;
+            process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+            process.env.TITAN_HOME = `/tmp/titan-test-default-model-${Date.now()}`;
+            try {
+                const anthropicProvider = router.getProvider('anthropic')!;
+                vi.spyOn(anthropicProvider, 'chat').mockResolvedValueOnce({
+                    id: 'msg_default',
+                    content: 'Default',
+                    finishReason: 'stop',
+                    model: 'claude-sonnet-4-20250514',
+                });
 
-            await router.chat({ messages: [{ role: 'user', content: 'Hi' }] });
-            expect(anthropicProvider.chat).toHaveBeenCalled();
+                await router.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+                expect(anthropicProvider.chat).toHaveBeenCalled();
+            } finally {
+                if (prevKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+                else process.env.ANTHROPIC_API_KEY = prevKey;
+                if (prevHome === undefined) delete process.env.TITAN_HOME;
+                else process.env.TITAN_HOME = prevHome;
+            }
         });
     });
 
