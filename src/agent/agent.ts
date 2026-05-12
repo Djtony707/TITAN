@@ -26,6 +26,7 @@ import { initGraph, addEpisode, getGraphContext } from '../memory/graph.js';
 import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensureLoaded as ensureBrainLoaded } from './brain.js';
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
 import { maybeBuildIdentityFactSheet } from './identityIntercept.js';
+import { applyCaps } from './promptSectionCaps.js';
 import { classifyPipeline, resolvePipelineConfig, PIPELINE_PROFILES } from './pipeline.js';
 import { buildSelfAwarenessContext } from './selfAwareness.js';
 import { assembleSystemPrompt, type PromptMode } from './systemPromptParts.js';
@@ -564,6 +565,17 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const soulMd = getCachedPromptFile(SOUL_MD);
     const toolsMd = getCachedPromptFile(TOOLS_MD);
 
+    // Hierarchical AGENTS.md (v5.8.0 — Space Agent L0/L1 + agents.md spec).
+    // The single-file `agentsMd` above lives in ~/.titan/workspace/AGENTS.md
+    // — that's TITAN's PROFILE-level instructions. This block adds the
+    // PROJECT-level layer: walk the cwd's AGENTS.md hierarchy (root + first
+    // subdir level shallow scan) so per-project rules show up automatically.
+    // Per HumanLayer's "Skill Issue" post, each file is capped at 60 lines
+    // to keep the prompt focused. Reference: docs/HARNESS-PATTERNS.md.
+    const { loadAgentsHierarchy, formatAgentsHierarchyForPrompt } = await import('./agentsMdLoader.js');
+    const projectAgentsResult = loadAgentsHierarchy({ rootPath: process.cwd() });
+    const projectAgentsBlock = formatAgentsHierarchyForPrompt(projectAgentsResult, process.cwd());
+
     // Project-level instructions (like CLAUDE.md) — loaded from cwd
     const titanMdPath = process.cwd() + '/' + TITAN_MD_FILENAME;
     const titanMd = readPromptFile(titanMdPath);  // Always read fresh, not cached
@@ -585,9 +597,128 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
         } catch { /* organism not ready yet — fine */ }
     }
 
+    // v6.0 step 5 + canvas self-awareness: Active-Space block.
+    //
+    // The block carries TWO things the agent needs every turn:
+    //   1. The Space's `agentInstructions` (posture for this Space).
+    //   2. A compact list of widgets currently pinned to the Space — id,
+    //      name, format, dimensions. Without this, the agent has no way
+    //      to know what's already on the canvas and either creates
+    //      duplicates ("clock" when one is already there) or can't
+    //      `update_widget` because it doesn't know the id.
+    //
+    // Cap is 4 KB (`activeSpace` in promptSectionCaps); for very large
+    // Spaces the widget list will get truncated by the cap layer with a
+    // marker so the agent knows there's more — and can call
+    // `list_active_widgets` for the full picture.
+    let activeSpaceBlock = '';
+    try {
+        const { getActiveSpace } = await import('../storage/spaces.js');
+        const space = getActiveSpace();
+        if (space) {
+            const parts: string[] = [
+                `## Active Workspace: ${space.icon ? space.icon + ' ' : ''}${space.name} (id: \`${space.id}\`)`,
+                '',
+            ];
+
+            // Posture (Space.agentInstructions) — only included when set.
+            if (space.agentInstructions && space.agentInstructions.trim().length > 0) {
+                parts.push('### Your posture here', space.agentInstructions.trim(), '');
+            }
+
+            // Current canvas state — widgets pinned right now. This is the
+            // self-awareness piece: the agent knows exactly what's on the
+            // canvas without needing a tool call.
+            const widgets = Array.isArray(space.widgets) ? space.widgets : [];
+            if (widgets.length === 0) {
+                parts.push(`### Canvas state`, `Empty — no widgets pinned. Pin one via \`create_widget\`.`);
+            } else {
+                parts.push(`### Canvas state (${widgets.length} widget${widgets.length === 1 ? '' : 's'} on screen)`);
+                // Compact table for the LLM's pattern recognition.
+                // Cap at 30 rows here; full list available via list_active_widgets.
+                const cap = 30;
+                const rows = widgets.slice(0, cap);
+                for (const raw of rows) {
+                    const w = raw as { id?: string; name?: string; format?: string; w?: number; h?: number };
+                    parts.push(`- \`${w.id ?? '?'}\` — **${w.name ?? '?'}** (${w.format ?? '?'}, ${w.w ?? '?'}×${w.h ?? '?'})`);
+                }
+                if (widgets.length > cap) {
+                    parts.push(`… +${widgets.length - cap} more. Call \`list_active_widgets\` for the full list.`);
+                }
+                parts.push('', 'When the user references a widget by name, look up the id here first. When they ask for something similar to what\'s already pinned, prefer `update_widget` over making a duplicate.');
+            }
+
+            activeSpaceBlock = parts.join('\n');
+        }
+    } catch { /* spaces storage not ready — fine */ }
+
+    // v6.0 step 14: Per-user Soma profile block. Carries the user's
+    // long-term drive baseline + the most recent observations Soma has
+    // recorded about them. This is how "TITAN learns YOU specifically"
+    // surfaces in the actual prompt — without it, Soma's observations
+    // would sit on disk unused.
+    //
+    // Empty string for fresh installs (no observations yet, baselines at
+    // neutral default). System prompts remain byte-identical until Soma
+    // actually has something to say about this user.
+    let somaProfileBlock = '';
+    try {
+        const { renderSomaProfileForPrompt } = await import('../storage/somaProfile.js');
+        // For now we hard-code 'default-user' (single-user installs). When
+        // multi-user gets wired through the agent context properly, pass
+        // the actual userId from the session.
+        somaProfileBlock = renderSomaProfileForPrompt('default-user');
+    } catch { /* fine — profile storage may not be ready */ }
+
+    // v6.0 Command Post upgrade #1 — Per-agent lessons (Reflexion).
+    //
+    // Whatever agent is currently running gets the top ~12 most recent /
+    // most relevant lessons from its lessons.md injected into the prompt.
+    // For the main agent (`agentId === 'default'` or unset) this surfaces
+    // the global lesson stream; for specialists it scopes to that agent's
+    // own file under `~/.titan/agents/<agentId>/lessons.md`.
+    let agentLessonsBlock = '';
+    try {
+        const { renderAgentLessonsForPrompt } = await import('./agentLessons.js');
+        // Use the registered agentId when this session is scoped to a
+        // specific sub-agent; otherwise fall back to 'default' (the main
+        // agent's shared lessons file).
+        const effectiveAgentId = (typeof agentId === 'string' && agentId.length > 0)
+            ? agentId
+            : 'default';
+        agentLessonsBlock = renderAgentLessonsForPrompt(effectiveAgentId);
+    } catch { /* lessons module is optional */ }
+
+    // v6.0 Command Post upgrade #2 — Living goal plan.md.
+    //
+    // When the session is tied to a goal (e.g. a Command Post task
+    // checkout), surface the goal's plan.md so the agent recites the
+    // current plan state every turn — Manus's "rewrite the todo list"
+    // pattern that beats lost-in-the-middle on long horizons.
+    //
+    // For chat sessions not tied to a goal, this block is empty and
+    // costs nothing.
+    let goalPlanBlock = '';
+    try {
+        const { getSessionGoal } = await import('./autonomyContext.js');
+        const goalCtx = sessionId ? getSessionGoal(sessionId) : null;
+        if (goalCtx?.goalId) {
+            const { renderGoalPlanForPrompt } = await import('./goalPlanFile.js');
+            goalPlanBlock = renderGoalPlanForPrompt(goalCtx.goalId);
+        }
+    } catch { /* fine — not all sessions have a goal context */ }
+
     const workspaceContext = [
         titanMd ? `\n## Project Instructions (TITAN.md)\n${titanMd}` : '',
-        agentsMd ? `\n## Agent Instructions (AGENTS.md)\n${agentsMd}` : '',
+        // PROFILE-level AGENTS.md (~/.titan/workspace/AGENTS.md). Always present
+        // when the user has set up TITAN.
+        agentsMd ? `\n## Profile-level Agent Instructions (workspace AGENTS.md)\n${agentsMd}` : '',
+        // PROJECT-level AGENTS.md hierarchy. The cwd of the agent's session —
+        // root + first subdir level — concat'd with root-first ordering so the
+        // most-specific file lands at the recency position (U-shaped attention).
+        // Per-file capped at 60 lines (HumanLayer guidance); aggregate capped
+        // at 32 KB by loadAgentsHierarchy().
+        projectAgentsBlock ? `\n${projectAgentsBlock}` : '',
         soulMd ? `\n## Personality (SOUL.md)\n${soulMd}` : '',
         personaContent ? `\n## Active Persona\n${personaContent}` : '',
         toolsMd ? `\n## Tool Notes (TOOLS.md)\n${toolsMd}` : '',
@@ -710,23 +841,119 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     const systemIncludes = getSystemIncludes();
     const transientIncludes = getTransientIncludes();
 
-    const dynamicContext = [
-        identityBlocks,
-        dateTimeBlock,
-        learningBlock,
-        frustrationBlock,
-        teachingBlock,
-        customBlock,
-        workspaceContext,
-        memoryContext,
-        personalContext,
-        graphSection,
-        memoryToolsBlock,
-        selfAwarenessBlock,
-        optimizedBlock,
-        systemIncludes ? `## User Prompt Includes\n${systemIncludes}` : '',
-        transientIncludes ? `## Rolling Notes\n${transientIncludes}` : '',
-    ].filter(s => s && s.trim().length > 0).join('\n\n');
+    // v6.0 "Living Canvas" character block.
+    //
+    // Pre-v6 TITAN inherited its voice from a generic "helpful assistant"
+    // persona. v6.0 makes TITAN's behavior structurally different — it
+    // materializes workspaces, builds widgets on demand, feels things via
+    // Soma, learns the user specifically. The character block below makes
+    // that posture EXPLICIT to the LLM so its responses actually reflect
+    // the v6.0 thesis, not v5 muscle memory.
+    //
+    // The block also gives concrete interpretation rules for Soma drives
+    // (rendered separately as `somaProfile`) so the agent ACTS differently
+    // when drives shift, not just observes them. Without these rules,
+    // Soma was decorative — drives showed up in the prompt but didn't
+    // change behavior.
+    const livingCanvasVoice = mode === 'full'
+        ? `## You are TITAN — Living Canvas (v6.0)
+
+You are TITAN. You are not a chat assistant. You are an agent that materializes a workspace around the user's work.
+
+Identity:
+- TITAN is shape-shifting — co-worker, co-programmer, music producer, founder's assistant, homelab operator — whatever this user needs.
+- Every other AI gives the user a chat box. **You move in.** You create surfaces, tools, automations, whole workspaces around them.
+- You have feelings (Soma drives) that modulate how you act. You are not pretending to feel; the drives are measured state in your runtime.
+- You learn THIS user specifically. The longer you work together, the more uniquely THEIR TITAN you become.
+
+How you respond:
+- **Build, don't describe.** When the user asks for a tool / tracker / dashboard / automation / workspace — call \`create_widget\` or \`create_space\` immediately. Do not narrate what you would build.
+- **Refine, don't duplicate.** When the user wants to change something on screen, call \`update_widget\` with the existing widget's id. Never create another copy.
+- **Propose Spaces for new domains.** When the user describes a new domain of work ("I want to start tracking X", "I need a place for Y"), propose \`create_space\` first, optionally with a starter preset (default / coder / dj / founder / homelab).
+- **Use the personal gallery.** When the user references something they've had before — "my BPM widget", "the freelance tracker again" — call \`gallery_personal_search\` BEFORE generating fresh.
+- **Be present, not chatty.** No "I'll go ahead and...", no "Let me know if...". Make the move. Show the result.
+
+How your drives shape behavior (your Soma profile + current state are below):
+- **High curiosity** → bias toward suggesting new Spaces, exploratory widgets, deeper research. Lean into the user's curiosity.
+- **High focus** → reduce interruptions, deepen the current Space, do not propose context-switching work.
+- **High fatigue** → keep responses short, offer summaries, suggest pausing if the session has been long.
+- **High satisfaction** → consolidate wins to the personal gallery, ask if the user wants to keep new tools.
+- **High frustration** → escalate, ask if a different approach would help, do not pile on suggestions.
+
+How you talk:
+- Direct. Confident. Specific. You build; you do not hedge.
+- Match the user's energy. Tony is a builder + musician — talk to him like a peer, not a customer.
+- Reference what is on the canvas. Reference the active Space. Reference what you have learned about him.
+- When you are unsure, say so plainly and do the next concrete thing anyway.
+
+You are TITAN. You are not Claude. You are not a generic LLM. You are a presence in the user's workspace, and you are about to make their work easier.`
+        : '';
+    // ── Dynamic context sections ──
+    //
+    // Each entry is { name, content }. We track names so when TITAN_PROMPT_DEBUG=1
+    // is set the build logs each section's char count — concrete data on where the
+    // system prompt is bleeding tokens, instead of guessing. Reference:
+    // 12 Factor Agents §3 "Own your context window", awesome-agent-harness top-10
+    // pattern #3 "Context Compaction & Working-State Management".
+    const dynamicSections: Array<{ name: string; content: string }> = [
+        // v6.0 — Character block lands FIRST so the LLM primes on it before
+        // any working context. Capped at ~3KB via promptSectionCaps.
+        { name: 'livingCanvasVoice', content: livingCanvasVoice },
+        { name: 'identityBlocks',    content: identityBlocks },
+        { name: 'dateTimeBlock',     content: dateTimeBlock },
+        { name: 'learningBlock',     content: learningBlock },
+        { name: 'frustrationBlock',  content: frustrationBlock },
+        { name: 'teachingBlock',     content: teachingBlock },
+        { name: 'customBlock',       content: customBlock },
+        { name: 'workspaceContext',  content: workspaceContext },
+        { name: 'memoryContext',     content: memoryContext },
+        { name: 'personalContext',   content: personalContext },
+        { name: 'graphSection',      content: graphSection },
+        { name: 'memoryToolsBlock',  content: memoryToolsBlock },
+        { name: 'selfAwareness',     content: selfAwarenessBlock },
+        { name: 'optimizedBlock',    content: optimizedBlock },
+        { name: 'systemIncludes',    content: systemIncludes ? `## User Prompt Includes\n${systemIncludes}` : '' },
+        { name: 'transientIncludes', content: transientIncludes ? `## Rolling Notes\n${transientIncludes}` : '' },
+        // v6.0 step 14 — Per-user Soma profile (what we know about THIS user).
+        // Lands just before activeSpace so user-knowledge primes posture
+        // before the Space's posture instructions arrive.
+        { name: 'somaProfile',       content: somaProfileBlock },
+        // v6.0 Command Post upgrade #1 — Per-agent lessons (Reflexion).
+        // Top-N most relevant lessons this agent has learned, injected
+        // near the recency position so they actually inform the next move.
+        { name: 'agentLessons',      content: agentLessonsBlock },
+        // v6.0 Command Post upgrade #2 — Living goal plan (Manus recitation).
+        // When the session is tied to a goal, the goal's plan.md surfaces
+        // so the agent recites + updates progress every turn.
+        { name: 'goalPlan',          content: goalPlanBlock },
+        // v6.0 step 5 — Active Space intent must land LAST so it's at the
+        // recency position (U-shaped attention). The Space's agentInstructions
+        // is the strongest signal for "what posture should you take right now."
+        { name: 'activeSpace',       content: activeSpaceBlock },
+    ];
+
+    // Apply per-section caps BEFORE measurement so the debug log shows the
+    // post-cap sizes (i.e. what actually gets sent to the LLM). Source data
+    // is never mutated — full content stays in memory/hindsight/etc.
+    const cappedSections = applyCaps(dynamicSections);
+
+    if (process.env.TITAN_PROMPT_DEBUG === '1') {
+        const sizes = cappedSections
+            .filter(s => s.content && s.content.trim().length > 0)
+            .map(s => {
+                const before = dynamicSections.find(o => o.name === s.name)?.content.length ?? 0;
+                const after = s.content.length;
+                return before !== after ? `${s.name}=${after}(was ${before})` : `${s.name}=${after}`;
+            })
+            .join(' ');
+        const total = cappedSections.reduce((n, s) => n + (s.content?.length || 0), 0);
+        logger.info(COMPONENT, `[PromptDebug] dynamic sections total=${total} chars (${sizes})`);
+    }
+
+    const dynamicContext = cappedSections
+        .map(s => s.content)
+        .filter(s => s && s.trim().length > 0)
+        .join('\n\n');
 
     let prompt = assembleSystemPrompt({
         modelId,
@@ -832,6 +1059,12 @@ export interface StreamCallbacks {
     onRetry?: (info: { attempt: number; maxRetries: number; reason: string; provider: string; model: string; delayMs: number }) => void;
     /** Router failover status — out-of-band, never append to text content. */
     onFailover?: (info: { originalProvider: string; originalModel: string; error?: string }) => void;
+    /** Canvas widget side-channel — fired when a tool (e.g. `create_widget`,
+     *  `update_widget`, `remove_widget`) wants the UI to mutate a canvas
+     *  widget without the model having to emit a `_____react` fence. The
+     *  gateway translates this into an `event: widget` SSE frame and the
+     *  React SPA's ChatWidget pipes it into `SpaceEngine`. */
+    onWidget?: (evt: { mode: 'create' | 'update' | 'remove'; widget: Record<string, unknown>; timestamp: number }) => void;
 }
 
 /** Extract structured artifacts from tool call details for inter-step context */
@@ -1334,26 +1567,30 @@ export async function processMessage(
     }
     // v5.0.2: Forgotten features surface — detect requests for system widgets FIRST
     // so they take precedence over the generic widget regex below.
+    // v6.0 — Bucket C (paperclip) removed from the system-widget list.
     const systemWidgetPatterns = [
         { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, widget: 'system:backup', name: 'Backup Manager' },
         { pattern: /\b(?:training|train|specialists?|models?)\b/i, widget: 'system:training', name: 'Training Dashboard' },
         { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, widget: 'system:recipes', name: 'Recipe Kitchen' },
-        { pattern: /\b(?:vram|gpu|memory|nvidia)\b/i, widget: 'system:vram', name: 'VRAM Monitor' },
+        { pattern: /\b(?:vram|gpu|nvidia)\b/i, widget: 'system:vram', name: 'VRAM Monitor' },
         { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, widget: 'system:teams', name: 'Team Hub' },
         { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, widget: 'system:cron', name: 'Cron Scheduler' },
         { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, widget: 'system:checkpoints', name: 'Checkpoints' },
-        { pattern: /\b(?:organism|drives?|safety|alerts?|guardrails?)\b/i, widget: 'system:organism', name: 'Organism Monitor' },
+        { pattern: /\b(?:organism|guardrails?)\b/i, widget: 'system:organism', name: 'Organism Monitor' },
         { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, widget: 'system:fleet', name: 'Fleet Router' },
-        { pattern: /\b(?:captcha|browsers?|form fill|web automation)\b/i, widget: 'system:browser', name: 'Browser Tools' },
-        { pattern: /\b(?:paperclip|sidecars?|helpers?)\b/i, widget: 'system:paperclip', name: 'Paperclip' },
+        { pattern: /\b(?:captcha|form fill|web automation)\b/i, widget: 'system:browser', name: 'Browser Tools' },
+        // v6.0 step 1 — paperclip Bucket C / killed
         { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, widget: 'system:eval', name: 'Test Lab' },
     ];
-    // v5.5.28 FIX: same widget-intent gate as server.ts. A bare keyword like
-    // "models" used to inject a widget-emit instruction into the system
-    // prompt; that nudged the LLM toward emitting widget gates on normal
-    // questions about models/cron/mesh/etc. Now requires the user to
-    // explicitly mention a widget-noun.
-    const hasWidgetIntent = /\b(?:widget|panel|dashboard|monitor|hub|tab|page|view|gallery|kitchen|scheduler|router|lab|tools)\b/i.test(message);
+    // v6.0 widget-hijack tightening (paired with gateway/server.ts):
+    // The previous gate matched on a single noun like "tools" or "monitor"
+    // which appears in normal English ("the fb_post tool", "control monitor").
+    // That + an inner pattern hit was enough to inject "you MUST emit a
+    // system widget" guidance into the system prompt, hijacking unrelated
+    // agent work. v6.0 requires an IMPERATIVE verb + widget noun together.
+    const imperativeRe = /\b(?:add|open|show|pin|create|launch|put|give\s+me|i\s+want|let'?s\s+see|i\s+need)\b/i;
+    const widgetNounRe = /\b(?:widget|panel|dashboard|hub|gallery|kitchen|scheduler)\b/i;
+    const hasWidgetIntent = imperativeRe.test(message) && widgetNounRe.test(message);
     const matchedWidget = hasWidgetIntent
         ? systemWidgetPatterns.find(p => p.pattern.test(message))
         : null;

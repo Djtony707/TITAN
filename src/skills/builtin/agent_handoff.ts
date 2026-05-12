@@ -54,6 +54,43 @@ const ROLE_ALIASES: Record<string, string> = {
     architect: 'dev_architect',
 };
 
+/**
+ * The 4-field delegation contract — Anthropic Multi-Agent Research System.
+ * Vague subagent prompts cause subagents to invent goals and hallucinate.
+ * When the caller provides any of the optional fields, they get composed
+ * into a structured task with explicit headers so the subagent has a
+ * stable place to read each piece. Backwards-compatible: when the new
+ * fields are absent, behavior is identical to pre-v5.8.0.
+ *
+ * Reference:
+ *   - Anthropic — "How we built our multi-agent research system"
+ *     https://www.anthropic.com/engineering/built-multi-agent-research-system
+ *   - docs/HARNESS-PATTERNS.md
+ */
+export interface DelegationContract {
+    /** REQUIRED — what the subagent should accomplish. */
+    objective: string;
+    /** Optional — exact shape of the expected response. */
+    outputFormat?: string;
+    /** Optional — recommended tool sequence / which sources to prefer. */
+    toolGuidance?: string;
+    /** Optional — explicit "do not" lines (don't edit prod files, don't post, etc.). */
+    boundaries?: string;
+    /** Optional — extra prose context the subagent can lean on. */
+    context?: string;
+}
+
+/** Compose a delegation contract into a single, structured task string. */
+export function composeDelegationTask(contract: DelegationContract): string {
+    const parts: string[] = [];
+    parts.push(`## Objective\n${contract.objective}`);
+    if (contract.outputFormat) parts.push(`## Output Format\n${contract.outputFormat}`);
+    if (contract.toolGuidance) parts.push(`## Tool Guidance\n${contract.toolGuidance}`);
+    if (contract.boundaries) parts.push(`## Boundaries (do NOT)\n${contract.boundaries}`);
+    if (contract.context) parts.push(`## Context\n${contract.context}`);
+    return parts.join('\n\n');
+}
+
 /** Resolve a role string into a SubAgentConfig from SUB_AGENT_TEMPLATES. */
 function resolveRole(role: string, task: string, context?: string, maxRounds?: number): SubAgentConfig {
     const roleLower = role.toLowerCase().trim();
@@ -76,40 +113,101 @@ function resolveRole(role: string, task: string, context?: string, maxRounds?: n
 
 const delegateHandler = {
     name: 'agent_delegate',
-    description: 'Delegate a task to a specialized sub-agent. Supported roles: researcher, coder, analyst, writer, reviewer, explorer, debugger, architect. The sub-agent runs in isolation with role-appropriate tools and returns its result. USE THIS WHEN: you need a focused specialist to handle a specific sub-task.',
+    description: [
+        'Delegate a focused sub-task to a specialized sub-agent that runs in isolation with role-appropriate tools and returns a single consolidated result.',
+        '',
+        'Supported roles: researcher, coder, analyst, writer, reviewer, explorer, debugger, architect.',
+        '',
+        'USE THIS WHEN: you need a specialist to own a discrete sub-task end-to-end (research, build, review, etc.) rather than doing it inline.',
+        '',
+        'EFFORT-SCALING LADDER (Anthropic Multi-Agent Research System):',
+        '  • Simple lookup or single fact → no delegation, answer inline.',
+        '  • Focused single sub-task → 1 sub-agent (this tool).',
+        '  • Compare 2–4 alternatives in parallel → use agent_team with 2–4 entries.',
+        '  • Broad survey across many sources/areas → use agent_team with up to 6 (cap), or agent_chain when steps depend on each other.',
+        '  • Generate-then-improve quality work → use agent_critique.',
+        'Match the number of sub-agents to the actual breadth — over-delegation burns tokens with no quality lift.',
+        '',
+        'THE 4-FIELD CONTRACT (preferred — eliminates vague hand-offs):',
+        '  • objective       — what success looks like in one sentence.',
+        '  • output_format   — exact shape of the response (bullets, JSON keys, citations, length).',
+        '  • tool_guidance   — recommended tool order or which sources to prefer.',
+        '  • boundaries      — explicit "do NOT" lines (don\'t edit prod files, don\'t make external calls, etc.).',
+        'When you supply any of these, they are composed into a structured task with headers. Legacy `task` + `context` continues to work unchanged.',
+        '',
+        'RETURNS: "[SUCCESS|FAILED] Agent: <name> | Rounds: N | Duration: Nms\\nTools used: ...\\n\\n<agent output>".',
+        'ERRORS: returns "Error: ..." when role or objective/task is missing; throws when the sub-agent runtime itself fails.',
+    ].join('\n'),
     parameters: {
         type: 'object',
         properties: {
             role: {
                 type: 'string',
-                description: 'The specialist role (researcher, coder, analyst, writer, reviewer, explorer, debugger, architect)',
+                description: 'The specialist role (researcher, coder, analyst, writer, reviewer, explorer, debugger, architect).',
             },
             task: {
                 type: 'string',
-                description: 'The specific task description for the sub-agent',
+                description: 'Legacy free-form task description. Either `task` or `objective` is required. Prefer `objective` + the other contract fields for new code.',
+            },
+            objective: {
+                type: 'string',
+                description: 'CONTRACT FIELD — one-sentence statement of what the sub-agent should accomplish. When provided, supersedes `task` in clarity.',
+            },
+            output_format: {
+                type: 'string',
+                description: 'CONTRACT FIELD — exact shape of the response the sub-agent should return (e.g. "JSON with keys {a,b,c}", "5 bullets, each with a URL").',
+            },
+            tool_guidance: {
+                type: 'string',
+                description: 'CONTRACT FIELD — recommended tool order or sources to prefer (e.g. "call web_search before web_fetch; prefer primary docs over blog posts").',
+            },
+            boundaries: {
+                type: 'string',
+                description: 'CONTRACT FIELD — explicit "do NOT" lines (e.g. "do not modify files under src/; do not call external APIs"). Helps prevent runaway sub-agents.',
             },
             context: {
                 type: 'string',
-                description: 'Optional context to pass to the sub-agent',
+                description: 'Optional extra prose context (background, prior findings, file excerpts) to pass to the sub-agent.',
             },
             maxRounds: {
                 type: 'number',
-                description: 'Maximum tool-use rounds (default: 10)',
+                description: 'Maximum tool-use rounds (default: 10).',
             },
         },
-        required: ['role', 'task'],
+        required: ['role'],
     },
     execute: async (args: Record<string, unknown>): Promise<string> => {
         const role = args.role as string;
-        const task = args.task as string;
+        const legacyTask = args.task as string | undefined;
+        const objective = args.objective as string | undefined;
+        const outputFormat = (args.output_format ?? args.outputFormat) as string | undefined;
+        const toolGuidance = (args.tool_guidance ?? args.toolGuidance) as string | undefined;
+        const boundaries = args.boundaries as string | undefined;
         const context = args.context as string | undefined;
         const maxRounds = args.maxRounds as number | undefined;
 
-        if (!role || !task) {
-            return 'Error: Both "role" and "task" are required.';
+        if (!role) {
+            return 'Error: "role" is required.';
+        }
+        if (!objective && !legacyTask) {
+            return 'Error: either "objective" (preferred) or "task" (legacy) is required.';
         }
 
-        logger.info(COMPONENT, `Delegating to ${role}: "${task.slice(0, 80)}..."`);
+        // If any 4-field contract field is supplied, compose a structured task.
+        // Otherwise fall back to the legacy free-form `task` for full backwards-compat.
+        const usesContract = Boolean(objective || outputFormat || toolGuidance || boundaries);
+        const task = usesContract
+            ? composeDelegationTask({
+                objective: objective || legacyTask || '',
+                outputFormat,
+                toolGuidance,
+                boundaries,
+                // Context is passed separately to resolveRole so the existing
+                // "Context: ..." footer convention is preserved.
+            })
+            : (legacyTask as string);
+
+        logger.info(COMPONENT, `Delegating to ${role}${usesContract ? ' (contract)' : ''}: "${task.slice(0, 80)}..."`);
 
         await setAgentStatus(role, 'active');
         try {

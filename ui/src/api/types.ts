@@ -39,7 +39,7 @@ export interface SendMessageResponse {
 
 // ---- SSE streaming ----
 export interface StreamEvent {
-  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'round' | 'done' | 'error';
+  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'round' | 'done' | 'error' | 'widget';
   data: string;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
@@ -59,6 +59,12 @@ export interface StreamEvent {
   errorAction?: { type: string; target: string; label: string };
   // Plan approval: true when the response is a plan waiting for user approve/deny
   pendingApproval?: boolean;
+  // Canvas widget side-channel (v5.8.x). When type==='widget' the consumer
+  // should route the event into SpaceEngine (create / update / remove)
+  // without parsing the assistant text. See src/agent/widgetEmitter.ts.
+  widgetMode?: 'create' | 'update' | 'remove';
+  widget?: Record<string, unknown>;
+  timestamp?: number;
 }
 
 // ---- Agent Watcher ----

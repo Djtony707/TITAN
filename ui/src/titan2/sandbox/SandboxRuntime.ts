@@ -108,6 +108,33 @@ const SANDBOX_TEMPLATE = `<!DOCTYPE html>
           removeWidget: (id) => send('canvas', { action: 'removeWidget', id }),
           listWidgets: () => send('canvas', { action: 'listWidgets' }),
         },
+        // v6.0 Step 8 — Widget-runtime API surface.
+        // titan.tools.run / titan.tools.list — invoke or enumerate any
+        // TITAN tool from inside a widget. Widgets become first-class
+        // agent surfaces (not just dumb UI).
+        tools: {
+          list: () => send('api', { endpoint: '/api/tools', body: { method: 'GET' } }),
+          run: (name, args) => send('api', { endpoint: '/api/tools/run', body: { name, args: args || {} } }),
+        },
+        // titan.agent.ask — sub-question to TITAN itself. Widgets can
+        // delegate parts of their work back to the agent loop.
+        agent: {
+          ask: (prompt) => send('api', { endpoint: '/api/message', body: { content: String(prompt) } }),
+        },
+        // titan.memory.get / .set — typed access to widget-scoped memory.
+        memory: {
+          get: (key) => send('api', { endpoint: '/api/memory/' + encodeURIComponent(key), body: { method: 'GET' } }),
+          set: (key, value) => send('api', { endpoint: '/api/memory', body: { key, value } }),
+        },
+        // titan.persona — read-only handle to the active persona content.
+        persona: {
+          get: () => send('api', { endpoint: '/api/persona/current', body: { method: 'GET' } }),
+        },
+        // titan.space — read-only handle to the active Space (id, name,
+        // intent, widget count).
+        space: {
+          active: () => send('api', { endpoint: '/api/spaces', body: { method: 'GET' } }),
+        },
         log: (...args) => send('log', { args: args.map(a => String(a)) }),
       };
 

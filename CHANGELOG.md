@@ -5,6 +5,186 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.0-beta.1 — 2026-05-11 — "Living Canvas" 🪞
+
+> **TITAN moves in.** Every other AI agent gives the user a chat box.
+> v6.0 gives the user infinite canvases that materialize around their
+> work — workspaces with their own posture, widgets built on the spot,
+> a homeostatic drive layer that feels and acts.
+>
+> **Status:** Beta. Built + tested + deployed to Titan PC. Public release
+> (npm `@latest`, GitHub `v6.0.0` tag) gates on H3 soak sign-off and
+> Tony's explicit approval — not in this build.
+
+### The thesis
+
+Every other AI agent framework gives the user a chat box. v6.0 gives the
+user **infinite canvases that materialize around their work**. When the
+user asks for anything — a tool, a tracker, a dashboard, an automation,
+a whole new workspace — TITAN builds it on the spot. The agent inhabits
+the canvas; it doesn't operate on it from the outside. TITAN is
+shape-shifting — co-worker, co-programmer, music producer, founder's
+assistant, homelab operator. Soma gives feelings that modulate behavior,
+makes TITAN learn YOU specifically, and lets it help without being
+asked.
+
+### Headline feature: Presence
+
+Five threads cooperating into one product:
+
+1. **Soma drives modulate behavior in real time.** Curiosity, focus,
+   fatigue, satisfaction, frustration measured continuously and rendered
+   into the system prompt every turn. Mascot + status bar reflect mood.
+2. **`somaInitiative` runs every 5 minutes you're idle.** Surveys recent
+   activity, system health, pending todos, time-of-day, drops advisories
+   into `~/.titan/users/<userId>/soma-advisories.jsonl` for the next
+   chat turn to surface.
+3. **Pattern detection → proactive suggestions.** Signals recorded at
+   `~/.titan/users/<userId>/patterns.json`. 3+ hits in 14 days fires a
+   `pin-widget` / `create-space` / `add-cron` suggestion.
+4. **Per-user Soma profile is the lock-in.** `~/.titan/users/<userId>/
+   soma.json` carries the user's drive baselines (EMA learner, α=0.1) +
+   the last 500 observations. Rendered into the system prompt when
+   noteworthy. The longer you use TITAN, the more it becomes yours alone.
+5. **Personal widget library.** Every widget the agent successfully
+   builds can be saved to `~/.titan/users/<userId>/gallery.json` with
+   fuzzy search by name + description + tags.
+
+### What ships (the 16 v6.0 steps)
+
+**Spaces (steps 3 + 4 + 5 + 9):**
+- `canvas_spaces` skill with 5 lifecycle tools: `create_space`,
+  `switch_space`, `list_spaces`, `rename_space`, `archive_space`
+- Server-side persistence at `~/.titan/spaces.json` (+ soft-delete
+  `spaces-archive.json`)
+- Active-Space `agentInstructions` injected into the system prompt
+  every turn at the recency position
+- 5 starter Space presets — `default` / `coder` / `dj` / `founder` /
+  `homelab` — wired into `create_space` via the `preset:` parameter
+
+**Build-on-demand (steps 6 + 7):**
+- System prompt rewrite — flipped "GALLERY FIRST" to **generation-first**
+  with `create_widget` as the reflex; gallery is now an optional
+  shortcut, not the entry point
+- Personal widget gallery skill with `gallery_save_personal`,
+  `gallery_personal_search`, `gallery_personal_list`
+
+**Soma (steps 10 + 11 + 12 + 13 + 14):**
+- Soma profile renderer in `src/storage/somaProfile.ts` (read/write,
+  append observation, EMA-adjust baseline, render-for-prompt)
+- `somaInitiative` proactive loop in `src/agent/somaInitiative.ts`
+- Pattern recorder + aggregator + `deriveSuggestions` in
+  `src/storage/patterns.ts`
+- `GET /api/soma/drives` endpoint exposing current vs baseline +
+  dominant-drive label for the mascot
+
+**Widget runtime hardening (step 8):**
+- New `titan.*` API surface from inside the sandbox:
+  - `titan.tools.list()` / `titan.tools.run(name, args)`
+  - `titan.agent.ask(prompt)` (sub-question to TITAN itself)
+  - `titan.memory.get(key)` / `titan.memory.set(key, value)`
+  - `titan.persona.get()`
+  - `titan.space.active()`
+- Backend endpoints: `GET /api/tools` (extended w/ parameters),
+  `POST /api/tools/run`, `GET/POST /api/memory/:key`,
+  `GET /api/persona/current`, `GET /api/spaces/presets`
+
+**Admin bucket reorganization (step 1):**
+- 7 fixed admin pages (Bucket A) stay reachable via `⚙ Admin`:
+  Settings, Integrations, Skills, Channels, Security, CommandPost,
+  Sessions
+- 36 panels (Bucket B) become pinnable system widgets via
+  `system:<name>` entries in the canvas registry
+- 2 panels deleted from the repo (Bucket C):
+  - `DaemonPanel` — overlapped with `OrganismPanel`
+  - `PaperclipPanel` — pre-v5 branding
+- Documented in `docs/V6-ADMIN-BUCKETS.md`
+
+**Shell rework (step 2):**
+- New `SpacesSidebar` component (`ui/src/components/shell/
+  SpacesSidebar.tsx`) — lists Spaces, active highlight, `+` button
+  opens a Create modal with the 5 starter presets, right-click to
+  archive
+- `AppShell` integration: Spaces sidebar shows on `/`, `/space`,
+  `/space/:id` routes; legacy `IconRail` continues to drive admin routes
+- Listens for `titan:spaces:refresh` so agent tool mutations
+  appear live
+
+**Infra cleanup (step 15):**
+- SSE heartbeat in `ui/src/api/client.ts`: 60-second quiet timeout —
+  if no chunk arrives for 60s, the stream is treated as dead and the
+  promise rejects so the UI surfaces an error instead of hanging
+- Widget-shortcut hijack TIGHTENED. The v5.5.28 gate required only a
+  widget-noun; v6.0 requires BOTH an imperative verb (`add` / `open` /
+  `show` / `pin` / `create` / etc.) AND a widget noun. Drops
+  `tools` and `monitor` from the noun list. Sync'd across
+  `src/gateway/server.ts`, `src/agent/agent.ts`, and
+  `src/gateway/routes/tests.ts`. Regression suite in
+  `tests/unit/widget-shortcut-hijack.test.ts` pins 17 cases.
+
+### Folds in from the v5.8.0-DRAFT-HOLD harness pack
+
+The harness fixes from the `awesome-agent-harness` deep research are
+part of v6.0, not a separate v5.8.0 release:
+
+- Anthropic-checklist tool descriptions on 18 priority tools
+- Per-section system-prompt caps (`src/agent/promptSectionCaps.ts`)
+- Tool-result verifier with silent-on-success contract
+  (`src/agent/toolResultVerifier.ts`)
+- Hierarchical AGENTS.md loader (L0/L1) (`src/agent/agentsMdLoader.ts`)
+- Tool-intent registry — sync / risky / destructive / long-running
+  (`src/agent/toolIntent.ts`)
+- 25 k-token output cap with tool-aware truncation hints
+  (`src/agent/toolOutputCap.ts`)
+- 4-field subagent delegation contract (`agent_delegate` now accepts
+  `objective` / `output_format` / `tool_guidance` / `boundaries`)
+- Canvas widget side-channel — `create_widget` / `update_widget` /
+  `remove_widget` agent tools + per-session `widgetEmitter` bus +
+  SSE `event: widget` forwarder
+
+### Upgrade safety (U1–U6)
+
+Existing v5.x users can install v6.0 without losing config, sessions,
+memory, personas, dreams, auth, cron, recipes, autopilot, custom
+skills, or bookmarked routes:
+
+- **Backup skill** with 5 tools (`backup_create` / `backup_list` /
+  `backup_verify` / `backup_restore` / `backup_schedule`), SHA-256
+  manifest, retention policy (daily/7, weekly/4, monthly/6 by default)
+- **Migration runner** (`src/migrations/runner.ts`) with state at
+  `~/.titan/MIGRATION_STATE.json` and 5 v5→v6 migrations:
+  `001-localstorage-spaces-to-server` /
+  `002-seed-default-space` /
+  `003-config-schema-v6` /
+  `004-route-redirects` /
+  `005-soma-profile-default`
+- **Pre-migration auto-backup** + auto-rollback on failure
+- **`titan migrate` + `titan backup` CLI** so users can recover even
+  when the gateway is broken
+- **Auth-token TTL** bumped to 30 days (configurable via
+  `gateway.auth.tokenTtlMs`) and cleanup timer now only persists on
+  actual change. Fixes the v5.x bug where `~/.titan/auth-tokens.json`
+  got clobbered to `[]` overnight.
+
+### Test totals
+
+**284 test files / 6,977 tests / 1 skipped / 0 failing.**
+Backend typecheck clean. UI typecheck clean. Both builds clean.
+
+### Public release rules
+
+This is `v6.0.0-beta.N` (Titan PC build, local-only). Promotion path:
+1. H3 real-world soak session with Tony — walk through 8–10 asks with
+   `journalctl -u titan -f` open
+2. Bump to `v6.0.0-rc.1` after any H3 fixes land
+3. Soak for whatever window Tony picks
+4. Promote to `v6.0.0` — push to GitHub, npm publish — only when
+   Tony explicitly approves
+
+No public push happens in this beta release.
+
+---
+
 ## v5.7.1 — 2026-05-10 — 📡 v6.0 "Living Canvas" incoming-transmission announcement
 
 > **Marketing patch — no functional code changes.** Adds the v6.0 incoming-

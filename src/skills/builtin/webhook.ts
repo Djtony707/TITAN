@@ -59,7 +59,31 @@ export function registerWebhookSkill(): void {
         { name: 'webhook', description: 'Create, list, or delete HTTP webhook endpoints. USE THIS WHEN Tony says: "create a webhook", "set up a webhook endpoint", "trigger webhook", "call endpoint X", "send data to URL", "register a webhook for X", "delete webhook X". WORKFLOW: action=create to register a new endpoint, action=list to see active webhooks, action=delete to remove one.', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'webhook',
-            description: 'Creates, lists, or deletes HTTP webhook endpoints that trigger actions when called. USE THIS WHEN Tony says: "create a webhook", "set up a webhook endpoint", "trigger webhook", "call endpoint X", "send data to URL", "register a webhook for X", "delete webhook X". WORKFLOW: action=create with name, path, method, and handler command to register — action=list to see all active webhooks — action=delete with webhookId to remove. RULES: Webhooks persist across restarts.',
+            description: `Register, list, or delete HTTP webhook endpoints hosted by the TITAN gateway. Each webhook is a path + method that runs a handler command when called by an external service (Stripe, GitHub, Zapier, etc.). Persists across restarts. Path is mounted at /api/webhooks/<path>.
+
+USE WHEN: "create a webhook for X" / "set up a webhook endpoint" / "register a webhook that triggers Y when called" / "delete webhook X" — any request to expose a callable endpoint that runs an action.
+
+DO NOT USE FOR:
+- Calling an external webhook → use web_fetch with method:"POST".
+- Listening for events you control (file change, cron) → use event_triggers or cron respectively.
+- Long-running async work → wrap the handler in a background:true shell or hand off to a workflow.
+
+Parameters:
+- action (string, required) — "create", "list", or "delete".
+- name (string, required for create) — human-readable label.
+- path (string, required for create) — URL path, e.g. "/my-hook". Mounted at /api/webhooks/my-hook.
+- method (string, optional for create) — "GET" or "POST"; default POST.
+- handler (string, required for create) — shell command (or message to the agent, if mode="tool" — TODO) to run when the webhook is hit. Receives the request body via $WEBHOOK_BODY env.
+- webhookId (string, required for delete).
+
+Returns:
+- create → "Webhook registered at /api/webhooks/<path>"
+- list → table of webhooks with id, path, method, hit count, last-hit timestamp.
+- delete → "Webhook <id> removed".
+
+Errors:
+- "Path already in use" — pick a different path or delete the existing one first.
+- "Invalid path" — must start with /, alphanumeric + hyphens only.`,
             parameters: {
                 type: 'object',
                 properties: {

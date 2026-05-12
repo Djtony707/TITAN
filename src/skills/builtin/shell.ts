@@ -209,7 +209,32 @@ export function registerShellSkill(): void {
         },
         {
             name: 'shell',
-            description: 'Execute any shell command on the system and return the real output.\n\nUSE THIS WHEN Tony says: "run X" / "execute X" / "install X" / "check if X is installed" / "what\'s running on port X" / "build the project" / "git X" / "npm X" / "start X" / "restart X" / "check X status"\n\nRULES:\n- ALWAYS actually run the command — never describe what you would do\n- ALWAYS show the real output to Tony, not a summary\n- For long-running tasks, use exec with background:true instead\n- Use cwd parameter when the command must run in a specific directory',
+            description: `Execute a shell command on the host system and return its real stdout/stderr. Synchronous by default (60 s timeout); set background:true for long-running commands. Subject to TITAN's pre-execution scanner — destructive patterns (rm -rf /, rm -rf ~, fork bombs, curl|sh) are blocked before they run.
+
+USE WHEN the user wants: "run X" / "execute X" / "install X" / "check if X is installed" / "what's running on port X" / "build the project" / "git X" / "npm X" / "start/restart X" / "check X status" — anything where the answer comes from the live OS.
+
+DO NOT USE FOR:
+- Reading file contents → use read_file (returns numbered lines, paginated)
+- Writing/editing files → use write_file or edit_file (transactional, shadow-git checkpointed)
+- Listing a directory → use list_dir (structured output)
+- Web requests → use web_fetch (handles auth + redirects + markdown conversion)
+- Code execution in an isolated sandbox → use execute_code
+
+Parameters:
+- command (string, required) — the exact command to run, as a single string (no array)
+- cwd (string, optional) — working directory; defaults to TITAN_HOME
+- timeout (number ms, optional) — default 60_000; max 600_000
+- background (boolean, optional) — fire-and-forget; returns immediately with a pid. The caller is responsible for later checks via process tools.
+
+Returns: { stdout: string, stderr: string, exitCode: number, command: string, durationMs: number }. stdout/stderr are truncated at 100 KB each (full output written to ~/.titan/shell-output/<run-id>.log when truncated).
+
+Errors:
+- "BLOCKED: dangerous pattern matched" — the pre-exec scanner rejected the command. Reword to a scoped path (rm -rf /tmp/myfolder, not rm -rf /tmp).
+- "TIMEOUT" — command exceeded timeout; retry with a higher timeout or background:true.
+- "ENOENT: command not found" — install the tool first (suggest the install command in your reply, do not assume it's installed).
+- Non-zero exitCode — read stderr; common causes: permission denied (suggest sudo if appropriate), missing flag, syntax error in the command.
+
+ALWAYS surface the real command + exit code to the user. Never fabricate output.`,
             parameters: {
                 type: 'object',
                 properties: {

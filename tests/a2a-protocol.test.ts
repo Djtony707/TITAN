@@ -107,7 +107,9 @@ describe('a2a_agent_card', () => {
 
     it('should include correct version from constants', () => {
         const card = generateAgentCard();
-        expect(card.version).toMatch(/^\d+\.\d+\.\d+$/);
+        // Accept semver with optional pre-release suffix (e.g. "6.0.0-beta.1",
+        // "6.0.0-rc.2") so the agent card honors our pre-release versioning.
+        expect(card.version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9a-zA-Z.-]+)?$/);
     });
 
     it('should list supported protocols', () => {

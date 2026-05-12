@@ -73,10 +73,9 @@ const SYSTEM_WIDGET_TEMPLATES: WidgetTemplate[] = [
     { id: 'system-organism', name: 'Organism Monitor', category: 'system', tags: ['organism', 'drive', 'safety', 'alert'], description: 'View organism drives, safety alerts, and metrics', triggers: ['organism', 'drive', 'safety', 'alert', 'guardrail'], defaultSize: { w: 6, h: 6 }, source: 'system:organism' },
     { id: 'system-fleet', name: 'Fleet Router', category: 'system', tags: ['fleet', 'node', 'route', 'mesh'], description: 'View mesh fleet nodes and route requests', triggers: ['fleet', 'node', 'route', 'mesh'], defaultSize: { w: 6, h: 5 }, source: 'system:fleet' },
     { id: 'system-browser', name: 'Browser Tools', category: 'system', tags: ['browser', 'captcha', 'automation'], description: 'Solve captchas and automate browser tasks', triggers: ['captcha', 'browser', 'form fill', 'web automation'], defaultSize: { w: 6, h: 5 }, source: 'system:browser' },
-    { id: 'system-paperclip', name: 'Paperclip', category: 'system', tags: ['paperclip', 'sidecar', 'helper'], description: 'Control the Paperclip sidecar assistant', triggers: ['paperclip', 'sidecar', 'helper'], defaultSize: { w: 6, h: 5 }, source: 'system:paperclip' },
+    // v6.0 step 1 — system-paperclip removed (pre-v5 branding, Bucket C / killed).
     { id: 'system-eval', name: 'Test Lab', category: 'system', tags: ['test', 'eval', 'flaky', 'coverage'], description: 'View test health, failing tests, and run evaluations', triggers: ['test', 'flaky', 'failing', 'coverage', 'eval'], defaultSize: { w: 6, h: 6 }, source: 'system:eval' },
-    // Previously wired orphaned panels
-    { id: 'system-daemon', name: 'Daemon', category: 'system', tags: ['daemon', 'process', 'status'], description: 'Monitor and control the TITAN daemon process', triggers: ['daemon', 'process', 'background'], defaultSize: { w: 6, h: 6 }, source: 'system:daemon' },
+    // v6.0 step 1 — system-daemon removed (overlapped with system-organism, Bucket C / killed).
     { id: 'system-memory-wiki', name: 'Memory Wiki', category: 'system', tags: ['wiki', 'memory', 'knowledge', 'entity'], description: 'Browse the memory wiki and knowledge graph entities', triggers: ['wiki', 'memory', 'knowledge', 'entity'], defaultSize: { w: 6, h: 6 }, source: 'system:memory-wiki' },
     { id: 'system-autoresearch', name: 'Autoresearch', category: 'system', tags: ['research', 'benchmark', 'deploy'], description: 'Run autoresearch benchmarks and deploy pipelines', triggers: ['research', 'benchmark', 'deploy'], defaultSize: { w: 6, h: 6 }, source: 'system:autoresearch' },
     { id: 'system-self-proposals', name: 'Self-Proposals', category: 'system', tags: ['proposal', 'self-improve', 'pr'], description: 'Review and manage self-improvement proposals', triggers: ['proposal', 'self-improve', 'pr'], defaultSize: { w: 6, h: 6 }, source: 'system:self-proposals' },
@@ -265,7 +264,24 @@ export function registerWidgetGallerySkill(): void {
         },
         {
             name: 'gallery_search',
-            description: 'Search the widget template gallery for matches. Returns top scored templates with id, name, category, description, and matched signals. ALWAYS call this FIRST when the user wants a new widget — only generate from scratch when no result scores well.',
+            description: `Search the 109-template widget gallery for the closest matches to the user's intent. Returns ranked results with id + score; pass the top id to gallery_get to retrieve the source. THIS IS THE FIRST THING YOU CALL when the user wants any widget — only fall back to generating from scratch (_____react) when no result scores well.
+
+USE WHEN: "build me a X widget" / "I want a Y panel" / "make me a Z dashboard" / "add a calculator" / "spawn an SDR agent" — any request for a UI element on the canvas. Also when the user says "do you have a template for X?"
+
+DO NOT USE FOR:
+- Listing every template → use gallery_list.
+- Searching the marketplace (third-party skills) → use a different tool (this gallery is bundled-only).
+- Searching skills (tools the agent can call) → use tool_search.
+
+Parameters:
+- query (string, required) — the user's intent. Best results from phrases ("stock tracker for AAPL"), worst from single words ("widget"). Include the SUBJECT (AAPL, the user's symbol/topic) if known — that biases scoring.
+- limit (number, optional) — default 5; max 20.
+
+Returns: { results: Array<{ id, name, category, description, score, matched: string[] }> }. score >= 10 means a strong trigger-phrase match — use that template confidently. Score < 3 → no good match, generate from scratch.
+
+Errors: this tool can't really error. Empty results means generate from scratch.
+
+ALWAYS show the top match's name + category to the user before calling gallery_get, so they can correct you if you picked the wrong one ("I'm using the 'Stock Tracker' template — want a different one?").`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -313,7 +329,24 @@ export function registerWidgetGallerySkill(): void {
         },
         {
             name: 'gallery_get',
-            description: 'Fetch a widget template by id with placeholder values filled in. Returns the full React component source ready to drop into the canvas.',
+            description: `Fetch a single widget template from the gallery by id, with REPLACE_WITH_X placeholders substituted. Returns the canvas-ready React source you can paste into a _____react block.
+
+USE WHEN: you just got a template id from gallery_search and now need its source. ALWAYS call gallery_search first to get the id — never guess a template name.
+
+DO NOT USE FOR:
+- Browsing what's available → use gallery_search (returns ranked matches with descriptions).
+- Listing every template → use gallery_list (full catalogue).
+- Generating a brand-new widget that's not in the catalogue → emit a fresh _____react block directly; do not gallery_get for templates that don't exist.
+
+Parameters:
+- id (string, required) — exact template id from gallery_search results.
+- fill (object, optional) — placeholder substitutions. Keys are the placeholder name WITHOUT the REPLACE_WITH_ prefix (so { "SYMBOL": "AAPL" } substitutes REPLACE_WITH_SYMBOL). Values are escaped automatically for backslash, single quote, and backtick.
+
+Returns: { source: string, size: { width, height }, category, displayName }. source is the full React component with placeholders filled. Drop it inside a _____react block on the next assistant turn.
+
+Errors:
+- "Template not found: <id>" — the id is wrong (typo or stale). Re-run gallery_search to get a fresh id.
+- Placeholders left unfilled — they appear as literal REPLACE_WITH_X strings in source. Catch this before emitting; either provide fill values or substitute them yourself.`,
             parameters: {
                 type: 'object',
                 properties: {

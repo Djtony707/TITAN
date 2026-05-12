@@ -117,12 +117,21 @@ describe('Agent Handoff — Registration', () => {
 
     it('should have correct parameter schemas for agent_delegate', () => {
         const h = handlers.get('agent_delegate');
+        // v5.8.0: `role` is the only structurally required field — the caller
+        // may supply either legacy `task` OR the new `objective` contract
+        // field. The handler enforces "task XOR objective" at runtime.
         expect(h.parameters.required).toContain('role');
-        expect(h.parameters.required).toContain('task');
+        expect(h.parameters.required).not.toContain('task');
+        // Legacy fields still surfaced for backwards-compat.
         expect(h.parameters.properties.role).toBeDefined();
         expect(h.parameters.properties.task).toBeDefined();
         expect(h.parameters.properties.context).toBeDefined();
         expect(h.parameters.properties.maxRounds).toBeDefined();
+        // New 4-field contract surface — must be advertised so the model can use it.
+        expect(h.parameters.properties.objective).toBeDefined();
+        expect(h.parameters.properties.output_format).toBeDefined();
+        expect(h.parameters.properties.tool_guidance).toBeDefined();
+        expect(h.parameters.properties.boundaries).toBeDefined();
     });
 
     it('should have correct parameter schemas for agent_team', () => {

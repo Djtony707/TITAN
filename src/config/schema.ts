@@ -127,6 +127,16 @@ export const GatewayConfigSchema = z.object({
         mode: z.enum(['none', 'token', 'password']).default('token'),
         token: z.string().optional(),
         password: z.string().optional(),
+        /**
+         * Session-token TTL (ms). Default 30 days — appropriate for self-hosted
+         * single-user TITAN where logging in every 24h is friction, not security.
+         * Tokens older than this get filtered at load AND purged from disk by
+         * the periodic cleanup. Lower this for shared / multi-user deployments.
+         *
+         * Pre-v5.7.2 hardcoded to 24h, which silently wiped Tony's login every
+         * morning and persisted `[]` to auth-tokens.json. (H1 boot-line fix.)
+         */
+        tokenTtlMs: z.number().int().positive().default(30 * 24 * 60 * 60 * 1000),
     }).default({}),
     /**
      * Hunt Finding #27 (2026-04-14): max parallel /api/message requests the

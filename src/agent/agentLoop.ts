@@ -27,6 +27,8 @@ import { recordTokenUsage, routeModel, type TurnContext } from './costOptimizer.
 import { calculateActualCost } from './costEstimator.js';
 import { getSessionGoal } from './autonomyContext.js';
 import { initBudget, checkBudget, recordUsage, markExceeded, cleanupBudget, getDefaultBudget, resetBudgetUsage } from './promptBudget.js';
+import { verifyToolResult, buildVerifierFeedback } from './toolResultVerifier.js';
+import { getToolKind, isDestructive } from './toolIntent.js';
 import { scanForSecrets } from '../security/secretGuard.js';
 import { fullExfilScan } from '../security/exfilScan.js';
 import { runShellHooks } from '../hooks/shellHooks.js';
@@ -1664,6 +1666,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
         case 'act': {
             logger.info(COMPONENT, `Executing ${pendingToolCalls.length} tool call(s)`);
 
+            // 12 Factor §8: classify each tool's intent BEFORE invoking it.
+            // Today this only emits observability; the gate (block-and-confirm
+            // for destructive tools) is wired but inert because needsApproval
+            // is always false in v5.8.0. Once approval-classifier work lands,
+            // this is where the loop will break and surface a confirm prompt.
+            // Reference: docs/HARNESS-PATTERNS.md, 12-factor §8.
+            for (const tc of pendingToolCalls) {
+                const kind = getToolKind(tc.function.name);
+                if (kind !== 'sync') {
+                    logger.info(COMPONENT, `[ToolIntent] ${tc.function.name} kind=${kind}${isDestructive(tc.function.name) ? ' — destructive (audit only in v5.8.0)' : ''}`);
+                }
+            }
+
             let toolResults: ToolResult[] = [];
             try {
                 const toolExecStart = Date.now();
@@ -1764,11 +1779,38 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 }
             }
 
-            // Record tool results and check for loops
+            // Record tool results and check for loops.
+            //
+            // The verifier (added in v5.8.0) inspects each tool result for known
+            // structural failure signatures (non-zero exit, BLOCKED, ENOENT, 4xx,
+            // "Error: ..." prefixes, target-not-found …). If a risky tool result
+            // matches, we collect the verdict and inject ONE consolidated synthetic
+            // user message at the end of this batch — gives the model one round to
+            // acknowledge / retry instead of silently claiming success.
+            //
+            // Reference: verifiers library (github.com/willccbb/verifiers), Anthropic
+            // "Effective harnesses for long-running agents", awesome-agent-harness
+            // top-10 pattern #5 "Verification + evaluation as first-class".
+            const verifierFlags: Array<{ tool: string; reason: string }> = [];
+
             let loopBroken = false;
             for (const tr of toolResults) {
                 result.toolsUsed.push(tr.name);
                 result.orderedToolSequence.push(tr.name);
+
+                // Verifier pass — never throws, never blocks the loop.
+                try {
+                    const verdict = verifyToolResult({
+                        toolName: tr.name,
+                        args: (pendingToolCalls.find(tc => tc.id === tr.toolCallId)?.function?.arguments
+                            ? (() => { try { return JSON.parse(pendingToolCalls.find(tc => tc.id === tr.toolCallId)!.function.arguments); } catch { return {}; } })()
+                            : {}) as Record<string, unknown>,
+                        result: tr.content,
+                    });
+                    if (!verdict.ok && verdict.reason) {
+                        verifierFlags.push({ tool: tr.name, reason: verdict.reason });
+                    }
+                } catch { /* verifier must never crash the loop */ }
 
                 // Trajectory compression: shorten long tool results + record progress step
                 const compressed = await compressToolResult(ctx.sessionId, tr.name, tr.toolCallId, tr.content, round);
@@ -1946,6 +1988,25 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 } else if (!success) {
                     lastFailedTool = { name: tr.name, error: tr.content.slice(0, 200) };
                 }
+            }
+
+            // Verifier injection — one consolidated feedback message per round.
+            // If any risky tool result tripped a structural verifier, push a
+            // single synthetic user message so the model sees the evidence in
+            // the next round and either retries with corrected args or admits
+            // the failure. Pre-v5.8.0 the model could silently claim success
+            // after a failed tool call.
+            if (verifierFlags.length > 0) {
+                const feedback = verifierFlags.length === 1
+                    ? buildVerifierFeedback(verifierFlags[0].tool, { ok: false, reason: verifierFlags[0].reason })
+                    : [
+                          `${verifierFlags.length} tool call(s) in this round appear to have failed:`,
+                          ...verifierFlags.map(f => `  - ${f.tool}: ${f.reason}`),
+                          ``,
+                          `Acknowledge the failures and either retry with corrected arguments or explain why the task cannot be completed. Do NOT claim success.`,
+                      ].join('\n');
+                ctx.messages.push({ role: 'user', content: feedback });
+                logger.info(COMPONENT, `[Verifier] Injected feedback for ${verifierFlags.length} failed tool call(s)`);
             }
 
             // Hunt Finding #24 (2026-04-14): previously `loopBroken` forced

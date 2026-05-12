@@ -124,7 +124,33 @@ export function registerCronSkill(): void {
         { name: 'cron', description: 'Schedule and manage recurring tasks using cron expressions. USE THIS WHEN Tony says: "schedule this to run every X", "set up a recurring task", "run this daily at 9am", "run this every 5 minutes", "add a cron job", "automate X on a schedule". WORKFLOW: action=create with name, schedule (cron expression), and shell command — action=list to see all jobs — action=enable/disable to toggle — action=delete to remove.', version: '1.1.0', source: 'bundled', enabled: true },
         {
             name: 'cron',
-            description: 'Creates, lists, enables/disables, or deletes scheduled cron jobs. USE THIS WHEN Tony says: "schedule this to run every X", "set up a recurring task", "run this daily at 9am", "run every 5 minutes", "add a cron job", "automate X on a schedule", "stop that cron job". WORKFLOW: action=create (requires name, schedule as cron expression, command) — action=list to view all — action=enable/disable to toggle with jobId — action=delete with jobId to remove. RULES: Cron expressions format: "0 9 * * *" = daily at 9am, "*/5 * * * *" = every 5 min. Jobs survive restarts.',
+            description: `Schedule, list, toggle, or delete recurring jobs. Jobs persist across restarts and run via node-cron in-process. Each job has a name, a cron expression, a command, and an execution mode (shell or tool).
+
+USE WHEN: "schedule this to run every X" / "set up a recurring task" / "run this daily at 9am" / "every 5 minutes do X" / "add a cron job" / "automate X on a schedule" / "stop that cron job".
+
+DO NOT USE FOR:
+- One-off tasks → just run them now via shell or the appropriate tool.
+- Tasks triggered by events (file change, webhook) → use event_triggers / webhook respectively.
+- Tasks that need TITAN to "wake up" and decide what to do → set mode:"tool" so the cron sends a message to the agent loop instead of running a bare shell.
+
+Parameters:
+- action (string, required) — one of: "create", "list", "delete", "enable", "disable".
+- name (string, required for create) — human-readable label.
+- schedule (string, required for create) — cron expression. "0 9 * * *" = daily at 9am, "*/5 * * * *" = every 5 minutes, "0 0 * * 0" = Sunday midnight. Five fields, no seconds.
+- command (string, required for create) — shell command OR message to TITAN (depending on mode).
+- mode (string, optional) — "shell" (default; runs as raw shell) or "tool" (sent as a message to the agent loop, gets all tools).
+- allowedTools (string, optional) — comma-separated tool allowlist for mode:"tool" jobs.
+- jobId (string, required for delete/enable/disable) — id from list.
+
+Returns:
+- create → "Created job: <id>"
+- list → table of all jobs with status, next-run, last-run.
+- delete/enable/disable → confirmation with the affected jobId.
+
+Errors:
+- "Invalid cron expression" — five fields required, no seconds. Test at crontab.guru.
+- "Job not found: <id>" — call list to discover the right id.
+- "Tool not in allowlist" (mode:"tool") — extend allowedTools or remove the constraint.`,
             parameters: {
                 type: 'object',
                 properties: {

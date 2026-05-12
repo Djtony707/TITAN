@@ -697,12 +697,13 @@ describe('Hunt Finding #11 — /api/message sanitized + privacy directive', () =
         // handler area — locate the handler, check the surrounding chars.
         const handlerIdx = src.indexOf("app.post('/api/message'");
         expect(handlerIdx).toBeGreaterThan(-1);
-        // Window bumped 10k → 16k after the v5.4.x retry/failover SSE wiring
-        // pushed the body out a few hundred lines. The handler body is large
-        // and growing — keep this generous so adding a new SSE event type
+        // Window bumped 10k → 16k after the v5.4.x retry/failover SSE wiring,
+        // then 16k → 24k after v6.0 added the widget side-channel subscribe +
+        // cleanup blocks inside the handler. The handler body is large and
+        // growing — keep this generous so adding a new SSE event type
         // doesn't break a regression test that's only meant to ensure
         // sanitizeOutbound is still wired in somewhere within the handler.
-        const handlerBody = src.slice(handlerIdx, handlerIdx + 16000);
+        const handlerBody = src.slice(handlerIdx, handlerIdx + 24000);
         expect(handlerBody).toMatch(/sanitizeOutbound/);
     });
 
