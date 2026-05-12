@@ -90,6 +90,7 @@ import {
   TimeTravelWidget,
   MissionDriverWidget,
   DailyDigestWidget,
+  MissionGraphWidget,
 } from '../system/widgets';
 
 import { AgentsWidget } from '../system/AgentsWidget';
@@ -160,6 +161,8 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   // v6.0.0-beta.4 — Long-running autonomy surface.
   'system:mission-driver': MissionDriverWidget,
   'system:daily-digest': DailyDigestWidget,
+  // v6.0 final — Visual workflow surface (read-only DAG of subtasks).
+  'system:mission-graph': MissionGraphWidget,
 };
 
 // ── Grid Config ───────────────────────────────────────────────
@@ -1124,6 +1127,8 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
     // v6.0.0-beta.4 — Long-running autonomy: live driver state + overnight digest.
     { label: 'Mission Driver', source: 'system:mission-driver', w: 7, h: 7 },
     { label: 'Daily Digest', source: 'system:daily-digest', w: 5, h: 7 },
+    // v6.0 final — Visual workflow surface (subtask DAG).
+    { label: 'Mission Graph', source: 'system:mission-graph', w: 8, h: 7 },
   ];
 
   return (

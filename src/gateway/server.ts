@@ -1931,6 +1931,52 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  app.get('/api/mission/:id', async (req, res) => {
+    try {
+      const goalId = String(req.params.id || '').trim();
+      if (!goalId) { res.status(400).json({ error: 'missing_goal_id' }); return; }
+      const { getGoal } = await import('../agent/goals.js');
+      const { getDriverState } = await import('../agent/goalDriver.js');
+      const goal = getGoal(goalId);
+      if (!goal) { res.status(404).json({ error: 'goal_not_found' }); return; }
+      const state = getDriverState(goalId);
+      res.json({
+        goal: {
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          status: goal.status,
+          priority: goal.priority,
+          progress: goal.progress,
+          totalCost: goal.totalCost,
+          createdAt: goal.createdAt,
+          completedAt: goal.completedAt,
+          tags: goal.tags ?? [],
+          subtasks: (goal.subtasks ?? []).map(s => ({
+            id: s.id,
+            title: s.title,
+            description: s.description,
+            status: s.status,
+            dependsOn: s.dependsOn ?? [],
+            retries: s.retries,
+            completedAt: s.completedAt,
+          })),
+        },
+        driver: state ? {
+          phase: state.phase,
+          startedAt: state.startedAt,
+          currentSubtaskId: state.currentSubtaskId ?? null,
+          budget: state.budget,
+          blockedReason: state.blockedReason ?? null,
+          historyTail: (state.history ?? []).slice(-10),
+          subtaskStates: state.subtaskStates,
+        } : null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'mission_get_failed', message: (err as Error).message });
+    }
+  });
+
   app.post('/api/mission/:id/cancel', async (req, res) => {
     try {
       const goalId = String(req.params.id || '').trim();
