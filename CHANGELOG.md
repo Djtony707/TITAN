@@ -5,6 +5,43 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.0-beta.3 — 2026-05-12 — Dependency refresh
+
+> Housekeeping ship. No behavior changes — just the dependency tree
+> dragged up to current patch / patch+1 releases. Cuts CVE noise + locks
+> in fixes from upstream. `@latest` stays at 5.7.1; `@next` updated.
+
+### What landed
+- **PRs merged:** #77 (dev-deps patch group), #79 (next 15.5.15→15.5.18
+  in `titan-voice-ui/`), #80 (@protobufjs/utf8 1.1.0→1.1.1), #82
+  (protobufjs 7.5.5→7.5.8), #83 (production-deps group: 7 patches).
+- **PRs closed as stale:** #74 (Node 22→26, premature), #63 (April
+  docker-compose revert, files long-since changed), #64 (April widget-
+  gates branch, modified `swarm.ts` which was deleted in v5.5.14).
+- **Dep bumps in this release:**
+  - `@inquirer/prompts` 8.4.2 → 8.4.3
+  - `@langchain/core` 1.1.45 → 1.1.46
+  - `express` 4.22.1 → 4.22.2
+  - `ws` 8.20.0 → 8.20.1
+  - `@playwright/test` 1.59.1 → 1.60.0
+  - `@browserbasehq/stagehand` 3.3.0 → 3.4.0
+  - `matrix-js-sdk` 41.4.0 → 41.5.0
+  - `playwright` 1.59.1 → 1.60.0
+  - `protobufjs` 7.5.5 → 7.5.8 (also force-pinned via overrides)
+  - `@protobufjs/utf8` 1.1.0 → 1.1.1
+  - `@types/jsdom` 28.0.1 → 28.0.2
+  - `@types/node` 25.6.0 → 25.7.0
+  - `@typescript-eslint/eslint-plugin` 8.59.2 → 8.59.3
+  - `@typescript-eslint/parser` 8.59.2 → 8.59.3
+  - (`titan-voice-ui` only) `next` 15.5.15 → 15.5.18
+
+### Verification
+- typecheck clean
+- 287 test files / **7,057 cases** passed / 1 skipped / 0 failing
+- Server + UI build clean on Mac and Titan PC
+
+---
+
 ## v6.0.0-beta.2 — 2026-05-12 — "Presence Wired" 🌌
 
 > **The Living Canvas surface gets real signal flow.** Soma drives now
