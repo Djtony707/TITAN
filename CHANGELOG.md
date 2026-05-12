@@ -5,6 +5,141 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.0 — 2026-05-12 — **"Living Canvas"** 🌌 (GA release)
+
+> **TITAN moves in.** Every other AI agent gives the user a chat box. v6.0
+> gives the user infinite canvases that materialize around their work —
+> workspaces with their own posture, widgets built on the spot, a
+> homeostatic drive layer that feels and acts, an 11-phase mission
+> driver that runs autonomously for hours without human intervention.
+>
+> This is the **General Availability** release of v6.0. Promoted from
+> `@next` (which carried beta.1 → beta.4) to `@latest`.
+
+### The thesis (one paragraph, never forget)
+TITAN is the agent that **materializes a workspace around the user's
+work**. Infinite canvases. Widgets built on demand. Soma drives that
+modulate behavior in real time. An 11-phase mission driver that picks
+up autonomous goals and runs them through `planning → delegating →
+observing → iterating → verifying → reporting`, surviving crashes via a
+durable per-context event journal. A mascot that visibly reflects the
+agent's mood. A 36-provider router. 19 channels. MIT, open source,
+runs on your hardware.
+
+### Headline ships across the beta cycle
+
+#### Living Canvas (beta.1)
+- **Infinite Spaces** — `~/.titan/spaces.json` server-side persistence;
+  five presets (default, coder, dj, founder, homelab); SpacesSidebar in
+  the canvas.
+- **Build anything on demand** — `create_widget` tool +
+  `WidgetEmitter` SSE side-channel + 109 templates in 28 categories;
+  on-the-fly generation when nothing matches.
+- **Soma drive layer wired** — five homeostatic drives (`purpose`,
+  `hunger`, `curiosity`, `safety`, `social`), EMA per-user baseline
+  learner, mascot mood polling, `somaInitiative` 5-min advisory pulse
+  + 22h daily-gift loop.
+- **Mascot with 8 moods** that visibly track the dominant drive every
+  10 seconds.
+- **Migration runner with auto-backup** — v5.x → v6.0 can't lose
+  config, sessions, memory, personas, or auth tokens.
+- **Command Post upgrades** (Reflexion lessons, Manus-style
+  goalPlanFile, hard pre-checkout budget guard, durable journal,
+  stateless reducer).
+
+#### Presence Wired (beta.2)
+- Mascot rework: high-contrast white-suit silhouette + glossy
+  mood-tinted visor + Space Agent-style multi-axis float. Eye-tracking
+  fully rewritten (drops the 3D tilt, uses a fixed `LOOK_RADIUS`, samples
+  the live rect every frame). Eye-flip fix when docked right.
+- **`/api/soma/state`** + `/history` + `/advisories` + `POST /gift` so
+  the SOMA panel stops falling back to a watch snapshot. Mascot mood
+  shifts visibly from real drive values.
+- **`SomaAdvisoryToast`** — floating "TITAN noticed…" card in the
+  canvas. Polls every 30s; pulses that previously vanished into a log
+  line now surface to the user.
+- **`_____canvas` fence** — multi-action JSON for batched canvas
+  mutations. "make me a coding setup" lands a Pomodoro + Todo +
+  Stack-Overflow search in one beat instead of three tool-call round
+  trips.
+- **Markdown SKILL.md auto-injection** — `auto: true` frontmatter →
+  full body in system prompt every turn. Agent can author its own
+  skills mid-session.
+- **AGENTS.md hierarchy** seeded for `src/` + `src/agent/`.
+- **Six trace-style canvas patterns** in CANVAS_AWARENESS targeting
+  production failures (mkdir-when-widget, multi-widget-without-fence,
+  duplicate-create-on-edit, etc.).
+- **Time Travel panel** against shadow-git file checkpoints with
+  in-canvas diff + restore.
+- **Sandbox iframe inlines** React/ReactDOM/Babel (kills the 30s
+  widget-render timeout).
+- **SSE heartbeat** every 15s (kills the 60s "stream went silent").
+- **Cron scheduler bug fixed** — the `mode: shell` vs `mode: tool`
+  flag is now honored. FB autopilot prompts stopped getting bash-mangled.
+- **Phantom widget cascade fix** — empty-space auto-reseed killed;
+  `addWidget` writes delta against persisted state, not in-memory cache.
+
+#### Dependency refresh (beta.3)
+- 14 patches across the dep tree: express, ws, playwright,
+  matrix-js-sdk, @langchain/core, @inquirer/prompts, stagehand,
+  protobufjs, types/node, typescript-eslint, etc. Plus inline type fix
+  for inquirer 8.4.3's tightened union.
+
+#### Mission Driver surface (beta.4)
+- **`POST /api/mission/run`** — single-prompt autonomous mission.
+  LLM decomposes into 3–6 subtasks via fast tier; the 11-phase driver
+  picks up within 10s.
+- **`GET /api/missions/active|recent|digest`** + `POST
+  /api/mission/:id/cancel`.
+- **`MissionDriverWidget`** — live phase view of every active mission
+  with an in-canvas composer. Polls every 5s.
+- **`DailyDigestWidget`** — "what TITAN did while you were away"
+  with 6h / 24h / 7d windows + Reflexion lessons.
+
+#### GA release (this version)
+- **LLM-judge verifier** — `verifyByKind` now runs an LLM judge after
+  the per-kind verifier passes (skipped only for `kind: 'verify'` to
+  avoid recursion). Cuts the false-positive rate on surface-passes
+  (length OK / exit code 0 but doesn't actually deliver). Disable via
+  `TITAN_LLM_JUDGE_VERIFY=0` env. Defaults on.
+- **`GET /api/mission/:id`** — full goal + subtask details + driver
+  state. Feeds the new mission-graph widget.
+- **`MissionGraphWidget`** — read-only SVG DAG view of the active
+  mission's subtask graph. Topological layered layout, dependency
+  edges, status-colored nodes, current-subtask highlight, click-to-
+  inspect detail panel. Closes the last unique competitive gap (vs
+  Mastra Studio / LangGraph Studio / CrewAI Flows) for v6.0 final.
+
+### Competitive position at GA
+Was behind in April 2026 → now matched: state graphs (11-phase driver),
+durable execution (journal + state persistence), time-travel (shadow-git
++ UI), Reflexion memory (per-agent lessons.md), recitation (living
+goalPlanFile.md), visual workflow view (MissionGraphWidget).
+
+Where TITAN is **clearly ahead**: 36 providers, 19 channels, P2P mesh,
+Living Canvas, Soma drive layer, F5-TTS voice, LoRA self-improvement,
+MIT npm distribution.
+
+Still queued for v6.1+: editable graph builder, 1st-party evals UI,
+unified guardrails registry, community skill marketplace, hard-context-
+reset for sub-agents beyond 25 rounds, automatic goal creation from
+Soma signals.
+
+### Numbers at GA
+- **287 test files / 7,057 cases** passed / 1 skipped / 0 failing
+- typecheck clean
+- 36 providers, 19 channels, 88 builtin skill modules, ~248 tools,
+  109 widget templates, 43 admin panels, 5 Soma drives
+- MIT, npm `titan-agent`, Node ≥ 22 pure ESM
+
+### Promotion
+- `npm dist-tag add titan-agent@6.0.0 latest` — `@latest` now points
+  at 6.0.0. v5.x users get the upgrade through `npm install -g titan-agent`.
+- v5.7.1 stays available via `npm install -g titan-agent@5.7.1` for
+  anyone who needs to roll back.
+
+---
+
 ## v6.0.0-beta.4 — 2026-05-12 — Mission Driver surface 🚀
 
 > **The "work without me" surface.** TITAN's 11-phase goal driver state

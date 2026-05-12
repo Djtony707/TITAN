@@ -49,3 +49,5 @@ export { TimeTravelWidget } from './TimeTravelWidget';
 // v6.0.0-beta.4 — Long-running autonomy surface: live driver state + digest.
 export { MissionDriverWidget } from './MissionDriverWidget';
 export { DailyDigestWidget } from './DailyDigestWidget';
+// v6.0 final — Visual workflow surface: read-only subtask DAG.
+export { MissionGraphWidget } from './MissionGraphWidget';

@@ -462,18 +462,113 @@ function verifyVerify(input: VerificationInput): VerificationResult {
     };
 }
 
+// ── LLM-judge layer (v6.0) ───────────────────────────────────────
+//
+// Runs AFTER the per-kind verifier passes, as a final sanity check that
+// the spawn output actually fulfilled the subtask intent. Cuts the
+// false-positive rate of the per-kind checks (which test surface
+// properties like length / exit code / keywords, not intent).
+//
+// Design:
+//   - Only runs when per-kind passed (no judge on already-failed)
+//   - Skipped for kind='verify' (avoids verify-of-verify recursion)
+//   - Calls spawnSubAgent with the FAST tier — one short call, low cost
+//   - Parses JSON {passed, reason} from the judge reply
+//   - On judge throw / parse error → defers to the per-kind verdict
+//     (never makes verification stricter than the per-kind alone)
+//
+// Toggle via env: TITAN_LLM_JUDGE_VERIFY=0 disables. Default is on.
+
+function llmJudgeEnabled(): boolean {
+    const env = (process.env.TITAN_LLM_JUDGE_VERIFY ?? '').toLowerCase().trim();
+    if (env === '0' || env === 'false' || env === 'no' || env === 'off') return false;
+    return true;
+}
+
+async function llmJudgeVerify(
+    input: VerificationInput,
+    kindResult: VerificationResult,
+): Promise<VerificationResult> {
+    if (input.kind === 'verify') return kindResult;
+    if (!llmJudgeEnabled()) return kindResult;
+
+    try {
+        const { spawnSubAgent } = await import('./subAgent.js');
+        const reasoning = (input.spawnResult.reasoning || input.spawnResult.rawResponse || '').slice(0, 1800);
+        const artifactNote = input.spawnResult.artifacts?.length
+            ? `\nArtifacts produced: ${input.spawnResult.artifacts.map(a => `${a.type}:${a.ref}`).join(', ')}`
+            : '';
+        const judgePrompt = [
+            `You are a strict verification judge. Your ONE job is to decide whether the work below actually fulfilled the subtask intent.`,
+            ``,
+            `Subtask:`,
+            `  title: ${input.subtask.title}`,
+            `  description: ${input.subtask.description}`,
+            ``,
+            `Work produced (truncated to 1.8k chars):`,
+            reasoning,
+            artifactNote,
+            ``,
+            `Per-kind verifier ('${input.kind}') already passed with reason: ${kindResult.reason}`,
+            ``,
+            `Your job: does this work ACTUALLY address the subtask, or did it surface-pass without delivering?`,
+            ``,
+            `Common surface-pass failure modes to catch:`,
+            `  - Length OK but content is generic / vague / doesn't address the specific subtask`,
+            `  - Code compiles but doesn't do what was asked`,
+            `  - Research has citations but missed the actual question`,
+            `  - Report has the keywords but no real conclusion`,
+            ``,
+            `Return STRICT JSON on a single line: {"passed": true|false, "reason": "<≤140 chars why>"}.`,
+            `No markdown. No prose before or after the JSON.`,
+        ].join('\n');
+
+        const judgeResult = await spawnSubAgent({
+            name: 'llm-judge',
+            task: judgePrompt,
+            tier: 'fast',
+            maxRounds: 1,
+        });
+        const raw = (judgeResult.content || '').trim();
+        const jsonStart = raw.indexOf('{');
+        const jsonEnd = raw.lastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart) {
+            logger.info(COMPONENT, `LLM judge returned non-JSON, deferring to per-kind verdict`);
+            return kindResult;
+        }
+        const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as { passed?: unknown; reason?: unknown };
+        if (typeof parsed.passed !== 'boolean') return kindResult;
+        if (parsed.passed) return kindResult; // judge agrees → keep the per-kind result
+        const judgeReason = typeof parsed.reason === 'string' && parsed.reason.trim().length > 0
+            ? parsed.reason.trim().slice(0, 200)
+            : 'LLM judge said no without a reason';
+        logger.info(COMPONENT, `LLM judge OVERRIDE: per-kind passed but judge said fail — ${judgeReason}`);
+        return {
+            passed: false,
+            reason: `LLM judge: ${judgeReason}`,
+            verifier: `${input.kind}+llm-judge`,
+            confidence: kindResult.confidence,
+            details: `per-kind '${input.kind}' passed (${kindResult.reason}) but judge disagreed`,
+        };
+    } catch (err) {
+        logger.warn(COMPONENT, `LLM judge threw (deferring to per-kind): ${(err as Error).message}`);
+        return kindResult;
+    }
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────
 
 export async function verifyByKind(input: VerificationInput): Promise<VerificationResult> {
+    let kindResult: VerificationResult;
     try {
         switch (input.kind) {
-            case 'code':     return await verifyCode(input);
-            case 'research': return verifyResearch(input);
-            case 'write':    return await verifyWrite(input);
-            case 'analysis': return verifyAnalysis(input);
-            case 'verify':   return verifyVerify(input);
-            case 'shell':    return await verifyShell(input);
-            case 'report':   return verifyReport(input);
+            case 'code':     kindResult = await verifyCode(input);     break;
+            case 'research': kindResult = verifyResearch(input);       break;
+            case 'write':    kindResult = await verifyWrite(input);    break;
+            case 'analysis': kindResult = verifyAnalysis(input);       break;
+            case 'verify':   kindResult = verifyVerify(input);         break;
+            case 'shell':    kindResult = await verifyShell(input);    break;
+            case 'report':   kindResult = verifyReport(input);         break;
             default:
                 return { passed: false, reason: `Unknown kind: ${input.kind}`, verifier: 'dispatch' };
         }
@@ -485,6 +580,12 @@ export async function verifyByKind(input: VerificationInput): Promise<Verificati
             verifier: `${input.kind}:error`,
         };
     }
+
+    // v6.0 — LLM-judge layer. Runs only when per-kind passed.
+    if (kindResult.passed) {
+        return await llmJudgeVerify(input, kindResult);
+    }
+    return kindResult;
 }
 
 // ── Utility: read a file's content (used by higher-level UI for the driver panel) ──
