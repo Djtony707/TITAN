@@ -55,6 +55,14 @@ interface SomaHistoryResponse {
     latest: unknown;
 }
 
+interface SomaAdvisory {
+    at: string;
+    action: string;
+    rationale: string;
+    confidence: number;
+    payload?: Record<string, unknown>;
+}
+
 interface PendingProposal {
     id: string;
     type: string;
@@ -87,6 +95,8 @@ export default function SomaView() {
     const [state, setState] = useState<SomaStateResponse | null>(null);
     const [history, setHistory] = useState<HistoryPoint[]>([]);
     const [proposals, setProposals] = useState<PendingProposal[]>([]);
+    const [advisories, setAdvisories] = useState<SomaAdvisory[]>([]);
+    const [giftSending, setGiftSending] = useState(false);
     const [selectedDriveId, setSelectedDriveId] = useState<string | null>(null);
     const [setpointOverride, setSetpointOverride] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
@@ -147,7 +157,31 @@ export default function SomaView() {
                 setProposals(a.filter(p => p.type === 'soma_proposal'));
             }
         } catch { /* ignore */ }
+        try {
+            const res = await apiFetch('/api/soma/advisories?limit=10');
+            if (res.ok) {
+                const a = await res.json() as { advisories: SomaAdvisory[] };
+                setAdvisories(a.advisories || []);
+            }
+        } catch { /* ignore */ }
     }, []);
+
+    const requestGift = useCallback(async () => {
+        setGiftSending(true);
+        try {
+            const res = await apiFetch('/api/soma/gift', { method: 'POST', body: JSON.stringify({ force: true }), headers: { 'Content-Type': 'application/json' } });
+            if (res.ok) {
+                const r = await res.json() as { message?: string };
+                showToast(r.message || 'Soma is thinking about your gift…', 'success');
+            } else {
+                showToast('Soma gift request failed.', 'error');
+            }
+        } catch (err) {
+            showToast((err as Error).message || 'Gift request failed.', 'error');
+        } finally {
+            setGiftSending(false);
+        }
+    }, [showToast]);
 
     useEffect(() => {
         fetchAll();
@@ -369,6 +403,51 @@ export default function SomaView() {
 
                     {/* Proposal queue right rail */}
                     <div className="soma-proposal-queue">
+                        {/* v6.0.3 — "TITAN noticed…" advisories from the 5-min
+                            pulse. These used to live only in titan.log — now
+                            they surface so the user can see Soma working. */}
+                        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.5)', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>TITAN noticed ({advisories.length})</span>
+                            <button
+                                onClick={requestGift}
+                                disabled={giftSending}
+                                title="Ask Soma to build something for you right now, using what it knows about you."
+                                style={{
+                                    fontSize: 10,
+                                    padding: '4px 10px',
+                                    borderRadius: 999,
+                                    border: '1px solid rgba(99,102,241,0.4)',
+                                    background: giftSending ? 'rgba(99,102,241,0.05)' : 'rgba(99,102,241,0.15)',
+                                    color: '#c7d2fe',
+                                    cursor: giftSending ? 'wait' : 'pointer',
+                                    textTransform: 'none',
+                                    letterSpacing: 0,
+                                }}
+                            >
+                                {giftSending ? 'Thinking…' : '🎁 Gift me'}
+                            </button>
+                        </div>
+                        {advisories.length === 0 ? (
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '12px 16px', textAlign: 'center', marginBottom: 18, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8 }}>
+                                Soma hasn't noticed anything yet.
+                                <br />The pulse runs every 5 min.
+                            </div>
+                        ) : (
+                            <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {advisories.slice(0, 5).map((a, i) => (
+                                    <div key={i} style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.18)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                            <span style={{ fontSize: 10, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: 0.6 }}>{a.action}</span>
+                                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>
+                                                {new Date(a.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4 }}>{a.rationale}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
                             Pending Proposals ({proposals.length})
                         </div>

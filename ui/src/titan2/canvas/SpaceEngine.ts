@@ -298,10 +298,20 @@ function loadFromStorage(): Space[] {
     BUILTIN_SPACES.forEach(b => {
       const existing = map.get(b.id);
       if (!existing) {
+        // First time we've seen this builtin space — seed it with the
+        // default widget set. New installs hit this path via the `!raw`
+        // branch above; this covers the case where a new builtin space
+        // is introduced in a later version.
         map.set(b.id, { ...b, widgets: [...b.widgets] });
-      } else if (existing.widgets.length === 0 && b.widgets.length > 0) {
-        existing.widgets = b.widgets.map(w => ({ ...w }));
       }
+      // v6.0.3 — DO NOT auto-revive builtin widgets when an existing
+      // space record has `widgets: []`. The earlier "if length === 0,
+      // re-seed" branch silently re-introduced 5 builtin widgets into
+      // memory on every load. Combined with `addWidget` persisting the
+      // in-memory cache back to localStorage, the next CRDT phantom-
+      // filter pass treated those builtins as user-truth, so 5 stale
+      // panels exploded onto the canvas the moment the agent built ANY
+      // new widget. A deliberately-cleared canvas now stays cleared.
     });
     return Array.from(map.values());
   } catch {
@@ -361,11 +371,43 @@ export const SpaceEngine = {
     }
     if (USE_CRDT) {
       const widgetDef = addYWidget(spaceId, widget);
-      // Also sync to localStorage for metadata
-      const space = this.get(spaceId);
-      if (space) {
-        space.widgets = [...space.widgets, widgetDef];
-        this.save(space);
+      // v6.0.3 — Mirror to localStorage using the PERSISTED widget list
+      // (not the in-memory cache). The cache can be primed by the
+      // builtin-spaces seed; persisting that primed list would silently
+      // mark builtin widget ids as "user truth" and the CRDT phantom-
+      // filter would stop dropping them, dumping a bunch of stale
+      // panels on the canvas right after a single create_widget. We
+      // walk localStorage directly to get the exact persisted set, add
+      // just the new widget, and write it back. Dedup defends against
+      // double-fires from the SSE side-channel.
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const persisted: Space[] = raw ? JSON.parse(raw) : [];
+        const target = persisted.find(s => s.id === spaceId);
+        if (target) {
+          const existingIds = new Set((target.widgets || []).map(w => w.id));
+          if (!existingIds.has(widgetDef.id)) {
+            target.widgets = [...(target.widgets || []), widgetDef];
+          }
+          target.updatedAt = new Date().toISOString();
+          spacesCache = persisted;
+          saveToStorage(persisted);
+        } else {
+          // Space record doesn't exist in localStorage yet — create a
+          // minimal one carrying only this widget. Builtins do NOT get
+          // dragged in.
+          const minimal: Space = {
+            id: spaceId,
+            name: spaceId,
+            widgets: [widgetDef],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          spacesCache = [...persisted, minimal];
+          saveToStorage(spacesCache);
+        }
+      } catch {
+        // localStorage failure is non-fatal; the CRDT layer is the source of truth.
       }
       return widgetDef;
     }

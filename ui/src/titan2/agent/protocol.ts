@@ -12,7 +12,7 @@ import type {
   WidgetDef,
 } from '../types';
 
-const GATES: AgentGate[] = ['_____javascript', '_____react', '_____tool', '_____widget', '_____framework', '_____transient'];
+const GATES: AgentGate[] = ['_____javascript', '_____react', '_____tool', '_____widget', '_____canvas', '_____framework', '_____transient'];
 
 function findLineStart(content: string, index: number): number {
   let start = index;
@@ -103,6 +103,56 @@ export function blockToAction(block: ExecutionBlock): AgentCanvasAction | undefi
   }
 
   return undefined;
+}
+
+/**
+ * v6.0.5 — `_____canvas` fence is a multi-action variant of `_____tool`.
+ * The body is a JSON array of canvas operations the agent wants to apply
+ * in order, batched into ONE fence so a single chat turn can build a
+ * whole space (e.g. "make me a coding dashboard" → 4 widgets in one
+ * fence). This saves ~3-4× the tokens vs sequential native tool calls
+ * (no envelope per call) AND it runs the actions atomically client-side
+ * without server round-trips.
+ *
+ * Each action object follows the shape:
+ *   { "action": "create_widget", ...args }
+ *   { "action": "update_widget", "id": "...", ...patch }
+ *   { "action": "remove_widget", "id": "..." }
+ *
+ * Returns the list parsed from the block code, or [] when the body
+ * isn't valid JSON / not an array. Errors are silent (we never want
+ * a malformed fence to crash the chat).
+ */
+export interface CanvasFenceAction {
+  action: 'create_widget' | 'update_widget' | 'remove_widget';
+  // create_widget fields
+  name?: string;
+  source?: string;
+  format?: 'react' | 'vanilla' | 'html' | 'iframe' | 'system';
+  title?: string;
+  w?: number;
+  h?: number;
+  x?: number;
+  y?: number;
+  metadata?: Record<string, unknown>;
+  // update_widget + remove_widget
+  id?: string;
+  // update_widget — patch fields
+  patch?: Partial<WidgetDef>;
+}
+
+export function parseCanvasFence(code: string): CanvasFenceAction[] {
+  const trimmed = code.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((a): a is CanvasFenceAction =>
+      a && typeof a === 'object' && typeof (a as { action?: unknown }).action === 'string',
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function extractExecutionBlocks(content: string): ExecutionBlock[] {

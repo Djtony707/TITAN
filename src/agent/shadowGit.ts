@@ -201,6 +201,30 @@ export async function snapshotBeforeWrite(
 
 // ── Recovery Tools ────────────────────────────────────────────────
 /**
+ * v6.0.5 — Time Travel surface helper. Walks every shadow repo under
+ * `~/.titan/file-checkpoints/` and returns the union of all checkpoints,
+ * newest first. Bounded by `limit` so the UI never has to render a
+ * 50,000-entry list. Used by the `/api/time-travel/checkpoints` route.
+ */
+export function listAllCheckpoints(limit = 200): FileCheckpoint[] {
+    if (!existsSync(CHECKPOINTS_BASE)) return [];
+    const all: FileCheckpoint[] = [];
+    let repos: string[] = [];
+    try { repos = readdirSync(CHECKPOINTS_BASE); } catch { return []; }
+    for (const repo of repos) {
+        const repoPath = join(CHECKPOINTS_BASE, repo);
+        if (!existsSync(join(repoPath, METADATA_FILE))) continue;
+        try {
+            const meta = loadMeta(repoPath);
+            for (const c of meta.checkpoints) all.push(c);
+        } catch { /* skip corrupted shadow repo */ }
+    }
+    // Newest first by ISO timestamp (string sort works for ISO-8601).
+    all.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+    return all.slice(0, limit);
+}
+
+/**
  * List checkpoints for a file or directory.
  */
 export function listCheckpoints(dirOrFile: string): FileCheckpoint[] {

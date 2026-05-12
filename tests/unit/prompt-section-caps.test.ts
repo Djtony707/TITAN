@@ -54,13 +54,13 @@ describe('SECTION_CAP_DEFAULTS', () => {
         }
     });
 
-    it('total of all caps stays under 64 KB (operational ceiling for dynamic sections)', () => {
+    it('total of all caps stays under 72 KB (operational ceiling for dynamic sections)', () => {
         // If someone bumps a cap, this assertion forces them to think about
         // total budget. Bigger ceilings are fine but require a deliberate edit.
         // 40 → 48 (activeSpace) → 56 (livingCanvasVoice) → 64 (Command Post
-        // upgrades #1 + #2: agentLessons + goalPlan).
+        // upgrades #1 + #2: agentLessons + goalPlan) → 72 (v6.0.5 userSkills).
         const total = Object.values(SECTION_CAP_DEFAULTS).reduce((n, v) => n + v, 0);
-        expect(total, 'dynamic-section caps sum to more than 64 KB').toBeLessThanOrEqual(64_000);
+        expect(total, 'dynamic-section caps sum to more than 72 KB').toBeLessThanOrEqual(72_000);
     });
 });
 

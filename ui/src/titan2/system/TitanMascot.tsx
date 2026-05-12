@@ -91,7 +91,7 @@ const SLEEP_DEFAULT = 90_000;
 export function TitanMascot({
     state = 'idle',
     mood: moodProp = 'neutral',
-    size = 96,
+    size = 116,
     quip = null,
     bubblePhase = null,
     followCursor = true,
@@ -110,7 +110,11 @@ export function TitanMascot({
     const mood: MascotMood = polledMood ?? moodProp;
 
     const p = PALETTE[state] ?? PALETTE.idle;
-    const [tilt, setTilt] = useState({ x: 0, y: 0 });
+    // v6.0.4 — Removed `tilt` 3D head rotation. The perspective
+    // transform on the outer wrapper rotated the entire SVG (including
+    // the eye) AWAY from the cursor at the same time eyeOffset moved it
+    // TOWARD the cursor, so the eye never landed where it was supposed
+    // to. Tracking now lives purely in eyeOffset.
     const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 });
     const [blinking, setBlinking] = useState(false);
     const [yawning, setYawning] = useState(false);
@@ -121,8 +125,8 @@ export function TitanMascot({
     const [reducedMotion, setReducedMotion] = useState(false);
     const wrapRef = useRef<HTMLDivElement>(null);
     const idleSinceRef = useRef<number>(Date.now());
-    const mouseRafRef = useRef<number>(0);
-    const mouseLastRef = useRef<number>(0);
+    // (Removed in v6.0.4 — the old throttled-eye rAF refs are replaced
+    // by an ongoing rAF loop in the mouse-tracking effect itself.)
 
     // Detect reduced-motion preference once
     useEffect(() => {
@@ -237,11 +241,19 @@ export function TitanMascot({
             // Compound "excited" = curiosity + satisfaction both elevated.
             if ((current.curiosity ?? 0.5) > 0.65 && (current.satisfaction ?? 0.5) > 0.6) return 'excited';
             switch (drive) {
-                case 'curiosity':    return 'curious';
+                // Soma profile (per-user feelings).
+                case 'curiosity':    return delta < 0 ? 'curious' : 'happy';
                 case 'focus':        return 'focused';
                 case 'fatigue':      return 'tired';
                 case 'satisfaction': return delta > 0 ? 'happy' : 'neutral';
                 case 'frustration':  return 'frustrated';
+                // v6.0.3 — Soma organism drives. `delta < 0` means satisfaction
+                // dropped below baseline — that's the pressure side. The
+                // mascot should reflect the strain, not the satisfied baseline.
+                case 'hunger':       return delta < 0 ? 'tired'       : 'happy';
+                case 'safety':       return delta < 0 ? 'frustrated'  : 'happy';
+                case 'social':       return delta < 0 ? 'curious'     : 'happy';
+                case 'purpose':      return delta < 0 ? 'curious'     : 'focused';
                 default:             return 'neutral';
             }
         };
@@ -284,43 +296,83 @@ export function TitanMascot({
         return () => clearTimeout(t);
     }, [state]);
 
-    // ── Mouse tracking (head tilt + eye offset) ────────────────
-    // Throttled to ~30fps using rAF + time gate. Respects reduced-motion.
+    // ── Mouse tracking (eye offset) ─────────────────────────────
+    //
+    // v6.0.4 — Complete rewrite. The old version had three bugs that
+    // together made the eye feel uncoupled from the cursor:
+    //
+    //   1. The denominator was `r.width / 2`, so anywhere outside the
+    //      mascot's own bounding box, the clamp hit ±1 immediately and
+    //      the eye snapped to the extreme. No proportional tracking.
+    //   2. The throttle path inverted its branches — high-rate moves
+    //      went through the direct-set path, only "too soon" moves got
+    //      rAF, so updates were jittery.
+    //   3. We were reading `getBoundingClientRect()` on each mousemove,
+    //      but the mascot is also being animated by a CSS keyframe
+    //      (translate + rotate), so the rect was stale by the time
+    //      React committed the new state. The eye lagged the float.
+    //
+    // The new version:
+    //   - Drops the separate `tilt` 3D rotation entirely. It was the
+    //     biggest source of the "doesn't track properly" feel because
+    //     the perspective tilt rotated the eye AWAY from the cursor at
+    //     the same time the eyeOffset moved it TOWARD it. Net: confused.
+    //   - Stores the latest cursor coords in a ref (no React state),
+    //     and reads `getBoundingClientRect()` inside a single ongoing
+    //     rAF loop. That way the rect is sampled fresh on every frame
+    //     while the float animation is mid-cycle. Eye stays glued.
+    //   - Normalizes by a fixed LOOK_RADIUS (220 px) so the eye drifts
+    //     proportionally across the whole viewport and only hits its
+    //     limit when the cursor is genuinely far away.
     useEffect(() => {
         if (!followCursor || !wrapRef.current || reducedMotion) return;
         const el = wrapRef.current;
-        let pending: { x: number; y: number } | null = null;
+        const LOOK_RADIUS = 220;      // px from visor center → max eye throw
+        const MAX_EYE_THROW = 5;      // SVG units in the visor
+        const cursor = { x: 0, y: 0, has: false };
+
         const onMove = (e: MouseEvent) => {
-            const r = el.getBoundingClientRect();
-            const cx = r.left + r.width / 2;
-            const cy = r.top + r.height / 2;
-            const dx = (e.clientX - cx) / (r.width / 2);
-            const dy = (e.clientY - cy) / (r.height / 2);
-            const clamp = (n: number) => Math.max(-1, Math.min(1, n));
-            pending = { x: clamp(dx) * 10, y: clamp(dy) * 8 };
-            if (mouseRafRef.current) return;
-            const now = performance.now();
-            if (now - mouseLastRef.current < 33) {
-                mouseRafRef.current = requestAnimationFrame(() => {
-                    mouseRafRef.current = 0;
-                    mouseLastRef.current = performance.now();
-                    if (pending) {
-                        setTilt({ x: pending.x, y: pending.y });
-                        setEyeOffset({ x: pending.x * 0.4, y: pending.y * 0.375 });
-                        pending = null;
-                    }
-                });
-                return;
-            }
-            mouseLastRef.current = now;
-            setTilt({ x: pending.x, y: pending.y });
-            setEyeOffset({ x: pending.x * 0.4, y: pending.y * 0.375 });
-            pending = null;
+            cursor.x = e.clientX;
+            cursor.y = e.clientY;
+            cursor.has = true;
         };
+
+        let rafId = 0;
+        let cancelled = false;
+        const tick = () => {
+            if (cancelled) return;
+            if (cursor.has) {
+                const r = el.getBoundingClientRect();
+                // The visor sits slightly above the geometric center of
+                // the wrapper (head at ~y=38 of viewBox 100×138 ≈ 27.5%
+                // from the top). Anchor eye math to the visor, not the
+                // bbox center, so the eye points where the user expects.
+                const cx = r.left + r.width / 2;
+                const cy = r.top + r.height * 0.28;
+                const dx = (cursor.x - cx) / LOOK_RADIUS;
+                const dy = (cursor.y - cy) / LOOK_RADIUS;
+                const clamp = (n: number) => Math.max(-1, Math.min(1, n));
+                const nx = clamp(dx) * MAX_EYE_THROW;
+                // Vertical throw is slightly smaller — the visor is
+                // wider than tall, so a 1:1 y-throw would clip the eye
+                // against the top/bottom of the visor.
+                const ny = clamp(dy) * MAX_EYE_THROW * 0.6;
+                // Only commit when there's a meaningful change so we
+                // don't thrash React with sub-pixel updates.
+                setEyeOffset(prev => {
+                    if (Math.abs(prev.x - nx) < 0.05 && Math.abs(prev.y - ny) < 0.05) return prev;
+                    return { x: nx, y: ny };
+                });
+            }
+            rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+
         window.addEventListener('mousemove', onMove, { passive: true });
         return () => {
+            cancelled = true;
+            cancelAnimationFrame(rafId);
             window.removeEventListener('mousemove', onMove);
-            if (mouseRafRef.current) cancelAnimationFrame(mouseRafRef.current);
         };
     }, [followCursor, reducedMotion]);
 
@@ -431,11 +483,16 @@ export function TitanMascot({
     return (
         <div ref={wrapRef} className={className} style={{ width: bodyWidth, height: bodyWidth * 1.38 }}>
             <style>{`
+                /* v6.0.4 — Space Agent-style multi-axis float. Bigger
+                   translations + a wider rotation range so the mascot feels
+                   like it's drifting on a tether instead of pulsing in
+                   place. Linear easing reads as physics, not animation. */
                 @keyframes mascot-float {
-                    0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
-                    25%  { transform: translate3d(2px, -6px, 0) rotate(0.6deg); }
-                    50%  { transform: translate3d(-1px, -3px, 0) rotate(-0.3deg); }
-                    75%  { transform: translate3d(3px, -5px, 0) rotate(0.4deg); }
+                    0%   { transform: translate3d(0, 0, 0) rotate(-6deg); }
+                    25%  { transform: translate3d(5px, -5px, 0) rotate(-2deg); }
+                    50%  { transform: translate3d(0, -8px, 0) rotate(5deg); }
+                    75%  { transform: translate3d(-5px, -4px, 0) rotate(1deg); }
+                    100% { transform: translate3d(0, 0, 0) rotate(-6deg); }
                 }
                 @keyframes mascot-breathe {
                     0%, 100% { transform: scale(1); }
@@ -567,14 +624,13 @@ export function TitanMascot({
                 </div>
             )}
 
-            {/* Main character. Outer wrapper handles 3D cursor tilt; inner
-                SVG handles float + state animations. */}
+            {/* Main character. The 3D cursor tilt was removed in v6.0.4
+                because it fought with both the float keyframes and the
+                eye-tracking (head turning AWAY while eye looked TOWARD).
+                Float + eye-tracking carry the "alive" feel on their own. */}
             <div
                 className="mascot-root absolute inset-x-0 bottom-0"
                 style={{
-                    transform: `perspective(420px) rotateY(${tilt.x}deg) rotateX(${-tilt.y}deg)`,
-                    transformStyle: 'preserve-3d',
-                    transition: 'transform 120ms ease-out',
                     // @ts-expect-error CSS custom property for keyframes
                     '--glow': p.glow,
                     cursor: onClick ? 'pointer' : 'default',
@@ -639,92 +695,149 @@ export function TitanMascot({
                         </g>
                     )}
 
-                    {/* Ambient glow behind head */}
-                    <circle cx="50" cy="42" r="35" fill={`url(#mascot-glow-${state})`} />
+                    {/*
+                      v6.0.4 — High-contrast "TITAN Bot" character. Replaces
+                      the dark hexagonal head that disappeared against the
+                      dark canvas. Inspired by Space Agent's astronaut: a
+                      bright white spacesuit silhouette with a big glossy
+                      mood-tinted visor where the personality lives.
+                      The existing mood/eye/brow/mouth logic still drives the
+                      face inside the visor — only the surrounding character
+                      shell changed, so all the moods + state animations keep
+                      working.
 
-                    {/* Listening sonar rings */}
+                      Suit colors are deliberately STATE-INDEPENDENT (always
+                      bright white) so the silhouette stays readable in every
+                      mood. State + mood drive the visor tint, eye color,
+                      glow halo, and accent details (chest plate, antenna
+                      tip, wrist bands).
+                    */}
+
+                    {/* Ambient glow halo behind the whole character. Bigger
+                        + brighter than before so the mascot pops against the
+                        near-black canvas. */}
+                    <circle cx="50" cy="50" r="48" fill={`url(#mascot-glow-${state})`} opacity="0.9" />
+
+                    {/* Listening sonar rings — still around the head. */}
                     {state === 'listening' && (
                         <>
-                            <circle cx="50" cy="42" r="14" className="mascot-listen-ring" stroke={p.glow} strokeWidth="1.5" />
-                            <circle cx="50" cy="42" r="14" className="mascot-listen-ring" stroke={p.glow} strokeWidth="1.5" style={{ animationDelay: '0.5s' }} />
+                            <circle cx="50" cy="40" r="14" className="mascot-listen-ring" stroke={p.glow} strokeWidth="1.5" />
+                            <circle cx="50" cy="40" r="14" className="mascot-listen-ring" stroke={p.glow} strokeWidth="1.5" style={{ animationDelay: '0.5s' }} />
                         </>
                     )}
 
-                    {/* Halo — `soma` class layers on the breath pulse. */}
+                    {/* Soma breath halo — slow pulse when somaActive is on. */}
                     <ellipse
-                        cx="50" cy="42" rx="28" ry="10"
+                        cx="50" cy="42" rx="34" ry="14"
                         fill="none"
                         stroke={p.ring}
-                        strokeWidth="1.2"
-                        strokeOpacity="0.35"
+                        strokeWidth="1.5"
+                        strokeOpacity="0.32"
                         className={`mascot-halo ${state} ${somaActive ? 'soma' : ''}`}
                     />
 
-                    {/* Hexagonal head */}
+                    {/* Antenna — a thin stalk topped with a glowing tip
+                        that pulses with state. Antenna says "I'm listening". */}
+                    <line x1="50" y1="18" x2="50" y2="8" stroke="#e2e8f5" strokeWidth="1.3" strokeLinecap="round" opacity="0.85" />
+                    <circle cx="50" cy="6.5" r="2.6" fill={p.glow} opacity="0.95">
+                        {!reducedMotion && (
+                            <animate
+                                attributeName="r"
+                                values="2.3;3.1;2.3"
+                                dur={state === 'executing' ? '0.7s' : (somaActive ? '3.2s' : '2.6s')}
+                                repeatCount="indefinite"
+                            />
+                        )}
+                    </circle>
+                    <circle cx="50" cy="6.5" r="4.5" fill={p.glow} opacity="0.18">
+                        {!reducedMotion && (
+                            <animate attributeName="opacity" values="0.08;0.28;0.08" dur="2.6s" repeatCount="indefinite" />
+                        )}
+                    </circle>
+
+                    {/* Backpack — peeks behind the head/shoulders. Slightly
+                        darker white than the suit so the silhouette has depth. */}
+                    <rect x="34" y="42" width="32" height="22" rx="10" fill="#c8cfdc" opacity="0.7" />
+
+                    {/* Helmet outer dome — large, round, white. THIS is the
+                        change Tony asked for: a clearly visible head shape.
+                        We use a slight gradient at the bottom so the head
+                        has volume without breaking the silhouette. */}
                     <g filter={`url(#mascot-shadow-${state})`}>
-                        <path
-                            d="M50 18 L75 32 L75 58 L50 72 L25 58 L25 32 Z"
-                            fill={`url(#mascot-body-${state})`}
-                            stroke={p.ring}
-                            strokeWidth="1.2"
-                            strokeOpacity="0.6"
-                        />
-                        <path
-                            d="M50 27 L66 36 L66 54 L50 63 L34 54 L34 36 Z"
-                            fill="none"
-                            stroke={p.ring}
-                            strokeWidth="0.7"
-                            strokeOpacity="0.3"
-                        />
+                        <circle cx="50" cy="38" r="22.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
+                        {/* Helmet inner rim — narrow dark band around the visor. */}
+                        <circle cx="50" cy="38" r="18.5" fill="#16182a" />
                     </g>
 
-                    {/* Eye band + eye. Eye translates toward cursor, scales
-                        for blink/yawn/mood, and occasionally squints on the
-                        top edge for happy/tired expressions. */}
-                    <rect x="33" y="39" width="34" height="10" rx="5" fill="#0a0a0f" stroke={p.ring} strokeWidth="0.6" strokeOpacity="0.4" />
-                    <g transform={`translate(${eyeOffset.x}, ${eyeOffset.y})`}>
+                    {/* Visor — glossy mood-tinted disc. The visor IS the
+                        face. Eye / brows / mouth render inside it below. */}
+                    <ellipse cx="50" cy="39" rx="17" ry="13.5" fill={p.body} stroke={p.ring} strokeWidth="0.7" strokeOpacity="0.7" />
+                    {/* Visor reflection sweep — a thin bright arc top-left
+                        catching the "light", same trick Space Agent's
+                        astronaut uses to feel alive. */}
+                    <path
+                        d="M37 31 Q41 27 49 27"
+                        stroke="#ffffff"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        fill="none"
+                        opacity="0.7"
+                    />
+                    <path
+                        d="M55 28 Q58 28 60 29.5"
+                        stroke="#ffffff"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                        fill="none"
+                        opacity="0.45"
+                    />
+
+                    {/* Eye — translates toward cursor, scales for blink/yawn,
+                        morphs with mood. Now floats INSIDE the visor.
+
+                        v6.0.4 — When the mascot is docked on the right side
+                        of the screen, the parent <g> applies `scaleX(-1)`
+                        to mirror the character so it always faces the chat
+                        panel. That mirror also flips the eye's translate:
+                        a screen-LEFT cursor produces a negative x-offset,
+                        but after the scaleX flip it renders to the RIGHT.
+                        Result before this fix: the eye looked the OPPOSITE
+                        direction of the cursor whenever the mascot was on
+                        the right half of the screen. Negating x when
+                        faceFlip is on cancels the mirror so the eye points
+                        the screen-direction the cursor is actually in. */}
+                    <g transform={`translate(${faceFlip ? -eyeOffset.x : eyeOffset.x}, ${eyeOffset.y})`}>
                         <ellipse
-                            cx="50" cy="44"
+                            cx="50" cy="40"
                             rx={eyeRx}
                             ry={eyeRy}
                             fill={p.eye}
                             style={{ transition: 'rx 140ms ease-out, ry 140ms ease-out' }}
                         >
                             {state === 'thinking' && !sleeping && !reducedMotion && (
-                                <animate attributeName="cx" values="47;53;47" dur="1.6s" repeatCount="indefinite" />
+                                <animate attributeName="cx" values="46;54;46" dur="1.6s" repeatCount="indefinite" />
                             )}
                             {state === 'executing' && !reducedMotion && (
-                                <animate attributeName="rx" values="4.5;6;4.5" dur="0.8s" repeatCount="indefinite" />
+                                <animate attributeName="rx" values="4.5;6.5;4.5" dur="0.8s" repeatCount="indefinite" />
                             )}
                         </ellipse>
-                        {/* Squint top-lid — driven by moodFace, not just happy/tired now */}
                         {moodFace.eyeSquintTop && !blinking && !yawning && (
-                            <rect x="43" y="40.5" width="14" height="2" rx="1" fill={p.body} opacity="0.85" />
+                            <rect x="43" y="36" width="14" height="2.2" rx="1" fill={p.body} opacity="0.9" />
                         )}
-                        {/* Highlight — hidden while sleeping */}
                         {!sleeping && (
-                            <circle cx={48 + eyeOffset.x * 0.4} cy="43" r="1" fill="#ffffff" opacity="0.7" />
+                            <circle cx={48 + (faceFlip ? -eyeOffset.x : eyeOffset.x) * 0.4} cy="38.5" r="1.3" fill="#ffffff" opacity="0.9" />
                         )}
                     </g>
 
-                    {/*
-                      v6.0 — Eyebrows. Two strokes above the eye band that
-                      shape into the current mood. Hidden during yawn / blink
-                      so they don't fight the eye animation. Hidden in 'error'
-                      state — the X crosses out the face there anyway.
-                    */}
+                    {/* Eyebrows above the eye, inside the visor. */}
                     {!yawning && !sleeping && state !== 'error' && (
-                        <g stroke={p.eye} strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.85">
-                            <path d={moodFace.browL} className="mascot-eyebrow" />
-                            <path d={moodFace.browR} className="mascot-eyebrow" />
+                        <g stroke={p.eye} strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.9">
+                            <path d={moodFace.browL} className="mascot-eyebrow" transform="translate(0, -3)" />
+                            <path d={moodFace.browR} className="mascot-eyebrow" transform="translate(0, -3)" />
                         </g>
                     )}
 
-                    {/*
-                      v6.0 — Mouth. A single stroke below the eye band. Some
-                      moods (neutral) hide it entirely so the face stays
-                      minimalist when there's nothing to say.
-                    */}
+                    {/* Mouth (mood-driven), inside the visor. */}
                     {moodFace.mouthD && !sleeping && state !== 'error' && (
                         <path
                             d={moodFace.mouthD}
@@ -732,55 +845,88 @@ export function TitanMascot({
                             strokeWidth="1.4"
                             strokeLinecap="round"
                             fill="none"
-                            opacity="0.85"
+                            opacity="0.9"
                             className="mascot-mouth"
+                            transform="translate(0, -4)"
                         />
                     )}
 
-                    {/* Chin vent */}
-                    <rect x="42" y="66" width="16" height="2" rx="0.6" fill={p.ring} opacity="0.35" />
-                    <rect x="44" y="66.5" width="12" height="1" rx="0.3" fill={p.glow} opacity={state === 'executing' ? 0.9 : 0.5}>
-                        {state === 'executing' && !reducedMotion && (
-                            <animate attributeName="opacity" values="0.4;0.9;0.4" dur="0.6s" repeatCount="indefinite" />
-                        )}
-                    </rect>
+                    {/* Neck ring + collar of suit — thin white band where
+                        helmet meets body. */}
+                    <rect x="42" y="60" width="16" height="4" rx="1.5" fill="#dde2ee" />
+                    <ellipse cx="50" cy="64" rx="22" ry="4" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
 
-                    {/* Neck + collar */}
-                    <rect x="44" y="72" width="12" height="6" fill={p.body} stroke={p.ring} strokeWidth="0.5" strokeOpacity="0.5" />
-                    <ellipse cx="50" cy="79" rx="18" ry="3" fill={p.body} stroke={p.ring} strokeWidth="0.8" strokeOpacity="0.6" />
-
-                    {/* Torso — breathes gently */}
+                    {/* Body — white spacesuit, rounded blob shape. Slightly
+                        wider at the hips for a chibi/friendly silhouette. */}
                     <g className="mascot-torso">
                         <path
-                            d="M35 82 L65 82 L68 108 Q68 114 62 114 L38 114 Q32 114 32 108 Z"
-                            fill={`url(#mascot-body-${state})`}
-                            stroke={p.ring}
-                            strokeWidth="1"
-                            strokeOpacity="0.55"
+                            d="M28 66
+                               Q28 64 32 64
+                               L68 64
+                               Q72 64 72 66
+                               L74 108
+                               Q74 116 66 116
+                               L34 116
+                               Q26 116 26 108 Z"
+                            fill="#f4f6fb"
+                            stroke="#dde2ee"
+                            strokeWidth="0.8"
                             filter={`url(#mascot-shadow-${state})`}
                         />
-                        <circle cx="50" cy="96" r="3.5" fill="#0a0a0f" stroke={p.ring} strokeWidth="0.5" strokeOpacity="0.5" />
-                        <circle cx="50" cy="96" r="2" fill={p.glow} opacity={state === 'idle' ? 0.6 : 0.9}>
+                        {/* Body shading — a soft vertical highlight runs down
+                            the center so the suit feels rounded, not flat. */}
+                        <path
+                            d="M44 68 L56 68 L57 110 L43 110 Z"
+                            fill="#ffffff"
+                            opacity="0.55"
+                        />
+
+                        {/* Chest plate — recessed dark panel with a glowing
+                            colored indicator that PULSES with state. This is
+                            where mood broadcasts to anyone looking. */}
+                        <rect x="38" y="78" width="24" height="16" rx="3.5" fill="#16182a" stroke="#0d0f1d" strokeWidth="0.6" />
+                        {/* Three indicator lights — orange / cyan / lime —
+                            same "control panel" hint Space Agent uses, but
+                            TITAN-themed. Middle one pulses with current state. */}
+                        <circle cx="44" cy="86" r="1.7" fill="#f59e0b" opacity="0.85" />
+                        <circle cx="50" cy="86" r="1.9" fill={p.glow}>
                             {!reducedMotion && (
-                                <animate attributeName="opacity" values="0.4;0.9;0.4" dur={state === 'executing' ? '0.6s' : (somaActive ? '3.2s' : '2.5s')} repeatCount="indefinite" />
+                                <animate
+                                    attributeName="opacity"
+                                    values="0.5;1;0.5"
+                                    dur={state === 'executing' ? '0.6s' : (somaActive ? '3.2s' : '2.4s')}
+                                    repeatCount="indefinite"
+                                />
                             )}
                         </circle>
+                        <circle cx="56" cy="86" r="1.7" fill="#34d399" opacity="0.85" />
+                        {/* Status bar under the lights — mood color. */}
+                        <rect x="41" y="90" width="18" height="1.6" rx="0.6" fill={p.glow} opacity="0.7">
+                            {state === 'executing' && !reducedMotion && (
+                                <animate attributeName="opacity" values="0.4;0.95;0.4" dur="0.6s" repeatCount="indefinite" />
+                            )}
+                        </rect>
                     </g>
 
-                    {/* Hands — two floating manipulator orbs. Right hand
-                        gets the big wave keyframe when listening kicks in. */}
-                    <g transform="translate(22, 96)">
+                    {/* Hands — two rounded white manipulators on either
+                        side. The right one waves when listening. */}
+                    <g transform="translate(20, 96)">
                         <g className="mascot-hand-l">
-                            <circle r="4" fill={p.body} stroke={p.ring} strokeWidth="0.8" strokeOpacity="0.6" />
-                            <circle r="2" fill={p.glow} opacity="0.6" />
+                            <circle r="5.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
+                            <circle r="2" fill={p.glow} opacity="0.85" />
                         </g>
                     </g>
-                    <g transform="translate(78, 96)">
+                    <g transform="translate(80, 96)">
                         <g className={`${waving ? 'mascot-hand-r waving' : 'mascot-hand-r'}`}>
-                            <circle r="4" fill={p.body} stroke={p.ring} strokeWidth="0.8" strokeOpacity="0.6" />
-                            <circle r="2" fill={p.glow} opacity="0.6" />
+                            <circle r="5.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
+                            <circle r="2" fill={p.glow} opacity="0.85" />
                         </g>
                     </g>
+
+                    {/* Feet — two short white blobs poking out the bottom of
+                        the suit so the silhouette is grounded. */}
+                    <ellipse cx="42" cy="118" rx="6" ry="3" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
+                    <ellipse cx="58" cy="118" rx="6" ry="3" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
 
                     {/* Thinking particles above head */}
                     {state === 'thinking' && (

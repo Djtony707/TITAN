@@ -42,6 +42,22 @@ export const DEFAULT_CORE_TOOLS = [
     'gallery_search',
     'gallery_get',
     'gallery_list',
+    // v6.0.2 — Canvas widget tools must always be visible so the model
+    // reaches for them on "build me X" prompts (the v6.0 thesis). Before
+    // this, only gallery_search was in core; create_widget was only
+    // discoverable via tool_search, which the model rarely called for
+    // novel asks like "build me a solar system" — it'd fall through to
+    // shell + mkdir instead. These four tools are cheap (~80 tokens
+    // combined) and they're load-bearing for the Living Canvas pitch.
+    'create_widget',
+    'update_widget',
+    'remove_widget',
+    'list_active_widgets',
+    // Spaces tools — same logic: workspaces are a v6.0 first-class concept,
+    // the model needs to know it can create / switch / list them by name.
+    'create_space',
+    'switch_space',
+    'list_spaces',
 ];
 
 /** Build a compact one-line catalog of all tools for the tool_search description */

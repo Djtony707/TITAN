@@ -5,6 +5,204 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.0-beta.2 — 2026-05-12 — "Presence Wired" 🌌
+
+> **The Living Canvas surface gets real signal flow.** Soma drives now
+> actually surface to the UI. The mascot is visibly redesigned + tracks
+> the cursor properly. Canvas mutations get a token-efficient
+> `_____canvas` fence. Markdown SKILL.md auto-injects. Time Travel for
+> file edits ships as a canvas widget. And the cron scheduler bug that
+> was bash-mangling FB autopilot prompts is fixed.
+>
+> **Status:** Beta. Live on Titan PC.
+
+### Headline fixes — Tony's session feedback in priority order
+
+#### Mascot rework (Space Agent-inspired)
+- **New character body.** Replaced the dark hexagonal-head SVG that
+  disappeared against the dark canvas with a high-contrast white-suit
+  silhouette + glossy mood-tinted visor (the visor IS the face).
+  Antenna with a state-pulsing tip. Chest control panel with three
+  indicator lights + a mood-colored status bar. Backpack peek behind
+  the shoulders, two manipulator hands, two grounding feet.
+- **Bigger default.** `MASCOT_SIZE` bumped 88 → 116 in
+  `FloatingChatDock.tsx`, default `size` prop 96 → 116. Detail finally
+  has room to breathe.
+- **Space Agent multi-axis float.** Replaced the timid 2-axis float
+  keyframes with their −6° → 5° rotation + 5 px translations. Reads as
+  drifting in zero-g, not pulsing in place.
+- **Eye tracking actually works.** Three compounding bugs fixed:
+  (1) the 3D `tilt` perspective wrapper rotated the eye AWAY from the
+  cursor while the eyeOffset moved it TOWARD it (removed entirely);
+  (2) normalisation used the mascot's own bounding box as denominator,
+  so cursor anywhere off-mascot snapped to ±1 extreme (replaced with a
+  fixed `LOOK_RADIUS = 220 px` so the eye drifts proportionally across
+  the viewport); (3) the throttle path inverted its branches and never
+  read the live rect during the float animation (rewritten as a single
+  ongoing rAF loop that samples `getBoundingClientRect()` fresh every
+  frame, anchored to the visor centre at 28% from the top).
+- **Eye-flip on right side.** When the dock is docked right, the SVG
+  `scaleX(-1)` mirror was inverting the eye's translate (cursor right →
+  eye looked left). Now we negate `eyeOffset.x` whenever `faceFlip`
+  is on, so the eye points the screen-direction the cursor is in
+  regardless of dock side.
+
+#### Soma is wired to the UI now
+- **`/api/soma/state` exists.** Previously the SOMA page got a 404,
+  fell back to `/api/watch/snapshot` (which doesn't include the
+  hormonal block), and rendered "All drives satiated — routine
+  operation" + a yellow "Live fallback active" line — even though the
+  drives ARE moving (hunger 0.15, curiosity 0.37 on Tony's machine
+  right now). New route returns the full drive tick + the hormonal
+  block. The yellow fallback line is gone.
+- **`/api/soma/drives` returns real drive ids.** Previously the route
+  mapped `dopamine → curiosity`, `cortisol → frustration`, etc., but
+  Soma stores drives by id (`curiosity`, `hunger`, `safety`, `social`,
+  `purpose`) — every field always missed. The mascot read a flat
+  baseline forever. Now it returns the real organism drive levels;
+  the mascot mood shifts visibly. Mascot's `driveToMood` extended for
+  the organism vocabulary (`hunger`, `safety`, `social`, `purpose`).
+- **`/api/soma/history`** — ring-buffered drive history for SOMA-page
+  sparklines.
+- **`/api/soma/advisories`** — exposes the queue
+  somaInitiative writes to. Previously the 5-min pulse decisions
+  vanished into a log line.
+- **`POST /api/soma/gift`** — manual trigger for the daily-gift LLM
+  round. Bypasses the 18h cooldown + profile/frustration gates. Soma
+  decides what to gift you and a widget lands on your canvas.
+- **`SomaAdvisoryToast`** mounted in the canvas. Polls
+  `/api/soma/advisories` every 30 s. New pulses surface as a floating
+  "TITAN noticed…" card near the mascot. Auto-hides after 30 s; click
+  × to dismiss. Brings the previously log-only Presence layer out
+  into line of sight.
+- **SOMA page right rail** got "🎁 Gift me" + an advisories panel
+  above the proposals queue.
+
+#### `_____canvas` fence — token-efficient canvas mutations
+- **New gate added to `AgentGate`** (`ui/src/titan2/types.ts`) +
+  parsed by `protocol.ts` as a JSON array of
+  `{action: create_widget|update_widget|remove_widget, ...}` objects.
+- **`ChatWidget.applyAction`** got a `remove_widget` branch so the
+  fence can fully manage a space.
+- **System prompt** now teaches the agent: when issuing ≥2 widget
+  ops in one turn, batch them in one fence instead of N create_widget
+  tool calls. Cloud-prompt compressor includes the same hint.
+- **Tony win:** "make me a coding setup" now lands a Pomodoro + Todo +
+  Stack-Overflow-search in one beat instead of three sequential
+  tool-call round trips.
+
+#### Markdown SKILL.md auto-injection (Space Agent parity)
+- `FrontmatterSkill` interface gained an `auto` boolean parsed from
+  `auto: true` or `placement: system` in the SKILL.md frontmatter.
+- New `renderSkillsForPrompt()` injects auto skills' full bodies into
+  the system prompt every turn; lazy skills surface as a one-line
+  catalog so the agent knows they exist without bloating the prompt.
+- `userSkills` block wired into the agent's dynamic prompt sections
+  with an 8 KB cap. Total dynamic-section ceiling 64 KB → 72 KB.
+- Closing line tells the agent: "you can author new skills at
+  `~/.titan/skills/<name>.skill.md`." TITAN can extend itself
+  mid-session by writing markdown.
+
+#### AGENTS.md hierarchy seeded
+- New `src/AGENTS.md` — module map + stable contracts + workflow
+  rules for any agent editing TITAN's source tree. Picked up by the
+  hierarchy loader's shallow scan.
+- New `src/agent/AGENTS.md` — implementation contracts for the agent
+  loop, prompt assembly, sub-agents, Command Post, durable journal,
+  stateless reducer, soma initiative.
+
+#### Trace-style canvas patterns (Space Agent parity)
+- Six "if X, do Y" lines added to `CANVAS_AWARENESS` targeting the
+  specific production failures from Tony's logs: mkdir-when-user-
+  wanted-widget, multi-widget-without-fence,
+  duplicate-create-on-edit, "let me know if you want me to build it"
+  stalls, retry-after-iframe-block, "no canvas context → don't run
+  shell." System-prompt ceiling bumped 7 KB → 8 KB full / 5.5 KB →
+  6.8 KB minimal to fit.
+
+#### Time Travel panel
+- New `listAllCheckpoints()` aggregates every shadow-git checkpoint
+  across `~/.titan/file-checkpoints/`.
+- Three new routes: `GET /api/time-travel/checkpoints`,
+  `GET /api/time-travel/diff/:id`, `POST /api/time-travel/restore/:id`.
+- New `TimeTravelWidget` (system widget id `system:time-travel`):
+  two-pane UI with checkpoint list + colour-coded diff view +
+  confirm-modal restore. Available in the EmptyCanvas chip row as
+  "+ Time Travel".
+
+#### Sandbox iframe inlines vendor scripts
+- Every widget was hitting a 30 s render timeout because the
+  `<script src="/react.development.js">` lines in the srcdoc couldn't
+  reach `localhost:48420` — the iframe has an opaque origin
+  (`sandbox="allow-scripts"` + CSP `script-src 'self'`), so `'self'`
+  resolved to the null origin and the scripts never loaded. Now the
+  parent fetches the three vendor files once at module load
+  (~4.3 MB, cached), stitches them into the srcdoc as inline
+  `<script>` blocks. First widget primes the cache; all subsequent
+  widgets render instantly. Stripped `'self'` from the inner CSP
+  since nothing's loaded by URL anymore.
+
+#### SSE heartbeat (no more "stream went silent for 60s")
+- Cloud models (deepseek-v4-pro etc.) can sit in a non-streaming
+  `think` phase for 60–180 s. The frontend treats >60 s of total
+  silence as a dead stream and aborts. New server-side `setInterval`
+  emits `: heartbeat <ts>\n\n` SSE comment lines every 15 s for the
+  lifetime of every `/api/message` stream. Comment lines are valid
+  SSE — don't reach event handlers but flow through the TCP reader,
+  resetting the client quiet-timer. Cleared in the finally block on
+  every exit path.
+
+#### Cron scheduler bug fix (the FB autopilot mess)
+- `scheduleJob()` previously took `(jobId, schedule, command)` and
+  unconditionally ran the command through `/bin/bash -c`. The
+  `mode: 'shell'` vs `mode: 'tool'` flag stored on each job record
+  was completely ignored. Every cron job — including the FB
+  autopilot's English prompts ("You are TITAN…") — got piped to
+  bash, which mangled them daily and produced broken FB posts.
+- Refactored `scheduleJob(job: CronJobLike)` to take the whole
+  record and dispatch on `mode`. `mode: 'tool'` routes through
+  `processMessage()` with the prompt as a user message. `mode:
+  'shell'` keeps bash but now passes through a `looksLikeLlmPrompt()`
+  guard that refuses commands starting with "You are…" / "Post a…" /
+  "Write a…" or containing "Use the X tool" / "under N words." All
+  three call sites (init, create, enable) updated.
+- Live FB cron schedule on Titan PC replaced: 5 jobs at 9 AM / 12 PM
+  / 3 PM / 6 PM / 9 PM Pacific, all `mode: tool`,
+  `allowedTools: "fb_post,fb_read_feed"`, each prompt with a
+  pinned-facts block (verified numbers only) + explicit "if you
+  don't know an exact figure, leave it out" rule. Killed the
+  hallucination-prone "242 tools / 22k downloads" pattern.
+
+#### Phantom widget cascade fix
+- `SpaceEngine.loadFromStorage` was auto-reseeding 5 builtin widgets
+  into an "empty home" space record on every load. Combined with
+  `addWidget` persisting the in-memory cache back to localStorage,
+  the next CRDT phantom-filter pass treated those builtins as
+  user-truth — and 5 stale panels exploded onto the canvas the
+  moment the agent built ANY new widget ("click new widget → other
+  windows appear" + "click → they all disappear"). Killed the
+  re-seed; `addWidget` now writes the delta against persisted state,
+  not the cache.
+
+#### Cloud-prompt rule reinforcement
+- Cloud prompt compressor's MUST/NEVER section explicitly tells cloud
+  models: "build me X" → `gallery_search` → `create_widget`, NEVER
+  `mkdir`. Right/Wrong examples include the literal mkdir-solar-system
+  failure mode from the logs.
+- `DEFAULT_CORE_TOOLS` now includes the canvas tools (`create_widget`,
+  `update_widget`, `remove_widget`, `list_active_widgets`,
+  `create_space`, `switch_space`, `list_spaces`) so the cloud model
+  always sees them, not just after a gallery hit. Tool count cap
+  bumped 25 → 32.
+
+### Numbers
+- 287 test files / **7,057 cases** passed / 1 skipped / 0 failing
+- Typecheck clean
+- Server + UI build clean on Mac and Titan PC
+- Live on Titan PC, service active
+
+---
+
 ## v6.0.0-beta.1 — 2026-05-11 — "Living Canvas" 🪞
 
 > **TITAN moves in.** Every other AI agent gives the user a chat box.

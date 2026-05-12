@@ -18,28 +18,74 @@
 
 import type { SandboxMessage } from '../types';
 
-const SANDBOX_TEMPLATE = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self'; style-src 'unsafe-inline'; img-src blob: data:; font-src data:;">
-  <script src="/react.development.js"></script>
-  <script src="/react-dom.development.js"></script>
-  <script src="/babel.min.js"></script>
-  <style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; height: 100%; }
-    body { background: transparent; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; overflow: hidden; }
-    #root { width: 100%; height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="root">
-    <div id="sandbox-loading" style="padding:16px;font-family:monospace;font-size:12px;color:#52525b;">
-      <div>Loading sandbox scripts…</div>
-      <div style="margin-top:4px;font-size:10px;color:#3f3f46;">React + ReactDOM + Babel (local)</div>
-    </div>
-  </div>
+/**
+ * v6.0.3 — Sandbox runtime bundles React + ReactDOM + Babel INLINE.
+ *
+ * Why the old approach broke
+ * --------------------------
+ * Previously the srcdoc HTML referenced `/react.development.js` and friends
+ * via `<script src=...>`. The iframe is `sandbox="allow-scripts"` only —
+ * which gives it an OPAQUE origin. The CSP `script-src 'self'` resolves
+ * `'self'` to that opaque origin, NOT the parent's localhost:48420. So the
+ * three scripts effectively couldn't load: every widget hit the 30-second
+ * "Sandbox timeout" because React was never defined inside the iframe.
+ *
+ * The new approach
+ * ----------------
+ * The PARENT page (which has normal same-origin access to itself) fetches
+ * the three files once at module load, caches the text, and stitches each
+ * one into the srcdoc as an inline `<script>...</script>`. From the iframe's
+ * perspective every script is inline — no network round-trip, no opaque-
+ * origin mismatch, no CSP block. First widget renders ~50ms slower while
+ * the cache primes; all subsequent widgets get an immediate srcdoc with
+ * the dependencies already inlined.
+ */
+let vendorScriptsPromise: Promise<{ react: string; reactDom: string; babel: string }> | null = null;
+
+function fetchVendorScripts(): Promise<{ react: string; reactDom: string; babel: string }> {
+    if (vendorScriptsPromise) return vendorScriptsPromise;
+    const get = async (path: string): Promise<string> => {
+        const res = await fetch(path, { credentials: 'same-origin' });
+        if (!res.ok) throw new Error(`Failed to load ${path}: ${res.status} ${res.statusText}`);
+        return res.text();
+    };
+    vendorScriptsPromise = Promise.all([
+        get('/react.development.js'),
+        get('/react-dom.development.js'),
+        get('/babel.min.js'),
+    ])
+        .then(([react, reactDom, babel]) => ({ react, reactDom, babel }))
+        .catch((err) => {
+            // Clear the cached promise so the next widget retries instead of
+            // permanently caching a failure.
+            vendorScriptsPromise = null;
+            throw err;
+        });
+    return vendorScriptsPromise;
+}
+
+function buildSandboxTemplate(vendor: { react: string; reactDom: string; babel: string }): string {
+    // The vendor sources are large (~4.3MB) but they're text and the browser
+    // never has to parse them from a remote response — they go straight into
+    // the V8 parser. Inlined via plain string concatenation rather than
+    // template literals to avoid backtick collisions inside the bundles.
+    const tail = SANDBOX_TEMPLATE_BODY;
+    return (
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; connect-src \'self\'; style-src \'unsafe-inline\'; img-src blob: data:; font-src data:;">' +
+        '<style>* { box-sizing: border-box; } html, body { margin: 0; padding: 0; height: 100%; } body { background: transparent; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; overflow: hidden; } #root { width: 100%; height: 100%; }</style>' +
+        '</head><body>' +
+        '<div id="root"><div id="sandbox-loading" style="padding:16px;font-family:monospace;font-size:12px;color:#52525b;"><div>Booting widget…</div></div></div>' +
+        // React, ReactDOM, Babel — inlined, evaluated in order before the
+        // sandbox bootstrap script runs.
+        '<script>' + vendor.react + '</script>' +
+        '<script>' + vendor.reactDom + '</script>' +
+        '<script>' + vendor.babel + '</script>' +
+        tail
+    );
+}
+
+const SANDBOX_TEMPLATE_BODY = `
   <script>
     (function() {
       'use strict';
@@ -175,13 +221,13 @@ const SANDBOX_TEMPLATE = `<!DOCTYPE html>
               throw new Error('Source is empty');
             }
             if (typeof React === 'undefined') {
-              throw new Error('React not loaded. The /react.development.js script may have failed to load.');
+              throw new Error('React not loaded — the inlined React bundle failed to evaluate inside the sandbox.');
             }
             if (typeof ReactDOM === 'undefined') {
-              throw new Error('ReactDOM not loaded. The /react-dom.development.js script may have failed to load.');
+              throw new Error('ReactDOM not loaded — the inlined ReactDOM bundle failed to evaluate inside the sandbox.');
             }
             if (typeof Babel === 'undefined') {
-              throw new Error('Babel standalone not loaded. The /babel.min.js script may have failed to load.');
+              throw new Error('Babel not loaded — the inlined Babel bundle failed to evaluate inside the sandbox.');
             }
 
             // ── 1. Strip export-default variations so Babel doesn't choke ──
@@ -365,7 +411,29 @@ export class SandboxRuntime {
 
   private init() {
     const iframe = this.iframe!;
-    iframe.srcdoc = SANDBOX_TEMPLATE;
+    // Fetch vendor scripts (cached after first call), then assemble the
+    // srcdoc with React/ReactDOM/Babel inlined. The MessageListener +
+    // MutationObserver are wired synchronously so any messages that
+    // arrive once the iframe boots are caught from the start.
+    fetchVendorScripts()
+        .then(vendor => {
+            // The iframe may have been destroyed before the fetch resolved
+            // (component unmounted, space switched). If `iframe` is no
+            // longer in the document we drop the srcdoc assignment — the
+            // destroy() path has already torn the listener down.
+            if (!this.iframe || !document.contains(iframe)) return;
+            iframe.srcdoc = buildSandboxTemplate(vendor);
+        })
+        .catch(err => {
+            // Surface the failure as a `ready`-like error so the parent
+            // promise rejects with a useful message instead of hanging
+            // until the 30s render timeout fires.
+            console.error('[sandbox] vendor scripts failed to load', err);
+            for (const [id, p] of this.pending) {
+                p.reject(new Error('Sandbox boot failed: ' + (err as Error).message));
+                this.pending.delete(id);
+            }
+        });
 
     const handler = (e: MessageEvent) => {
       // sandbox="allow-scripts" (no allow-same-origin) gives the iframe an opaque origin.

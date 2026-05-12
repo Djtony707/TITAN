@@ -20,6 +20,7 @@ import {
   extractExecutionBlocks,
   buildFrameworkMessage,
   validateExecutionContent,
+  parseCanvasFence,
 } from '../agent/protocol';
 import { SandboxRuntime } from '../sandbox/SandboxRuntime';
 import { SpaceEngine } from '../canvas/SpaceEngine';
@@ -246,6 +247,25 @@ _____widget
 function Widget() {
   return <div>Hello from widget</div>;
 }
+
+### _____canvas (v6.0.5 — preferred for canvas mutations)
+For batching MULTIPLE widget operations in ONE fence. Cheaper than calling create_widget/update_widget as separate tools because there's no per-call envelope.
+
+The body is a JSON array of action objects. Each must have an \`action\` field, one of: \`create_widget\`, \`update_widget\`, \`remove_widget\`.
+
+CREATE shape: { "action": "create_widget", "name": "Clock", "format": "react", "source": "function Widget() {...}", "w": 4, "h": 4 }
+UPDATE shape: { "action": "update_widget", "id": "widget_xxx", "patch": { "name": "Renamed Clock" } }
+REMOVE shape: { "action": "remove_widget", "id": "widget_xxx" }
+
+Example — user asks for a "coding setup":
+_____canvas
+[
+  { "action": "create_widget", "name": "Pomodoro", "format": "react", "source": "...", "w": 4, "h": 3 },
+  { "action": "create_widget", "name": "Todo", "format": "react", "source": "...", "w": 4, "h": 5 },
+  { "action": "create_widget", "name": "Stack Overflow Search", "format": "react", "source": "...", "w": 4, "h": 6 }
+]
+
+Use \`_____canvas\` whenever you'd otherwise issue ≥2 widget tool calls in the same turn. For one widget, \`_____react\` is still simpler.
 
 ### _____tool
 For calling backend tools or MCP servers.
@@ -488,6 +508,11 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  // v6.0.1: while TITAN is thinking, let the user keep typing — followups
+  // get queued here and auto-drain in order when the current turn ends.
+  // Acts as both "steering" (next-turn redirect) and a batching buffer.
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const QUEUE_CAP = 8;
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -524,6 +549,14 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
 
     if (action.type === 'update_widget') {
       SpaceEngine.updateWidget(s.id, action.widgetId, action.patch || {});
+      window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
+      return action.widgetId;
+    }
+
+    if (action.type === 'remove_widget') {
+      // v6.0.5 — added so `_____canvas` JSON fences can include
+      // {"action":"remove_widget","id":"..."} entries.
+      SpaceEngine.removeWidget(s.id, action.widgetId);
       window.dispatchEvent(new CustomEvent('titan:space:refresh', { detail: { spaceId: s.id } }));
       return action.widgetId;
     }
@@ -751,6 +784,73 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
         }
       }
 
+      if (gate === '_____canvas') {
+        // v6.0.5 — Batched canvas-action fence. The body is a JSON array of
+        // {action, ...args} objects: create_widget, update_widget,
+        // remove_widget. Each runs through the same applyAction path the
+        // server-side widgetEmitter fires, so behaviour parity is exact —
+        // we just skip the LLM tool-call round trip entirely (~150 tokens
+        // saved per turn) and apply them in one batch.
+        const actions = parseCanvasFence(code);
+        if (actions.length === 0) {
+          return {
+            status: 'error',
+            logs: [{ level: 'error', text: 'Empty or invalid _____canvas payload (expected JSON array of {action, ...})' }],
+            resultText: '',
+            runId: Date.now(),
+            error: { message: 'Invalid canvas payload', name: 'CanvasFenceError', stack: '', text: 'Empty or invalid _____canvas payload' },
+          };
+        }
+        const applied: string[] = [];
+        const errors: string[] = [];
+        for (const a of actions) {
+          try {
+            if (a.action === 'create_widget') {
+              if (!a.source) { errors.push('create_widget: missing source'); continue; }
+              const id = applyAction({
+                type: 'render_widget',
+                widget: {
+                  name: a.name || 'Widget',
+                  title: a.title,
+                  format: a.format || 'react',
+                  source: a.source,
+                  w: a.w,
+                  h: a.h,
+                  x: a.x,
+                  y: a.y,
+                  metadata: a.metadata,
+                } as Partial<WidgetDef> & { source: string },
+              });
+              applied.push(`created ${id}`);
+            } else if (a.action === 'update_widget') {
+              if (!a.id) { errors.push('update_widget: missing id'); continue; }
+              const patch = (a.patch ?? {}) as Partial<WidgetDef>;
+              applyAction({ type: 'update_widget', widgetId: a.id, patch });
+              applied.push(`updated ${a.id}`);
+            } else if (a.action === 'remove_widget') {
+              if (!a.id) { errors.push('remove_widget: missing id'); continue; }
+              applyAction({ type: 'remove_widget', widgetId: a.id });
+              applied.push(`removed ${a.id}`);
+            } else {
+              errors.push(`unknown action: ${String((a as { action?: unknown }).action)}`);
+            }
+          } catch (err: unknown) {
+            errors.push((err as Error).message || String(err));
+          }
+        }
+        const status: 'success' | 'error' = errors.length === 0 ? 'success' : (applied.length === 0 ? 'error' : 'success');
+        return {
+          status,
+          logs: [
+            ...applied.map(text => ({ level: 'info', text })),
+            ...errors.map(text => ({ level: 'error', text })),
+          ],
+          resultText: applied.length ? applied.join('; ') : 'No actions applied',
+          runId: Date.now(),
+          ...(status === 'error' ? { error: { message: errors.join('; '), name: 'CanvasFenceError', stack: '', text: errors.join('; ') } } : {}),
+        };
+      }
+
       if (gate === '_____tool') {
         // Backend tool call — not implemented in Canvas chat
         return {
@@ -775,11 +875,20 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!text.trim() || isStreaming) return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      // v6.0.1: queue follow-ups instead of dropping them while a turn is
+      // in flight. The drain effect picks them up when isStreaming flips
+      // back to false.
+      if (isStreaming) {
+        setQueuedMessages((prev) => (prev.length >= QUEUE_CAP ? prev : [...prev, trimmed]));
+        setInput('');
+        return;
+      }
 
       const userMessage: AgentMessage = {
         role: 'user',
-        content: text.trim(),
+        content: trimmed,
         timestamp: Date.now(),
       };
 
@@ -812,7 +921,7 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
         // within ONE message where the agent sees current widget ids.
         const freshSessionId = `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         await streamMessage(
-          text.trim(),
+          trimmed,
           freshSessionId,
           (event) => {
             if (event.type === 'token') {
@@ -961,8 +1070,27 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
+    // Cancel = "stop this train of thought" — drop the queue too so the
+    // user can redirect cleanly. Queued items are stale by definition.
+    setQueuedMessages([]);
     onMascotState?.('idle');
   }, [onMascotState]);
+
+  // v6.0.1: drain queued follow-ups one at a time when the current turn
+  // ends. Each drained message goes through the normal handleSend path,
+  // which flips isStreaming back on; the next drain waits for that to
+  // finish. AbortError + the empty-queue case fall through cleanly.
+  useEffect(() => {
+    if (isStreaming) return;
+    if (queuedMessages.length === 0) return;
+    const [next, ...rest] = queuedMessages;
+    setQueuedMessages(rest);
+    handleSend(next);
+  }, [isStreaming, queuedMessages, handleSend]);
+
+  const removeQueuedAt = useCallback((idx: number) => {
+    setQueuedMessages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1028,19 +1156,81 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
+      {/* Queue chips — visible while messages are waiting to drain */}
+      {queuedMessages.length > 0 && (
+        <div
+          style={{
+            padding: '6px 12px',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            background: 'rgba(99,102,241,0.06)',
+          }}
+        >
+          <span style={{ fontSize: 10, opacity: 0.7, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Queued ({queuedMessages.length})
+          </span>
+          {queuedMessages.map((m, i) => (
+            <span
+              key={i}
+              title={m}
+              style={{
+                fontSize: 11,
+                padding: '3px 8px',
+                background: 'rgba(99,102,241,0.18)',
+                border: '1px solid rgba(99,102,241,0.4)',
+                borderRadius: 999,
+                color: '#e0e7ff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                maxWidth: 220,
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {m}
+              </span>
+              <button
+                onClick={() => removeQueuedAt(i)}
+                title="Remove from queue"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#c7d2fe',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 12,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Input area — stays enabled while streaming; new messages queue */}
       <div style={{ padding: 12, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8 }}>
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask TITAN to create an agent, run a task, or build a widget…"
-          disabled={isStreaming}
+          placeholder={
+            isStreaming
+              ? queuedMessages.length >= QUEUE_CAP
+                ? `Queue full (${QUEUE_CAP}) — wait for TITAN to catch up…`
+                : 'TITAN is thinking — type to steer or queue a follow-up…'
+              : 'Ask TITAN to create an agent, run a task, or build a widget…'
+          }
           style={{
             flex: 1,
             background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: isStreaming
+              ? '1px solid rgba(99,102,241,0.4)'
+              : '1px solid rgba(255,255,255,0.1)',
             borderRadius: 8,
             padding: '8px 12px',
             color: '#fff',
@@ -1049,20 +1239,43 @@ export function ChatWidget({ space, onClose, onMascotState }: ChatWidgetProps) {
           }}
         />
         {isStreaming ? (
-          <button
-            onClick={handleCancel}
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: 'none',
-              background: '#ef4444',
-              color: '#fff',
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            Stop
-          </button>
+          <>
+            <button
+              onClick={() => handleSend(input)}
+              disabled={!input.trim() || queuedMessages.length >= QUEUE_CAP}
+              title="Queue this message for after the current turn"
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: 'none',
+                background:
+                  input.trim() && queuedMessages.length < QUEUE_CAP
+                    ? '#6366f1'
+                    : 'rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: 13,
+                cursor:
+                  input.trim() && queuedMessages.length < QUEUE_CAP ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Queue
+            </button>
+            <button
+              onClick={handleCancel}
+              title="Stop the current turn and clear the queue"
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#ef4444',
+                color: '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Stop
+            </button>
+          </>
         ) : (
           <button
             onClick={() => handleSend(input)}
