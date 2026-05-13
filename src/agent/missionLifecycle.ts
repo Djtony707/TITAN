@@ -25,6 +25,7 @@ import logger from '../utils/logger.js';
 import { createGoal } from './goals.js';
 import {
     postAgentMessage,
+    postSystemMessage,
     setMemberState,
     setStatus,
     raiseQuestion,
@@ -302,11 +303,27 @@ export async function startMissionWork(mission: MissionRoom): Promise<string | n
     }
 }
 
-/** Called when the UI posts a user message into an active mission. For
- *  v1 the user message is treated as supplemental context (recorded in
- *  the chat, queued for the next agent loop). Real-time injection into
- *  a running specialist's prompt is a v6.1.1 follow-up. */
+/** Called when the UI posts a user message into a mission. Two paths:
+ *
+ *   1. **Mission is live** (working/blocked/paused/forming) — broadcast
+ *      the user's note to every registered specialist mailbox so the
+ *      next agent loop picks it up. Same behavior as alpha.1+.
+ *
+ *   2. **Mission is terminal** (done/failed) — v6.1.0-alpha.13: reopen
+ *      the mission with this message as a new direction. Creates a
+ *      fresh Goal, re-wires the lifecycle bridges, flips status back
+ *      to 'working', posts a "Picking this back up…" system note,
+ *      mirrors to the linked Command Post issue. The DriverScheduler
+ *      picks up the new active goal on its next tick (~10s).
+ */
 export async function handleUserMessage(missionId: string, content: string): Promise<void> {
+    const room = getMission(missionId);
+    if (!room) return;
+    const isTerminal = room.status === 'done' || room.status === 'failed';
+    if (isTerminal) {
+        await reopenMissionWithFollowUp(missionId, content);
+        return;
+    }
     // For v1 we use the existing messageBus. We don't know which
     // specialist is "current" — broadcast to every registered member's
     // mailbox so whichever one is in-flight picks the note up at the
@@ -322,9 +339,7 @@ export async function handleUserMessage(missionId: string, content: string): Pro
     // member every time.
     try {
         const { sendMessage, hasMailbox } = await import('./messageBus.js');
-        const { getMission } = await import('./missionRoom.js');
-        const room = getMission(missionId);
-        const recipients = room?.team.map(t => t.agentId) ?? [];
+        const recipients = room.team.map(t => t.agentId);
         let delivered = 0;
         for (const to of recipients) {
             if (!hasMailbox(to)) continue; // skip non-registered to avoid noisy warns
@@ -336,6 +351,92 @@ export async function handleUserMessage(missionId: string, content: string): Pro
         }
     } catch (err) {
         logger.debug(COMPONENT, `messageBus dispatch skipped: ${(err as Error).message}`);
+    }
+}
+
+/**
+ * v6.1.0-alpha.13 — reopen a terminal mission with a follow-up direction.
+ *
+ * Creates a brand-new Goal with the user's new content as the title.
+ * The mission keeps its id + history; the chat thread continues
+ * organically; the team strip keeps showing previous helpers (and
+ * picks up new ones automatically as the new goal spawns specialists
+ * via the dynamic-team logic from alpha.1).
+ *
+ * Re-wires the per-mission bridges (approval bridge, goal-lifecycle
+ * bridge) since the previous bridges were torn down when the mission
+ * first reached its terminal state. The agent-event bridge is global
+ * and looks up missions by goalId at dispatch time — it picks up the
+ * new goal automatically without re-registration.
+ */
+async function reopenMissionWithFollowUp(missionId: string, newContent: string): Promise<void> {
+    const room = getMission(missionId);
+    if (!room) return;
+    try {
+        ensureGlobalBusBridge();
+        const newGoal = createGoal({
+            title: newContent,
+            description:
+                `Follow-up on mission ${missionId} (continued from previous goal ${room.goalId ?? '?'}).\n\n` +
+                `Original mission: "${room.goal}"\n\n` +
+                `User wants: ${newContent}`,
+            tags: [
+                `mission:${missionId}`,
+                room.playId ? `play:${room.playId}` : 'play:generic',
+                'mission-followup',
+            ],
+            // Same rationale as startMissionWork — user-initiated, not
+            // autonomous; bypass the 10-goals-per-hour rate limit.
+            force: true,
+        });
+        setLinkedGoal(missionId, newGoal.id);
+        // Tear down any stale bridges (in case completion teardown
+        // didn't run yet) and wire fresh ones for the new goal.
+        teardownMissionWork(missionId);
+        const cleanups: Array<() => void> = [];
+        cleanups.push(await wireApprovalBridge(missionId, newGoal.id));
+        cleanups.push(await wireGoalLifecycleBridge(missionId, newGoal.id));
+        lifecycles.set(missionId, cleanups);
+
+        // Wake the team back up in the team strip.
+        for (const member of room.team) {
+            setMemberState(missionId, member.agentId, 'idle', 'getting back on it');
+        }
+
+        // Chat surface: explain what just happened.
+        postSystemMessage(
+            missionId,
+            'Picking this back up — the team is taking another swing with your new direction.',
+            'mission_resumed',
+        );
+        setStatus(missionId, 'working');
+
+        // Mirror to the linked Command Post issue.
+        if (room.issueId) {
+            try {
+                updateIssue(room.issueId, { status: 'in_progress' });
+                addIssueComment(
+                    room.issueId,
+                    `User picked the mission back up: "${newContent.slice(0, 200)}${newContent.length > 200 ? '…' : ''}"`,
+                    { user: 'mission-chat' },
+                );
+            } catch { /* mirror failure never blocks the reopen */ }
+        }
+
+        logger.info(
+            COMPONENT,
+            `Mission ${missionId} reopened — new goal ${newGoal.id} linked (was: ${room.goalId ?? 'unset'})`,
+        );
+    } catch (err) {
+        logger.error(COMPONENT, `Reopen failed for mission ${missionId}: ${(err as Error).message}`);
+        // Surface the failure to the user instead of going silent.
+        try {
+            postSystemMessage(
+                missionId,
+                `Couldn't pick this back up: ${(err as Error).message}. Try starting a fresh mission instead.`,
+                'mission_resume_failed',
+            );
+        } catch { /* ok */ }
     }
 }
 
@@ -425,7 +526,6 @@ function mirrorToIssue(missionId: string, mirror: IssueMirror): void {
  */
 async function wireGoalLifecycleBridge(missionId: string, goalId: string): Promise<() => void> {
     const { titanEvents } = await import('./daemon.js');
-    const { postSystemMessage } = await import('./missionRoom.js');
     const completedHandler = (data: unknown) => {
         try {
             const d = (data ?? {}) as Record<string, unknown>;

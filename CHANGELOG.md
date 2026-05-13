@@ -5,6 +5,96 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.13 — 2026-05-13 — Sessions browser + reopen-on-message
+
+> Tony's two asks: "I need a sessions browser for older sessions, and
+> the previous session that stopped will not continue when I write to
+> it." Both shipped, both wired to the existing data layer.
+
+### Feature 1 — Mission Library (sessions browser)
+
+New page at `/mission/library` listing every mission on disk, newest
+first. Bound to `listMissions()` which returns summaries (no
+messages, no artifact bodies) so the list page stays cheap even with
+dozens of historical missions.
+
+UI:
+- **Status badge** per row (live / done / stopped / needs you /
+  paused / forming) with semantic colors.
+- **Filter chips**: All / In progress / Done / Stopped, with counts.
+- **Search box** filters by goal text.
+- **Empty states**: friendly first-mission CTA for new users, and a
+  "no missions match …" hint when the search misses.
+- **Click a row** → opens the chat view of that mission. State
+  preserved (chat history, artifact, team strip).
+- **Refresh button** to reload the list.
+- **+ New mission** button up top.
+
+Discoverable from three entry points:
+- The "Past missions →" link on the Mission Start screen (next to
+  the TITAN wordmark).
+- A "Library" pill in the top bar of Mission Chat (next to the back
+  arrow).
+- The same "Library" pill in the top bar of Mission Canvas.
+
+### Feature 2 — Reopen-on-message
+
+When a user types into a mission that has reached terminal status
+(`done` or `failed`) and hits send, the lifecycle now reopens it:
+
+1. Adds the user's message to the chat thread as usual.
+2. Detects terminal status in `missionLifecycle.handleUserMessage`.
+3. Creates a fresh Goal with the user's new content as the title
+   (description references the original goal so the goal driver
+   has continuity context). Forced past the rate limit since this
+   is user-initiated.
+4. `setLinkedGoal(missionId, newGoal.id)` swaps the mission's goalId.
+5. Tears down stale bridges from the previous lifecycle, then
+   re-wires the **approval bridge** and **goal-lifecycle bridge**
+   against the new goalId.
+6. Wakes the team strip: every previous member's currentActivity
+   resets to *"getting back on it"*.
+7. Posts a system note in the chat:
+   *"Picking this back up — the team is taking another swing with
+   your new direction."*
+8. Flips mission status back to `working`.
+9. Mirrors to the linked Command Post issue: status →
+   `in_progress`, comment *"User picked the mission back up: "…""*.
+10. The DriverScheduler picks up the new active goal on its next
+    tick (~10s).
+
+The agent-event bus bridge is global (looks up missions by goalId
+at dispatch time) so it picks up the new goal automatically without
+re-registration.
+
+If `createGoal` throws (rate-limit edge case, disk error, etc.),
+the user gets a clear chat message — never silent failure.
+
+### Tests
+
+`tests/v610-alpha13-reopen.test.ts` (6 cases):
+- Done mission + user message → status `working`, new goalId,
+  "Picking this back up" system message.
+- Failed mission → same reopen path.
+- Working mission + user message → NO reopen (messageBus path),
+  goalId unchanged.
+- Reopen mirrors to Command Post issue (comment + status flip).
+- Reopen wakes the team (members → "getting back on it").
+- Older mission with no issueId reopens gracefully without crashing.
+
+Full suite: 299 files / 7197 tests pass / 1 skipped / 0 failing.
+
+### What you'll see
+
+- Hit `/mission/library` (or click any "Library" pill) to see every
+  mission you've ever run. Click one to jump back into its chat.
+- Open a `done` or `failed` mission, type a follow-up like *"actually
+  go a bit deeper on point 3"*, hit send. The team strip re-lights,
+  a system note appears, status flips to live, and within ~10s the
+  driver picks up the new direction.
+
+---
+
 ## v6.1.0-alpha.12 — 2026-05-13 — UI: hooks-order fix + research links actually clickable
 
 > Two visible problems Tony hit on a fresh mission. The canvas view

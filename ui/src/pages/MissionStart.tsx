@@ -43,9 +43,18 @@ export default function MissionStart() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(99,102,241,0.18)_0%,transparent_55%)]" />
 
       <div className="relative z-10 flex flex-col items-center gap-5 w-full max-w-3xl">
-        <div className="text-[11px] uppercase tracking-[0.3em] text-text-muted">
-          <span className="bg-gradient-to-r from-accent to-accent2 bg-clip-text text-transparent font-bold">TITAN</span>
-          {' · '}MISSION CHAT
+        <div className="text-[11px] uppercase tracking-[0.3em] text-text-muted flex items-center gap-3">
+          <span>
+            <span className="bg-gradient-to-r from-accent to-accent2 bg-clip-text text-transparent font-bold">TITAN</span>
+            {' · '}MISSION CHAT
+          </span>
+          <button
+            onClick={() => navigate('/mission/library')}
+            className="px-2 py-0.5 text-[10px] tracking-[0.18em] text-text-muted hover:text-text border border-border rounded-full transition-colors"
+            title="See your past missions"
+          >
+            Past missions →
+          </button>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-center">
