@@ -83,6 +83,8 @@ import { createTracesRouter } from './routes/traces.js';
 import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
+import { createMissionsRouter } from './routes/missions.js';
+import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange } from '../agent/missionLifecycle.js';
 import { createAdminRouter } from './routes/adminRouter.js';
 import { createTeamsRecipesRouter } from './routes/teamsRecipes.js';
 import { createFilesRouter } from './routes/files.js';
@@ -2066,6 +2068,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // ── Command Post API (Agent Governance) ───────────────────
   app.use('/api/command-post', createCommandPostRouter());
+
+  // ── Mission Chat API (v6.1.0) ─────────────────────────────
+  // Chat-style mission control. Lives alongside Command Post in this
+  // release — defaults to opt-in. Will become the default in v6.2.
+  app.use('/api/missions', createMissionsRouter({
+    onMissionCreated: (mission) => startMissionWork(mission),
+    onUserMessage: (id, content) => missionHandleUserMessage(id, content),
+    onStatusChange: (id, status) => missionHandleStatusChange(id, status),
+  }));
 
   // ── Sessions API ──────────────────────────────────────────
   app.use('/api/sessions', createSessionsRouter(sessionAborts));
