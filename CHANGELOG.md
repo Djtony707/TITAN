@@ -5,6 +5,55 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.14 — 2026-05-13 — Self-referential autonomy gate widened
+
+> Tony: "Something is not right. look at the logs."
+> Audit found a runaway autonomous-goal loop: 7 "Bootstrap test
+> infrastructure" / "Diagnose test infrastructure failure" goals in
+> 1.5h, with `tests/smoke.test.js` rewritten 6× in 24h. The v6.0.3
+> gate in `normalizeProposal` only caught explicit self-mod /
+> self-repair phrasing — the new wave used tags like
+> `['infrastructure', 'testing', 'blocking']` which slipped through.
+
+### What changed
+
+`src/agent/goalProposer.ts` — widened `selfModTriggers` (regex) and
+`selfModTagValues` (tag set) to cover the whole self-referential
+category:
+
+- New regexes: `test (infrastructure|harness|infra)`, `smoke tests`,
+  `bootstrap … tests`, `diagnose … (test|root cause|infrastructure)`,
+  `self-improve(ment)`, `test-state`, `regression prevention`.
+- New gated tags: `testing`, `test-infrastructure`, `test-infra`,
+  `test-state`, `diagnostic`, `diagnostics`, `infrastructure`,
+  `observability`, `regression-prevention`, `health-check`,
+  `canary-eval`, `self-improve`, `self-improvement`, `blocking`,
+  `root-cause`.
+
+### Why this scope
+
+The autonomous proposer (Soma curiosity / self-repair daemon) is
+the only path into `normalizeProposal`. User-initiated goals enter
+through `startMissionWork` and bypass the gate entirely, so erring
+wide here is safe — legitimate user-style goals ("plan a birthday
+party", "write a thank-you note") still pass through.
+
+### Tests
+
+`tests/v610-alpha14-test-infra-gate.test.ts` (new) pins:
+- All 6 wild-caught runaway titles from Tony's box → dropped.
+- 4 legitimate user-style proposals → still pass through.
+- v6.0.3 self-mod patterns → still gated (regression).
+- Wide-gate policy intent → any `testing` / `diagnostic` tag on the
+  autonomous path is gated, intentionally.
+
+### Cleanup
+
+Cancelled 2 active runaway goals on Titan PC + cleared 2 stale
+driver-state files before shipping.
+
+---
+
 ## v6.1.0-alpha.13 — 2026-05-13 — Sessions browser + reopen-on-message
 
 > Tony's two asks: "I need a sessions browser for older sessions, and
