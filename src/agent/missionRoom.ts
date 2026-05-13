@@ -80,6 +80,18 @@ export interface AgentMessage extends MessageBase {
     /** Lightweight "what I touched" chips, shown under the message. */
     actions?: { name: string; detail?: string }[];
     /**
+     * v6.1.0-alpha.12 — concrete artifacts the specialist worked
+     * with: URLs visited, files written, facts memorized, reports
+     * produced. Rendered in the chat as clickable links (for URLs)
+     * or file chips so the user can actually inspect what the team
+     * found, not just read a summary.
+     */
+    sources?: Array<{
+        type: 'url' | 'file' | 'fact' | 'report';
+        ref: string;
+        description?: string;
+    }>;
+    /**
      * v6.1.0-alpha.4 — optional rich context shown when the user clicks
      * the bubble. Lets a user see WHAT subtask the agent was working on,
      * HOW long it took, HOW much it cost, WHAT model produced it — without
@@ -551,6 +563,7 @@ export function postAgentMessage(
     content: string,
     actions?: { name: string; detail?: string }[],
     meta?: AgentMessage['meta'],
+    sources?: AgentMessage['sources'],
 ): AgentMessage | null {
     const room = getOrLoad(missionId);
     if (!room) return null;
@@ -569,6 +582,7 @@ export function postAgentMessage(
         content,
         actions,
         meta,
+        sources,
     };
     room.messages.push(msg);
     commit(room);

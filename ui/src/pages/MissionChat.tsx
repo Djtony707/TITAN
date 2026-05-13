@@ -16,6 +16,7 @@ import {
   type MissionRoom,
   type MissionMessage,
 } from '@/api/missions';
+import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 
 export default function MissionChat() {
   const { id } = useParams<{ id: string }>();
@@ -474,7 +475,7 @@ function MessageRow({
           className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-secondary/60 border border-border text-sm leading-relaxed backdrop-blur-sm cursor-pointer hover:bg-bg-secondary/80 transition-colors"
           style={{ borderLeft: `3px solid ${msg.from.color}` }}
         >
-          {msg.content}
+          <RichMessageBody text={msg.content} sources={msg.sources} />
           {msg.actions && msg.actions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {msg.actions.map((a, i) => (
