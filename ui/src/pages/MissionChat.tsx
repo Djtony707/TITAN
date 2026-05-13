@@ -153,6 +153,16 @@ export default function MissionChat() {
             <span className={`w-2 h-2 rounded-full ${blocked > 0 ? 'bg-error animate-pulse' : working > 0 ? 'bg-accent animate-pulse' : 'bg-success'}`} />
             {statusBlurb(room.status, working, blocked)}
           </div>
+          {/* v6.1.0-alpha.8 — decision-count pill (borrowed from
+              awesome-agent-harness's "explicit control points" pattern) */}
+          {blocked > 0 && (
+            <div
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-error/15 border border-error/30 rounded-full text-xs text-error"
+              title="Decisions waiting on you"
+            >
+              🔔 {blocked}
+            </div>
+          )}
           <div
             title="Effort so far"
             className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-secondary/60 border border-border rounded-full text-xs"
@@ -160,6 +170,14 @@ export default function MissionChat() {
             <span className="inline-block w-3 h-4 bg-gradient-radial-flame" />
             <span className="text-text font-medium">${room.cost.usd.toFixed(2)}</span>
           </div>
+          {/* v6.1.0-alpha.8 — switch to spatial view of the same mission */}
+          <button
+            onClick={() => navigate(`/mission/${room.id}/canvas`)}
+            className="px-3 py-1.5 text-xs bg-bg-secondary/60 border border-border rounded-full text-text-secondary hover:text-text"
+            title="Switch to the canvas (spatial) view of the same mission"
+          >
+            Canvas view
+          </button>
           <button
             onClick={onTogglePause}
             className="px-3 py-1.5 text-xs bg-bg-secondary/60 border border-border rounded-full text-text-secondary hover:text-text"

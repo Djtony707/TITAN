@@ -5,6 +5,91 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.8 — 2026-05-13 — Mission Canvas: the spatial view, live
+
+> Tony asked for the canvas mockup he liked to come back as a real,
+> working view — same mission data, different layout. Shipped as a
+> second renderer over the existing `MissionRoom` state, so every fix
+> from alpha.5/6/7 (answer propagation, completion signals, error
+> scrubbing) transfers to it for free.
+
+### What ships
+
+**`ui/src/pages/MissionCanvas.tsx`** — the spatial view. Bound to the
+same `getMission` / `subscribeToMission` API the chat view uses. Two
+views, one mission, one truth.
+
+Layout:
+- **Central paper-textured artifact** rendered with the mission's
+  current live content. Up to 7 lines shown directly; full content
+  stays on the chat thread (no truncation in the underlying data).
+- **Agent pods** placed around the artifact in canonical
+  top-left/top-right/bottom-left/bottom-right/middle-right slots (up
+  to 8 agents, with overflow positions for larger teams). Each pod
+  shows avatar + name + role tagline + current activity + a pulsing
+  glow when working.
+- **SVG tethers** — dashed glowing lines from each pod to the
+  artifact, colored by member state (blue=working, amber=editing,
+  red=blocked). Animated stroke-dashoffset for the "passing work"
+  feel.
+- **Floating question bubble** — when a helper has an unanswered
+  question, a pink speech bubble floats near their pod with the
+  question, quick-reply buttons, and an "or type…" affordance that
+  expands a textarea (same custom-answer flow from alpha.5).
+- **"You" cursor** with halo near center-bottom — visual presence in
+  the room.
+- **Ambient starfield**: 40 drifting dots for atmosphere.
+
+### New patterns folded in (from external research)
+
+From `addyosmani/agent-skills`:
+- **Slash-command quick-bar** at the bottom: 5 buttons mapped to
+  common steering actions: `/slow down`, `/be thorough`, `/wrap it up`,
+  `/skip the chart`, `/pause`. One click sends the command as a user
+  message; the goal driver picks it up at the next subtask schedule
+  via the existing messageBus broadcast (alpha.5 fix).
+
+From `awesome-agent-harness`:
+- **Decision-count pill** in the top bar (also added to Chat view):
+  when 1+ helpers have open questions, a red `🔔 N` pill appears next
+  to the team-health indicator. Makes the "blocked on you" state
+  visible at a glance without needing to scroll the thread.
+
+### Toggle between views
+
+Both views have a button in their top bar:
+- Canvas view → **"Chat view"** button → `/mission/:id`
+- Chat view → **"Canvas view"** button → `/mission/:id/canvas`
+
+State is preserved across views since both read from the same backend.
+
+### Follow-up patterns captured as task chips
+
+Three more patterns from the resources were worth capturing but
+out-of-scope for this session — spawned as separate tasks (one click
+each to start in a fresh worktree):
+
+1. **Anti-rationalization tables in specialist prompts** — borrow
+   addyosmani/agent-skills' pattern of pairing common
+   "skip-this-step" excuses with rebuttals, per specialist role.
+2. **Worktree isolation for parallel specialist spawns** —
+   awesome-agent-harness's Superset/Agent Orchestrator/1Code
+   pattern; would let TITAN actually run agents in parallel.
+3. **Symphony pattern: Command Post issues as mission control plane**
+   — unify mission chat with the issue tracker so issues become the
+   durable audit trail and chat is the live view over them.
+
+### Tests
+
+UI is rendered code, but the backend tests (44/44 mission tests +
+the GEPA / router / lifecycle tests added in alpha.1–7) all still
+pass since Mission Canvas is a pure renderer over existing data. No
+new backend behavior introduced.
+
+Full suite: 295 files / 7163 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.1.0-alpha.7 — 2026-05-13 — Mission closure: scrub error traces + emit completion signal
 
 > Two issues caught from Tony's monetization mission. The chat showed

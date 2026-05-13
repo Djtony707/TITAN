@@ -18,6 +18,7 @@ const CPLayout = lazy(() => import('@/components/command-post/CPLayout'));
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
 const MissionChat = lazy(() => import('@/pages/MissionChat'));
+const MissionCanvas = lazy(() => import('@/pages/MissionCanvas'));
 
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
@@ -113,6 +114,8 @@ function AuthenticatedAppInner() {
           {/* v6.1.0 Mission Chat — opt-in chat-style team control */}
           <Route path="/mission" element={<MissionStart />} />
           <Route path="/mission/:id" element={<MissionChat />} />
+          {/* v6.1.0-alpha.8 Mission Canvas — spatial team view (same data, different layout) */}
+          <Route path="/mission/:id/canvas" element={<MissionCanvas />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/space/home" replace />} />
