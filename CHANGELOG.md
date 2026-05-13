@@ -5,6 +5,105 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.11 — 2026-05-13 — Worktree-isolation spike (allocator + scoped writes)
+
+> Borrowed from `awesome-agent-harness` (Superset, Agent Orchestrator,
+> 1Code): use isolated filesystem worktrees to run parallel agents
+> safely. This is the **initial spike** — the allocator, the
+> async-context scope, and the toolRunner redirect — with a regression
+> test proving two concurrent spawns can't write to each other's
+> directories. Goal-driver parallelism integration lands later.
+
+### What ships
+
+**`src/agent/worktreeAllocator.ts`** — module that hands out
+isolated dirs:
+- `allocateWorktree(goalId, subtaskId)` creates
+  `~/.titan/worktrees/<goalId>-<subtaskId>/` and returns the path.
+- `releaseWorktree(path)` removes it. **Safety**: refuses anything
+  outside the worktree root, even when passed a "real" path.
+- `sweepStaleWorktrees()` reaps directories older than 6h that
+  aren't in the active map.
+- `MAX_WORKTREES = 32` cap prevents disk-fill if release fails.
+- ID sanitization strips `..` / `/` from goalId/subtaskId before
+  joining (defense-in-depth against path traversal).
+
+**`src/agent/worktreeScope.ts`** — `AsyncLocalStorage`-backed
+"current worktree" pointer:
+- `runInWorktreeScope({path, goalId, subtaskId}, fn)` wraps a
+  callback so all tool calls inside (including nested async)
+  see the same scope.
+- `getCurrentWorktreeScope()` reads the active scope, returns null
+  outside any wrapper.
+- AsyncLocalStorage means two concurrent spawns in the same Node
+  process each see their own scope — no global-variable
+  cross-contamination even when await points interleave.
+
+**`src/agent/toolRunner.ts`** — when a mutating tool (`write_file`,
+`edit_file`, `append_file`, `apply_patch`) fires AND a worktree
+scope is active:
+- Relative paths get rewritten: `output.md` → `<worktree>/output.md`.
+- Absolute paths (`/foo`, `~/foo`) are **rejected** with a clear
+  error message asking the specialist to use relative paths.
+- The redirect runs BEFORE guardrails so guardrails see the
+  rewritten absolute path (avoids false-positive "system path"
+  rejections on cwd-resolved relative paths).
+- Self-mod scope-lock (further below in the function) still runs
+  after; worktree paths under `~/.titan/worktrees` aren't on the
+  self-mod target allowlist so it's a no-op for scoped writes.
+
+### What this enables
+
+Two specialists can now run concurrently and both write to the
+"same" relative filename without colliding. Goal-driver integration
+to actually fire them in parallel is the next step (currently each
+spawn is allocated + scoped one at a time inside the existing
+serial driver tick — proven to be isolation-safe, just not yet
+fired concurrently).
+
+Out of scope for this spike (intentional):
+- Full git-worktree integration (using plain dirs first)
+- Shell command scoping (only file-write tools redirect)
+- Network tool scoping
+- Goal-driver concurrency wiring
+
+### Tests
+
+`tests/v610-alpha11-worktree.test.ts` (12 cases) in three groups:
+
+1. **Allocator semantics** (5): allocate creates isolated dir under
+   the worktree root; ID path-traversal characters get sanitized;
+   release removes the dir + clears the active entry; release
+   refuses paths outside the root (safety); sweepStaleWorktrees
+   reaps backdated directories.
+
+2. **AsyncLocalStorage scope** (3): null outside any wrapper; scope
+   survives nested awaits; two concurrent scopes are independent
+   (the headline guarantee at the data-plane level).
+
+3. **toolRunner integration** (3): `write_file` inside scope is
+   path-rewritten; absolute paths under scope are rejected with
+   the right error; OUTSIDE scope behavior is unchanged.
+
+**Plus** a fourth group with the explicit "two concurrent spawns
+write the same filename, land in different absolute paths, neither
+sees the other's bytes" test Tony asked for. This is the
+foundational guarantee the spike exists to prove.
+
+Full suite: 298 files / 7189 tests pass / 1 skipped / 0 failing.
+
+### Three sessions of borrowing, summary
+
+This alpha closes the loop on the three external-resource patterns
+Tony pointed at:
+- alpha.9 → `addyosmani/agent-skills` anti-rationalization tables
+- alpha.10 → `awesome-agent-harness` Symphony issues-as-control-plane
+- alpha.11 → `awesome-agent-harness` worktree isolation pattern
+
+All three are now in TITAN with regression tests pinning them.
+
+---
+
 ## v6.1.0-alpha.10 — 2026-05-13 — Missions ↔ Command Post Issues unification
 
 > Borrowed from `awesome-agent-harness` (OpenAI Symphony pattern):
