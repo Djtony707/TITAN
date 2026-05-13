@@ -337,6 +337,16 @@ setInterval(() => {
 const MIN_PROBE_INTERVAL_MS = 30000; // 30s between probes
 const providerRateLimitCooldowns = new Map<string, number>(); // provider → timestamp of last rate-limit
 
+/**
+ * v6.0.4 — when a 429 carries a Retry-After hint longer than this, we skip
+ * the in-loop retry entirely and route to the fallback chain. Rationale:
+ * blocking a spawn for 60s+ to "respect" a single provider's cooldown means
+ * the user waits 60s for a response that another available model could
+ * have produced in 5s. The cooldown is still recorded so subsequent calls
+ * skip this provider during the cooldown window.
+ */
+const RETRY_AFTER_FALLBACK_THRESHOLD_MS = 15000;
+
 /** Record that a provider returned a rate-limit error */
 function recordRateLimitCooldown(providerName: string): void {
     providerRateLimitCooldowns.set(providerName, Date.now());
@@ -401,12 +411,20 @@ function recordSuccess(providerName: string): void {
 function recordFailure(providerName: string): void {
     const cb = getCircuitBreaker(providerName);
     const now = Date.now();
+
+    // v6.0.4 bug fix — window-reset logic was broken: the previous version
+    // assigned `cb.lastFailureTime = now` BEFORE checking whether the prior
+    // failure fell outside the monitoring window, so the comparison was
+    // always `now < (now - windowMs)` → false → failureCount monotonically
+    // incremented forever and the OPEN log line could say "13 failures" with
+    // a threshold of 8. Capture prev BEFORE overwriting.
+    const prevFailureTime = cb.lastFailureTime;
     cb.lastFailureTime = now;
 
-    // Only count failures within the monitoring window
     const windowStart = now - CIRCUIT_BREAKER_CONFIG.monitoringWindow;
-    if (cb.lastFailureTime && cb.lastFailureTime < windowStart) {
-        // Reset if outside monitoring window
+    if (!prevFailureTime || prevFailureTime < windowStart) {
+        // Prior failure was outside the window (or this is the first one) —
+        // start a fresh count.
         cb.failureCount = 1;
     } else {
         cb.failureCount++;
@@ -454,6 +472,18 @@ function canRequest(providerName: string, isFallbackProbe = false): boolean {
     // half-open: allow testing
     return true;
 }
+
+/**
+ * Test-only helpers. Exported under `__internal_` prefix so production
+ * callers don't reach for them. The retry-loop unit tests need to drive
+ * recordFailure / inspect breaker state directly.
+ */
+export const __internal_recordFailure = recordFailure;
+export const __internal_getCircuitBreaker = getCircuitBreaker;
+export const __internal_recordRateLimitCooldown = recordRateLimitCooldown;
+export const __internal_isInRateLimitCooldown = isInRateLimitCooldown;
+export const __internal_RETRY_AFTER_FALLBACK_THRESHOLD_MS = RETRY_AFTER_FALLBACK_THRESHOLD_MS;
+export const __internal_CIRCUIT_BREAKER_CONFIG = CIRCUIT_BREAKER_CONFIG;
 
 /**
  * Get circuit breaker status for all providers (for health dashboards).
@@ -827,6 +857,14 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
     let lastError: Error | null = null;
     const maxRetries = RETRY_CONFIG.maxRetries;
+    // v6.0.4 — when the retry loop is short-circuited by a long Retry-After,
+    // a rate-limit cooldown, or a mid-spawn breaker open, we route to the
+    // configured fallback chain. We do NOT want to ALSO run the automatic
+    // provider-failover scan (getFailoverOrder) — that double-dips, calls
+    // the same fallback provider twice, and inflates spend. The flag below
+    // gates the auto-failover so it only runs in its original intent: the
+    // first non-retryable failure where retries weren't even attempted.
+    let routedToFallbackImmediately = false;
 
     // Gap 1 (plan-this-logical-ocean): one-shot compression on CONTEXT_OVERFLOW.
     // The error taxonomy classifies overflows and sets `shouldCompress: true`,
@@ -974,36 +1012,90 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
             const errorMsg = createEnhancedErrorMessage(error as Error, providerName, model, attempt);
 
-            // Check if we should retry
-            if (classified.retryable && attempt < maxRetries) {
-                // Use taxonomy cooldown or calculate backoff, whichever is larger
-                let retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
-
-                // Hunt Finding #37 (2026-04-14): previous code tried
-                // `(error as Response)?.headers?.get?.('Retry-After')` which
-                // always returned undefined at runtime because the error is
-                // an Error object, not a Response. Retry-After headers were
-                // never actually respected. Providers now attach retryAfterMs
-                // to the thrown error via createProviderError().
-                const errWithHints = error as { retryAfterMs?: number | null; headers?: { get?(k: string): string | null } };
-                if (typeof errWithHints.retryAfterMs === 'number' && errWithHints.retryAfterMs > 0) {
-                    retryDelayMs = errWithHints.retryAfterMs;
-                    logger.info(COMPONENT, `[RateLimit] Respecting Retry-After: ${Math.round(retryDelayMs / 1000)}s`);
+            // Check if we should retry — v6.0.4 adds two escape hatches before
+            // the in-loop wait: (1) the primary's breaker opened mid-spawn,
+            // (2) the provider returned a Retry-After longer than
+            // RETRY_AFTER_FALLBACK_THRESHOLD_MS. Both route the spawn to the
+            // fallback chain instead of waiting on a single rate-limited
+            // provider. The error's `retryAfterMs` field is read directly
+            // (Hunt Finding #37 — no Response-cast hack).
+            // v6.0.4 — abort the retry loop early when the primary's breaker
+            // just opened mid-spawn. recordFailure() may have flipped the
+            // state to 'open' on THIS iteration; continuing to retry the
+            // primary while it's open just burns the rest of the maxRetries
+            // budget for no reason. Fall through to fallback chain instead.
+            const cbState = getCircuitBreaker(providerName).state;
+            if (cbState === 'open') {
+                logger.warn(
+                    COMPONENT,
+                    `[CircuitBreaker] ${providerName} opened mid-spawn at attempt ${attempt}/${maxRetries} — aborting retries, routing to fallback chain`,
+                );
+                // Fall through to the fallback chain / failover code below.
+            }
+            // v6.0.4 — long Retry-After: if the provider asked for a wait
+            // longer than RETRY_AFTER_FALLBACK_THRESHOLD_MS, skip retries
+            // entirely and fail over rather than blocking the spawn.
+            const errForRetryAfter = error as { retryAfterMs?: number | null };
+            const retryAfterHint = typeof errForRetryAfter.retryAfterMs === 'number' && errForRetryAfter.retryAfterMs > 0
+                ? errForRetryAfter.retryAfterMs
+                : 0;
+            const failOverImmediately = (
+                cbState === 'open'
+                || (classified.reason === FailoverReason.RATE_LIMIT && retryAfterHint >= RETRY_AFTER_FALLBACK_THRESHOLD_MS)
+            );
+            if (failOverImmediately && (classified.retryable || classified.shouldFallback)) {
+                if (retryAfterHint >= RETRY_AFTER_FALLBACK_THRESHOLD_MS) {
+                    logger.warn(
+                        COMPONENT,
+                        `[RateLimit] ${providerName}/${model} Retry-After=${Math.round(retryAfterHint / 1000)}s exceeds threshold ${Math.round(RETRY_AFTER_FALLBACK_THRESHOLD_MS / 1000)}s — routing to fallback chain instead of waiting`,
+                    );
+                }
+                routedToFallbackImmediately = true;
+                // Fall through past the retry block to fallback chain (auto-
+                // failover scan is gated below so we don't double-dip).
+            } else if (classified.retryable && attempt < maxRetries) {
+                // v6.0.4 — if this provider is in a rate-limit cooldown
+                // window (set by THIS spawn's earlier 429 or by an unrelated
+                // recent caller), skip the in-loop retry and let the
+                // fallback chain take over. Continuing to retry hammers
+                // the same rate-limited model for no upside.
+                if (isInRateLimitCooldown(providerName)) {
+                    logger.info(
+                        COMPONENT,
+                        `[RateLimit] ${providerName} still in cooldown window — aborting retries at attempt ${attempt}/${maxRetries}, routing to fallback chain`,
+                    );
+                    routedToFallbackImmediately = true;
+                    // Fall through to fallback chain (auto-failover gated below).
                 } else {
-                    // Back-compat: old-style error that happens to wrap a Response
-                    const retryAfter = errWithHints.headers?.get?.('Retry-After');
-                    if (retryAfter) {
-                        const parsed = parseRetryAfter(retryAfter);
-                        if (parsed !== null) {
-                            retryDelayMs = parsed;
-                            logger.info(COMPONENT, `[RateLimit] Respecting Retry-After (legacy): ${Math.round(retryDelayMs / 1000)}s`);
+                    // Use taxonomy cooldown or calculate backoff, whichever is larger
+                    let retryDelayMs = Math.max(classified.cooldownMs, calculateBackoffDelay(attempt));
+
+                    // Hunt Finding #37 (2026-04-14): previous code tried
+                    // `(error as Response)?.headers?.get?.('Retry-After')` which
+                    // always returned undefined at runtime because the error is
+                    // an Error object, not a Response. Retry-After headers were
+                    // never actually respected. Providers now attach retryAfterMs
+                    // to the thrown error via createProviderError().
+                    const errWithHints = error as { retryAfterMs?: number | null; headers?: { get?(k: string): string | null } };
+                    if (typeof errWithHints.retryAfterMs === 'number' && errWithHints.retryAfterMs > 0) {
+                        retryDelayMs = errWithHints.retryAfterMs;
+                        logger.info(COMPONENT, `[RateLimit] Respecting Retry-After: ${Math.round(retryDelayMs / 1000)}s`);
+                    } else {
+                        // Back-compat: old-style error that happens to wrap a Response
+                        const retryAfter = errWithHints.headers?.get?.('Retry-After');
+                        if (retryAfter) {
+                            const parsed = parseRetryAfter(retryAfter);
+                            if (parsed !== null) {
+                                retryDelayMs = parsed;
+                                logger.info(COMPONENT, `[RateLimit] Respecting Retry-After (legacy): ${Math.round(retryDelayMs / 1000)}s`);
+                            }
                         }
                     }
-                }
 
-                logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — retrying in ${Math.round(retryDelayMs)}ms`);
-                await sleep(retryDelayMs);
-                continue;
+                    logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — retrying in ${Math.round(retryDelayMs)}ms`);
+                    await sleep(retryDelayMs);
+                    continue;
+                }
             }
 
             // Not retryable or max retries exceeded
@@ -1038,8 +1130,11 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 }
             }
 
-            // Attempt failover to other providers (only on first failure, not after retries)
-            if (attempt === 0) {
+            // Attempt failover to other providers (only on first failure, not
+            // after retries). v6.0.4 — skip when we already routed to the
+            // configured fallback chain above; otherwise the same fallback
+            // provider gets called twice.
+            if (attempt === 0 && !routedToFallbackImmediately) {
                 const failoverOrder = getFailoverOrder(providerName);
                 for (const fallbackName of failoverOrder) {
                     if (fallbackName === providerName) continue;

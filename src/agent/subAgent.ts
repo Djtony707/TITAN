@@ -581,6 +581,19 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     let stallCount = 0;
     const STALL_THRESHOLD = 3;
     const LOOP_THRESHOLD = 2;
+    // v6.0.4 — hallucinated-tool fail-fast.
+    // When the model calls a tool name that isn't in the registry,
+    // executeTool() returns a structured error with the "is not a valid
+    // tool" prefix and a hint listing real tools. A capable model
+    // self-corrects on the next round. A weak / locally-quantized model
+    // can ignore the hint and keep calling hallucinated names with
+    // varying args (which slips past the exact-args loop detector).
+    // We count these per spawn and abort once the budget is exhausted —
+    // the spawn returns a structured "cannot use tool set" error instead
+    // of grinding through maxRounds calls that all 404 at validation.
+    const HALLUCINATED_TOOL_BUDGET = 2;
+    let hallucinatedToolCalls = 0;
+    const seenHallucinatedNames = new Set<string>();
 
     try {
         for (let round = 0; round < maxRounds; round++) {
@@ -656,6 +669,26 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 }
                 toolResults.push(result);
                 toolHistory.push({ name: result.name, args: tc.function.arguments || '{}', round });
+            }
+
+            // v6.0.4 — count hallucinated-tool failures separately. The
+            // validation error from executeTool() carries the literal prefix
+            // `Error: "<name>" is not a valid tool.` so we can detect it
+            // without coupling to a status code.
+            for (const r of toolResults) {
+                if (r.success === false && r.content.includes('is not a valid tool')) {
+                    hallucinatedToolCalls++;
+                    seenHallucinatedNames.add(r.name);
+                }
+            }
+            if (hallucinatedToolCalls >= HALLUCINATED_TOOL_BUDGET) {
+                const namesList = Array.from(seenHallucinatedNames).slice(0, 5).join(', ');
+                finalContent = `Error: specialist "${agentName}" (model ${model}) cannot use the available tool set — called ${hallucinatedToolCalls} hallucinated tool name(s) [${namesList}] in ${rounds} round(s). Consider re-routing to a stronger model or narrowing the task scope.`;
+                logger.warn(
+                    COMPONENT,
+                    `[${agentName}] Hallucinated-tool budget exhausted (${hallucinatedToolCalls}/${HALLUCINATED_TOOL_BUDGET}, names=${namesList}) — aborting at round ${rounds}`,
+                );
+                break;
             }
 
             // Phase 9: Graceful degradation — if every tool in a round fails, bail early

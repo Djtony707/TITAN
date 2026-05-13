@@ -205,7 +205,10 @@ describe('Fallback Chain Router Logic', () => {
         const openai = getProvider('openai');
 
         if (anthropic && openai) {
-            // Primary fails with rate limit on all retry attempts (maxRetries=4, so 5 total calls)
+            // Primary fails with rate limit (429) — v6.0.4 records the
+            // rate-limit cooldown on the FIRST 429 so subsequent retry
+            // iterations of the same provider abort and route to the
+            // fallback chain. The chain's first entry (openai) succeeds.
             const anthropicError = Object.assign(new Error('rate limit exceeded'), { status: 429 });
             vi.spyOn(anthropic, 'chat').mockRejectedValue(anthropicError);
             // First fallback succeeds
@@ -222,8 +225,12 @@ describe('Fallback Chain Router Logic', () => {
             });
 
             expect(result.content).toBe('Hello from fallback');
-            // Primary is retried 5 times (1 initial + 4 retries) before fallback
-            expect(anthropic.chat).toHaveBeenCalledTimes(5);
+            // v6.0.4 — pre-fix, the primary was retried 5× (1 + 4 retries)
+            // even after the first 429 made it clear the provider was
+            // rate-limited. We now fail over after the first 429 instead of
+            // burning 4 more rounds on the same locked-out provider. The
+            // fallback chain takes over after the single primary attempt.
+            expect(anthropic.chat).toHaveBeenCalledTimes(1);
             expect(openai.chat).toHaveBeenCalledTimes(1);
         }
     });

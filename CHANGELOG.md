@@ -5,6 +5,102 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.4 — 2026-05-13 — Router resilience: breaker counter, 429 amplification, hallucinated-tool budget
+
+> Three real bugs from a Titan PC log audit after v6.0.3 deployed —
+> not "upstream issues," not bandaids. Each one is TITAN itself doing
+> the wrong thing on top of a real provider hiccup, turning a 5-second
+> jitter into 30+ seconds of wasted budget.
+
+### Bug A — Circuit breaker counter never reset, overshoot OPEN threshold
+
+**Symptom.** OPEN log lines read `[CircuitBreaker] ollama/gemma4:31b
+circuit OPENED after 13 failures` despite `failureThreshold: 8`.
+
+**Root cause.** `recordFailure()` in `src/providers/router.ts` set
+`cb.lastFailureTime = now` BEFORE comparing the prior failure time to
+the monitoring window. The compare was therefore `now < (now -
+windowMs)` — always false — so the "reset count when window expired"
+branch never fired and `failureCount` monotonically grew.
+
+**Fix.** Capture `prevFailureTime` BEFORE overwriting, then compare
+that against `windowStart`. Counter now correctly seeds at 1 when the
+prior failure fell outside the monitoring window.
+
+### Bug B — 429 retry amplification: locked onto rate-limited provider
+
+**Symptom.** Logs showed the same Ollama Cloud model getting hammered
+with 4 retries after each 429 even when other providers were idle and
+healthy. Total wall-clock burn: ~30s per spawn waiting on a model
+already telling us "go away."
+
+**Root cause.** Three issues stacked:
+1. `recordRateLimitCooldown()` was only consulted for *fallback*
+   probes, not for primary retries. So the primary's retry loop kept
+   slamming the rate-limited provider despite cooldown being recorded.
+2. No early-out for long `Retry-After` hints. A provider asking for a
+   60-second pause meant the spawn waited 60s × 4 retries before
+   trying anything else.
+3. The breaker could OPEN mid-spawn (failure 8 of an 8-threshold
+   window), but the retry loop wouldn't notice and continued for the
+   remaining attempts.
+
+**Fix.** New `RETRY_AFTER_FALLBACK_THRESHOLD_MS = 15_000`. In the
+retry loop:
+- After classification, if the primary's breaker just opened OR the
+  `retryAfterMs` hint exceeds the threshold, route immediately to the
+  configured fallback chain.
+- Otherwise, before sleeping, check `isInRateLimitCooldown(primary)`
+  — if active, abort retries and route to fallback chain.
+- Mark `routedToFallbackImmediately = true` in any of these cases and
+  gate the auto-`getFailoverOrder` block on it so the same fallback
+  provider isn't dialed twice (fallback chain + provider failover both
+  used to run on `attempt === 0`).
+
+### Bug C — Hallucinated-tool loop in sub-agents
+
+**Symptom.** Sub-agent log: `[sage] Output failed validation: "Error:
+All 1 tool(s) failed in round 6. ls: Error: "ls" is not a valid tool."`
+A weak quantized model called `ls` (not a registered tool) in multiple
+rounds with varying args, slipping past the exact-args loop detector
+and burning the full `maxRounds` budget.
+
+**Root cause.** Two existing guards weren't sufficient:
+- `allToolsFailed` only bails if EVERY tool in a round fails. A model
+  calling `read_file` (real) + `ls` (hallucinated) in the same round
+  has `allToolsFailed = false` and slips through.
+- The loop detector matches `last.name === prev.name &&
+  last.args === prev.args`. A model calling `ls .` then `ls /` then
+  `ls /tmp` slips past — different args.
+
+**Fix.** New per-spawn counter `hallucinatedToolCalls` plus a budget
+constant `HALLUCINATED_TOOL_BUDGET = 2`. Each round, every tool result
+whose content starts with the `"... is not a valid tool"` validation
+prefix increments the counter. At budget exhaustion the spawn aborts
+with a structured error naming the model + the hallucinated names,
+instead of grinding through the remaining rounds.
+
+### Tests
+
+`tests/v604-fixes.test.ts` (8 cases) covers:
+- Window-reset: counter stays at 1 when the prior failure was older
+  than the monitoring window; accumulates correctly when it wasn't;
+  trips OPEN exactly at threshold (not 13).
+- Cooldown surface + threshold-constant sanity check (>=10s, <=60s).
+- Hallucinated-tool budget: a mixed real+hallucinated round increments
+  the counter without aborting; two such rounds in a row aborts with
+  the new structured message; a single valid+hallucinated round
+  followed by a clean exit returns normally.
+
+`tests/fallback-chain.test.ts` — one assertion updated: the "retried
+5× before fallback" expectation was encoding the v6.0.3 bug. The new
+expectation reflects v6.0.4 behavior (primary tried once, then route
+to fallback chain on first 429).
+
+Full suite: 292 files / 7107 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.0.3 — 2026-05-12 — Autonomy gates: approval-as-text, self-repair runaway, block recurrence
 
 > Three production bugs caught from a second log check on Titan PC after
