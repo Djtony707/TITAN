@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '6.1.0-alpha.3';
+export const TITAN_VERSION = '6.1.0-alpha.4';
 export const TITAN_CODENAME = 'Living Canvas';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';

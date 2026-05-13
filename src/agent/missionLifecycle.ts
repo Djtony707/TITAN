@@ -93,6 +93,19 @@ function ensureGlobalBusBridge(): void {
                         : [];
                     const actions = toolsUsed.map(t => ({ name: 'used', detail: t }));
                     const status = typeof data.status === 'string' ? data.status : 'done';
+                    // v6.1.0-alpha.4 — pass the rich context as the message
+                    // `meta` field. The chat UI hides it by default and
+                    // surfaces it when the user clicks the bubble — keeps
+                    // the thread readable while making "what actually
+                    // happened here" one tap away.
+                    const meta = {
+                        subtaskTitle: typeof data.subtaskTitle === 'string' ? data.subtaskTitle : undefined,
+                        status,
+                        durationMs: typeof data.durationMs === 'number' ? data.durationMs : undefined,
+                        tokensUsed: typeof data.tokensUsed === 'number' ? data.tokensUsed : undefined,
+                        costUsd: typeof data.costUsd === 'number' ? data.costUsd : undefined,
+                        model: typeof data.model === 'string' ? data.model : undefined,
+                    };
                     // v6.1.0-alpha.1 — every agent_done emits SOMETHING into
                     // the chat. The pre-fix path returned nothing when
                     // `reasoning` was empty, which is common on cloud
@@ -100,13 +113,14 @@ function ensureGlobalBusBridge(): void {
                     // reasoning field is empty because the *artifact* is
                     // the value). The chat shouldn't go silent.
                     if (reasoning) {
-                        postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined);
+                        postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined, meta);
                     } else if (status === 'failed') {
                         postAgentMessage(
                             mission.id,
                             agentId,
                             `I ran into trouble on this one and couldn't finish — handing back to the team.`,
                             actions.length > 0 ? actions : undefined,
+                            meta,
                         );
                     } else if (status === 'needs_info' || status === 'blocked') {
                         postAgentMessage(
@@ -114,6 +128,7 @@ function ensureGlobalBusBridge(): void {
                             agentId,
                             `I have a quick question before I can finish — see below.`,
                             actions.length > 0 ? actions : undefined,
+                            meta,
                         );
                     } else {
                         // status === 'done' with empty reasoning. Common with
@@ -122,7 +137,7 @@ function ensureGlobalBusBridge(): void {
                         const summary = toolsUsed.length > 0
                             ? `Done — used ${toolsUsed.slice(0, 3).join(', ')}.`
                             : `Done.`;
-                        postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined);
+                        postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined, meta);
                     }
                     setMemberState(mission.id, agentId, 'idle', undefined);
                     const tokens = typeof data.tokensUsed === 'number' ? data.tokensUsed : 0;
