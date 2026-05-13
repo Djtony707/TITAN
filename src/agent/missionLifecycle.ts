@@ -28,11 +28,14 @@ import {
     setMemberState,
     setStatus,
     raiseQuestion,
-    updateArtifact,
     recordCost,
+    ensureMember,
+    getMissionByGoalId,
+    setLinkedGoal,
     type MissionRoom,
     type MissionStatus,
 } from './missionRoom.js';
+import { onAgentEvent, type AgentEvent } from './agentEvents.js';
 
 const COMPONENT = 'MissionLifecycle';
 
@@ -40,10 +43,88 @@ const COMPONENT = 'MissionLifecycle';
 // these subscriptions so the bus doesn't leak listeners.
 const lifecycles = new Map<string, Array<() => void>>();
 
+/**
+ * v6.1.0-alpha.1 — a SINGLE global subscription to the shared
+ * agentEvents bus. Every mission piggybacks off this; we filter by
+ * goalId at dispatch time. This is much cheaper than N per-mission
+ * subscriptions (which is what alpha.0's broken bridge attempted) and
+ * survives the case where the goal driver routes to a specialist that
+ * isn't on the predicted Plays team — we add them dynamically.
+ */
+let globalBusUnsub: (() => void) | null = null;
+function ensureGlobalBusBridge(): void {
+    if (globalBusUnsub) return;
+    globalBusUnsub = onAgentEvent((ev: AgentEvent) => {
+        // The goalDriver-emitted events carry data.goalId; events from
+        // ad-hoc spawns (CLI, channels) don't, and we silently ignore
+        // those — they aren't part of a mission.
+        const data = ev.data ?? {};
+        const goalId = typeof data.goalId === 'string' ? data.goalId : undefined;
+        if (!goalId) return;
+        const mission = getMissionByGoalId(goalId);
+        if (!mission) return;
+        const agentId = (ev.agentId ?? ev.agentName ?? '').toLowerCase();
+        if (!agentId) return;
+        try {
+            switch (ev.type) {
+                case 'agent_spawn': {
+                    ensureMember(mission.id, agentId);
+                    const subtaskTitle = typeof data.subtaskTitle === 'string' ? data.subtaskTitle : 'something';
+                    setMemberState(mission.id, agentId, 'working', shortenActivity(subtaskTitle));
+                    break;
+                }
+                case 'tool_call': {
+                    const name = typeof data.name === 'string' ? data.name : 'tool';
+                    setMemberState(mission.id, agentId, 'working', shortenActivity(`running ${name}`));
+                    break;
+                }
+                case 'tool_end': {
+                    // Don't transition state — the next tool_call or agent_done
+                    // will overwrite. Just no-op (avoids flicker).
+                    break;
+                }
+                case 'agent_done': {
+                    ensureMember(mission.id, agentId);
+                    const reasoning = typeof data.reasoning === 'string' && data.reasoning.trim().length > 0
+                        ? data.reasoning.trim()
+                        : null;
+                    const toolsUsed = Array.isArray(data.toolsUsed)
+                        ? (data.toolsUsed as string[]).slice(0, 6)
+                        : [];
+                    const actions = toolsUsed.map(t => ({ name: 'used', detail: t }));
+                    if (reasoning) {
+                        postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined);
+                    } else if (data.status === 'failed') {
+                        postAgentMessage(
+                            mission.id,
+                            agentId,
+                            `I ran into trouble on this one and couldn't finish — handing back to the team.`,
+                            actions.length > 0 ? actions : undefined,
+                        );
+                    }
+                    setMemberState(mission.id, agentId, 'idle', undefined);
+                    const tokens = typeof data.tokensUsed === 'number' ? data.tokensUsed : 0;
+                    const cost = typeof data.costUsd === 'number' ? data.costUsd : 0;
+                    if (tokens > 0 || cost > 0) {
+                        recordCost(mission.id, tokens, cost);
+                    }
+                    break;
+                }
+            }
+        } catch (err) {
+            logger.debug(COMPONENT, `Bridge dispatch threw for ${mission.id}/${ev.type}: ${(err as Error).message}`);
+        }
+    });
+    logger.info(COMPONENT, 'Global agent-event bridge attached (goalId → mission room dispatch)');
+}
+
 /** The wire that the gateway / missions router calls when a mission is
  *  created. Returns the linked goal id. */
 export async function startMissionWork(mission: MissionRoom): Promise<string | null> {
     try {
+        // Make sure the global event bridge is alive. Idempotent.
+        ensureGlobalBusBridge();
+
         // Tag the goal with the mission + play id so message-bus event
         // bridges can filter "which mission did this belong to."
         const goal = createGoal({
@@ -54,19 +135,27 @@ export async function startMissionWork(mission: MissionRoom): Promise<string | n
                 mission.playId ? `play:${mission.playId}` : 'play:generic',
             ],
         });
+        // v6.1.0-alpha.1 — link the goal id INSIDE startMissionWork so any
+        // event the goal driver fires (even before the missions router gets
+        // back to set it) can resolve the mission via getMissionByGoalId.
+        // The router's redundant setLinkedGoal call is now a no-op safety
+        // net rather than the source of truth.
+        setLinkedGoal(mission.id, goal.id);
         logger.info(COMPONENT, `Mission ${mission.id} linked to goal ${goal.id} (play=${mission.playId})`);
 
-        // Set every team member to working so the team strip lights up
-        // immediately. As the goal driver picks subtasks for real
-        // specialists, the message bus bridge below will narrow each
-        // member's `currentActivity` to what they're really doing.
+        // Mark every Plays-predicted member as "ready" so the team strip
+        // lights up immediately. The goal driver routes for real, and the
+        // global bridge will narrow each member's `currentActivity` (and
+        // ADD new members if the driver picks specialists Plays didn't
+        // predict).
         for (const member of mission.team) {
-            setMemberState(mission.id, member.agentId, 'working', 'getting ready');
+            setMemberState(mission.id, member.agentId, 'idle', 'standing by');
         }
 
-        // Wire the agent message bus → mission room bridge for THIS mission.
+        // The approval bridge stays per-mission for now — most approval
+        // payloads don't carry goalId in a uniform way, so we register a
+        // listener scoped to the goal id we just created.
         const cleanups: Array<() => void> = [];
-        cleanups.push(await wireAgentBusBridge(mission.id, mission.team.map(t => t.agentId)));
         cleanups.push(await wireApprovalBridge(mission.id, goal.id));
         lifecycles.set(mission.id, cleanups);
 
@@ -136,64 +225,6 @@ export function teardownMissionWork(missionId: string): void {
 
 // ── Bridges ────────────────────────────────────────────────────────
 
-/** Subscribe to the agent event bus so specialist output becomes chat
- *  messages in the mission room. Returns an unsubscribe. */
-async function wireAgentBusBridge(missionId: string, expectedAgentIds: string[]): Promise<() => void> {
-    let unsubscribe: () => void = () => { /* default no-op */ };
-    try {
-        // We import the existing sub-agent bus lazily; the gateway uses
-        // it to broadcast specialist progress events for the dashboard.
-        // We attach the same way, but filter to OUR mission's specialists
-        // and route their outputs to postAgentMessage.
-        const mod = await import('./subAgent.js') as unknown as {
-            onSubAgentEvent?: (handler: (ev: SubAgentBusEvent) => void) => () => void;
-        };
-        if (typeof mod.onSubAgentEvent !== 'function') {
-            return unsubscribe;
-        }
-        const known = new Set(expectedAgentIds);
-        unsubscribe = mod.onSubAgentEvent((ev: SubAgentBusEvent) => {
-            // Filter: only events from agents on THIS mission's team.
-            const agentId = (ev.agentId ?? '').toLowerCase();
-            if (!known.has(agentId)) return;
-            switch (ev.type) {
-                case 'agent_start':
-                    setMemberState(missionId, agentId, 'working', shortenActivity(ev.task));
-                    break;
-                case 'agent_progress':
-                    if (ev.message) {
-                        setMemberState(missionId, agentId, 'working', shortenActivity(ev.message));
-                    }
-                    break;
-                case 'agent_message':
-                    if (ev.content) {
-                        postAgentMessage(missionId, agentId, ev.content, ev.actions);
-                    }
-                    break;
-                case 'artifact_chunk':
-                    if (typeof ev.content === 'string' && ev.content.length > 0) {
-                        // Caller passes the FULL latest content (caller knows
-                        // the artifact format, not us). We snapshot + diff
-                        // inside updateArtifact.
-                        updateArtifact(missionId, agentId, ev.content, ev.summary ?? 'updated');
-                    }
-                    break;
-                case 'cost':
-                    if (typeof ev.tokens === 'number' && typeof ev.usd === 'number') {
-                        recordCost(missionId, ev.tokens, ev.usd);
-                    }
-                    break;
-                case 'agent_done':
-                    setMemberState(missionId, agentId, 'idle', undefined);
-                    break;
-            }
-        });
-    } catch (err) {
-        logger.debug(COMPONENT, `Agent bus bridge unavailable: ${(err as Error).message}`);
-    }
-    return unsubscribe;
-}
-
 /** Subscribe to the Command Post approval queue and translate any
  *  approval filed against this mission's goal into an inline question
  *  message. */
@@ -229,23 +260,11 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
     return unsubscribe;
 }
 
-// ── Types shared with the subAgent / commandPost modules ──────────
+// ── Types shared with the commandPost module ───────────────────────
 //
-// We don't import their full types here because that would couple the
-// mission lifecycle to internal shapes the rest of the codebase might
-// reshape. We declare a minimal surface and rely on duck-typing.
-
-interface SubAgentBusEvent {
-    type: 'agent_start' | 'agent_progress' | 'agent_message' | 'artifact_chunk' | 'cost' | 'agent_done';
-    agentId?: string;
-    task?: string;
-    message?: string;
-    content?: string;
-    summary?: string;
-    actions?: { name: string; detail?: string }[];
-    tokens?: number;
-    usd?: number;
-}
+// We don't import the full CPApproval shape because that would couple
+// the mission lifecycle to internal commandPost types that may reshape.
+// Duck-type only what we need.
 
 interface CPApprovalLike {
     id: string;
