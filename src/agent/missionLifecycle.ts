@@ -198,14 +198,28 @@ export async function handleUserMessage(missionId: string, content: string): Pro
     // specialist is "current" — broadcast to every registered member's
     // mailbox so whichever one is in-flight picks the note up at the
     // start of its next round. Mailbox names match the specialist ids.
+    //
+    // v6.1.0-alpha.1 — only dispatch to mailboxes that are actually
+    // REGISTERED right now. Specialists register their mailbox at spawn
+    // time and unregister when done. If no team member is mid-spawn,
+    // there's no mailbox to deliver to — that's fine, the user's note
+    // is already in the chat thread and the goal driver will see it
+    // when it next decides which subtask to schedule. Sending to an
+    // unregistered mailbox would emit a noisy warn for every team
+    // member every time.
     try {
-        const { sendMessage } = await import('./messageBus.js');
+        const { sendMessage, hasMailbox } = await import('./messageBus.js');
         const { getMission } = await import('./missionRoom.js');
         const room = getMission(missionId);
         const recipients = room?.team.map(t => t.agentId) ?? [];
+        let delivered = 0;
         for (const to of recipients) {
-            // sendMessage(from, to, content, opts?)
-            sendMessage('user', to, content, { priority: 'urgent' });
+            if (!hasMailbox(to)) continue; // skip non-registered to avoid noisy warns
+            const result = sendMessage('user', to, content, { priority: 'urgent' });
+            if (result) delivered++;
+        }
+        if (delivered === 0) {
+            logger.debug(COMPONENT, `User message recorded in chat; no specialist mailboxes were live to receive it (team will pick up at next subtask).`);
         }
     } catch (err) {
         logger.debug(COMPONENT, `messageBus dispatch skipped: ${(err as Error).message}`);
