@@ -307,6 +307,81 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         expect(sys?.content).toMatch(/3 retry/);
     });
 
+    it('agent_done passes spawn artifacts through as message.sources (URLs visited, files written)', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({
+            goal: 'Sources passthrough test.',
+            members: [{ agentId: 'scout', name: 'Scout' }],
+        });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'scout',
+            timestamp: Date.now(),
+            data: {
+                goalId: realGoalId,
+                status: 'done',
+                reasoning: 'Found three articles on the topic.',
+                toolsUsed: ['web_search', 'web_fetch'],
+                artifacts: [
+                    { type: 'url', ref: 'https://example.com/article-1', description: 'How AI helps in the real world' },
+                    { type: 'url', ref: 'https://example.com/article-2' },
+                    { type: 'file', ref: '/tmp/notes.md' },
+                    { type: 'fact', ref: 'sky-is-blue-on-earth' },
+                ],
+            },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as {
+            content: string;
+            sources?: Array<{ type: string; ref: string; description?: string }>;
+        } | undefined;
+        expect(msg).toBeDefined();
+        expect(msg!.sources).toBeDefined();
+        expect(msg!.sources).toHaveLength(4);
+        const urlOne = msg!.sources!.find(s => s.ref === 'https://example.com/article-1');
+        expect(urlOne?.type).toBe('url');
+        expect(urlOne?.description).toBe('How AI helps in the real world');
+        const file = msg!.sources!.find(s => s.type === 'file');
+        expect(file?.ref).toBe('/tmp/notes.md');
+    });
+
+    it('agent_done with malformed artifact entries drops them silently (no crash, no bad sources)', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({
+            goal: 'Malformed artifacts test.',
+            members: [{ agentId: 'scout', name: 'Scout' }],
+        });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'scout',
+            timestamp: Date.now(),
+            data: {
+                goalId: realGoalId,
+                status: 'done',
+                reasoning: 'done',
+                artifacts: [
+                    { type: 'url', ref: 'https://good.example.com' },         // valid
+                    { type: 'made-up-type', ref: 'whatever' },                 // dropped: unknown type
+                    { type: 'url' },                                           // dropped: no ref
+                    { type: 'file', ref: 'ok.txt' },                          // valid
+                    null,                                                       // dropped: null entry
+                ],
+            },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as { sources?: Array<{ ref: string }> } | undefined;
+        expect(msg!.sources).toHaveLength(2);
+        expect(msg!.sources!.map(s => s.ref)).toEqual(['https://good.example.com', 'ok.txt']);
+    });
+
     it('agent_done passes meta (subtask, duration, tokens, cost, model) onto the chat message', async () => {
         const { createMission, getMission } = await import('../src/agent/missionRoom.js');
         const { startMissionWork } = await import('../src/agent/missionLifecycle.js');

@@ -96,6 +96,30 @@ function ensureGlobalBusBridge(): void {
                     const rawReasoning = typeof data.reasoning === 'string' && data.reasoning.trim().length > 0
                         ? data.reasoning.trim()
                         : null;
+                    // v6.1.0-alpha.12 — pluck the specialist's concrete
+                    // artifacts (URLs visited, files written, facts
+                    // memorized) so the chat can render them as clickable
+                    // sources. Pre-alpha.12 these were silently discarded —
+                    // a "Successfully researched" reasoning summary made it
+                    // to chat but the actual URLs/files behind it did not,
+                    // so the user couldn't follow up on anything.
+                    const sources: Array<{ type: 'url' | 'file' | 'fact' | 'report'; ref: string; description?: string }> = [];
+                    if (Array.isArray(data.artifacts)) {
+                        for (const raw of data.artifacts) {
+                            if (!raw || typeof raw !== 'object') continue; // skip null/undefined/primitive
+                            const a = raw as Record<string, unknown>;
+                            const t = typeof a.type === 'string' ? a.type : '';
+                            const ref = typeof a.ref === 'string' ? a.ref : '';
+                            if (!ref) continue;
+                            if (t !== 'url' && t !== 'file' && t !== 'fact' && t !== 'report') continue;
+                            sources.push({
+                                type: t as 'url' | 'file' | 'fact' | 'report',
+                                ref,
+                                description: typeof a.description === 'string' ? a.description : undefined,
+                            });
+                            if (sources.length >= 12) break;
+                        }
+                    }
                     // v6.1.0-alpha.7 — scrub internal-error stack traces.
                     // When a spawn fails, the `reasoning` field can be the
                     // raw error chain: "Parser could not extract JSON...
@@ -139,8 +163,11 @@ function ensureGlobalBusBridge(): void {
                     // specialists that return JSON-only responses (their
                     // reasoning field is empty because the *artifact* is
                     // the value). The chat shouldn't go silent.
+                    // v6.1.0-alpha.12 — also pass `sources` so URLs +
+                    // files the specialist worked with render clickably.
+                    const sourcesArg = sources.length > 0 ? sources : undefined;
                     if (reasoning) {
-                        postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined, meta);
+                        postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined, meta, sourcesArg);
                     } else if (status === 'failed') {
                         postAgentMessage(
                             mission.id,
@@ -148,6 +175,7 @@ function ensureGlobalBusBridge(): void {
                             `I ran into trouble on this one and couldn't finish — handing back to the team.`,
                             actions.length > 0 ? actions : undefined,
                             meta,
+                            sourcesArg,
                         );
                     } else if (status === 'needs_info' || status === 'blocked') {
                         postAgentMessage(
@@ -156,6 +184,7 @@ function ensureGlobalBusBridge(): void {
                             `I have a quick question before I can finish — see below.`,
                             actions.length > 0 ? actions : undefined,
                             meta,
+                            sourcesArg,
                         );
                     } else {
                         // status === 'done' with empty reasoning. Common with
@@ -164,7 +193,7 @@ function ensureGlobalBusBridge(): void {
                         const summary = toolsUsed.length > 0
                             ? `Done — used ${toolsUsed.slice(0, 3).join(', ')}.`
                             : `Done.`;
-                        postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined, meta);
+                        postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined, meta, sourcesArg);
                     }
                     setMemberState(mission.id, agentId, 'idle', undefined);
                     const tokens = typeof data.tokensUsed === 'number' ? data.tokensUsed : 0;

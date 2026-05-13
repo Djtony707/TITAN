@@ -38,6 +38,11 @@ export type MissionMessage =
         model?: string;
         failureDetail?: string;
       };
+      sources?: Array<{
+        type: 'url' | 'file' | 'fact' | 'report';
+        ref: string;
+        description?: string;
+      }>;
     }
   | { id: string; at: string; kind: 'system'; content: string; tag?: string }
   | {

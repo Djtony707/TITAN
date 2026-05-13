@@ -5,6 +5,90 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.12 — 2026-05-13 — UI: hooks-order fix + research links actually clickable
+
+> Two visible problems Tony hit on a fresh mission. The canvas view
+> crashed with `Minified React error #310`. And after the research
+> mission completed, there was no way to see what the team actually
+> found — Scout said "researched from multiple authoritative sources"
+> but the URLs / files behind that summary went nowhere on screen.
+
+### Bug A — React error #310 in MissionCanvas
+
+**Root cause.** `useMemo(openQuestion, …)` lived AFTER the
+`if (loading) return …` / `if (error || !room) return …` early
+return blocks. First render with `loading=true` returned before
+the `useMemo` ran. The second render (data arrived) reached the
+`useMemo`. **Different hook counts across renders → React refuses**
+to reconcile and crashes the tree.
+
+**Fix.** Moved both `useMemo`s (openQuestion + positions) ABOVE the
+early-return blocks. They gate on `room ?? null` internally so
+calling them with no data is safe. The early returns now only
+choose what to render, never how many hooks ran.
+
+### Bug B — "I can't see what they found"
+
+The completed research mission's artifact was empty (0 words) and
+Scout's reasoning was a *summary* of work done, not the work itself.
+Each spawn returns a `StructuredSpawnResult` with an `artifacts`
+array (URL-type entries for pages visited, file-type for files
+written, etc.) — but the bridge in `missionLifecycle.ts` was
+**dropping that array on the floor**. The URLs Scout fetched never
+made it to the chat.
+
+**Fix in three layers:**
+
+1. **Backend schema** — `AgentMessage` gains an optional `sources`
+   field: `Array<{ type: 'url' | 'file' | 'fact' | 'report'; ref: string; description?: string }>`.
+   `postAgentMessage(…, sources?)` accepts it.
+
+2. **Bridge passthrough** — the `agent_done` handler now extracts
+   `data.artifacts`, validates each entry (skips null / unknown
+   type / missing ref), caps at 12 sources per message, and passes
+   them to every `postAgentMessage` call (success, failed,
+   needs_info, empty-reasoning paths all preserve sources).
+
+3. **UI renderer** — new shared `RichMessageBody` component in
+   `ui/src/pages/mission/RichMessageBody.tsx` does two things:
+   - Auto-linkifies any `https?://…` URL found inline in the
+     message text. Trims the display (`example.com/path?a…`)
+     while preserving the full URL in `href`. Opens in a new tab
+     with `rel="noopener noreferrer"`.
+   - Renders the `sources[]` array as a clean **Sources** section
+     below the text: URL sources as clickable rows with the
+     description (or pretty-trimmed URL); file / fact / report
+     sources as labelled chips (📄 / 💡 / 📊).
+   - De-duplicates URLs that already appear inline in the text so
+     the Sources section doesn't repeat them.
+   - Used by `MissionChat`'s agent bubbles; the canvas pods don't
+     surface full reasoning so they aren't affected.
+
+`stopPropagation()` on link clicks so opening a source doesn't
+also toggle the message's click-to-expand details panel.
+
+### Tests
+
+`tests/v610-alpha1-bridge.test.ts` gains 2 cases (now 18/18):
+- Well-formed artifacts (url + url-with-description + file + fact)
+  → message has 4 sources with the right type/ref/description on each.
+- Malformed entries (unknown type, missing ref, null entry) →
+  silently dropped, no crash, only valid entries survive.
+
+Full suite: 298 files / 7191 tests pass / 1 skipped / 0 failing.
+
+### What you'll see on the next research mission
+
+- Scout's message rendering with the URLs it visited as **clickable
+  blue links** in a "Sources" section under its reasoning.
+- File chips for any documents written (📄), facts memorized (💡),
+  reports generated (📊).
+- Plain URLs inside the message text auto-linkified.
+- The canvas view actually loads instead of throwing the React
+  error.
+
+---
+
 ## v6.1.0-alpha.11 — 2026-05-13 — Worktree-isolation spike (allocator + scoped writes)
 
 > Borrowed from `awesome-agent-harness` (Superset, Agent Orchestrator,

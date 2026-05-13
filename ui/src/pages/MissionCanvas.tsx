@@ -95,6 +95,25 @@ export default function MissionCanvas() {
     try { await setMissionStatus(room.id, next); } catch (err) { setError((err as Error).message); }
   }, [room]);
 
+  // v6.1.0-alpha.12 — Hook ordering: every hook (useMemo included) MUST
+  // run on every render, even the loading/error renders. Previously
+  // these `useMemo`s lived AFTER the early-return blocks below, which
+  // triggered React error #310 ("Rendered more hooks than during the
+  // previous render"): the first render returned early before reaching
+  // the useMemo, then a later render with `room` populated tried to
+  // call it. Pull them up here, gate the body on `room?.…` so they're
+  // safe with no data, and the early-return blocks below stay purely
+  // for output choice — never for hook count.
+  const openQuestion = useMemo(() => {
+    if (!room) return undefined;
+    const reversed = [...room.messages].reverse();
+    return reversed.find(
+      m => m.kind === 'question' && !(m as Extract<MissionMessage, { kind: 'question' }>).answer,
+    ) as Extract<MissionMessage, { kind: 'question' }> | undefined;
+  }, [room]);
+
+  const positions = useMemo(() => (room ? layoutTeam(room.team) : []), [room]);
+
   if (loading) {
     return <div className="fixed inset-0 flex items-center justify-center bg-bg-deep text-text-muted text-sm">Loading mission…</div>;
   }
@@ -108,15 +127,6 @@ export default function MissionCanvas() {
   }
 
   const { working, blocked } = countTeam(room);
-  // Find the most recent OPEN question for the floating speech bubble.
-  const openQuestion = useMemo(() => {
-    const reversed = [...room.messages].reverse();
-    return reversed.find(
-      m => m.kind === 'question' && !(m as Extract<MissionMessage, { kind: 'question' }>).answer,
-    ) as Extract<MissionMessage, { kind: 'question' }> | undefined;
-  }, [room.messages]);
-
-  const positions = layoutTeam(room.team);
 
   return (
     <div className="fixed inset-0 bg-bg-deep text-text overflow-hidden font-sans">
