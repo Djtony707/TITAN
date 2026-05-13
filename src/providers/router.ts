@@ -1098,9 +1098,19 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                 }
             }
 
-            // Not retryable or max retries exceeded
+            // Not retryable or max retries exceeded.
+            // v6.1.0-alpha.1 — when we routed to the fallback chain via the
+            // v6.0.4 fast-fail (cooldown active, breaker open, long
+            // Retry-After), the loop didn't actually exhaust retries. Logging
+            // "max retries (4) exceeded" in that case was misleading and
+            // made it look like the v6.0.4 fix wasn't working when it was.
+            // Disambiguate the log message — and drop severity to warn for
+            // the routed-fast path, since the spawn isn't broken, just
+            // routed.
             if (!classified.retryable) {
                 logger.error(COMPONENT, `${errorMsg} — not retryable [${classified.reason}] (${classified.httpStatus ? `HTTP ${classified.httpStatus}` : 'unknown error'})`);
+            } else if (routedToFallbackImmediately) {
+                logger.warn(COMPONENT, `${errorMsg} [${classified.reason}] — routed to fallback chain on first failure (v6.0.4 fast-fail path).`);
             } else {
                 logger.error(COMPONENT, `${errorMsg} — max retries (${maxRetries}) exceeded [${classified.reason}]`);
             }

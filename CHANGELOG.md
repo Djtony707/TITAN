@@ -5,6 +5,51 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.2 — 2026-05-13 — Log noise + MessageBus polish
+
+> Two cosmetic-but-confusing issues caught from a log audit after
+> alpha.1 deployed. Neither breaks anything; both made the logs lie
+> about what was happening.
+
+### Issue 1 — "max retries (4) exceeded" lied when v6.0.4 fast-failed
+
+The v6.0.4 retry-amplification fix routes the spawn to the fallback
+chain on the first 429 (when cooldown is already recorded or the
+breaker just opened). But `router.ts` was still logging `ERROR: max
+retries (4) exceeded` in that case — making it look like the fix
+wasn't working when it was. Confirmed by 7-8s cadence in error
+spacing (would be 30s if retries were actually being exhausted).
+
+Fix: disambiguate the log message. When the loop short-circuited
+via `routedToFallbackImmediately`, log a clearer WARN:
+`"…[rate_limit] — routed to fallback chain on first failure (v6.0.4
+fast-fail path)."`. The actual "max retries exceeded" ERROR now only
+fires when retries were genuinely exhausted.
+
+### Issue 2 — MessageBus warns from mission user-message path
+
+`missionLifecycle.handleUserMessage` tried to deliver a user note to
+every team-member mailbox. Mailboxes only exist while a specialist is
+mid-spawn — between spawns, `sendMessage` correctly warned "Cannot
+send to scout: mailbox not registered" for every recipient on every
+user note.
+
+Fix: check `hasMailbox(id)` before sending. Silently skip recipients
+without a live mailbox. The user's note is already recorded in the
+chat thread; if no specialist is in-flight, the next subtask
+scheduling pass will pick it up. One debug-level log per dispatch
+batch if nothing got delivered.
+
+### Out-of-scope but flagged
+
+GEPA's evolution loop continues calling its preferred auxiliary model
+even when its circuit breaker is open, producing 15+ "Mutation
+failed: Circuit breaker OPEN" lines per window. Breaker correctly
+cuts the requests so load isn't amplified — but the log noise is
+real and the CPU wasted. Spawned as a separate task.
+
+---
+
 ## v6.1.0-alpha.1 — 2026-05-13 — Mission Chat: bridge actually wired (was silently no-op)
 
 > Caught the moment Tony ran the first real mission on alpha.0. The
