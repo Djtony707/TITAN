@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.9 — 2026-05-13 — Anti-rationalization scaffolding in specialist prompts
+
+> Borrowed from `addyosmani/agent-skills`: each skill pairs common
+> "skip-this-step" excuses with rebuttals and a "Red flag" line
+> marking dangerous shortcuts. Folded the same pattern into each
+> TITAN specialist's system prompt with role-specific content.
+
+### What changed
+
+Each specialist in `src/agent/specialists.ts` now carries a
+`── BEFORE YOU … ──` block tailored to its failure modes:
+
+- **Scout — "Before you claim a fact"**: cite the source URL,
+  re-check old pages on fast-moving topics, confirm multiple sources
+  aren't all citing the same original. Red flag: returning facts
+  without `web_fetch` / `web_search`.
+- **Builder — "Before you call it done"**: actually run the code
+  (read stdout/stderr, not just exit code), confirm tests cover the
+  change, types ≠ logic verification, re-read written files after
+  edit. Red flag: write_file without a follow-up smoke test.
+- **Writer — "Before you ship a draft"**: match THEIR voice not
+  yours, tone over grammar, reader-expected length over your
+  default brevity, read the hook cold. Red flag: not re-reading the
+  draft as the recipient.
+- **Analyst — "Before you report a number"**: show your math,
+  name the threshold for "obvious", state the window for
+  aggregations, name p-value + null hypothesis. Red flag:
+  comparisons without baselines, percentages without absolutes.
+- **Sage — "Before you call it safe"**: name the specific risk
+  considered, assume someone WILL do that, verify reversibility,
+  open the actual test. Red flag: approving anything irreversible
+  without a one-line worst-case.
+
+### Why this matters
+
+Specialists running on quantized / weaker models tend to skip the
+verification step and return confident summaries that aren't
+actually checked. The anti-rationalization block puts a deliberate
+checklist in their context window right where their reasoning chain
+forms — same trick the addyosmani/agent-skills repo uses to keep
+agents from rationalizing past their checkpoints.
+
+### Tests
+
+`tests/v619-anti-rationalization.test.ts` (9 cases): structural
+checks (every specialist has the header, ≥3 excuse→rebuttal pairs,
+≥1 Red flag) + role-specific anchors (Scout cites sources, Builder
+runs code, Writer matches voice, Analyst shows math, Sage names
+risks). Pins the structure so a future prompt refactor can't
+silently drop the scaffolding.
+
+Full suite: 296 files / 7172 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.1.0-alpha.8 — 2026-05-13 — Mission Canvas: the spatial view, live
 
 > Tony asked for the canvas mockup he liked to come back as a real,
