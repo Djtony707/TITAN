@@ -43,8 +43,11 @@ vi.mock('fs', async (importOriginal) => {
     };
 });
 
+// canRequest mock — hoisted so vi.mock() factory can reference it.
+const { canRequestMock } = vi.hoisted(() => ({ canRequestMock: vi.fn(() => true) }));
 vi.mock('../src/providers/router.js', () => ({
     chat: vi.fn(),
+    canRequest: canRequestMock,
 }));
 
 vi.mock('../src/config/config.js', () => ({
@@ -438,6 +441,109 @@ describe('GEPA — Genetic Evolution of Prompts & Agents', () => {
             expect(toolNames).toContain('gepa_evolve');
             expect(toolNames).toContain('gepa_status');
             expect(toolNames).toContain('gepa_history');
+        });
+    });
+
+    // ── v6.1.0-alpha.3 — Breaker-respect pause ──────────────────────────
+    describe('circuit breaker pause (v6.1.0-alpha.3)', () => {
+        const parent1: Individual = {
+            id: 'p1', content: 'parent one content',
+            fitness: 80, generation: 0, parentIds: [], operation: 'seed',
+        };
+        const parent2: Individual = {
+            id: 'p2', content: 'parent two content',
+            fitness: 60, generation: 0, parentIds: [], operation: 'seed',
+        };
+        const area: ImprovementArea = {
+            id: 'prompts', label: 'Prompts', filename: 'prompts.md', objective: 'tighten prompts',
+        } as unknown as ImprovementArea;
+
+        beforeEach(async () => {
+            vi.mocked(chat).mockReset();
+            // mockReset wipes the default return; restore truthy-by-default
+            // so tests that don't explicitly set false see "breaker closed".
+            canRequestMock.mockReset();
+            canRequestMock.mockReturnValue(true);
+            const { _resetGepaPauseLogForTests } = await import('../src/skills/builtin/gepa.js');
+            _resetGepaPauseLogForTests();
+        });
+
+        it('crossover: when breaker is OPEN, returns higher-fitness parent without calling chat()', async () => {
+            canRequestMock.mockReturnValue(false);
+            const result = await crossover(parent1, parent2, area, 'ollama/glm-5:cloud');
+            expect(result).toBe(parent1.content); // p1 has higher fitness
+            expect(chat).not.toHaveBeenCalled();
+            expect(canRequestMock).toHaveBeenCalledWith('ollama');
+        });
+
+        it('mutate: when breaker is OPEN, returns unchanged content without calling chat()', async () => {
+            canRequestMock.mockReturnValue(false);
+            const individual: Individual = { ...parent1, id: 'i1' };
+            const result = await mutate(individual, area, 'ollama/glm-5:cloud');
+            expect(result).toBe(individual.content);
+            expect(chat).not.toHaveBeenCalled();
+        });
+
+        it('crossover: when breaker is CLOSED, proceeds with chat() as normal', async () => {
+            canRequestMock.mockReturnValue(true);
+            vi.mocked(chat).mockResolvedValue({
+                content: 'merged child prompt with both parents combined',
+                id: 'x', finishReason: 'stop', model: 'glm-5',
+            });
+            const result = await crossover(parent1, parent2, area, 'ollama/glm-5:cloud');
+            expect(result).toContain('merged');
+            expect(chat).toHaveBeenCalledTimes(1);
+        });
+
+        it('logs the "Paused — circuit breaker OPEN" line at most ONCE per minute per provider', async () => {
+            const logger = (await import('../src/utils/logger.js')).default;
+            const warnSpy = vi.mocked(logger.warn);
+            warnSpy.mockClear();
+            canRequestMock.mockReturnValue(false);
+
+            // 25 attempts in quick succession (simulating one stalled generation).
+            for (let i = 0; i < 25; i++) {
+                await crossover(parent1, parent2, area, 'ollama/glm-5:cloud');
+                await mutate(parent1, area, 'ollama/glm-5:cloud');
+            }
+            // Exactly one "Paused" warn for the 'ollama' provider.
+            const pauseWarns = warnSpy.mock.calls.filter(args =>
+                typeof args[1] === 'string' && args[1].includes('Paused') && args[1].includes('ollama'),
+            );
+            expect(pauseWarns).toHaveLength(1);
+            // chat() was never called.
+            expect(chat).not.toHaveBeenCalled();
+        });
+
+        it('resumes naturally when the breaker closes (next call goes through)', async () => {
+            // First call: breaker open
+            canRequestMock.mockReturnValueOnce(false);
+            await crossover(parent1, parent2, area, 'ollama/glm-5:cloud');
+            expect(chat).not.toHaveBeenCalled();
+
+            // Second call: breaker closed, chat() should fire
+            canRequestMock.mockReturnValueOnce(true);
+            vi.mocked(chat).mockResolvedValue({
+                content: 'merged after recovery', id: 'x', finishReason: 'stop', model: 'glm-5',
+            });
+            const result = await crossover(parent1, parent2, area, 'ollama/glm-5:cloud');
+            expect(result).toContain('merged');
+            expect(chat).toHaveBeenCalledTimes(1);
+        });
+
+        it('unparseable model id falls through to "available" (does not block evolution)', async () => {
+            canRequestMock.mockReturnValue(true);
+            vi.mocked(chat).mockResolvedValue({
+                // Must be > 10 chars or crossover()'s short-output guard
+                // returns the higher-fitness parent instead.
+                content: 'merged child prompt content',
+                id: 'x', finishReason: 'stop', model: 'unknown',
+            });
+            // No provider/model separator — depends on parseModelId behavior;
+            // the gate should not throw and should not block.
+            const result = await crossover(parent1, parent2, area, 'weirdname');
+            expect(result).toContain('merged child');
+            expect(chat).toHaveBeenCalledTimes(1);
         });
     });
 });
