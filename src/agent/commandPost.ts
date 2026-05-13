@@ -1246,6 +1246,13 @@ export function createApproval(opts: {
     }
     saveState();
     addActivity({ type: 'goal_created', message: `Approval requested: ${approval.type} by ${approval.requestedBy}`, metadata: { approvalId: approval.id } });
+    // v6.1.0-alpha.1 — emit on the shared titanEvents bus so the Mission
+    // Chat lifecycle bridge can translate driver_blocked / self_repair /
+    // other approvals into inline chat question messages. The listener
+    // filters by approval.payload.goalId for per-mission scoping.
+    try {
+        titanEvents.emit('commandpost:approval:created', approval);
+    } catch { /* event bus failure never blocks the approval itself */ }
 
     // v5.5.9: if auto-approve classifier matched, dispatch through the same
     // approveApproval pipeline a human would so side-effects (createGoal,

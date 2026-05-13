@@ -212,6 +212,79 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         expect(last?.content).toMatch(/trouble.*couldn't finish/i);
     });
 
+    it('agent_done with empty reasoning + status=done posts a graceful "Done." summary using tools used', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Empty reasoning test.', members: [{ agentId: 'analyst', name: 'Analyst' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'analyst',
+            timestamp: Date.now(),
+            data: {
+                goalId: realGoalId,
+                status: 'done',
+                reasoning: '', // empty
+                toolsUsed: ['memory', 'web_search'],
+            },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as { content: string } | undefined;
+        expect(msg).toBeDefined();
+        expect(msg!.content).toMatch(/Done.*memory|memory.*Done/i);
+    });
+
+    it('agent_done with empty reasoning + status=needs_info posts "I have a quick question" message', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Needs-info empty-reasoning test.', members: [{ agentId: 'analyst', name: 'Analyst' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'analyst',
+            timestamp: Date.now(),
+            data: { goalId: realGoalId, status: 'needs_info', reasoning: '' },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as { content: string } | undefined;
+        expect(msg).toBeDefined();
+        expect(msg!.content).toMatch(/quick question/i);
+    });
+
+    it('approval bridge: commandpost:approval:created event for a linked goal raises a question message', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Approval bridge test.', members: [{ agentId: 'sage', name: 'Sage' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { titanEvents } = await import('../src/agent/daemon.js');
+        titanEvents.emit('commandpost:approval:created', {
+            id: 'approval-bridge-1',
+            type: 'custom',
+            title: 'Quick decision needed',
+            requestedBy: 'goal-driver',
+            payload: {
+                kind: 'driver_blocked',
+                goalId: realGoalId,
+                question: 'Should I include the layoff numbers or keep them out?',
+                specialist: 'sage',
+            },
+        });
+        const after = getMission(room.id)!;
+        const q = after.messages.find(m => m.kind === 'question') as { content: string; approvalId: string; quickReplies: string[] } | undefined;
+        expect(q).toBeDefined();
+        expect(q!.content).toContain('layoff');
+        expect(q!.approvalId).toBe('approval-bridge-1');
+        // Default quick-replies for driver_blocked kind.
+        expect(q!.quickReplies.length).toBeGreaterThan(0);
+        // Mission should be blocked since Sage raised a question.
+        expect(after.status).toBe('blocked');
+    });
+
     it('tool_call events update currentActivity without flooding the chat thread', async () => {
         const { createMission, getMission } = await import('../src/agent/missionRoom.js');
         const { startMissionWork } = await import('../src/agent/missionLifecycle.js');

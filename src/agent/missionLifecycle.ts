@@ -92,15 +92,37 @@ function ensureGlobalBusBridge(): void {
                         ? (data.toolsUsed as string[]).slice(0, 6)
                         : [];
                     const actions = toolsUsed.map(t => ({ name: 'used', detail: t }));
+                    const status = typeof data.status === 'string' ? data.status : 'done';
+                    // v6.1.0-alpha.1 — every agent_done emits SOMETHING into
+                    // the chat. The pre-fix path returned nothing when
+                    // `reasoning` was empty, which is common on cloud
+                    // specialists that return JSON-only responses (their
+                    // reasoning field is empty because the *artifact* is
+                    // the value). The chat shouldn't go silent.
                     if (reasoning) {
                         postAgentMessage(mission.id, agentId, reasoning, actions.length > 0 ? actions : undefined);
-                    } else if (data.status === 'failed') {
+                    } else if (status === 'failed') {
                         postAgentMessage(
                             mission.id,
                             agentId,
                             `I ran into trouble on this one and couldn't finish — handing back to the team.`,
                             actions.length > 0 ? actions : undefined,
                         );
+                    } else if (status === 'needs_info' || status === 'blocked') {
+                        postAgentMessage(
+                            mission.id,
+                            agentId,
+                            `I have a quick question before I can finish — see below.`,
+                            actions.length > 0 ? actions : undefined,
+                        );
+                    } else {
+                        // status === 'done' with empty reasoning. Common with
+                        // JSON-only specialists. Don't go silent — say something
+                        // honest about what they did.
+                        const summary = toolsUsed.length > 0
+                            ? `Done — used ${toolsUsed.slice(0, 3).join(', ')}.`
+                            : `Done.`;
+                        postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined);
                     }
                     setMemberState(mission.id, agentId, 'idle', undefined);
                     const tokens = typeof data.tokensUsed === 'number' ? data.tokensUsed : 0;
@@ -227,25 +249,29 @@ export function teardownMissionWork(missionId: string): void {
 
 /** Subscribe to the Command Post approval queue and translate any
  *  approval filed against this mission's goal into an inline question
- *  message. */
+ *  message. v6.1.0-alpha.1 — uses the real titanEvents bus
+ *  ('commandpost:approval:created' event added in commandPost.ts).
+ *  Returns an unsubscribe. */
 async function wireApprovalBridge(missionId: string, goalId: string): Promise<() => void> {
-    let unsubscribe: () => void = () => { /* default no-op */ };
-    try {
-        const cp = await import('./commandPost.js') as unknown as {
-            onApprovalCreated?: (handler: (approval: CPApprovalLike) => void) => () => void;
-        };
-        if (typeof cp.onApprovalCreated !== 'function') {
-            return unsubscribe;
-        }
-        unsubscribe = cp.onApprovalCreated((approval: CPApprovalLike) => {
+    const { titanEvents } = await import('./daemon.js');
+    const handler = (approval: CPApprovalLike) => {
+        try {
             // Filter: only approvals tied to this mission's goal.
             const payload = (approval.payload ?? {}) as Record<string, unknown>;
             if (payload.goalId !== goalId) return;
-            const agentId = String(payload.specialist ?? approval.requestedBy ?? 'sage').toLowerCase();
-            const content = String(payload.question ?? approval.title ?? 'Quick question.');
+            const agentId = String(payload.specialist ?? payload.subtaskKind ?? approval.requestedBy ?? 'sage').toLowerCase();
+            // Different approval kinds use different fields for "the actual
+            // question." Try the most common ones in order.
+            const content = String(
+                payload.question
+                ?? payload.allQuestions
+                ?? approval.title
+                ?? approval.reason
+                ?? `${approval.type} approval needed`
+            );
             const quickReplies = Array.isArray(payload.quickReplies)
                 ? (payload.quickReplies as string[]).slice(0, 4)
-                : [];
+                : defaultQuickReplies(approval);
             raiseQuestion({
                 missionId,
                 agentId,
@@ -253,11 +279,20 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
                 approvalId: approval.id,
                 quickReplies,
             });
-        });
-    } catch (err) {
-        logger.debug(COMPONENT, `Approval bridge unavailable: ${(err as Error).message}`);
-    }
-    return unsubscribe;
+        } catch (err) {
+            logger.debug(COMPONENT, `Approval bridge handler threw: ${(err as Error).message}`);
+        }
+    };
+    titanEvents.on('commandpost:approval:created', handler);
+    return () => titanEvents.off('commandpost:approval:created', handler);
+}
+
+/** Sensible default reply set for the common approval kinds. */
+function defaultQuickReplies(approval: CPApprovalLike): string[] {
+    const payloadKind = (approval.payload as Record<string, unknown> | undefined)?.kind;
+    if (payloadKind === 'driver_blocked') return ['Use your best judgment', 'Pause for me', 'Try a different angle'];
+    if (payloadKind === 'self_repair')    return ['Approve fix', 'Skip', 'Tell me more'];
+    return ['Approve', 'Skip'];
 }
 
 // ── Types shared with the commandPost module ───────────────────────
@@ -268,7 +303,9 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
 
 interface CPApprovalLike {
     id: string;
+    type?: string;
     title?: string;
+    reason?: string;
     requestedBy?: string;
     payload?: Record<string, unknown>;
 }
