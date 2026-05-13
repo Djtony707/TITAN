@@ -531,6 +531,55 @@ describe('GEPA — Genetic Evolution of Prompts & Agents', () => {
             expect(chat).toHaveBeenCalledTimes(1);
         });
 
+        it('mutate: when model returns prose instead of JSON, returns unchanged content + logs DEBUG (not WARN)', async () => {
+            canRequestMock.mockReturnValue(true);
+            // Quantized model ignores "respond with only JSON" and returns prose.
+            vi.mocked(chat).mockResolvedValue({
+                content: 'We are asking the model to improve clarity. Here is my suggestion: add more detail.',
+                id: 'x', finishReason: 'stop', model: 'test',
+            });
+            const logger = (await import('../src/utils/logger.js')).default;
+            const warnSpy = vi.mocked(logger.warn);
+            const debugSpy = vi.mocked(logger.debug);
+            warnSpy.mockClear();
+            debugSpy.mockClear();
+
+            const individual: Individual = { ...parent1, id: 'mut-prose' };
+            const result = await mutate(individual, area, 'ollama/glm-5:cloud');
+
+            // 1. Content unchanged (graceful degradation).
+            expect(result).toBe(individual.content);
+            // 2. No WARN — prose-instead-of-JSON is expected, not an error.
+            const mutationWarns = warnSpy.mock.calls.filter(args =>
+                typeof args[1] === 'string' && /Mutation failed/i.test(args[1]),
+            );
+            expect(mutationWarns).toHaveLength(0);
+            // 3. DEBUG line was logged with the "non-JSON" / "skipped" hint.
+            const skipDebugs = debugSpy.mock.calls.filter(args =>
+                typeof args[1] === 'string' && /non-?JSON|skipped/i.test(args[1]),
+            );
+            expect(skipDebugs.length).toBeGreaterThan(0);
+        });
+
+        it('mutate: when chat() itself throws (real error), STILL logs WARN', async () => {
+            canRequestMock.mockReturnValue(true);
+            vi.mocked(chat).mockRejectedValue(new Error('network timeout'));
+            const logger = (await import('../src/utils/logger.js')).default;
+            const warnSpy = vi.mocked(logger.warn);
+            warnSpy.mockClear();
+
+            const individual: Individual = { ...parent1, id: 'mut-net-err' };
+            const result = await mutate(individual, area, 'ollama/glm-5:cloud');
+
+            // Content unchanged (catch returns parent).
+            expect(result).toBe(individual.content);
+            // Real errors STILL log WARN — only the JSON-parse path was demoted.
+            const mutationWarns = warnSpy.mock.calls.filter(args =>
+                typeof args[1] === 'string' && /Mutation failed.*network/i.test(args[1]),
+            );
+            expect(mutationWarns.length).toBeGreaterThan(0);
+        });
+
         it('unparseable model id falls through to "available" (does not block evolution)', async () => {
             canRequestMock.mockReturnValue(true);
             vi.mocked(chat).mockResolvedValue({

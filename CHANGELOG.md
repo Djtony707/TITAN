@@ -5,6 +5,63 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.6 — 2026-05-13 — GEPA: prose-instead-of-JSON is DEBUG not WARN
+
+> Post-alpha.5 log audit caught two `WARN [GEPA] Mutation failed:
+> Unexpected token 'W', "We are ask"... is not valid JSON` lines in
+> 30 minutes of normal operation. The mutation pipeline was handling
+> this case correctly (returning unchanged content — no work lost,
+> no load amplified) but the WARN log made it look like something
+> was broken when nothing was.
+
+### Root cause
+
+GEPA's `mutate()` asks the LLM for a JSON object:
+```json
+{"search":"exact substring","replace":"replacement"}
+```
+
+Local/quantized models (especially smaller variants of glm-5,
+minimax-m2.7, etc.) sometimes ignore the "respond with only JSON"
+instruction and return prose like *"We are asking the model to
+improve clarity..."*. `JSON.parse` throws. The single outer
+`try/catch` caught it and logged WARN — but this is an EXPECTED
+graceful-degradation path, not an error.
+
+### Fix
+
+Pulled the `JSON.parse` into its own nested try/catch in
+`src/skills/builtin/gepa.ts`:
+
+- **JSON parse failed** → `logger.debug(COMPONENT, 'Mutation skipped
+  — model returned non-JSON response (…). Keeping original content.')`
+  + return `individual.content`. No WARN, no panic — just a quiet
+  note in debug logs for when you actually care.
+- **Other failures** (network errors, breaker exceptions, upstream
+  throws) → keep the outer `WARN [GEPA] Mutation failed: …` behavior.
+  These ARE real problems.
+
+### Tests
+
+2 new cases in `tests/gepa.test.ts` (24/24 pass):
+- prose-instead-of-JSON: returns unchanged content, no WARN logged,
+  DEBUG line with "non-JSON" / "skipped" hint present.
+- real chat() error (e.g. network timeout): still logs WARN
+  (regression guard — we didn't accidentally silence everything).
+
+Full suite: 295 files / 7159 tests pass / 1 skipped / 0 failing.
+
+### Why this matters
+
+This is the third "log noise from correct-behavior path" cleanup in
+this v6.1.0 alpha series (after alpha.2's "max retries exceeded" lie
+and alpha.3's GEPA breaker-open storm). Pattern: a graceful-degrade
+catch handler runs, the system works fine, but the log line above
+the actual fix screams "ERROR" at the operator. Each one separately
+diagnosable, each one fixed at the right severity now.
+
+---
+
 ## v6.1.0-alpha.5 — 2026-05-13 — Stuck-mission fix: 4 real bugs found via live audit
 
 > Tony said "my mission is stuck." Investigation found four real bugs
