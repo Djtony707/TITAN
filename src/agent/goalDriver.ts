@@ -477,6 +477,12 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
                     tokensUsed: result.tokensUsed ?? 0,
                     costUsd: result.costUsd ?? 0,
                     durationMs,
+                    // v6.1.0-alpha.4 — include the resolved model so the
+                    // Mission Chat UI can show "ran on X" when the user
+                    // expands a bubble. Use modelOverride if set, otherwise
+                    // the specialist's id (UI maps id → friendly model name
+                    // via the registry when needed).
+                    model: strategy.modelOverride ?? strategy.specialist,
                 },
             });
         } catch { /* event bus failure should never affect driver state */ }

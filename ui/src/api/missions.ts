@@ -29,6 +29,14 @@ export type MissionMessage =
       from: { agentId: string; name: string; role: string; color: string };
       content: string;
       actions?: { name: string; detail?: string }[];
+      meta?: {
+        subtaskTitle?: string;
+        status?: string;
+        durationMs?: number;
+        tokensUsed?: number;
+        costUsd?: number;
+        model?: string;
+      };
     }
   | { id: string; at: string; kind: 'system'; content: string; tag?: string }
   | {

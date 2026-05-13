@@ -212,6 +212,47 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         expect(last?.content).toMatch(/trouble.*couldn't finish/i);
     });
 
+    it('agent_done passes meta (subtask, duration, tokens, cost, model) onto the chat message', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({
+            goal: 'meta passthrough test',
+            members: [{ agentId: 'scout', name: 'Scout' }],
+        });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'scout',
+            timestamp: Date.now(),
+            data: {
+                goalId: realGoalId,
+                subtaskTitle: 'find Q4 numbers',
+                status: 'done',
+                reasoning: 'Found them.',
+                toolsUsed: ['web_search', 'web_fetch'],
+                tokensUsed: 1500,
+                costUsd: 0.07,
+                durationMs: 4321,
+                model: 'ollama/qwen3.5:cloud',
+            },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as {
+            content: string;
+            meta?: { subtaskTitle?: string; status?: string; durationMs?: number; tokensUsed?: number; costUsd?: number; model?: string };
+        } | undefined;
+        expect(msg).toBeDefined();
+        expect(msg!.meta).toBeDefined();
+        expect(msg!.meta!.subtaskTitle).toBe('find Q4 numbers');
+        expect(msg!.meta!.status).toBe('done');
+        expect(msg!.meta!.durationMs).toBe(4321);
+        expect(msg!.meta!.tokensUsed).toBe(1500);
+        expect(msg!.meta!.costUsd).toBeCloseTo(0.07, 4);
+        expect(msg!.meta!.model).toBe('ollama/qwen3.5:cloud');
+    });
+
     it('agent_done with empty reasoning + status=done posts a graceful "Done." summary using tools used', async () => {
         const { createMission, getMission } = await import('../src/agent/missionRoom.js');
         const { startMissionWork } = await import('../src/agent/missionLifecycle.js');

@@ -79,6 +79,26 @@ export interface AgentMessage extends MessageBase {
     content: string;
     /** Lightweight "what I touched" chips, shown under the message. */
     actions?: { name: string; detail?: string }[];
+    /**
+     * v6.1.0-alpha.4 — optional rich context shown when the user clicks
+     * the bubble. Lets a user see WHAT subtask the agent was working on,
+     * HOW long it took, HOW much it cost, WHAT model produced it — without
+     * polluting the chat thread with that detail by default.
+     */
+    meta?: {
+        /** The subtask title this message came out of. */
+        subtaskTitle?: string;
+        /** done / failed / needs_info / blocked / cancelled / etc. */
+        status?: string;
+        /** Wall-clock duration of the underlying specialist spawn. */
+        durationMs?: number;
+        /** Tokens consumed in this spawn (prompt + completion combined). */
+        tokensUsed?: number;
+        /** USD spent on this spawn. */
+        costUsd?: number;
+        /** Which model actually answered (provider/model id when known). */
+        model?: string;
+    };
 }
 export interface SystemMessage extends MessageBase {
     kind: 'system';
@@ -501,11 +521,12 @@ export function postAgentMessage(
     agentId: string,
     content: string,
     actions?: { name: string; detail?: string }[],
+    meta?: AgentMessage['meta'],
 ): AgentMessage | null {
     const room = getOrLoad(missionId);
     if (!room) return null;
     const member = room.team.find(m => m.agentId === agentId);
-    const meta = memberMetaFor(agentId);
+    const displayMeta = memberMetaFor(agentId);
     const msg: AgentMessage = {
         id: shortId(),
         at: new Date().toISOString(),
@@ -513,11 +534,12 @@ export function postAgentMessage(
         from: {
             agentId,
             name: member?.name ?? agentId,
-            role: meta.role,
-            color: meta.color,
+            role: displayMeta.role,
+            color: displayMeta.color,
         },
         content,
         actions,
+        meta,
     };
     room.messages.push(msg);
     commit(room);

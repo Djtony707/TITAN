@@ -5,6 +5,68 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.4 — 2026-05-13 — Click any bubble to see full context
+
+> Mission Chat ships with one obvious surface — short, readable
+> messages in a familiar thread. But sometimes you want to know
+> *exactly* what was happening behind a specific message: which
+> subtask, how long it took, which model, how much it cost. This
+> release adds click-to-expand on every message bubble with a clean
+> details panel.
+
+### What changed
+
+**Click any message → details panel appears below it.** Works on:
+
+- **Agent messages**: subtask the agent was working on, outcome
+  status (done/failed/needs_info), model used, duration, tokens,
+  cost, full action chip list with detail.
+- **User messages**: full timestamp, message id, character count.
+- **System notes**: timestamp, internal kind tag, message id.
+- **Questions** (Sage etc.): approval id, full quick-replies list,
+  who answered + when (if resolved), or "Waiting for your reply".
+- **Artifact-update markers**: re-use the existing artifact card's
+  open/collapse (already had a "see the doc" affordance).
+
+A small "click for details" / "click to hide" hint appears in the
+top-right of agent message headers so first-time users discover the
+behavior.
+
+### Backend changes
+
+- `AgentMessage.meta?` field added in `src/agent/missionRoom.ts`:
+  `{ subtaskTitle, status, durationMs, tokensUsed, costUsd, model }`.
+  All optional — pre-existing messages with no meta render cleanly.
+- `postAgentMessage(..., meta?)` accepts the new field.
+- `missionLifecycle.ts` bridge builds the meta object from the
+  `agent_done` event data and passes it through.
+- `goalDriver.ts` includes the resolved `model`
+  (`strategy.modelOverride ?? strategy.specialist`) in the
+  `agent_done` event so the UI can show "ran on X" per message.
+
+### Frontend changes
+
+- `MissionChat.tsx` tracks a `Set<string>` of expanded message ids in
+  state; each bubble has a click handler that toggles its presence.
+- New `DetailsPanel` component renders metadata in a clean
+  label/value grid with a `StatusBadge` for the outcome status.
+- Helpers `formatFullTime` (long form: "Tue, May 13, 12:00:34 PM")
+  and `formatDurationHuman` ("4.3s", "2m 18s", "320ms").
+- Quick-reply buttons on question bubbles call
+  `event.stopPropagation()` so clicking a button doesn't ALSO toggle
+  the expand state.
+
+### Tests
+
+`tests/v610-alpha1-bridge.test.ts` gains one case (now 10/10) that
+emits an `agent_done` event with full meta and verifies the
+mission-room message preserves `subtaskTitle`, `status`, `durationMs`,
+`tokensUsed`, `costUsd`, and `model`.
+
+Full suite: 295 files / 7154 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.1.0-alpha.3 — 2026-05-13 — GEPA respects the circuit breaker
 
 > GEPA's evolution loop was generating 15+ "Mutation failed: Circuit

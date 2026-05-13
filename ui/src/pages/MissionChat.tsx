@@ -5,7 +5,7 @@
  * event stream, renders the thread + team strip + artifact card + input.
  * Question messages get inline quick-reply buttons that POST to /answer.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   getMission,
@@ -27,6 +27,21 @@ export default function MissionChat() {
   const [sending, setSending] = useState(false);
   const [artifactExpanded, setArtifactExpanded] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  /**
+   * v6.1.0-alpha.4 — set of message IDs the user has clicked to expand.
+   * Each expanded bubble reveals a metadata panel with timestamp, the
+   * subtask the agent was working on, duration, tokens, cost, model, and
+   * the full action chip list. Default collapsed so the thread stays
+   * readable; one-click reveal so power users get full context.
+   */
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const threadRef = useRef<HTMLDivElement | null>(null);
 
   // Initial load
@@ -172,6 +187,8 @@ export default function MissionChat() {
               artifactExpanded={artifactExpanded}
               onToggleArtifact={() => setArtifactExpanded(v => !v)}
               onAnswer={onAnswer}
+              expanded={expandedIds.has(msg.id)}
+              onToggleExpand={() => toggleExpanded(msg.id)}
             />
           ))}
           <ActiveTyping room={room} />
@@ -280,14 +297,31 @@ function TeamStrip({ room }: { room: MissionRoom }) {
 }
 
 function MessageRow({
-  msg, artifact, artifactExpanded, onToggleArtifact, onAnswer,
+  msg, artifact, artifactExpanded, onToggleArtifact, onAnswer, expanded, onToggleExpand,
 }: {
   msg: MissionMessage;
   artifact: MissionRoom['artifact'];
   artifactExpanded: boolean;
   onToggleArtifact: () => void;
   onAnswer: (approvalId: string, answer: string) => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
+  // Click-to-expand wrapper used by user, agent, question bubbles. Stops
+  // event propagation on interactive elements (quick-reply buttons, etc.)
+  // so clicking them doesn't ALSO toggle the expand state.
+  const expandable = (children: React.ReactNode, key?: string) => (
+    <button
+      type="button"
+      onClick={onToggleExpand}
+      className="text-left w-full"
+      title={expanded ? 'Click to hide details' : 'Click to see details'}
+      key={key}
+    >
+      {children}
+    </button>
+  );
+
   if (msg.kind === 'user') {
     return (
       <div className="self-end max-w-[88%] flex flex-col items-end">
@@ -296,21 +330,31 @@ function MessageRow({
           <span className="text-[11px] font-semibold">You</span>
           <span className="text-[10px] text-text-muted">{shortTime(msg.at)}</span>
         </div>
-        <div className="px-3.5 py-2.5 rounded-2xl rounded-br-md text-bg-deep bg-gradient-to-br from-accent to-accent2 shadow-[0_4px_16px_rgba(99,102,241,0.25)] text-sm leading-relaxed">
-          {msg.content}
-        </div>
+        {expandable(
+          <div className="px-3.5 py-2.5 rounded-2xl rounded-br-md text-bg-deep bg-gradient-to-br from-accent to-accent2 shadow-[0_4px_16px_rgba(99,102,241,0.25)] text-sm leading-relaxed cursor-pointer">
+            {msg.content}
+          </div>,
+        )}
+        {expanded && <DetailsPanel msg={msg} />}
       </div>
     );
   }
   if (msg.kind === 'system') {
     return (
-      <div className="self-center text-[12px] text-text-muted bg-bg-secondary/60 border border-border rounded-full px-3 py-1 backdrop-blur-sm">
-        <span className="text-text-secondary font-medium">{msg.tag === 'team_formed' ? 'Team formed' : (msg.tag ?? 'note')}</span>
-        {' · '}{msg.content.replace(/^Team formed —\s*/, '').replace(/\.$/, '')}
+      <div className="self-center flex flex-col items-center max-w-[88%]">
+        {expandable(
+          <div className="text-[12px] text-text-muted bg-bg-secondary/60 border border-border rounded-full px-3 py-1 backdrop-blur-sm cursor-pointer">
+            <span className="text-text-secondary font-medium">{msg.tag === 'team_formed' ? 'Team formed' : msg.tag === 'team_expanded' ? 'Team change' : (msg.tag ?? 'note')}</span>
+            {' · '}{msg.content.replace(/^Team formed —\s*/, '').replace(/\.$/, '')}
+          </div>,
+        )}
+        {expanded && <DetailsPanel msg={msg} />}
       </div>
     );
   }
   if (msg.kind === 'artifact_update') {
+    // Artifact card has its own open/collapse — we re-use that for the
+    // "see details" affordance. No separate expand panel for these.
     return (
       <ArtifactCard
         artifact={artifact}
@@ -340,8 +384,12 @@ function MessageRow({
           <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
           Needs you
         </span>
+        {/* Outer bubble: clickable for expand. Quick-reply buttons inside use
+            event.stopPropagation so a click on them doesn't toggle the expand. */}
         <div
-          className="px-3.5 py-2.5 rounded-2xl rounded-bl-md border-l-[3px] text-sm leading-relaxed"
+          className="px-3.5 py-2.5 rounded-2xl rounded-bl-md border-l-[3px] text-sm leading-relaxed cursor-pointer"
+          onClick={onToggleExpand}
+          title={expanded ? 'Click to hide details' : 'Click to see details'}
           style={{
             background: 'linear-gradient(180deg, rgba(239,68,68,0.18), rgba(239,68,68,0.06))',
             borderLeftColor: msg.from.color,
@@ -355,7 +403,7 @@ function MessageRow({
               {msg.quickReplies.map((q, i) => (
                 <button
                   key={q}
-                  onClick={() => onAnswer(msg.approvalId, q)}
+                  onClick={(e) => { e.stopPropagation(); onAnswer(msg.approvalId, q); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
                     i === msg.quickReplies.length - 1
                       ? 'bg-gradient-to-br from-accent to-accent2 text-bg-deep border-transparent'
@@ -373,6 +421,7 @@ function MessageRow({
             </div>
           )}
         </div>
+        {expanded && <DetailsPanel msg={msg} />}
       </div>
     );
   }
@@ -389,25 +438,138 @@ function MessageRow({
         <span className="text-[11px] font-semibold" style={{ color: msg.from.color }}>{msg.from.name}</span>
         <span className="text-[11px] text-text-muted">{msg.from.role}</span>
         <span className="text-[10px] text-text-muted">{shortTime(msg.at)}</span>
+        {/* Subtle "click to see details" hint for first-time discovery */}
+        <span className="text-[10px] text-text-muted/60 ml-auto">{expanded ? 'click to hide' : 'click for details'}</span>
       </div>
-      <div
-        className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-secondary/60 border border-border text-sm leading-relaxed backdrop-blur-sm"
-        style={{ borderLeft: `3px solid ${msg.from.color}` }}
-      >
-        {msg.content}
-        {msg.actions && msg.actions.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+      {expandable(
+        <div
+          className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-secondary/60 border border-border text-sm leading-relaxed backdrop-blur-sm cursor-pointer hover:bg-bg-secondary/80 transition-colors"
+          style={{ borderLeft: `3px solid ${msg.from.color}` }}
+        >
+          {msg.content}
+          {msg.actions && msg.actions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {msg.actions.map((a, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-bg-tertiary/60 border border-border rounded-full text-[11px] text-text-muted">
+                  <span>{a.name}</span>
+                  {a.detail && <><span className="text-text-muted">·</span><b className="text-text font-medium">{a.detail}</b></>}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>,
+      )}
+      {expanded && <DetailsPanel msg={msg} />}
+    </div>
+  );
+}
+
+/**
+ * Details panel revealed when the user clicks a message bubble. Surfaces
+ * the message's metadata in plain English: full timestamp, the subtask
+ * the agent was working on, duration, tokens, cost, model used. For
+ * non-agent messages it shows just the minimum useful detail (timestamp,
+ * id, tag/kind) so every bubble has consistent click behavior.
+ */
+function DetailsPanel({ msg }: { msg: MissionMessage }) {
+  const fullTime = formatFullTime(msg.at);
+  const rows: Array<{ label: string; value: React.ReactNode }> = [];
+  rows.push({ label: 'When', value: fullTime });
+  rows.push({ label: 'Message id', value: <code className="text-text-secondary text-[11px]">{msg.id}</code> });
+
+  if (msg.kind === 'agent') {
+    rows.push({ label: 'From', value: <span><b>{msg.from.name}</b> · {msg.from.role} <span className="text-text-muted">({msg.from.agentId})</span></span> });
+    const meta = msg.meta;
+    if (meta?.subtaskTitle) rows.push({ label: 'Working on', value: <i>"{meta.subtaskTitle}"</i> });
+    if (meta?.status) rows.push({ label: 'Outcome', value: <StatusBadge status={meta.status} /> });
+    if (meta?.model) rows.push({ label: 'Brain', value: <code className="text-text-secondary text-[11px]">{meta.model}</code> });
+    if (typeof meta?.durationMs === 'number') {
+      rows.push({ label: 'Took', value: formatDurationHuman(meta.durationMs) });
+    }
+    if (typeof meta?.tokensUsed === 'number' && meta.tokensUsed > 0) {
+      rows.push({ label: 'Tokens', value: meta.tokensUsed.toLocaleString() });
+    }
+    if (typeof meta?.costUsd === 'number' && meta.costUsd > 0) {
+      rows.push({ label: 'Cost', value: '$' + meta.costUsd.toFixed(4) });
+    }
+    if (msg.actions && msg.actions.length > 0) {
+      rows.push({
+        label: 'Used',
+        value: (
+          <div className="flex flex-wrap gap-1.5">
             {msg.actions.map((a, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-bg-tertiary/60 border border-border rounded-full text-[11px] text-text-muted">
-                <span>{a.name}</span>
-                {a.detail && <><span className="text-text-muted">·</span><b className="text-text font-medium">{a.detail}</b></>}
+              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-tertiary/60 border border-border rounded-full text-[11px] text-text-muted">
+                {a.name}{a.detail && <span><span className="text-text-muted/60"> · </span><b className="text-text">{a.detail}</b></span>}
               </span>
             ))}
           </div>
-        )}
-      </div>
+        ),
+      });
+    }
+  } else if (msg.kind === 'question') {
+    rows.push({ label: 'From', value: <span><b>{msg.from.name}</b> · {msg.from.role}</span> });
+    rows.push({ label: 'Approval id', value: <code className="text-text-secondary text-[11px]">{msg.approvalId}</code> });
+    if (msg.answer) {
+      rows.push({ label: 'Answered', value: <span>{formatFullTime(msg.answer.at)} — "{msg.answer.content}"</span> });
+    } else {
+      rows.push({ label: 'Status', value: <span className="text-warning">Waiting for your reply</span> });
+    }
+    if (msg.quickReplies.length > 0) {
+      rows.push({ label: 'Options', value: msg.quickReplies.join(' · ') });
+    }
+  } else if (msg.kind === 'user') {
+    rows.push({ label: 'Length', value: msg.content.length + ' chars' });
+  } else if (msg.kind === 'system') {
+    if (msg.tag) rows.push({ label: 'Kind', value: <code className="text-text-secondary text-[11px]">{msg.tag}</code> });
+  }
+
+  return (
+    <div className="mt-2 self-stretch bg-bg-secondary/40 border border-border rounded-lg px-3 py-2.5 backdrop-blur-sm">
+      <div className="text-[10px] uppercase tracking-widest text-text-muted mb-1.5">Details</div>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+        {rows.map((r, i) => (
+          <React.Fragment key={i}>
+            <dt className="text-text-muted">{r.label}</dt>
+            <dd className="text-text-secondary">{r.value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    done: 'bg-success/15 text-success border-success/30',
+    failed: 'bg-error/15 text-error border-error/30',
+    needs_info: 'bg-warning/15 text-warning border-warning/30',
+    blocked: 'bg-warning/15 text-warning border-warning/30',
+    cancelled: 'bg-text-muted/15 text-text-muted border-border',
+  };
+  const cls = colors[status] ?? 'bg-bg-tertiary/60 text-text-secondary border-border';
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${cls}`}>
+      {status}
+    </span>
+  );
+}
+
+function formatFullTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch { return iso; }
+}
+
+function formatDurationHuman(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const min = Math.floor(ms / 60_000);
+  const sec = Math.round((ms % 60_000) / 1000);
+  return `${min}m ${sec}s`;
 }
 
 function ArtifactCard({
