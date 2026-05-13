@@ -1,0 +1,1595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TITAN Mission Canvas — paper prototype</title>
+<style>
+  /* ── Foundation ───────────────────────────────────────────────── */
+  :root {
+    --bg-0: #05070d;
+    --bg-1: #0b1020;
+    --bg-2: #131a30;
+    --ink: #e7ecf5;
+    --ink-dim: #8a93a8;
+    --ink-faint: #4a5168;
+    --accent: #6ea8ff;
+    --accent-2: #b07cff;
+    --warm: #ffb04a;
+    --health: #4adbb5;
+    --warn: #ff8a4a;
+    --block: #ff5d6c;
+    --paper: #f7f5ee;
+    --paper-ink: #1a1f2e;
+    --paper-rule: #d8d3c2;
+    --highlight: rgba(255, 220, 120, 0.45);
+    --glass: rgba(20, 26, 48, 0.55);
+    --glass-strong: rgba(20, 26, 48, 0.82);
+    --glass-line: rgba(255, 255, 255, 0.08);
+    --shadow-soft: 0 6px 30px rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.5 -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+    color: var(--ink);
+    background: radial-gradient(circle at 50% 35%, #1a2244 0%, var(--bg-1) 35%, var(--bg-0) 80%);
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Ambient drifting starfield */
+  .stars { position: fixed; inset: 0; pointer-events: none; opacity: 0.6; z-index: 0; }
+  .star {
+    position: absolute; width: 2px; height: 2px;
+    background: #fff; border-radius: 50%;
+    box-shadow: 0 0 6px #fff;
+    animation: drift linear infinite;
+    opacity: 0.5;
+  }
+  @keyframes drift {
+    0%   { transform: translate(0, 0); opacity: 0; }
+    20%  { opacity: 0.5; }
+    100% { transform: translate(40px, -120px); opacity: 0; }
+  }
+
+  /* ── Top bar ──────────────────────────────────────────────────── */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+    background: linear-gradient(180deg, rgba(5,7,13,0.85), rgba(5,7,13,0));
+    z-index: 20;
+  }
+  .breadcrumb { font-weight: 600; letter-spacing: 0.2px; }
+  .breadcrumb .dim { color: var(--ink-dim); font-weight: 400; }
+  .breadcrumb .titan {
+    background: linear-gradient(90deg, #6ea8ff, #b07cff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  body.scene-1 .topbar .crumb-trail { visibility: hidden; }
+  .help-btn {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    font: 600 14px/1 -apple-system, sans-serif;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    margin-left: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .help-btn:hover { color: var(--ink); border-color: rgba(255,255,255,0.18); }
+  .top-right {
+    display: flex; align-items: center; gap: 0;
+  }
+  .health-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    background: var(--glass); border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    font-size: 12px; color: var(--ink-dim);
+    backdrop-filter: blur(8px);
+    margin-right: 10px;
+  }
+  body.scene-1 .health-pill,
+  body.scene-2 .health-pill,
+  body.scene-1 .fuel { display: none; }
+  .health-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--health);
+    box-shadow: 0 0 12px var(--health);
+    animation: breathe 3.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.3); opacity: 1; }
+  }
+  .fuel {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 6px 12px;
+    background: var(--glass); border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    font-size: 12px;
+    backdrop-filter: blur(8px);
+  }
+  .flame {
+    display: inline-block; width: 14px; height: 18px;
+    background: radial-gradient(ellipse at 50% 70%, #ffeb6b 0%, #ff8a4a 45%, transparent 70%);
+    filter: blur(0.2px);
+    animation: flicker 1.4s ease-in-out infinite alternate;
+  }
+  @keyframes flicker {
+    0% { transform: scaleY(1); opacity: 0.85; }
+    100% { transform: scaleY(1.18); opacity: 1; }
+  }
+  .fuel .spend { font-variant-numeric: tabular-nums; color: var(--ink); }
+  .fuel .tokens { color: var(--ink-dim); }
+
+  /* ── Canvas stage ─────────────────────────────────────────────── */
+  .stage {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 86px;
+    z-index: 5;
+  }
+  body.scene-1 .stage { bottom: 0; }
+  /* SVG tether layer sits behind everything */
+  svg.tethers {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.6s ease 0.3s;
+  }
+  body.scene-3 svg.tethers, body.scene-4 svg.tethers, body.scene-5 svg.tethers { opacity: 1; }
+  svg.tethers path {
+    fill: none;
+    stroke: rgba(110, 168, 255, 0.45);
+    stroke-width: 1.6;
+    stroke-dasharray: 5 6;
+    animation: flow 8s linear infinite;
+  }
+  svg.tethers path.warm { stroke: rgba(255, 176, 74, 0.55); }
+  svg.tethers path.block { stroke: rgba(255, 93, 108, 0.7); stroke-dasharray: 3 4; }
+  @keyframes flow {
+    to { stroke-dashoffset: -120; }
+  }
+
+  /* ── Central artifact ─────────────────────────────────────────── */
+  .artifact {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 460px;
+    background: var(--paper);
+    color: var(--paper-ink);
+    border-radius: 6px;
+    padding: 30px 36px 36px;
+    box-shadow:
+      0 30px 80px rgba(0, 0, 0, 0.55),
+      0 4px 0 rgba(0,0,0,0.12);
+    font: 14px/1.55 "Iowan Old Style", "Charter", "Georgia", serif;
+    background-image: linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0)),
+                      repeating-linear-gradient(180deg, transparent 0 27px, var(--paper-rule) 27px 28px);
+    background-position: 0 50px;
+    z-index: 5;
+    opacity: 0; transform: translate(-50%, -50%) scale(0.96);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  body.scene-3 .artifact, body.scene-4 .artifact, body.scene-5 .artifact {
+    opacity: 1; transform: translate(-50%, -50%) scale(1);
+  }
+  body.scene-1 .artifact, body.scene-2 .artifact { display: none; }
+  .artifact h1 {
+    margin: 0 0 6px;
+    font: 600 22px/1.2 "Iowan Old Style", "Charter", "Georgia", serif;
+    letter-spacing: -0.2px;
+  }
+  .artifact .meta {
+    font: 11px/1.4 -apple-system, "Inter", system-ui, sans-serif;
+    color: #8a8472; letter-spacing: 0.8px; text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .artifact p { margin: 0 0 14px; }
+  .artifact .lead { font-weight: 500; }
+  .artifact .edited {
+    background: var(--highlight);
+    padding: 0 3px; border-radius: 2px;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  }
+  .artifact .writing::after {
+    content: "▍";
+    display: inline-block;
+    margin-left: 2px;
+    color: #6ea8ff;
+    animation: caret 1s steps(2) infinite;
+  }
+  @keyframes caret { 50% { opacity: 0; } }
+  .artifact .chart-slot {
+    margin: 6px 0 16px;
+    background: rgba(0,0,0,0.04);
+    border: 1px dashed var(--paper-rule);
+    border-radius: 4px;
+    height: 90px;
+    display: flex; align-items: center; justify-content: center;
+    font: 12px/1 -apple-system, "Inter", sans-serif;
+    color: #8a8472;
+    letter-spacing: 0.4px;
+    position: relative;
+    overflow: hidden;
+  }
+  .chart-slot::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(110,168,255,0.18), transparent);
+    animation: scan 2.4s ease-in-out infinite;
+  }
+  @keyframes scan { 0%, 100% { transform: translateX(-100%); } 50% { transform: translateX(100%); } }
+
+  /* ── Agent pods ───────────────────────────────────────────────── */
+  .agent {
+    position: absolute;
+    width: 168px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 14px;
+    padding: 12px 14px 14px;
+    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-soft);
+    z-index: 6;
+    cursor: pointer;
+  }
+  .agent:hover { border-color: rgba(255, 255, 255, 0.18); }
+  body.scene-1 .agent { display: none; }
+  /* Scene 2: agents fly in with stagger, after the "thinking" beat */
+  body.scene-2 .agent { animation: flyin 0.95s cubic-bezier(.16,.84,.32,1.04) both; }
+  body.scene-2 .a-scout   { animation-delay: 1.6s; }
+  body.scene-2 .a-analyst { animation-delay: 1.9s; }
+  body.scene-2 .a-builder { animation-delay: 2.2s; }
+  body.scene-2 .a-editor  { animation-delay: 2.5s; }
+  body.scene-2 .a-sage    { animation-delay: 2.8s; }
+  @keyframes flyin {
+    from {
+      opacity: 0;
+      transform: translate(var(--from-x, 0), var(--from-y, 60vh)) scale(0.6);
+      filter: blur(8px);
+    }
+    50%  { filter: blur(0); }
+    to   { opacity: 1; transform: translate(0, 0) scale(1); filter: blur(0); }
+  }
+  /* Custom from-positions per agent so they look like they're entering from different edges */
+  .a-scout   { --from-x: -50vw; --from-y: -30vh; }
+  .a-analyst { --from-x:  50vw; --from-y: -20vh; }
+  .a-builder { --from-x: -40vw; --from-y:  40vh; }
+  .a-editor  { --from-x:  60vw; --from-y: -10vh; }
+  .a-sage    { --from-x:  40vw; --from-y:  50vh; }
+
+  .agent.active::before {
+    content: "";
+    position: absolute; inset: -3px;
+    border-radius: 17px;
+    background: linear-gradient(120deg, rgba(110,168,255,0.6), rgba(176, 124, 255, 0.4));
+    z-index: -1;
+    filter: blur(8px);
+    opacity: 0.55;
+    animation: pulse 4.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.35; transform: scale(1); }
+    50%      { opacity: 0.7;  transform: scale(1.035); }
+  }
+  .agent.blocked::before {
+    content: "";
+    position: absolute; inset: -2px;
+    border-radius: 17px;
+    background: radial-gradient(circle at 50% 50%, rgba(255, 93, 108, 0.55), transparent 70%);
+    z-index: -1;
+    animation: alarm 1.8s ease-in-out infinite;
+  }
+  body.scene-2 .agent.blocked::before { display: none; }
+  @keyframes alarm {
+    0%, 100% { opacity: 0.45; }
+    50%      { opacity: 0.9; }
+  }
+  .agent .head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+  }
+  .agent .avatar {
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px;
+    color: #0b1020;
+  }
+  .a-scout   .avatar { background: linear-gradient(135deg, #b8d5ff, #6ea8ff); }
+  .a-builder .avatar { background: linear-gradient(135deg, #ffd28a, #ff9a4a); }
+  .a-editor  .avatar { background: linear-gradient(135deg, #c8b4ff, #8a64ff); }
+  .a-analyst .avatar { background: linear-gradient(135deg, #a0f0d4, #4adbb5); }
+  .a-sage    .avatar { background: linear-gradient(135deg, #ff9aa6, #ff5d6c); }
+  .agent .name { font-weight: 600; letter-spacing: 0.1px; }
+  .agent .role { font-size: 11px; color: var(--ink-dim); }
+  .agent .whisper {
+    font-size: 12px; color: #d4d9e8;
+    line-height: 1.4;
+  }
+  .agent .whisper b { font-weight: 600; color: var(--ink); }
+  /* In scene 2 the whisper shows the FORMATION RATIONALE, not the live activity */
+  .agent .rationale {
+    font-size: 12px; color: #d4d9e8; line-height: 1.4;
+    font-style: italic;
+  }
+  body.scene-2 .agent .whisper, body.scene-2 .agent .footer { display: none; }
+  body:not(.scene-2) .agent .rationale { display: none; }
+
+  .agent .footer {
+    margin-top: 10px; display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; color: var(--ink-faint);
+    letter-spacing: 0.4px;
+  }
+  .agent .heartbeat {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--health);
+    box-shadow: 0 0 8px var(--health);
+    animation: breathe 1.4s ease-in-out infinite;
+  }
+  .agent .heartbeat.busy { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .agent .heartbeat.warm { background: var(--warm); box-shadow: 0 0 8px var(--warm); }
+  .agent .heartbeat.block { background: var(--block); box-shadow: 0 0 10px var(--block); animation: breathe 0.9s ease-in-out infinite; }
+
+  /* Position each agent — chosen to spread around the artifact */
+  .a-scout   { top: 13%;  left: 18%; }
+  .a-builder { bottom: 14%; left: 22%; }
+  .a-editor  { top: 19%;  right: 14%; }
+  .a-analyst { top: 47%;  right: 9%; }
+  .a-sage    { bottom: 12%; right: 19%; }
+
+  /* ── Question speech bubble for blocked agent ─────────────────── */
+  .question {
+    position: absolute;
+    bottom: calc(14% + 100px);
+    right: 16%;
+    width: 220px;
+    background: linear-gradient(180deg, #ffe9eb, #ffd0d4);
+    color: #5c1820;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font: 13px/1.4 -apple-system, "Inter", sans-serif;
+    box-shadow: 0 8px 28px rgba(255, 93, 108, 0.35);
+    z-index: 7;
+    animation: floatup 4s ease-in-out infinite;
+  }
+  body.scene-1 .question, body.scene-2 .question { display: none; }
+  @keyframes floatup {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  .question::after {
+    content: ""; position: absolute;
+    bottom: -10px; right: 28px;
+    border: 8px solid transparent;
+    border-top-color: #ffd0d4;
+  }
+  .question .label {
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: #a02938; font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .question .quick {
+    margin-top: 10px; display: flex; gap: 6px;
+  }
+  .question .quick button {
+    flex: 1; padding: 6px 8px;
+    border: 1px solid rgba(160, 41, 56, 0.25);
+    background: #fff; color: #5c1820;
+    border-radius: 8px; cursor: pointer;
+    font: 600 11px/1 -apple-system, sans-serif;
+  }
+  .question .quick button.no { background: #5c1820; color: #ffd0d4; border-color: #5c1820; }
+
+  /* ── User presence (cursor halo) ──────────────────────────────── */
+  .user-cursor {
+    position: absolute;
+    left: 52%; top: 70%;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.4),
+      0 0 24px 12px rgba(110, 168, 255, 0.35);
+    z-index: 8;
+    animation: cursor 6s ease-in-out infinite;
+  }
+  body.scene-1 .user-cursor, body.scene-2 .user-cursor { display: none; }
+  @keyframes cursor {
+    0%, 100% { transform: translate(0, 0); }
+    25%      { transform: translate(40px, -20px); }
+    60%      { transform: translate(-30px, 10px); }
+  }
+  .user-cursor::after {
+    content: "you";
+    position: absolute;
+    left: 20px; top: -4px;
+    font: 10px/1 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    letter-spacing: 1.2px; text-transform: uppercase;
+  }
+
+  /* ── Scene 1 — Start: a single goal input ─────────────────────── */
+  .start-shell {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px;
+    z-index: 6;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.4s ease;
+    padding: 0 24px;
+  }
+  body.scene-1 .start-shell { opacity: 1; pointer-events: auto; }
+  .start-mark {
+    font: 700 12px/1 -apple-system, "Inter", sans-serif;
+    letter-spacing: 4px; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .start-mark .lit {
+    background: linear-gradient(90deg, #6ea8ff, #b07cff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .start-prompt {
+    font: 600 38px/1.15 -apple-system, "Inter", sans-serif;
+    letter-spacing: -1px;
+    text-align: center;
+  }
+  .start-pitch {
+    font: 16px/1.5 -apple-system, "Inter", sans-serif;
+    color: var(--ink-dim);
+    text-align: center;
+    max-width: 620px;
+    margin-top: -10px;
+  }
+  .start-pitch b { color: var(--ink); font-weight: 600; }
+  .start-input {
+    width: min(720px, 90vw);
+    display: flex; align-items: center; gap: 14px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 16px;
+    padding: 16px 18px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .start-input input {
+    flex: 1; border: 0; background: transparent;
+    color: var(--ink); outline: none;
+    font: 17px/1.3 -apple-system, "Inter", sans-serif;
+  }
+  .start-input input::placeholder { color: var(--ink-faint); }
+  .start-input .submit {
+    padding: 10px 16px;
+    border: 0; border-radius: 10px;
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020; font-weight: 700; cursor: pointer;
+    box-shadow: 0 0 24px rgba(110, 168, 255, 0.45);
+  }
+  .start-input .mic {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-line);
+    cursor: pointer;
+  }
+  .start-hint { color: var(--ink-faint); font-size: 12px; letter-spacing: 0.4px; }
+  .start-examples {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    max-width: 760px;
+  }
+  .start-examples .ex-label {
+    width: 100%; text-align: center;
+    font: 10px/1 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    letter-spacing: 1.6px; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .start-examples .ex {
+    padding: 8px 12px; font-size: 12px; color: var(--ink-dim);
+    background: var(--glass); border: 1px solid var(--glass-line);
+    border-radius: 999px; cursor: pointer;
+  }
+  .start-examples .ex:hover { color: var(--ink); border-color: rgba(255,255,255,0.16); }
+
+  /* ── Scene 2 — Team forming: goal chip + thinking beat + banner ─ */
+  .goal-chip {
+    position: absolute;
+    top: 70px; left: 50%; transform: translateX(-50%);
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-weight: 500;
+    backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-soft);
+    z-index: 9;
+    opacity: 0; transform: translate(-50%, 8px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  body.scene-2 .goal-chip, body.scene-3 .goal-chip { opacity: 0.92; transform: translateX(-50%); }
+  body.scene-1 .goal-chip { display: none; }
+  .goal-chip .label {
+    font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--ink-faint); margin-right: 10px;
+  }
+
+  .thinking-beat {
+    position: absolute;
+    top: 38%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 8;
+    opacity: 0;
+  }
+  body.scene-2 .thinking-beat {
+    animation: thinkbeat 4s ease-out forwards;
+  }
+  @keyframes thinkbeat {
+    0%  { opacity: 0; transform: translate(-50%, -40%); }
+    15% { opacity: 1; transform: translate(-50%, -50%); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -55%); }
+  }
+  .thinking-beat .blip {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    font: 14px/1 -apple-system, sans-serif;
+    color: var(--ink);
+  }
+  .thinking-beat .dots {
+    display: inline-flex; gap: 4px;
+  }
+  .thinking-beat .dots span {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+    animation: bob 1.2s ease-in-out infinite;
+  }
+  .thinking-beat .dots span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking-beat .dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0); opacity: 0.5; }
+    50%      { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .form-banner {
+    position: absolute;
+    bottom: 30px; left: 50%; transform: translateX(-50%);
+    width: min(720px, 90vw);
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 16px;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 12px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    z-index: 30;
+    opacity: 0; transform: translateX(-50%) translateY(20px);
+    transition: opacity 0.4s ease 3.4s, transform 0.4s ease 3.4s;
+  }
+  body.scene-2 .form-banner { opacity: 1; transform: translateX(-50%) translateY(0); }
+  body:not(.scene-2) .form-banner { display: none; }
+  .form-banner .blurb {
+    flex: 1; font-size: 13px; color: #d4d9e8;
+  }
+  .form-banner .blurb b { color: var(--ink); }
+  .form-banner button {
+    padding: 9px 14px;
+    border: 1px solid var(--glass-line);
+    background: rgba(255,255,255,0.04);
+    color: var(--ink);
+    border-radius: 10px; cursor: pointer;
+    font: 600 12px/1 -apple-system, sans-serif;
+  }
+  .form-banner button.primary {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    border-color: transparent;
+    box-shadow: 0 0 18px rgba(110, 168, 255, 0.45);
+  }
+
+  /* ── Bottom command rail ──────────────────────────────────────── */
+  .rail {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 18px;
+    background: linear-gradient(0deg, rgba(5,7,13,0.95), rgba(5,7,13,0));
+    display: flex; align-items: center; gap: 18px;
+    z-index: 30;
+  }
+  body.scene-1 .rail, body.scene-2 .rail { display: none; }
+  .scrubber {
+    flex: 1; height: 36px;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    padding: 0 14px;
+    backdrop-filter: blur(10px);
+  }
+  .scrubber .icon-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-dim); font-size: 13px;
+    cursor: pointer;
+  }
+  .scrubber .track {
+    flex: 1; height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    position: relative;
+  }
+  .scrubber .filled {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 68%;
+    background: linear-gradient(90deg, #6ea8ff, #b07cff);
+    border-radius: 2px;
+  }
+  .scrubber .head {
+    position: absolute; left: 68%; top: 50%;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 18px 4px rgba(110, 168, 255, 0.6);
+  }
+  .scrubber .checkpoint {
+    position: absolute; top: -3px;
+    width: 2px; height: 10px;
+    background: var(--warm);
+    box-shadow: 0 0 6px var(--warm);
+  }
+  .scrubber .time { font: 11px/1 -apple-system, sans-serif; color: var(--ink-dim); font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
+
+  .command {
+    flex: 2;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    padding: 0 14px;
+    height: 44px;
+    backdrop-filter: blur(10px);
+  }
+  .command input {
+    flex: 1; border: 0; background: transparent;
+    color: var(--ink); font: 14px/1 -apple-system, "Inter", sans-serif;
+    outline: none;
+  }
+  .command input::placeholder { color: var(--ink-faint); }
+  .command .hint {
+    font-size: 11px; color: var(--ink-faint);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    padding: 4px 8px;
+    border: 1px solid var(--glass-line);
+    border-radius: 6px;
+  }
+  .command .mic {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    cursor: pointer;
+    box-shadow: 0 0 16px rgba(110, 168, 255, 0.5);
+  }
+
+  .add-agent-fab {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    color: var(--ink);
+    font-size: 22px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    flex-shrink: 0;
+  }
+  .add-agent-fab:hover { border-color: rgba(255,255,255,0.2); }
+
+  /* ── First-run guided tour overlays ───────────────────────────── */
+  .tour-tip {
+    position: absolute;
+    background: var(--glass-strong);
+    border: 1px solid rgba(110, 168, 255, 0.4);
+    color: var(--ink);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font: 13px/1.4 -apple-system, sans-serif;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.5), 0 0 0 4px rgba(110, 168, 255, 0.08);
+    z-index: 40;
+    max-width: 220px;
+    backdrop-filter: blur(20px);
+    opacity: 0; transform: translateY(6px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  body.scene-3.tour-on .tour-tip { opacity: 1; transform: translateY(0); }
+  body:not(.scene-3) .tour-tip { display: none; }
+  body.scene-3:not(.tour-on) .tour-tip { display: none; }
+  .tour-tip .tag {
+    display: inline-block;
+    font: 600 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .tour-tip .tip-actions {
+    display: flex; justify-content: flex-end; gap: 6px;
+    margin-top: 8px;
+  }
+  .tour-tip button {
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    border-radius: 6px;
+    font: 500 11px/1 -apple-system, sans-serif;
+    cursor: pointer;
+  }
+  .tour-tip button:hover { color: var(--ink); }
+  /* Specific tour positions */
+  .tour-team   { top: 22%;  left: 36%; }
+  .tour-doc    { top: 30%;  right: 32%; }
+  .tour-blocked { bottom: 28%; right: 4%; }
+  .tour-cmd    { bottom: 100px; left: 50%; transform: translateX(-50%); max-width: 360px; }
+  body.scene-3.tour-on .tour-cmd { transform: translateX(-50%) translateY(0); }
+
+  /* Tour arrow accents (small dot indicator) */
+  .tour-tip::before {
+    content: "";
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .tour-team::before { left: -6px; top: 50%; transform: translateY(-50%); }
+  .tour-doc::before { right: -6px; top: 50%; transform: translateY(-50%); }
+  .tour-blocked::before { right: 22px; top: -6px; }
+  .tour-cmd::before { bottom: -6px; left: 50%; transform: translateX(-50%); }
+
+  /* ── Helper labels (legend) ───────────────────────────────────── */
+  .legend {
+    position: fixed;
+    left: 22px; bottom: 100px;
+    display: flex; flex-direction: column; gap: 4px;
+    font: 11px/1.4 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    max-width: 220px;
+    z-index: 25;
+  }
+  body.scene-1 .legend, body.scene-2 .legend { display: none; }
+  .legend .row { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── Scene chooser ────────────────────────────────────────────── */
+  .scene-chooser {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 12px;
+    padding: 10px;
+    backdrop-filter: blur(14px);
+    z-index: 80;
+    box-shadow: var(--shadow-soft);
+  }
+  .scene-chooser .title {
+    font: 600 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 2px;
+  }
+  .scene-chooser button {
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: var(--ink-dim);
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font: 12px/1.1 -apple-system, sans-serif;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .scene-chooser button:hover { background: rgba(255,255,255,0.06); color: var(--ink); }
+  .scene-chooser button.active {
+    background: linear-gradient(120deg, rgba(110,168,255,0.22), rgba(176,124,255,0.18));
+    color: var(--ink);
+  }
+  .scene-chooser .num {
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    color: var(--ink-dim);
+    font: 600 10px/18px -apple-system, sans-serif;
+    text-align: center;
+  }
+  .scene-chooser button.active .num {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+  }
+
+  /* ── Overlays: agent dial + new agent + help panel ────────────── */
+  .backdrop {
+    position: fixed; inset: 0;
+    background: rgba(5, 7, 13, 0.55);
+    backdrop-filter: blur(6px);
+    z-index: 70;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  body.scene-4 .backdrop, body.scene-5 .backdrop {
+    opacity: 1; pointer-events: auto;
+  }
+
+  /* Agent dial */
+  .dial {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.96);
+    width: 380px;
+    background: var(--glass-strong);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 22px 24px 18px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    z-index: 75;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  body.scene-4 .dial { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+
+  .dial-head {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 22px;
+  }
+  .dial-head .avatar {
+    width: 38px; height: 38px; border-radius: 11px;
+    background: linear-gradient(135deg, #c8b4ff, #8a64ff);
+    display: flex; align-items: center; justify-content: center;
+    color: #0b1020; font-weight: 700;
+  }
+  .dial-head .name { font: 600 16px/1 -apple-system, sans-serif; }
+  .dial-head .role { font: 11px/1.3 -apple-system, sans-serif; color: var(--ink-dim); }
+  .dial-head .close {
+    margin-left: auto;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 0; color: var(--ink-dim);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .dial-section { margin-bottom: 18px; }
+  .dial-label {
+    font: 600 11px/1.1 -apple-system, sans-serif;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .dial-sublabel {
+    font: 11px/1.4 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+  }
+  .model-picker { display: flex; gap: 6px; }
+  .model-picker .opt {
+    flex: 1; padding: 10px 8px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-line);
+    cursor: pointer;
+    font: 12px/1.2 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    text-align: center;
+  }
+  .model-picker .opt b { display: block; color: var(--ink); margin-bottom: 2px; }
+  .model-picker .opt.selected {
+    border-color: transparent;
+    background: linear-gradient(120deg, rgba(110,168,255,0.3), rgba(176,124,255,0.25));
+    color: var(--ink);
+  }
+
+  .slider {
+    position: relative;
+    height: 28px;
+    border-radius: 14px;
+    background: linear-gradient(90deg, rgba(110,168,255,0.18), rgba(255,176,74,0.22), rgba(255,93,108,0.22));
+    margin-top: 4px;
+  }
+  .slider .knob {
+    position: absolute; top: 50%;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 18px rgba(255,255,255,0.4);
+  }
+  .slider-labels {
+    display: flex; justify-content: space-between;
+    font: 10px/1 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    letter-spacing: 0.4px;
+    margin-top: 8px;
+  }
+
+  .dial-actions {
+    display: flex; gap: 8px;
+    margin-top: 6px; padding-top: 14px;
+    border-top: 1px solid var(--glass-line);
+  }
+  .dial-actions button {
+    flex: 1; padding: 10px;
+    border: 1px solid var(--glass-line);
+    background: rgba(255,255,255,0.04);
+    color: var(--ink);
+    border-radius: 10px; cursor: pointer;
+    font: 600 12px/1 -apple-system, sans-serif;
+  }
+  .dial-actions button.danger {
+    background: rgba(255,93,108,0.15);
+    border-color: rgba(255,93,108,0.3);
+    color: #ffabb5;
+  }
+
+  /* New agent dialog */
+  .new-agent {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.96);
+    width: 560px; max-width: 92vw;
+    background: var(--glass-strong);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 26px 28px 22px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    z-index: 75;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  body.scene-5 .new-agent { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+
+  .new-agent .header {
+    font: 600 20px/1.2 -apple-system, sans-serif;
+    margin-bottom: 4px;
+  }
+  .new-agent .subtitle {
+    font: 13px/1.5 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    margin-bottom: 18px;
+  }
+  .new-agent .one-line {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: var(--ink);
+    font: 14px/1.4 -apple-system, sans-serif;
+    outline: none;
+  }
+  .new-agent .one-line:focus { border-color: rgba(110,168,255,0.5); }
+  .new-agent .auto-mark {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 12px/1 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    margin: 14px 0 8px;
+  }
+  .auto-mark .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    box-shadow: 0 0 8px rgba(110,168,255,0.6);
+  }
+
+  .preview-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-line);
+    border-radius: 14px;
+    padding: 16px 16px 14px;
+  }
+  .preview-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .preview-head .avatar {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: linear-gradient(135deg, #ff9aa6, #ff5d6c);
+    display: flex; align-items: center; justify-content: center;
+    color: #0b1020; font-weight: 700;
+  }
+  .preview-head .who .name { font: 600 14px/1.1 -apple-system, sans-serif; }
+  .preview-head .who .role { font: 11px/1.3 -apple-system, sans-serif; color: var(--ink-dim); }
+  .preview-head .meta { margin-left: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(110,168,255,0.15);
+    border: 1px solid rgba(110,168,255,0.3);
+    font: 11px/1 -apple-system, sans-serif;
+    color: #b8d5ff;
+    cursor: pointer;
+  }
+  .chip.tool { background: rgba(255,255,255,0.04); border-color: var(--glass-line); color: var(--ink-dim); }
+  .preview-persona {
+    font: 13px/1.5 -apple-system, sans-serif;
+    color: #d4d9e8;
+  }
+  .preview-persona em { color: var(--ink-faint); font-style: normal; }
+
+  .advanced-toggle {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 12px;
+    color: var(--ink-faint);
+    font: 11px/1 -apple-system, sans-serif;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+  }
+  .advanced-toggle:hover { color: var(--ink-dim); }
+  .advanced-section {
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--glass-line);
+    display: none;
+  }
+  body.show-advanced .advanced-section { display: block; }
+  .advanced-section .preview-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; align-items: center; }
+  .advanced-section .label {
+    font: 600 10px/1 -apple-system, sans-serif;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 6px; min-width: 50px;
+  }
+
+  .new-agent-actions {
+    display: flex; gap: 10px;
+    margin-top: 18px;
+  }
+  .new-agent-actions button {
+    padding: 10px 14px;
+    border: 1px solid var(--glass-line);
+    background: rgba(255,255,255,0.04);
+    color: var(--ink);
+    border-radius: 10px; cursor: pointer;
+    font: 600 12px/1 -apple-system, sans-serif;
+  }
+  .new-agent-actions .save {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    border: 0;
+    flex: 1;
+    box-shadow: 0 0 18px rgba(110,168,255,0.45);
+  }
+  .new-agent-actions .cancel { margin-left: auto; }
+  .tweak-hint {
+    margin-top: 12px;
+    font: 12px/1.4 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+  .tweak-hint b { color: var(--ink-dim); font-weight: 500; }
+
+  /* Help panel */
+  .help-panel {
+    position: fixed;
+    top: 64px; right: 22px;
+    width: 320px;
+    background: var(--glass-strong);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 18px 18px 14px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    z-index: 85;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  body.help-open .help-panel { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .help-panel .title {
+    font: 600 13px/1 -apple-system, sans-serif;
+    margin-bottom: 8px;
+  }
+  .help-panel p {
+    font: 13px/1.5 -apple-system, sans-serif;
+    color: #d4d9e8;
+    margin: 0 0 8px;
+  }
+  .help-panel p b { color: var(--ink); }
+  .help-panel .item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 0;
+    border-top: 1px solid var(--glass-line);
+  }
+  .help-panel .icon {
+    width: 22px; height: 22px; flex-shrink: 0;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    background: rgba(255,255,255,0.06);
+  }
+  .help-panel .item div {
+    font: 12px/1.4 -apple-system, sans-serif;
+    color: var(--ink-dim);
+  }
+  .help-panel .item div b { color: var(--ink); font-weight: 600; }
+  .help-panel .close {
+    position: absolute; top: 12px; right: 12px;
+    width: 22px; height: 22px;
+    background: transparent; border: 0;
+    color: var(--ink-faint); cursor: pointer; font-size: 14px;
+  }
+
+  /* ── Responsive guards ────────────────────────────────────────── */
+  @media (max-width: 980px) {
+    .artifact { width: 360px; padding: 22px 24px 26px; }
+    .agent { width: 144px; }
+    .a-scout { left: 4%; } .a-editor { right: 3%; }
+    .a-analyst { right: 2%; } .a-builder { left: 6%; } .a-sage { right: 6%; }
+  }
+</style>
+</head>
+<body class="scene-3 tour-on">
+
+  <!-- Drifting starfield -->
+  <div class="stars" id="stars"></div>
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="titan">TITAN</span>
+      <span class="crumb-trail"><span class="dim"> &nbsp;›&nbsp; Mission Canvas &nbsp;›&nbsp; </span>
+      <span>Investor update — Q1 2026</span></span>
+    </div>
+    <div class="top-right">
+      <div class="health-pill">
+        <span class="health-dot"></span>
+        Team healthy · 4 working · 1 needs you
+      </div>
+      <div class="fuel">
+        <span class="flame"></span>
+        <span class="spend">$0.47</span>
+        <span class="tokens">· effort so far</span>
+      </div>
+      <button class="help-btn" onclick="toggleHelp()" title="What's this?">?</button>
+    </div>
+  </div>
+
+  <!-- Stage -->
+  <div class="stage">
+
+    <!-- Tethers (SVG curves) -->
+    <svg class="tethers" preserveAspectRatio="none">
+      <path d="M 270 200 Q 480 320, 700 380" />
+      <path d="M 370 700 Q 540 580, 700 500" />
+      <path class="warm" d="M 1180 250 Q 980 360, 870 420" />
+      <path d="M 1280 460 Q 1020 470, 870 480" />
+      <path class="block" d="M 1140 700 Q 960 600, 820 540" />
+    </svg>
+
+    <!-- Scene 1 — Start ─────────────────────────────────────── -->
+    <div class="start-shell">
+      <div class="start-mark"><span class="lit">TITAN</span> &nbsp; · &nbsp; MISSION CANVAS</div>
+      <div class="start-prompt">What do you want done?</div>
+      <div class="start-pitch">
+        Tell me anything &mdash; a thank-you note, a birthday plan, a Q1 report, a code review.
+        I'll put together a small <b>team of AI helpers</b> and we'll do it together. You stay in charge.
+      </div>
+      <div class="start-input">
+        <input id="goal-input" placeholder="Try: &ldquo;Help me write a birthday speech for my mom&rdquo;" />
+        <span class="mic">🎤</span>
+        <button class="submit" onclick="setScene(2)">Begin</button>
+      </div>
+      <div class="start-hint">Speak it, or type it. There's no wrong answer.</div>
+      <div class="start-examples">
+        <div class="ex-label">or try one of these</div>
+        <span class="ex" onclick="document.getElementById('goal-input').value='Plan my mom\'s 70th birthday party.'; setScene(2)">Plan my mom's 70th birthday party</span>
+        <span class="ex" onclick="document.getElementById('goal-input').value='Write a thank-you note to my landlord.'; setScene(2)">Write a thank-you note to my landlord</span>
+        <span class="ex" onclick="document.getElementById('goal-input').value='Summarize this long email I got.'; setScene(2)">Summarize this long email I got</span>
+        <span class="ex" onclick="document.getElementById('goal-input').value='Draft the Q1 investor update.'; setScene(2)">Draft the Q1 investor update</span>
+        <span class="ex" onclick="document.getElementById('goal-input').value='Review the auth refactor PR.'; setScene(2)">Review a code change</span>
+      </div>
+    </div>
+
+    <!-- Scene 2 — Team forming ──────────────────────────────── -->
+    <div class="goal-chip">
+      <span class="label">Your mission</span>
+      Draft the Q1 investor update — pull last quarter's numbers
+    </div>
+
+    <div class="thinking-beat">
+      <div class="blip">
+        <span class="dots"><span></span><span></span><span></span></span>
+        <span>Picking the right helpers for this&hellip;</span>
+      </div>
+    </div>
+
+    <div class="form-banner">
+      <div class="blurb">
+        Here's the team I'd put on this: <b>Scout</b> (finds things), <b>Analyst</b> (numbers),
+        <b>Builder</b> (writes), <b>Editor</b> (polishes), <b>Sage</b> (skeptic). Sound right?
+      </div>
+      <button onclick="setScene(2)">Faster &amp; cheaper</button>
+      <button onclick="setScene(2)">Be thorough</button>
+      <button class="primary" onclick="setScene(3)">Looks good →</button>
+    </div>
+
+    <!-- Artifact (live document) -->
+    <div class="artifact" onclick="setScene(4)">
+      <h1>Q1 2026 Investor Update</h1>
+      <div class="meta">Draft · auto-saving</div>
+      <p class="lead">
+        <span class="edited">Q1 closed strong</span>, with monthly recurring revenue
+        crossing $1.4M and customer count up 28% quarter-over-quarter.
+      </p>
+      <div class="chart-slot">MoM growth chart — Analyst computing…</div>
+      <p>
+        Three things drove the quarter: a sharper product story
+        post-launch, two enterprise wins that landed in March,
+        <span class="writing">and the new self-serve flow that opened the funnel meaningfully</span>
+      </p>
+      <p style="color:#a59c80;font-style:italic">
+        ⌃ Builder is here, writing this part for you
+      </p>
+    </div>
+
+    <!-- Agents ───────────────────────────────────────────────── -->
+    <div class="agent active a-scout">
+      <div class="head">
+        <div class="avatar">S</div>
+        <div>
+          <div class="name">Scout</div>
+          <div class="role">the researcher</div>
+        </div>
+      </div>
+      <div class="rationale">I'll dig up last quarter's numbers and the board minutes.</div>
+      <div class="whisper">Reading <b>Q4 board minutes</b> to keep the story consistent.</div>
+      <div class="footer">
+        <span class="heartbeat busy"></span>
+        <span>working · 32s</span>
+      </div>
+    </div>
+
+    <div class="agent active a-builder">
+      <div class="head">
+        <div class="avatar">B</div>
+        <div>
+          <div class="name">Builder</div>
+          <div class="role">the writer</div>
+        </div>
+      </div>
+      <div class="rationale">I'll write the story around the numbers Scout finds.</div>
+      <div class="whisper">Writing <b>the third part</b> — what drove the quarter.</div>
+      <div class="footer">
+        <span class="heartbeat busy"></span>
+        <span>writing…</span>
+      </div>
+    </div>
+
+    <div class="agent active a-editor" onclick="setScene(4); event.stopPropagation();">
+      <div class="head">
+        <div class="avatar">E</div>
+        <div>
+          <div class="name">Editor</div>
+          <div class="role">the polisher</div>
+        </div>
+      </div>
+      <div class="rationale">I'll keep the tone steady and tighten anything soft.</div>
+      <div class="whisper">Polishing the <b>opening line</b> so it lands right.</div>
+      <div class="footer">
+        <span class="heartbeat warm"></span>
+        <span>made 2 small edits</span>
+      </div>
+    </div>
+
+    <div class="agent active a-analyst">
+      <div class="head">
+        <div class="avatar">A</div>
+        <div>
+          <div class="name">Analyst</div>
+          <div class="role">the numbers nerd</div>
+        </div>
+      </div>
+      <div class="rationale">I'll do the growth chart and double-check the math.</div>
+      <div class="whisper">Building the <b>growth chart</b> from billing data.</div>
+      <div class="footer">
+        <span class="heartbeat busy"></span>
+        <span>almost done · 4s</span>
+      </div>
+    </div>
+
+    <div class="agent active blocked a-sage">
+      <div class="head">
+        <div class="avatar">G</div>
+        <div>
+          <div class="name">Sage</div>
+          <div class="role">the skeptic</div>
+        </div>
+      </div>
+      <div class="rationale">I'll flag anything risky — tone, claims, missing context.</div>
+      <div class="whisper">Has a quick question for you.</div>
+      <div class="footer">
+        <span class="heartbeat block"></span>
+        <span>needs you · 12s</span>
+      </div>
+    </div>
+
+    <!-- Sage's question -->
+    <div class="question">
+      <div class="label">Sage asks</div>
+      Should I mention the February layoffs in the &ldquo;risks&rdquo; section, or keep it out?
+      <div class="quick">
+        <button>Mention briefly</button>
+        <button class="no">Keep it out</button>
+      </div>
+    </div>
+
+    <!-- You -->
+    <div class="user-cursor"></div>
+
+    <!-- First-run guided tour ────────────────────────────────── -->
+    <div class="tour-tip tour-team">
+      <span class="tag">Your team</span>
+      These five AI helpers are working on this for you right now. Tap any one to talk to them.
+      <div class="tip-actions"><button onclick="dismissTour()">Got it</button></div>
+    </div>
+    <div class="tour-tip tour-doc">
+      <span class="tag">What's being made</span>
+      This is your document &mdash; it's being written live as the team works. Tap any line to suggest a change.
+      <div class="tip-actions"><button onclick="dismissTour()">Got it</button></div>
+    </div>
+    <div class="tour-tip tour-blocked">
+      <span class="tag">Stuck on you</span>
+      When a helper needs a decision, they raise their hand here. Tap an answer and they keep going.
+      <div class="tip-actions"><button onclick="dismissTour()">Got it</button></div>
+    </div>
+    <div class="tour-tip tour-cmd">
+      <span class="tag">Steer the team</span>
+      Type or speak here to give the whole team a direction &mdash; like &ldquo;slow down&rdquo; or &ldquo;skip the chart.&rdquo;
+      <div class="tip-actions"><button onclick="dismissTour()">Got it, hide tips</button></div>
+    </div>
+
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="row"><span class="swatch" style="background:var(--accent)"></span> working on it</div>
+    <div class="row"><span class="swatch" style="background:var(--warm)"></span> making edits</div>
+    <div class="row"><span class="swatch" style="background:var(--block)"></span> waiting on you</div>
+    <div class="row" style="margin-top:6px">Glowing line · helpers passing work</div>
+    <div class="row">Flame · effort spent this session</div>
+  </div>
+
+  <!-- Bottom command rail -->
+  <div class="rail">
+    <div class="scrubber">
+      <span class="icon-btn" title="Rewind">⏮</span>
+      <div class="track">
+        <div class="filled"></div>
+        <div class="checkpoint" style="left: 22%"></div>
+        <div class="checkpoint" style="left: 41%"></div>
+        <div class="checkpoint" style="left: 55%"></div>
+        <div class="head"></div>
+      </div>
+      <span class="icon-btn" title="Forward">⏭</span>
+      <span class="time">09:42 · live</span>
+    </div>
+    <div class="command">
+      <input placeholder="Tell the team — &ldquo;Keep the layoffs out, but add a one-line risk note&rdquo;" />
+      <span class="hint">↵</span>
+      <span class="mic" title="Speak">🎤</span>
+    </div>
+    <button class="add-agent-fab" title="Add a teammate" onclick="setScene(5)">+</button>
+  </div>
+
+  <!-- Backdrop for dial / new-agent overlays -->
+  <div class="backdrop" onclick="setScene(3)"></div>
+
+  <!-- Scene 4 — Agent dial ────────────────────────────────── -->
+  <div class="dial" role="dialog">
+    <div class="dial-head">
+      <div class="avatar">E</div>
+      <div>
+        <div class="name">Editor</div>
+        <div class="role">the polisher · 2 edits this session</div>
+      </div>
+      <button class="close" onclick="setScene(3)">✕</button>
+    </div>
+
+    <div class="dial-section">
+      <div class="dial-label">Brainpower</div>
+      <div class="dial-sublabel">How strong should their brain be? Stronger = better, but slower and pricier.</div>
+      <div class="model-picker">
+        <div class="opt">
+          <b>Quick</b>
+          fast &amp; cheap
+        </div>
+        <div class="opt selected">
+          <b>Steady</b>
+          balanced
+        </div>
+        <div class="opt">
+          <b>Best</b>
+          slow &amp; smart
+        </div>
+      </div>
+    </div>
+
+    <div class="dial-section">
+      <div class="dial-label">Style</div>
+      <div class="dial-sublabel">Should they play it safe or take more creative swings?</div>
+      <div class="slider">
+        <div class="knob" style="left: 38%"></div>
+      </div>
+      <div class="slider-labels">
+        <span>Careful</span>
+        <span>Balanced</span>
+        <span>Creative</span>
+      </div>
+    </div>
+
+    <div class="dial-actions">
+      <button>Pause</button>
+      <button>Hand off</button>
+      <button class="danger">Send home</button>
+    </div>
+  </div>
+
+  <!-- Scene 5 — New agent dialog ──────────────────────────── -->
+  <div class="new-agent" role="dialog">
+    <div class="header">Add a teammate</div>
+    <div class="subtitle">Tell me one thing they should be great at. I'll set up the rest.</div>
+
+    <input class="one-line" value="Writes short, punchy TikTok scripts for fitness brands." />
+
+    <div class="auto-mark">
+      <span class="dot"></span>
+      Here's who I'd suggest:
+    </div>
+
+    <div class="preview-card">
+      <div class="preview-head">
+        <div class="avatar">H</div>
+        <div class="who">
+          <div class="name">Hook</div>
+          <div class="role">the TikTok scriptwriter</div>
+        </div>
+      </div>
+      <div class="preview-persona">
+        Hook writes high-retention TikTok scripts: cold-open in the first 3 seconds,
+        payoff by second 8, no platitudes. Tone leans athletic and direct.
+        Will flag anything risky for the brand before posting.
+      </div>
+
+      <div class="advanced-toggle" onclick="toggleAdvanced()">
+        <span id="advcaret">▸</span> Tweak the technical bits
+      </div>
+
+      <div class="advanced-section">
+        <div class="preview-row">
+          <span class="label">Brainpower</span>
+          <span class="chip">Steady (balanced)</span>
+        </div>
+        <div class="preview-row">
+          <span class="label">Can use</span>
+          <span class="chip tool">browser</span>
+          <span class="chip tool">trend research</span>
+          <span class="chip tool">persona library</span>
+          <span class="chip tool">+ add</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="new-agent-actions">
+      <button class="cancel" onclick="setScene(3)">Cancel</button>
+      <button class="save" onclick="setScene(3)">Add to my team</button>
+    </div>
+    <div class="tweak-hint">
+      Don't like something? Just say <b>&ldquo;use a cheaper brain&rdquo;</b> or
+      <b>&ldquo;don't give them browser access&rdquo;</b> &mdash; the card updates.
+    </div>
+  </div>
+
+  <!-- Help panel ─────────────────────────────────────────────── -->
+  <div class="help-panel">
+    <button class="close" onclick="toggleHelp()">✕</button>
+    <div class="title">What you're looking at</div>
+    <p>
+      You're watching a <b>team of AI helpers</b> work on your mission together.
+      Each one has a job. You're in charge.
+    </p>
+    <div class="item">
+      <div class="icon">📄</div>
+      <div>The <b>document in the middle</b> is what they're building for you. It updates live.</div>
+    </div>
+    <div class="item">
+      <div class="icon">👤</div>
+      <div>Each <b>helper card</b> shows what they're doing right now. Tap to talk to them.</div>
+    </div>
+    <div class="item">
+      <div class="icon">❓</div>
+      <div>When a helper needs a decision, they <b>raise their hand</b>. Answer and they keep going.</div>
+    </div>
+    <div class="item">
+      <div class="icon">⏮</div>
+      <div>The slider at the bottom lets you <b>rewind</b> to undo or try a different choice.</div>
+    </div>
+    <div class="item">
+      <div class="icon">🎤</div>
+      <div>You can <b>speak or type</b> anytime — to one helper or the whole team.</div>
+    </div>
+  </div>
+
+  <!-- Scene chooser -->
+  <div class="scene-chooser">
+    <div class="title">Scenes</div>
+    <button data-scene="1" onclick="setScene(1)"><span class="num">1</span> Start</button>
+    <button data-scene="2" onclick="setScene(2)"><span class="num">2</span> Team forms</button>
+    <button data-scene="3" class="active" onclick="setScene(3)"><span class="num">3</span> Working</button>
+    <button data-scene="4" onclick="setScene(4)"><span class="num">4</span> Tune a helper</button>
+    <button data-scene="5" onclick="setScene(5)"><span class="num">5</span> Add a helper</button>
+  </div>
+
+  <script>
+    // Sprinkle stars
+    const wrap = document.getElementById('stars');
+    const N = 40;
+    for (let i = 0; i < N; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.top = (Math.random() * 100) + 'vh';
+      s.style.animationDuration = (12 + Math.random() * 22) + 's';
+      s.style.animationDelay = (-Math.random() * 30) + 's';
+      s.style.opacity = (0.2 + Math.random() * 0.6).toFixed(2);
+      wrap.appendChild(s);
+    }
+
+    function setScene(n) {
+      // Preserve tour-on and other body classes when switching scenes
+      const cur = document.body.className;
+      const tourOn = cur.includes('tour-on');
+      const showAdv = cur.includes('show-advanced');
+      const helpOpen = cur.includes('help-open');
+      let cls = 'scene-' + n;
+      if (tourOn) cls += ' tour-on';
+      if (showAdv) cls += ' show-advanced';
+      if (helpOpen) cls += ' help-open';
+      document.body.className = cls;
+      document.querySelectorAll('.scene-chooser button').forEach(b => {
+        b.classList.toggle('active', Number(b.dataset.scene) === n);
+      });
+      // Re-trigger the flyin animation by toggling display
+      if (n === 2) {
+        document.querySelectorAll('.agent').forEach(el => {
+          el.style.animation = 'none';
+          el.offsetHeight; // reflow
+          el.style.animation = '';
+        });
+      }
+    }
+    function dismissTour() {
+      document.body.classList.remove('tour-on');
+    }
+    function toggleHelp() {
+      document.body.classList.toggle('help-open');
+    }
+    function toggleAdvanced() {
+      const open = document.body.classList.toggle('show-advanced');
+      document.getElementById('advcaret').textContent = open ? '▾' : '▸';
+    }
+    // Keyboard arrows
+    document.addEventListener('keydown', e => {
+      const m = document.body.className.match(/scene-(\d)/);
+      const c = m ? Number(m[1]) : 3;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') setScene(Math.min(5, c + 1));
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') setScene(Math.max(1, c - 1));
+    });
+  </script>
+</body>
+</html>

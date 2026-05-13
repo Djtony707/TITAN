@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TITAN Mission — chat-style paper prototype</title>
+<style>
+  :root {
+    --bg-0: #05070d;
+    --bg-1: #0b1020;
+    --bg-2: #131a30;
+    --ink: #e7ecf5;
+    --ink-dim: #8a93a8;
+    --ink-faint: #4a5168;
+    --accent: #6ea8ff;
+    --accent-2: #b07cff;
+    --warm: #ffb04a;
+    --health: #4adbb5;
+    --block: #ff5d6c;
+    --glass: rgba(20, 26, 48, 0.55);
+    --glass-strong: rgba(20, 26, 48, 0.82);
+    --glass-line: rgba(255, 255, 255, 0.08);
+    --shadow-soft: 0 6px 30px rgba(0, 0, 0, 0.35);
+
+    --c-scout:   #6ea8ff;
+    --c-builder: #ff9a4a;
+    --c-editor:  #8a64ff;
+    --c-analyst: #4adbb5;
+    --c-sage:    #ff5d6c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.5 -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+    color: var(--ink);
+    background: radial-gradient(circle at 60% 0%, #1a2244 0%, var(--bg-1) 38%, var(--bg-0) 85%);
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Top bar ──────────────────────────────────────────────── */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 12px 22px;
+    display: flex; align-items: center; gap: 18px;
+    background: linear-gradient(180deg, rgba(5,7,13,0.92), rgba(5,7,13,0.6));
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--glass-line);
+    z-index: 20;
+  }
+  .breadcrumb { font-weight: 600; letter-spacing: 0.2px; flex-shrink: 0; }
+  .breadcrumb .dim { color: var(--ink-dim); font-weight: 400; }
+  .breadcrumb .titan {
+    background: linear-gradient(90deg, #6ea8ff, #b07cff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  body.scene-1 .topbar .crumb-trail { visibility: hidden; }
+  .team-strip {
+    flex: 1;
+    display: flex; align-items: center; gap: 8px;
+    overflow-x: auto;
+  }
+  body.scene-1 .team-strip { visibility: hidden; }
+  .team-strip .label {
+    font: 600 10px/1 -apple-system, sans-serif;
+    letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 6px;
+  }
+  .team-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px 5px 5px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    font-size: 12px;
+    cursor: pointer;
+    position: relative;
+  }
+  .team-pill:hover { border-color: rgba(255,255,255,0.18); }
+  .team-pill .av {
+    width: 22px; height: 22px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    color: #0b1020; font-weight: 700; font-size: 11px;
+  }
+  .team-pill .av.scout   { background: linear-gradient(135deg, #b8d5ff, #6ea8ff); }
+  .team-pill .av.builder { background: linear-gradient(135deg, #ffd28a, #ff9a4a); }
+  .team-pill .av.editor  { background: linear-gradient(135deg, #c8b4ff, #8a64ff); }
+  .team-pill .av.analyst { background: linear-gradient(135deg, #a0f0d4, #4adbb5); }
+  .team-pill .av.sage    { background: linear-gradient(135deg, #ff9aa6, #ff5d6c); }
+  .team-pill .nm { color: var(--ink-dim); }
+  .team-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--health);
+    box-shadow: 0 0 6px var(--health);
+  }
+  .team-pill .dot.busy { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+  .team-pill .dot.warm { background: var(--warm); box-shadow: 0 0 6px var(--warm); animation: breathe 1.4s ease-in-out infinite; }
+  .team-pill .dot.block { background: var(--block); box-shadow: 0 0 8px var(--block); animation: breathe 0.9s ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50%      { transform: scale(1.3); opacity: 1; }
+  }
+
+  .top-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .fuel {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px;
+    background: var(--glass); border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    font-size: 12px; color: var(--ink-dim);
+  }
+  body.scene-1 .fuel { display: none; }
+  .flame {
+    width: 12px; height: 16px;
+    background: radial-gradient(ellipse at 50% 70%, #ffeb6b 0%, #ff8a4a 45%, transparent 70%);
+    animation: flicker 1.4s ease-in-out infinite alternate;
+  }
+  @keyframes flicker {
+    0% { transform: scaleY(1); opacity: 0.85; }
+    100% { transform: scaleY(1.18); opacity: 1; }
+  }
+  .help-btn {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    font: 600 13px/1 -apple-system, sans-serif;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .help-btn:hover { color: var(--ink); border-color: rgba(255,255,255,0.18); }
+
+  /* ── Scene 1 — Start ──────────────────────────────────────── */
+  .start-shell {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px;
+    z-index: 6;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.4s ease;
+    padding: 0 24px;
+  }
+  body.scene-1 .start-shell { opacity: 1; pointer-events: auto; }
+  .start-mark {
+    font: 700 12px/1 -apple-system, sans-serif;
+    letter-spacing: 4px; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .start-mark .lit {
+    background: linear-gradient(90deg, #6ea8ff, #b07cff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .start-prompt {
+    font: 600 38px/1.15 -apple-system, sans-serif;
+    letter-spacing: -1px;
+    text-align: center;
+  }
+  .start-pitch {
+    font: 16px/1.5 -apple-system, sans-serif;
+    color: var(--ink-dim);
+    text-align: center;
+    max-width: 620px;
+    margin-top: -10px;
+  }
+  .start-pitch b { color: var(--ink); font-weight: 600; }
+  .start-input {
+    width: min(720px, 92vw);
+    display: flex; align-items: center; gap: 14px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 16px;
+    padding: 16px 18px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .start-input input {
+    flex: 1; border: 0; background: transparent;
+    color: var(--ink); outline: none;
+    font: 17px/1.3 -apple-system, sans-serif;
+  }
+  .start-input input::placeholder { color: var(--ink-faint); }
+  .start-input .submit {
+    padding: 10px 16px;
+    border: 0; border-radius: 10px;
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020; font-weight: 700; cursor: pointer;
+    box-shadow: 0 0 24px rgba(110, 168, 255, 0.45);
+  }
+  .start-input .mic {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-line);
+    cursor: not-allowed;
+    opacity: 0.6;
+    position: relative;
+  }
+  .start-input .mic::after {
+    content: "soon";
+    position: absolute;
+    bottom: -16px; left: 50%;
+    transform: translateX(-50%);
+    font: 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.2px;
+    color: var(--ink-faint);
+  }
+  .start-hint { color: var(--ink-faint); font-size: 12px; }
+  .start-examples {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    max-width: 760px;
+  }
+  .start-examples .ex-label {
+    width: 100%; text-align: center;
+    font: 10px/1 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    letter-spacing: 1.6px; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .start-examples .ex {
+    padding: 8px 12px; font-size: 12px; color: var(--ink-dim);
+    background: var(--glass); border: 1px solid var(--glass-line);
+    border-radius: 999px; cursor: pointer;
+  }
+  .start-examples .ex:hover { color: var(--ink); border-color: rgba(255,255,255,0.16); }
+
+  /* ── Chat shell ─────────────────────────────────────────── */
+  .chat-shell {
+    position: fixed;
+    top: 56px; left: 0; right: 0; bottom: 88px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+  body.scene-1 .chat-shell { display: none; }
+  .chat-thread {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 22px 22px 40px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+
+  /* Message base */
+  .msg {
+    max-width: 88%;
+    display: flex; flex-direction: column;
+    animation: slidein 0.45s ease-out both;
+  }
+  @keyframes slidein {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  .msg .head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .msg .av {
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    color: #0b1020; font-weight: 700; font-size: 11px;
+  }
+  .msg .name { font: 600 12px/1 -apple-system, sans-serif; }
+  .msg .role { font: 11px/1 -apple-system, sans-serif; color: var(--ink-faint); }
+  .msg .stamp { font: 10px/1 -apple-system, sans-serif; color: var(--ink-faint); margin-left: 6px; }
+  .msg .bubble {
+    padding: 11px 14px;
+    border-radius: 14px;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+
+  /* User message — right-aligned */
+  .msg.user {
+    align-self: flex-end;
+    align-items: flex-end;
+  }
+  .msg.user .head { flex-direction: row-reverse; }
+  .msg.user .bubble {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 4px 16px rgba(110,168,255,0.25);
+  }
+  .msg.user .av { background: #fff; color: #0b1020; }
+
+  /* Agent message base */
+  .msg.agent .bubble {
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    backdrop-filter: blur(12px);
+    border-bottom-left-radius: 4px;
+  }
+  /* Agent color accent (left border, tinted bg) */
+  .msg.scout .av    { background: linear-gradient(135deg, #b8d5ff, #6ea8ff); }
+  .msg.builder .av  { background: linear-gradient(135deg, #ffd28a, #ff9a4a); }
+  .msg.editor .av   { background: linear-gradient(135deg, #c8b4ff, #8a64ff); }
+  .msg.analyst .av  { background: linear-gradient(135deg, #a0f0d4, #4adbb5); }
+  .msg.sage .av     { background: linear-gradient(135deg, #ff9aa6, #ff5d6c); }
+  .msg.scout .bubble    { border-left: 3px solid var(--c-scout); }
+  .msg.builder .bubble  { border-left: 3px solid var(--c-builder); }
+  .msg.editor .bubble   { border-left: 3px solid var(--c-editor); }
+  .msg.analyst .bubble  { border-left: 3px solid var(--c-analyst); }
+  .msg.sage .bubble     { border-left: 3px solid var(--c-sage); }
+  .msg.scout .name   { color: #b8d5ff; }
+  .msg.builder .name { color: #ffd28a; }
+  .msg.editor .name  { color: #c8b4ff; }
+  .msg.analyst .name { color: #a0f0d4; }
+  .msg.sage .name    { color: #ff9aa6; }
+
+  /* System message — centered, subtle */
+  .system {
+    align-self: center;
+    text-align: center;
+    font: 12px/1.4 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    padding: 4px 10px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+  }
+  .system .lit { color: var(--ink-dim); font-weight: 500; }
+
+  /* Inline action chips (small action shown by agent) */
+  .msg .action {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px;
+    font: 11px/1 -apple-system, sans-serif;
+    color: var(--ink-dim);
+  }
+  .msg .action .arr { color: var(--ink-faint); }
+  .msg .action b { color: var(--ink); font-weight: 500; }
+
+  /* Artifact card (inline in thread, expandable) */
+  .artifact-card {
+    align-self: stretch;
+    margin: 4px 0;
+    background: linear-gradient(180deg, rgba(247,245,238,0.04), rgba(247,245,238,0.02));
+    border: 1px solid rgba(247,245,238,0.12);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .artifact-card::before {
+    content: "";
+    position: absolute; left: 0; right: 0; top: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(110,168,255,0.6), transparent);
+    animation: scanbar 3s ease-in-out infinite;
+  }
+  @keyframes scanbar {
+    0%, 100% { transform: translateX(-100%); }
+    50%      { transform: translateX(100%); }
+  }
+  .artifact-card .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--glass-line);
+  }
+  .artifact-card .doc-icon {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: rgba(247,245,238,0.06);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .artifact-card .title {
+    flex: 1;
+    font: 600 13px/1.2 -apple-system, sans-serif;
+  }
+  .artifact-card .title .stat {
+    display: block;
+    font: 11px/1.3 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    margin-top: 2px;
+  }
+  .artifact-card .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: breathe 1.4s ease-in-out infinite;
+  }
+  .artifact-card .expander {
+    background: transparent;
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    padding: 5px 10px;
+    border-radius: 8px;
+    font: 600 11px/1 -apple-system, sans-serif;
+    cursor: pointer;
+  }
+  .artifact-card .expander:hover { color: var(--ink); border-color: rgba(255,255,255,0.2); }
+  .artifact-card .preview {
+    padding: 14px 16px 16px;
+    font: 14px/1.55 "Iowan Old Style", "Charter", "Georgia", serif;
+    color: #d4d9e8;
+  }
+  .artifact-card .preview .h {
+    font: 600 16px/1.2 "Iowan Old Style", serif;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .artifact-card .preview .meta {
+    font: 11px/1.4 -apple-system, sans-serif;
+    color: var(--ink-faint);
+    letter-spacing: 0.6px; text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .artifact-card .preview .edited {
+    background: rgba(255, 220, 120, 0.18);
+    padding: 0 3px; border-radius: 2px;
+    color: #fce7a6;
+  }
+  .artifact-card .preview .writing::after {
+    content: "▍";
+    color: #6ea8ff;
+    margin-left: 2px;
+    animation: caret 1s steps(2) infinite;
+  }
+  @keyframes caret { 50% { opacity: 0; } }
+  .artifact-card .full {
+    display: none;
+    padding: 16px;
+    border-top: 1px solid var(--glass-line);
+    background: rgba(247,245,238,0.94);
+    color: #1a1f2e;
+    font: 14px/1.55 "Iowan Old Style", "Charter", "Georgia", serif;
+  }
+  body.expanded .artifact-card .full { display: block; }
+  body.expanded .artifact-card .preview { display: none; }
+  .artifact-card .full h1 {
+    margin: 0 0 6px;
+    font: 600 22px/1.2 "Iowan Old Style", serif;
+  }
+  .artifact-card .full .meta-row {
+    font: 11px/1.4 -apple-system, sans-serif;
+    color: #8a8472;
+    letter-spacing: 0.8px; text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .artifact-card .full p { margin: 0 0 12px; }
+  .artifact-card .full .edited {
+    background: rgba(255, 220, 120, 0.5);
+    padding: 0 3px; border-radius: 2px;
+  }
+  .artifact-card .full .writing::after {
+    content: "▍"; color: #6ea8ff;
+    margin-left: 2px;
+    animation: caret 1s steps(2) infinite;
+  }
+  .artifact-card .full .chart-slot {
+    background: rgba(0,0,0,0.04);
+    border: 1px dashed #d8d3c2;
+    border-radius: 4px;
+    height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    font: 12px/1 -apple-system, sans-serif;
+    color: #8a8472;
+    margin: 6px 0 14px;
+    position: relative; overflow: hidden;
+  }
+  .artifact-card .full .chart-slot::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(110,168,255,0.18), transparent);
+    animation: scanbar 2.4s ease-in-out infinite;
+  }
+
+  /* Sage's question — message with quick replies */
+  .msg.sage.question .bubble {
+    background: linear-gradient(180deg, rgba(255, 93, 108, 0.18), rgba(255, 93, 108, 0.06));
+    border: 1px solid rgba(255, 93, 108, 0.35);
+    border-left: 3px solid var(--c-sage);
+  }
+  .msg.sage.question .quick {
+    display: flex; gap: 6px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .msg.sage.question .quick button {
+    padding: 7px 12px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255, 93, 108, 0.4);
+    color: var(--ink);
+    border-radius: 10px;
+    font: 600 12px/1 -apple-system, sans-serif;
+    cursor: pointer;
+  }
+  .msg.sage.question .quick button:hover {
+    background: rgba(255, 93, 108, 0.18);
+  }
+  .msg.sage.question .quick button.primary {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    border-color: transparent;
+  }
+  .msg.sage.question .pin {
+    display: inline-flex; align-items: center; gap: 4px;
+    font: 600 10px/1 -apple-system, sans-serif;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    padding: 3px 8px;
+    background: var(--c-sage);
+    color: #fff;
+    border-radius: 999px;
+    margin-bottom: 6px;
+    align-self: flex-start;
+  }
+  .msg.sage.question .pin .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #fff;
+    animation: breathe 0.9s ease-in-out infinite;
+  }
+
+  /* Typing indicator */
+  .typing {
+    display: flex; align-items: center; gap: 8px;
+    align-self: flex-start;
+    padding: 8px 14px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    border-radius: 14px;
+    backdrop-filter: blur(8px);
+  }
+  .typing .av {
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #ffd28a, #ff9a4a);
+    color: #0b1020; font: 700 10px/1 -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .typing .label {
+    font: 12px/1 -apple-system, sans-serif;
+    color: var(--ink-dim);
+  }
+  .typing .label b { color: var(--ink); font-weight: 600; }
+  .typing .dots { display: inline-flex; gap: 3px; margin-left: 4px; }
+  .typing .dots span {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--ink-dim);
+    animation: bob 1.2s ease-in-out infinite;
+  }
+  .typing .dots span:nth-child(2) { animation-delay: 0.15s; }
+  .typing .dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0); opacity: 0.5; }
+    50%      { transform: translateY(-3px); opacity: 1; }
+  }
+
+  /* ── Bottom input rail ────────────────────────────────────── */
+  .input-rail {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 14px 22px 20px;
+    background: linear-gradient(0deg, rgba(5,7,13,0.96), rgba(5,7,13,0));
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    z-index: 30;
+  }
+  body.scene-1 .input-rail { display: none; }
+  .input-shell {
+    width: min(760px, 96vw);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 16px;
+    padding: 10px 12px 10px 14px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .input-shell .add {
+    width: 32px; height: 32px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    font: 600 17px/1 -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .input-shell .add:hover { color: var(--ink); border-color: rgba(255,255,255,0.18); }
+  .input-shell input {
+    flex: 1;
+    border: 0; background: transparent;
+    color: var(--ink);
+    outline: none;
+    font: 14px/1.3 -apple-system, sans-serif;
+    padding: 8px 4px;
+  }
+  .input-shell input::placeholder { color: var(--ink-faint); }
+  .input-shell .mic {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-line);
+    color: var(--ink-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: not-allowed;
+    opacity: 0.55;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .input-shell .mic .soon {
+    position: absolute;
+    bottom: -16px; left: 50%;
+    transform: translateX(-50%);
+    font: 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.2px;
+    color: var(--ink-faint);
+  }
+  .input-shell .send {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    border: 0;
+    cursor: pointer;
+    font: 700 16px/1 -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 16px rgba(110,168,255,0.5);
+  }
+  .input-shell .hint-row {
+    width: 100%;
+    margin-top: 6px;
+    text-align: center;
+    font: 11px/1.3 -apple-system, sans-serif;
+    color: var(--ink-faint);
+  }
+  .input-shell .hint-row b { color: var(--ink-dim); font-weight: 500; }
+
+  .input-meta {
+    width: min(760px, 96vw);
+    margin-top: 6px;
+    display: flex; justify-content: space-between;
+    font: 11px/1 -apple-system, sans-serif;
+    color: var(--ink-faint);
+  }
+  .input-meta b { color: var(--ink-dim); }
+
+  /* ── Scene chooser ────────────────────────────────────────── */
+  .scene-chooser {
+    position: fixed;
+    top: 50%; right: 12px;
+    transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-line);
+    border-radius: 12px;
+    padding: 10px;
+    backdrop-filter: blur(14px);
+    z-index: 80;
+    box-shadow: var(--shadow-soft);
+  }
+  .scene-chooser .title {
+    font: 600 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 2px;
+  }
+  .scene-chooser button {
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: var(--ink-dim);
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font: 12px/1.1 -apple-system, sans-serif;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .scene-chooser button:hover { background: rgba(255,255,255,0.06); color: var(--ink); }
+  .scene-chooser button.active {
+    background: linear-gradient(120deg, rgba(110,168,255,0.22), rgba(176,124,255,0.18));
+    color: var(--ink);
+  }
+  .scene-chooser .num {
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    color: var(--ink-dim);
+    font: 600 10px/18px -apple-system, sans-serif;
+    text-align: center;
+  }
+  .scene-chooser button.active .num {
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+  }
+
+  /* Help panel */
+  .help-panel {
+    position: fixed;
+    top: 64px; right: 22px;
+    width: 320px;
+    background: var(--glass-strong);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 18px 18px 14px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    z-index: 85;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  body.help-open .help-panel { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .help-panel .title { font: 600 13px/1 -apple-system, sans-serif; margin-bottom: 8px; }
+  .help-panel p { font: 13px/1.5 -apple-system, sans-serif; color: #d4d9e8; margin: 0 0 8px; }
+  .help-panel p b { color: var(--ink); }
+  .help-panel .item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 0; border-top: 1px solid var(--glass-line);
+  }
+  .help-panel .icon {
+    width: 22px; height: 22px; flex-shrink: 0;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    background: rgba(255,255,255,0.06);
+  }
+  .help-panel .item div { font: 12px/1.4 -apple-system, sans-serif; color: var(--ink-dim); }
+  .help-panel .item div b { color: var(--ink); font-weight: 600; }
+  .help-panel .close {
+    position: absolute; top: 12px; right: 12px;
+    width: 22px; height: 22px;
+    background: transparent; border: 0;
+    color: var(--ink-faint); cursor: pointer; font-size: 14px;
+  }
+
+  /* Voice teaser badge in input shell */
+  .voice-badge {
+    position: absolute;
+    top: -22px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(135deg, #6ea8ff, #b07cff);
+    color: #0b1020;
+    font: 700 9px/1 -apple-system, sans-serif;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(110,168,255,0.4);
+  }
+
+  @media (max-width: 740px) {
+    .chat-thread { padding: 16px 12px 30px; }
+    .scene-chooser { display: none; }
+  }
+</style>
+</head>
+<body class="scene-2">
+
+  <!-- Top bar with team strip -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="titan">TITAN</span>
+      <span class="crumb-trail"><span class="dim"> &nbsp;›&nbsp; </span> Mission · Investor update</span>
+    </div>
+    <div class="team-strip">
+      <span class="label">your team</span>
+      <div class="team-pill" title="Scout · researcher · working">
+        <span class="av scout">S</span>
+        <span class="nm">Scout</span>
+        <span class="dot busy"></span>
+      </div>
+      <div class="team-pill" title="Builder · writer · working">
+        <span class="av builder">B</span>
+        <span class="nm">Builder</span>
+        <span class="dot busy"></span>
+      </div>
+      <div class="team-pill" title="Editor · polisher · made edits">
+        <span class="av editor">E</span>
+        <span class="nm">Editor</span>
+        <span class="dot warm"></span>
+      </div>
+      <div class="team-pill" title="Analyst · numbers · working">
+        <span class="av analyst">A</span>
+        <span class="nm">Analyst</span>
+        <span class="dot busy"></span>
+      </div>
+      <div class="team-pill" title="Sage · skeptic · needs you">
+        <span class="av sage">G</span>
+        <span class="nm">Sage</span>
+        <span class="dot block"></span>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="fuel" title="Effort so far">
+        <span class="flame"></span>
+        <span class="spend">$0.47</span>
+      </div>
+      <button class="help-btn" onclick="toggleHelp()" title="What's this?">?</button>
+    </div>
+  </div>
+
+  <!-- Scene 1 — Start ───────────────────────────────────────── -->
+  <div class="start-shell">
+    <div class="start-mark"><span class="lit">TITAN</span> &nbsp; · &nbsp; MISSION CHAT</div>
+    <div class="start-prompt">What do you want done?</div>
+    <div class="start-pitch">
+      Tell me anything &mdash; a thank-you note, a birthday plan, a Q1 report.
+      I'll put together a small <b>team of AI helpers</b> and we'll chat as we go.
+      Voice is coming soon &mdash; for now, type away.
+    </div>
+    <div class="start-input">
+      <input id="goal-input" placeholder="Try: &ldquo;Help me write a birthday speech for my mom&rdquo;" />
+      <span class="mic">🎤</span>
+      <button class="submit" onclick="setScene(2)">Begin</button>
+    </div>
+    <div class="start-hint">Type your mission. Hit Begin and the team gathers.</div>
+    <div class="start-examples">
+      <div class="ex-label">or try one of these</div>
+      <span class="ex" onclick="setScene(2)">Plan my mom's 70th birthday party</span>
+      <span class="ex" onclick="setScene(2)">Write a thank-you note to my landlord</span>
+      <span class="ex" onclick="setScene(2)">Summarize this long email I got</span>
+      <span class="ex" onclick="setScene(2)">Draft the Q1 investor update</span>
+      <span class="ex" onclick="setScene(2)">Review a code change</span>
+    </div>
+  </div>
+
+  <!-- Chat shell ──────────────────────────────────────────────── -->
+  <div class="chat-shell">
+    <div class="chat-thread">
+
+      <div class="msg user" style="animation-delay: 0s">
+        <div class="head">
+          <div class="av">Y</div>
+          <div class="name">You</div>
+          <div class="stamp">9:41</div>
+        </div>
+        <div class="bubble">Draft the Q1 investor update — pull last quarter's numbers and keep it tight.</div>
+      </div>
+
+      <div class="system">
+        <span class="lit">Team formed</span> &middot; brought in Scout, Analyst, Builder, Editor &amp; Sage
+      </div>
+
+      <div class="msg agent scout">
+        <div class="head">
+          <div class="av">S</div>
+          <div class="name">Scout</div>
+          <div class="role">the researcher</div>
+          <div class="stamp">9:41</div>
+        </div>
+        <div class="bubble">
+          Pulled the Q4 board minutes and the last 90 days of billing. Headline: MRR
+          crossed $1.4M, customer count up 28% QoQ. The two enterprise wins (Acme +
+          Vector) closed late March. Handing the numbers to Analyst.
+          <div class="action"><span>looked at</span> <b>Q4_board_minutes.pdf</b> <span class="arr">·</span> <b>billing export</b></div>
+        </div>
+      </div>
+
+      <div class="msg agent analyst">
+        <div class="head">
+          <div class="av">A</div>
+          <div class="name">Analyst</div>
+          <div class="role">the numbers nerd</div>
+          <div class="stamp">9:42</div>
+        </div>
+        <div class="bubble">
+          MoM growth across the quarter: <b>+9.2% Jan → +11.4% Feb → +7.8% Mar</b>.
+          Mar dip was the post-Vector launch consolidation, not a leak. Building a
+          clean chart for the update.
+        </div>
+      </div>
+
+      <!-- Artifact card — inline, expandable -->
+      <div class="artifact-card">
+        <div class="head">
+          <div class="doc-icon">📄</div>
+          <div class="title">
+            Q1 2026 Investor Update
+            <span class="stat">2 helpers writing &middot; 6 lines so far &middot; updating live</span>
+          </div>
+          <div class="live-dot"></div>
+          <button class="expander" onclick="toggleExpand()">▾ Open</button>
+        </div>
+        <div class="preview">
+          <div class="h">Q1 2026 Investor Update</div>
+          <div class="meta">Draft · auto-saving</div>
+          <p><span class="edited">Q1 closed strong</span>, with MRR crossing $1.4M and customer count up 28% QoQ. <span class="writing">Three things drove it</span></p>
+        </div>
+        <div class="full">
+          <h1>Q1 2026 Investor Update</h1>
+          <div class="meta-row">Draft · auto-saving</div>
+          <p>
+            <span class="edited">Q1 closed strong</span>, with monthly recurring revenue
+            crossing $1.4M and customer count up 28% quarter-over-quarter.
+          </p>
+          <div class="chart-slot">MoM growth chart — Analyst computing…</div>
+          <p>
+            Three things drove the quarter: a sharper product story
+            post-launch, two enterprise wins that landed in March,
+            <span class="writing">and the new self-serve flow that opened the funnel meaningfully</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="msg agent builder">
+        <div class="head">
+          <div class="av">B</div>
+          <div class="name">Builder</div>
+          <div class="role">the writer</div>
+          <div class="stamp">9:43</div>
+        </div>
+        <div class="bubble">
+          Writing paragraph 3 right now &mdash; "what drove the quarter" &mdash; weaving
+          Scout's enterprise wins with Analyst's funnel data. Will hand to Editor for
+          a polish pass when done.
+        </div>
+      </div>
+
+      <div class="msg agent editor">
+        <div class="head">
+          <div class="av">E</div>
+          <div class="name">Editor</div>
+          <div class="role">the polisher</div>
+          <div class="stamp">9:43</div>
+        </div>
+        <div class="bubble">
+          Made two small edits to the opener &mdash; tightened "we are pleased to share"
+          to <i>"Q1 closed strong"</i> and dropped a redundant clause. Tone reads more
+          confident, less PR.
+          <div class="action"><span>edited</span> <b>opening paragraph</b></div>
+        </div>
+      </div>
+
+      <!-- Sage's question -->
+      <div class="msg sage question">
+        <div class="head">
+          <div class="av">G</div>
+          <div class="name">Sage</div>
+          <div class="role">the skeptic</div>
+          <div class="stamp">9:44</div>
+        </div>
+        <div class="pin"><span class="dot"></span> Needs you</div>
+        <div class="bubble">
+          Quick call: in the &ldquo;risks&rdquo; section, should I mention the February layoffs?
+          It's relevant context, but framing matters &mdash; investors might read it as
+          either prudent or alarming. Your call.
+          <div class="quick">
+            <button>Mention briefly</button>
+            <button class="primary">Keep it out</button>
+            <button>Let me write the line</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing indicator -->
+      <div class="typing">
+        <div class="av">B</div>
+        <div class="label"><b>Builder</b> is writing<span class="dots"><span></span><span></span><span></span></span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Bottom input rail -->
+  <div class="input-rail">
+    <div style="width: min(760px, 96vw);">
+      <div class="input-shell">
+        <button class="add" title="Add a teammate">+</button>
+        <input placeholder="Type to the team — or @Sage to talk to one helper" />
+        <button class="mic" title="Voice coming soon">🎤<span class="soon">soon</span></button>
+        <button class="send">↑</button>
+      </div>
+      <div class="input-meta">
+        <span><b>@Scout</b> &nbsp;<b>@Analyst</b> &nbsp;<b>@Builder</b> &nbsp;<b>@Editor</b> &nbsp;<b>@Sage</b> &nbsp;to address one helper</span>
+        <span>Press <b>↵</b> to send &middot; <b>shift+↵</b> for a new line</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help panel ────────────────────────────────────────────── -->
+  <div class="help-panel">
+    <button class="close" onclick="toggleHelp()">✕</button>
+    <div class="title">What you're looking at</div>
+    <p>
+      It's a <b>group chat with five AI helpers</b>. Each one has a job.
+      You stay in the conversation &mdash; type anytime to redirect.
+    </p>
+    <div class="item">
+      <div class="icon">💬</div>
+      <div>Helpers <b>talk in the thread</b> as they work, just like teammates would.</div>
+    </div>
+    <div class="item">
+      <div class="icon">📄</div>
+      <div>The <b>document card</b> shows what they're building. Tap <i>Open</i> to read it.</div>
+    </div>
+    <div class="item">
+      <div class="icon">❓</div>
+      <div>When a helper needs a decision, they post a <b>pink message with quick replies</b>.</div>
+    </div>
+    <div class="item">
+      <div class="icon">@</div>
+      <div>Type <b>@Scout</b> (or any name) to message one helper directly.</div>
+    </div>
+    <div class="item">
+      <div class="icon">🎤</div>
+      <div><b>Voice is coming next.</b> You'll be able to talk to the team out loud.</div>
+    </div>
+  </div>
+
+  <!-- Scene chooser ─────────────────────────────────────────── -->
+  <div class="scene-chooser">
+    <div class="title">Scenes</div>
+    <button data-scene="1" onclick="setScene(1)"><span class="num">1</span> Start</button>
+    <button data-scene="2" class="active" onclick="setScene(2)"><span class="num">2</span> Mid-mission</button>
+    <button data-scene="3" onclick="setScene(2); toggleExpand(true)"><span class="num">3</span> Open the doc</button>
+  </div>
+
+  <script>
+    function setScene(n) {
+      const cur = document.body.className;
+      const helpOpen = cur.includes('help-open');
+      const expanded = cur.includes('expanded');
+      let cls = 'scene-' + n;
+      if (helpOpen) cls += ' help-open';
+      if (expanded) cls += ' expanded';
+      document.body.className = cls;
+      document.querySelectorAll('.scene-chooser button').forEach(b => {
+        b.classList.toggle('active', Number(b.dataset.scene) === n);
+      });
+    }
+    function toggleHelp() {
+      document.body.classList.toggle('help-open');
+    }
+    function toggleExpand(force) {
+      if (typeof force === 'boolean') {
+        document.body.classList.toggle('expanded', force);
+      } else {
+        document.body.classList.toggle('expanded');
+      }
+      const btn = document.querySelector('.artifact-card .expander');
+      if (btn) btn.textContent = document.body.classList.contains('expanded') ? '▴ Collapse' : '▾ Open';
+    }
+    // Scroll the thread to bottom on load so user sees the latest message
+    window.addEventListener('load', () => {
+      const shell = document.querySelector('.chat-shell');
+      if (shell) shell.scrollTop = shell.scrollHeight;
+    });
+    // Keyboard arrows
+    document.addEventListener('keydown', e => {
+      const m = document.body.className.match(/scene-(\d)/);
+      const c = m ? Number(m[1]) : 2;
+      if (e.key === 'ArrowRight') setScene(Math.min(3, c + 1));
+      if (e.key === 'ArrowLeft') setScene(Math.max(1, c - 1));
+    });
+  </script>
+</body>
+</html>

@@ -15,6 +15,10 @@ import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
 const CPLayout = lazy(() => import('@/components/command-post/CPLayout'));
 
+// ── v6.1.0 Mission Chat ────────────────────────────────────
+const MissionStart = lazy(() => import('@/pages/MissionStart'));
+const MissionChat = lazy(() => import('@/pages/MissionChat'));
+
 const VoiceOverlay = lazy(() =>
   import('@/components/voice/VoiceOverlay').then((m) => ({ default: m.VoiceOverlay })),
 );
@@ -105,6 +109,10 @@ function AuthenticatedAppInner() {
 
           {/* Command Post — routed page and canvas widget */}
           <Route path="/command-post/*" element={<CPLayout />} />
+
+          {/* v6.1.0 Mission Chat — opt-in chat-style team control */}
+          <Route path="/mission" element={<MissionStart />} />
+          <Route path="/mission/:id" element={<MissionChat />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/space/home" replace />} />

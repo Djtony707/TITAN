@@ -4,7 +4,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const TITAN_VERSION = '6.0.4';
+export const TITAN_VERSION = '6.1.0-alpha.0';
 export const TITAN_CODENAME = 'Living Canvas';
 export const TITAN_NAME = 'TITAN';
 export const TITAN_FULL_NAME = 'The Intelligent Task Automation Network';
@@ -70,6 +70,10 @@ export const LEADS_PATH = join(TITAN_HOME, 'leads.jsonl');
 export const TELEMETRY_EVENTS_PATH = join(TITAN_HOME, 'telemetry-events.jsonl');
 export const SOMADRIVE_STATE_PATH = join(TITAN_HOME, 'soma-drive-state.json');
 export const ACTIVITY_LOG_PATH = join(TITAN_HOME, 'activity-log.jsonl');
+
+// v6.1.0 — Mission Chat
+export const MISSIONS_DIR = join(TITAN_HOME, 'missions');
+export const PLAYS_DIR = join(TITAN_HOME, 'plays');
 
 // Gateway defaults
 export const DEFAULT_GATEWAY_HOST = '0.0.0.0';

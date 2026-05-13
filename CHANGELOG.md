@@ -5,6 +5,83 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.0 — 2026-05-13 — Mission Chat (opt-in chat-style team control)
+
+> The first cut of TITAN's new primary surface: a chat-style team room
+> instead of dashboards. Type a goal, see your team gather, watch them
+> work as messages in a familiar thread. Lives alongside the existing
+> Command Post in this release — opt in by visiting `/mission`. Becomes
+> the default once we've dogfooded it.
+
+### What ships
+
+- **Mission rooms** (`src/agent/missionRoom.ts`) — one mission = one
+  goal + a team of specialists + a live artifact + a chat thread. Event
+  bus so the SSE bridge and tests can subscribe to mutations.
+  Persisted as `~/.titan/missions/<id>.json` with atomic writes.
+- **Plays library** (`src/agent/plays.ts`) — 11 starter team
+  configurations matched by goal text. No LLM call needed to form a
+  team for common requests:
+  - `investor-update`, `code-review`, `bug-triage`, `sales-email`,
+    `thank-you`, `event-plan`, `summarize`, `market-research`,
+    `content-post`, `launch-plan`, plus a `generic` 3-agent fallback.
+  - Deterministic matcher with priority-weighted scoring + tiebreakers.
+  - User Plays under `~/.titan/plays/*.json` override built-ins.
+- **REST + SSE API** (`src/gateway/routes/missions.ts`):
+  - `POST /api/missions` create, `GET /api/missions` list,
+    `GET /api/missions/:id` read, `DELETE /api/missions/:id` delete
+  - `POST /api/missions/:id/message` user nudge, `POST /api/missions/:id/answer`
+    quick-reply, `POST /api/missions/:id/status` pause/resume
+  - `GET /api/missions/:id/stream` SSE (typed events with heartbeats)
+  - `GET /api/missions/plays`, `GET /api/missions/match-play?goal=…`
+- **Lifecycle adapter** (`src/agent/missionLifecycle.ts`) — bridges
+  the new mission room to the existing goal driver + Command Post.
+  Specialist outputs become chat messages. Approval-queue questions
+  become inline question messages with quick-reply buttons. User
+  messages get broadcast to team mailboxes via the existing message
+  bus. Bridges tear down on mission completion.
+- **React UI**:
+  - `/mission` — friendly start screen (one input, voice "soon"
+    teaser, 5 example chips covering personal + work).
+  - `/mission/:id` — chat thread with team strip, color-coded
+    speaker bubbles, inline artifact card (open/collapse), inline
+    question bubbles with quick-reply buttons, typing indicator,
+    pause/resume, help panel. Auto-scrolls; auto-reconnects SSE.
+- **Voice button** intentionally disabled with a "soon" badge — sets
+  expectation cleanly. Voice lands in v6.1.1.
+
+### What deliberately did NOT ship in alpha.0
+
+- Parallel-agent execution (specialists still queue through goal
+  driver). The chat is honest about this — you see them work in turn.
+- Mid-spawn user injection (user messages queue until the current
+  specialist's next round picks them up via messageBus).
+- Time scrubber UI (snapshots are recorded by the backend, exposed in
+  a later release).
+- "+ Add a teammate" dialog (button disabled; the friendly creation
+  flow lands in alpha.1).
+- Voice (alpha.1 or beta.0).
+
+These will arrive as later v6.1.x cuts.
+
+### Tests
+
+- `tests/v610-mission-foundation.test.ts` — 20 cases. Mission room
+  CRUD, message ordering, snapshot bounding, event emission,
+  per-mission cost accumulation; Plays matcher correctness across the
+  10 built-ins + generic fallback + unknown-agent-id resilience.
+- `tests/v610-mission-api.test.ts` — 11 cases. Real express app +
+  http.Server. Every endpoint exercised end-to-end including SSE
+  stream of typed events.
+- Full suite: 294 files / 7138 tests pass / 1 skipped / 0 failing.
+
+### How to try it
+
+Visit `http://192.168.1.11:48420/mission` on a host running v6.1.0-alpha.0.
+The existing Command Post (`/command-post/*`) is unchanged.
+
+---
+
 ## v6.0.4 — 2026-05-13 — Router resilience: breaker counter, 429 amplification, hallucinated-tool budget
 
 > Three real bugs from a Titan PC log audit after v6.0.3 deployed —
