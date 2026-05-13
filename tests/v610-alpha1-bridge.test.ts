@@ -296,6 +296,54 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         expect(msg!.content).toMatch(/quick question/i);
     });
 
+    it('stripDriverBoilerplate cleans the goalDriver prefix patterns', async () => {
+        const { stripDriverBoilerplate } = await import('../src/agent/missionLifecycle.js');
+        // Pattern 1: "is stuck on subtask … (attempt N, specialist: X)."
+        expect(stripDriverBoilerplate(
+            `Goal "Plan the launch" is stuck on subtask "Draft the announcement" (attempt 2, specialist: writer).\n\nShould the announcement go on Tuesday or Thursday?`,
+        )).toBe('Should the announcement go on Tuesday or Thursday?');
+        // Pattern 2: "— subtask … failed after N attempt(s) with specialist X."
+        expect(stripDriverBoilerplate(
+            `Goal "Code review" — subtask "Review PR" failed after 1 attempt(s) with specialist builder.\n\nError: cannot read PR\n\nWhat should the specialist do next?`,
+        )).toMatch(/Error: cannot read PR/);
+        // Pattern 3: pure placeholder fallback — gets replaced with a friendly question.
+        expect(stripDriverBoilerplate(
+            `Goal "Monetize TITAN" — subtask "Monetize TITAN" is blocked after 1 attempt(s) with specialist analyst. The specialist could not complete the task and needs guidance on how to proceed.`,
+        )).toBe('I need more direction to keep going. What should I focus on?');
+        // Already-clean text passes through unchanged.
+        expect(stripDriverBoilerplate('Just tell me which deployment target.')).toBe('Just tell me which deployment target.');
+        // Empty / non-string input safe.
+        expect(stripDriverBoilerplate('')).toBe('');
+    });
+
+    it('approval bridge surfaces the cleaned question text (not the goalDriver boilerplate)', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Monetize test.', members: [{ agentId: 'analyst', name: 'Analyst' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { titanEvents } = await import('../src/agent/daemon.js');
+        titanEvents.emit('commandpost:approval:created', {
+            id: 'a-clean-1',
+            type: 'custom',
+            requestedBy: 'goal-driver',
+            payload: {
+                kind: 'driver_blocked',
+                goalId: realGoalId,
+                question: `Goal "Monetize" — subtask "Monetize" is blocked after 1 attempt(s) with specialist analyst. The specialist could not complete the task and needs guidance on how to proceed.`,
+                specialist: 'analyst',
+            },
+        });
+        const after = getMission(room.id)!;
+        const q = after.messages.find(m => m.kind === 'question') as { content: string } | undefined;
+        expect(q).toBeDefined();
+        // No subtask jargon.
+        expect(q!.content).not.toMatch(/specialist\s+analyst/);
+        expect(q!.content).not.toMatch(/subtask\s+"/);
+        // Has the friendly fallback.
+        expect(q!.content).toMatch(/more direction/i);
+    });
+
     it('approval bridge: commandpost:approval:created event for a linked goal raises a question message', async () => {
         const { createMission, getMission } = await import('../src/agent/missionRoom.js');
         const { startMissionWork } = await import('../src/agent/missionLifecycle.js');

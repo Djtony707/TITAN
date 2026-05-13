@@ -5,6 +5,103 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.5 — 2026-05-13 — Stuck-mission fix: 4 real bugs found via live audit
+
+> Tony said "my mission is stuck." Investigation found four real bugs
+> stacked. The visible symptom (a question bubble Tony couldn't seem
+> to dismiss) was the *third* layer. Each bug below is fixed at the
+> root cause with a regression test pinning it.
+
+### Bug 1 — Answers didn't actually unblock the goal driver
+
+**Symptom.** Tony clicked a quick-reply on a Sage question at 12:00:00.
+The API returned 200 OK. But the driver sat blocked for the next 10
+minutes until the v4.10.0 stale-sweep auto-unblocked it — completely
+ignoring Tony's answer. The retry that fired used no guidance from the
+user.
+
+**Root cause.** `src/gateway/routes/missions.ts` POST `/answer` called
+only `commandPost.replyToApproval(id, author, body)` — which adds a
+comment thread but **never flips the approval's status from `pending`
+to `approved`**. The goal driver's "Unblocked by human" path watches
+for `status === 'approved' || 'rejected'`. It never fired.
+
+**Fix.** Call `commandPost.approveApproval(id, 'user', answer)` first
+(which flips status to `approved` and stores the answer as
+`decisionNote`). Then also call `replyToApproval` for the audit trail.
+Goal driver picks up the user's text within one tick — typically <10s.
+
+### Bug 2 — Question bubbles showed driver jargon, not English
+
+**Symptom.** Sage's question rendered as: *"Goal 'X' — subtask 'X' is
+blocked after 1 attempt(s) with specialist analyst. The specialist
+could not complete the task and needs guidance on how to proceed."*
+Incomprehensible to anyone who isn't a TITAN engineer.
+
+**Root cause.** When a specialist returns `needs_info` with no actual
+question, the goal driver fills in a placeholder string laced with
+internal context (subtask title, attempt count, specialist id). My
+approval bridge was passing this string straight to the chat.
+
+**Fix.** New `stripDriverBoilerplate(text)` helper in `missionLifecycle.ts`
+matches the three boilerplate patterns and either:
+- Strips just the prefix when a real question follows (e.g.
+  `Error: cannot read PR\n\nWhat should the specialist do next?`
+  becomes `Error: cannot read PR\n\nWhat should the specialist do
+  next?` minus the goal/subtask preamble).
+- Replaces pure placeholder with a friendly fallback: *"I need more
+  direction to keep going. What should I focus on?"*
+
+### Bug 3 — Only quick-replies, no way to type a custom answer
+
+**Symptom.** If none of the 2–4 quick-reply buttons fit, the user had
+no way to actually answer. The "stuck" question had buttons like *"Use
+your best judgment"* and *"Pause for me"* — neither of which was what
+Tony wanted to say.
+
+**Fix.** New `CustomAnswerInput` React component in
+`ui/src/pages/MissionChat.tsx`. Appears as a small *"or type a custom
+answer…"* link under the quick replies. Clicking expands a focused
+multi-line textarea with `⌘+↵ to send · esc to cancel`. Sends the
+typed text through the same `/answer` API (which now correctly flips
+the approval status — Bug 1 fix). `event.stopPropagation()` on all
+interactions so clicks inside the textarea never toggle the message
+expand/collapse from alpha.4.
+
+### Bug 4 — Mission Chat goals throttled by autonomous-creation rate limit
+
+**Symptom.** Found while testing: after 10 missions in an hour the 11th
+silently failed. Mission appeared as "failed" with the text "Couldn't
+start the team: rate limited: 10 goals created in the last hour".
+
+**Root cause.** `createGoal()` in `src/agent/goals.ts` enforces
+`MAX_GOALS_PER_HOUR = 10` as runaway protection against autonomous
+self-mod / self-repair loops. Mission Chat goals are explicitly
+user-initiated — they shouldn't be subject to that limit.
+
+**Fix.** `missionLifecycle.startMissionWork` now passes `force: true`
+to `createGoal`. User-initiated missions bypass the autonomous rate
+limit (the cap still applies to Soma pressure cycles, GEPA, etc.).
+
+### Tests
+
+- `tests/v610-mission-api.test.ts` — new case verifies POST `/answer`
+  calls **both** `approveApproval` (status flip) AND `replyToApproval`
+  (audit trail), with the user's answer as `decisionNote`. (Bug 1)
+- `tests/v610-alpha1-bridge.test.ts` — new cases for `stripDriverBoilerplate`
+  pattern matching (5 cases) and end-to-end "cleaned text reaches the
+  chat" (1 case). (Bug 2)
+
+Full suite: 295 files / 7157 tests / 1 skipped / 0 failing.
+
+### Unblocking Tony's current mission
+
+The current stuck mission (`fmm6kfnj`) on Titan PC is cleared as part
+of the deploy — driver-state was auto-unblocked at 12:07:49 (stale
+sweep) and the mission room state is being reconciled.
+
+---
+
 ## v6.1.0-alpha.4 — 2026-05-13 — Click any bubble to see full context
 
 > Mission Chat ships with one obvious surface — short, readable

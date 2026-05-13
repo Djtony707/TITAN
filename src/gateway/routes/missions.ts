@@ -253,11 +253,34 @@ export function createMissionsRouter(adapter: MissionLifecycleAdapter = NOOP_ADA
         (async () => {
             try {
                 const cp = await import('../../agent/commandPost.js');
+                // v6.1.0-alpha.5 — use approveApproval (which flips
+                // approval.status to 'approved' and stores the user's
+                // text as decisionNote) NOT replyToApproval (which only
+                // adds a comment thread without changing status). The
+                // goal driver's auto-unblock path watches for
+                // status==='approved'/'rejected'; replyToApproval alone
+                // leaves it pending so the driver sits blocked for the
+                // full 10-minute stale-sweep before retrying, ignoring
+                // whatever the user typed. This was the actual reason
+                // missions appeared "stuck" after Tony hit a quick-reply
+                // button — his answer landed in the chat but was never
+                // fed back to the specialist.
+                //
+                // approveApproval also fires any side-effects associated
+                // with the approval kind (driver_blocked is a no-op
+                // side-effect-wise, but for goal_proposal / self_mod_pr
+                // approvals this would also trigger createGoal /
+                // applyStagedPR — which we don't want here, but those
+                // approval kinds don't surface in the mission chat
+                // question flow at all).
+                if (typeof cp.approveApproval === 'function') {
+                    await cp.approveApproval(approvalId, 'user', answer);
+                }
+                // Also record the threaded comment for auditability so the
+                // full Q&A is visible from both the Mission Chat and the
+                // legacy Command Post Inbox.
                 if (typeof cp.replyToApproval === 'function') {
-                    // replyToApproval(id, author, body)
                     cp.replyToApproval(approvalId, 'user', answer);
-                } else if (typeof cp.approveApproval === 'function') {
-                    cp.approveApproval(approvalId, 'user', answer);
                 }
             } catch (err) {
                 logger.warn(COMPONENT, `Could not propagate answer to Command Post: ${(err as Error).message}`);
