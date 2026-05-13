@@ -228,7 +228,13 @@ function extractProposalArray(raw: string): unknown[] {
     return [];
 }
 
-function normalizeProposal(raw: unknown): ProposedGoal | null {
+/**
+ * Exported for tests — normalizes a single raw LLM proposal into the
+ * canonical ProposedGoal shape, OR returns null if it's filtered out
+ * (malformed, or classified as self-mod while
+ * `autonomy.selfMod.autoCreateGoals` is off).
+ */
+export function normalizeProposal(raw: unknown): ProposedGoal | null {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
     let title = typeof r.title === 'string' ? r.title.trim() : '';
@@ -300,7 +306,23 @@ function normalizeProposal(raw: unknown): ProposedGoal | null {
 
     if (isSelfMod) {
         const cfg = loadConfig();
-        const target = (cfg.autonomy?.selfMod as { target?: string } | undefined)?.target || '/opt/TITAN';
+        // v6.0.3 — gate autonomous self-mod goal creation. When the flag is
+        // off (default), we drop the proposal here BEFORE it reaches the
+        // approval queue. The self-repair daemon's findings still surface
+        // via the custom self_repair approval path; what we're suppressing
+        // is the autonomous "let's spin up a goal to rewrite the framework"
+        // path from the dreaming/Soma proposer. See schema.ts
+        // autonomy.selfMod.autoCreateGoals for full rationale.
+        const selfModBlock = cfg.autonomy?.selfMod as { target?: string; autoCreateGoals?: boolean } | undefined;
+        const autoCreateGoals = selfModBlock?.autoCreateGoals === true;
+        if (!autoCreateGoals) {
+            logger.info(
+                COMPONENT,
+                `Dropping self-mod proposal "${title.slice(0, 60)}" — autonomy.selfMod.autoCreateGoals is disabled.`
+            );
+            return null;
+        }
+        const target = selfModBlock?.target || '/opt/TITAN';
         // Ensure the canonical 'self-mod' tag is present so toolRunner sees it
         tags = tags ? [...tags] : [];
         if (!tagsLower.has('self-mod')) tags.push('self-mod');

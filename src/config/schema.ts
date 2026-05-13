@@ -821,6 +821,27 @@ export const TitanConfigSchema = z.object({
              */
             staging: z.boolean().default(true),
             /**
+             * v6.0.3 — Self-repair goal-creation gate.
+             *
+             * When false (default), the goal proposer drops any autonomously
+             * generated proposal that classifies as self-mod / self-repair /
+             * framework-modification work before it reaches the approval
+             * queue. The self-repair daemon still surfaces *findings* via
+             * `custom`-type `self_repair` approvals (so Tony sees what's
+             * wrong), but TITAN will not spin up new active goals to "fix
+             * itself" without explicit opt-in.
+             *
+             * Why off by default: in v6.0.2 we observed the Soma pressure
+             * loop + dreaming proposer cooperating to spawn 7 simultaneous
+             * "rewrite the framework" goals that recursed on each other,
+             * filling the active mission queue with self-referential
+             * busywork. This was real autonomy, but in the wrong direction.
+             *
+             * Set true to restore prior behavior (autonomous self-repair
+             * goal creation enabled).
+             */
+            autoCreateGoals: z.boolean().default(false),
+            /**
              * Directory for staged self-mod bundles. Each approved goal
              * gets its own subdir. Relative paths resolve under TITAN_HOME.
              */
