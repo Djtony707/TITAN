@@ -250,6 +250,18 @@ export function createMissionsRouter(adapter: MissionLifecycleAdapter = NOOP_ADA
         // the goal driver downstream resumes properly. The Command Post
         // import is dynamic to avoid a top-level circular dep.
         answerQuestion(room.id, approvalId, answer);
+        // v6.1.0-alpha.10 — mirror user answer to the linked issue.
+        if (room.issueId) {
+            (async () => {
+                try {
+                    const cp = await import('../../agent/commandPost.js');
+                    cp.addIssueComment(room.issueId!, `User answered: "${answer}"`, { user: 'mission-chat' });
+                    cp.updateIssue(room.issueId!, { status: 'in_progress' });
+                } catch (err) {
+                    logger.debug(COMPONENT, `Issue mirror failed for answer: ${(err as Error).message}`);
+                }
+            })();
+        }
         (async () => {
             try {
                 const cp = await import('../../agent/commandPost.js');

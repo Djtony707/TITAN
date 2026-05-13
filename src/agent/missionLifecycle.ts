@@ -30,12 +30,15 @@ import {
     raiseQuestion,
     recordCost,
     ensureMember,
+    getMission,
     getMissionByGoalId,
     setLinkedGoal,
+    setLinkedIssue,
     type MissionRoom,
     type MissionStatus,
 } from './missionRoom.js';
 import { onAgentEvent, type AgentEvent } from './agentEvents.js';
+import { createIssue, updateIssue, addIssueComment } from './commandPost.js';
 
 const COMPONENT = 'MissionLifecycle';
 
@@ -209,7 +212,41 @@ export async function startMissionWork(mission: MissionRoom): Promise<string | n
         // The router's redundant setLinkedGoal call is now a no-op safety
         // net rather than the source of truth.
         setLinkedGoal(mission.id, goal.id);
-        logger.info(COMPONENT, `Mission ${mission.id} linked to goal ${goal.id} (play=${mission.playId})`);
+
+        // v6.1.0-alpha.10 — auto-create a Command Post issue for this
+        // mission. The issue becomes the durable audit trail (every
+        // significant lifecycle event mirrors as a comment) and the
+        // Command Post Issues panel + Mission Chat / Canvas surface the
+        // same record. Failure to create the issue should never block
+        // the mission itself — it's audit, not behavior.
+        let issueIdent: string | undefined;
+        try {
+            const issue = createIssue({
+                title: mission.goal,
+                description: `Mission ${mission.id}` + (mission.playId ? ` · play: ${mission.playId}` : '') +
+                    `\n\nLinked goal: ${goal.id}` +
+                    `\n\nTeam: ${mission.team.map(t => t.name).join(', ') || '(forming)'}`,
+                priority: 'medium',
+                createdByUser: 'mission-chat',
+                goalId: goal.id,
+            });
+            setLinkedIssue(mission.id, issue.id);
+            issueIdent = issue.identifier;
+            updateIssue(issue.id, { status: 'in_progress' });
+            addIssueComment(
+                issue.id,
+                `Mission opened with team: ${mission.team.map(t => t.name).join(', ') || '(forming)'}.`,
+                { user: 'mission-chat' },
+            );
+        } catch (issueErr) {
+            logger.warn(COMPONENT, `Issue link skipped for mission ${mission.id}: ${(issueErr as Error).message}`);
+        }
+        logger.info(
+            COMPONENT,
+            `Mission ${mission.id} linked to goal ${goal.id}` +
+            (issueIdent ? ` and issue ${issueIdent}` : '') +
+            ` (play=${mission.playId})`,
+        );
 
         // Mark every Plays-predicted member as "ready" so the team strip
         // lights up immediately. The goal driver routes for real, and the
@@ -306,6 +343,43 @@ export function teardownMissionWork(missionId: string): void {
     lifecycles.delete(missionId);
 }
 
+// ── Issue mirror ───────────────────────────────────────────────────
+//
+// v6.1.0-alpha.10 — mirror big mission lifecycle events to the linked
+// Command Post issue. Keeps the issue useful as the durable audit
+// trail without spamming it with every chat message (chat thread
+// already serves that purpose). What we mirror:
+//
+//   - Mission start (in startMissionWork): "Mission opened with team: …"
+//   - Question raised: `Sage asked: "<question>"`
+//   - Question answered: `User answered: "<answer>"`
+//   - Mission complete / failed: the same one-liner posted to chat,
+//     plus an issue status update (done / cancelled).
+//
+// Every individual agent_message is NOT mirrored — too noisy.
+// Subtask-grain events stay in the chat thread.
+
+interface IssueMirror {
+    status?: 'in_progress' | 'in_review' | 'done' | 'blocked' | 'cancelled';
+    comment?: string;
+}
+
+function mirrorToIssue(missionId: string, mirror: IssueMirror): void {
+    try {
+        const room = getMission(missionId);
+        const issueId = room?.issueId;
+        if (!issueId) return;
+        if (mirror.comment) {
+            addIssueComment(issueId, mirror.comment, { user: 'mission-chat' });
+        }
+        if (mirror.status) {
+            updateIssue(issueId, { status: mirror.status });
+        }
+    } catch (err) {
+        logger.debug(COMPONENT, `Issue mirror skipped: ${(err as Error).message}`);
+    }
+}
+
 // ── Bridges ────────────────────────────────────────────────────────
 
 /**
@@ -333,12 +407,11 @@ async function wireGoalLifecycleBridge(missionId: string, goalId: string): Promi
             const namesList = specialistsUsed.length > 0
                 ? ` with help from ${specialistsUsed.slice(0, 5).join(', ')}`
                 : '';
-            postSystemMessage(
-                missionId,
-                `Mission complete in ${seconds}s${namesList}.`,
-                'mission_complete',
-            );
+            const completionLine = `Mission complete in ${seconds}s${namesList}.`;
+            postSystemMessage(missionId, completionLine, 'mission_complete');
             setStatus(missionId, 'done');
+            // v6.1.0-alpha.10 — mirror to the linked Command Post issue.
+            mirrorToIssue(missionId, { status: 'done', comment: completionLine });
             // Mission reached a terminal state — tear down its bridges so
             // we don't leak event-bus listeners. Defer one tick so any
             // remaining synchronous work inside this handler chain runs
@@ -353,14 +426,12 @@ async function wireGoalLifecycleBridge(missionId: string, goalId: string): Promi
             const d = (data ?? {}) as Record<string, unknown>;
             if (d.goalId !== goalId) return;
             const retries = typeof d.retries === 'number' ? d.retries : 0;
-            postSystemMessage(
-                missionId,
-                retries > 0
-                    ? `Couldn't finish this one after ${retries} retry attempt(s). Take a look at what we did manage and tell me what to try next.`
-                    : `Couldn't finish this one. Take a look at what we did manage and tell me what to try next.`,
-                'mission_failed',
-            );
+            const failureLine = retries > 0
+                ? `Couldn't finish this one after ${retries} retry attempt(s). Take a look at what we did manage and tell me what to try next.`
+                : `Couldn't finish this one. Take a look at what we did manage and tell me what to try next.`;
+            postSystemMessage(missionId, failureLine, 'mission_failed');
             setStatus(missionId, 'failed');
+            mirrorToIssue(missionId, { status: 'cancelled', comment: failureLine });
             setImmediate(() => teardownMissionWork(missionId));
         } catch (err) {
             logger.debug(COMPONENT, `goal:failed handler threw: ${(err as Error).message}`);
@@ -414,6 +485,11 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
                 content,
                 approvalId: approval.id,
                 quickReplies,
+            });
+            // v6.1.0-alpha.10 — mirror to issue audit trail.
+            mirrorToIssue(missionId, {
+                comment: `${agentId} asked: "${content.slice(0, 200)}${content.length > 200 ? '…' : ''}"`,
+                status: 'blocked',
             });
         } catch (err) {
             logger.debug(COMPONENT, `Approval bridge handler threw: ${(err as Error).message}`);
