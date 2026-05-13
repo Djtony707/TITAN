@@ -293,10 +293,36 @@ export function normalizeProposal(raw: unknown): ProposedGoal | null {
         /\bcore[\s-]framework/i,
         /\bTITAN['’]?s?\s+(own|core|framework|architecture|source|runtime)/i,
         /\bframework\s+(component|module|core|runtime)/i,
+        // v6.1.0-alpha.14 — extend to test-infrastructure / system-
+        // internal / self-improve patterns. v6.0.3's narrow regex
+        // missed goals like "Bootstrap test infrastructure" /
+        // "Diagnose test infrastructure failure" because they don't
+        // mention "TITAN" or "self-*" — but they ARE the same kind
+        // of self-referential autonomous-loop bug. Observed in the
+        // wild as 6× write_file('tests/smoke.test.js') in 24h across
+        // 2 active + 5 failed goals before alpha.14 widened the gate.
+        /\btest\s+(infrastructure|harness|infra)\b/i,
+        /\bsmoke\s+tests?\b/i,
+        /\bbootstrap\b[^.]{0,40}\btests?\b/i,
+        /\bdiagnose\b[^.]{0,40}\b(test|root\s*cause|infrastructure)\b/i,
+        /\bself[\s-]?improve(?:ment)?\b/i,
+        /\btest[\s-]state\b/i,
+        /\bregression\s+prevention\b/i,
     ];
     const selfModTagValues = new Set([
         'self-healing', 'self-repair', 'self-mod', 'self-modification',
         'core-framework', 'framework', 'architecture', 'core', 'autonomy',
+        // v6.1.0-alpha.14 — also gate the tag patterns that runaway
+        // test-infra / diagnostic / self-improve goals carry. The
+        // dreaming proposer attaches these tags directly to its
+        // output; the v6.0.3 gate didn't list them so test-infra
+        // proposals slipped through and became 7+ runaway goals on
+        // Tony's box. Adding them here makes the gate catch the
+        // whole self-referential category in one pass.
+        'testing', 'test-infrastructure', 'test-infra', 'test-state',
+        'diagnostic', 'diagnostics', 'infrastructure', 'observability',
+        'regression-prevention', 'health-check', 'canary-eval',
+        'self-improve', 'self-improvement', 'blocking', 'root-cause',
     ]);
     const tagsLower = new Set((tags || []).map(t => t.toLowerCase()));
     const haystack = `${title}\n${description}\n${(tags || []).join(' ')}`;
