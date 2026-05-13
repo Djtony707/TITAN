@@ -149,6 +149,62 @@ describe('v6.1.0 — missions REST', () => {
         } finally { close(); }
     });
 
+    it('POST /api/missions/:id/answer propagates to commandPost.approveApproval (not just replyToApproval) — v6.1.0-alpha.5 stuck-mission fix', async () => {
+        // Verifies the v6.1.0-alpha.5 fix: the previous code called only
+        // replyToApproval (which adds a comment but doesn't flip status),
+        // so the goal driver's auto-unblock path (which watches for
+        // status==='approved') never fired and missions sat blocked for
+        // the full 10-minute stale-sweep.
+        vi.resetModules();
+        // Spy on the commandPost module — we want to check which functions
+        // the route handler actually calls.
+        const approveCalls: Array<{ id: string; by: string; note?: string }> = [];
+        const replyCalls: Array<{ id: string; author: string; body: string }> = [];
+        vi.doMock('../src/agent/commandPost.js', () => ({
+            approveApproval: vi.fn(async (id: string, by: string, note?: string) => {
+                approveCalls.push({ id, by, note });
+                return { id, status: 'approved', decidedBy: by };
+            }),
+            replyToApproval: vi.fn((id: string, author: string, body: string) => {
+                replyCalls.push({ id, author, body });
+                return { id, thread: [{ body }] };
+            }),
+        }));
+        const app = await buildApp();
+        const { url, close } = await listen(app);
+        try {
+            const create = await fetch(`${url}/api/missions`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ goal: 'Answer propagation test.' }),
+            });
+            const { mission } = await create.json() as { mission: { id: string } };
+            const { raiseQuestion } = await import('../src/agent/missionRoom.js');
+            raiseQuestion({
+                missionId: mission.id,
+                agentId: 'sage',
+                content: 'A question?',
+                approvalId: 'a-prop-1',
+                quickReplies: ['Yes', 'No'],
+            });
+            const r = await fetch(`${url}/api/missions/${mission.id}/answer`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ approvalId: 'a-prop-1', answer: 'Yes go ahead' }),
+            });
+            expect(r.status).toBe(200);
+            // The handler does the side-effects fire-and-forget — give the
+            // microtask queue a tick to flush.
+            await new Promise(resolve => setImmediate(resolve));
+            // CRITICAL: approveApproval must be called (status flip + driver wakeup).
+            expect(approveCalls.length).toBeGreaterThanOrEqual(1);
+            expect(approveCalls[0].id).toBe('a-prop-1');
+            expect(approveCalls[0].by).toBe('user');
+            expect(approveCalls[0].note).toBe('Yes go ahead');
+            // replyToApproval also called for audit trail.
+            expect(replyCalls.length).toBeGreaterThanOrEqual(1);
+            expect(replyCalls[0].body).toBe('Yes go ahead');
+        } finally { close(); }
+    });
+
     it('POST /api/missions/:id/answer resolves a pending question', async () => {
         const app = await buildApp();
         const { url, close } = await listen(app);

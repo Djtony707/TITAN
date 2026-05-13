@@ -75,6 +75,11 @@ function ensureGlobalBusBridge(): void {
                 }
                 case 'tool_call': {
                     const name = typeof data.name === 'string' ? data.name : 'tool';
+                    // v6.1.0-alpha.5 — be defensive: ensure the member
+                    // exists before setting state. Tool calls fire from
+                    // mid-spawn — the specialist could be one the goal
+                    // driver routed to outside the predicted team.
+                    ensureMember(mission.id, agentId);
                     setMemberState(mission.id, agentId, 'working', shortenActivity(`running ${name}`));
                     break;
                 }
@@ -171,6 +176,13 @@ export async function startMissionWork(mission: MissionRoom): Promise<string | n
                 `mission:${mission.id}`,
                 mission.playId ? `play:${mission.playId}` : 'play:generic',
             ],
+            // v6.1.0-alpha.5 — Mission Chat goals are user-initiated. The
+            // autonomous-creation rate limit (10/hour) + active-goals cap
+            // exists to throttle runaway self-mod / self-repair loops, not
+            // to throttle the user typing into the chat. Bypass it so
+            // missions never silently fail with "Couldn't start the team:
+            // rate limited" after the user's 11th request in an hour.
+            force: true,
         });
         // v6.1.0-alpha.1 — link the goal id INSIDE startMissionWork so any
         // event the goal driver fires (even before the missions router gets
@@ -291,13 +303,22 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
             const agentId = String(payload.specialist ?? payload.subtaskKind ?? approval.requestedBy ?? 'sage').toLowerCase();
             // Different approval kinds use different fields for "the actual
             // question." Try the most common ones in order.
-            const content = String(
+            const rawContent = String(
                 payload.question
                 ?? payload.allQuestions
                 ?? approval.title
                 ?? approval.reason
                 ?? `${approval.type} approval needed`
             );
+            // v6.1.0-alpha.5 — strip the goalDriver boilerplate prefix so the
+            // question reads like something a person would actually ask, not
+            // an internal stack trace. The driver's auto-generated questions
+            // look like:
+            //   `Goal "X" — subtask "Y" failed after N attempt(s) with
+            //    specialist Z. Error: ... What should the specialist do next?`
+            // After this cleanup they read like:
+            //   `Error: ... What should the specialist do next?`
+            const content = stripDriverBoilerplate(rawContent);
             const quickReplies = Array.isArray(payload.quickReplies)
                 ? (payload.quickReplies as string[]).slice(0, 4)
                 : defaultQuickReplies(approval);
@@ -314,6 +335,44 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
     };
     titanEvents.on('commandpost:approval:created', handler);
     return () => titanEvents.off('commandpost:approval:created', handler);
+}
+
+/**
+ * Strip the goalDriver's auto-generated boilerplate from blocked-approval
+ * question text so it reads like a person's question. The driver wraps
+ * the specialist's actual question (or a fallback) with internal context
+ * (subtask title, attempt count, specialist id) that's noise to the user.
+ *
+ * Patterns matched:
+ *   - `Goal "..." is stuck on subtask "..." (attempt N, specialist: X).\n\n`
+ *   - `Goal "..." — subtask "..." failed after N attempt(s) with specialist X.\n\n`
+ *   - `Goal "..." — subtask "..." is blocked after N attempt(s) with specialist X. The specialist could not complete the task and needs guidance on how to proceed.`
+ */
+export function stripDriverBoilerplate(text: string): string {
+    if (!text || typeof text !== 'string') return text ?? '';
+    let cleaned = text;
+    // Pattern 1: prefix → "Goal '...' is stuck on subtask '...' (...).\n\n<real question>"
+    cleaned = cleaned.replace(
+        /^Goal\s+"[^"]*"\s+is\s+stuck\s+on\s+subtask\s+"[^"]*"\s+\([^)]*\)\.\s*\n+/i,
+        '',
+    );
+    // Pattern 2: prefix → "Goal '...' — subtask '...' failed after N attempt(s) with specialist X.\n\nError: ..."
+    cleaned = cleaned.replace(
+        /^Goal\s+"[^"]*"\s+—\s+subtask\s+"[^"]*"\s+failed\s+after\s+\d+\s+attempt\(s\)\s+with\s+specialist\s+\S+\.\s*\n+/i,
+        '',
+    );
+    // Pattern 3: fallback (no real question, just the driver's placeholder)
+    cleaned = cleaned.replace(
+        /^Goal\s+"[^"]*"\s+—\s+subtask\s+"[^"]*"\s+is\s+blocked\s+after\s+\d+\s+attempt\(s\)\s+with\s+specialist\s+\S+\.\s*The\s+specialist\s+could\s+not\s+complete\s+the\s+task\s+and\s+needs\s+guidance\s+on\s+how\s+to\s+proceed\.?\s*/i,
+        '',
+    );
+    cleaned = cleaned.trim();
+    // If we stripped everything, fall back to a friendly default — the
+    // user shouldn't see an empty question.
+    if (cleaned.length === 0) {
+        return 'I need more direction to keep going. What should I focus on?';
+    }
+    return cleaned;
 }
 
 /** Sensible default reply set for the common approval kinds. */

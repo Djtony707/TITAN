@@ -399,21 +399,31 @@ function MessageRow({
         >
           {msg.content}
           {!msg.answer && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {msg.quickReplies.map((q, i) => (
-                <button
-                  key={q}
-                  onClick={(e) => { e.stopPropagation(); onAnswer(msg.approvalId, q); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                    i === msg.quickReplies.length - 1
-                      ? 'bg-gradient-to-br from-accent to-accent2 text-bg-deep border-transparent'
-                      : 'bg-bg-secondary/60 border-error/40 text-text hover:bg-error/15'
-                  }`}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+            <>
+              {msg.quickReplies.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {msg.quickReplies.map((q, i) => (
+                    <button
+                      key={q}
+                      onClick={(e) => { e.stopPropagation(); onAnswer(msg.approvalId, q); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                        i === msg.quickReplies.length - 1
+                          ? 'bg-gradient-to-br from-accent to-accent2 text-bg-deep border-transparent'
+                          : 'bg-bg-secondary/60 border-error/40 text-text hover:bg-error/15'
+                      }`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* v6.1.0-alpha.5 — custom typed answer. If none of the
+                  quick replies fit, the user can write their own. */}
+              <CustomAnswerInput
+                approvalId={msg.approvalId}
+                onSubmit={(text) => onAnswer(msg.approvalId, text)}
+              />
+            </>
           )}
           {msg.answer && (
             <div className="mt-3 text-[12px] text-text-muted border-t border-border pt-2">
@@ -534,6 +544,78 @@ function DetailsPanel({ msg }: { msg: MissionMessage }) {
           </React.Fragment>
         ))}
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Custom typed-answer field for question bubbles. Quick-replies cover the
+ * obvious choices; this textarea catches everything else — "use AWS S3
+ * for storage and Stripe for payments", "pause this until I check with
+ * legal", etc.
+ *
+ * The wrapper is collapsed by default behind a small "or type a custom
+ * answer" link so it doesn't crowd the bubble unless needed. stopPropagation
+ * on all interactions so clicks here never toggle the message expand state.
+ */
+function CustomAnswerInput({ approvalId, onSubmit }: { approvalId: string; onSubmit: (text: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (open && taRef.current) taRef.current.focus();
+  }, [open]);
+  const send = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setText('');
+    setOpen(false);
+  };
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        className="mt-2 text-[11px] text-text-muted hover:text-text-secondary underline underline-offset-2"
+      >
+        or type a custom answer…
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            send();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setOpen(false);
+          }
+        }}
+        placeholder={`Tell ${approvalId.slice(0, 6)}… anything you want.`}
+        rows={3}
+        className="w-full bg-bg-secondary/80 border border-border rounded-lg p-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-accent/60 resize-y"
+      />
+      <div className="flex items-center justify-end gap-2 mt-1.5">
+        <span className="mr-auto text-[10px] text-text-muted">⌘+↵ to send · esc to cancel</span>
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setText(''); }}
+          className="px-3 py-1 text-[11px] text-text-muted hover:text-text"
+        >Cancel</button>
+        <button
+          type="button"
+          onClick={send}
+          disabled={!text.trim()}
+          className="px-3 py-1 text-[11px] font-semibold rounded-md bg-gradient-to-br from-accent to-accent2 text-bg-deep disabled:opacity-50 disabled:cursor-not-allowed"
+        >Send answer</button>
+      </div>
     </div>
   );
 }
