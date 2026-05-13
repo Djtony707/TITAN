@@ -8,7 +8,7 @@
 import { Router, type Request, type Response } from 'express';
 import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
-import { loadConfig } from '../../config/config.js';
+import { loadConfig, saveConfig } from '../../config/config.js';
 
 // Autopilot
 import {
@@ -83,13 +83,29 @@ export function createLifecycleRouter(): Router {
         setAutopilotDryRun(dryRun);
       }
 
+      // v6.0.2 — Persist the toggle to disk. Pre-fix this endpoint
+      // mutated `cfg` (a reference to the in-memory cache) but never
+      // called `saveConfig`, so the change vanished on the next
+      // service restart. Result: a user could explicitly disable
+      // autopilot, restart the service for any reason, and find the
+      // daemon firing again on its 2am cron because the on-disk
+      // `autopilot.enabled: true` was reloaded as authoritative.
+      try {
+        saveConfig(cfg);
+      } catch (err) {
+        // Persistence failure is loud — the in-memory toggle still
+        // takes effect for this process, but the user needs to know
+        // it won't survive a restart.
+        logger.warn(COMPONENT, `Autopilot toggle saved in memory but FAILED to persist: ${(err as Error).message}`);
+      }
+
       if (enable) {
         initAutopilot(cfg);
       } else {
         stopAutopilot();
       }
       const status = getAutopilotStatus();
-      res.json({ enabled: enable, dryRun: status.dryRun });
+      res.json({ enabled: enable, dryRun: status.dryRun, persisted: true });
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
