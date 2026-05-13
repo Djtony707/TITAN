@@ -270,6 +270,54 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         }
     }
 
+    // v6.1.0-alpha.11 — Worktree scope (spike).
+    //
+    // When the current async context has a worktree scope active (see
+    // src/agent/worktreeScope.ts), redirect mutating tool writes into
+    // the scope's worktree directory. Lets multiple concurrent spawns
+    // write the "same" filename without colliding. Pure-path-rewrite
+    // — the tool still runs, just into a different absolute path.
+    //
+    // This runs BEFORE guardrails so guardrails see the rewritten
+    // absolute path, not the LLM's original relative path (which
+    // resolves against cwd and may falsely trigger system-path
+    // protections). The self-mod scope-lock further below picks up
+    // the same rewritten path; in practice worktree paths live under
+    // ~/.titan/worktrees which isn't on the self-mod target list, so
+    // self-mod stays a no-op for worktree-scoped writes.
+    const MUTATING_TOOLS_FOR_WORKTREE = new Set(['write_file', 'edit_file', 'append_file', 'apply_patch']);
+    if (MUTATING_TOOLS_FOR_WORKTREE.has(handler.name)) {
+        try {
+            const { getCurrentWorktreeScope } = await import('./worktreeScope.js');
+            const wtScope = getCurrentWorktreeScope();
+            if (wtScope) {
+                const rawPath = (args.path || args.file_path || args.filePath) as string | undefined;
+                if (typeof rawPath === 'string' && rawPath.length > 0) {
+                    if (rawPath.startsWith('/') || rawPath.startsWith('~')) {
+                        return {
+                            toolCallId: toolCall.id,
+                            name: handler.name,
+                            content: `Error: this spawn runs in a worktree scope (${wtScope.subtaskId}). File writes must use RELATIVE paths — got "${rawPath}". Rewrite to something like "output.md" or "src/foo.ts" without a leading "/" or "~".`,
+                            success: false,
+                            durationMs: Date.now() - startTime,
+                        };
+                    }
+                    const { join: joinPath, dirname } = await import('path');
+                    const { mkdirSync } = await import('fs');
+                    const newPath = joinPath(wtScope.path, rawPath);
+                    if (args.path !== undefined) args.path = newPath;
+                    if (args.file_path !== undefined) args.file_path = newPath;
+                    if (args.filePath !== undefined) args.filePath = newPath;
+                    try { mkdirSync(dirname(newPath), { recursive: true }); }
+                    catch { /* best-effort */ }
+                    logger.debug(COMPONENT, `[Worktree] Redirected ${handler.name} → ${newPath} (scope: ${wtScope.goalId}/${wtScope.subtaskId})`);
+                }
+            }
+        } catch (err) {
+            logger.debug(COMPONENT, `Worktree scope check skipped: ${(err as Error).message}`);
+        }
+    }
+
     // Guardrails: validate tool call before execution
     try {
         const { guardToolCall } = await import('./guardrails.js');
