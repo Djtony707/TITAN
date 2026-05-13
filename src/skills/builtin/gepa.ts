@@ -250,7 +250,24 @@ RULES:
         if (jsonMatch) jsonStr = jsonMatch[0];
         else jsonStr = jsonStr.replace(/^```(?:json)?\s*/m, '').replace(/\s*```$/m, '').trim();
 
-        const parsed = JSON.parse(jsonStr);
+        // v6.1.0-alpha.6 — JSON-parse failure is the EXPECTED degradation
+        // path for local/quantized models that ignore the "respond with
+        // only JSON" instruction and return prose like "We need to..."
+        // instead. The mutation pipeline correctly returns the unchanged
+        // content (no harm), but the prior WARN log made it look like
+        // something was broken when nothing was. Demote to DEBUG. The
+        // outer catch still uses WARN for real failures (network errors,
+        // upstream exceptions).
+        let parsed: { search?: string; replace?: string };
+        try {
+            parsed = JSON.parse(jsonStr);
+        } catch (parseErr) {
+            logger.debug(
+                COMPONENT,
+                `Mutation skipped — model returned non-JSON response (${(parseErr as Error).message.slice(0, 80)}). Keeping original content.`,
+            );
+            return individual.content;
+        }
         const searchStr = parsed.search || '';
         const replaceStr = parsed.replace ?? '';
 
