@@ -34,6 +34,7 @@ import { structuredSpawn } from './structuredSpawn.js';
 import { verifyByKind } from './verifier.js';
 import { onGoalCompleted, onGoalFailed, onGoalBlocked } from './somaFeedback.js';
 import type { Goal, Subtask } from './goals.js';
+import { emitAgentEvent } from './agentEvents.js';
 
 const COMPONENT = 'GoalDriver';
 const STATE_DIR = join(TITAN_HOME, 'driver-state');
@@ -419,6 +420,27 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
         `Spawning ${strategy.specialist} for subtask "${next.title}" (kind=${subState.kind}, attempt ${subState.attempts})`,
     );
 
+    // v6.1.0-alpha.1 — emit a structured "agent_spawn" event on the shared
+    // bus so listeners (Mission Chat lifecycle bridge, the SSE dashboard
+    // tail, the Agent Watcher) know who's starting on what. Includes the
+    // goalId so listeners can correlate without having to peer-into driver
+    // state.
+    try {
+        emitAgentEvent({
+            type: 'agent_spawn',
+            agentId: strategy.specialist,
+            agentName: strategy.specialist,
+            timestamp: Date.now(),
+            data: {
+                goalId: goal.id,
+                subtaskId: next.id,
+                subtaskTitle: next.title,
+                subtaskKind: subState.kind,
+                attempt: subState.attempts,
+            },
+        });
+    } catch { /* event bus failure should never block a spawn */ }
+
     // Actually fire the spawn — runs in-tick, driver waits for the return.
     // (Future: async wakeup path so driver can observe multiple concurrent
     // spawns; for now one at a time per goal.)
@@ -432,6 +454,32 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             maxRounds: strategy.maxRounds,
         });
         const durationMs = Date.now() - startMs;
+
+        // v6.1.0-alpha.1 — emit the result on the agent bus too. The Mission
+        // Chat bridge turns this into a chat message; the SSE dashboard tail
+        // logs it for replay. We always emit, even on failed/needs_info
+        // status, so the UI can show the specialist's reasoning regardless.
+        try {
+            emitAgentEvent({
+                type: 'agent_done',
+                agentId: strategy.specialist,
+                agentName: strategy.specialist,
+                timestamp: Date.now(),
+                data: {
+                    goalId: goal.id,
+                    subtaskId: next.id,
+                    subtaskTitle: next.title,
+                    status: result.status,
+                    reasoning: result.reasoning,
+                    artifactCount: result.artifacts.length,
+                    artifacts: result.artifacts.map(a => ({ ref: a.ref, type: a.type })),
+                    toolsUsed: result.toolsUsed ?? [],
+                    tokensUsed: result.tokensUsed ?? 0,
+                    costUsd: result.costUsd ?? 0,
+                    durationMs,
+                },
+            });
+        } catch { /* event bus failure should never affect driver state */ }
         recordSpend(state, {
             elapsedMs: durationMs,
             tokens: result.tokensUsed ?? 0,

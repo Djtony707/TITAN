@@ -5,6 +5,83 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.1 — 2026-05-13 — Mission Chat: bridge actually wired (was silently no-op)
+
+> Caught the moment Tony ran the first real mission on alpha.0. The
+> goal driver was working — web searches, web fetches, real specialist
+> output — but **zero of it surfaced in the chat thread.** Five seconds
+> of investigation found a literal bandaid: the lifecycle bridge in
+> alpha.0 tried to call a non-existent `onSubAgentEvent` API and
+> silently no-op'd inside a try/catch. No bandaids — fixed properly.
+
+### Bug A — bridge subscribed to a non-existent event API
+
+**Symptom.** Mission created, team assigned, real research happening on
+the backend (web_search → web_fetch → analysis), but the chat thread
+showed only the original user message + "team formed" system note. All
+helper cards stuck on "getting ready" forever.
+
+**Root cause.** `src/agent/missionLifecycle.ts` (alpha.0) had:
+```ts
+const mod = await import('./subAgent.js') as {
+    onSubAgentEvent?: (handler: ...) => () => void;
+};
+if (typeof mod.onSubAgentEvent !== 'function') return unsubscribe;
+```
+`onSubAgentEvent` doesn't exist on the subAgent module. The bridge
+returned the no-op unsubscribe and zero events flowed.
+
+**Fix.** Replaced the per-mission bridge with a single global
+subscription on the real agentEvents bus (`src/agent/agentEvents.ts`)
+that handles every mission via goalId lookup. Added two new emissions
+in `goalDriver.tickDelegating`:
+- `agent_spawn` when a specialist starts on a subtask
+- `agent_done` when a specialist returns (success/failed/needs_info)
+Both carry `{ goalId, subtaskTitle, reasoning, toolsUsed, tokensUsed,
+costUsd }`. The bridge looks up the mission by goalId and posts the
+specialist's reasoning as a chat message + records cost + updates
+team-strip state.
+
+### Bug B — predicted team didn't match actual workers
+
+**Symptom.** Plays predicted Scout/Writer/Sage for a generic goal but
+the goal driver routed the first subtask to Analyst (correct call —
+research subtask kind routes to Analyst per the specialist router).
+Analyst wasn't on the visible team, so even if Bug A had been fixed,
+their work would still have been invisible.
+
+**Root cause.** Plays are a hint, not a contract. The specialist router
+makes the real per-subtask routing call and can pick anyone in the
+roster.
+
+**Fix.** New `ensureMember(missionId, agentId)` in
+`src/agent/missionRoom.ts` — adds a team member if not already present,
+posts a small `team_expanded` system note ("Analyst joined the team."),
+emits a `team_formed` event so the SSE-attached UI re-renders the team
+strip. The bridge calls it on every `agent_spawn` and `agent_done`
+event, so anyone the goal driver routes to shows up in the chat
+automatically — Plays-predicted or not.
+
+### Also added
+
+- `getMissionByGoalId(goalId)` in missionRoom for the bridge's
+  goalId → mission lookup.
+- `setLinkedGoal` is now called inside `startMissionWork`, not after
+  it in the router — closes a small race where events emitted during
+  the first tick had nowhere to land.
+
+### Tests
+
+`tests/v610-alpha1-bridge.test.ts` (6 cases): basic event-to-message
+flow, dynamic team membership for non-Plays specialists, `agent_spawn`
+state transition, ignored-when-no-mission-linked, graceful fallback
+message on failed status, tool_call doesn't flood the thread (state
+updates only).
+
+Full suite: 295 files / 7144 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.1.0-alpha.0 — 2026-05-13 — Mission Chat (opt-in chat-style team control)
 
 > The first cut of TITAN's new primary surface: a chat-style team room

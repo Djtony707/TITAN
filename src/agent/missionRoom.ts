@@ -355,6 +355,59 @@ export function getMission(id: string): MissionRoom | null {
     return getOrLoad(id);
 }
 
+/**
+ * v6.1.0-alpha.1 — look up a mission by its linked goalId. Used by the
+ * lifecycle bridge to translate "this specialist event came in for goal
+ * X" into "post this in mission room Y". Iterates all on-disk missions;
+ * fine for the small-N case (single-user installs typically have <10
+ * active missions at once). If we ever have thousands, swap to an index.
+ */
+export function getMissionByGoalId(goalId: string): MissionRoom | null {
+    ensureDir();
+    let entries: string[];
+    try { entries = readdirSync(MISSIONS_DIR).filter(f => f.endsWith('.json')); }
+    catch { return null; }
+    for (const f of entries) {
+        const id = f.slice(0, -5);
+        const room = getOrLoad(id);
+        if (room?.goalId === goalId) return room;
+    }
+    return null;
+}
+
+/**
+ * v6.1.0-alpha.1 — ensure a team member exists. The Plays library
+ * predicts the team, but the goal driver routes each subtask to
+ * whichever specialist fits — sometimes a different one. When the
+ * lifecycle bridge sees an event for an agent not on the team, we
+ * add them rather than silently dropping the activity.
+ */
+export function ensureMember(missionId: string, agentId: string, name?: string): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    if (room.team.some(m => m.agentId === agentId)) return room;
+    const meta = memberMetaFor(agentId);
+    const displayName = name ?? agentId.charAt(0).toUpperCase() + agentId.slice(1);
+    room.team.push({
+        agentId,
+        name: displayName,
+        role: meta.role,
+        color: meta.color,
+        state: 'idle',
+    });
+    // Post a small system note so the user sees the team expanded.
+    room.messages.push({
+        id: shortId(),
+        at: new Date().toISOString(),
+        kind: 'system',
+        tag: 'team_expanded',
+        content: `${displayName} joined the team.`,
+    } as SystemMessage);
+    commit(room);
+    emit('team_formed', missionId, { team: room.team.map(t => t.agentId), added: agentId });
+    return room;
+}
+
 /** List missions sorted by updatedAt desc. Returns shallow summaries by
  *  default; pass `full=true` to include messages + artifact for a sync
  *  page render. */
