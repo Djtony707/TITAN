@@ -96,6 +96,22 @@ export interface DriverHistoryEvent {
     note: string;
 }
 
+/**
+ * v6.0.3 — block-recurrence tracker. Each time the driver files a blocked
+ * approval, we append a fingerprint here. fileBlockedApproval uses this
+ * to detect a daemon-spawned goal hitting the same block twice within
+ * a short window (default 1h) and auto-cancels rather than re-asking.
+ *
+ * Bounded to the last 16 entries — older blocks are dropped on append.
+ */
+export interface DriverBlockEvent {
+    at: string;
+    /** Truncated, normalized hash of the blocking question. */
+    fingerprint: string;
+    /** Block kind from DriverBlockedReason (`needs_info`, `budget_exceeded`, etc). */
+    kind: string;
+}
+
 export interface DriverState {
     schemaVersion: 1;
     goalId: string;
@@ -109,6 +125,8 @@ export interface DriverState {
     subtaskStates: Record<string, DriverSubtaskState>;
     currentSubtaskId?: string;
     history: DriverHistoryEvent[];
+    /** v6.0.3 — fingerprint trail used by the same-block-twice auto-cancel guard. */
+    blockHistory?: DriverBlockEvent[];
     retrospective?: {
         success: boolean;
         durationMs: number;

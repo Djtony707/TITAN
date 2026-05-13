@@ -85,6 +85,130 @@ function appendHistory(state: DriverState, phase: DriverPhase, note: string): vo
     if (state.history.length > 200) state.history = state.history.slice(-200);
 }
 
+// v6.0.3 — Approval-guidance composer. Distinguishes between a generic
+// "yes proceed" click vs real textual guidance, and synthesizes the right
+// follow-up directive for the specialist's next attempt.
+//
+// Generic markers (after trim + lowercase): "approved", "approve", "ok",
+// "yes", "y", "go", "proceed", "do it", "lgtm" — these mean "go ahead,
+// make your best call." Real guidance is anything else >8 chars.
+//
+// Exported for the unit tests.
+const GENERIC_APPROVAL_NOTES = new Set([
+    'approved', 'approve', 'ok', 'okay', 'yes', 'y', 'go', 'proceed',
+    'do it', 'lgtm', 'sure', 'fine', 'continue', 'yeah', 'yep',
+]);
+
+export function composeApprovalGuidance(rawNote: string | undefined | null): string {
+    const note = (rawNote ?? '').trim();
+    const isGeneric = note === '' || note.length <= 8 || GENERIC_APPROVAL_NOTES.has(note.toLowerCase());
+    if (isGeneric) {
+        return [
+            'The user approved this subtask to proceed but did NOT provide additional textual guidance.',
+            'Interpretation: "go ahead with your best-effort interpretation of the original task."',
+            'Do NOT re-ask the same question that caused the block — pick a reasonable assumption from',
+            'the available context and proceed. If you genuinely cannot make a reasonable assumption,',
+            'complete what you can and report what was unresolved in your reply rather than blocking again.',
+        ].join(' ');
+    }
+    // Real textual guidance — pass it through as before, but reframe so
+    // the specialist knows it is the user's explicit answer (not a prior
+    // attempt's reasoning).
+    return `The user's answer to the question that caused the previous block is: "${note}". Use this as authoritative guidance for the next attempt.`;
+}
+
+// ── Daemon-spawned auto-cancel guard (v6.0.3) ────────────────────
+//
+// When an autonomous producer (Soma pressure cycle, dreaming proposer,
+// self-repair daemon, autopilot, mission auto-decomposer) spins up a
+// goal and the goal hits the SAME blocking question twice within an
+// hour, we cancel it rather than file another approval. Rationale: the
+// question is structurally unanswerable by the specialist — re-asking
+// doesn't fix that, it just fills Tony's approval queue. A human-
+// authored goal stays in the queue forever (Tony will answer when he's
+// ready); only daemon goals get this auto-cancel.
+//
+// Detection is by tag — Goal has no `requestedBy` field, so we check
+// the canonical autonomous-tag set the producers attach.
+
+const DAEMON_SPAWN_TAG_MARKERS = [
+    /^soma:/i,
+    /^autopilot/i,
+    /^mission-auto$/i,
+    /^self-repair$/i,
+    /^self-mod$/i,
+    /^self-healing$/i,
+    /^self-modification$/i,
+    /^canary-eval$/i,
+    /^dreaming$/i,
+    /^pressure$/i,
+];
+
+/** True if any of the goal's tags suggest an autonomous producer made it. */
+export function isDaemonSpawnedGoal(goal: { tags?: string[] }): boolean {
+    const tags = goal.tags ?? [];
+    for (const t of tags) {
+        for (const re of DAEMON_SPAWN_TAG_MARKERS) {
+            if (re.test(t)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Normalize a blocking question into a stable fingerprint so trivial
+ * formatting variations (whitespace, the rolling "attempt N" counter,
+ * timestamp echoes) don't defeat the same-block-twice check.
+ */
+export function fingerprintBlockedQuestion(q: string): string {
+    return q
+        .toLowerCase()
+        // Strip rolling counters / numbers / timestamps
+        .replace(/attempt\s*\d+/g, 'attempt N')
+        .replace(/\b\d{4}-\d{2}-\d{2}t[\d:.]+z?\b/g, '')
+        .replace(/\b\d+(\.\d+)?\b/g, 'N')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+}
+
+/** Configurable in tests via the optional override; default 1h. */
+export const SAME_BLOCK_TWICE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Check whether the next-block-to-be-filed is a recurrence of an
+ * earlier one within the daemon-auto-cancel window. Mutates `state`
+ * to append the new fingerprint regardless (so the next call can
+ * still see it).
+ *
+ * Returns true if the goal should be auto-cancelled.
+ */
+export function shouldAutoCancelOnRecurringBlock(
+    state: DriverState,
+    goal: { tags?: string[] },
+    blockKind: string,
+    question: string,
+    windowMs: number = SAME_BLOCK_TWICE_WINDOW_MS,
+): boolean {
+    if (!isDaemonSpawnedGoal(goal)) {
+        return false;
+    }
+    const fp = fingerprintBlockedQuestion(question);
+    const now = Date.now();
+    const history = state.blockHistory ?? [];
+    const cutoff = now - windowMs;
+    // Look for ANY prior block whose fingerprint matches and is within the window.
+    const recurrence = history.find(ev => {
+        if (ev.fingerprint !== fp) return false;
+        const t = Date.parse(ev.at);
+        return Number.isFinite(t) && t >= cutoff;
+    });
+    // Always record the new event (bounded to last 16 entries).
+    const next: typeof history = [...history, { at: new Date(now).toISOString(), fingerprint: fp, kind: blockKind }];
+    state.blockHistory = next.slice(-16);
+    return !!recurrence;
+}
+
 // ── Infrastructure failure detection ──────────────────────────────
 
 /**
@@ -651,12 +775,30 @@ async function tickBlocked(goal: Goal, state: DriverState): Promise<void> {
         if (!approval) return;
         if (approval.status === 'pending') return; // still waiting
         if (approval.status === 'approved') {
-            // Incorporate human answer into the current subtask's context
+            // v6.0.3 — Incorporate the human's response into the current
+            // subtask's context. The pre-v6.0.3 path composed
+            // `Previous attempt needed info; human provided: "${note}".
+            //  Try again using this.` regardless of what the note was.
+            //
+            // When the user clicked "Approve" WITHOUT supplying actual
+            // textual guidance via /api/command-post/approvals/:id/reply,
+            // `decisionNote` was either undefined OR a generic verb like
+            // "Approved" / "OK" / "Yes". The specialist would then try
+            // to use the literal string "Approved" as the answer to a
+            // question like "What project should I document?", fail
+            // because that isn't actionable info, and re-block. Tony
+            // would approve again, same loop. Approvals became useless
+            // for `needs_info` blocks.
+            //
+            // Fix: detect generic/empty notes and synthesize a "proceed
+            // with best-effort interpretation; do NOT re-ask the same
+            // question" directive instead of feeding the action label.
+            // When the note IS real textual guidance (>8 chars, not a
+            // common approve-verb), pass it through as before.
             const currentId = state.currentSubtaskId;
             if (currentId) {
                 const subState = state.subtaskStates[currentId];
-                const note = approval.decisionNote || 'Approved';
-                subState.lastError = `Previous attempt needed info; human provided: "${note}". Try again using this.`;
+                subState.lastError = composeApprovalGuidance(approval.decisionNote);
             }
             state.blockedReason = undefined;
             state.phase = 'delegating';
@@ -802,6 +944,40 @@ async function fileBlockedApproval(
     goal: Goal,
     questions: string[],
 ): Promise<void> {
+    const primaryQuestion = questions[0] ?? state.blockedReason?.question ?? 'Specialist requires input';
+    const blockKind = state.blockedReason?.kind ?? 'needs_info';
+
+    // v6.0.3 — same-block-twice auto-cancel for daemon-spawned goals.
+    // We do this BEFORE the throttle / approval-create path so a
+    // recurring block on an autonomous goal collapses the loop instead
+    // of throttling the surface signal.
+    if (shouldAutoCancelOnRecurringBlock(state, goal, blockKind, primaryQuestion)) {
+        const tagSummary = (goal.tags || []).slice(0, 4).join(',') || '(no tags)';
+        logger.warn(
+            COMPONENT,
+            `Auto-cancelling daemon-spawned goal ${goal.id} ("${goal.title.slice(0, 60)}"): same block recurred within ${Math.round(SAME_BLOCK_TWICE_WINDOW_MS / 60000)}min [tags=${tagSummary}, kind=${blockKind}]`
+        );
+        state.phase = 'cancelled';
+        state.blockedReason = undefined;
+        state.userControls.cancelRequested = true;
+        appendHistory(
+            state,
+            'cancelled',
+            `Auto-cancelled: daemon-spawned goal hit the same block (${blockKind}) twice within the recurrence window.`
+        );
+        try {
+            // Goal model has no `cancelled` status — convention is to flip
+            // to `failed` while the driver phase records `cancelled`. This
+            // matches tickCancelled()'s own behavior.
+            const { updateGoal } = await import('./goals.js');
+            updateGoal(goal.id, { status: 'failed' });
+        } catch (err) {
+            logger.warn(COMPONENT, `Could not flip goal ${goal.id} status after auto-cancel: ${(err as Error).message}`);
+        }
+        try { await onGoalBlocked(goal, state); } catch { /* ok */ }
+        return;
+    }
+
     // v4.10.0-local (Phase B): throttle to 1 per (goalId, driver_blocked) per 5 min
     try {
         const { shouldCreateApproval } = await import('./notificationThrottle.js');

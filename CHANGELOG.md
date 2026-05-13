@@ -5,6 +5,109 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.3 — 2026-05-12 — Autonomy gates: approval-as-text, self-repair runaway, block recurrence
+
+> Three production bugs caught from a second log check on Titan PC after
+> v6.0.2 deployed. Each is a real autonomy hazard — TITAN doing
+> something *plausible* that isn't what Tony wanted. All three fixed at
+> the root cause, with unit tests, no shortcuts.
+
+### Bug #1 — "Approved" fed to specialists as the answer to a question
+
+**Symptom.** Command Post logs showed specialist prompts containing
+literal strings like `The user's answer to the question is: "Approved"`
+— meaning the specialist would re-ask the same question on the next
+attempt, since "Approved" is not actually an answer.
+
+**Root cause.** When Tony clicked the green Approve button on a
+`driver_blocked` approval without typing additional guidance, the
+approval system stored the button label ("Approved" or empty) as the
+`decisionNote`. The goal-driver then handed that note to the specialist
+as `subState.lastError`, framed as "the user's answer to your
+question."
+
+**Fix.** New helper `composeApprovalGuidance(rawNote)` in
+`src/agent/goalDriver.ts`:
+- Recognizes a set of generic markers (`Approved`, `ok`, `yes`, `go`,
+  `lgtm`, etc., case-insensitive) plus empty / ≤8-char notes as "no
+  textual guidance provided."
+- For generic notes, synthesizes a directive that tells the specialist
+  to proceed with its best-effort interpretation and NOT re-ask the
+  blocking question.
+- For real textual guidance (>8 chars, not in the marker set), passes
+  the note through verbatim, reframed as "the user's authoritative
+  answer."
+
+### Bug #2 — Soma + dreaming proposer spinning up runaway self-repair goals
+
+**Symptom.** Command Post had 7 simultaneous "Rewrite the core
+framework" / "Refactor TITAN's runtime" goals, all autonomously
+proposed, all stuck in `iterating` for 16+ hours. Each one consumed
+specialist budget, none made forward progress.
+
+**Root cause.** The dreaming-cycle goal proposer (`goalProposer.ts`)
+plus the Soma pressure cycle (`organism/pressure.ts`) cooperated:
+elevated curiosity / purpose drives → LLM proposes "improve the
+framework" → self-mod tag added by the disambiguator → approval
+auto-fired → goal created. No gate against TITAN spinning up new
+framework-modification goals on its own — only the scope-lock on file
+writes.
+
+**Fix.** New config flag `autonomy.selfMod.autoCreateGoals` (default
+`false`). When off, `goalProposer.normalizeProposal` drops any
+proposal that classifies as self-mod / self-repair / framework-
+modification BEFORE it reaches the approval queue, with an info log
+naming the dropped proposal. The self-repair daemon's findings still
+surface via `custom`-type `self_repair` approvals — so Tony still sees
+"the system flagged X" — but TITAN won't autonomously spawn goals to
+fix itself.
+
+Set `autonomy.selfMod.autoCreateGoals: true` in `titan.json` to
+restore prior behavior.
+
+### Bug #3 — Daemon-spawned goals filling the approval queue with repeated identical blocks
+
+**Symptom.** A single autonomous goal hit `driver_blocked` with the
+same question 4+ times across a day, each time filing a fresh approval
+even though the question was structurally unanswerable by any
+specialist.
+
+**Root cause.** `fileBlockedApproval()` had a 5-minute throttle (one
+approval per goal per kind per window), but the throttle window
+elapses; on next tick the same block fires the same approval again.
+Human-authored goals are fine here (the user will eventually answer),
+but autonomous goals just churn.
+
+**Fix.** New auto-cancel guard in `src/agent/goalDriver.ts`:
+- `isDaemonSpawnedGoal(goal)` — true if any of `soma:*`, `autopilot*`,
+  `mission-auto`, `self-repair`, `self-mod`, `self-healing`,
+  `canary-eval`, `dreaming`, `pressure` appears in the goal's tags.
+- `fingerprintBlockedQuestion(q)` — strips rolling counters,
+  timestamps, raw numbers, and whitespace so "attempt 3" matches
+  "attempt 7" for recurrence purposes.
+- `shouldAutoCancelOnRecurringBlock(state, goal, kind, q, windowMs)`
+  — appends the new fingerprint to a bounded `state.blockHistory`
+  (last 16 entries) and returns `true` iff the goal is daemon-spawned
+  AND a prior matching fingerprint exists within `windowMs` (default
+  1 hour).
+- `fileBlockedApproval()` consults the guard FIRST. On recurrence the
+  goal is flipped to `cancelled` (driver phase) / `failed` (goal
+  status — Goal model has no `cancelled` value), with a warn log and a
+  history entry naming the recurrence. No approval is filed.
+
+Net effect: autonomous goals that hit a structural dead-end get cleaned
+up in ≤1 hour instead of squatting on the active queue for days.
+
+### Tests
+
+`tests/v603-fixes.test.ts` (16 cases) covers all three fixes end-to-end:
+generic / textual approval-guidance composition, the self-mod proposer
+gate at both default-off and opt-in settings, and the block-recurrence
+auto-cancel across daemon vs. human goals and inside vs. outside the
+recurrence window.
+
+---
+
 ## v6.0.2 — 2026-05-12 — Soma dedup + autopilot persistence
 
 > Two production bugs caught from a log check on Titan PC after the
