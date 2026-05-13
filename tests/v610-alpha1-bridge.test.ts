@@ -212,6 +212,101 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         expect(last?.content).toMatch(/trouble.*couldn't finish/i);
     });
 
+    it('looksLikeInternalErrorTrace flags the common internal error chains', async () => {
+        const { looksLikeInternalErrorTrace } = await import('../src/agent/missionLifecycle.js');
+        // The exact wild-caught string from Tony's stuck-mission audit:
+        expect(looksLikeInternalErrorTrace(
+            `Parser could not extract JSON from specialist response. Raw (200 chars): Sub-agent error: All providers failed: Provider ollama/glm-5:cloud failed: [HTTP 429] Ollama error (429): <!doctype html>...`,
+        )).toBe(true);
+        // Other obvious internal-error markers.
+        expect(looksLikeInternalErrorTrace('Circuit breaker OPEN for ollama/glm-5')).toBe(true);
+        expect(looksLikeInternalErrorTrace('Too Many Requests')).toBe(true);
+        expect(looksLikeInternalErrorTrace('<!doctype html><meta>')).toBe(true);
+        // Real specialist reasoning passes through unchanged.
+        expect(looksLikeInternalErrorTrace(
+            `I analyzed the GitHub repository and identified VRAM orchestration, cuOpt, and mesh networking as key value propositions.`,
+        )).toBe(false);
+        // Empty / undefined safe.
+        expect(looksLikeInternalErrorTrace(null)).toBe(false);
+        expect(looksLikeInternalErrorTrace('')).toBe(false);
+    });
+
+    it('agent_done with internal-error trace as reasoning: chat shows friendly fallback, raw text stashed on meta.failureDetail', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Error scrubbing test.', members: [{ agentId: 'analyst', name: 'Analyst' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const ugly = `Parser could not extract JSON from specialist response. Raw (200 chars): Sub-agent error: All providers failed: Provider ollama/glm-5:cloud failed: [HTTP 429] Ollama error (429): <!doctype html><meta charset="utf-8">`;
+        const { emitAgentEvent } = await import('../src/agent/agentEvents.js');
+        emitAgentEvent({
+            type: 'agent_done',
+            agentId: 'analyst',
+            timestamp: Date.now(),
+            data: { goalId: realGoalId, status: 'failed', reasoning: ugly },
+        });
+        const after = getMission(room.id)!;
+        const msg = after.messages.find(m => m.kind === 'agent') as {
+            content: string;
+            meta?: { failureDetail?: string };
+        } | undefined;
+        expect(msg).toBeDefined();
+        // Chat-visible content is the friendly fallback, NOT the raw error.
+        expect(msg!.content).not.toContain('Parser could not extract');
+        expect(msg!.content).not.toContain('HTTP 429');
+        expect(msg!.content).toMatch(/trouble.*couldn't finish/i);
+        // Raw text preserved on meta for click-to-expand.
+        expect(msg!.meta?.failureDetail).toBe(ugly);
+    });
+
+    it('goal:completed event sets mission status to done + posts a "Mission complete" system message', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Completion signal test.', members: [{ agentId: 'analyst', name: 'Analyst' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { titanEvents } = await import('../src/agent/daemon.js');
+        titanEvents.emit('goal:completed', {
+            goalId: realGoalId,
+            title: 'Completion signal test.',
+            durationMs: 8500,
+            tokensUsed: 1200,
+            costUsd: 0.03,
+            specialistsUsed: ['analyst', 'default'],
+            subtaskCount: 1,
+        });
+        // Allow setImmediate for teardown to run.
+        await new Promise(resolve => setImmediate(resolve));
+        const after = getMission(room.id)!;
+        expect(after.status).toBe('done');
+        const sys = [...after.messages].reverse().find(m => m.kind === 'system') as { content: string; tag?: string } | undefined;
+        expect(sys?.tag).toBe('mission_complete');
+        expect(sys?.content).toMatch(/Mission complete/);
+        expect(sys?.content).toMatch(/analyst.*default|default.*analyst/);
+    });
+
+    it('goal:failed event sets mission status to failed + posts a graceful failure message', async () => {
+        const { createMission, getMission } = await import('../src/agent/missionRoom.js');
+        const { startMissionWork } = await import('../src/agent/missionLifecycle.js');
+        const room = createMission({ goal: 'Failure signal test.', members: [{ agentId: 'sage', name: 'Sage' }] });
+        await startMissionWork(room);
+        const realGoalId = getMission(room.id)!.goalId!;
+        const { titanEvents } = await import('../src/agent/daemon.js');
+        titanEvents.emit('goal:failed', {
+            goalId: realGoalId,
+            title: 'Failure signal test.',
+            durationMs: 12000,
+            retries: 3,
+        });
+        await new Promise(resolve => setImmediate(resolve));
+        const after = getMission(room.id)!;
+        expect(after.status).toBe('failed');
+        const sys = [...after.messages].reverse().find(m => m.kind === 'system') as { content: string; tag?: string } | undefined;
+        expect(sys?.tag).toBe('mission_failed');
+        expect(sys?.content).toMatch(/Couldn't finish/i);
+        expect(sys?.content).toMatch(/3 retry/);
+    });
+
     it('agent_done passes meta (subtask, duration, tokens, cost, model) onto the chat message', async () => {
         const { createMission, getMission } = await import('../src/agent/missionRoom.js');
         const { startMissionWork } = await import('../src/agent/missionLifecycle.js');

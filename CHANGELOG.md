@@ -5,6 +5,83 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.7 — 2026-05-13 — Mission closure: scrub error traces + emit completion signal
+
+> Two issues caught from Tony's monetization mission. The chat showed
+> Analyst's "Parser could not extract JSON ... HTTP 429 ... <!doctype
+> html>" raw error trace as the agent's message text — gibberish to a
+> non-engineer. Then after Default's fallback specialist actually
+> succeeded and the goal completed, the chat stayed in 'working' state
+> with no closure message. Looked stuck even though the goal driver
+> had marked the goal completed.
+
+### Fix 1 — Scrub internal-error traces from chat-visible reasoning
+
+New `looksLikeInternalErrorTrace(text)` helper in
+`src/agent/missionLifecycle.ts` matches a bank of internal-error
+markers: `Parser could not extract JSON`, `Sub-agent error:`,
+`All providers failed`, `HTTP NNN ... Ollama error`, `Circuit breaker
+OPEN for`, `<!doctype html>`, `Too Many Requests`.
+
+When the bridge's `agent_done` handler sees one of these in the
+`reasoning` field, it:
+1. Falls through to the friendly fallback message ("I ran into
+   trouble on this one and couldn't finish — handing back to the
+   team.") instead of dumping the trace into chat.
+2. Stashes the original text on `meta.failureDetail` so power users
+   can still see it via click-to-expand (new "Error detail" row in
+   the DetailsPanel, rendered in `<code>` with whitespace
+   preserved, capped at 800 chars).
+
+### Fix 2 — Emit goal lifecycle events for mission closure
+
+`goalDriver.ts` now emits `goal:completed` and `goal:failed` events on
+the `titanEvents` bus when the goal driver enters `tickReporting` /
+`tickFailed`. The Mission Chat bridge (new
+`wireGoalLifecycleBridge`) subscribes per-mission and:
+- On `goal:completed`: posts a `mission_complete` system message
+  ("Mission complete in 42s with help from Scout, Analyst, Builder.")
+  and sets mission status to `done`. Team-health pill flips from
+  "X working" to "Done".
+- On `goal:failed`: posts a `mission_failed` system message
+  ("Couldn't finish this one after 3 retry attempt(s). Take a look at
+  what we did manage and tell me what to try next.") and sets status
+  to `failed`.
+- Tears down the mission's bridges (`setImmediate(teardownMissionWork)`)
+  so we don't leak event-bus listeners after terminal states.
+
+### Tests
+
+4 new cases in `tests/v610-alpha1-bridge.test.ts` (16 → from 12):
+- `looksLikeInternalErrorTrace` matches the wild-caught
+  Parser+HTTP+doctype string and friends; passes real reasoning
+  through; null/empty safe.
+- `agent_done` with internal-error trace as reasoning: chat shows
+  friendly fallback, raw text on `meta.failureDetail`.
+- `goal:completed` event: status flips to `done`, "Mission complete"
+  system message with specialist list.
+- `goal:failed` event: status flips to `failed`, graceful message with
+  retry count.
+
+Full suite: 295 files / 7163 tests pass / 1 skipped / 0 failing.
+
+### What Tony will see when his next mission completes
+
+1. Specialists post their work in the thread as usual.
+2. When the goal driver finishes:
+   - A system message appears: *"Mission complete in 42s with help
+     from Scout, Analyst, Builder."*
+   - Team-health pill at the top flips from "4 working" to "Done".
+3. No more idle-but-secretly-done state.
+
+If a specialist fails with an internal trace mid-mission:
+- The chat sees: *"I ran into trouble on this one and couldn't finish
+  — handing back to the team."* with action chips for tools tried.
+- Clicking the bubble reveals the raw error trace in a monospace
+  code block — power-user fallback intact.
+
+---
+
 ## v6.1.0-alpha.6 — 2026-05-13 — GEPA: prose-instead-of-JSON is DEBUG not WARN
 
 > Post-alpha.5 log audit caught two `WARN [GEPA] Mutation failed:

@@ -516,6 +516,19 @@ function DetailsPanel({ msg }: { msg: MissionMessage }) {
         ),
       });
     }
+    // v6.1.0-alpha.7 — when an internal error trace was scrubbed from the
+    // chat-visible content, surface the raw text here for power users.
+    if (meta?.failureDetail) {
+      rows.push({
+        label: 'Error detail',
+        value: (
+          <code className="block whitespace-pre-wrap bg-bg-tertiary/80 border border-border rounded p-2 text-[11px] text-text-secondary font-mono leading-relaxed max-h-40 overflow-y-auto">
+            {meta.failureDetail.slice(0, 800)}
+            {meta.failureDetail.length > 800 ? '\n…' : ''}
+          </code>
+        ),
+      });
+    }
   } else if (msg.kind === 'question') {
     rows.push({ label: 'From', value: <span><b>{msg.from.name}</b> · {msg.from.role}</span> });
     rows.push({ label: 'Approval id', value: <code className="text-text-secondary text-[11px]">{msg.approvalId}</code> });

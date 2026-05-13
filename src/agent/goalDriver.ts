@@ -756,6 +756,24 @@ async function tickReporting(goal: Goal, state: DriverState): Promise<void> {
     } catch { /* ok */ }
     state.phase = 'done';
     appendHistory(state, 'done', `Goal completed: ${state.retrospective.lessonsLearned[0]}`);
+    // v6.1.0-alpha.7 — broadcast on titanEvents so Mission Chat (and any
+    // future listener) knows the goal finished. Without this, the mission
+    // room sat in 'working' state with no completion message and looked
+    // stuck even though the goal driver had returned status=completed in
+    // goals.json. Bridge in missionLifecycle.ts maps this to a "Mission
+    // complete" system message + status=done in the room.
+    try {
+        const { titanEvents } = await import('./daemon.js');
+        titanEvents.emit('goal:completed', {
+            goalId: goal.id,
+            title: goal.title,
+            durationMs,
+            tokensUsed: state.budget.tokensUsed,
+            costUsd: state.budget.costUsd,
+            specialistsUsed,
+            subtaskCount: Object.keys(state.subtaskStates).length,
+        });
+    } catch { /* event bus failure never blocks driver state transitions */ }
     try { await onGoalCompleted(goal, state); } catch { /* ok */ }
     // v4.10.0-local (Phase B): record retrospective for future goal learning
     try {
@@ -929,6 +947,21 @@ async function tickFailed(goal: Goal, state: DriverState): Promise<void> {
         const { updateGoal } = await import('./goals.js');
         updateGoal(goal.id, { status: 'failed' });
     } catch { /* ok */ }
+    // v6.1.0-alpha.7 — same broadcast pattern as completion. The Mission
+    // Chat bridge translates this to a "Couldn't finish this one." system
+    // message + status=failed so the user sees closure instead of an
+    // idle team strip.
+    try {
+        const { titanEvents } = await import('./daemon.js');
+        titanEvents.emit('goal:failed', {
+            goalId: goal.id,
+            title: goal.title,
+            durationMs,
+            tokensUsed: state.budget.tokensUsed,
+            costUsd: state.budget.costUsd,
+            retries: state.budget.totalRetries,
+        });
+    } catch { /* event bus failure never blocks driver state transitions */ }
     try { await onGoalFailed(goal, state, 'driver terminated in failed state'); } catch { /* ok */ }
     // Phase B: failed retrospectives are the most valuable — they teach us what to avoid
     try {
