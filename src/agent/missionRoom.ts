@@ -171,6 +171,15 @@ export interface MissionRoom {
     playId?: string;
     /** Linked Goal id in the existing goal driver. Set after team formation. */
     goalId?: string;
+    /**
+     * v6.1.0-alpha.10 — linked Command Post issue id. Every mission
+     * auto-creates an issue (createIssue) on start so the chat thread
+     * and the Command Post Issues panel both surface the same record.
+     * Key lifecycle events (team formed, question raised, question
+     * answered, mission complete / failed) post as issue comments so
+     * the issue becomes the durable audit trail.
+     */
+    issueId?: string;
     /** Owner — which user account opened this mission. Single-user installs
      *  can leave it empty; multi-user installs must scope reads by this. */
     ownerId?: string;
@@ -495,6 +504,20 @@ export function setLinkedGoal(missionId: string, goalId: string): MissionRoom | 
     const room = getOrLoad(missionId);
     if (!room) return null;
     room.goalId = goalId;
+    commit(room);
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.10 — link a Command Post Issue to this mission. Called
+ * by startMissionWork after createIssue; surfaces in the chat via the
+ * `/issue` slash command (and on the issue side via the linked
+ * `goalId` field).
+ */
+export function setLinkedIssue(missionId: string, issueId: string): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    room.issueId = issueId;
     commit(room);
     return room;
 }

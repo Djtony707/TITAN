@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.10 — 2026-05-13 — Missions ↔ Command Post Issues unification
+
+> Borrowed from `awesome-agent-harness` (OpenAI Symphony pattern):
+> treat the issue tracker as the agent control plane. TITAN already
+> has Command Post issues; this links them to missions so the issue
+> becomes the durable audit trail without changing the existing
+> Issues UI.
+
+### What changed
+
+`startMissionWork` now auto-creates a Command Post issue for every
+mission and stores its id on `MissionRoom.issueId`. Key lifecycle
+events mirror as issue comments + status changes:
+
+| Mission event           | Issue effect                                  |
+|-------------------------|-----------------------------------------------|
+| Mission start           | Create issue, status=`in_progress`, "Mission opened with team: …" comment |
+| Helper raises question  | Comment "<agent> asked: …", status=`blocked`  |
+| User answers question   | Comment 'User answered: "…"', status=`in_progress` |
+| Mission complete        | Comment "Mission complete in Xs …", status=`done` |
+| Mission failed          | Comment "Couldn't finish this one …", status=`cancelled` |
+
+Individual agent chat messages do **not** mirror (chat thread already
+serves that purpose; mirroring everything would inflate the issue
+thread with noise). Verified by a regression test that posts 5 agent
+messages and asserts the issue comment count doesn't change.
+
+### Why this matters
+
+- **Audit trail**: every mission decision is now persisted in the
+  same place as every other Command Post issue, including comments
+  with author + timestamp. Useful for "what did the team decide last
+  week?" without scrolling chat history.
+- **Cross-surface visibility**: opening the Command Post Issues panel
+  shows mission status (`in_progress` / `blocked` / `done` /
+  `cancelled`) at a glance. The existing Issues UI is unchanged —
+  we're just adding mission-sourced rows.
+- **Foundation for future "/issue" command**: with the link in
+  place, the chat can surface the issue (assignees, comments, etc.)
+  on demand. That UI lands in a later alpha.
+
+### Tests
+
+`tests/v610-alpha10-issue-mirror.test.ts` (5 cases):
+- `startMissionWork` creates an issue with correct title, status,
+  goalId, and an initial "Mission opened" comment naming the team.
+- Question raised → comment with the question + status=`blocked`.
+- Mission completion → "Mission complete" comment + status=`done`.
+- Mission failure → "Couldn't finish" comment + status=`cancelled`.
+- 5 ordinary agent messages → 0 new issue comments (no noise).
+
+Full suite: 297 files / 7177 tests pass / 1 skipped / 0 failing.
+
+---
+
 ## v6.1.0-alpha.9 — 2026-05-13 — Anti-rationalization scaffolding in specialist prompts
 
 > Borrowed from `addyosmani/agent-skills`: each skill pairs common
