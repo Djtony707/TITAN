@@ -443,7 +443,7 @@ function recordFailure(providerName: string): void {
  * Returns true if closed or if half-open (time to test).
  * Returns false if open and still in timeout period.
  */
-function canRequest(providerName: string, isFallbackProbe = false): boolean {
+export function canRequest(providerName: string, isFallbackProbe = false): boolean {
     // G2: Rate-limit cooldown only blocks FALLBACK probes, not primary model retries.
     // Primary model has its own backoff logic — don't double-gate it.
     if (isFallbackProbe && isInRateLimitCooldown(providerName)) {

@@ -16,7 +16,8 @@ import { loadConfig } from '../../config/config.js';
 import logger from '../../utils/logger.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { chat } from '../../providers/router.js';
+import { chat, canRequest } from '../../providers/router.js';
+import { LLMProvider } from '../../providers/base.js';
 import {
     SELF_IMPROVE_DIR,
     PROMPTS_DIR,
@@ -32,6 +33,53 @@ import {
 } from './self_improve.js';
 
 const COMPONENT = 'GEPA';
+
+// ── Breaker gate ─────────────────────────────────────────────────────
+//
+// GEPA's evolution loop calls the auxiliary model dozens of times per
+// generation (crossover + mutate, both LLM-guided). When the provider's
+// circuit breaker is OPEN (e.g. Ollama Cloud rate-limited the aux model),
+// every call would otherwise produce one "Crossover failed" / "Mutation
+// failed" WARN per attempt — 15-30 lines per generation, all noise.
+//
+// `isModelAvailable` checks the provider's breaker BEFORE the chat()
+// call. When closed, GEPA proceeds normally. When open, the operator
+// returns the parent unchanged (a no-op in the evolutionary sense, same
+// as the previous catch-block fallback) WITHOUT actually firing chat()
+// and WITHOUT logging on every call. We log ONE "Paused" line per
+// pause window (per provider) and let the breaker close naturally.
+//
+// Net effect: zero log noise when the aux model is rate-limited.
+// Evolution resumes as soon as the breaker closes.
+
+const PAUSE_LOG_COOLDOWN_MS = 60_000;
+const lastPauseLogAt = new Map<string, number>();
+
+/** Test-only: reset the pause log throttle. */
+export function _resetGepaPauseLogForTests(): void {
+    lastPauseLogAt.clear();
+}
+
+export function isModelAvailable(model: string): boolean {
+    let providerName = 'unknown';
+    try {
+        providerName = LLMProvider.parseModelId(model).provider;
+    } catch {
+        return true; // can't classify → assume available, don't block evolution
+    }
+    if (canRequest(providerName)) return true;
+    // Breaker is open. Log at most once per cooldown window per provider.
+    const now = Date.now();
+    const last = lastPauseLogAt.get(providerName) ?? 0;
+    if (now - last > PAUSE_LOG_COOLDOWN_MS) {
+        lastPauseLogAt.set(providerName, now);
+        logger.warn(
+            COMPONENT,
+            `Paused — circuit breaker OPEN for ${providerName}. Will resume when the breaker closes.`,
+        );
+    }
+    return false;
+}
 
 // ── Paths ────────────────────────────────────────────────────────────
 
@@ -121,6 +169,13 @@ export async function crossover(
     area: ImprovementArea,
     model: string,
 ): Promise<string> {
+    // v6.1.0-alpha.3 — gate on provider's circuit breaker. If open, skip
+    // the LLM call entirely and return the higher-fitness parent. Same
+    // degradation behavior as the catch-block below, but without the noisy
+    // per-call WARN line that fired 15+ times per stalled generation.
+    if (!isModelAvailable(model)) {
+        return parent1.fitness >= parent2.fitness ? parent1.content : parent2.content;
+    }
     try {
         const response = await chat({
             model,
@@ -157,6 +212,11 @@ export async function mutate(
     area: ImprovementArea,
     model: string,
 ): Promise<string> {
+    // v6.1.0-alpha.3 — see crossover() for rationale. Same gate, same
+    // graceful degradation (return unchanged content).
+    if (!isModelAvailable(model)) {
+        return individual.content;
+    }
     try {
         const response = await chat({
             model,

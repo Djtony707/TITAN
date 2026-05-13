@@ -5,6 +5,60 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.3 — 2026-05-13 — GEPA respects the circuit breaker
+
+> GEPA's evolution loop was generating 15+ "Mutation failed: Circuit
+> breaker OPEN" + 13+ "Crossover failed: Circuit breaker OPEN"
+> WARN lines per 15-minute window when the auxiliary model's breaker
+> was open. The breaker correctly cut the requests (so load wasn't
+> amplified), but each cycle wasted CPU forming an LLM payload before
+> the router rejected it, and the logs filled with noise.
+
+### Fix
+
+New `isModelAvailable(model)` gate in `src/skills/builtin/gepa.ts`:
+
+1. **Resolve** the model id to a provider via `LLMProvider.parseModelId`.
+2. **Check** the provider's circuit breaker via the now-exported
+   `canRequest(provider)` from router.
+3. **If open**, return `false` without firing the LLM call. The
+   caller (`crossover`, `mutate`) returns the parent unchanged — same
+   graceful degradation as the previous catch-block, but without the
+   chat() round-trip and without the WARN.
+4. **Log at most ONCE per minute per provider** when the breaker is
+   open. A 25-call generation now produces 1 "GEPA Paused — circuit
+   breaker OPEN for ollama" line, not 25 individual failure lines.
+5. **Resume** naturally — the next call after the breaker closes
+   passes through to `chat()` normally. No explicit unpause needed.
+
+### Plumbing
+
+`canRequest` is now exported from `src/providers/router.ts` (was
+module-private). Six other internal callsites continue to use it
+unchanged.
+
+### Tests
+
+5 new cases in `tests/gepa.test.ts` (now 22/22 passing):
+- `crossover` returns higher-fitness parent when breaker OPEN, no
+  chat() call
+- `mutate` returns unchanged content when breaker OPEN, no chat() call
+- `crossover` proceeds normally when breaker CLOSED
+- "Paused" warn fires at most ONCE across 25 calls in succession
+- Resumes naturally when breaker transitions OPEN → CLOSED
+
+Full suite: 295 files / 7153 tests pass / 1 skipped / 0 failing.
+
+### Why this matters
+
+The breaker was doing its job (refusing requests when the provider was
+saturated). GEPA was the loudest consumer of that fact. With this
+fix, when Ollama Cloud rate-limits, GEPA goes silent and waits;
+**when it recovers, GEPA resumes within seconds** without any operator
+intervention. That's the autonomy posture TITAN is supposed to have.
+
+---
+
 ## v6.1.0-alpha.2 — 2026-05-13 — Log noise + MessageBus polish
 
 > Two cosmetic-but-confusing issues caught from a log audit after
