@@ -36,6 +36,7 @@ export type MissionMessage =
         tokensUsed?: number;
         costUsd?: number;
         model?: string;
+        failureDetail?: string;
       };
     }
   | { id: string; at: string; kind: 'system'; content: string; tag?: string }

@@ -98,6 +98,12 @@ export interface AgentMessage extends MessageBase {
         costUsd?: number;
         /** Which model actually answered (provider/model id when known). */
         model?: string;
+        /**
+         * v6.1.0-alpha.7 — the raw failure-detail string when the
+         * bridge scrubbed an internal-error trace from the chat-visible
+         * `content`. Surfaced via click-to-expand for power users.
+         */
+        failureDetail?: string;
     };
 }
 export interface SystemMessage extends MessageBase {

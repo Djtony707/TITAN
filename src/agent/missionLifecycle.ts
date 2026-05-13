@@ -90,9 +90,20 @@ function ensureGlobalBusBridge(): void {
                 }
                 case 'agent_done': {
                     ensureMember(mission.id, agentId);
-                    const reasoning = typeof data.reasoning === 'string' && data.reasoning.trim().length > 0
+                    const rawReasoning = typeof data.reasoning === 'string' && data.reasoning.trim().length > 0
                         ? data.reasoning.trim()
                         : null;
+                    // v6.1.0-alpha.7 — scrub internal-error stack traces.
+                    // When a spawn fails, the `reasoning` field can be the
+                    // raw error chain: "Parser could not extract JSON...
+                    // Sub-agent error: All providers failed: HTTP 429
+                    // <html>..." That's pure jargon for users. Detect it
+                    // and replace with the friendly fallback. The original
+                    // text is preserved on `meta.failureDetail` so power
+                    // users can still see it via click-to-expand.
+                    const reasoning = looksLikeInternalErrorTrace(rawReasoning)
+                        ? null
+                        : rawReasoning;
                     const toolsUsed = Array.isArray(data.toolsUsed)
                         ? (data.toolsUsed as string[]).slice(0, 6)
                         : [];
@@ -103,7 +114,12 @@ function ensureGlobalBusBridge(): void {
                     // surfaces it when the user clicks the bubble — keeps
                     // the thread readable while making "what actually
                     // happened here" one tap away.
-                    const meta = {
+                    //
+                    // v6.1.0-alpha.7 — if the raw reasoning was a scrubbed
+                    // internal-error trace, stash it on `meta.failureDetail`
+                    // so power users can still see it via click-to-expand.
+                    // The chat surface stays clean.
+                    const meta: Record<string, unknown> = {
                         subtaskTitle: typeof data.subtaskTitle === 'string' ? data.subtaskTitle : undefined,
                         status,
                         durationMs: typeof data.durationMs === 'number' ? data.durationMs : undefined,
@@ -111,6 +127,9 @@ function ensureGlobalBusBridge(): void {
                         costUsd: typeof data.costUsd === 'number' ? data.costUsd : undefined,
                         model: typeof data.model === 'string' ? data.model : undefined,
                     };
+                    if (rawReasoning && rawReasoning !== reasoning) {
+                        meta.failureDetail = rawReasoning;
+                    }
                     // v6.1.0-alpha.1 — every agent_done emits SOMETHING into
                     // the chat. The pre-fix path returned nothing when
                     // `reasoning` was empty, which is common on cloud
@@ -201,11 +220,12 @@ export async function startMissionWork(mission: MissionRoom): Promise<string | n
             setMemberState(mission.id, member.agentId, 'idle', 'standing by');
         }
 
-        // The approval bridge stays per-mission for now — most approval
-        // payloads don't carry goalId in a uniform way, so we register a
-        // listener scoped to the goal id we just created.
+        // The approval bridge + goal-lifecycle bridge are both
+        // per-mission — they filter by goalId, so we register them
+        // scoped to the goal we just created.
         const cleanups: Array<() => void> = [];
         cleanups.push(await wireApprovalBridge(mission.id, goal.id));
+        cleanups.push(await wireGoalLifecycleBridge(mission.id, goal.id));
         lifecycles.set(mission.id, cleanups);
 
         return goal.id;
@@ -287,6 +307,72 @@ export function teardownMissionWork(missionId: string): void {
 }
 
 // ── Bridges ────────────────────────────────────────────────────────
+
+/**
+ * Subscribe to goal-lifecycle events on the titanEvents bus and
+ * translate goal completion / failure into:
+ *   1. a system message in the mission thread ("Mission complete." or
+ *      "Couldn't finish this one — here's what we have so far.")
+ *   2. a status transition (working → done | failed)
+ *
+ * Without this, the mission room sat in 'working' indefinitely after
+ * the underlying goal completed — the chat showed an idle team strip
+ * and no closure message, which looked like the mission was stuck even
+ * when it had successfully finished.
+ */
+async function wireGoalLifecycleBridge(missionId: string, goalId: string): Promise<() => void> {
+    const { titanEvents } = await import('./daemon.js');
+    const { postSystemMessage } = await import('./missionRoom.js');
+    const completedHandler = (data: unknown) => {
+        try {
+            const d = (data ?? {}) as Record<string, unknown>;
+            if (d.goalId !== goalId) return;
+            const durationMs = typeof d.durationMs === 'number' ? d.durationMs : 0;
+            const seconds = Math.max(1, Math.round(durationMs / 1000));
+            const specialistsUsed = Array.isArray(d.specialistsUsed) ? (d.specialistsUsed as string[]) : [];
+            const namesList = specialistsUsed.length > 0
+                ? ` with help from ${specialistsUsed.slice(0, 5).join(', ')}`
+                : '';
+            postSystemMessage(
+                missionId,
+                `Mission complete in ${seconds}s${namesList}.`,
+                'mission_complete',
+            );
+            setStatus(missionId, 'done');
+            // Mission reached a terminal state — tear down its bridges so
+            // we don't leak event-bus listeners. Defer one tick so any
+            // remaining synchronous work inside this handler chain runs
+            // before the bridges go away.
+            setImmediate(() => teardownMissionWork(missionId));
+        } catch (err) {
+            logger.debug(COMPONENT, `goal:completed handler threw: ${(err as Error).message}`);
+        }
+    };
+    const failedHandler = (data: unknown) => {
+        try {
+            const d = (data ?? {}) as Record<string, unknown>;
+            if (d.goalId !== goalId) return;
+            const retries = typeof d.retries === 'number' ? d.retries : 0;
+            postSystemMessage(
+                missionId,
+                retries > 0
+                    ? `Couldn't finish this one after ${retries} retry attempt(s). Take a look at what we did manage and tell me what to try next.`
+                    : `Couldn't finish this one. Take a look at what we did manage and tell me what to try next.`,
+                'mission_failed',
+            );
+            setStatus(missionId, 'failed');
+            setImmediate(() => teardownMissionWork(missionId));
+        } catch (err) {
+            logger.debug(COMPONENT, `goal:failed handler threw: ${(err as Error).message}`);
+        }
+    };
+    titanEvents.on('goal:completed', completedHandler);
+    titanEvents.on('goal:failed', failedHandler);
+    return () => {
+        titanEvents.off('goal:completed', completedHandler);
+        titanEvents.off('goal:failed', failedHandler);
+    };
+}
 
 /** Subscribe to the Command Post approval queue and translate any
  *  approval filed against this mission's goal into an inline question
@@ -373,6 +459,34 @@ export function stripDriverBoilerplate(text: string): string {
         return 'I need more direction to keep going. What should I focus on?';
     }
     return cleaned;
+}
+
+/**
+ * Detect internal error-chain text that should NOT be shown to the user
+ * as the specialist's "reasoning." Examples seen in the wild post-alpha.5:
+ *
+ *   `Parser could not extract JSON from specialist response. Raw (200 chars):
+ *    Sub-agent error: All providers failed: Provider ollama/glm-5:cloud
+ *    failed: [HTTP 429] Ollama error (429): <!doctype html>...`
+ *
+ * The bridge scrubs these strings and falls through to the friendly
+ * fallback ("I ran into trouble on this one and couldn't finish — handing
+ * back to the team.") rather than dumping a stack trace into the chat.
+ * The raw text is preserved on the message's `meta.failureDetail` so it
+ * stays available via the click-to-expand details panel.
+ */
+export function looksLikeInternalErrorTrace(text: string | null | undefined): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const markers = [
+        /Parser could not extract JSON/i,
+        /Sub-agent error:/i,
+        /All providers failed/i,
+        /HTTP\s+\d{3}.*Ollama error/i,
+        /Circuit breaker OPEN for/i,
+        /<!doctype html>/i,
+        /\bToo Many Requests\b/i,
+    ];
+    return markers.some(re => re.test(text));
 }
 
 /** Sensible default reply set for the common approval kinds. */
