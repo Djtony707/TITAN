@@ -5,6 +5,86 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.0.2 — 2026-05-12 — Soma dedup + autopilot persistence
+
+> Two production bugs caught from a log check on Titan PC after the
+> v6.0.1 ship. Both have visible user impact; both fixed properly with
+> tests + no shortcuts.
+
+### Bug #1 — Soma advisory loop produced 308 duplicate entries
+
+**Symptom.** `~/.titan/users/<userId>/soma-advisories.jsonl` had grown
+to 308 entries, of which only ~10 were unique. Examples: 35× "you're
+active at weekday-17 — set up an auto-briefing?", 30× same for
+weekday-21, 23× same for weekday-18. The `SomaAdvisoryToast` canvas
+widget polls this file and surfaces "new" entries, so duplicates would
+spam the user with the same suggestion every 30 seconds.
+
+**Root cause.** `enqueueAdvisory` in `src/agent/somaInitiative.ts`
+appended every pulse decision unconditionally. Since `decidePulse` is
+stable (same activity pattern → same advisory), a steady-state user
+got the same advisory re-filed every 5 minutes.
+
+**Fix.** `enqueueAdvisory` now:
+- Reads the existing file, parses it tolerantly (corrupt lines
+  dropped, not fatal).
+- Prunes entries older than `ADVISORY_RETENTION_MS` (7 days default).
+- Computes a dedup key (`action + normalize(rationale)` — strips
+  whitespace / capitalization / trailing punctuation).
+- If the same key was filed within `ADVISORY_DEDUP_WINDOW_MS` (12h
+  default), silently skips the write. Pruning still happens.
+- Otherwise atomically rewrites the file with retained entries + the
+  new advisory.
+
+Both windows are env-tunable (`TITAN_SOMA_DEDUP_WINDOW_MS` /
+`TITAN_SOMA_ADVISORY_RETENTION_MS`) for testing or aggressive
+deduping.
+
+**Tests** — 9 new in `tests/unit/soma-advisory-dedup.test.ts`:
+exact-match dedup, normalization (whitespace / case / punctuation),
+different-action coexistence, different-rationale coexistence,
+post-window re-filing, action:'nothing' no-op, retention pruning,
+"prune during dedup-skip" interaction, `readRecentAdvisories`
+integration, corrupt-line tolerance.
+
+### Bug #2 — `/api/autopilot/toggle` didn't persist
+
+**Symptom.** User explicitly disabled autopilot via the API. On the
+next service restart, autopilot was back on (`enabled: true` in
+`~/.titan/titan.json`). The 2am cron then fired against a missing
+ANTHROPIC_API_KEY, and during the day a FB post tagged
+`autopilot:usecase` fired against user intent.
+
+**Root cause.** `src/gateway/routes/agents.ts:router.post('/autopilot/toggle')`
+mutated `cfg.autopilot.enabled` and called
+`initAutopilot(cfg)` / `stopAutopilot()`, but never called
+`saveConfig(cfg)`. The mutation only existed in the in-memory cache.
+On next `loadConfig()` (which happens implicitly on every service
+restart) the on-disk value was reloaded as authoritative.
+
+**Fix.** The toggle handler now calls `saveConfig(cfg)` after
+mutating. Persistence failure is logged at WARN level (the in-memory
+toggle still takes effect for this process, but the user gets a clear
+signal that it won't survive a restart). The response now includes
+`persisted: true` so clients can confirm.
+
+**Tests** — 3 new in `tests/unit/autopilot-toggle-persist.test.ts`:
+round-trip persistence of `enabled: true`, round-trip of
+`enabled: false`, preservation of other autopilot fields when toggling.
+
+### Operational cleanup on Titan PC
+- Re-disabled autopilot in `~/.titan/titan.json` (Tony had toggled it
+  off earlier in the session — re-affirmed his intent).
+- Pruned `~/.titan/users/default-user/soma-advisories.jsonl` of the
+  308 stale entries.
+
+### Numbers
+- **290 test files / 7,083 cases** passed / 1 skipped / 0 failing
+  (was 288/7,070 in v6.0.1).
+- Typecheck clean. Builds clean on Mac + Titan PC.
+
+---
+
 ## v6.0.1 — 2026-05-12 — Provider-agnostic defaults
 
 > **The "model agnostic" patch.** Pre-v6.0.1, `DEFAULT_MODEL` was hardcoded

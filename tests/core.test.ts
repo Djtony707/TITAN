@@ -14,7 +14,7 @@ import { LLMProvider } from '../src/providers/base.js';
 // ─── Constants ──────────────────────────────────────────────────
 describe('Constants', () => {
     it('should have correct version', () => {
-        expect(TITAN_VERSION).toBe('6.0.1');
+        expect(TITAN_VERSION).toBe('6.0.2');
     });
 
     it('should have correct name', () => {
@@ -104,7 +104,7 @@ describe('Helpers', () => {
 describe('Config Schema', () => {
     it('should parse empty config with defaults', () => {
         const result = TitanConfigSchema.parse({});
-        // v6.0.1 — Model is now provider-agnostic: the picker selects
+        // v6.0.2 — Model is now provider-agnostic: the picker selects
         // anthropic/openai/google/ollama based on which API keys are set
         // in the env. In CI / no-key environments it falls back to local
         // Ollama. Assert against the `provider/model` shape rather than a

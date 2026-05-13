@@ -154,20 +154,126 @@ function advisoriesPath(userId: string): string {
     return join(home, 'users', userId, 'soma-advisories.jsonl');
 }
 
-export function enqueueAdvisory(userId: string, decision: PulseDecision): void {
+// v6.0.2 — Advisory dedup + retention windows.
+//
+// Pre-v6.0.2, `enqueueAdvisory` blindly appended every pulse decision.
+// Since `decidePulse` is stable (same activity pattern → same advisory)
+// the file accumulated hundreds of duplicate entries — 308 in production
+// at the time this fix shipped, of which only ~10 were unique. The
+// SomaAdvisoryToast widget polls this file and surfaces "new" entries,
+// so duplicates re-spam the user with the same suggestion every 30s.
+//
+// Fix: before appending, check whether the same (action, rationale) pair
+// was filed within `ADVISORY_DEDUP_WINDOW_MS` (12h default). If yes,
+// silently skip. ALSO prune entries older than `ADVISORY_RETENTION_MS`
+// (7 days) on every write so the file doesn't grow unbounded.
+//
+// Override either window via env (TITAN_SOMA_DEDUP_WINDOW_MS /
+// TITAN_SOMA_ADVISORY_RETENTION_MS) for testing or aggressive tuning.
+
+const DEFAULT_DEDUP_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h
+const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+
+function getDedupWindowMs(): number {
+    const raw = process.env.TITAN_SOMA_DEDUP_WINDOW_MS;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_DEDUP_WINDOW_MS;
+}
+
+function getRetentionMs(): number {
+    const raw = process.env.TITAN_SOMA_ADVISORY_RETENTION_MS;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RETENTION_MS;
+}
+
+interface AdvisoryRecord {
+    at: string;
+    action: string;
+    rationale: string;
+    confidence: number;
+    payload?: Record<string, unknown>;
+}
+
+function parseAdvisoryFile(raw: string): AdvisoryRecord[] {
+    if (!raw.trim()) return [];
+    const out: AdvisoryRecord[] = [];
+    for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const rec = JSON.parse(trimmed) as AdvisoryRecord;
+            if (rec && typeof rec.at === 'string' && typeof rec.action === 'string') out.push(rec);
+        } catch { /* skip corrupt line — never let one bad row break dedup */ }
+    }
+    return out;
+}
+
+/** Normalize rationale so trivial variations (whitespace, capitalization,
+ *  trailing punctuation) collapse to the same dedup key. */
+function dedupKey(action: string, rationale: string): string {
+    const r = rationale.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+\s*$/, '').trim();
+    return `${action}::${r}`;
+}
+
+export function enqueueAdvisory(userId: string, decision: PulseDecision, now: number = Date.now()): void {
     if (decision.action === 'nothing') return;
     const path = advisoriesPath(userId);
     try { mkdirSync(join(path, '..'), { recursive: true }); } catch { /* exists */ }
-    const line = JSON.stringify({
-        at: new Date().toISOString(),
-        action: decision.action,
-        rationale: decision.rationale,
-        confidence: decision.confidence,
-        payload: decision.payload,
-    });
+
+    // Normalize optionals up-front so dedup + persistence work with
+    // concrete values (PulseDecision.rationale/confidence are optional
+    // on the type, but every advisory needs a stable form on disk).
+    const rationale = (decision.rationale ?? '').trim() || decision.action;
+    const confidence = typeof decision.confidence === 'number' && Number.isFinite(decision.confidence) ? decision.confidence : 0.5;
+
+    const dedupWindow = getDedupWindowMs();
+    const retention = getRetentionMs();
+    const incomingKey = dedupKey(decision.action, rationale);
+
     try {
-        const prev = existsSync(path) ? readFileSync(path, 'utf-8') : '';
-        writeFileSync(path, prev + line + '\n');
+        const existing = existsSync(path) ? parseAdvisoryFile(readFileSync(path, 'utf-8')) : [];
+
+        // Prune entries older than retention so the file stays bounded.
+        const retentionCutoff = now - retention;
+        const retained = existing.filter(r => {
+            const t = new Date(r.at).getTime();
+            return Number.isFinite(t) && t >= retentionCutoff;
+        });
+
+        // Dedup: same (action, normalized-rationale) within the dedup window → skip.
+        const dedupCutoff = now - dedupWindow;
+        const isDup = retained.some(r => {
+            const t = new Date(r.at).getTime();
+            if (!Number.isFinite(t) || t < dedupCutoff) return false;
+            return dedupKey(r.action, r.rationale) === incomingKey;
+        });
+        if (isDup) {
+            // Common case during a steady-state behaviour pattern. Don't
+            // spam the agent log either — debug level only.
+            logger.debug(COMPONENT, `Skipping duplicate advisory within ${Math.round(dedupWindow / 3600_000)}h window: ${decision.action} — ${rationale.slice(0, 60)}`);
+            // Rewrite the pruned file IF we actually pruned anything, so
+            // the retention sweep still happens even when we're deduping.
+            if (retained.length !== existing.length) {
+                const body = retained.map(r => JSON.stringify(r)).join('\n') + (retained.length > 0 ? '\n' : '');
+                writeFileSync(path, body);
+            }
+            return;
+        }
+
+        // New advisory — append.
+        const fresh: AdvisoryRecord = {
+            at: new Date(now).toISOString(),
+            action: decision.action,
+            rationale,
+            confidence,
+            payload: decision.payload,
+        };
+        const final = [...retained, fresh];
+        const body = final.map(r => JSON.stringify(r)).join('\n') + '\n';
+        writeFileSync(path, body);
+        if (retained.length !== existing.length) {
+            logger.info(COMPONENT, `Pruned ${existing.length - retained.length} stale advisory entries (>${Math.round(retention / 86400_000)}d old)`);
+        }
     } catch (err) {
         logger.warn(COMPONENT, `Failed to enqueue advisory: ${(err as Error).message}`);
     }
