@@ -5,6 +5,26 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.28 — 2026-05-13 — Collapsible sidebar
+
+> Tony: "Move the spaces selector, its covering the admin button.
+> Or make it a movable button."
+
+The SpacesSidebar is now collapsible. Two states:
+
+- **Expanded (default)** — the 224px sidebar you've had all along,
+  with a new `‹` button next to the existing `+` in the header to
+  collapse it.
+- **Collapsed** — the sidebar shrinks to a 12px stub with a single
+  brass `›` pull-tab floating mid-left. Click the tab to expand
+  again. The canvas / mission content reclaims the full width so
+  nothing the sidebar was covering stays hidden.
+
+State persists across reloads at `localStorage['titan-sidebar-collapsed']`
+(`'1'` collapsed, `'0'` expanded).
+
+---
+
 ## v6.1.0-alpha.27 — 2026-05-13 — Logout button + delete-mission UI
 
 > Tony: "There isn't a logout button. And I want to be able to delete

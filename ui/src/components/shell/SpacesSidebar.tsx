@@ -68,6 +68,22 @@ export function SpacesSidebar() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // v6.1.0-alpha.28 — collapsible sidebar. Tony reported the sidebar
+  // covering an admin button he wanted to reach. Now it can be slid
+  // out of the way with a single click; state persists across reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('titan-sidebar-collapsed') === '1'; }
+    catch { return false; }
+  });
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('titan-sidebar-collapsed', next ? '1' : '0'); }
+      catch { /* ignore quota */ }
+      return next;
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const r = await fetchJSON<{ spaces: PersistedSpace[]; activeSpaceId: string | null }>('/api/spaces');
@@ -147,17 +163,53 @@ export function SpacesSidebar() {
 
   const onMissionRoute = location.pathname.startsWith('/mission');
 
-  return (
-    <aside className="w-56 bg-[#0a0e1a] border-r border-[#1f2937] flex flex-col">
-      <div className="px-3 py-2 border-b border-[#1f2937] flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-[#a1a1aa] font-medium">Spaces</span>
+  // v6.1.0-alpha.28 — when collapsed, render a thin pull-tab instead
+  // of the full sidebar. The tab takes ~10px of horizontal space
+  // (vs. 224px expanded) and floats a small chevron handle so the
+  // user can drag the sidebar back into view. The flex parent
+  // (TitanCanvas's two-column layout) gives the canvas the full
+  // remaining width when this tab is showing.
+  if (collapsed) {
+    return (
+      <aside
+        className="w-3 bg-[#0a0e1a] border-r border-[#1f2937] relative flex-shrink-0"
+        title="Spaces sidebar — collapsed"
+      >
         <button
           type="button"
-          onClick={() => setShowCreate(true)}
-          className="text-[#a1a1aa] hover:text-white text-lg leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-[#1f2937]"
-          title="Create a new Space"
-          aria-label="Create a new Space"
-        >+</button>
+          onClick={toggleCollapsed}
+          className="absolute top-3 left-full -translate-x-1/2 z-50 w-6 h-12 rounded-r-md bg-[#1f2937] border border-[#27272a] border-l-0 text-[#a1a1aa] hover:text-white hover:bg-[#27272a] flex items-center justify-center text-sm shadow-lg"
+          title="Show the spaces sidebar"
+          aria-label="Show sidebar"
+        >
+          ›
+        </button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="w-56 bg-[#0a0e1a] border-r border-[#1f2937] flex flex-col relative flex-shrink-0">
+      <div className="px-3 py-2 border-b border-[#1f2937] flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wider text-[#a1a1aa] font-medium">Spaces</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="text-[#a1a1aa] hover:text-white text-lg leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-[#1f2937]"
+            title="Create a new Space"
+            aria-label="Create a new Space"
+          >+</button>
+          {/* v6.1.0-alpha.28 — collapse toggle. Twin of the pull-tab
+              shown when collapsed. */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="text-[#a1a1aa] hover:text-white text-sm leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-[#1f2937]"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
+          >‹</button>
+        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
