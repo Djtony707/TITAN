@@ -5,6 +5,32 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.30 — 2026-05-13 — Goal placard reflects real status
+
+> Tony: "Says signed off? When it just started working."
+
+The leather goal placard on the wood desk had a hardcoded
+"SIGNED OFF — TITAN" status line. Looked authoritative but lied —
+it said the same thing whether the mission had just started, was
+mid-flight, blocked on a question, or actually complete.
+
+Now reads from `room.status`:
+
+| Status   | Line                          | Dot color |
+|----------|-------------------------------|-----------|
+| forming  | forming the team…             | gold (pulse) |
+| working  | in progress — TITAN           | blue (pulse) |
+| paused   | paused — your call            | tan |
+| blocked  | needs your input              | red (pulse) |
+| done     | complete · signed off         | green |
+| failed   | stopped — see chat            | red |
+
+Pulse animation on the dot for live states (forming, working,
+blocked). Static dot for terminal/paused. "Signed off" is now
+reserved for `done` — where it actually means what it says.
+
+---
+
 ## v6.1.0-alpha.29 — 2026-05-13 — Blocked questions explain themselves
 
 > Tony screenshotted his MLK essay mission: Writer used web_search,
