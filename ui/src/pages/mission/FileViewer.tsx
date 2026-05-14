@@ -265,7 +265,7 @@ function HtmlShadowFrame({ html }: { html: string }) {
     root.innerHTML = `<style>${baseStyle}</style>${styles}<div class="titan-doc-root">${body}</div>`;
   }, [html]);
 
-  return <div ref={hostRef} className="w-full h-full bg-[#fdfaf3] overflow-hidden" />;
+  return <div ref={hostRef} className="w-full h-full bg-[#fdfaf3] overflow-auto" />;
 }
 
 /**

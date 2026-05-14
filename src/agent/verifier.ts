@@ -485,12 +485,26 @@ function llmJudgeEnabled(): boolean {
     return true;
 }
 
+export function shouldSkipLLMJudge(kind: string, confidence: number | undefined): boolean {
+    const SKIP_JUDGE_KINDS = new Set(['code', 'shell']);
+    return SKIP_JUDGE_KINDS.has(kind) && (confidence ?? 0) >= 0.90;
+}
+
 async function llmJudgeVerify(
     input: VerificationInput,
     kindResult: VerificationResult,
 ): Promise<VerificationResult> {
     if (input.kind === 'verify') return kindResult;
     if (!llmJudgeEnabled()) return kindResult;
+
+    // Bug #2 fix: Skip judge for code/shell with high confidence.
+    // The judge reads the specialist's summary text, not the actual files,
+    // so it produces false negatives for artifact-producing tasks that
+    // already passed their per-kind verifier. This saves an LLM call and
+    // prevents spurious failures.
+    if (shouldSkipLLMJudge(input.kind, input.spawnResult.confidence)) {
+        return kindResult;
+    }
 
     try {
         const { spawnSubAgent } = await import('./subAgent.js');
