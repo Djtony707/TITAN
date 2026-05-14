@@ -181,35 +181,76 @@ export function createGoal(options: {
     const goals = loadGoals();
 
     // ── v5.0.0: Multi-layer dedupe + runaway prevention ──────────────
+    //
+    // v6.1.0-alpha.39 — `force: true` now bypasses all three dedupe
+    // layers. The flag is set by `startMissionWork` and other paths
+    // where the user EXPLICITLY initiated the goal (typed a prompt
+    // and hit Begin). In those cases, returning an existing completed
+    // goal silently is wrong — the user's new mission ends up linked
+    // to an old goal with no driver, and the team sits idle.
+    //
+    // Caught on 2026-05-13: Tony submitted "Write a 3 page essay
+    // about MLK…" for the third time, got linked to c558a6fa (a
+    // completed goal from earlier the same evening), and the desk
+    // showed Scout/Writer/Sage all idle at $0.00 forever. createGoal
+    // had logged "recent dedupe: …" and returned the old goal — but
+    // a completed goal has no driver state, so the GoalWatcher never
+    // ran anything for it.
 
-    // 1. Exact title match against ACTIVE goals (existing v4.10 behavior)
-    const existingActive = goals.find(g =>
-        g.status === 'active' && g.title.trim() === options.title.trim()
-    );
-    if (existingActive) {
-        logger.info(COMPONENT, `createGoal dedupe: "${options.title}" already active as ${existingActive.id} — returning existing`);
-        return existingActive;
-    }
+    if (!options.force) {
+        // 1. Exact title match against ACTIVE goals (existing v4.10 behavior)
+        const existingActive = goals.find(g =>
+            g.status === 'active' && g.title.trim() === options.title.trim()
+        );
+        if (existingActive) {
+            logger.info(COMPONENT, `createGoal dedupe: "${options.title}" already active as ${existingActive.id} — returning existing`);
+            return existingActive;
+        }
 
-    // 2. Fuzzy similarity match against ACTIVE goals (catches "Publish content: X" variants)
-    const fuzzyDup = goals.find(g =>
-        g.status === 'active' && titleSimilarity(g.title, options.title) >= SIMILARITY_THRESHOLD
-    );
-    if (fuzzyDup) {
-        logger.info(COMPONENT, `createGoal fuzzy dedupe: "${options.title}" similar to active goal "${fuzzyDup.title}" (${fuzzyDup.id}) — returning existing`);
-        return fuzzyDup;
-    }
+        // 2. Fuzzy similarity match against ACTIVE goals (catches "Publish content: X" variants)
+        const fuzzyDup = goals.find(g =>
+            g.status === 'active' && titleSimilarity(g.title, options.title) >= SIMILARITY_THRESHOLD
+        );
+        if (fuzzyDup) {
+            logger.info(COMPONENT, `createGoal fuzzy dedupe: "${options.title}" similar to active goal "${fuzzyDup.title}" (${fuzzyDup.id}) — returning existing`);
+            return fuzzyDup;
+        }
 
-    // 3. Recent exact match against ANY status (prevents rapid re-creation of completed/failed goals)
-    const cutoffMs = RECENT_DEDUPE_HOURS * 60 * 60 * 1000;
-    const recentDup = goals.find(g => {
-        if (g.title.trim() !== options.title.trim()) return false;
-        const age = Date.now() - new Date(g.createdAt).getTime();
-        return age < cutoffMs;
-    });
-    if (recentDup) {
-        logger.info(COMPONENT, `createGoal recent dedupe: "${options.title}" created ${recentDup.id} within ${RECENT_DEDUPE_HOURS}h — returning existing`);
-        return recentDup;
+        // 3. Recent exact match — only against ACTIVE goals (was: ANY status).
+        //
+        // The "ANY status" version of this check was the proximate
+        // cause of the alpha.39 bug. Rationale for "only active": a
+        // completed/failed/cancelled goal has no live driver. If the
+        // user types the same title again, that's the user explicitly
+        // saying "do this again." Returning a terminal goal is silent
+        // confusion. Keeping the recent-window for ACTIVE goals still
+        // catches the original use case (autonomous proposer firing
+        // the same goal twice within a window).
+        const cutoffMs = RECENT_DEDUPE_HOURS * 60 * 60 * 1000;
+        const recentDup = goals.find(g => {
+            if (g.status !== 'active') return false;
+            if (g.title.trim() !== options.title.trim()) return false;
+            const age = Date.now() - new Date(g.createdAt).getTime();
+            return age < cutoffMs;
+        });
+        if (recentDup) {
+            logger.info(COMPONENT, `createGoal recent dedupe: "${options.title}" already active as ${recentDup.id} within ${RECENT_DEDUPE_HOURS}h — returning existing`);
+            return recentDup;
+        }
+    } else {
+        // Even with force, log when we WOULD have deduped — useful
+        // for auditing whether the user is unintentionally creating
+        // many copies of the same goal.
+        const wouldHaveDeduped = goals.find(g =>
+            g.title.trim() === options.title.trim()
+        );
+        if (wouldHaveDeduped) {
+            logger.info(
+                COMPONENT,
+                `createGoal force: bypassing dedupe — title matches existing goal ${wouldHaveDeduped.id} ` +
+                `(status=${wouldHaveDeduped.status}). Creating fresh goal as caller requested.`,
+            );
+        }
     }
 
     // 4. Hard caps
