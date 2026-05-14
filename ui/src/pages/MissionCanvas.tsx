@@ -512,6 +512,25 @@ export default function MissionCanvas() {
         </div>
       </header>
 
+      {/*
+        v6.1.0-alpha.24 — Living desk layer.
+        Three subtle animations that only fire when at least one agent
+        is working, so a quiet desk stays calm and a busy desk feels
+        alive:
+          1. Tether lines — animated dashed amber threads drawn from
+             each working/editing agent's card to the live document.
+          2. Dust motes — slow-drifting soft particles across the
+             whole desk; only present while work is happening.
+          3. (sticky-note breathing lives inside AgentCard via CSS.)
+        Wrapped in `pointer-events-none` so it never intercepts drag.
+      */}
+      <LivingDeskLayer
+        items={items}
+        room={room}
+        poseOf={poseOf}
+        isHidden={isHidden}
+      />
+
       {/* Desk surface — everything is absolutely positioned on top. */}
       <div className="absolute inset-0 z-10 pointer-events-none">
         {items.map(item => {
@@ -986,6 +1005,13 @@ function AgentCard({ member }: { member: MissionMember }) {
   // Builder's. Tape strip across the top. Slight desaturated paper
   // texture from a linear-gradient.
   const stickyBg = paperFromColor(member.color, blocked);
+  // v6.1.0-alpha.24 — gentle breathing bob on the sticky when the agent
+  // is actively working. Lives on the OUTER card so the desk's parent
+  // Draggable rotation transform composes correctly (CSS transforms on
+  // separate elements stack predictably). 3.4s loop with a slight
+  // per-agent phase offset (driven by the first agentId char's char
+  // code mod 10) so multiple working agents don't bob in unison.
+  const phaseDelay = active ? `${(member.agentId.charCodeAt(0) % 10) * 0.34}s` : '0s';
   return (
     <div
       className="w-[220px] p-3.5 pt-5 text-[#2a2418] relative"
@@ -993,6 +1019,8 @@ function AgentCard({ member }: { member: MissionMember }) {
         background: stickyBg,
         boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 12px 18px rgba(0,0,0,0.42)',
         fontFamily: '"Bradley Hand", "Marker Felt", "Comic Sans MS", cursive',
+        animation: active ? 'stickyBreathe 3.4s ease-in-out infinite' : 'none',
+        animationDelay: phaseDelay,
       }}
     >
       {/* Translucent washi tape across the top */}
@@ -1539,7 +1567,182 @@ const KEYFRAMES = `
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-3px); }
 }
+/* v6.1.0-alpha.24 — gentle bob on working sticky notes. Lives on an
+   INNER wrapper so it composes with the parent Draggable's rotation
+   transform. */
+@keyframes stickyBreathe {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2.5px); }
+}
+/* Tether-line dash flow — animates stroke-dashoffset to give the
+   thread a moving-current feel. The dasharray defines the segment
+   pattern. */
+@keyframes tetherFlow {
+  to { stroke-dashoffset: -20; }
+}
+/* Dust mote drift — slow vertical drift with a gentle horizontal
+   wobble. Two duration variants so motes don't tick in unison. */
+@keyframes mote1 {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0; }
+  10%  { opacity: 0.55; }
+  90%  { opacity: 0.45; }
+  100% { transform: translate(14px, -90vh) scale(1.1); opacity: 0; }
+}
+@keyframes mote2 {
+  0%   { transform: translate(0, 0) scale(0.9); opacity: 0; }
+  10%  { opacity: 0.4; }
+  90%  { opacity: 0.3; }
+  100% { transform: translate(-12px, -90vh) scale(1); opacity: 0; }
+}
 `;
+
+/**
+ * v6.1.0-alpha.24 — Living desk layer.
+ *
+ * Renders BEHIND the draggable item layer (z-5). Two responsibilities:
+ *
+ *   1. **Tether lines** — for each agent currently `working` or
+ *      `editing` (and not paused, not hidden), draw a dashed amber
+ *      thread from the agent's card center to the document's card
+ *      center. The dashes animate flowing toward the document, so
+ *      the user sees energy moving from helper → artifact.
+ *
+ *   2. **Dust motes** — soft white-cream particles drifting upward
+ *      across the whole desk. Only present while at least one agent
+ *      is doing something. The count scales with the team size
+ *      (capped). They animate via CSS keyframes; we render a fixed
+ *      pool so React doesn't churn DOM nodes.
+ *
+ * Pure visual layer. `pointer-events-none` everywhere — nothing here
+ * intercepts drags or clicks. Reads the live pose map so tethers
+ * follow agents around when the user repositions them.
+ */
+function LivingDeskLayer({
+  items, room, poseOf, isHidden,
+}: {
+  items: DeskItem[];
+  room: MissionRoom;
+  poseOf: (item: DeskItem) => ItemPose;
+  isHidden: (itemId: string) => boolean;
+}) {
+  // Document item is the tether endpoint.
+  const docItem = items.find(i => i.kind === 'document');
+  const docPose = docItem && !isHidden(docItem.id) ? poseOf(docItem) : null;
+
+  // Working / editing agents that are visible and not paused.
+  const activeAgents = useMemo(() => {
+    if (!docPose) return [] as Array<{ item: DeskItem; member: MissionMember; pose: ItemPose }>;
+    const out: Array<{ item: DeskItem; member: MissionMember; pose: ItemPose }> = [];
+    for (const item of items) {
+      if (item.kind !== 'agent') continue;
+      if (isHidden(item.id)) continue;
+      const member = room.team.find(t => t.agentId === item.ref);
+      if (!member) continue;
+      if (member.paused) continue;
+      if (member.state !== 'working' && member.state !== 'editing') continue;
+      out.push({ item, member, pose: poseOf(item) });
+    }
+    return out;
+  }, [items, room.team, poseOf, isHidden, docPose]);
+
+  const anyWorking = activeAgents.length > 0;
+
+  // Approximate card dimensions so tether endpoints sit at card centers.
+  // (We don't measure DOM here — the dimensions are stable from the JSX.)
+  const AGENT_W = 220;
+  const AGENT_H = 110;
+  const DOC_W = 460;
+  const DOC_H = 260;
+
+  return (
+    <>
+      {/* Tether SVG layer. Sits behind draggables (z-5). */}
+      {docPose && activeAgents.length > 0 && (
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={{ zIndex: 5 }}
+          aria-hidden
+        >
+          <defs>
+            <radialGradient id="tetherNodeGlow">
+              <stop offset="0%"  stopColor="#ffd86e" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#ffd86e" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          {activeAgents.map(({ item, member, pose }) => {
+            const ax = pose.x + AGENT_W / 2;
+            const ay = pose.y + AGENT_H / 2;
+            const dx = docPose.x + DOC_W / 2;
+            const dy = docPose.y + DOC_H / 2;
+            // Gentle bezier curve so multiple tethers don't visually overlap.
+            // The control point lifts slightly toward the top of the screen.
+            const mx = (ax + dx) / 2;
+            const my = (ay + dy) / 2 - 40;
+            const path = `M ${ax} ${ay} Q ${mx} ${my}, ${dx} ${dy}`;
+            const tetherColor =
+              member.state === 'editing' ? 'rgba(245, 158, 11, 0.55)' :
+              member.state === 'blocked' ? 'rgba(239, 68, 68, 0.7)' :
+              'rgba(255, 216, 110, 0.55)';
+            return (
+              <g key={item.id}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={tetherColor}
+                  strokeWidth={1.4}
+                  strokeDasharray="8 8"
+                  style={{ animation: 'tetherFlow 1.6s linear infinite' }}
+                />
+                {/* Small glow at the agent end of the thread */}
+                <circle cx={ax} cy={ay} r={14} fill="url(#tetherNodeGlow)" />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+
+      {/* Dust motes — only mounted while work is happening so a quiet
+          desk stays calm. */}
+      {anyWorking && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 6 }} aria-hidden>
+          {DUST_MOTES.map((m, i) => (
+            <span
+              key={i}
+              className="absolute rounded-full"
+              style={{
+                left: `${m.left}vw`,
+                bottom: `${-5 + (m.delay % 12)}vh`,
+                width: m.size,
+                height: m.size,
+                background: 'radial-gradient(circle at 35% 30%, rgba(255,250,235,0.85) 0%, rgba(212,196,158,0.4) 60%, rgba(0,0,0,0) 100%)',
+                animation: `${i % 2 === 0 ? 'mote1' : 'mote2'} ${m.duration}s linear infinite`,
+                animationDelay: `${m.delay}s`,
+                filter: 'blur(0.4px)',
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// A fixed pool of dust-mote configs so they render with stable identity
+// across re-renders. Twelve is enough density without distraction.
+const DUST_MOTES: Array<{ left: number; size: number; duration: number; delay: number }> = [
+  { left:  6, size: 3, duration: 28, delay: 0 },
+  { left: 14, size: 2, duration: 36, delay: 3 },
+  { left: 22, size: 4, duration: 30, delay: 8 },
+  { left: 30, size: 2, duration: 40, delay: 1 },
+  { left: 38, size: 3, duration: 26, delay: 5 },
+  { left: 46, size: 3, duration: 34, delay: 11 },
+  { left: 54, size: 2, duration: 38, delay: 2 },
+  { left: 62, size: 4, duration: 32, delay: 7 },
+  { left: 70, size: 3, duration: 30, delay: 9 },
+  { left: 78, size: 2, duration: 36, delay: 4 },
+  { left: 86, size: 3, duration: 28, delay: 12 },
+  { left: 94, size: 4, duration: 34, delay: 6 },
+];
 
 // ── Small helpers (parity with chat view) ────────────────────────────
 

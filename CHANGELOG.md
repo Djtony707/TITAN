@@ -5,6 +5,50 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.24 — 2026-05-13 — Living desk — tethers, breathing stickies, dust motes
+
+> Tony: "The canvas view in mission is too still — it needs more
+> movement when its working please."
+
+A quiet desk should stay calm; a busy desk should feel alive. Three
+layered visual effects added to MissionCanvas, all gated on
+*"at least one agent is currently working or editing"*:
+
+  1. **Tether lines** — animated dashed amber threads drawn from each
+     working/editing agent's sticky note to the live document at the
+     center of the desk. The dashes flow (`stroke-dashoffset` keyframe
+     at 1.6s linear infinite) toward the document, so the user sees
+     energy moving from helper → artifact. A small radial-gradient
+     glow node sits at the agent end of each thread. Editing agents
+     get an amber-warm thread; blocked agents get a red thread (since
+     blocked still tethers to the doc).
+
+  2. **Breathing sticky notes** — every agent whose state is `working`
+     or `editing` gets a gentle 3.4s vertical bob (`stickyBreathe`
+     keyframe, ±2.5px). Per-agent phase offset (derived from the
+     agentId's first char code) so multiple working agents don't bob
+     in unison — feels like real heads-down work, not synchronized
+     swimming. Animation lives on the inner AgentCard wrapper so it
+     composes with the parent Draggable's rotation transform.
+
+  3. **Dust motes** — twelve soft white-cream particles drift slowly
+     upward across the whole desk while work is happening. Two
+     drift variants (`mote1` / `mote2`) with staggered delays so
+     they never tick in unison. They fade in at 10%, fade out near
+     the top, and reset. Only mounted when `anyWorking === true`, so
+     an idle desk has zero motes and zero CPU cost.
+
+All three live in a new `<LivingDeskLayer>` component (new file
+`ui/src/pages/MissionCanvas.tsx` — appended). It reads the live pose
+map so tethers follow agents around when the user drags them. Layer
+z-indexes: SVG tethers at 5, dust motes at 6, draggable item layer
+at 10 — items always sit above the ambient motion.
+
+Pure visual layer. `pointer-events-none` everywhere — nothing here
+intercepts drags or clicks.
+
+---
+
 ## v6.1.0-alpha.23 — 2026-05-13 — "Back to Canvas" link on every Mission page
 
 > Tony: "And a way to get back to canvas from mission chat also.
