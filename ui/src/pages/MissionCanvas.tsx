@@ -93,8 +93,27 @@ function layoutKey(missionId: string): string { return `titan-desk:${missionId}`
 
 interface DeskItem {
   id: string;
-  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'question' | 'cost' | 'clock' | 'cabinet' | 'trash';
+  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'activity' | 'question' | 'cost' | 'clock' | 'cabinet' | 'trash';
   ref?: string;
+}
+
+/**
+ * v6.1.0-alpha.31 — a live activity sticky on the desk. One per recent
+ * tool call across the team. The agent's color tints the note so the
+ * user can see at a glance which helper produced each sticky.
+ */
+interface ActivitySticky {
+  /** Stable id derived from agentId + activity timestamp so React
+   *  reuses the same DOM node across re-renders and the sticky's
+   *  position survives. */
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentColor: string;
+  icon: string;
+  activity: string;
+  detail?: string;
+  at: string;
 }
 
 /**
@@ -262,6 +281,34 @@ export default function MissionCanvas() {
     return Array.from(byRef.values());
   }, [room]);
 
+  /**
+   * v6.1.0-alpha.31 — flatten the team's activity logs into a flat
+   * list of stickies. Newest first. Capped at 12 across the team so
+   * the desk doesn't drown in stickies during a long spawn.
+   */
+  const activityStickies = useMemo<ActivitySticky[]>(() => {
+    if (!room) return [];
+    const out: ActivitySticky[] = [];
+    for (const m of room.team) {
+      const log = m.activityLog ?? [];
+      for (const e of log) {
+        out.push({
+          id: `${m.agentId}:${e.at}:${e.icon}`,
+          agentId: m.agentId,
+          agentName: m.name,
+          agentColor: m.color,
+          icon: e.icon,
+          activity: e.activity,
+          detail: e.detail,
+          at: e.at,
+        });
+      }
+    }
+    // Sort newest first, take top 12.
+    out.sort((a, b) => (a.at < b.at ? 1 : -1));
+    return out.slice(0, 12);
+  }, [room]);
+
   /** Flatten unique fact sources — the yellow sticky notes. */
   const factSources = useMemo<FactSource[]>(() => {
     if (!room) return [];
@@ -296,11 +343,14 @@ export default function MissionCanvas() {
     for (const fact of factSources) {
       out.push({ id: `fact:${fact.ref}`, kind: 'fact', ref: fact.ref });
     }
+    for (const a of activityStickies) {
+      out.push({ id: a.id, kind: 'activity', ref: a.id });
+    }
     if (openQuestion) {
       out.push({ id: `q:${openQuestion.approvalId}`, kind: 'question', ref: openQuestion.approvalId });
     }
     return out;
-  }, [room, fileSources, factSources, openQuestion]);
+  }, [room, fileSources, factSources, activityStickies, openQuestion]);
 
   /** Whether an item is currently hidden (filed or trashed). */
   const isHidden = useCallback((itemId: string) => {
@@ -390,6 +440,20 @@ export default function MissionCanvas() {
         y: vh - 280 + row * 80,
         z: 12 + idx,
         rotation: (idx % 2 === 0 ? -1 : 1) * (4 + idx * 0.7),
+      };
+    }
+    if (item.kind === 'activity') {
+      // v6.1.0-alpha.31 — fan activity stickies along the top edge so
+      // they don't pile up on top of the live document. Newest go
+      // closest to the goal placard; older drift outward.
+      const idx = allItems.filter(i => i.kind === 'activity').findIndex(i => i.id === item.id);
+      const col = idx % 4;
+      const row = Math.floor(idx / 4);
+      return {
+        x: 280 + col * 175 + (row % 2 === 0 ? 0 : 30),
+        y: 90 + row * 110,
+        z: 14 + idx,
+        rotation: (idx % 2 === 0 ? -1 : 1) * (3 + (idx * 0.5)),
       };
     }
     return { x: 100, y: 100, z: 1, rotation: 0 };
@@ -560,7 +624,7 @@ export default function MissionCanvas() {
           // is a plain drag-and-drop tile. Files / facts can be dragged
           // into cabinet or trash.
           const isAgent = item.kind === 'agent';
-          const isFilable = item.kind === 'file' || item.kind === 'fact';
+          const isFilable = item.kind === 'file' || item.kind === 'fact' || item.kind === 'activity';
           return (
             <Draggable
               key={item.id}
@@ -578,6 +642,7 @@ export default function MissionCanvas() {
                 openQuestion={openQuestion}
                 fileSources={fileSources}
                 factSources={factSources}
+                activityStickies={activityStickies}
                 furniture={furniture}
                 onOpenCabinet={toggleCabinet}
                 onOpenFile={handleOpenFile}
@@ -785,13 +850,14 @@ function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: Draggabl
 // ── Item bodies ──────────────────────────────────────────────────────
 
 function ItemBody({
-  item, room, openQuestion, fileSources, factSources, furniture, onOpenCabinet, onOpenFile, onAnswer,
+  item, room, openQuestion, fileSources, factSources, activityStickies, furniture, onOpenCabinet, onOpenFile, onAnswer,
 }: {
   item: DeskItem;
   room: MissionRoom;
   openQuestion: Extract<MissionMessage, { kind: 'question' }> | undefined;
   fileSources: FileSource[];
   factSources: FactSource[];
+  activityStickies: ActivitySticky[];
   furniture: DeskFurniture;
   onOpenCabinet: () => void;
   onOpenFile: (ref: string) => void;
@@ -817,6 +883,11 @@ function ItemBody({
     const f = factSources.find(s => s.ref === item.ref);
     if (!f) return null;
     return <StickyNote fact={f} />;
+  }
+  if (item.kind === 'activity') {
+    const a = activityStickies.find(s => s.id === item.ref);
+    if (!a) return null;
+    return <ActivityStickyNote sticky={a} />;
   }
   if (item.kind === 'question' && openQuestion) {
     return <QuestionTag msg={openQuestion} onAnswer={(text) => onAnswer(openQuestion.approvalId, text)} />;
@@ -1203,6 +1274,77 @@ function StickyNote({ fact }: { fact: FactSource }) {
       <div className="text-[12px] leading-snug">{text}</div>
     </div>
   );
+}
+
+/**
+ * v6.1.0-alpha.31 — live activity sticky. Shows what an agent did
+ * during a tool call (searched, fetched, wrote, etc.). Tinted by the
+ * agent's color so the user can see at a glance which helper
+ * produced it. Smaller than the fact sticky so a desk-full of
+ * activity stickies doesn't crowd the document.
+ */
+function ActivityStickyNote({ sticky }: { sticky: ActivitySticky }) {
+  // Map the agent's color into a soft paper tone — same logic as
+  // paperFromColor but slightly lighter so the stickies don't compete
+  // visually with the agent cards themselves.
+  const bg = activityPaperFromColor(sticky.agentColor);
+  return (
+    <div
+      className="w-[170px] p-2.5 text-[#2a2418] relative"
+      title={`${sticky.agentName} ${sticky.activity}${sticky.detail ? ': ' + sticky.detail : ''} · ${new Date(sticky.at).toLocaleTimeString()}`}
+      style={{
+        background: bg,
+        boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 6px 10px rgba(0,0,0,0.32)',
+        fontFamily: '"Bradley Hand", "Marker Felt", "Comic Sans MS", cursive',
+      }}
+    >
+      {/* Tape across the top */}
+      <div
+        className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-10 h-3 opacity-60 pointer-events-none"
+        style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.25))',
+        }}
+      />
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-base leading-none">{sticky.icon}</span>
+        <span
+          className="text-[10px] uppercase tracking-widest text-[#6b5a3a] truncate"
+          style={{ fontFamily: 'system-ui' }}
+        >
+          {sticky.agentName}
+        </span>
+      </div>
+      <div className="text-[12px] leading-snug">{sticky.activity}</div>
+      {sticky.detail && (
+        <div className="text-[11px] text-[#5a4818] mt-1 leading-snug break-words line-clamp-3">
+          {sticky.detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Paper tone for an activity sticky — softer than the agent card's
+ *  own paper so the visual stack reads as: agent (saturated) → its
+ *  activity stickies (pale). */
+function activityPaperFromColor(hex: string): string {
+  const lower = hex.toLowerCase();
+  if (lower.includes('6366f1') || lower.includes('8b5cf6')) {
+    return 'linear-gradient(160deg, #efeaff 0%, #e0d5ff 100%)';
+  }
+  if (lower.includes('22c55e') || lower.includes('10b981') || lower.includes('4adbb5')) {
+    return 'linear-gradient(160deg, #e7faea 0%, #cef0d4 100%)';
+  }
+  if (lower.includes('f59e0b') || lower.includes('eab308') || lower.includes('ff9a4a')) {
+    return 'linear-gradient(160deg, #fff8c8 0%, #ffefa3 100%)';
+  }
+  if (lower.includes('ef4444') || lower.includes('f97316') || lower.includes('ff5d6c')) {
+    return 'linear-gradient(160deg, #ffe2d4 0%, #ffcfba 100%)';
+  }
+  if (lower.includes('06b6d4') || lower.includes('0ea5e9') || lower.includes('6ea8ff')) {
+    return 'linear-gradient(160deg, #e0f5fa 0%, #c5e9f1 100%)';
+  }
+  return 'linear-gradient(160deg, #fff8c8 0%, #ffefa3 100%)';
 }
 
 function QuestionTag({

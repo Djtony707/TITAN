@@ -5,6 +5,63 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.31 — 2026-05-13 — Live activity stickies on the desk
+
+> Tony: "I liked the way we had it before when the Agents put sticky
+> notes on the desk when working, with their research data so I can
+> see what they are doing in a way."
+
+The desk now shows **live activity stickies** as agents do their work.
+Each significant tool call drops a color-tinted sticky note onto the
+desk near the agent that produced it.
+
+### How it works
+
+- `MissionMember` grew an `activityLog` field — last 8 entries per
+  agent, each `{at, icon, activity, detail}`.
+- The lifecycle bridge's `tool_call` handler now calls a new
+  `buildActivitySticky()` mapper that turns each tool into a sticky
+  with an emoji + short description + the most useful argument:
+
+| Tool                                   | Sticky                                |
+|----------------------------------------|---------------------------------------|
+| web_search, browser_search             | 🔍 searched the web · "MLK 1963…"     |
+| web_fetch, browse_url, web_read        | 🌐 read a page · nytimes.com/…        |
+| write_file, append_file, edit_file     | ✍️ wrote a file · path                |
+| read_file                              | 📖 read a file · path                 |
+| shell, exec, code_exec                 | ⚙️ ran a command · cmd                |
+| memory, graph_remember                 | 💡 memorized · content                |
+| graph_search, rag_search, kb_search    | 🧠 recalled · query                   |
+| generate_image, edit_image             | 🎨 drew an image · prompt             |
+| analyze_image, vision                  | 👁️ looked at an image                  |
+| screenshot                             | 📷 took a screenshot                  |
+| github_*                               | 🐙 checked GitHub …                   |
+| unknown                                | 🛠️ used <name>                         |
+
+Silent housekeeping tools (`system_info`, `current_model`,
+`sessions_list`, `goal_list`, etc.) intentionally return null and
+don't surface — keeps the desk tidy.
+
+- `MissionCanvas` flattens every team member's `activityLog` into an
+  `ActivitySticky[]`, capped at 12 newest across the team, and
+  renders them as draggable sticky notes tinted by the agent's color
+  (Scout → soft blue, Builder → mint, Writer/Analyst → yellow, Sage
+  → coral, etc. — softer than the agent card itself so the visual
+  stack reads "agent (saturated) → its stickies (pale)").
+- New stickies appear at the top edge of the desk and fan
+  outward as more accumulate. Draggable like everything else.
+  Filable into the cabinet, trashable into the wastebasket.
+
+### Why the dedup matters
+
+The lifecycle bridge dedups consecutive identical entries (a tool
+that fires the same call 10× in a row produces ONE sticky, not 10).
+Older entries auto-prune at 8/agent so the mission JSON stays
+bounded. The desk shows the top 12 newest across the whole team —
+older ones fade off as fresh ones land.
+
+---
+
 ## v6.1.0-alpha.30 — 2026-05-13 — Goal placard reflects real status
 
 > Tony: "Says signed off? When it just started working."

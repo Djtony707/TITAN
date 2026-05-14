@@ -24,6 +24,11 @@ export interface MissionMember {
   modelOverride?: string;
   /** v6.1.0-alpha.19 — agent paused by user. */
   paused?: boolean;
+  /** v6.1.0-alpha.31 — rolling activity log (max 8 most recent). Each
+   *  entry is a sticky-note's worth of activity ("searched the web",
+   *  "read a page", "wrote a file"). The desk renders these as live
+   *  sticky notes near the agent that produced them. */
+  activityLog?: Array<{ at: string; icon: string; activity: string; detail?: string }>;
 }
 
 export type MissionMessage =
