@@ -162,34 +162,29 @@ function FileBody({ file }: { file: MissionFile }) {
   }
 
   if (mimeType === 'text/html') {
-    // v6.1.0-alpha.34 — sandbox tuned for "render the document
-    // safely, but let images / fonts / styles load from the open
-    // web." Tony's MLK essay had three real `<img src=https://
-    // upload.wikimedia.org/…">` tags from web_search hits, but they
-    // all rendered as broken-image icons. Root cause: an iframe with
-    // `sandbox=""` is an *opaque origin*. Many image hosts (including
-    // Wikimedia in some configurations) refuse to serve resources to
-    // an opaque-origin requester, or send them with a referrer the
-    // user agent then blocks via referrer-policy.
+    // v6.1.0-alpha.36 — direct inline render via Shadow DOM.
     //
-    // Fix: `sandbox="allow-same-origin"`. This does NOT enable script
-    // execution (that requires the separate `allow-scripts` flag),
-    // so the agent's HTML still can't run JavaScript. What it does
-    // do is give the iframe a real origin (the parent's), so image
-    // requests carry a normal `Origin: http://192.168.1.11:48420`
-    // and a proper `Referer`. Wikimedia and friends accept those.
+    // The iframe-based approach (alpha.16 → alpha.35) kept losing
+    // image loads. Three rounds of sandbox / referrer / CSP tuning
+    // got the markup parsing right but images still came back as
+    // broken-image icons. The browser was treating the `srcdoc`
+    // iframe differently from a real page in ways we couldn't quite
+    // pin down — likely a combination of opaque-origin treatment +
+    // referrer-policy + private-network restrictions.
     //
-    // We additionally inject a permissive referrer-policy meta tag
-    // via wrapHtmlForViewer if the agent didn't already set one.
-    return (
-      <iframe
-        title="HTML preview"
-        srcDoc={wrapHtmlForViewer(content)}
-        sandbox="allow-same-origin"
-        referrerPolicy="no-referrer"
-        className="w-full h-full bg-white border-0"
-      />
-    );
+    // Stop fighting the iframe. Render the HTML directly into a
+    // Shadow DOM hosted by a regular `<div>` on the page. Inside
+    // the shadow root the agent's CSS is style-isolated from TITAN's
+    // UI (so a giant `body { background: red }` in the report
+    // doesn't bleed out), and images load through the *normal* page
+    // context — same way every other image on TITAN UI loads. No
+    // sandbox to fight.
+    //
+    // Safety: `wrapHtmlForViewer` strips `<script>` blocks, inline
+    // event handlers, and `javascript:` URLs before injection. Plus
+    // the user is the one operating their own agent — this isn't an
+    // adversarial-content scenario.
+    return <HtmlShadowFrame html={wrapHtmlForViewer(content)} />;
   }
 
   if (mimeType.startsWith('image/')) {
@@ -227,6 +222,50 @@ function FileBody({ file }: { file: MissionFile }) {
       </div>
     </div>
   );
+}
+
+/**
+ * v6.1.0-alpha.36 — Shadow-DOM HTML host.
+ *
+ * Renders the agent's sanitized HTML inside a Shadow DOM root so the
+ * report's CSS doesn't bleed into TITAN's UI. Images, fonts, and
+ * other resources load through the normal page context — no iframe
+ * sandbox, no opaque-origin gotchas, no private-network referer
+ * restrictions. The same browser context that loads TITAN's own
+ * assets loads the report's images.
+ *
+ * Scripts and inline event handlers are stripped before this point
+ * via `wrapHtmlForViewer`, so the resulting tree is inert.
+ */
+function HtmlShadowFrame({ html }: { html: string }) {
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    // Attach shadow root once; reuse on re-renders.
+    const root: ShadowRoot = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+    // innerHTML on a ShadowRoot accepts a full document but only the
+    // body content effectively renders. We parse out the body if the
+    // agent wrote a full doc, otherwise use the content as-is. The
+    // `<style>` blocks come along for the ride and are scoped to this
+    // shadow root.
+    const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+    const head = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html);
+    const styles = head ? Array.from(head[1].matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi)).map(m => m[0]).join('\n') : '';
+    const body = bodyMatch ? bodyMatch[1] : html;
+    // Top-level container styles so the report renders into a real
+    // page region (not just dumped flush to the modal edges).
+    const baseStyle = `
+      :host { all: initial; display: block; width: 100%; height: 100%; background: #fdfaf3; color: #1a1f2e; overflow: auto; }
+      .titan-doc-root { padding: 24px 32px; font-family: Georgia, "Iowan Old Style", serif; line-height: 1.6; max-width: 900px; margin: 0 auto; }
+      .titan-doc-root img { max-width: 100%; height: auto; }
+      .titan-doc-root a { color: #6a3d12; }
+    `;
+    root.innerHTML = `<style>${baseStyle}</style>${styles}<div class="titan-doc-root">${body}</div>`;
+  }, [html]);
+
+  return <div ref={hostRef} className="w-full h-full bg-[#fdfaf3] overflow-hidden" />;
 }
 
 /**
