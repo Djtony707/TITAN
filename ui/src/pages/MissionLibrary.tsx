@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { listMissions, type MissionRoom } from '@/api/missions';
+import { listMissions, deleteMission, type MissionRoom } from '@/api/missions';
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
@@ -35,6 +35,27 @@ export default function MissionLibrary() {
   const refresh = useCallback(() => {
     setMissions(null);
     listMissions().then(({ missions }) => setMissions(missions)).catch((err) => setError((err as Error).message));
+  }, []);
+
+  /**
+   * v6.1.0-alpha.27 — delete a mission. Confirms first because the
+   * backend DELETE /api/missions/:id renames the JSON to
+   * `.deleted-fresh-start-<timestamp>` (recoverable) but the mission
+   * disappears from the UI immediately. Optimistic update: drop the
+   * row locally before the request comes back so the UI feels
+   * responsive; refetch on failure to recover the truth.
+   */
+  const handleDelete = useCallback(async (missionId: string, goal: string) => {
+    const ok = window.confirm(`Delete this mission?\n\n"${goal.slice(0, 120)}${goal.length > 120 ? '…' : ''}"\n\nThe file is renamed (not destroyed), so the disk record can be recovered manually.`);
+    if (!ok) return;
+    setMissions(prev => (prev ?? []).filter(m => m.id !== missionId));
+    try {
+      await deleteMission(missionId);
+    } catch (err) {
+      setError((err as Error).message);
+      // Refetch on failure so the optimistic delete doesn't leave a ghost.
+      listMissions().then(({ missions }) => setMissions(missions)).catch(() => { /* ignore */ });
+    }
   }, []);
 
   const filtered = useMemo(() => {
@@ -114,7 +135,12 @@ export default function MissionLibrary() {
         {missions !== null && filtered.length > 0 && (
           <ul className="max-w-3xl mx-auto px-5 py-4 flex flex-col gap-2">
             {filtered.map(m => (
-              <MissionRow key={m.id} mission={m} onClick={() => navigate(`/mission/${m.id}`)} />
+              <MissionRow
+                key={m.id}
+                mission={m}
+                onClick={() => navigate(`/mission/${m.id}`)}
+                onDelete={() => handleDelete(m.id, m.goal)}
+              />
             ))}
           </ul>
         )}
@@ -142,17 +168,23 @@ function FilterChip({
   );
 }
 
-function MissionRow({ mission, onClick }: { mission: MissionRoom; onClick: () => void }) {
+function MissionRow({
+  mission, onClick, onDelete,
+}: {
+  mission: MissionRoom;
+  onClick: () => void;
+  onDelete: () => void;
+}) {
   const updated = relativeTime(mission.updatedAt);
   return (
-    <li>
+    <li className="relative group">
       <button
         onClick={onClick}
-        className="w-full text-left bg-bg-secondary/40 hover:bg-bg-secondary/70 border border-border rounded-xl px-4 py-3 transition-colors group"
+        className="w-full text-left bg-bg-secondary/40 hover:bg-bg-secondary/70 border border-border rounded-xl px-4 py-3 transition-colors"
       >
         <div className="flex items-center gap-3 mb-2">
           <StatusBadge status={mission.status} />
-          <div className="text-sm font-medium text-text flex-1 truncate group-hover:text-text">
+          <div className="text-sm font-medium text-text flex-1 truncate">
             {mission.goal || '(no goal)'}
           </div>
           <div className="text-[11px] text-text-muted shrink-0">{updated}</div>
@@ -174,6 +206,17 @@ function MissionRow({ mission, onClick }: { mission: MissionRoom; onClick: () =>
             <span className="ml-auto text-text-muted/60 text-[10px] uppercase tracking-widest">{mission.playId}</span>
           )}
         </div>
+      </button>
+      {/* v6.1.0-alpha.27 — delete affordance per row. Shows on hover.
+          stopPropagation so it doesn't also fire the row's onClick. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-bg-tertiary/60 border border-border text-text-muted hover:text-error hover:bg-error/15 hover:border-error/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-sm"
+        title="Delete this mission"
+        aria-label="Delete mission"
+      >
+        🗑
       </button>
     </li>
   );

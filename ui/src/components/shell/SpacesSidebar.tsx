@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
+import { useAuth } from '@/hooks/useAuth';
 
 interface PersistedSpace {
   id: string;
@@ -59,6 +60,7 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
 export function SpacesSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
   const [spaces, setSpaces] = useState<PersistedSpace[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [presets, setPresets] = useState<StarterPreset[]>([]);
@@ -228,16 +230,34 @@ export function SpacesSidebar() {
         })}
       </nav>
 
-      <div className="px-3 py-2 border-t border-[#1f2937]">
+      <div className="px-3 py-2 border-t border-[#1f2937] flex items-center justify-between gap-2">
         <a
           href="/command-post"
           className="text-[11px] text-[#71717a] hover:text-[#d4d4d8] flex items-center gap-1"
         >
           ⚙ Admin
         </a>
-        {/* v6.1.0-alpha.22 — sponsor link moved to a global mount in
-            AppShell (fixed bottom-center, highest z-index) so it never
-            gets covered by the sidebar. */}
+        {/*
+          v6.1.0-alpha.27 — Logout button. Previously you had to nuke
+          localStorage in devtools to mint a fresh session token after
+          a gateway restart wiped the old one. This button calls
+          useAuth().logout() (removes titan-token, sets
+          isAuthenticated=false) and reloads so the login screen
+          re-mounts cleanly.
+        */}
+        <button
+          type="button"
+          onClick={() => {
+            logout();
+            // Hard reload so the AuthProvider mounts fresh and routes
+            // re-evaluate. Avoids any stale module-scoped state.
+            window.location.assign('/');
+          }}
+          className="text-[11px] text-[#71717a] hover:text-[#ef4444] inline-flex items-center gap-1"
+          title="Sign out — mints a fresh token next login"
+        >
+          ⇥ Log out
+        </button>
       </div>
 
       {showCreate && (

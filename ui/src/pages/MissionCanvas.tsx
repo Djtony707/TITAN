@@ -51,6 +51,7 @@ import {
   postMessage,
   answerQuestion,
   setMissionStatus,
+  deleteMission,
   subscribeToMission,
   type MissionFile,
   type MissionRoom,
@@ -221,6 +222,17 @@ export default function MissionCanvas() {
     const next = room.status === 'paused' ? 'working' : 'paused';
     try { await setMissionStatus(room.id, next); } catch (err) { setError((err as Error).message); }
   }, [room]);
+
+  // v6.1.0-alpha.27 — delete this mission and return to the start page.
+  const onDelete = useCallback(async () => {
+    if (!room) return;
+    const ok = window.confirm(`Delete this mission?\n\n"${room.goal.slice(0, 120)}${room.goal.length > 120 ? '…' : ''}"\n\nThe file is renamed on disk (recoverable manually), but the mission disappears from the UI immediately.`);
+    if (!ok) return;
+    try {
+      await deleteMission(room.id);
+      navigate('/mission');
+    } catch (err) { setError((err as Error).message); }
+  }, [room, navigate]);
 
   // ── Derive desk items from room state ─────────────────────────
   // Hook order rule: gate on `room ?? null` and run unconditionally.
@@ -507,6 +519,14 @@ export default function MissionCanvas() {
             className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#e7d6a8] hover:text-white"
           >
             {room.status === 'paused' ? 'Resume' : 'Pause'}
+          </button>
+          {/* v6.1.0-alpha.27 — delete mission. Wood-tone, red on hover. */}
+          <button
+            onClick={onDelete}
+            className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#d9c08c] hover:text-[#ff9c9c] hover:border-[#ff9c9c]/50 transition-colors"
+            title="Delete this mission"
+          >
+            🗑 Delete
           </button>
           <button onClick={() => setHelpOpen(v => !v)} className="w-8 h-8 rounded-full bg-[#2a1d11]/70 border border-[#8a6a3a]/60 text-[#e7d6a8] hover:text-white font-semibold text-sm flex items-center justify-center" title="What's this?">?</button>
         </div>

@@ -14,6 +14,7 @@ import {
   answerQuestion,
   setMissionStatus,
   subscribeToMission,
+  deleteMission,
   type MissionFile,
   type MissionRoom,
   type MissionMessage,
@@ -139,6 +140,17 @@ export default function MissionChat() {
     catch (err) { setError((err as Error).message); }
   }, [room]);
 
+  // v6.1.0-alpha.27 — delete this mission and return to the start page.
+  const onDelete = useCallback(async () => {
+    if (!room) return;
+    const ok = window.confirm(`Delete this mission?\n\n"${room.goal.slice(0, 120)}${room.goal.length > 120 ? '…' : ''}"\n\nThe file is renamed on disk (recoverable manually), but the mission disappears from the UI immediately.`);
+    if (!ok) return;
+    try {
+      await deleteMission(room.id);
+      navigate('/mission');
+    } catch (err) { setError((err as Error).message); }
+  }, [room, navigate]);
+
   if (loading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-bg text-text-muted text-sm">
@@ -231,6 +243,14 @@ export default function MissionChat() {
             className="px-3 py-1.5 text-xs bg-bg-secondary/60 border border-border rounded-full text-text-secondary hover:text-text"
           >
             {room.status === 'paused' ? 'Resume' : 'Pause'}
+          </button>
+          {/* v6.1.0-alpha.27 — delete mission. Hover reveals the red. */}
+          <button
+            onClick={onDelete}
+            className="px-3 py-1.5 text-xs bg-bg-secondary/60 border border-border rounded-full text-text-muted hover:text-error hover:bg-error/15 hover:border-error/40 transition-colors"
+            title="Delete this mission"
+          >
+            🗑 Delete
           </button>
           <button
             onClick={() => setHelpOpen(v => !v)}
