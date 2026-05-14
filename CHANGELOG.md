@@ -5,6 +5,71 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.25 — 2026-05-13 — Re-attach mission bridges on server boot
+
+> Tony: "Check the logs, it's saying it's working but I don't know
+> what's happening. It's not writing anything in the paper in the
+> center or anything."
+
+### Root cause
+
+The lifecycle bridges (`ensureGlobalBusBridge`,
+`wireApprovalBridge`, `wireGoalLifecycleBridge`) live as in-memory
+subscriptions on the agent-event bus + Command Post approval
+store + titanEvents bus. They're attached only from
+`startMissionWork()` (new missions) and `reopenMissionWithFollowUp()`
+(user-reopened missions).
+
+On a service restart, those module-level subscriptions are gone.
+Missions on disk in `status: working | forming | blocked` whose
+goal driver keeps running (driver state is persisted) silently
+emit events into the void — no listener catches them. From the
+user's POV the desk shows "Writer is working" but no agent_done
+message ever lands, the artifact paper stays blank, the cost
+stays $0.00.
+
+Hit Tony's MLK essay mission `jkywo5op`: spawn started seconds
+after the alpha.24 deploy restarted the service. Writer talked to
+Ollama for 25s, returned needs_info — and the lifecycle dropped
+the event because no bridge was attached for that mission's goalId.
+
+### Fix
+
+New `reattachMissionBridgesOnStartup()` exported from
+`src/agent/missionLifecycle.ts`. Called from `src/gateway/server.ts`
+right after the missions router is mounted. Scans every persisted
+mission, and for each one still in a non-terminal status with a
+linked `goalId`:
+
+  1. Calls `ensureGlobalBusBridge()` (idempotent).
+  2. Wires the per-mission approval + goal-lifecycle bridges and
+     stores the cleanups so `teardownMissionWork()` still works.
+
+Verified on this boot:
+
+```
+[MissionLifecycle] Re-attached lifecycle bridges for mission jkywo5op (goal afc67095, status working)
+[MissionLifecycle] Re-attached lifecycle bridges for mission h4xfdhww (goal 55156874, status working)
+[MissionLifecycle] Re-attached lifecycle bridges for mission fg6lyh3m (goal 971fc363, status working)
+[MissionLifecycle] Re-attached lifecycle bridges for mission 5y5t4smo (goal f2df6b11, status working)
+[MissionLifecycle] Re-attached lifecycle bridges for mission fmm6kfnj (goal d4dd1ff9, status working)
+[MissionLifecycle] Startup re-attach complete — 5/6 mission(s) wired back to the bus
+```
+
+Five in-flight missions that had been silently disconnected are now
+talking to their rooms again.
+
+### Why this is a follow-on the marathon-mode daemon must keep in mind
+
+The HANDOFF-2026-05-13.md marathon-mode daemon design calls for
+"persistent state — drop driver state every N events so a restart
+resumes mid-marathon, not from scratch." The driver state IS
+persisted today, but the bridge wiring wasn't — alpha.25 closes
+that gap so the marathon daemon, when it ships, won't lose its
+event stream every time the gateway restarts.
+
+---
+
 ## v6.1.0-alpha.24 — 2026-05-13 — Living desk — tethers, breathing stickies, dust motes
 
 > Tony: "The canvas view in mission is too still — it needs more

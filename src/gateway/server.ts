@@ -84,7 +84,7 @@ import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
 import { createMissionsRouter } from './routes/missions.js';
-import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange } from '../agent/missionLifecycle.js';
+import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange, reattachMissionBridgesOnStartup } from '../agent/missionLifecycle.js';
 import { createAdminRouter } from './routes/adminRouter.js';
 import { createTeamsRecipesRouter } from './routes/teamsRecipes.js';
 import { createFilesRouter } from './routes/files.js';
@@ -2077,6 +2077,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     onUserMessage: (id, content) => missionHandleUserMessage(id, content),
     onStatusChange: (id, status) => missionHandleStatusChange(id, status),
   }));
+  // v6.1.0-alpha.25 — on every server boot, re-attach the per-mission
+  // event / approval / goal-lifecycle bridges for any mission still
+  // in a non-terminal state. Without this, missions whose goal driver
+  // is mid-spawn at restart time silently lose their connection to the
+  // mission room (the desk shows "Working" but the artifact never
+  // fills in and no agent_done message ever lands). Fire-and-log; an
+  // error here must not block server startup.
+  reattachMissionBridgesOnStartup().catch((err: unknown) => {
+    logger.warn('Gateway', `Mission bridge re-attach on boot failed: ${(err as Error).message}`);
+  });
 
   // ── Sessions API ──────────────────────────────────────────
   app.use('/api/sessions', createSessionsRouter(sessionAborts));

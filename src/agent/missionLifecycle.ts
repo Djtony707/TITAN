@@ -33,6 +33,7 @@ import {
     ensureMember,
     getMission,
     getMissionByGoalId,
+    listMissions,
     setLinkedGoal,
     setLinkedIssue,
     type MissionRoom,
@@ -471,6 +472,84 @@ export function teardownMissionWork(missionId: string): void {
         catch (err) { logger.debug(COMPONENT, `Cleanup threw: ${(err as Error).message}`); }
     }
     lifecycles.delete(missionId);
+}
+
+/**
+ * v6.1.0-alpha.25 — re-attach event/approval/goal-lifecycle bridges
+ * for missions that were already in-flight when the service was
+ * restarted.
+ *
+ * **The bug this fixes (caught 2026-05-13):**
+ *
+ * The lifecycle bridges (`ensureGlobalBusBridge`, `wireApprovalBridge`,
+ * `wireGoalLifecycleBridge`) live as in-memory subscriptions on the
+ * agent-event bus + Command Post approval store + titanEvents bus.
+ * They're attached only from `startMissionWork()` (new missions) and
+ * `reopenMissionWithFollowUp()` (user reopens a stopped mission).
+ *
+ * On a service restart, those module-level subscriptions are gone.
+ * Missions on disk in `status: working | forming | blocked` whose
+ * goal driver keeps running (driver state is persisted; spawns
+ * continue from where they left off) silently emit events into the
+ * void — no listener catches them. From the user's POV the desk
+ * shows "Writer is working" but no agent_done message ever lands,
+ * the artifact paper stays blank, the cost stays $0.00.
+ *
+ * Hit Tony with the MLK essay mission on 2026-05-13 21:17 PT: the
+ * spawn started seconds after the alpha.24 deploy restarted the
+ * service. Writer talked to Ollama for 25s, returned needs_info,
+ * and the lifecycle dropped the event because no bridge was
+ * attached for that mission's goalId.
+ *
+ * **The fix:**
+ *
+ * Call this on server bootstrap. It scans every persisted mission,
+ * and for each one still in a non-terminal status with a linked
+ * `goalId`:
+ *   1. Calls `ensureGlobalBusBridge()` (idempotent — only attaches
+ *      the global agent-event listener once).
+ *   2. Wires the per-mission approval + goal-lifecycle bridges and
+ *      tracks the cleanups in the lifecycles map so
+ *      `teardownMissionWork()` still works.
+ *
+ * Returns the count of missions re-attached for logging.
+ */
+export async function reattachMissionBridgesOnStartup(): Promise<number> {
+    let count = 0;
+    let scanned = 0;
+    try {
+        const missions = listMissions();
+        for (const m of missions) {
+            scanned += 1;
+            // Skip missions that have reached terminal state — their
+            // driver is dormant, no events expected.
+            if (m.status === 'done' || m.status === 'failed') continue;
+            // Skip missions never linked to a goal.
+            if (!m.goalId) continue;
+            // Skip if we've already wired this mission this process
+            // (defensive — shouldn't happen on startup but harmless).
+            if (lifecycles.has(m.id)) continue;
+            try {
+                ensureGlobalBusBridge();
+                const cleanups: Array<() => void> = [];
+                cleanups.push(await wireApprovalBridge(m.id, m.goalId));
+                cleanups.push(await wireGoalLifecycleBridge(m.id, m.goalId));
+                lifecycles.set(m.id, cleanups);
+                count += 1;
+                logger.info(COMPONENT, `Re-attached lifecycle bridges for mission ${m.id} (goal ${m.goalId}, status ${m.status})`);
+            } catch (err) {
+                logger.warn(COMPONENT, `Re-attach failed for mission ${m.id}: ${(err as Error).message}`);
+            }
+        }
+        if (count > 0) {
+            logger.info(COMPONENT, `Startup re-attach complete — ${count}/${scanned} mission(s) wired back to the bus`);
+        } else if (scanned > 0) {
+            logger.debug(COMPONENT, `Startup re-attach — ${scanned} mission(s) scanned, none needed re-wiring`);
+        }
+    } catch (err) {
+        logger.warn(COMPONENT, `Startup re-attach scan threw: ${(err as Error).message}`);
+    }
+    return count;
 }
 
 // ── Issue mirror ───────────────────────────────────────────────────
