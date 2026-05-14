@@ -5,6 +5,56 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.34 — 2026-05-13 — Images load in HTML reports
+
+> Tony screenshotted his MLK essay rendered as HTML: it looked great
+> except the three Wikimedia Commons `<img>` tags came back as
+> broken-image icons. "Images are not showing up in this essay when
+> asked for images and graphs."
+
+### Root cause
+
+The FileViewer's HTML iframe had `sandbox=""` (empty allowlist). That
+makes the iframe an **opaque origin** — every outbound resource
+request has a null/opaque origin and (in many browsers) a missing
+or stripped Referer header. Many image CDNs, including Wikimedia
+Commons in certain configurations, refuse to serve resources to
+opaque-origin requesters. The URLs the agent wrote were real
+(`HTTP 200` when curl'd from the host), but the iframe couldn't
+load them.
+
+### Fix — two layered changes
+
+1. **`sandbox="allow-same-origin"`** on the iframe.
+   This gives the iframe a real origin (the parent's) so requests
+   carry a normal `Origin:` and a proper `Referer:`. Image hosts
+   accept them. It does **not** enable JavaScript — that requires
+   the separate `allow-scripts` flag, which we still don't set. The
+   agent's HTML still can't execute scripts.
+
+2. **`wrapHtmlForViewer()`** — new helper that injects two meta tags
+   into the document head before render:
+   - `<meta name="referrer" content="no-referrer-when-downgrade">`
+     — forces a sensible referrer-policy regardless of what the LLM
+     wrote (most LLMs don't think to set one).
+   - `<base target="_blank">` — any `<a href>` in the document opens
+     in a new browser tab. Without this, links try to navigate the
+     iframe itself, which the user can't really escape from.
+
+   The helper handles three cases:
+   - Full document with `<head>` — splice into the head.
+   - `<html>` but no `<head>` — add a `<head>` and inject.
+   - Bare fragment — wrap with a minimal `<!DOCTYPE html>` shell.
+
+Plus added `referrerPolicy="no-referrer-when-downgrade"` on the
+iframe element itself as a belt-and-suspenders to the meta tag.
+
+Net result: HTML reports the team writes via write_file now render
+with images, fonts, and external resources working — exactly as the
+HTML_REPORT_GUIDANCE prompt described, but actually achievable now.
+
+---
+
 ## v6.1.0-alpha.33 — 2026-05-13 — Trash bin is openable, restore-or-delete-forever
 
 > Tony: "I want to be able to go into the trash bin and either bring

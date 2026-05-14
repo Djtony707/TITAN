@@ -162,13 +162,31 @@ function FileBody({ file }: { file: MissionFile }) {
   }
 
   if (mimeType === 'text/html') {
-    // sandbox=allow-same-origin omitted on purpose — fully isolated.
-    // No allow-scripts. The agent's HTML renders, but cannot run JS.
+    // v6.1.0-alpha.34 — sandbox tuned for "render the document
+    // safely, but let images / fonts / styles load from the open
+    // web." Tony's MLK essay had three real `<img src=https://
+    // upload.wikimedia.org/…">` tags from web_search hits, but they
+    // all rendered as broken-image icons. Root cause: an iframe with
+    // `sandbox=""` is an *opaque origin*. Many image hosts (including
+    // Wikimedia in some configurations) refuse to serve resources to
+    // an opaque-origin requester, or send them with a referrer the
+    // user agent then blocks via referrer-policy.
+    //
+    // Fix: `sandbox="allow-same-origin"`. This does NOT enable script
+    // execution (that requires the separate `allow-scripts` flag),
+    // so the agent's HTML still can't run JavaScript. What it does
+    // do is give the iframe a real origin (the parent's), so image
+    // requests carry a normal `Origin: http://192.168.1.11:48420`
+    // and a proper `Referer`. Wikimedia and friends accept those.
+    //
+    // We additionally inject a permissive referrer-policy meta tag
+    // via wrapHtmlForViewer if the agent didn't already set one.
     return (
       <iframe
         title="HTML preview"
-        srcDoc={content}
-        sandbox=""
+        srcDoc={wrapHtmlForViewer(content)}
+        sandbox="allow-same-origin"
+        referrerPolicy="no-referrer-when-downgrade"
         className="w-full h-full bg-white border-0"
       />
     );
@@ -209,6 +227,48 @@ function FileBody({ file }: { file: MissionFile }) {
       </div>
     </div>
   );
+}
+
+/**
+ * v6.1.0-alpha.34 — make the agent's HTML behave well as iframe content.
+ *
+ * Two adjustments injected into the document head before render:
+ *
+ *   1. **Referrer policy** — `no-referrer-when-downgrade`. Image hosts
+ *      like Wikimedia that gate hotlinking on referrer happily serve
+ *      requests carrying any HTTPS referrer; an opaque-origin /
+ *      missing-referrer load fails silently. We force a policy the
+ *      LLM almost certainly didn't think to set.
+ *
+ *   2. **`<base target="_blank">`** — any `<a href>` in the agent's
+ *      document opens in a new tab when clicked. Without this the
+ *      link tries to navigate the iframe itself (which the user
+ *      can't really see / escape).
+ *
+ * If the agent wrote a full document with a `<head>`, we splice the
+ * tags into the head. If it wrote a fragment (no `<head>`/`<html>`),
+ * we wrap with a minimal shell.
+ */
+function wrapHtmlForViewer(content: string): string {
+    const HEAD_INJECT = [
+        '<meta name="referrer" content="no-referrer-when-downgrade">',
+        '<base target="_blank">',
+    ].join('\n');
+    const trimmed = content.trim();
+    // Has a head tag? Inject right after the opening <head>.
+    const headMatch = /<head\b[^>]*>/i.exec(trimmed);
+    if (headMatch) {
+        const insertAt = headMatch.index + headMatch[0].length;
+        return trimmed.slice(0, insertAt) + '\n' + HEAD_INJECT + trimmed.slice(insertAt);
+    }
+    // Has <html> but no <head>? Add a head right after <html>.
+    const htmlMatch = /<html\b[^>]*>/i.exec(trimmed);
+    if (htmlMatch) {
+        const insertAt = htmlMatch.index + htmlMatch[0].length;
+        return trimmed.slice(0, insertAt) + `\n<head>${HEAD_INJECT}</head>` + trimmed.slice(insertAt);
+    }
+    // Bare fragment — wrap with a minimal shell.
+    return `<!DOCTYPE html><html><head>${HEAD_INJECT}</head><body>${trimmed}</body></html>`;
 }
 
 function fileIcon(mime: string | undefined): string {
