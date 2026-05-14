@@ -5,6 +5,46 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.26 — 2026-05-13 — Token TTL consistency fix
+
+> Tony: "Check logs."
+>
+> Audit found Mission Chat SSE streams returning 401 on every poll
+> even though normal API calls were succeeding.
+
+### Root cause
+
+`isValidToken()` in `src/gateway/server.ts` had a **hardcoded 24-hour
+TTL** for password-mode session tokens, while the loader
+(`loadAuthTokens()`) and the cleanup interval BOTH read the
+configurable `gateway.auth.tokenTtlMs` (default 30 days).
+
+Mismatch: a 25-hour-old token would be persisted on disk (loader
+treats it as valid for 30d) AND retained in memory (cleanup leaves
+it alone), but `isValidToken()` would call it expired AND
+**delete it mid-flight** on the next validation. From the user's
+POV: random 401s after 24h, the auth-tokens.json file shrinking
+unpredictably, SSE streams in particular failing because EventSource
+hits validation more frequently than header-auth calls (which can
+be cached as 304 by the browser).
+
+### Fix
+
+One-line: `isValidToken()` now reads `getAuthTokenTtlMs()` like the
+loader and cleanup do. Comment block at the call-site documents the
+hazard so a future refactor doesn't undo this.
+
+### Operator note
+
+If you were running TITAN before alpha.26 with stale-looking auth
+behavior, your browser's `localStorage['titan-token']` may also be
+stale (issued in a previous session and no longer in the gateway's
+in-memory token map). **Log out and log back in** to mint a fresh
+token. The 401 loop stops as soon as the browser holds a token the
+gateway recognizes.
+
+---
+
 ## v6.1.0-alpha.25 — 2026-05-13 — Re-attach mission bridges on server boot
 
 > Tony: "Check the logs, it's saying it's working but I don't know

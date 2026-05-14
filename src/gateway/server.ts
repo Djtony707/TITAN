@@ -528,7 +528,16 @@ function isValidToken(token: string | undefined, config: ReturnType<typeof loadC
   if (auth.mode === 'password') {
     const entry = authTokens.get(token);
     if (!entry) return false;
-    const ttlMs = 24 * 60 * 60 * 1000; // 24 hours
+    // v6.1.0-alpha.26 — use the configurable TTL (default 30 days). Was
+    // hardcoded to 24h, which silently invalidated tokens that the
+    // *loader* and *cleanup* paths (which BOTH use getAuthTokenTtlMs)
+    // happily kept. Result: a 25h-old token loaded from disk would
+    // validate as expired by this function, the user would see 401s
+    // on every SSE / authenticated endpoint, and `authTokens.delete`
+    // here would drop the still-valid token mid-flight. Caught in the
+    // wild on 2026-05-13 when Tony's Mission Chat SSE stream returned
+    // 401 on every poll while header-auth calls succeeded.
+    const ttlMs = getAuthTokenTtlMs();
     if (Date.now() - entry.createdAt > ttlMs) {
         authTokens.delete(token);
         saveAuthTokens();
