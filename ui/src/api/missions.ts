@@ -151,6 +151,19 @@ export function setMissionStatus(id: string, status: 'paused' | 'working'): Prom
   });
 }
 
+export interface MissionFile {
+  ref: string;
+  content: string;
+  mimeType: string;
+  encoding: 'utf-8' | 'base64';
+  sizeBytes: number;
+  truncated: boolean;
+}
+
+export function getMissionFile(missionId: string, ref: string): Promise<MissionFile> {
+  return json(`/api/missions/${missionId}/file?ref=${encodeURIComponent(ref)}`);
+}
+
 export function listPlays(): Promise<{ plays: PlaySummary[] }> {
   return json('/api/missions/plays');
 }

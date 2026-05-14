@@ -5,6 +5,64 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.16 — 2026-05-13 — Clickable file/report sources + in-app viewer
+
+> Tony: "It came back with a report at /tmp/ai_agents_business_research_2026.md
+> but it didn't create it in an HTML file for me to click on and see."
+
+### What was broken
+
+When an agent's `agent_done` carried sources of type `file` or
+`report`, the chat showed them as inert chips. The user could see
+that *a file existed* but couldn't actually open it. The Scout's
+research report was sitting on disk with no way to read it from
+the chat surface.
+
+### Fix — full file-viewer pipeline
+
+**Backend** — new endpoint `GET /api/missions/:id/file?ref=<path>`
+in `src/gateway/routes/missions.ts`:
+- Owner check (same as every other mission endpoint).
+- **Source-list whitelist**: the `ref` MUST already appear in this
+  mission's message sources as a `file` or `report` type. There's
+  no path-injection surface — the user can only read files an
+  agent in this mission already chose to surface.
+- 5 MB content cap with `truncated: true` flag for oversized files.
+- Mime detection from extension (md/html/json/txt/pdf/png/jpg/etc.).
+- Text-y content returned as utf-8; binary as base64.
+
+**UI** — `ui/src/pages/mission/FileViewer.tsx` (new):
+- Esc-to-close modal, full-screen-ish (max-w-4xl, 90vh).
+- Mime-aware rendering:
+  - **Markdown** → `react-markdown` with serif body styling (Scout's
+    report renders as a real document, not raw `#` characters).
+  - **HTML** → sandboxed `<iframe srcdoc>` (no script execution).
+  - **Images** → `<img>` with object-contain.
+  - **PDF** → `<iframe>` for native browser PDF preview.
+  - **Text-y other** (json, csv, yaml, etc.) → monospaced `<pre>`.
+  - **Binary** → no inline preview, download fallback.
+- Header always shows: filename, full path, mime, size, **Open ↗**,
+  **Download**, ✕ Close.
+
+**Chip → viewer wire-up** in `RichMessageBody.tsx` + `MissionChat.tsx`:
+- File/report chips became `<button>` elements with hover affordance
+  and a `↗` arrow indicator.
+- New `onOpenFile` callback threaded through `MessageRow` →
+  `RichMessageBody`. `MissionChat` keeps the modal state + handles
+  the fetch with loading / error states.
+
+### What still needs work (next ship)
+
+Agents are still writing files to `/tmp` by default — that's why
+the Scout's report landed at `/tmp/ai_agents_business_research_2026.md`.
+The viewer works (the whitelist passes because the file IS in this
+mission's sources), but the *right* place is a mission-scoped
+artifact dir. Followup: redirect `write_file` defaults to
+`~/.titan/missions/{id}/artifacts/` and surface that path back to
+the LLM so it learns to write there.
+
+---
+
 ## v6.1.0-alpha.15 — 2026-05-13 — Typing pill no longer eats text mid-word
 
 > Tony: "Scout I want you do do research and do a writeup on AI Agents and

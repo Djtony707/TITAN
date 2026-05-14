@@ -9,14 +9,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   getMission,
+  getMissionFile,
   postMessage,
   answerQuestion,
   setMissionStatus,
   subscribeToMission,
+  type MissionFile,
   type MissionRoom,
   type MissionMessage,
 } from '@/api/missions';
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
+import { FileViewer } from '@/pages/mission/FileViewer';
 
 export default function MissionChat() {
   const { id } = useParams<{ id: string }>();
@@ -44,6 +47,34 @@ export default function MissionChat() {
     });
   }, []);
   const threadRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * v6.1.0-alpha.16 — file viewer modal state. When the user clicks a
+   * file or report chip in a chat bubble, we fetch the content via
+   * /api/missions/:id/file and open an in-app viewer. The backend
+   * enforces that only files already referenced as sources in this
+   * mission's messages can be served, so there's no path-injection
+   * surface from the UI side.
+   */
+  const [openFile, setOpenFile] = useState<{
+    ref: string;
+    loading: boolean;
+    error?: string;
+    file?: MissionFile;
+  } | null>(null);
+
+  const handleOpenFile = useCallback(async (ref: string) => {
+    if (!id) return;
+    setOpenFile({ ref, loading: true });
+    try {
+      const file = await getMissionFile(id, ref);
+      setOpenFile({ ref, loading: false, file });
+    } catch (err) {
+      setOpenFile({ ref, loading: false, error: (err as Error).message });
+    }
+  }, [id]);
+
+  const closeFile = useCallback(() => setOpenFile(null), []);
 
   // Initial load
   useEffect(() => {
@@ -213,6 +244,7 @@ export default function MissionChat() {
               artifactExpanded={artifactExpanded}
               onToggleArtifact={() => setArtifactExpanded(v => !v)}
               onAnswer={onAnswer}
+              onOpenFile={handleOpenFile}
               expanded={expandedIds.has(msg.id)}
               onToggleExpand={() => toggleExpanded(msg.id)}
             />
@@ -272,6 +304,15 @@ export default function MissionChat() {
         </div>
       </footer>
 
+      {/* v6.1.0-alpha.16 — file viewer modal. Mounted at top-level so the
+          backdrop covers the whole chat surface. */}
+      {openFile && (
+        <FileViewer
+          state={openFile}
+          onClose={closeFile}
+        />
+      )}
+
       {/* Help panel */}
       {helpOpen && (
         <div className="fixed top-16 right-5 w-80 bg-bg-secondary/95 border border-border rounded-xl p-4 backdrop-blur-xl shadow-2xl z-30">
@@ -323,13 +364,14 @@ function TeamStrip({ room }: { room: MissionRoom }) {
 }
 
 function MessageRow({
-  msg, artifact, artifactExpanded, onToggleArtifact, onAnswer, expanded, onToggleExpand,
+  msg, artifact, artifactExpanded, onToggleArtifact, onAnswer, onOpenFile, expanded, onToggleExpand,
 }: {
   msg: MissionMessage;
   artifact: MissionRoom['artifact'];
   artifactExpanded: boolean;
   onToggleArtifact: () => void;
   onAnswer: (approvalId: string, answer: string) => void;
+  onOpenFile: (ref: string, sourceType: 'file' | 'report') => void;
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
@@ -482,7 +524,7 @@ function MessageRow({
           className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-secondary/60 border border-border text-sm leading-relaxed backdrop-blur-sm cursor-pointer hover:bg-bg-secondary/80 transition-colors"
           style={{ borderLeft: `3px solid ${msg.from.color}` }}
         >
-          <RichMessageBody text={msg.content} sources={msg.sources} />
+          <RichMessageBody text={msg.content} sources={msg.sources} onOpenFile={onOpenFile} />
           {msg.actions && msg.actions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {msg.actions.map((a, i) => (
