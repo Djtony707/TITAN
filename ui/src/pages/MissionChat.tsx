@@ -746,18 +746,24 @@ function ActiveTyping({ room }: { room: MissionRoom }) {
   if (typing.length === 0) return null;
   // Show at most one typing indicator so the thread doesn't get noisy.
   const m = typing[typing.length - 1];
+  // v6.1.0-alpha.14 — typing pill used to clip mid-word at ~80 chars with no
+  // way to read the full text. Now: wraps inside a generous max-width, with
+  // the full activity available as a hover tooltip too.
   return (
-    <div className="self-start inline-flex items-center gap-2 px-3 py-2 bg-bg-secondary/60 border border-border rounded-2xl backdrop-blur-sm">
+    <div
+      className="self-start flex items-start gap-2 px-3 py-2 bg-bg-secondary/60 border border-border rounded-2xl backdrop-blur-sm max-w-[640px]"
+      title={m.currentActivity ?? undefined}
+    >
       <div
-        className="w-5 h-5 rounded-md flex items-center justify-center text-bg-deep font-bold text-[10px]"
+        className="w-5 h-5 rounded-md flex items-center justify-center text-bg-deep font-bold text-[10px] shrink-0 mt-0.5"
         style={{ background: `linear-gradient(135deg, ${m.color}, ${shade(m.color, -25)})` }}
       >
         {m.name[0]}
       </div>
-      <span className="text-xs text-text-muted">
+      <span className="text-xs text-text-muted leading-relaxed break-words flex-1 min-w-0">
         <span className="text-text font-semibold">{m.name}</span> {m.currentActivity ?? 'is working'}
       </span>
-      <span className="inline-flex gap-0.5 ml-1">
+      <span className="inline-flex gap-0.5 ml-1 shrink-0 mt-1.5">
         <span className="w-1 h-1 rounded-full bg-text-muted animate-bounce [animation-delay:0ms]" />
         <span className="w-1 h-1 rounded-full bg-text-muted animate-bounce [animation-delay:150ms]" />
         <span className="w-1 h-1 rounded-full bg-text-muted animate-bounce [animation-delay:300ms]" />

@@ -719,9 +719,23 @@ interface CPApprovalLike {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+/**
+ * Bound the activity string that flows into MissionMember.currentActivity.
+ *
+ * v6.1.0-alpha.14 hotfix — was capping at 80 chars, which truncated mid-word
+ * on long user prompts ("Scout I want you to research AI Agents and how they
+ * help bus…") and there was no way to read the full text from the chat
+ * surface. The 80-char cap was a holdover from when this was rendered in a
+ * tiny tooltip; the actual typing pill in the chat has plenty of room.
+ *
+ * Bumped to 240 so even long goal prompts come through readable. The cap
+ * exists only to bound the JSON payload size flowing through the bus and
+ * SSE stream; the UI applies its own visual treatment (wrap + max-width +
+ * title attribute) so even this length renders cleanly.
+ */
 function shortenActivity(s: string | undefined): string | undefined {
     if (!s) return undefined;
     const trimmed = s.trim();
-    if (trimmed.length <= 80) return trimmed;
-    return trimmed.slice(0, 77).trimEnd() + '…';
+    if (trimmed.length <= 240) return trimmed;
+    return trimmed.slice(0, 237).trimEnd() + '…';
 }
