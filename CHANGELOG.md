@@ -5,6 +5,59 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.21 — 2026-05-13 — Sponsor footer on every canvas · promoted to @latest
+
+> Tony: "Find a way to link my sponsor button somewhere at the bottom
+> of each canvas page or canvas inside TITAN. If everyone donated or
+> sponsored me it would really help — I just don't want to seem like
+> I'm begging."
+
+### Sponsor footer
+
+New tasteful, muted sponsor link mounted at the bottom of every
+canvas / chat / desk surface. Visible enough that supporters who
+already want to back the project see it on every page, **muted
+enough that it never reads as begging**.
+
+Design:
+  - Default opacity 0.5; brightens to 0.95 on hover.
+  - Single 11px line, no border, no background.
+  - Small pink heart with a 2.6s pulse so the eye finds it when
+    looking for it.
+  - Opens https://github.com/sponsors/Djtony707 in a new tab.
+  - Three tonal variants — `dark` (default), `wood` (Mission Canvas
+    desk), `light` — so the line blends with each surface.
+
+New file `ui/src/components/SponsorFooter.tsx`. Placed on:
+  - Mission Start (below the templates gallery)
+  - Mission Chat (inside the input footer)
+  - Mission Canvas / Desk (`wood` tone, in the bottom rail)
+  - Mission Library (pinned bottom border)
+  - Spaces sidebar footer (so it sits under the Admin link on every
+    canvas Space page)
+  - Bottom StatusBar (admin pages get it too)
+
+### README
+
+Bumped the v6.1 callout to reference `v6.1.0-alpha.21` and explicit
+install instructions for the `@alpha` dist-tag.
+
+### npm — promoted to @latest
+
+This ship is published to **both** `@alpha` AND **`@latest`** at
+Tony's explicit go-ahead. v6.0.3 (the previous @latest) is replaced.
+Existing installs that auto-update will now move to v6.1.0-alpha.21.
+
+⚠ **Caveat made fully transparent for record:** the marathon-mode
+daemon (72h autonomous collaboration), recurring-mission daemon, and
+mission-scoped artifact dirs are still next-ship work — see
+HANDOFF-2026-05-13.md. The Mission Chat / Desk UX layer is fully
+shipped end-to-end and stable; the per-agent backend consumer
+wiring for `modelOverride` / `paused` / `longRunningMode` lands
+with those daemons.
+
+---
+
 ## v6.1.0-alpha.20 — 2026-05-13 — Local-time clock · drag-out from cabinet · HTML reports · Spaces sidebar entry · first npm publish
 
 > Tony: "Push to npm + GitHub for customers. Make accessible from the

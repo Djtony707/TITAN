@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { listMissions, type MissionRoom } from '@/api/missions';
+import { SponsorFooter } from '@/components/SponsorFooter';
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
 
@@ -110,6 +111,11 @@ export default function MissionLibrary() {
           </ul>
         )}
       </main>
+
+      {/* Quiet sponsor line — pinned to the bottom of the library page. */}
+      <div className="relative z-10 border-t border-border/40 py-3 flex justify-center bg-bg/40">
+        <SponsorFooter />
+      </div>
     </div>
   );
 }

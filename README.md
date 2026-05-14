@@ -46,9 +46,10 @@
 
 ## 🧑‍💼 What's new in v6.1 — Mission Chat + Desk view (current)
 
-> Status: `v6.1.0-alpha.18` (pre-release on Titan PC; not yet on npm or
-> a public release). The v6.0 "Presence" feature set below remains the
-> public-facing pitch — v6.1.0 layers a different surface on top of it.
+> Status: `v6.1.0-alpha.21` — published to npm under the **`@alpha`**
+> dist-tag. Install with `npm i -g titan-agent@alpha`. The v6.0
+> "Presence" feature set below remains the public-facing pitch — v6.1.0
+> layers a different surface on top of it.
 
 A chat-style team-control interface, plus a literal **wood desk** view
 where everything the team produces lands as a physical, draggable object.

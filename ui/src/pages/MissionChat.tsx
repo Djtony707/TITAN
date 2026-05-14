@@ -20,6 +20,7 @@ import {
 } from '@/api/missions';
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 import { FileViewer } from '@/pages/mission/FileViewer';
+import { SponsorFooter } from '@/components/SponsorFooter';
 
 export default function MissionChat() {
   const { id } = useParams<{ id: string }>();
@@ -292,7 +293,7 @@ export default function MissionChat() {
               ↑
             </button>
           </form>
-          <div className="mt-2 flex justify-between text-[11px] text-text-muted">
+          <div className="mt-2 flex justify-between items-center text-[11px] text-text-muted">
             <span>
               {room.team.map(t => (
                 <span key={t.agentId} className="mr-2"><b className="text-text-secondary">@{t.name}</b></span>
@@ -300,6 +301,10 @@ export default function MissionChat() {
               to address one helper
             </span>
             <span>Press <b className="text-text-secondary">↵</b> to send</span>
+          </div>
+          {/* Quiet sponsor line — one per visible surface. */}
+          <div className="mt-1.5 flex justify-center">
+            <SponsorFooter />
           </div>
         </div>
       </footer>

@@ -25,6 +25,7 @@ import {
   type MissionTemplate,
   type ScheduleOption,
 } from '@/data/missionTemplates';
+import { SponsorFooter } from '@/components/SponsorFooter';
 
 const EXAMPLES = [
   "Plan my mom's 70th birthday party",
@@ -163,6 +164,11 @@ export default function MissionStart() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Quiet sponsor line at the very bottom of the page. */}
+      <div className="relative z-10 w-full max-w-5xl px-6 pb-8 flex justify-center">
+        <SponsorFooter />
       </div>
 
       {activeTemplate && (
