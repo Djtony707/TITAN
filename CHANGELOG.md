@@ -5,6 +5,41 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.27 — 2026-05-13 — Logout button + delete-mission UI
+
+> Tony: "There isn't a logout button. And I want to be able to delete
+> missions."
+
+Both were missing UI for backend endpoints that already existed.
+
+### Logout button
+
+Added to the SpacesSidebar footer, next to the ⚙ Admin link. Click
+calls `useAuth().logout()` (removes the `titan-token` from
+localStorage, sets `isAuthenticated=false`) and hard-reloads to `/`
+so the AuthProvider mounts fresh and the login screen takes over
+cleanly. Previously you had to nuke localStorage in devtools to mint
+a fresh session token after a gateway restart wiped the old one —
+which is the exact pain that bit us in alpha.26.
+
+### Delete mission
+
+- **Mission Library**: each row reveals a `🗑` button on hover at
+  the top-right corner. `stopPropagation` so clicking the trash
+  doesn't also open the mission. Confirms with the first 120 chars
+  of the goal so you can't accidentally nuke the wrong one. The
+  row optimistically vanishes; if the backend call fails the list
+  refetches to recover the truth.
+- **Mission Chat top bar**: a `🗑 Delete` pill next to Pause/Resume.
+- **Mission Canvas (Desk) top bar**: same, wood-tone styling that
+  turns rose-red on hover to fit the desk aesthetic.
+
+Backend unchanged — `DELETE /api/missions/:id` already existed and
+renames the JSON file to `.deleted-fresh-start-<timestamp>` so the
+disk record is recoverable manually.
+
+---
+
 ## v6.1.0-alpha.26 — 2026-05-13 — Token TTL consistency fix
 
 > Tony: "Check logs."
