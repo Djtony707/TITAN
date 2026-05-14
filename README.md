@@ -1,6 +1,6 @@
 [//]: # "npm-text-start"
 
-> **TITAN** — The AI that moves in. It builds your tools on the spot, learns who you are, has feelings (yes, really), and gets smarter while you sleep. `npm i -g titan-agent`
+> **TITAN** — The AI that moves in. Start a mission, watch a small team of AI helpers gather around a real wood desk, drag their sticky notes around, and let them work for you 24/7. `npm i -g titan-agent`
 > [//]: # (npm-text-end)
 
 <div align="center">
@@ -44,39 +44,90 @@
 
 ---
 
-## 🧑‍💼 What's new in v6.1 — Mission Chat + Desk view (current)
+## 🪵 NEW in v6.1 — Mission Chat + Desk view
 
-> Status: `v6.1.0-alpha.21` — published to npm under the **`@alpha`**
-> dist-tag. Install with `npm i -g titan-agent@alpha`. The v6.0
-> "Presence" feature set below remains the public-facing pitch — v6.1.0
-> layers a different surface on top of it.
+> Status: `v6.1.0-alpha.23` — live on npm at **both** `@latest` and `@alpha`.
+> Install with `npm i -g titan-agent` (or `npm update -g titan-agent`).
+> The v6.0 "Presence" feature set below still applies — v6.1.0 layers
+> a beautiful new surface on top of it.
 
-A chat-style team-control interface, plus a literal **wood desk** view
+Every TITAN canvas page now carries a **🪵 Mission Chat** launcher in
+the header (with a small **NEW** badge). Click it and you walk into a
+chat-style team-control surface — plus a literal **wood desk** view
 where everything the team produces lands as a physical, draggable object.
 
-- 💬 **Mission Chat** — start a goal, TITAN forms a small team of AI
-  helpers, and they talk in a thread with you as they work. Click any
-  bubble to see full timing / cost / model details.
-- 🪵 **Mission Canvas (Desk)** — same data, beautiful spatial layout.
-  Wood-grain surface; a leather mission placard; an open paper sheet
-  with the running draft on real lined paper; agents as color-tinted
-  sticky notes; question tags with brass pins; a working desk clock
-  with big LCD numerals counting mission elapsed time and live
-  working / needs-you / on-team counts.
-- 🗃️ **Mission Library** — sessions browser for every past mission with
-  status filters and search.
-- 📜 **Always-on templates** — six starter recipes (daily research
-  digest, inbox triage, overnight code review, lead scout, market
-  watch, daily creative prompt). Click → 3-step walkthrough
-  (Customize → Schedule → Launch) → recurring AI agents that run
-  while you sleep.
-- 📄 **File viewer** — every file an agent writes appears as a clickable
-  paper on the desk. Double-click opens it in an in-app viewer
-  (markdown rendered, HTML sandboxed, images inline, PDF native).
-- 🛡️ **Self-referential autonomy gate** — widened in alpha.14 after
-  catching a runaway "Bootstrap test infrastructure" loop. The
-  autonomous proposer can't spawn test-infra / diagnostic /
-  self-improve goals on its own anymore.
+### What you get
+
+- 💬 **Mission Chat** — type one goal. TITAN matches a starter Play,
+  forms a small team of AI helpers (Scout the researcher, Builder the
+  engineer, Writer, Analyst, Sage the reviewer), and they talk in a
+  thread with you as they work. Click any bubble for full timing /
+  cost / model / source details.
+
+- 🪵 **Mission Canvas — "Wood Desk" view** — same data, spatial layout.
+  - A warm caramel wood surface with grain, two knots, and window light
+    falling from the upper-left. CSS-only — no image assets.
+  - A leather **goal placard** carrying your mission text.
+  - A **paper sheet** in the center, real lined ledger paper, that fills
+    in as the team writes.
+  - **Agents as color-tinted sticky notes** — Scout's note is lavender,
+    Builder's is mint, Writer/Analyst yellow, blocked agents shift red.
+    Each has washi tape across the top and a cursive activity line.
+  - A **brass-rimmed desk clock** in the corner: big LCD numerals
+    showing your **local system time** (auto-detects timezone — `TITAN ·
+    PDT`), with a smaller "Mission · 00:04:14" elapsed line and live
+    counters for *working / needs you / on team*.
+  - **Files as paper documents** — every file an agent writes appears
+    on the desk. Double-click any file to open it in the in-app
+    **FileViewer** (markdown rendered with `react-markdown`, HTML in a
+    script-blocked sandbox iframe, images inline, PDFs native).
+    Reports default to **HTML with inline SVG charts** so they come
+    back looking like real documents, not flat text.
+  - **Sticky notes for AI-written facts** — every "fact" an agent
+    memorizes becomes a yellow Post-it on the desk.
+  - A **filing cabinet** (walnut, two drawers, brass label plates).
+    Drag any file or sticky onto it to file it; click to open the
+    drawer overlay; **drag rows out** to pull a file back to the desk.
+  - A **wicker wastebasket** with wadded-paper balls peeking over the
+    rim. Drop notes you don't want; pull them back from the cabinet
+    if you change your mind.
+  - **Drag anything anywhere.** Positions persist per-mission in
+    localStorage. **Tidy up** button resets the layout.
+
+- 👤 **Click any agent → AgentMenu** (six tiles):
+  - **👋 Nudge** — sends them a quick check-in
+  - **💬 Talk** — DM them with @-prefix routing
+  - **🧭 Steer** — redirect mid-task with quick presets
+  - **🧠 Model** — pick a specific model from `/api/models`
+  - **⏸ Pause / Resume** — skip them on the next round
+  - **🏃 Marathon mode** — mission-wide 72h autonomous toggle
+    *(the long-running daemon that consumes this flag is on the v6.1.0
+    roadmap — see [HANDOFF-2026-05-13.md](./HANDOFF-2026-05-13.md))*
+
+- 📜 **Always-on templates** on the Mission Start screen — six starter
+  recipes for recurring autonomous work: 📰 Daily research digest ·
+  📬 Inbox triage · 🔍 Overnight code review · 🎯 Lead scout · 📈
+  Market watch · 🎨 Daily creative prompt. Click any → **3-step
+  walkthrough** (Customize → Schedule → Launch) → mission fires
+  immediately.
+
+- 🗃️ **Mission Library** — sessions browser with status filters
+  (in progress / done / stopped) and full-text search across past
+  missions. Reopen any one to continue the thread.
+
+- 🛡️ **Hardened against runaway loops** — the alpha.14
+  self-referential autonomy gate catches the entire test-infra /
+  diagnostic / self-improve category. The autonomous proposer can't
+  spawn that class of goal on its own anymore.
+
+### Try it in 30 seconds
+
+```bash
+npm i -g titan-agent          # or: npm i -g titan-agent@alpha
+titan gateway                 # opens http://localhost:48420
+# → Click "Missions" in the sidebar, or the 🪵 Mission Chat button
+#   in the canvas header. Type a goal. Watch the team gather.
+```
 
 ---
 
