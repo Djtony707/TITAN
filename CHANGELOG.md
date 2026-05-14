@@ -5,6 +5,25 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.23 — 2026-05-13 — "Back to Canvas" link on every Mission page
+
+> Tony: "And a way to get back to canvas from mission chat also.
+> Then we are done."
+
+Round-trip closed. Each of the four Mission pages now carries a
+small **🌌 Canvas** pill in the top bar that routes to `/space/home`
+(the main canvas spaces page):
+
+- MissionStart  — sits next to "Past missions →"
+- MissionLibrary — sits next to the back arrow
+- MissionChat  — sits next to "Library"
+- MissionCanvas — sits next to "Library" on the wood desk
+
+The launcher on the canvas side (alpha.22's "Mission Chat" button
+with the NEW badge) takes you in; the Canvas pill takes you back.
+
+---
+
 ## v6.1.0-alpha.22 — 2026-05-13 — Sponsor pinned bottom-center · Mission Chat launcher with NEW badge
 
 > Tony: "The donation button is hidden under the spaces selector. Put
