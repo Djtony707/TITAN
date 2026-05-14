@@ -186,7 +186,7 @@ function FileBody({ file }: { file: MissionFile }) {
         title="HTML preview"
         srcDoc={wrapHtmlForViewer(content)}
         sandbox="allow-same-origin"
-        referrerPolicy="no-referrer-when-downgrade"
+        referrerPolicy="no-referrer"
         className="w-full h-full bg-white border-0"
       />
     );
@@ -230,44 +230,69 @@ function FileBody({ file }: { file: MissionFile }) {
 }
 
 /**
- * v6.1.0-alpha.34 — make the agent's HTML behave well as iframe content.
+ * v6.1.0-alpha.34 (intro) / v6.1.0-alpha.35 (harden) — prepare the
+ * agent's HTML for sandboxed-iframe rendering.
  *
- * Two adjustments injected into the document head before render:
+ * Two passes:
  *
- *   1. **Referrer policy** — `no-referrer-when-downgrade`. Image hosts
- *      like Wikimedia that gate hotlinking on referrer happily serve
- *      requests carrying any HTTPS referrer; an opaque-origin /
- *      missing-referrer load fails silently. We force a policy the
- *      LLM almost certainly didn't think to set.
+ *   **Strip dangerous / unhelpful content**:
+ *      - `<script>...</script>` blocks (the sandbox blocks execution,
+ *        but a `<script src=...>` at the top of head can still confuse
+ *        Chrome's parser in some sandbox modes — and the LLM
+ *        guidance says "no scripts" anyway).
+ *      - Inline event handlers (`onload=`, `onerror=`, `onclick=`,
+ *        etc.) — same XSS-tier risk, no useful purpose in our
+ *        document viewer.
+ *      - `javascript:` URLs in href/src.
  *
- *   2. **`<base target="_blank">`** — any `<a href>` in the agent's
- *      document opens in a new tab when clicked. Without this the
- *      link tries to navigate the iframe itself (which the user
- *      can't really see / escape).
+ *   **Inject into the document head**:
+ *      - `<meta name="referrer" content="no-referrer">` — the most
+ *        permissive policy for image hotlinking. Image hosts that
+ *        block by referrer get NO referrer info at all, and treat
+ *        the request as anonymous-public, which they almost always
+ *        allow. Tony's alpha.34 used `no-referrer-when-downgrade`
+ *        which still leaked the TITAN local-network IP; some hosts
+ *        block 10.x/192.168.x/127.x referrers specifically.
+ *      - `<base target="_blank">` — `<a>` links open in a new tab.
+ *      - `<meta http-equiv="Content-Security-Policy" content="…">`
+ *        — explicit allowlist that says "yes, images from any
+ *        HTTPS origin / data URIs / blobs are fine; no, no inline
+ *        scripts". Cuts through whatever default the browser applies.
  *
  * If the agent wrote a full document with a `<head>`, we splice the
- * tags into the head. If it wrote a fragment (no `<head>`/`<html>`),
- * we wrap with a minimal shell.
+ * tags into the head. If it wrote a fragment, we wrap with a
+ * minimal shell.
  */
 function wrapHtmlForViewer(content: string): string {
+    // Strip <script> blocks (including their content)
+    let cleaned = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+    // Strip self-closing / unclosed script tags too
+    cleaned = cleaned.replace(/<script\b[^>]*\/?>/gi, '');
+    // Strip inline event handlers (onclick=, onload=, onerror=, etc.)
+    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*[^"'\s>]+/gi, '');
+    // Neuter javascript: URLs
+    cleaned = cleaned.replace(/(href|src|action)\s*=\s*"javascript:[^"]*"/gi, '$1="#"');
+    cleaned = cleaned.replace(/(href|src|action)\s*=\s*'javascript:[^']*'/gi, "$1='#'");
+
     const HEAD_INJECT = [
-        '<meta name="referrer" content="no-referrer-when-downgrade">',
+        '<meta name="referrer" content="no-referrer">',
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\' data: blob:; img-src * data: blob:; font-src * data:; style-src \'self\' \'unsafe-inline\' *; script-src \'none\'; frame-src \'none\'; object-src \'none\';">',
         '<base target="_blank">',
     ].join('\n');
-    const trimmed = content.trim();
-    // Has a head tag? Inject right after the opening <head>.
+
+    const trimmed = cleaned.trim();
     const headMatch = /<head\b[^>]*>/i.exec(trimmed);
     if (headMatch) {
         const insertAt = headMatch.index + headMatch[0].length;
         return trimmed.slice(0, insertAt) + '\n' + HEAD_INJECT + trimmed.slice(insertAt);
     }
-    // Has <html> but no <head>? Add a head right after <html>.
     const htmlMatch = /<html\b[^>]*>/i.exec(trimmed);
     if (htmlMatch) {
         const insertAt = htmlMatch.index + htmlMatch[0].length;
         return trimmed.slice(0, insertAt) + `\n<head>${HEAD_INJECT}</head>` + trimmed.slice(insertAt);
     }
-    // Bare fragment — wrap with a minimal shell.
     return `<!DOCTYPE html><html><head>${HEAD_INJECT}</head><body>${trimmed}</body></html>`;
 }
 
