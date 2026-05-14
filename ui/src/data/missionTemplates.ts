@@ -78,7 +78,7 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
     icon: '📰',
     title: 'Daily research digest',
     blurb: 'Scout reads the web on your topic and writes a fresh briefing every morning.',
-    goalTemplate: 'Research the latest developments on "{{topic}}" and write a clear briefing with 5 highlights, sources cited.',
+    goalTemplate: 'Research the latest developments on "{{topic}}" and produce a clear HTML briefing (write_file with a .html extension) with 5 highlights, an inline SVG chart of the most important trend, and clickable source links throughout.',
     suggestedPlayId: 'research',
     fields: [
       { key: 'topic', label: 'Your topic', hint: 'What you want a fresh briefing on each morning', defaultValue: 'AI agents in business', placeholder: 'AI agents in business' },
@@ -133,7 +133,7 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
     icon: '📈',
     title: 'Market watch',
     blurb: 'Analyst tracks tickers + crypto and writes a brief if anything moves >3%.',
-    goalTemplate: 'Check the latest price + 24h move for: {{tickers}}. If any moved more than 3% (up or down) since the last run, write a brief explaining why with 2 source links.',
+    goalTemplate: 'Check the latest price + 24h move for: {{tickers}}. If any moved more than 3% (up or down) since the last run, produce an HTML brief (write_file with a .html extension) with a sparkline SVG per ticker and a one-paragraph explanation with 2 source links.',
     suggestedPlayId: 'analyst',
     fields: [
       { key: 'tickers', label: 'Tickers / coins', hint: 'Comma-separated. Stocks or crypto.', defaultValue: 'BTC, ETH, NVDA, AAPL', placeholder: 'TSLA, SPY, BTC' },
