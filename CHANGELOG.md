@@ -5,6 +5,71 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.17 — 2026-05-13 — Mission Canvas is now a true wood desk
+
+> Tony: "Make this a true canvas where everything is movable and
+> beautiful, like on a beautiful wood desk. And have whatever it does
+> be displayed on the desk top."
+
+### The shift
+
+Mission Canvas pre-alpha.17 was a starfield-themed page with **fixed**
+agent pods anchored around a center artifact. It looked spatial but
+wasn't really a canvas — you couldn't move anything, and the things
+the team produced (files, facts) never appeared on it.
+
+alpha.17 replaces it with a literal wood desk where everything the
+team makes lands as a physical object you can drag around.
+
+### What's on the desk
+
+- **Goal placard** — leather-look card with the mission text. Top-center.
+- **Live document** — central paper sheet showing the running artifact.
+- **Agent cards** — one per team member. Index-card stock with name,
+  role, current activity, state heartbeat. Edges glow when working,
+  red pulse when blocked.
+- **File / report papers** — one per `file`/`report` source any agent
+  emitted. Double-click → opens the FileViewer modal from alpha.16
+  (markdown renders, html sandboxed, images inline, etc.).
+- **Sticky notes** — one per `fact` source. Yellow Post-it with
+  cursive font. Capped at 8 so the desk doesn't bury.
+- **Question tag** — pink card with brass pin, quick replies, custom
+  typed answer. Shows when an agent is blocked on a decision.
+- **Cost inkwell** — circular brass-rimmed badge showing $ + tokens.
+
+### Drag mechanics
+
+Every object is draggable via raw mouse events (no library). Each
+card has a pose `{x, y, z, rotation}`. Mousedown anywhere on the card
+body (except buttons / inputs marked `data-no-drag`) starts a drag.
+Mousemove updates the visual pose smoothly; mouseup commits to
+localStorage at key `titan-desk:{missionId}`. Click-to-front bumps
+the dragged item's z above all others.
+
+**Tidy up** button in the top bar wipes the saved layout — every
+item snaps back to its canonical position. Useful when things slide
+off-screen.
+
+### Wood surface
+
+CSS-only — no image assets. Layered:
+- Two radial-gradient "knots" in opposite corners.
+- Primary grain: `repeating-linear-gradient` at 92° with alternating
+  warm/dark stops.
+- Cross-grain texture for variation.
+- Base linear-gradient from `#6e4724` → `#482a13`.
+- Soft window-light glow from upper-left.
+- Subtle vignette closing the edges.
+
+### Same data, same hooks
+
+Bound to the same `MissionRoom` + SSE stream as MissionChat.
+Hook-order rule (the alpha.12 React error #310 fix) preserved —
+every `useMemo` / `useCallback` runs before the loading / error
+early returns.
+
+---
+
 ## v6.1.0-alpha.16 — 2026-05-13 — Clickable file/report sources + in-app viewer
 
 > Tony: "It came back with a report at /tmp/ai_agents_business_research_2026.md
