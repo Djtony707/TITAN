@@ -50,6 +50,28 @@ export interface Specialist {
     reportsTo: string;
 }
 
+/**
+ * v6.1.0-alpha.20 — shared guidance appended to specialists that
+ * produce documents/reports. Bias toward self-contained HTML so the
+ * FileViewer (alpha.16) can render them visually — graphs as inline
+ * SVG, styled tables, hero stats — rather than as flat markdown text.
+ *
+ * The HTML guidance is non-prescriptive: short replies stay short and
+ * inline. The bias kicks in only when the output is genuinely a
+ * multi-section document.
+ */
+const HTML_REPORT_GUIDANCE = [
+    '',
+    '── OUTPUT FORMAT FOR DOCUMENTS ──',
+    'When the user asks for a *document*, *report*, *briefing*, *summary writeup*, or any deliverable with multiple sections / tables / charts:',
+    '  • Prefer **self-contained HTML** with inline CSS (one <style> block in <head>) over markdown. Render through the chat\'s FileViewer for a clean visual result.',
+    '  • Save with write_file using a `.html` extension (e.g. `research-2026-05-13.html`) under a mission-scoped path when one is known.',
+    '  • Use simple HTML: <h1>/<h2>/<h3>, <p>, <ul>/<ol>, <table>, <blockquote>, <a>. Modest CSS — serif body font, generous line-height, a single accent color. No external assets, no <script>.',
+    '  • Charts: use inline <svg> (bars, sparklines, scatter) — no external JS libraries. A 320×180 SVG with hand-built rects beats a missing chart.',
+    '  • For short one-paragraph answers, keep it inline in the chat. HTML is for things the user will want to view as a document.',
+    '  • Always still cite sources as clickable <a href="..."> links inline.',
+].join('\n');
+
 export const SPECIALISTS: Specialist[] = [
     {
         id: 'scout',
@@ -70,7 +92,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "This page looks authoritative" → check the date. On fast-moving topics anything >12 months old needs a fresh check.',
             '• "Three sources agree" → confirm they\'re not all citing each other or a single original.',
             'Red flag: returning facts without an actual web_fetch or web_search call. That is guessing dressed as research.',
-        ].join('\n'),
+        ].join('\n') + HTML_REPORT_GUIDANCE,
         templateMatches: ['explorer', 'browser', 'researcher', 'scout'],
         reportsTo: 'default',
     },
@@ -120,7 +142,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "Short is good" → short to whom? Match the reader\'s expected length, not your default brevity.',
             '• "I added a hook" → would you scroll past it? Read the first line cold and answer honestly.',
             'Red flag: handing back a draft without re-reading it once as if you were the recipient.',
-        ].join('\n'),
+        ].join('\n') + HTML_REPORT_GUIDANCE,
         templateMatches: ['writer', 'content', 'social'],
         reportsTo: 'default',
     },
@@ -144,7 +166,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "I aggregated the data" → over what window? Were the partitions consistent across both sides?',
             '• "It\'s statistically significant" → significant at what p-value, against what null hypothesis?',
             'Red flag: reporting a comparison without stating the baseline, or a percentage without the absolute value behind it.',
-        ].join('\n'),
+        ].join('\n') + HTML_REPORT_GUIDANCE,
         templateMatches: ['analyst', 'deliberator', 'reasoner'],
         reportsTo: 'default',
     },

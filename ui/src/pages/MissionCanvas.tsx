@@ -407,6 +407,25 @@ export default function MissionCanvas() {
     persist({});
   }, [id, persist]);
 
+  /** v6.1.0-alpha.20 — restore a filed item AND drop it at a specific
+   *  screen position (used for the drag-out gesture from the cabinet
+   *  drawer). Persists both the furniture-removal AND the new pose so
+   *  the item ends up where the user released the mouse. Declared here
+   *  after initialPose / setPose so the closure captures them. */
+  const restoreItemAt = useCallback((itemId: string, x: number, y: number) => {
+    persistFurniture({
+      ...furniture,
+      cabinet: furniture.cabinet.filter(c => c !== itemId),
+      trash: furniture.trash.filter(t => t !== itemId),
+    });
+    const maxZ = Math.max(0, ...items.map(it => (layout[it.id] ?? initialPose(it, items)).z));
+    const existing = layout[itemId];
+    const rotation = existing?.rotation ?? ((Math.random() * 6) - 3);
+    // Offset (-80,-20) matches the cabinet ghost preview offset so the
+    // dropped pose visually lines up with where the ghost was.
+    setPose(itemId, { x: x - 80, y: y - 20, z: maxZ + 1, rotation });
+  }, [furniture, persistFurniture, items, layout, initialPose, setPose]);
+
   // ── Early-return guards (after all hooks) ─────────────────────
 
   if (loading) {
@@ -529,6 +548,7 @@ export default function MissionCanvas() {
           fileSources={fileSources}
           factSources={factSources}
           onRestore={restoreItem}
+          onRestoreAt={restoreItemAt}
           onOpenFile={handleOpenFile}
           onClose={toggleCabinet}
         />
@@ -831,33 +851,50 @@ function CostInkwell({ room }: { room: MissionRoom }) {
 }
 
 /**
- * Desk clock — big segmented-LCD numerals, a brass-rimmed wooden bezel,
- * and a small line under the time showing the mission heartbeat. The
- * clock ties to the agents in two ways:
+ * Desk clock — big segmented-LCD numerals showing the user's local
+ * wall-clock time, with the mission's elapsed time as a secondary line
+ * and live agent counters below.
  *
- *   1. **Mission elapsed time** (`HH:MM:SS`) — counts up while at least
- *      one agent is working, freezes on pause/done/failed. This is the
- *      "we've been at it for 4 minutes" hint.
- *   2. **Live agent counters** under the time: `3 working · 1 needs you`.
- *      Each number is bigger than its label so the dial-glance reading
- *      stays fast.
- *
- * Updates every second via a local interval so the seconds tick. The
- * interval cleans itself up on unmount.
+ * v6.1.0-alpha.20 — was showing mission elapsed time as the headline.
+ * Tony asked for "the clock to run off the system time zone" — so the
+ * big numerals are now the local time (formatted via `toLocaleTimeString`
+ * so it picks up the browser's locale + timezone automatically), and
+ * the elapsed-time hint moved to a smaller line underneath. Tick every
+ * second.
  */
 function DeskClock({ room }: { room: MissionRoom }) {
-  const [now, setNow] = useState(Date.now());
-  // Tick the clock once per second so the seconds field updates.
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Mission start → first message timestamp (or createdAt fallback).
+  // Local wall-clock parts. Use 24h so the digits stay aligned and the
+  // segmented-LCD aesthetic reads cleanly. The locale's tz name is
+  // shown below in the brand-engraving line.
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  // Resolve the system tz once (memoized — doesn't change while the
+  // clock is on screen) into a short label like "PDT".
+  const tzShort = useMemo(() => {
+    try {
+      const m = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+        .formatToParts(new Date())
+        .find(p => p.type === 'timeZoneName');
+      return m?.value ?? '';
+    } catch { return ''; }
+  }, []);
+
+  // Mission elapsed (secondary line). Counts up while at least one
+  // agent works; freezes on terminal mission status so the chime
+  // doesn't keep ticking past completion.
   const startMs = useMemo(() => new Date(room.createdAt).getTime(), [room.createdAt]);
   const frozen = room.status === 'paused' || room.status === 'done' || room.status === 'failed';
-  const elapsedMs = frozen ? Math.max(0, new Date(room.updatedAt).getTime() - startMs) : Math.max(0, now - startMs);
-  const { hh, mm, ss } = splitHMS(elapsedMs);
+  const elapsedMs = frozen
+    ? Math.max(0, new Date(room.updatedAt).getTime() - startMs)
+    : Math.max(0, now.getTime() - startMs);
+  const elapsed = splitHMS(elapsedMs);
 
   const { working, blocked } = countTeam(room);
 
@@ -865,49 +902,45 @@ function DeskClock({ room }: { room: MissionRoom }) {
     <div
       className="w-[260px] p-4 pb-3 text-[#f5d27a]"
       style={{
-        // Wooden clock body — darker oak with a faint inner glow
         background: 'radial-gradient(ellipse at 30% 25%, #4a2e18 0%, #2a1808 75%, #1a0e04 100%)',
         borderRadius: 14,
-        // Brass bezel + drop shadow
         boxShadow:
           '0 0 0 3px #b08a3a, 0 0 0 5px #5a3a14, 0 12px 22px rgba(0,0,0,0.5), inset 0 0 16px rgba(0,0,0,0.6)',
       }}
     >
-      {/* Brand engraving */}
       <div className="text-[9px] uppercase tracking-[0.28em] text-[#c4a14a] text-center mb-1.5">
-        TITAN · mission
+        TITAN{tzShort ? ' · ' + tzShort : ''}
       </div>
-      {/* LCD numerals */}
+      {/* Big local-time numerals */}
       <div
-        className="flex items-baseline justify-center gap-1 mb-1.5"
+        className="flex items-baseline justify-center gap-1 mb-1"
         style={{
           fontFamily: '"DSEG7 Classic", "Orbitron", "Menlo", monospace',
-          // Soft glow on the digits
-          textShadow: frozen
-            ? '0 0 6px rgba(245,210,122,0.25)'
-            : '0 0 10px rgba(245,210,122,0.65), 0 0 22px rgba(245,210,122,0.35)',
+          textShadow: '0 0 10px rgba(245,210,122,0.65), 0 0 22px rgba(245,210,122,0.35)',
         }}
       >
         <LCDPair value={hh} />
-        <span className="text-[28px] font-bold opacity-80 -translate-y-0.5">:</span>
+        <span className="text-[28px] font-bold opacity-80 -translate-y-0.5 animate-pulse">:</span>
         <LCDPair value={mm} />
         <span className="text-[20px] font-bold opacity-60 -translate-y-0.5">:</span>
         <span className="text-[24px] font-bold opacity-80 tabular-nums">{ss}</span>
       </div>
-      {/* Heartbeat row */}
+      {/* Mission elapsed — small secondary line */}
+      <div
+        className="text-center text-[10px] uppercase tracking-[0.22em] text-[#c4a14a]/85 mb-1.5"
+        style={{ fontFamily: 'system-ui' }}
+      >
+        Mission · {elapsed.hh}:{elapsed.mm}:{elapsed.ss}
+        {frozen && <span className="ml-1.5 text-[#d9c08c]/70">· {room.status}</span>}
+      </div>
       <div
         className="flex items-center justify-center gap-3 pt-2 border-t border-[#5a3a14]/60"
         style={{ fontFamily: 'system-ui' }}
       >
-        <ClockStat n={working} label={working === 1 ? 'working' : 'working'} tone="accent" />
+        <ClockStat n={working} label="working" tone="accent" />
         <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
         <ClockStat n={room.team.length} label="on team" tone="muted" />
       </div>
-      {frozen && (
-        <div className="text-center text-[9px] uppercase tracking-[0.22em] text-[#c4a14a]/70 mt-1.5">
-          {room.status}
-        </div>
-      )}
     </div>
   );
 }
@@ -1310,21 +1343,73 @@ function Wastebasket({ count }: { count: number }) {
 
 /**
  * Drawer overlay shown when the cabinet is open. Lists every filed
- * item with a row per item; clicking a row pulls it back to the desk
- * (via onRestore). Files double-click to open in the FileViewer like
- * normal.
+ * item with a row per item.
+ *
+ * Three ways to get an item back to the desk:
+ *   1. Click the **to desk** button on the row — restores at last
+ *      known pose.
+ *   2. Click the **Open ↗** button (files only) — opens in the
+ *      FileViewer (the file stays filed).
+ *   3. **v6.1.0-alpha.20 — drag the row out.** Mousedown anywhere on
+ *      the row body (not on a button) starts a drag-out gesture: the
+ *      drawer closes, a ghost preview follows the cursor, and on
+ *      mouseup the item is restored to the desk AT the cursor
+ *      position. This is the natural "pull a file out of the cabinet"
+ *      motion Tony asked for.
  */
 function CabinetDrawer({
-  itemIds, items, fileSources, factSources, onRestore, onOpenFile, onClose,
+  itemIds, items, fileSources, factSources, onRestore, onRestoreAt, onOpenFile, onClose,
 }: {
   itemIds: string[];
   items: DeskItem[];
   fileSources: FileSource[];
   factSources: FactSource[];
   onRestore: (itemId: string) => void;
+  /** v6.1.0-alpha.20 — restore an item AND place it at a specific
+   *  screen position (used for drag-out gesture). */
+  onRestoreAt: (itemId: string, x: number, y: number) => void;
   onOpenFile: (ref: string) => void;
   onClose: () => void;
 }) {
+  // Drag-out state — when the user mousedowns on a row, we close the
+  // drawer and start tracking a ghost preview. On mouseup, restore
+  // the item at the cursor's screen position.
+  const [dragOut, setDragOut] = useState<{
+    itemId: string;
+    label: string;
+    icon: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Global mousemove + mouseup listeners while dragging.
+  useEffect(() => {
+    if (!dragOut) return;
+    const onMove = (e: MouseEvent) => {
+      setDragOut(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null);
+    };
+    const onUp = (e: MouseEvent) => {
+      onRestoreAt(dragOut.itemId, e.clientX, e.clientY);
+      setDragOut(null);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragOut, onRestoreAt]);
+
+  function startDragOut(e: React.MouseEvent, itemId: string, label: string, icon: string) {
+    // Don't start a drag-out if the click landed on a button — the
+    // button has its own click semantic (open / restore-to-pose).
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-no-drag]')) return;
+    e.preventDefault();
+    setDragOut({ itemId, label, icon, x: e.clientX, y: e.clientY });
+    onClose(); // close the drawer so the desk is visible
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
@@ -1342,9 +1427,9 @@ function CabinetDrawer({
           <span className="text-2xl">🗄️</span>
           <div className="flex-1">
             <div className="text-sm font-semibold tracking-tight">Filing cabinet</div>
-            <div className="text-[11px] text-[#d9c08c]">{itemIds.length} item{itemIds.length === 1 ? '' : 's'} filed · click any to restore to the desk</div>
+            <div className="text-[11px] text-[#d9c08c]">{itemIds.length} item{itemIds.length === 1 ? '' : 's'} filed · drag a row out, or click <b>to desk</b></div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a0f05] border border-[#6e4724] text-[#d9c08c] hover:text-white flex items-center justify-center">✕</button>
+          <button data-no-drag onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a0f05] border border-[#6e4724] text-[#d9c08c] hover:text-white flex items-center justify-center">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
           {itemIds.length === 0 && (
@@ -1357,31 +1442,52 @@ function CabinetDrawer({
             if (!item) return (
               <div key={itemId} className="flex items-center justify-between px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg text-[#d9c08c]/70">
                 <span className="text-xs italic">{itemId} (no longer in mission)</span>
-                <button onClick={() => onRestore(itemId)} className="text-[11px] hover:text-white">remove</button>
+                <button data-no-drag onClick={() => onRestore(itemId)} className="text-[11px] hover:text-white">remove</button>
               </div>
             );
             const f = item.kind === 'file' ? fileSources.find(s => s.ref === item.ref) : undefined;
             const fact = item.kind === 'fact' ? factSources.find(s => s.ref === item.ref) : undefined;
+            const icon = f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : '📌';
+            const label = f?.ref ?? fact?.ref ?? itemId;
             return (
-              <div key={itemId} className="flex items-center gap-3 px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg hover:bg-[#1a0f05]/60 transition-colors">
-                <span className="text-lg leading-none">
-                  {f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : '📌'}
-                </span>
+              <div
+                key={itemId}
+                onMouseDown={(e) => startDragOut(e, itemId, label, icon)}
+                className="flex items-center gap-3 px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg hover:bg-[#1a0f05]/60 transition-colors cursor-grab active:cursor-grabbing"
+                title="Drag out to place on the desk, or use the buttons →"
+              >
+                <span className="text-lg leading-none">{icon}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-[#f5d27a] truncate">{f?.ref ?? fact?.ref ?? itemId}</div>
+                  <div className="text-xs text-[#f5d27a] truncate">{label}</div>
                   {(f?.description ?? fact?.description) && (
                     <div className="text-[10px] text-[#d9c08c] truncate">{f?.description ?? fact?.description}</div>
                   )}
                 </div>
                 {f && (
-                  <button onClick={() => onOpenFile(f.ref)} className="px-2 py-1 text-[10px] bg-[#6e4724] border border-[#b08a3a] rounded text-[#f5d27a] hover:text-white">Open ↗</button>
+                  <button data-no-drag onClick={() => onOpenFile(f.ref)} className="px-2 py-1 text-[10px] bg-[#6e4724] border border-[#b08a3a] rounded text-[#f5d27a] hover:text-white">Open ↗</button>
                 )}
-                <button onClick={() => onRestore(itemId)} className="px-2 py-1 text-[10px] bg-[#1a0f05] border border-[#6e4724] rounded text-[#d9c08c] hover:text-white">to desk</button>
+                <button data-no-drag onClick={() => onRestore(itemId)} className="px-2 py-1 text-[10px] bg-[#1a0f05] border border-[#6e4724] rounded text-[#d9c08c] hover:text-white">to desk</button>
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Ghost preview that follows the cursor during drag-out. */}
+      {dragOut && (
+        <div
+          className="fixed z-[70] pointer-events-none"
+          style={{ left: dragOut.x - 80, top: dragOut.y - 20 }}
+        >
+          <div
+            className="px-3 py-2 rounded bg-[#fdfbf3] text-[#1a1f2e] text-xs flex items-center gap-2 shadow-2xl"
+            style={{ transform: 'rotate(-2deg)' }}
+          >
+            <span>{dragOut.icon}</span>
+            <span className="font-semibold truncate max-w-[200px]">{dragOut.label}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

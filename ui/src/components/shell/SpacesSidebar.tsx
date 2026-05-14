@@ -133,8 +133,17 @@ export function SpacesSidebar() {
     }
   }, [refresh]);
 
-  // Show on Space routes only; admin routes don't get the sidebar.
-  if (!location.pathname.startsWith('/space') && location.pathname !== '/') return null;
+  // Show on Space routes and Mission routes; admin routes don't get the sidebar.
+  // v6.1.0-alpha.20 — Mission Chat / Desk live as a top-level "Missions"
+  // entry pinned above the user's custom Spaces so the desk + chat
+  // surfaces are reachable without leaving the canvas shell.
+  if (
+    !location.pathname.startsWith('/space') &&
+    !location.pathname.startsWith('/mission') &&
+    location.pathname !== '/'
+  ) return null;
+
+  const onMissionRoute = location.pathname.startsWith('/mission');
 
   return (
     <aside className="w-56 bg-[#0a0e1a] border-r border-[#1f2937] flex flex-col">
@@ -150,6 +159,39 @@ export function SpacesSidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
+        {/* v6.1.0-alpha.20 — Missions: pinned entry. Two-line item:
+            "Missions" → /mission (start a new one or pick a template),
+            "Library" → /mission/library (past missions). */}
+        <div className="px-1.5 mb-2">
+          <button
+            type="button"
+            onClick={() => navigate('/mission')}
+            className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
+              onMissionRoute && location.pathname === '/mission'
+                ? 'bg-[#1f2937] text-white'
+                : 'text-[#d4d4d8] hover:bg-[#1a1f2e] hover:text-white'
+            }`}
+            title="Start a new mission or open a template"
+          >
+            <span className="text-base leading-none">🪵</span>
+            <span className="flex-1 truncate">Missions</span>
+            <span className="text-[10px] text-[#71717a]">desk</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/mission/library')}
+            className={`w-full text-left px-2 py-1 rounded text-[12px] flex items-center gap-2 ml-3 ${
+              location.pathname === '/mission/library'
+                ? 'bg-[#1f2937] text-white'
+                : 'text-[#a1a1aa] hover:bg-[#1a1f2e] hover:text-white'
+            }`}
+            title="Past missions"
+          >
+            <span>📚</span>
+            <span className="flex-1 truncate">Library</span>
+          </button>
+        </div>
+        <div className="px-3 pt-1 pb-1 text-[10px] uppercase tracking-wider text-[#71717a]">Spaces</div>
         {error && (
           <div className="px-3 py-2 text-[11px] text-[#ef4444] bg-[#1f0a0a]">
             {error}

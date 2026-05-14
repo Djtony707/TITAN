@@ -5,6 +5,73 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.20 — 2026-05-13 — Local-time clock · drag-out from cabinet · HTML reports · Spaces sidebar entry · first npm publish
+
+> Tony: "Push to npm + GitHub for customers. Make accessible from the
+> main canvas Spaces selector. Documents as HTML so they look better
+> with actual graphs and stuff. Clock runs off the system time zone.
+> And I want to drag files out of the file cabinet."
+
+### Local-time desk clock
+
+The big LCD numerals now show your **system wall-clock time** (HH:MM:SS)
+formatted via `Intl.DateTimeFormat` so it picks up the browser's locale
+and timezone automatically. The brand-engraving line shows the short
+tz label (e.g. `TITAN · PDT`). Mission elapsed time moved to a small
+secondary line: `Mission · 00:04:14`. Agent counters
+(`working · needs you · on team`) stay below.
+
+### Drag files OUT of the filing cabinet
+
+The cabinet drawer overlay now supports a **drag-out gesture**:
+mousedown on any row, the drawer closes, a labeled ghost preview
+follows the cursor, and on mouseup the item is restored to the desk
+at the cursor's screen position with a fresh top-of-stack z. The
+existing **to desk** button + **Open ↗** button (files only) still
+work for click-style restores. `data-no-drag` on the buttons keeps
+their click semantics intact.
+
+### Spaces sidebar — Mission entry
+
+`ui/src/components/shell/SpacesSidebar.tsx` now shows a pinned
+**🪵 Missions** entry above the user's custom Spaces, with a
+sub-row for **📚 Library**. Routes `/mission/*` activate the
+sidebar so the desk + chat surfaces are reachable from anywhere
+in the canvas shell, not just direct URL.
+
+### HTML reports for documents
+
+`src/agent/specialists.ts` — added a shared `HTML_REPORT_GUIDANCE`
+block appended to Scout, Writer, and Analyst's system prompts. When
+the user asks for a document / report / briefing / multi-section
+deliverable, the specialist now defaults to **self-contained HTML**
+(write_file with `.html`), inline CSS, inline SVG charts, styled
+tables. The FileViewer (alpha.16) already renders HTML in a
+sandboxed iframe — so reports finally come back looking like real
+documents instead of flat markdown.
+
+Updated two of the always-on templates to reflect the new bias:
+the daily research digest and the market-watch brief now both ask
+for HTML output with inline SVG charts and clickable source links.
+
+### First public npm publish (alpha tag)
+
+This is the first version of the v6.1.0 Mission Chat / Desk surface
+to land on npm. Published to the **`@alpha` dist-tag**, not
+`@latest`. Existing v5.5.31 `@latest` installs are untouched.
+
+To opt in:
+
+```bash
+npm i -g titan-agent@alpha
+```
+
+`@latest` will be promoted only after a soak period and once the
+marathon-mode + recurring-mission daemons land — see
+HANDOFF-2026-05-13.md.
+
+---
+
 ## v6.1.0-alpha.19 — 2026-05-13 — Agent menu, filing cabinet, wastebasket, Marathon mode
 
 > Tony: "I want options when I click on each agent — model selection,
