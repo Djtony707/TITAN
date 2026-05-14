@@ -5,6 +5,54 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.36 — 2026-05-13 — Stop fighting iframes — Shadow DOM HTML viewer
+
+> Tony, after alpha.35: another screenshot, same broken-image icons.
+
+Three rounds of iframe sandbox / referrer-policy / CSP tuning got
+us nowhere — the markup parsed fine but images stayed broken. The
+`srcdoc` iframe was being treated by the browser in ways no
+combination of attributes was sweet-talking us out of (opaque-origin
+fetch quirks, private-network referer mitigations, and possibly the
+local-IP HTTP context all stacking).
+
+### New approach
+
+**Render HTML directly inline using a Shadow DOM**, not an iframe.
+
+`<HtmlShadowFrame>` (new component in `FileViewer.tsx`):
+
+  - Attaches a Shadow Root to a regular `<div>` on the page.
+  - Extracts the agent's `<body>` content + any `<style>` blocks
+    from the head, injects both into the shadow root.
+  - The shadow root **isolates the agent's CSS** from TITAN's UI
+    (no bleed: a runaway `body { background: red }` in the report
+    stays inside the shadow).
+  - Images load through the **normal page context**. Same way every
+    other image on TITAN UI loads. No iframe sandbox, no opaque
+    origin, no referer drama.
+  - A small base stylesheet inside the shadow handles the
+    "make the doc actually look like a document" defaults:
+    serif body, generous padding, max-width 900px, auto-scaling
+    images, accent-colored links.
+
+Sanitization (`wrapHtmlForViewer`) still runs first — `<script>`
+blocks, inline `on*=` handlers, and `javascript:` URLs are stripped
+before the HTML reaches the shadow. The user's own agents wrote
+this content, but defense in depth is cheap.
+
+### Why this is safe
+
+Two layers:
+  1. Scripts stripped at sanitize time (regex pass over the markup).
+  2. Style isolation via Shadow DOM (no DOM bleed into TITAN UI).
+
+Cross-origin image loads now go through the parent page's origin
+exactly like any other image on TITAN — Wikimedia and friends
+serve them without question.
+
+---
+
 ## v6.1.0-alpha.35 — 2026-05-13 — HTML viewer hardened — images really load this time
 
 > Tony: "No images still." Despite alpha.34, his MLK essay was still
