@@ -5,6 +5,114 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.19 — 2026-05-13 — Agent menu, filing cabinet, wastebasket, Marathon mode
+
+> Tony: "I want options when I click on each agent — model selection,
+> start/stop/pause, nudge, talk to them, steer. I want them to be able
+> to communicate together and run for 72 hours or longer all working
+> together to finish a main goal from start to finish completely
+> automated. And maybe a filing cabinet where I can put files in to
+> organize them, a wastebasket to delete notes or files (which look
+> like wadded up pieces of paper when put inside it). I also like the
+> sticky note system for notes the AI Agents write!"
+
+This ship lands the **visible UX layer end-to-end** plus the storage
++ API for per-agent model / pause and mission-wide Marathon mode.
+The **autonomous-collaboration daemon** that actually keeps the team
+running for 72 hours is the next ship — see HANDOFF-2026-05-13.md.
+
+### Click an agent → AgentMenu popover
+
+New `ui/src/pages/mission/AgentMenu.tsx`. Click any sticky-note
+agent on the desk and a 6-tile popover anchors at the click point:
+
+  - **👋 Nudge** — sends `@AgentName quick check-in — how's it going?
+    Anything I can clear for you?` via the existing `/message`
+    endpoint. Fire-and-forget.
+  - **💬 Talk to them** — opens an inline textarea with `@AgentName`
+    prepended. ⌘↵ to send.
+  - **🧭 Steer** — same as Talk but prefixes the message with
+    `steer:` and offers quick-presets (Slow down / Be thorough / Wrap
+    it up / Skip the chart).
+  - **🧠 Model** — dropdown of every provider/model the gateway
+    reports via `/api/models`. Pick one to set this agent's
+    `modelOverride` for this mission; **clear** restores the role's
+    default. Stored end-to-end via the new
+    `POST /api/missions/:id/agent/:agentId/model` endpoint.
+  - **⏸ Pause / ▶ Resume agent** — toggles `member.paused` via
+    `POST /api/missions/:id/agent/:agentId/pause`. The pause is
+    visible in the UI today; the goal driver starts honoring it in
+    alpha.20+ with the marathon-mode daemon.
+  - **🏃 Marathon mode** — mission-wide. Toggles
+    `room.longRunningMode` via `POST /api/missions/:id/mode`. When
+    on, the canvas header shows a **🏃 Marathon** badge. The actual
+    long-running daemon ships next; today the flag persists.
+
+Distinguishing click from drag: the Draggable wrapper now treats a
+mouseup with <5px total movement as a click and fires `onClick(x,y)`
+instead of persisting a new pose.
+
+### Filing cabinet
+
+A walnut two-drawer cabinet at the desk's lower-left. Acts as a
+**drop zone**: drag any file paper or sticky note onto it and the
+item snaps in. The cabinet brass plate reads the current count.
+Click the cabinet (no movement → click) to open the **drawer
+overlay** — a list of every filed item with:
+
+  - File icon (📄 / 📊) or sticky icon (💡)
+  - The file ref or fact text
+  - **Open ↗** button (files only — opens in the FileViewer modal)
+  - **to desk** button — restores the item to the canvas
+
+Filed items are hidden from the desk; restoring brings them back
+with their last known pose. Storage is `localStorage` at
+`titan-desk-furniture:{missionId}` — separate from layout positions
+so reorganizing furniture doesn't churn the layout.
+
+### Wastebasket
+
+A wicker basket at the desk's lower-right. Same drop-zone mechanic
+as the cabinet (`data-drop-target="trash"`). Items tossed in render
+as **wadded-paper balls** peeking over the rim — capped visually at
+6 wads so it never blows out. A small "N tossed" label sits below.
+
+Trash is **visual-only** in alpha.19: the underlying mission source
+isn't deleted (there's no backend source-delete endpoint yet —
+that's a separate ship). Drag the item back from the cabinet's
+list view to recover it, or use **Tidy up** to fully reset.
+
+### Backend additions
+
+- `src/agent/missionRoom.ts`:
+  - `MissionMember.modelOverride?: string`
+  - `MissionMember.paused?: boolean`
+  - `MissionRoom.longRunningMode?: boolean`
+  - `setMemberModelOverride`, `setMemberPaused`, `setLongRunningMode`
+    — each persists + emits an SSE event.
+- `src/gateway/routes/missions.ts`:
+  - `POST /api/missions/:id/agent/:agentId/model` — body `{ model }`,
+    `null` to clear.
+  - `POST /api/missions/:id/agent/:agentId/pause` — body `{ paused }`.
+  - `POST /api/missions/:id/mode` — body `{ longRunningMode }`.
+  - Shared `resolveAgent()` helper for owner + member checks.
+
+The **consumer** wiring (goal driver picking `modelOverride` when
+spawning a specialist, skipping paused agents, running marathon
+mode) is the next major ship — see the handoff.
+
+### Docs
+
+`CHANGELOG.md`, `AGENTS.md`, `HANDOFF-2026-05-13.md` all updated.
+The handoff now lists three pending daemons in priority order:
+
+  1. **Marathon-mode daemon** — the 72h autonomous-collaboration
+     loop. New #1.
+  2. **Recurring-mission daemon** — from alpha.18.
+  3. **Mission-scoped artifact dirs** — from alpha.16.
+
+---
+
 ## v6.1.0-alpha.18 — 2026-05-13 — Sticky-note agents, desk clock, always-on templates
 
 > Tony: "Keep this beautiful — real paper feel, sticky notes for the

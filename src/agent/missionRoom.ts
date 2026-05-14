@@ -54,6 +54,27 @@ export interface MissionMember {
     currentActivity?: string;
     /** When they last did something visible. */
     lastActiveAt?: string;
+    /**
+     * v6.1.0-alpha.19 — per-agent model override. When set, the goal
+     * driver should pick this model instead of the specialist's
+     * default for any spawn delegated to this agent. Null/undefined =
+     * use the specialist's default (resolveSpecialistModel).
+     *
+     * The consumer wiring (spawn-side model resolution) is on the
+     * v6.1.0-alpha.20+ roadmap — this ship stores the preference so
+     * the AgentMenu UI works end-to-end and the value survives mission
+     * reloads.
+     */
+    modelOverride?: string;
+    /**
+     * v6.1.0-alpha.19 — user-paused this specific agent. The goal
+     * driver should skip delegating to a paused agent. UI surfaces it
+     * as a paused-state pill on the agent's card.
+     *
+     * Same pattern as `modelOverride` — stored now, consumer wiring
+     * lands with the marathon-mode daemon next ship.
+     */
+    paused?: boolean;
 }
 
 /** One row in the chat thread. */
@@ -199,6 +220,20 @@ export interface MissionRoom {
     artifact: MissionArtifact;
     messages: MissionMessage[];
     cost: MissionCost;
+    /**
+     * v6.1.0-alpha.19 — "Marathon mode" — when enabled, the (future)
+     * long-running orchestrator drives the team continuously toward
+     * the mission goal for up to 72 hours, with cost / time caps and
+     * automatic recovery. The autonomous-collaboration daemon that
+     * actually CONSUMES this flag lands in v6.1.0-alpha.20+ alongside
+     * the recurring-mission daemon — see HANDOFF-2026-05-13.md.
+     *
+     * Storing it now means the UX (the toggle on the canvas, the
+     * status pill in the top bar) works end-to-end and the choice
+     * survives mission reloads, so when the daemon lands the existing
+     * marathon missions immediately start running.
+     */
+    longRunningMode?: boolean;
     createdAt: string;
     updatedAt: string;
 }
@@ -531,6 +566,66 @@ export function setLinkedIssue(missionId: string, issueId: string): MissionRoom 
     if (!room) return null;
     room.issueId = issueId;
     commit(room);
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.19 — set or clear a per-agent model override. Passing
+ * `null` clears it back to the specialist's default model.
+ */
+export function setMemberModelOverride(
+    missionId: string,
+    agentId: string,
+    model: string | null,
+): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    const member = room.team.find(m => m.agentId === agentId);
+    if (!member) return room;
+    if (model === null || model === '') {
+        delete member.modelOverride;
+    } else {
+        member.modelOverride = model;
+    }
+    commit(room);
+    emit('agent_state_changed', missionId, { agentId, modelOverride: member.modelOverride });
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.19 — pause / resume a specific agent. Paused agents
+ * should be skipped for new delegations by the goal driver. The UI
+ * surfaces the pause as a state pill.
+ */
+export function setMemberPaused(
+    missionId: string,
+    agentId: string,
+    paused: boolean,
+): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    const member = room.team.find(m => m.agentId === agentId);
+    if (!member) return room;
+    member.paused = paused;
+    commit(room);
+    emit('agent_state_changed', missionId, { agentId, paused });
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.19 — toggle Marathon mode (long-running multi-agent
+ * collaboration). The daemon that ACTUALLY runs in marathon mode
+ * ships in alpha.20+; this setter persists the flag.
+ */
+export function setLongRunningMode(
+    missionId: string,
+    enabled: boolean,
+): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    room.longRunningMode = enabled;
+    commit(room);
+    emit('status_changed', missionId, { longRunningMode: enabled });
     return room;
 }
 

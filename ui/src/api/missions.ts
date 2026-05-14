@@ -20,6 +20,10 @@ export interface MissionMember {
   state: MemberState;
   currentActivity?: string;
   lastActiveAt?: string;
+  /** v6.1.0-alpha.19 — per-agent model override (provider/model id). */
+  modelOverride?: string;
+  /** v6.1.0-alpha.19 — agent paused by user. */
+  paused?: boolean;
 }
 
 export type MissionMessage =
@@ -79,6 +83,8 @@ export interface MissionRoom {
   artifact: MissionArtifact;
   messages: MissionMessage[];
   cost: { tokens: number; usd: number };
+  /** v6.1.0-alpha.19 — Marathon mode (long-running multi-agent). */
+  longRunningMode?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -148,6 +154,30 @@ export function setMissionStatus(id: string, status: 'paused' | 'working'): Prom
   return json(`/api/missions/${id}/status`, {
     method: 'POST',
     body: JSON.stringify({ status }),
+  });
+}
+
+/** v6.1.0-alpha.19 — per-agent model override. Pass `null` to clear. */
+export function setAgentModelOverride(missionId: string, agentId: string, model: string | null): Promise<{ ok: boolean; member: MissionMember }> {
+  return json(`/api/missions/${missionId}/agent/${encodeURIComponent(agentId)}/model`, {
+    method: 'POST',
+    body: JSON.stringify({ model }),
+  });
+}
+
+/** v6.1.0-alpha.19 — pause / resume a specific agent. */
+export function setAgentPaused(missionId: string, agentId: string, paused: boolean): Promise<{ ok: boolean; member: MissionMember }> {
+  return json(`/api/missions/${missionId}/agent/${encodeURIComponent(agentId)}/pause`, {
+    method: 'POST',
+    body: JSON.stringify({ paused }),
+  });
+}
+
+/** v6.1.0-alpha.19 — Marathon mode (long-running collaborative run). */
+export function setMissionMode(missionId: string, longRunningMode: boolean): Promise<{ ok: boolean; longRunningMode: boolean }> {
+  return json(`/api/missions/${missionId}/mode`, {
+    method: 'POST',
+    body: JSON.stringify({ longRunningMode }),
   });
 }
 
