@@ -62,7 +62,19 @@ function prettyUrl(url: string): string {
   }
 }
 
-export function RichMessageBody({ text, sources }: { text: string; sources?: Source[] }) {
+export function RichMessageBody({
+  text,
+  sources,
+  onOpenFile,
+}: {
+  text: string;
+  sources?: Source[];
+  /** Called when the user clicks a file/report chip. The parent
+   *  (MissionChat) fetches the content via /api/missions/:id/file and
+   *  pops a viewer modal. URL chips are not routed here — they open in
+   *  a new tab natively as before. */
+  onOpenFile?: (ref: string, sourceType: 'file' | 'report') => void;
+}) {
   const tokens = useMemo(() => tokenize(text), [text]);
   const urlSources = useMemo(() => (sources ?? []).filter(s => s.type === 'url'), [sources]);
   const otherSources = useMemo(() => (sources ?? []).filter(s => s.type !== 'url'), [sources]);
@@ -125,18 +137,38 @@ export function RichMessageBody({ text, sources }: { text: string; sources?: Sou
               ))}
             </ul>
           )}
-          {/* File / fact / report chips */}
+          {/* File / fact / report chips. v6.1.0-alpha.16 — file and
+              report chips are now clickable: clicking opens the file
+              in an in-app viewer modal so the user can actually read
+              what the agent wrote. Fact chips remain non-clickable
+              (they're inline memorized facts, not file refs). */}
           {otherSources.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {otherSources.map((s, i) => {
                 const icon = s.type === 'file' ? '📄' : s.type === 'fact' ? '💡' : '📊';
+                const label = s.ref.length > 50 ? s.ref.slice(0, 47) + '…' : s.ref;
+                const isOpenable = (s.type === 'file' || s.type === 'report') && !!onOpenFile;
+                if (isOpenable) {
+                  return (
+                    <button
+                      key={`o-${i}`}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onOpenFile!(s.ref, s.type as 'file' | 'report'); }}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-bg-tertiary/60 border border-border rounded-full text-[11px] text-text-secondary hover:bg-accent/15 hover:text-text hover:border-accent/40 transition-colors cursor-pointer"
+                      title={`Open ${s.ref}${s.description ? ' — ' + s.description : ''}`}
+                    >
+                      {icon} <b className="text-text font-medium">{label}</b>
+                      <span className="text-text-muted text-[10px]">↗</span>
+                    </button>
+                  );
+                }
                 return (
                   <span
                     key={`o-${i}`}
                     className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-bg-tertiary/60 border border-border rounded-full text-[11px] text-text-secondary"
                     title={s.description ?? s.ref}
                   >
-                    {icon} <b className="text-text font-medium">{s.ref.length > 50 ? s.ref.slice(0, 47) + '…' : s.ref}</b>
+                    {icon} <b className="text-text font-medium">{label}</b>
                   </span>
                 );
               })}

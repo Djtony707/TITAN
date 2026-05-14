@@ -25,6 +25,8 @@
  * router. We trust req.user / req.userId here.
  */
 import { Router, type Request, type Response } from 'express';
+import { promises as fsp } from 'fs';
+import { resolve as resolvePath } from 'path';
 import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import {
@@ -382,5 +384,126 @@ export function createMissionsRouter(adapter: MissionLifecycleAdapter = NOOP_ADA
         });
     });
 
+    // ── File viewer ───────────────────────────────────────────────
+    //
+    // v6.1.0-alpha.16 — when an agent writes a file via the `write_file`
+    // tool and emits it as a source-of-type-'file' / 'report', the chat
+    // bubble shows a chip but the user has no way to read the actual
+    // content. This endpoint serves the file content back to the UI so
+    // the chat can render an in-place viewer.
+    //
+    // Safety model — defense in depth:
+    //  1. Owner check (same as every other mission endpoint).
+    //  2. The `ref` MUST already be present in this mission's message
+    //     sources array. Path injection is impossible — the user can
+    //     only read files an agent in this mission already chose to
+    //     surface. This is stricter than a path allowlist.
+    //  3. 5 MB content cap, sliced to avoid OOM on accidental huge
+    //     binary writes. Big files get a `truncated: true` flag.
+    //  4. Detected mime from extension (`.md` → text/markdown, `.html`
+    //     → text/html, `.json` → application/json, etc.). The UI uses
+    //     this to pick the right renderer.
+    //
+    // Returns: { ref, content, mimeType, sizeBytes, truncated }
+    router.get('/:id/file', async (req: Request, res: Response) => {
+        const room = getMission(req.params.id);
+        if (!room) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return;
+        }
+        const userId = (req as Request & { userId?: string }).userId;
+        if (userId && room.ownerId && room.ownerId !== userId) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return;
+        }
+        const ref = String((req.query as { ref?: string })?.ref ?? '').trim();
+        if (!ref) {
+            res.status(400).json({ error: 'ref query param is required' });
+            return;
+        }
+        // Source-list whitelist: the ref must appear in this mission's
+        // message sources with type 'file' or 'report'. This is the
+        // entire authorization story.
+        const allowed = new Set<string>();
+        for (const m of room.messages) {
+            if (m.kind !== 'agent') continue;
+            if (!Array.isArray(m.sources)) continue;
+            for (const s of m.sources) {
+                if (s.type === 'file' || s.type === 'report') allowed.add(s.ref);
+            }
+        }
+        if (!allowed.has(ref)) {
+            res.status(403).json({ error: 'file_not_in_mission_sources' });
+            return;
+        }
+        try {
+            const absolute = resolvePath(ref);
+            const stat = await fsp.stat(absolute);
+            if (!stat.isFile()) {
+                res.status(404).json({ error: 'not_a_file' });
+                return;
+            }
+            const MAX_BYTES = 5 * 1024 * 1024;
+            const buf = await fsp.readFile(absolute);
+            const truncated = buf.length > MAX_BYTES;
+            const slice = truncated ? buf.subarray(0, MAX_BYTES) : buf;
+            const mimeType = mimeFromExtension(absolute);
+            // Heuristic: text-y mime → utf-8 string. Otherwise base64.
+            const isText = mimeType.startsWith('text/') ||
+                mimeType === 'application/json' ||
+                mimeType === 'application/javascript' ||
+                mimeType === 'application/xml';
+            const content = isText
+                ? slice.toString('utf-8')
+                : slice.toString('base64');
+            res.json({
+                ref,
+                content,
+                mimeType,
+                encoding: isText ? 'utf-8' : 'base64',
+                sizeBytes: stat.size,
+                truncated,
+            });
+        } catch (err) {
+            const e = err as NodeJS.ErrnoException;
+            if (e.code === 'ENOENT') {
+                res.status(404).json({ error: 'file_no_longer_exists', ref });
+                return;
+            }
+            logger.warn(COMPONENT, `File read failed for ${ref}: ${e.message}`);
+            res.status(500).json({ error: 'read_failed' });
+        }
+    });
+
     return router;
+}
+
+/**
+ * Map a file extension to a mime type. Conservative — only the
+ * extensions we expect agents to actually produce. Unknown → octet-stream
+ * (UI will offer a download instead of an inline view).
+ */
+function mimeFromExtension(path: string): string {
+    const m = /\.([a-z0-9]+)$/i.exec(path);
+    const ext = m ? m[1].toLowerCase() : '';
+    switch (ext) {
+        case 'md':   case 'markdown': return 'text/markdown';
+        case 'html': case 'htm':       return 'text/html';
+        case 'txt':                    return 'text/plain';
+        case 'json':                   return 'application/json';
+        case 'js':                     return 'application/javascript';
+        case 'ts':                     return 'text/plain';
+        case 'tsx':                    return 'text/plain';
+        case 'jsx':                    return 'text/plain';
+        case 'csv':                    return 'text/csv';
+        case 'xml':                    return 'application/xml';
+        case 'yaml': case 'yml':       return 'text/yaml';
+        case 'svg':                    return 'image/svg+xml';
+        case 'png':                    return 'image/png';
+        case 'jpg':  case 'jpeg':      return 'image/jpeg';
+        case 'gif':                    return 'image/gif';
+        case 'webp':                   return 'image/webp';
+        case 'pdf':                    return 'application/pdf';
+        default:                       return 'application/octet-stream';
+    }
 }
