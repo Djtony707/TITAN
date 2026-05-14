@@ -666,8 +666,6 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
             const payload = (approval.payload ?? {}) as Record<string, unknown>;
             if (payload.goalId !== goalId) return;
             const agentId = String(payload.specialist ?? payload.subtaskKind ?? approval.requestedBy ?? 'sage').toLowerCase();
-            // Different approval kinds use different fields for "the actual
-            // question." Try the most common ones in order.
             const rawContent = String(
                 payload.question
                 ?? payload.allQuestions
@@ -675,15 +673,16 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
                 ?? approval.reason
                 ?? `${approval.type} approval needed`
             );
-            // v6.1.0-alpha.5 — strip the goalDriver boilerplate prefix so the
-            // question reads like something a person would actually ask, not
-            // an internal stack trace. The driver's auto-generated questions
-            // look like:
-            //   `Goal "X" — subtask "Y" failed after N attempt(s) with
-            //    specialist Z. Error: ... What should the specialist do next?`
-            // After this cleanup they read like:
-            //   `Error: ... What should the specialist do next?`
-            const content = stripDriverBoilerplate(rawContent);
+            // Strip the goalDriver boilerplate prefix (alpha.5).
+            const stripped = stripDriverBoilerplate(rawContent);
+            // v6.1.0-alpha.29 — when stripping leaves a generic fallback
+            // (or anything ≤ that fallback's information density), enrich
+            // the question with payload context so the user actually knows
+            // what's happening. Pre-alpha.29 the user saw a bare "I need
+            // more direction to keep going. What should I focus on?" with
+            // no clue that Writer was stuck on the MLK essay because the
+            // structured-output reformat failed.
+            const content = enrichBlockedQuestion(stripped, payload);
             const quickReplies = Array.isArray(payload.quickReplies)
                 ? (payload.quickReplies as string[]).slice(0, 4)
                 : defaultQuickReplies(approval);
@@ -705,6 +704,76 @@ async function wireApprovalBridge(missionId: string, goalId: string): Promise<()
     };
     titanEvents.on('commandpost:approval:created', handler);
     return () => titanEvents.off('commandpost:approval:created', handler);
+}
+
+/**
+ * v6.1.0-alpha.29 — when stripDriverBoilerplate leaves us with the
+ * generic fallback ("I need more direction to keep going. What should
+ * I focus on?"), the user has zero signal about WHY the agent is
+ * stuck or what they were trying to do. The approval payload carries
+ * the missing context (subtaskTitle, specialist, lastError, attempts);
+ * this composer weaves it into a friendlier question.
+ *
+ * Decision matrix:
+ *   1. If `content` already reads like a specific question from the
+ *      specialist (>= 30 chars AND not equal to the generic fallback),
+ *      leave it alone — the specialist gave us something real.
+ *   2. Otherwise build a contextual fallback from `payload`:
+ *        "<Specialist> was working on <subtaskTitle> (attempt N).
+ *         Last hurdle: <lastError, scrubbed>.
+ *         What should they focus on?"
+ *      Empty fields are dropped gracefully so a missing `lastError`
+ *      doesn't produce "Last hurdle: undefined."
+ *   3. Internal-error traces in `lastError` (Parser could not extract
+ *      JSON, HTTP 429, <!doctype html>, etc.) get scrubbed via
+ *      `looksLikeInternalErrorTrace` — they're not useful to the user
+ *      and reading them as "what went wrong" would be misleading.
+ */
+function enrichBlockedQuestion(stripped: string, payload: Record<string, unknown>): string {
+    const GENERIC = 'I need more direction to keep going. What should I focus on?';
+    const isGeneric = stripped === GENERIC || stripped.trim().length < 30;
+    if (!isGeneric) return stripped;
+
+    const specialist = typeof payload.specialist === 'string' ? capitalize(payload.specialist) : 'Your helper';
+    const subtaskTitle = typeof payload.subtaskTitle === 'string' ? payload.subtaskTitle : null;
+    const attempts = typeof payload.attempts === 'number' ? payload.attempts : null;
+    const rawLastError = typeof payload.lastError === 'string' ? payload.lastError : null;
+    // Scrub internal traces — they're noise.
+    const lastError = rawLastError && !looksLikeInternalErrorTrace(rawLastError)
+        ? rawLastError.slice(0, 200).trim()
+        : null;
+
+    const parts: string[] = [];
+    if (subtaskTitle) {
+        parts.push(`${specialist} is working on "${shortenLine(subtaskTitle, 80)}"`);
+    } else {
+        parts.push(`${specialist} is working on your mission`);
+    }
+    if (attempts && attempts > 1) {
+        parts[parts.length - 1] += ` (attempt ${attempts})`;
+    }
+    parts[parts.length - 1] += ' but got stuck.';
+
+    if (lastError) {
+        parts.push(`Last hurdle: ${lastError}${rawLastError && rawLastError.length > 200 ? '…' : ''}`);
+    } else if (rawLastError) {
+        // We scrubbed it as an internal trace — give the user a heads-up
+        // it exists without dumping the trace itself.
+        parts.push(`There was a technical hiccup the team couldn't recover from on their own.`);
+    }
+
+    parts.push(`What should they focus on? Pick a reply below — or type your own.`);
+    return parts.join(' ');
+}
+
+function capitalize(s: string): string {
+    if (!s) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function shortenLine(s: string, max: number): string {
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1).trimEnd() + '…';
 }
 
 /**

@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.29 — 2026-05-13 — Blocked questions explain themselves
+
+> Tony screenshotted his MLK essay mission: Writer used web_search,
+> web_fetch, write_file, read_file — clearly did real work — then the
+> question bubble said only "I need more direction to keep going.
+> What should I focus on?" with three quick-reply buttons. **No
+> indication of what the agent was doing, what they got stuck on,
+> or why they need direction.**
+
+### Root cause
+
+Two layers of generic-fallback stacking:
+
+1. When a specialist's structured-spawn JSON doesn't parse,
+   StructuredSpawn does a "Reformat pass" via minimax-m2.7. If that
+   also can't extract a meaningful status, it returns the safe
+   fallback `status: needs_info, confidence: 0.5` with no specific
+   question.
+2. The goal driver wraps this in a generic question, and the
+   alpha.5 `stripDriverBoilerplate` strips the wrapper down to
+   nothing → falls back to the generic "I need more direction…"
+
+The approval payload had everything we needed all along
+(`subtaskTitle`, `specialist`, `lastError`, `attempts`), but the
+mission lifecycle bridge wasn't reading it. The bridge just took
+`payload.question` and called it a day.
+
+### Fix
+
+New `enrichBlockedQuestion()` helper in
+`src/agent/missionLifecycle.ts`. Runs after `stripDriverBoilerplate`.
+If the stripped result is the generic fallback or under 30 chars,
+weaves the approval payload context into a real sentence:
+
+  > "Writer is working on 'Write up a report on Martin Luther King…'
+  >  (attempt 1) but got stuck. Last hurdle: [scrubbed-if-internal-
+  >  trace lastError]. What should they focus on? Pick a reply below
+  >  — or type your own."
+
+Internal-error traces in `lastError` (Parser could not extract JSON,
+HTTP 429, `<!doctype html>`, etc.) get filtered out via the
+existing `looksLikeInternalErrorTrace` — those are noise to the
+user. When that filter catches the lastError, the question instead
+says "There was a technical hiccup the team couldn't recover from
+on their own."
+
+### Decision matrix
+
+  1. Real specialist question (≥30 chars, not the generic) → leave
+     it alone, the specialist gave us something useful.
+  2. Generic/empty → enrich from payload context.
+  3. Empty fields drop out gracefully — no "Last hurdle: undefined."
+
+---
+
 ## v6.1.0-alpha.28 — 2026-05-13 — Collapsible sidebar
 
 > Tony: "Move the spaces selector, its covering the admin button.
