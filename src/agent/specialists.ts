@@ -83,7 +83,7 @@ const HTML_REPORT_GUIDANCE = [
     '    • Tags: <h1>/<h2>/<h3>, <p>, <ul>/<ol>, <table>, <blockquote>, <a>, <figure>+<figcaption>, <img>.',
     '    • CSS: serif body font, ~1.6 line-height, max-width ~720px centered, a single accent color, generous margins. Make it look like a finished document, not a wall of text.',
     '    • Charts: hand-build inline `<svg>` (bars, sparklines, scatter, simple line charts). A 360×200 SVG with rects + text labels beats a missing chart. Use the accent color for data, neutral grey for axes/grid.',
-    '    • Images: use `<img src="https://…" alt="…" />` for external images you found via web_search/web_fetch — DO NOT inline base64. If you couldn\'t find a real image, omit the figure rather than fabricate one. Always include the `alt` text.',
+    '    • Images: when you find a real image URL via web_search / web_fetch, call **download_image({ url })** first. It returns `{ dataUrl }` — a base64 data URL. Embed THAT as the src: `<img src="data:image/jpeg;base64,…" alt="…" />`. This makes the report portable (no broken hotlinks, no CORS / referer / sandbox drama). NEVER use a raw external `<img src="https://…">` link in your HTML; the viewer can\'t reliably load those. If you can\'t find a real source URL, OMIT the image rather than fabricate. Always include `alt` text.',
     '    • Citations: every claim that came from web_search/web_fetch gets a clickable `<a href="…">` link inline OR a numbered footnote-style `<sup><a href="…">[1]</a></sup>` pattern with a "Sources" `<section>` at the bottom.',
     '',
     '  Short answers stay inline in chat — HTML is only for things the user will want to view as a document.',
