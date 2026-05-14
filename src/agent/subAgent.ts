@@ -20,6 +20,7 @@ import { acquireAgent, releaseAgent, createPooledAgent, type PooledAgent } from 
 import { getActivePersonaContent } from '../personas/manager.js';
 import { assembleSystemPrompt } from './systemPromptParts.js';
 import { recordJournalEvent } from './durableJournal.js';
+import { emitAgentEvent } from './agentEvents.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -637,9 +638,42 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 toolCalls: response.toolCalls,
             });
 
-            // Emit tool_call events for Agent Watcher
-            if (config.streamCallbacks?.onToolCall) {
-                for (const tc of response.toolCalls!) { config.streamCallbacks.onToolCall(tc.function.name, JSON.parse(tc.function.arguments || "{}")); }
+            // Emit tool_call events for Agent Watcher + Mission Chat
+            // v6.1.0-alpha.40 — also broadcast on the agentEvents bus so
+            // the Mission lifecycle bridge can pick them up and turn each
+            // into a desk-side activity sticky. Pre-alpha.40 the events
+            // only went through `streamCallbacks.onToolCall` (Agent
+            // Watcher's UI), which is a per-call closure — the Mission
+            // bridge subscribes to the GLOBAL bus and never saw them, so
+            // activity stickies stayed empty no matter how many web_search
+            // / web_fetch / write_file calls the specialists fired.
+            for (const tc of response.toolCalls!) {
+                let parsedArgs: Record<string, unknown> = {};
+                try { parsedArgs = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>; }
+                catch { /* unparseable args → empty object */ }
+                if (config.streamCallbacks?.onToolCall) {
+                    config.streamCallbacks.onToolCall(tc.function.name, parsedArgs);
+                }
+                try {
+                    emitAgentEvent({
+                        type: 'tool_call',
+                        agentId: agentName,
+                        agentName,
+                        timestamp: Date.now(),
+                        // v6.1.0-alpha.41 — include goalId so the mission
+                        // lifecycle bridge can correlate this tool_call
+                        // back to the mission room. Pre-alpha.41 the
+                        // event was emitted without goalId, so the bridge
+                        // (which short-circuits on `!data.goalId`)
+                        // silently dropped every one and the activity
+                        // stickies on the desk stayed empty.
+                        data: {
+                            goalId: config.goalId,
+                            name: tc.function.name,
+                            args: parsedArgs,
+                        },
+                    });
+                } catch { /* event bus failure must never break the spawn */ }
             }
             // Phase 9: per-tool error handling — one failing tool must not kill the session
             const toolResults: ToolResult[] = [];

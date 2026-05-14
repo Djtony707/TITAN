@@ -281,6 +281,16 @@ export function isSelfReferentialGoal(
         // but in practice the dreaming proposer only emits it
         // pointed at test-infrastructure / autonomy infra.
         /\binvestigate\s+why\s+\w+\s+(state|infrastructure|system|tests?)\s+cannot/i,
+        // v6.1.0-alpha.42 — caught in the wild as goal `5727f1df`
+        // ("Consolidate duplicate active goals"). The autonomous
+        // proposer noticed Tony had multiple similar goals and
+        // proposed a META goal to dedupe them itself — same class
+        // of self-referential autonomy that test-infra goals are.
+        // Block it.
+        /\bconsolidate\s+(duplicate|active)\s+\w*\s*goals?\b/i,
+        /\bdedup\w*\s+\w*\s*goals?\b/i,
+        /\bclean(\s*up)?\s+\w*\s*goals?\b/i,
+        /\bmerge\s+\w*\s*goals?\b/i,
     ];
     const selfModTagValues = new Set([
         'self-healing', 'self-repair', 'self-mod', 'self-modification',
