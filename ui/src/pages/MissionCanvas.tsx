@@ -797,7 +797,7 @@ function ItemBody({
   onOpenFile: (ref: string) => void;
   onAnswer: (approvalId: string, answer: string) => void;
 }) {
-  if (item.kind === 'goal') return <GoalPlacard goal={room.goal} />;
+  if (item.kind === 'goal') return <GoalPlacard goal={room.goal} status={room.status} />;
   if (item.kind === 'document') return <DocumentPaper room={room} />;
   if (item.kind === 'cost') return <CostInkwell room={room} />;
   if (item.kind === 'clock') return <DeskClock room={room} />;
@@ -824,7 +824,20 @@ function ItemBody({
   return null;
 }
 
-function GoalPlacard({ goal }: { goal: string }) {
+function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['status'] }) {
+  // v6.1.0-alpha.30 — status label was hardcoded to "signed off — TITAN"
+  // which Tony correctly flagged as misleading: it sounded like the work
+  // was already done/approved when the mission had just started. The
+  // placard now reflects the real mission status.
+  const labels: Record<MissionRoom['status'], { text: string; dotColor: string; dotGlow: string }> = {
+    forming: { text: 'forming the team…',     dotColor: '#c4a14a', dotGlow: '#c4a14a' },
+    working: { text: 'in progress — TITAN',   dotColor: '#8ed1ff', dotGlow: '#8ed1ff' },
+    paused:  { text: 'paused — your call',    dotColor: '#d9c08c', dotGlow: '#d9c08c' },
+    blocked: { text: 'needs your input',      dotColor: '#ff9c9c', dotGlow: '#ff9c9c' },
+    done:    { text: 'complete · signed off', dotColor: '#22c55e', dotGlow: '#22c55e' },
+    failed:  { text: 'stopped — see chat',    dotColor: '#ef4444', dotGlow: '#ef4444' },
+  };
+  const meta = labels[status] ?? labels.working;
   return (
     <div
       className="w-[420px] px-5 py-3.5 text-[#f3e9d0]"
@@ -840,8 +853,11 @@ function GoalPlacard({ goal }: { goal: string }) {
       <div className="text-[10px] uppercase tracking-[0.22em] text-[#d9c08c] mb-1">Your mission</div>
       <div className="text-[15px] leading-snug font-semibold tracking-tight">{goal}</div>
       <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#d9c08c]/70">
-        <span className="inline-block w-2 h-2 rounded-full bg-[#c4a14a] shadow-[0_0_6px_#c4a14a]" />
-        <span>signed off — TITAN</span>
+        <span
+          className={`inline-block w-2 h-2 rounded-full ${status === 'working' || status === 'blocked' || status === 'forming' ? 'animate-pulse' : ''}`}
+          style={{ background: meta.dotColor, boxShadow: `0 0 6px ${meta.dotGlow}` }}
+        />
+        <span>{meta.text}</span>
       </div>
     </div>
   );
