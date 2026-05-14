@@ -5,6 +5,52 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.33 — 2026-05-13 — Trash bin is openable, restore-or-delete-forever
+
+> Tony: "I want to be able to go into the trash bin and either bring
+> back the trashed items or delete them for good please."
+
+### What you can do now
+
+- **Click the wastebasket** → opens a drawer overlay (same shape as
+  the filing cabinet drawer, rose-toned chrome for danger).
+- Each row shows the icon, label, and detail of a tossed item.
+- Two buttons per row:
+  - **↩ to desk** — restores the item to the desk at its last known
+    pose. Non-destructive — same as dragging from cabinet.
+  - **✕ Delete forever** — confirms first (`window.confirm`), then
+    permanently hides the item. Never renders again, even after
+    reload. UI-only: the underlying mission file/note isn't deleted
+    on disk.
+
+### Implementation
+
+`DeskFurniture` (per-mission localStorage) grew two fields:
+
+  - `permanentlyHidden: string[]` — items the user nuked via "Delete
+    forever". `isHidden()` checks this list alongside the existing
+    `cabinet` and `trash` arrays.
+  - `trashOpen: boolean` — drawer open/closed state, mirroring
+    `cabinetOpen`.
+
+`Wastebasket` is now a `<button>` with the same drop-target attribute
+as before — drag-to-toss still works, click-to-open is the new
+affordance. `data-no-drag` keeps the canvas's drag wrapper from
+intercepting clicks on the basket.
+
+`TrashDrawer` is a near-twin of `CabinetDrawer` (same overlay shape,
+same Esc-close behavior) with rose accents and the second action
+button. Confirmation copy explicitly notes "UI-only — the underlying
+mission file/note isn't deleted on disk" so the user knows the disk
+record is still recoverable through the filesystem.
+
+Cabinet drawer now also recognizes activity stickies as a valid row
+type (alpha.31 added them as filable; alpha.33 makes them render
+with their proper label "Scout · 🔍 searched the web" instead of a
+generic id).
+
+---
+
 ## v6.1.0-alpha.32 — 2026-05-13 — Force HTML output for documents (no more .md essays)
 
 > Tony screenshotted his MLK essay: `/tmp/mlk_essay.md`. "Its still
