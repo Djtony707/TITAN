@@ -75,6 +75,18 @@ export interface MissionMember {
      * lands with the marathon-mode daemon next ship.
      */
     paused?: boolean;
+    /**
+     * v6.1.0-alpha.31 — rolling activity log per agent. Each entry is
+     * a snippet of what the agent was doing (typically a tool call:
+     * "searched: MLK 1963", "fetched: nytimes.com/...", "wrote: …").
+     * The Mission Canvas renders these as live sticky notes on the
+     * wood desk so the user sees research accumulate in real time
+     * even before the agent's final agent_done event fires.
+     *
+     * Capped at 8 most recent entries per agent at write time so the
+     * mission JSON file stays bounded.
+     */
+    activityLog?: Array<{ at: string; icon: string; activity: string; detail?: string }>;
 }
 
 /** One row in the chat thread. */
@@ -609,6 +621,36 @@ export function setMemberPaused(
     member.paused = paused;
     commit(room);
     emit('agent_state_changed', missionId, { agentId, paused });
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.31 — append an activity entry to an agent's rolling
+ * log. Capped at 8 most recent entries per agent so the mission JSON
+ * stays bounded. Emits an `agent_state_changed` event so the canvas
+ * picks it up immediately via SSE.
+ */
+export function appendMemberActivity(
+    missionId: string,
+    agentId: string,
+    entry: { icon: string; activity: string; detail?: string },
+): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    const member = room.team.find(m => m.agentId === agentId);
+    if (!member) return room;
+    const log = Array.isArray(member.activityLog) ? [...member.activityLog] : [];
+    // De-dupe consecutive identical activity (a tool that fires many
+    // times in a row shouldn't pile up identical stickies).
+    const last = log[log.length - 1];
+    if (last && last.icon === entry.icon && last.activity === entry.activity && last.detail === entry.detail) {
+        return room;
+    }
+    log.push({ at: new Date().toISOString(), ...entry });
+    // Keep only the 8 most recent.
+    member.activityLog = log.slice(-8);
+    commit(room);
+    emit('agent_state_changed', missionId, { agentId, activityLog: member.activityLog });
     return room;
 }
 

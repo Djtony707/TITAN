@@ -27,6 +27,7 @@ import {
     postAgentMessage,
     postSystemMessage,
     setMemberState,
+    appendMemberActivity,
     setStatus,
     raiseQuestion,
     recordCost,
@@ -80,12 +81,27 @@ function ensureGlobalBusBridge(): void {
                 }
                 case 'tool_call': {
                     const name = typeof data.name === 'string' ? data.name : 'tool';
-                    // v6.1.0-alpha.5 — be defensive: ensure the member
-                    // exists before setting state. Tool calls fire from
-                    // mid-spawn — the specialist could be one the goal
-                    // driver routed to outside the predicted team.
                     ensureMember(mission.id, agentId);
                     setMemberState(mission.id, agentId, 'working', shortenActivity(`running ${name}`));
+                    // v6.1.0-alpha.31 — also push a live activity sticky
+                    // to the desk for research-y tool calls. Tony's
+                    // direct ask: "I liked the way we had it before
+                    // when the Agents put sticky notes on the desk
+                    // when working, with their research data so I can
+                    // see what they are doing." The activityLog
+                    // accumulates here per-agent and the canvas reads
+                    // it into draggable sticky notes.
+                    try {
+                        const args = (typeof data.args === 'object' && data.args !== null)
+                            ? (data.args as Record<string, unknown>)
+                            : {};
+                        const sticky = buildActivitySticky(name, args);
+                        if (sticky) {
+                            appendMemberActivity(mission.id, agentId, sticky);
+                        }
+                    } catch (err) {
+                        logger.debug(COMPONENT, `Activity sticky build threw: ${(err as Error).message}`);
+                    }
                     break;
                 }
                 case 'tool_end': {
@@ -881,6 +897,128 @@ interface CPApprovalLike {
  * SSE stream; the UI applies its own visual treatment (wrap + max-width +
  * title attribute) so even this length renders cleanly.
  */
+/**
+ * v6.1.0-alpha.31 — turn a raw `tool_call` event into a friendly
+ * sticky-note entry for the agent's activityLog. Returns null if the
+ * tool isn't one we want to surface (silent background tools like
+ * `memory_store`, `system_info`, etc. shouldn't clutter the desk).
+ *
+ * Each known research/work tool maps to:
+ *   - icon: a single emoji that reads at sticky-note scale
+ *   - activity: one-line summary ("searched", "fetched", "wrote")
+ *   - detail: the most informative argument value, truncated
+ *
+ * Unknown tools fall through to a generic "used <name>" — visible but
+ * lightweight, so the user still sees activity even for tools we
+ * haven't explicitly mapped.
+ */
+function buildActivitySticky(
+    name: string,
+    args: Record<string, unknown>,
+): { icon: string; activity: string; detail?: string } | null {
+    const pickStr = (...keys: string[]): string | undefined => {
+        for (const k of keys) {
+            const v = args[k];
+            if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+        }
+        return undefined;
+    };
+    const truncate = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1).trimEnd() + '…';
+
+    switch (name) {
+        case 'web_search':
+        case 'browser_search': {
+            const query = pickStr('query', 'q', 'search');
+            return { icon: '🔍', activity: 'searched the web', detail: query ? truncate(query, 100) : undefined };
+        }
+        case 'web_fetch':
+        case 'browse_url':
+        case 'web_read': {
+            const url = pickStr('url', 'href');
+            return { icon: '🌐', activity: 'read a page', detail: url ? truncate(url, 100) : undefined };
+        }
+        case 'web_browse_llm':
+        case 'browser': {
+            const target = pickStr('url', 'task');
+            return { icon: '🌐', activity: 'browsed', detail: target ? truncate(target, 100) : undefined };
+        }
+        case 'write_file':
+        case 'append_file':
+        case 'edit_file':
+        case 'apply_patch': {
+            const path = pickStr('path', 'file', 'filename');
+            return { icon: '✍️', activity: 'wrote a file', detail: path ? truncate(path, 100) : undefined };
+        }
+        case 'read_file': {
+            const path = pickStr('path', 'file', 'filename');
+            return { icon: '📖', activity: 'read a file', detail: path ? truncate(path, 100) : undefined };
+        }
+        case 'list_dir': {
+            const path = pickStr('path', 'dir');
+            return { icon: '📂', activity: 'listed a folder', detail: path ? truncate(path, 100) : undefined };
+        }
+        case 'shell':
+        case 'exec':
+        case 'code_exec':
+        case 'execute_code': {
+            const cmd = pickStr('command', 'cmd', 'code');
+            return { icon: '⚙️', activity: 'ran a command', detail: cmd ? truncate(cmd, 100) : undefined };
+        }
+        case 'memory':
+        case 'graph_remember':
+        case 'memory_store': {
+            const fact = pickStr('content', 'fact', 'value', 'key');
+            return { icon: '💡', activity: 'memorized', detail: fact ? truncate(fact, 100) : undefined };
+        }
+        case 'graph_search':
+        case 'graph_recall':
+        case 'rag_search':
+        case 'kb_search': {
+            const q = pickStr('query', 'q');
+            return { icon: '🧠', activity: 'recalled', detail: q ? truncate(q, 100) : undefined };
+        }
+        case 'screenshot':
+        case 'browser_screenshot': {
+            return { icon: '📷', activity: 'took a screenshot' };
+        }
+        case 'generate_image':
+        case 'edit_image':
+        case 'image_gen': {
+            const prompt = pickStr('prompt', 'description');
+            return { icon: '🎨', activity: 'drew an image', detail: prompt ? truncate(prompt, 100) : undefined };
+        }
+        case 'analyze_image':
+        case 'vision': {
+            return { icon: '👁️', activity: 'looked at an image' };
+        }
+        case 'github_repos':
+        case 'github_issues':
+        case 'github_prs':
+        case 'github_commits':
+        case 'github_files': {
+            return { icon: '🐙', activity: name.replace('github_', 'checked GitHub '), detail: pickStr('repo', 'owner') };
+        }
+        // Silent / housekeeping tools — don't surface, keeps the desk tidy.
+        case 'system_info':
+        case 'current_model':
+        case 'sessions_list':
+        case 'sessions_history':
+        case 'list_uploads':
+        case 'list_active_widgets':
+        case 'goal_list':
+        case 'list_personas':
+        case 'get_persona':
+        case 'list_spaces':
+        case 'interaction_log':
+        case 'feedback_submit':
+            return null;
+        default:
+            // Unknown tool — surface a generic sticky so the user still
+            // sees the agent is doing something. Avoid noisy parameters.
+            return { icon: '🛠️', activity: `used ${name}` };
+    }
+}
+
 function shortenActivity(s: string | undefined): string | undefined {
     if (!s) return undefined;
     const trimmed = s.trim();
