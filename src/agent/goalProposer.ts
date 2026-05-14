@@ -382,7 +382,7 @@ export function normalizeProposal(raw: unknown): ProposedGoal | null {
         const target = selfModBlock?.target || '/opt/TITAN';
         // Ensure the canonical 'self-mod' tag is present so toolRunner sees it
         tags = tags ? [...tags] : [];
-        if (!tagsLower.has('self-mod')) tags.push('self-mod');
+        if (!tags.some(t => t.toLowerCase() === 'self-mod')) tags.push('self-mod');
         tags = tags.slice(0, 6);
 
         // Append an unmistakable scope-lock note to the description — the

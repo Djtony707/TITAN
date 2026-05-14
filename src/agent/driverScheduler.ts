@@ -69,16 +69,18 @@ export async function ensureDrivers(): Promise<{ started: number; active: number
             // re-appearing in the candidate list.
             if (isSelfReferentialGoal(g.title, g.description ?? '', g.tags)) {
                 try {
-                    updateGoal(g.id, { status: 'cancelled' });
+                    // Goal model has no 'cancelled' status — convention is 'failed' (same as
+                    // goalDriver tickBlocked when a daemon goal auto-cancels itself).
+                    updateGoal(g.id, { status: 'failed' });
                     reconciled++;
                     logger.warn(
                         COMPONENT,
-                        `Auto-cancelled self-referential goal ${g.id} ("${g.title.slice(0, 60)}") — ` +
+                        `Auto-failed self-referential goal ${g.id} ("${g.title.slice(0, 60)}") — ` +
                         `caught by retroactive alpha.38 gate. The goal proposer's gate blocks NEW ` +
                         `proposals; this catches pre-existing ones on disk.`,
                     );
                 } catch (err) {
-                    logger.warn(COMPONENT, `Failed to auto-cancel self-mod goal ${g.id}: ${(err as Error).message}`);
+                    logger.warn(COMPONENT, `Failed to auto-fail self-mod goal ${g.id}: ${(err as Error).message}`);
                 }
                 continue;
             }
