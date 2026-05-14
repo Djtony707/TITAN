@@ -5,6 +5,68 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.37 — 2026-05-13 — Agents download images, embed as base64
+
+> Tony: "Still not working. Maybe instead of linking, the AI Agent
+> downloads the images?"
+
+Right call. Five rounds of iframe sandbox / referrer / CORS / CSP /
+Shadow-DOM tuning never reliably loaded external `<img src="https://…">`
+links. The fundamental answer was simpler — **don't link, embed**.
+
+### New tool: `download_image`
+
+New built-in skill at `src/skills/builtin/download_image.ts`:
+
+  - Takes a URL.
+  - Fetches the image **server-side** (no CORS / browser-sandbox to
+    fight). Uses the same internal-URL block + 20s timeout as
+    `web_fetch`.
+  - Returns a `data:image/jpeg;base64,…` URL in the response.
+  - Caps individual images at 4 MB raw (≈5.3 MB base64) so a
+    pathological "image" can't blow out the HTML doc.
+
+The agent's workflow becomes:
+  1. Find image URL via `web_search` / `web_fetch`.
+  2. Call `download_image({ url })` → returns `{ ok: true, dataUrl,
+     mimeType, sizeBytes }`.
+  3. Embed `dataUrl` directly: `<img src="data:image/jpeg;base64,…"
+     alt="…" />`.
+
+### Why this fixes it permanently
+
+A base64 data URL doesn't make a network request. There's no
+referrer, no CORS, no opaque origin, no sandbox. The browser
+decodes the bytes inline. **The HTML is self-contained** — you can
+download the file, email it to someone, host it elsewhere — the
+image goes with it.
+
+### Prompt updated
+
+`HTML_REPORT_GUIDANCE` in `specialists.ts` rewritten for the images
+bullet:
+
+  > **Images: when you find a real image URL via web_search /
+  > web_fetch, call `download_image({ url })` first. It returns
+  > `{ dataUrl }` — a base64 data URL. Embed THAT as the src.
+  > NEVER use a raw external `<img src="https://…">` link; the
+  > viewer can't reliably load those. If you can't find a real
+  > source URL, OMIT the image rather than fabricate.**
+
+Wired into:
+  - `src/skills/registry.ts` — bundled with the other web skills.
+  - `package.json` tsup entry list — gets compiled into `dist/`.
+
+### Trade-off
+
+Base64 adds ~33% overhead per image. An essay with 3–5 images at
+typical web resolution still ends up well under 1 MB. The 4 MB raw
+cap per image keeps the doc bounded. For reports that need many
+images, the agent can pick smaller resolutions or use CDN URLs with
+size parameters before downloading.
+
+---
+
 ## v6.1.0-alpha.36 — 2026-05-13 — Stop fighting iframes — Shadow DOM HTML viewer
 
 > Tony, after alpha.35: another screenshot, same broken-image icons.

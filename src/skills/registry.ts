@@ -221,6 +221,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerSessionsSkill } = await import('./builtin/sessions.js');
     const { registerProcessSkill } = await import('./builtin/process.js');
     const { registerWebFetchSkill } = await import('./builtin/web_fetch.js');
+    const { registerDownloadImageSkill } = await import('./builtin/download_image.js');
     const { registerApplyPatchSkill } = await import('./builtin/apply_patch.js');
     const { registerAutoGenerateSkill } = await import('./builtin/auto_generate.js');
     const { registerVisionSkill } = await import('./builtin/vision.js');
@@ -321,6 +322,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['sessions', registerSessionsSkill],
         ['process', registerProcessSkill],
         ['web_fetch', registerWebFetchSkill],
+        ['download_image', registerDownloadImageSkill],
         ['apply_patch', registerApplyPatchSkill],
         ['auto_generate', registerAutoGenerateSkill],
         ['vision', registerVisionSkill],
