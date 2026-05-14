@@ -63,6 +63,11 @@ export interface StructuredSpawnOpts {
     maxRounds?: number;
     /** Additional system context appended to the specialist's prompt. */
     extraContext?: string;
+    /** v6.1.0-alpha.41 — goalId for tool_call event correlation. When
+     *  set, every `tool_call` event emitted on the agent bus carries
+     *  `data.goalId` so the Mission lifecycle bridge can route it to
+     *  the right mission room (and drop a desk-side activity sticky). */
+    goalId?: string;
 }
 
 // ── Tail instruction that forces the JSON output ─────────────────
@@ -378,6 +383,7 @@ export async function structuredSpawn(opts: StructuredSpawnOpts): Promise<Struct
             model,
             maxRounds: opts.maxRounds ?? 10,
             tools: opts.toolAllowlist,
+            goalId: opts.goalId,
         });
 
         const raw = result?.content || '';

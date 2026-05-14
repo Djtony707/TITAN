@@ -464,6 +464,10 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             modelOverride: strategy.modelOverride,
             toolAllowlist: routeForKind(subState.kind).toolAllowlist,
             maxRounds: strategy.maxRounds,
+            // v6.1.0-alpha.41 — thread goalId so subAgent's tool_call
+            // events carry data.goalId and the lifecycle bridge can
+            // correlate them back to the mission room.
+            goalId: goal.id,
         });
         const durationMs = Date.now() - startMs;
 
