@@ -741,7 +741,23 @@ async function tickVerifying(goal: Goal, state: DriverState): Promise<void> {
         } catch { /* ok */ }
         appendHistory(state, 'delegating', `Subtask ${currentId} verified: ${verifyResult.reason.slice(0, 120)}`);
         state.currentSubtaskId = undefined;
-        state.phase = 'delegating';
+
+        // Bug #3 fix — v6.1.0-alpha.43: when the subtask we just
+        // verified was the LAST remaining pending subtask, jump
+        // straight to 'reporting' rather than back through
+        // 'delegating'. Going through delegating left the goal
+        // stuck in 'active' forever when the scheduler stopped
+        // driving it after this tick.
+        const goalSubs = goal.subtasks || [];
+        const allResolved = goalSubs.every(
+            s => s.status === 'done' || s.status === 'failed' || s.status === 'skipped',
+        );
+        if (allResolved) {
+            state.phase = 'verifying'; // next tick → whole-goal verify → reporting
+            appendHistory(state, 'verifying', 'Last subtask resolved — final whole-goal verify');
+        } else {
+            state.phase = 'delegating';
+        }
     } else {
         subState.lastError = `Verification failed: ${verifyResult.reason}`;
         appendHistory(state, 'iterating', `Verification failed: ${verifyResult.reason.slice(0, 120)}`);
@@ -851,6 +867,30 @@ async function tickBlocked(goal: Goal, state: DriverState): Promise<void> {
             state.blockedReason = undefined;
             state.phase = 'iterating';
             appendHistory(state, 'iterating', `Force-unblocked: ${note}`);
+            return;
+        }
+
+        // Bug #6 fix — v6.1.0-alpha.43: if the approval is still
+        // "pending" after 15 minutes, the human is unlikely to answer
+        // soon (asleep, away, etc.). Auto-reject it so the goal
+        // doesn't stay blocked forever. The specialist will retry
+        // with a fresh attempt rather than spinning.
+        const STALE_PENDING_MS = 15 * 60 * 1000;
+        if (approval.status === 'pending' && sinceMs > STALE_PENDING_MS) {
+            try {
+                const { rejectApproval } = await import('./commandPost.js');
+                rejectApproval(approvalId, 'auto:timeout', `Auto-rejected after ${Math.round(sinceMs / 60000)}min with no human response`);
+            } catch { /* ok */ }
+            const currentId = state.currentSubtaskId;
+            if (currentId && state.subtaskStates[currentId]) {
+                const sub = state.subtaskStates[currentId];
+                sub.attempts = Math.floor(sub.attempts / 2);
+                sub.consecutiveIdenticalErrors = 0;
+                sub.lastError = 'Auto-rejected: question timed out (no human response within 15 min). Retry with your best interpretation.';
+            }
+            state.blockedReason = undefined;
+            state.phase = 'iterating';
+            appendHistory(state, 'iterating', `Stale pending approval ${approvalId} auto-rejected after ${Math.round(sinceMs / 60000)}min — iterating with fresh attempt`);
             return;
         }
     }

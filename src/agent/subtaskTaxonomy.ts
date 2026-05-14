@@ -127,8 +127,8 @@ export function classifySubtask(subtask: Pick<Subtask, 'title' | 'description'>)
     // Requires BOTH an artifact verb AND an artifact-noun (or file path)
     // so we don't hijack genuinely analytical tasks like "design an
     // experiment" where "experiment" isn't a concrete artifact.
-    const ARTIFACT_VERBS = /\b(design|implement|build|create|add|generate|produce|integrate|refactor|wire|extract|scaffold|port|migrate)\b/i;
-    const ARTIFACT_NOUNS = /\b(dashboard|panel|endpoint|component|schema|pipeline|hook|module|script|api|handler|route|service|adapter|provider|skill|widget|form|page|watcher|sweeper|manager|layer|middleware|bridge|plugin|resolver|listener)\b/i;
+    const ARTIFACT_VERBS = /\b(design|implement|build|create|add|generate|produce|integrate|refactor|wire|extract|scaffold|port|migrate|download|embed|save)\b/i;
+    const ARTIFACT_NOUNS = /\b(dashboard|panel|endpoint|component|schema|pipeline|hook|module|script|api|handler|route|service|adapter|provider|skill|widget|form|page|watcher|sweeper|manager|layer|middleware|bridge|plugin|resolver|listener|images|file|files|report|essay|document|html|gallery)\b/i;
     if (ARTIFACT_VERBS.test(text) && (ARTIFACT_NOUNS.test(text) || /[\w-]+\.(ts|tsx|js|jsx|py|rs|go|sh|sql|md|yaml|yml)\b/i.test(text))) {
         return 'code';
     }
