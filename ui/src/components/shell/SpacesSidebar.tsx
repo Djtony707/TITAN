@@ -15,7 +15,6 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { SponsorFooter } from '../SponsorFooter';
 
 interface PersistedSpace {
   id: string;
@@ -229,15 +228,16 @@ export function SpacesSidebar() {
         })}
       </nav>
 
-      <div className="px-3 py-2 border-t border-[#1f2937] flex flex-col gap-1.5">
+      <div className="px-3 py-2 border-t border-[#1f2937]">
         <a
           href="/command-post"
           className="text-[11px] text-[#71717a] hover:text-[#d4d4d8] flex items-center gap-1"
         >
           ⚙ Admin
         </a>
-        {/* v6.1.0-alpha.21 — sponsor link, muted, one per visible surface. */}
-        <SponsorFooter />
+        {/* v6.1.0-alpha.22 — sponsor link moved to a global mount in
+            AppShell (fixed bottom-center, highest z-index) so it never
+            gets covered by the sidebar. */}
       </div>
 
       {showCreate && (

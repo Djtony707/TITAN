@@ -20,7 +20,7 @@ import {
 } from '@/api/missions';
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 import { FileViewer } from '@/pages/mission/FileViewer';
-import { SponsorFooter } from '@/components/SponsorFooter';
+// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 export default function MissionChat() {
   const { id } = useParams<{ id: string }>();
@@ -301,10 +301,6 @@ export default function MissionChat() {
               to address one helper
             </span>
             <span>Press <b className="text-text-secondary">↵</b> to send</span>
-          </div>
-          {/* Quiet sponsor line — one per visible surface. */}
-          <div className="mt-1.5 flex justify-center">
-            <SponsorFooter />
           </div>
         </div>
       </footer>

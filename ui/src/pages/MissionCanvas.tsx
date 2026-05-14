@@ -59,7 +59,7 @@ import {
 } from '@/api/missions';
 import { FileViewer } from '@/pages/mission/FileViewer';
 import { AgentMenu, type AgentMenuAnchor } from '@/pages/mission/AgentMenu';
-import { SponsorFooter } from '@/components/SponsorFooter';
+// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 import { getModels } from '@/api/client';
 import type { ModelInfo } from '@/api/types';
 
@@ -598,10 +598,6 @@ export default function MissionCanvas() {
             />
             <span className="px-2 py-1 text-[10px] uppercase tracking-widest text-[#d9c08c] border border-[#8a6a3a]/60 rounded">↵</span>
           </form>
-        </div>
-        {/* Quiet sponsor line on the wood desk — caramel tone to match. */}
-        <div className="flex justify-center pt-1">
-          <SponsorFooter tone="wood" />
         </div>
       </footer>
 

@@ -10,6 +10,7 @@ import { FirstRunBanner } from '@/components/FirstRunBanner';
 import { OpenAuthBanner } from '@/components/OpenAuthBanner';
 import { apiFetch } from '@/api/client';
 import { VoiceProvider, useVoice } from '@/context/VoiceContext';
+import { SponsorFooter } from '@/components/SponsorFooter';
 
 // ── Titan 3.0 Canvas ────────────────────────────────────────
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
@@ -134,6 +135,28 @@ function AuthenticatedAppInner() {
           <VoiceOverlay onClose={closeVoice} />
         </Suspense>
       )}
+
+      {/*
+        v6.1.0-alpha.22 — Global sponsor mount.
+        Fixed at the bottom-center of the viewport with the highest
+        possible z-index so nothing (sidebars, modal backdrops,
+        canvas overlays, the voice overlay) can sit in front of it.
+        `pointer-events-none` on the wrapper so background clicks
+        still pass through; the link itself re-enables pointer events.
+
+        Tony's brief: "Put it center on the bottom of the screen so
+        nothing can be in front of it." All the previous in-page /
+        in-sidebar placements were removed — this is now the single
+        source of truth for the sponsor link in TITAN.
+      */}
+      <div
+        className="fixed bottom-1.5 left-0 right-0 flex justify-center pointer-events-none"
+        style={{ zIndex: 2147483647 }}
+      >
+        <div className="pointer-events-auto px-3 py-1 rounded-full bg-black/55 backdrop-blur-md shadow-lg">
+          <SponsorFooter />
+        </div>
+      </div>
     </ConfigProvider>
     </ToastProvider>
   );

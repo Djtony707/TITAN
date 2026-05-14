@@ -3,7 +3,6 @@ import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { Circle, Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import BodyStateIndicator from './BodyStateIndicator';
-import { SponsorFooter } from '../SponsorFooter';
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -103,9 +102,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
         {status.version && (
           <span className="text-text-secondary">TITAN {status.version}</span>
         )}
-
-        {/* v6.1.0-alpha.21 — sponsor link, muted. One per visible surface. */}
-        <SponsorFooter />
+        {/* v6.1.0-alpha.22 — sponsor moved to AppShell global mount. */}
       </div>
     </div>
   );

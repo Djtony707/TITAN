@@ -812,6 +812,54 @@ export default function TitanCanvas() {
             {space.name}
           </span>
           {/*
+            v6.1.0-alpha.22 — Mission Chat launcher pinned at the top
+            of every canvas page. Custom inline-SVG mark + a small
+            "NEW" badge with a steady pulse so it actually gets noticed.
+            Clicks navigate to /mission (the chat/desk start page).
+
+            Style intentionally distinct from the widget-add buttons —
+            slightly larger, gradient border, gold "NEW" pill — so the
+            eye picks it out as a different category of action.
+          */}
+          <button
+            onClick={() => navigate('/mission')}
+            className="group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full transition-all"
+            title="Open Mission Chat — a chat-style team-control surface with a real desk view"
+            style={{
+              background: 'linear-gradient(120deg, rgba(176,138,58,0.18) 0%, rgba(99,102,241,0.16) 100%)',
+              border: '1px solid rgba(176,138,58,0.45)',
+              boxShadow: '0 0 0 0 rgba(176,138,58,0.4)',
+            }}
+          >
+            {/* Inline SVG logo — a stylized desk with a paper sheet
+                and a sticky note, in 16×16. */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: '#f5d27a', flexShrink: 0 }}>
+              {/* desk surface */}
+              <path d="M3 17h18" strokeLinecap="round" />
+              <path d="M5 17V9a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8" />
+              {/* paper sheet */}
+              <rect x="8" y="9" width="6" height="6" rx="0.5" fill="rgba(247,245,238,0.85)" stroke="rgba(40,30,15,0.6)" strokeWidth="0.8" />
+              {/* sticky note (offset, rotated visual via overlap) */}
+              <rect x="13" y="10.5" width="4" height="4" rx="0.3" fill="rgba(255,242,168,0.95)" stroke="rgba(120,90,30,0.5)" strokeWidth="0.7" />
+              {/* desk legs */}
+              <path d="M7 17v3M17 17v3" strokeLinecap="round" />
+            </svg>
+            <span className="text-[11px] font-semibold tracking-tight text-[#f5d27a] group-hover:text-white">
+              Mission Chat
+            </span>
+            <span
+              className="text-[8px] font-bold uppercase tracking-widest text-bg-deep px-1.5 py-[1px] rounded-full"
+              style={{
+                background: 'linear-gradient(180deg, #ffd86e 0%, #b07a1a 100%)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.4)',
+                animation: 'missionPulse 2.4s ease-in-out infinite',
+              }}
+            >
+              NEW
+            </span>
+            <style>{`@keyframes missionPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.06); } }`}</style>
+          </button>
+          {/*
             Instructions row. Clicking opens the SpaceInstructionsEditor.
             Shows the current instructions preview when set, or a "+ Add
             agent instructions" affordance when empty — Tony's Space
