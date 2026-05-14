@@ -37,6 +37,9 @@ import {
     postUserMessage,
     answerQuestion,
     setStatus,
+    setMemberModelOverride,
+    setMemberPaused,
+    setLongRunningMode,
     onMissionEvent,
     type MissionEvent,
     type MissionRoom,
@@ -382,6 +385,76 @@ export function createMissionsRouter(adapter: MissionLifecycleAdapter = NOOP_ADA
             clearInterval(heartbeat);
             unsub();
         });
+    });
+
+    // ── Per-agent controls (v6.1.0-alpha.19) ──────────────────────
+    //
+    // The AgentMenu popover in MissionCanvas needs three knobs per
+    // agent: model override, paused-or-not, and a mission-wide
+    // marathon-mode toggle. All three are stored on the mission room
+    // and surfaced via the mission GET payload. The corresponding
+    // CONSUMER wiring (goal driver picking the override / skipping
+    // paused agents / running marathon mode) ships in alpha.20+ —
+    // see HANDOFF-2026-05-13.md.
+
+    /** Reusable owner-check + member resolver. */
+    function resolveAgent(req: Request, res: Response): { room: MissionRoom; agentId: string } | null {
+        const room = getMission(req.params.id);
+        if (!room) { res.status(404).json({ error: 'mission_not_found' }); return null; }
+        const userId = (req as Request & { userId?: string }).userId;
+        if (userId && room.ownerId && room.ownerId !== userId) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return null;
+        }
+        const agentId = String(req.params.agentId ?? '').trim();
+        if (!agentId) { res.status(400).json({ error: 'agentId required' }); return null; }
+        const member = room.team.find(m => m.agentId === agentId);
+        if (!member) { res.status(404).json({ error: 'agent_not_in_team' }); return null; }
+        return { room, agentId };
+    }
+
+    router.post('/:id/agent/:agentId/model', (req: Request, res: Response) => {
+        const ctx = resolveAgent(req, res);
+        if (!ctx) return;
+        const body = req.body as { model?: string | null };
+        // Accept explicit null/empty to clear, or a non-empty provider/model id.
+        const model = body?.model;
+        if (model !== null && model !== undefined && typeof model !== 'string') {
+            res.status(400).json({ error: 'model must be a string or null' });
+            return;
+        }
+        const next = setMemberModelOverride(ctx.room.id, ctx.agentId, model ?? null);
+        res.json({ ok: true, member: next?.team.find(m => m.agentId === ctx.agentId) });
+    });
+
+    router.post('/:id/agent/:agentId/pause', (req: Request, res: Response) => {
+        const ctx = resolveAgent(req, res);
+        if (!ctx) return;
+        const body = req.body as { paused?: boolean };
+        if (typeof body?.paused !== 'boolean') {
+            res.status(400).json({ error: 'paused (boolean) is required' });
+            return;
+        }
+        const next = setMemberPaused(ctx.room.id, ctx.agentId, body.paused);
+        res.json({ ok: true, member: next?.team.find(m => m.agentId === ctx.agentId) });
+    });
+
+    /** Mission-wide marathon-mode toggle. Body: `{ longRunningMode: boolean }`. */
+    router.post('/:id/mode', (req: Request, res: Response) => {
+        const room = getMission(req.params.id);
+        if (!room) { res.status(404).json({ error: 'mission_not_found' }); return; }
+        const userId = (req as Request & { userId?: string }).userId;
+        if (userId && room.ownerId && room.ownerId !== userId) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return;
+        }
+        const body = req.body as { longRunningMode?: boolean };
+        if (typeof body?.longRunningMode !== 'boolean') {
+            res.status(400).json({ error: 'longRunningMode (boolean) is required' });
+            return;
+        }
+        const next = setLongRunningMode(room.id, body.longRunningMode);
+        res.json({ ok: true, longRunningMode: next?.longRunningMode ?? false });
     });
 
     // ── File viewer ───────────────────────────────────────────────

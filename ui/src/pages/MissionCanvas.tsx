@@ -58,6 +58,9 @@ import {
   type MissionMember,
 } from '@/api/missions';
 import { FileViewer } from '@/pages/mission/FileViewer';
+import { AgentMenu, type AgentMenuAnchor } from '@/pages/mission/AgentMenu';
+import { getModels } from '@/api/client';
+import type { ModelInfo } from '@/api/types';
 
 const SLASH_COMMANDS: Array<{ cmd: string; label: string; hint: string }> = [
   { cmd: '/slow down',      label: 'Slow down',      hint: 'be more careful' },
@@ -88,8 +91,42 @@ function layoutKey(missionId: string): string { return `titan-desk:${missionId}`
 
 interface DeskItem {
   id: string;
-  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'question' | 'cost' | 'clock';
+  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'question' | 'cost' | 'clock' | 'cabinet' | 'trash';
   ref?: string;
+}
+
+/**
+ * Storage state for filing cabinet + wastebasket. Items inside one of
+ * these containers don't render on the desk; opening the cabinet shows
+ * them in a drawer. Trashed items render as wadded paper inside the
+ * basket (visual only — the underlying mission source isn't deleted
+ * since we don't yet have a backend delete endpoint for sources).
+ *
+ * Persisted to localStorage at `titan-desk-furniture:{missionId}` so the
+ * organization survives reloads independently of layout.
+ */
+interface DeskFurniture {
+  cabinet: string[]; // item ids filed away
+  trash: string[];   // item ids tossed
+  cabinetOpen: boolean;
+}
+
+function furnitureKey(missionId: string): string { return `titan-desk-furniture:${missionId}`; }
+function loadFurniture(missionId: string): DeskFurniture {
+  try {
+    const raw = localStorage.getItem(furnitureKey(missionId));
+    if (!raw) return { cabinet: [], trash: [], cabinetOpen: false };
+    const parsed = JSON.parse(raw) as Partial<DeskFurniture>;
+    return {
+      cabinet: Array.isArray(parsed.cabinet) ? parsed.cabinet : [],
+      trash: Array.isArray(parsed.trash) ? parsed.trash : [],
+      cabinetOpen: Boolean(parsed.cabinetOpen),
+    };
+  } catch { return { cabinet: [], trash: [], cabinetOpen: false }; }
+}
+function saveFurniture(missionId: string, f: DeskFurniture): void {
+  try { localStorage.setItem(furnitureKey(missionId), JSON.stringify(f)); }
+  catch { /* ignore */ }
 }
 
 interface FileSource { ref: string; description?: string; type: 'file' | 'report'; }
@@ -112,6 +149,23 @@ export default function MissionCanvas() {
     setLayout(next);
     if (id) saveLayout(id, next);
   }, [id]);
+
+  // Filing cabinet / wastebasket state — what's filed away, what's tossed.
+  const [furniture, setFurniture] = useState<DeskFurniture>({ cabinet: [], trash: [], cabinetOpen: false });
+  useEffect(() => { if (id) setFurniture(loadFurniture(id)); }, [id]);
+  const persistFurniture = useCallback((next: DeskFurniture) => {
+    setFurniture(next);
+    if (id) saveFurniture(id, next);
+  }, [id]);
+
+  // Available models for the AgentMenu's "Brain" picker.
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  useEffect(() => {
+    getModels().then(setModels).catch(() => setModels([]));
+  }, []);
+
+  // Agent menu — { agentId, anchor } when open.
+  const [agentMenu, setAgentMenu] = useState<{ agentId: string; anchor: AgentMenuAnchor } | null>(null);
 
   // FileViewer state — opened on double-clicking a file paper.
   const [openFile, setOpenFile] = useState<{ ref: string; loading: boolean; error?: string; file?: MissionFile } | null>(null);
@@ -218,6 +272,8 @@ export default function MissionCanvas() {
     out.push({ id: 'document', kind: 'document' });
     out.push({ id: 'cost', kind: 'cost' });
     out.push({ id: 'clock', kind: 'clock' });
+    out.push({ id: 'cabinet', kind: 'cabinet' });
+    out.push({ id: 'trash', kind: 'trash' });
     for (const m of room.team) {
       out.push({ id: `agent:${m.agentId}`, kind: 'agent', ref: m.agentId });
     }
@@ -233,6 +289,46 @@ export default function MissionCanvas() {
     return out;
   }, [room, fileSources, factSources, openQuestion]);
 
+  /** Whether an item is currently hidden (filed or trashed). */
+  const isHidden = useCallback((itemId: string) => {
+    return furniture.cabinet.includes(itemId) || furniture.trash.includes(itemId);
+  }, [furniture]);
+
+  /** Drop handler — fires when a Draggable is released over a
+   *  data-drop-target zone (cabinet or trash). */
+  const handleDrop = useCallback((itemId: string, target: string) => {
+    if (target === 'cabinet') {
+      persistFurniture({
+        ...furniture,
+        cabinet: [...new Set([...furniture.cabinet, itemId])],
+        trash: furniture.trash.filter(x => x !== itemId),
+      });
+      return true;
+    }
+    if (target === 'trash') {
+      persistFurniture({
+        ...furniture,
+        trash: [...new Set([...furniture.trash, itemId])],
+        cabinet: furniture.cabinet.filter(x => x !== itemId),
+      });
+      return true;
+    }
+    return false;
+  }, [furniture, persistFurniture]);
+
+  /** Restore a filed/trashed item back to the desk. */
+  const restoreItem = useCallback((itemId: string) => {
+    persistFurniture({
+      ...furniture,
+      cabinet: furniture.cabinet.filter(x => x !== itemId),
+      trash: furniture.trash.filter(x => x !== itemId),
+    });
+  }, [furniture, persistFurniture]);
+
+  const toggleCabinet = useCallback(() => {
+    persistFurniture({ ...furniture, cabinetOpen: !furniture.cabinetOpen });
+  }, [furniture, persistFurniture]);
+
   /** Compute initial pose for an item that has no saved layout yet. */
   const initialPose = useCallback((item: DeskItem, allItems: DeskItem[]): ItemPose => {
     // Canvas-area approximation; we use viewport-relative pixels. Recomputed
@@ -246,6 +342,8 @@ export default function MissionCanvas() {
     if (item.kind === 'document') return { x: cx - 240, y: cy - 220, z: 4, rotation: 0.4 };
     if (item.kind === 'cost') return { x: vw - 130, y: 90, z: 6, rotation: 2 };
     if (item.kind === 'clock') return { x: vw - 280, y: vh - 240, z: 7, rotation: -1.5 };
+    if (item.kind === 'cabinet') return { x: 30, y: vh - 280, z: 3, rotation: 0 };
+    if (item.kind === 'trash') return { x: vw - 130, y: vh - 220, z: 3, rotation: 0 };
     if (item.kind === 'question') return { x: cx + 120, y: 200, z: 30, rotation: -3 };
     if (item.kind === 'agent') {
       // Fan agent cards along the right edge initially.
@@ -353,6 +451,19 @@ export default function MissionCanvas() {
             <span className={`w-2 h-2 rounded-full ${blocked > 0 ? 'bg-error animate-pulse' : working > 0 ? 'bg-accent animate-pulse' : 'bg-success'}`} />
             <span className="text-[#e7d6a8]">{statusBlurb(room.status, working, blocked)}</span>
           </div>
+          {room.longRunningMode && (
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{
+                background: 'linear-gradient(90deg, rgba(245,210,122,0.18), rgba(176,138,58,0.18))',
+                border: '1px solid #b08a3a',
+                color: '#ffd86e',
+              }}
+              title="Marathon mode — long-running multi-agent collaboration (72h cap)"
+            >
+              🏃 Marathon
+            </div>
+          )}
           <button
             onClick={tidyUp}
             className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#e7d6a8] hover:text-white"
@@ -376,13 +487,23 @@ export default function MissionCanvas() {
       {/* Desk surface — everything is absolutely positioned on top. */}
       <div className="absolute inset-0 z-10 pointer-events-none">
         {items.map(item => {
+          if (isHidden(item.id)) return null;
           const pose = poseOf(item);
+          // Agent cards open the AgentMenu on click; everything else
+          // is a plain drag-and-drop tile. Files / facts can be dragged
+          // into cabinet or trash.
+          const isAgent = item.kind === 'agent';
+          const isFilable = item.kind === 'file' || item.kind === 'fact';
           return (
             <Draggable
               key={item.id}
               pose={pose}
               onGrab={() => bringToFront(item.id)}
               onPose={(p) => setPose(item.id, p)}
+              onClick={isAgent
+                ? (x, y) => setAgentMenu({ agentId: item.ref!, anchor: { x, y } })
+                : undefined}
+              onDrop={isFilable ? (target) => handleDrop(item.id, target) : undefined}
             >
               <ItemBody
                 item={item}
@@ -390,6 +511,8 @@ export default function MissionCanvas() {
                 openQuestion={openQuestion}
                 fileSources={fileSources}
                 factSources={factSources}
+                furniture={furniture}
+                onOpenCabinet={toggleCabinet}
                 onOpenFile={handleOpenFile}
                 onAnswer={onAnswer}
               />
@@ -397,6 +520,35 @@ export default function MissionCanvas() {
           );
         })}
       </div>
+
+      {/* Cabinet drawer overlay — shown when the cabinet is open. */}
+      {furniture.cabinetOpen && (
+        <CabinetDrawer
+          itemIds={furniture.cabinet}
+          items={items}
+          fileSources={fileSources}
+          factSources={factSources}
+          onRestore={restoreItem}
+          onOpenFile={handleOpenFile}
+          onClose={toggleCabinet}
+        />
+      )}
+
+      {/* AgentMenu popover */}
+      {agentMenu && (() => {
+        const m = room.team.find(t => t.agentId === agentMenu.agentId);
+        if (!m) return null;
+        const modelOptions = models.map(mi => ({ id: mi.id, label: mi.name, provider: mi.provider }));
+        return (
+          <AgentMenu
+            member={m}
+            room={room}
+            anchor={agentMenu.anchor}
+            availableModels={modelOptions}
+            onClose={() => setAgentMenu(null)}
+          />
+        );
+      })()}
 
       {/* Bottom rail — slash quick steers + steer input. Same layout as before. */}
       <footer className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-5 pt-3 flex flex-col gap-2 bg-gradient-to-t from-[#1d130a]/95 to-transparent">
@@ -463,24 +615,33 @@ interface DraggableProps {
   pose: ItemPose;
   onGrab: () => void;
   onPose: (pose: ItemPose) => void;
+  /** Optional — fires when mouseup happens without meaningful drag movement
+   *  (<5px total). Used by AgentCard to open AgentMenu on click. The click
+   *  event coordinates are passed so the popover can anchor to them. */
+  onClick?: (clientX: number, clientY: number) => void;
+  /** Optional — fires when the user releases over a drop zone. The drop
+   *  target id is determined by the element under the cursor at mouseup
+   *  carrying `data-drop-target="..."`. If onDrop returns true, the pose
+   *  is NOT persisted (the item was consumed by the drop target). */
+  onDrop?: (target: string) => boolean | void;
   children: React.ReactNode;
 }
 
 /**
- * Generic drag wrapper. Mousedown on the wrapper (not on form
- * controls) starts a drag. The drag updates a local visual pose so
- * the item moves smoothly; the persisted pose is committed on
- * mouseup. Touch events are supported for tablet use.
+ * Generic drag wrapper. Mousedown on the wrapper (not on a `data-no-drag`
+ * element) starts a drag. The drag updates a local visual pose so the
+ * item moves smoothly; the persisted pose is committed on mouseup.
+ *
+ * v6.1.0-alpha.19 — added click detection (no-movement mouseup → onClick)
+ * and drop-zone hit testing (mouseup over a `data-drop-target` element →
+ * onDrop with the target id).
  */
-function Draggable({ pose, onGrab, onPose, children }: DraggableProps) {
+function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: DraggableProps) {
   const [drag, setDrag] = useState<{ dx: number; dy: number; x: number; y: number } | null>(null);
   const visual = drag ? { x: drag.x, y: drag.y } : { x: pose.x, y: pose.y };
 
-  // Mousedown — start drag if the target is not a form control / button.
+  // Mousedown — start drag (or capture a click, depending on movement).
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    // Honor an explicit no-drag opt-out for nested controls. The data
-    // attribute lives on buttons/inputs/textareas inside the cards so
-    // those still receive their own click handlers.
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag]')) return;
     e.preventDefault();
@@ -504,15 +665,35 @@ function Draggable({ pose, onGrab, onPose, children }: DraggableProps) {
       const finalX = origX + dx;
       const finalY = origY + dy;
       setDrag(null);
-      // Only persist if the position actually moved (avoids spurious
-      // localStorage writes from accidental clicks).
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-        onPose({ ...pose, x: finalX, y: finalY });
+      const moved = Math.abs(dx) > 4 || Math.abs(dy) > 4;
+      if (!moved) {
+        // Click semantic — no persist, fire onClick at the original
+        // coordinates so the popover anchors where the user clicked.
+        if (onClick) onClick(mv.clientX, mv.clientY);
+        return;
       }
+      // Drop zone hit test: pick the topmost element under the cursor
+      // at mouseup, then walk up looking for data-drop-target. Skip the
+      // dragged element itself so a card can't "drop on itself".
+      if (onDrop) {
+        const stack = document.elementsFromPoint(mv.clientX, mv.clientY) as HTMLElement[];
+        for (const el of stack) {
+          const dropTarget = el.closest('[data-drop-target]') as HTMLElement | null;
+          if (!dropTarget) continue;
+          if (dropTarget.contains(e.currentTarget as Node)) continue; // own descendant
+          const t = dropTarget.getAttribute('data-drop-target');
+          if (t) {
+            const consumed = onDrop(t);
+            if (consumed !== false) return; // skip pose-persist
+            break;
+          }
+        }
+      }
+      onPose({ ...pose, x: finalX, y: finalY });
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [pose, onGrab, onPose]);
+  }, [pose, onGrab, onPose, onClick, onDrop]);
 
   return (
     <div
@@ -536,13 +717,15 @@ function Draggable({ pose, onGrab, onPose, children }: DraggableProps) {
 // ── Item bodies ──────────────────────────────────────────────────────
 
 function ItemBody({
-  item, room, openQuestion, fileSources, factSources, onOpenFile, onAnswer,
+  item, room, openQuestion, fileSources, factSources, furniture, onOpenCabinet, onOpenFile, onAnswer,
 }: {
   item: DeskItem;
   room: MissionRoom;
   openQuestion: Extract<MissionMessage, { kind: 'question' }> | undefined;
   fileSources: FileSource[];
   factSources: FactSource[];
+  furniture: DeskFurniture;
+  onOpenCabinet: () => void;
   onOpenFile: (ref: string) => void;
   onAnswer: (approvalId: string, answer: string) => void;
 }) {
@@ -550,6 +733,8 @@ function ItemBody({
   if (item.kind === 'document') return <DocumentPaper room={room} />;
   if (item.kind === 'cost') return <CostInkwell room={room} />;
   if (item.kind === 'clock') return <DeskClock room={room} />;
+  if (item.kind === 'cabinet') return <FilingCabinet count={furniture.cabinet.length} onOpen={onOpenCabinet} />;
+  if (item.kind === 'trash') return <Wastebasket count={furniture.trash.length} />;
   if (item.kind === 'agent') {
     const m = room.team.find(t => t.agentId === item.ref);
     if (!m) return null;
@@ -998,6 +1183,205 @@ function QuestionTag({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Filing cabinet ────────────────────────────────────────────────────
+
+/**
+ * A small wooden two-drawer filing cabinet. Acts as a drop zone for
+ * files / facts (Draggable hits `data-drop-target="cabinet"` on
+ * mouseup). Clicking it (no movement) opens the drawer overlay so
+ * the user can browse what's inside and pull items back to the desk.
+ *
+ * Visual: walnut body, brass label plates with the count, two drawer
+ * pulls. Hover hint reads "Drop here to file, click to open".
+ */
+function FilingCabinet({ count, onOpen }: { count: number; onOpen: () => void }) {
+  return (
+    <div
+      data-drop-target="cabinet"
+      className="w-[140px] flex flex-col text-[#f5d27a]"
+      title={count > 0 ? `${count} filed — click to open` : 'Drop files & notes here'}
+    >
+      <button
+        data-no-drag
+        onClick={onOpen}
+        className="text-left flex flex-col gap-1 p-0 bg-transparent border-none"
+      >
+        {[0, 1].map(row => (
+          <div
+            key={row}
+            className="relative w-full h-[58px] flex items-center justify-center"
+            style={{
+              background:
+                'linear-gradient(180deg, #5a3a18 0%, #3a230b 100%), repeating-linear-gradient(90deg, rgba(255,180,90,0.05) 0px, rgba(60,30,10,0.08) 2px)',
+              border: '1px solid #2a1808',
+              boxShadow: 'inset 0 -2px 0 rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.08) inset',
+            }}
+          >
+            {/* Brass label plate */}
+            <div
+              className="px-3 py-0.5 text-[10px] uppercase tracking-widest text-[#3a2a10] font-bold"
+              style={{
+                background: 'linear-gradient(180deg, #ffd86e 0%, #b07a1a 100%)',
+                borderRadius: 2,
+                boxShadow: '0 1px 2px rgba(0,0,0,0.4)',
+              }}
+            >
+              {row === 0 ? 'Files' : 'Drafts'}
+            </div>
+            {/* Brass pull */}
+            <div
+              className="absolute right-3 w-6 h-1.5 rounded"
+              style={{
+                background: 'linear-gradient(180deg, #ffd86e 0%, #8a5810 100%)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.5)',
+              }}
+            />
+          </div>
+        ))}
+      </button>
+      {count > 0 && (
+        <div className="mt-1 text-center text-[10px] uppercase tracking-widest text-[#d9c08c]">
+          {count} {count === 1 ? 'item' : 'items'} inside
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Wastebasket({ count }: { count: number }) {
+  // Generate wadded-paper visuals based on count.
+  const wads = Math.min(count, 6);
+  return (
+    <div
+      data-drop-target="trash"
+      className="relative w-[110px] h-[120px]"
+      title={count > 0 ? `${count} tossed — drag from cabinet to restore` : 'Drop notes here to toss them'}
+    >
+      {/* Wads peeking over the rim — drawn behind the basket front */}
+      <div className="absolute inset-x-3 top-3 bottom-12 flex flex-wrap gap-1 items-end justify-center overflow-hidden">
+        {Array.from({ length: wads }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-full"
+            style={{
+              width: 18 + ((i * 5) % 14),
+              height: 18 + ((i * 7) % 12),
+              background: 'radial-gradient(circle at 35% 30%, #fffaee 0%, #d6cdb1 70%, #a99b71 100%)',
+              boxShadow: 'inset -2px -2px 4px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.3)',
+              transform: `rotate(${(i * 37) % 60 - 30}deg)`,
+            }}
+          />
+        ))}
+      </div>
+      {/* Basket — concentric mesh pattern */}
+      <div
+        className="absolute left-2 right-2 bottom-0 h-[80px] overflow-hidden"
+        style={{
+          clipPath: 'polygon(8% 0%, 92% 0%, 100% 100%, 0% 100%)',
+          background:
+            'repeating-linear-gradient(90deg, #5a3a18 0px, #5a3a18 2px, #3a230b 2px, #3a230b 4px),' +
+            'repeating-linear-gradient(0deg, transparent 0 6px, rgba(0,0,0,0.25) 6px 7px)',
+          border: '1px solid #2a1808',
+          borderRadius: 4,
+          boxShadow: 'inset 0 4px 8px rgba(0,0,0,0.5)',
+        }}
+      />
+      {/* Rim */}
+      <div
+        className="absolute left-1 right-1 bottom-[78px] h-2.5 rounded-sm"
+        style={{
+          background: 'linear-gradient(180deg, #6b4720 0%, #3a230b 100%)',
+          border: '1px solid #1a0f05',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1)',
+        }}
+      />
+      {count > 0 && (
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-[#d9c08c] whitespace-nowrap">
+          {count} tossed
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Drawer overlay shown when the cabinet is open. Lists every filed
+ * item with a row per item; clicking a row pulls it back to the desk
+ * (via onRestore). Files double-click to open in the FileViewer like
+ * normal.
+ */
+function CabinetDrawer({
+  itemIds, items, fileSources, factSources, onRestore, onOpenFile, onClose,
+}: {
+  itemIds: string[];
+  items: DeskItem[];
+  fileSources: FileSource[];
+  factSources: FactSource[];
+  onRestore: (itemId: string) => void;
+  onOpenFile: (ref: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl overflow-hidden text-[#f5d27a]"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'linear-gradient(180deg, #4a2e18 0%, #2a1808 100%)',
+          boxShadow: '0 0 0 3px #b08a3a, 0 30px 60px rgba(0,0,0,0.6)',
+        }}
+      >
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#6e4724]">
+          <span className="text-2xl">🗄️</span>
+          <div className="flex-1">
+            <div className="text-sm font-semibold tracking-tight">Filing cabinet</div>
+            <div className="text-[11px] text-[#d9c08c]">{itemIds.length} item{itemIds.length === 1 ? '' : 's'} filed · click any to restore to the desk</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a0f05] border border-[#6e4724] text-[#d9c08c] hover:text-white flex items-center justify-center">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+          {itemIds.length === 0 && (
+            <div className="text-center py-12 text-[#d9c08c] italic">
+              Nothing filed yet. Drag a file or sticky note onto the cabinet to file it.
+            </div>
+          )}
+          {itemIds.map(itemId => {
+            const item = items.find(i => i.id === itemId);
+            if (!item) return (
+              <div key={itemId} className="flex items-center justify-between px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg text-[#d9c08c]/70">
+                <span className="text-xs italic">{itemId} (no longer in mission)</span>
+                <button onClick={() => onRestore(itemId)} className="text-[11px] hover:text-white">remove</button>
+              </div>
+            );
+            const f = item.kind === 'file' ? fileSources.find(s => s.ref === item.ref) : undefined;
+            const fact = item.kind === 'fact' ? factSources.find(s => s.ref === item.ref) : undefined;
+            return (
+              <div key={itemId} className="flex items-center gap-3 px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg hover:bg-[#1a0f05]/60 transition-colors">
+                <span className="text-lg leading-none">
+                  {f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : '📌'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-[#f5d27a] truncate">{f?.ref ?? fact?.ref ?? itemId}</div>
+                  {(f?.description ?? fact?.description) && (
+                    <div className="text-[10px] text-[#d9c08c] truncate">{f?.description ?? fact?.description}</div>
+                  )}
+                </div>
+                {f && (
+                  <button onClick={() => onOpenFile(f.ref)} className="px-2 py-1 text-[10px] bg-[#6e4724] border border-[#b08a3a] rounded text-[#f5d27a] hover:text-white">Open ↗</button>
+                )}
+                <button onClick={() => onRestore(itemId)} className="px-2 py-1 text-[10px] bg-[#1a0f05] border border-[#6e4724] rounded text-[#d9c08c] hover:text-white">to desk</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
