@@ -127,23 +127,28 @@ interface ActivitySticky {
  * organization survives reloads independently of layout.
  */
 interface DeskFurniture {
-  cabinet: string[]; // item ids filed away
-  trash: string[];   // item ids tossed
+  cabinet: string[];          // item ids filed away
+  trash: string[];            // item ids tossed (recoverable)
+  permanentlyHidden: string[]; // v6.1.0-alpha.33 — "deleted forever" from trash. Never renders again.
   cabinetOpen: boolean;
+  trashOpen: boolean;          // v6.1.0-alpha.33 — drawer state for trash bin
 }
 
 function furnitureKey(missionId: string): string { return `titan-desk-furniture:${missionId}`; }
 function loadFurniture(missionId: string): DeskFurniture {
+  const base: DeskFurniture = { cabinet: [], trash: [], permanentlyHidden: [], cabinetOpen: false, trashOpen: false };
   try {
     const raw = localStorage.getItem(furnitureKey(missionId));
-    if (!raw) return { cabinet: [], trash: [], cabinetOpen: false };
+    if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<DeskFurniture>;
     return {
       cabinet: Array.isArray(parsed.cabinet) ? parsed.cabinet : [],
       trash: Array.isArray(parsed.trash) ? parsed.trash : [],
+      permanentlyHidden: Array.isArray(parsed.permanentlyHidden) ? parsed.permanentlyHidden : [],
       cabinetOpen: Boolean(parsed.cabinetOpen),
+      trashOpen: Boolean(parsed.trashOpen),
     };
-  } catch { return { cabinet: [], trash: [], cabinetOpen: false }; }
+  } catch { return base; }
 }
 function saveFurniture(missionId: string, f: DeskFurniture): void {
   try { localStorage.setItem(furnitureKey(missionId), JSON.stringify(f)); }
@@ -172,7 +177,7 @@ export default function MissionCanvas() {
   }, [id]);
 
   // Filing cabinet / wastebasket state — what's filed away, what's tossed.
-  const [furniture, setFurniture] = useState<DeskFurniture>({ cabinet: [], trash: [], cabinetOpen: false });
+  const [furniture, setFurniture] = useState<DeskFurniture>({ cabinet: [], trash: [], permanentlyHidden: [], cabinetOpen: false, trashOpen: false });
   useEffect(() => { if (id) setFurniture(loadFurniture(id)); }, [id]);
   const persistFurniture = useCallback((next: DeskFurniture) => {
     setFurniture(next);
@@ -352,9 +357,16 @@ export default function MissionCanvas() {
     return out;
   }, [room, fileSources, factSources, activityStickies, openQuestion]);
 
-  /** Whether an item is currently hidden (filed or trashed). */
+  /**
+   * Whether an item is currently hidden from the desk surface.
+   * v6.1.0-alpha.33 — also checks `permanentlyHidden` (items the user
+   * "Deleted forever" from the trash drawer). Those never render
+   * again, anywhere — not on the desk, not in any drawer.
+   */
   const isHidden = useCallback((itemId: string) => {
-    return furniture.cabinet.includes(itemId) || furniture.trash.includes(itemId);
+    return furniture.cabinet.includes(itemId)
+        || furniture.trash.includes(itemId)
+        || furniture.permanentlyHidden.includes(itemId);
   }, [furniture]);
 
   /** Drop handler — fires when a Draggable is released over a
@@ -390,6 +402,27 @@ export default function MissionCanvas() {
 
   const toggleCabinet = useCallback(() => {
     persistFurniture({ ...furniture, cabinetOpen: !furniture.cabinetOpen });
+  }, [furniture, persistFurniture]);
+
+  // v6.1.0-alpha.33 — open/close the trash drawer.
+  const toggleTrash = useCallback(() => {
+    persistFurniture({ ...furniture, trashOpen: !furniture.trashOpen });
+  }, [furniture, persistFurniture]);
+
+  /**
+   * v6.1.0-alpha.33 — "Delete forever" from the trash bin.
+   * Removes the item from `trash` and adds it to `permanentlyHidden`,
+   * which `isHidden()` checks separately. The item will never render
+   * on the desk again. Unlike a backend delete, this is UI-only —
+   * the underlying mission source (file path, fact, activity entry)
+   * stays on disk, but the desk treats it as gone.
+   */
+  const deleteForever = useCallback((itemId: string) => {
+    persistFurniture({
+      ...furniture,
+      trash: furniture.trash.filter(t => t !== itemId),
+      permanentlyHidden: [...new Set([...furniture.permanentlyHidden, itemId])],
+    });
   }, [furniture, persistFurniture]);
 
   /** Compute initial pose for an item that has no saved layout yet. */
@@ -645,6 +678,7 @@ export default function MissionCanvas() {
                 activityStickies={activityStickies}
                 furniture={furniture}
                 onOpenCabinet={toggleCabinet}
+                onOpenTrash={toggleTrash}
                 onOpenFile={handleOpenFile}
                 onAnswer={onAnswer}
               />
@@ -660,10 +694,27 @@ export default function MissionCanvas() {
           items={items}
           fileSources={fileSources}
           factSources={factSources}
+          activityStickies={activityStickies}
           onRestore={restoreItem}
           onRestoreAt={restoreItemAt}
           onOpenFile={handleOpenFile}
           onClose={toggleCabinet}
+        />
+      )}
+
+      {/* v6.1.0-alpha.33 — Trash drawer overlay — same shape as the
+          cabinet but with a "Delete forever" action and a danger tone
+          on the chrome. */}
+      {furniture.trashOpen && (
+        <TrashDrawer
+          itemIds={furniture.trash}
+          items={items}
+          fileSources={fileSources}
+          factSources={factSources}
+          activityStickies={activityStickies}
+          onRestore={restoreItem}
+          onDeleteForever={deleteForever}
+          onClose={toggleTrash}
         />
       )}
 
@@ -850,7 +901,7 @@ function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: Draggabl
 // ── Item bodies ──────────────────────────────────────────────────────
 
 function ItemBody({
-  item, room, openQuestion, fileSources, factSources, activityStickies, furniture, onOpenCabinet, onOpenFile, onAnswer,
+  item, room, openQuestion, fileSources, factSources, activityStickies, furniture, onOpenCabinet, onOpenTrash, onOpenFile, onAnswer,
 }: {
   item: DeskItem;
   room: MissionRoom;
@@ -860,6 +911,7 @@ function ItemBody({
   activityStickies: ActivitySticky[];
   furniture: DeskFurniture;
   onOpenCabinet: () => void;
+  onOpenTrash: () => void;
   onOpenFile: (ref: string) => void;
   onAnswer: (approvalId: string, answer: string) => void;
 }) {
@@ -868,7 +920,7 @@ function ItemBody({
   if (item.kind === 'cost') return <CostInkwell room={room} />;
   if (item.kind === 'clock') return <DeskClock room={room} />;
   if (item.kind === 'cabinet') return <FilingCabinet count={furniture.cabinet.length} onOpen={onOpenCabinet} />;
-  if (item.kind === 'trash') return <Wastebasket count={furniture.trash.length} />;
+  if (item.kind === 'trash') return <Wastebasket count={furniture.trash.length} onOpen={onOpenTrash} />;
   if (item.kind === 'agent') {
     const m = room.team.find(t => t.agentId === item.ref);
     if (!m) return null;
@@ -1500,14 +1552,20 @@ function FilingCabinet({ count, onOpen }: { count: number; onOpen: () => void })
   );
 }
 
-function Wastebasket({ count }: { count: number }) {
+function Wastebasket({ count, onOpen }: { count: number; onOpen: () => void }) {
   // Generate wadded-paper visuals based on count.
   const wads = Math.min(count, 6);
+  // v6.1.0-alpha.33 — basket is now clickable. Clicking opens a drawer
+  // listing every tossed item with two actions per row: "Back to desk"
+  // (restore) and "Delete forever" (permanently hide).
   return (
-    <div
+    <button
+      type="button"
       data-drop-target="trash"
-      className="relative w-[110px] h-[120px]"
-      title={count > 0 ? `${count} tossed — drag from cabinet to restore` : 'Drop notes here to toss them'}
+      data-no-drag
+      onClick={onOpen}
+      className="relative w-[110px] h-[120px] p-0 bg-transparent border-none cursor-pointer"
+      title={count > 0 ? `${count} tossed — click to open the bin` : 'Drop notes here to toss them'}
     >
       {/* Wads peeking over the rim — drawn behind the basket front */}
       <div className="absolute inset-x-3 top-3 bottom-12 flex flex-wrap gap-1 items-end justify-center overflow-hidden">
@@ -1552,7 +1610,7 @@ function Wastebasket({ count }: { count: number }) {
           {count} tossed
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -1573,12 +1631,17 @@ function Wastebasket({ count }: { count: number }) {
  *      motion Tony asked for.
  */
 function CabinetDrawer({
-  itemIds, items, fileSources, factSources, onRestore, onRestoreAt, onOpenFile, onClose,
+  itemIds, items, fileSources, factSources, activityStickies, onRestore, onRestoreAt, onOpenFile, onClose,
 }: {
   itemIds: string[];
   items: DeskItem[];
   fileSources: FileSource[];
   factSources: FactSource[];
+  /** v6.1.0-alpha.33 — activity stickies in the cabinet too, since
+   *  they can be filed via drag-drop. Lets the drawer label them
+   *  properly ("Scout · 🔍 searched the web · MLK 1963") instead of
+   *  just their internal id. */
+  activityStickies: ActivitySticky[];
   onRestore: (itemId: string) => void;
   /** v6.1.0-alpha.20 — restore an item AND place it at a specific
    *  screen position (used for drag-out gesture). */
@@ -1662,8 +1725,9 @@ function CabinetDrawer({
             );
             const f = item.kind === 'file' ? fileSources.find(s => s.ref === item.ref) : undefined;
             const fact = item.kind === 'fact' ? factSources.find(s => s.ref === item.ref) : undefined;
-            const icon = f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : '📌';
-            const label = f?.ref ?? fact?.ref ?? itemId;
+            const act = item.kind === 'activity' ? activityStickies.find(s => s.id === item.ref) : undefined;
+            const icon = f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : act ? act.icon : '📌';
+            const label = f?.ref ?? fact?.ref ?? (act ? `${act.agentName} · ${act.activity}` : itemId);
             return (
               <div
                 key={itemId}
@@ -1703,6 +1767,117 @@ function CabinetDrawer({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * v6.1.0-alpha.33 — Trash drawer overlay. Shape mirrors CabinetDrawer
+ * but with danger styling (rose accents on the bezel, the chrome reads
+ * "Wastebasket"). Each row offers TWO actions:
+ *
+ *   - **Back to desk** — same as cabinet restore. Item leaves trash,
+ *     reappears on the desk at its last known pose.
+ *   - **Delete forever** — moves from `trash` to `permanentlyHidden`.
+ *     Item never renders again, anywhere. UI-only — the underlying
+ *     mission source (file path, fact, activity entry) is untouched
+ *     on disk; we just stop showing it on the desk.
+ *
+ * Confirms "Delete forever" with a window.confirm so you can't nuke
+ * a row by accident.
+ */
+function TrashDrawer({
+  itemIds, items, fileSources, factSources, activityStickies, onRestore, onDeleteForever, onClose,
+}: {
+  itemIds: string[];
+  items: DeskItem[];
+  fileSources: FileSource[];
+  factSources: FactSource[];
+  activityStickies: ActivitySticky[];
+  onRestore: (itemId: string) => void;
+  onDeleteForever: (itemId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl overflow-hidden text-[#f5d27a]"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'linear-gradient(180deg, #4a2018 0%, #2a0e08 100%)',
+          boxShadow: '0 0 0 3px #c46a52, 0 30px 60px rgba(0,0,0,0.6)',
+        }}
+      >
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#6e3024]">
+          <span className="text-2xl">🗑️</span>
+          <div className="flex-1">
+            <div className="text-sm font-semibold tracking-tight">Wastebasket</div>
+            <div className="text-[11px] text-[#e9b09a]">
+              {itemIds.length} item{itemIds.length === 1 ? '' : 's'} tossed ·
+              <span className="ml-1">restore to desk, or delete forever</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a0a08] border border-[#6e3024] text-[#e9b09a] hover:text-white flex items-center justify-center">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+          {itemIds.length === 0 && (
+            <div className="text-center py-12 text-[#e9b09a] italic">
+              Nothing in the bin. Drag a file, sticky, or activity onto the wastebasket to toss it.
+            </div>
+          )}
+          {itemIds.map(itemId => {
+            const item = items.find(i => i.id === itemId);
+            const f = item?.kind === 'file' ? fileSources.find(s => s.ref === item.ref) : undefined;
+            const fact = item?.kind === 'fact' ? factSources.find(s => s.ref === item.ref) : undefined;
+            const act = item?.kind === 'activity' ? activityStickies.find(s => s.id === item.ref) : undefined;
+            const icon = f ? (f.type === 'report' ? '📊' : '📄') : fact ? '💡' : act ? act.icon : '📌';
+            const label = f?.ref ?? fact?.ref ?? (act ? `${act.agentName} · ${act.activity}` : itemId);
+            const detail = f?.description ?? fact?.description ?? act?.detail;
+            return (
+              <div
+                key={itemId}
+                className="flex items-center gap-3 px-3 py-2 bg-[#1a0a08]/60 border border-[#6e3024]/50 rounded-lg hover:bg-[#1a0a08]/80 transition-colors"
+                title={item ? 'Restore to the desk or delete forever' : 'This item no longer exists in the mission'}
+              >
+                <span className="text-lg leading-none opacity-70">{icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-[#f5d27a] truncate line-through decoration-[#c46a52]/50">{label}</div>
+                  {detail && (
+                    <div className="text-[10px] text-[#e9b09a]/80 truncate">{detail}</div>
+                  )}
+                </div>
+                <button
+                  data-no-drag
+                  onClick={() => onRestore(itemId)}
+                  className="px-2.5 py-1 text-[10px] bg-[#1a0a08] border border-[#6e3024] rounded text-[#e9b09a] hover:text-white hover:border-[#c46a52]"
+                  title="Pull this item back out of the bin and put it on the desk"
+                >
+                  ↩ to desk
+                </button>
+                <button
+                  data-no-drag
+                  onClick={() => {
+                    const ok = window.confirm(`Delete this forever?\n\n"${label.slice(0, 100)}${label.length > 100 ? '…' : ''}"\n\nThe item will never reappear on the desk again, even after a reload. This is UI-only — the underlying mission file/note isn't deleted on disk.`);
+                    if (ok) onDeleteForever(itemId);
+                  }}
+                  className="px-2.5 py-1 text-[10px] bg-[#3a0a08] border border-[#c46a52]/60 rounded text-[#ff9c9c] hover:text-white hover:bg-[#5a0e0a] hover:border-[#ff9c9c]"
+                  title="Permanently hide this item — gone for good"
+                >
+                  ✕ Delete forever
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {itemIds.length > 0 && (
+          <div className="px-5 py-2 border-t border-[#6e3024] text-center text-[10px] text-[#e9b09a]/70 uppercase tracking-widest">
+            tip: drag items onto the wastebasket from the desk · restore is non-destructive
+          </div>
+        )}
+      </div>
     </div>
   );
 }
