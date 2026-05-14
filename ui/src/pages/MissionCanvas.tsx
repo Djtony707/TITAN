@@ -88,7 +88,7 @@ function layoutKey(missionId: string): string { return `titan-desk:${missionId}`
 
 interface DeskItem {
   id: string;
-  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'question' | 'cost';
+  kind: 'goal' | 'document' | 'agent' | 'file' | 'fact' | 'question' | 'cost' | 'clock';
   ref?: string;
 }
 
@@ -217,6 +217,7 @@ export default function MissionCanvas() {
     out.push({ id: 'goal', kind: 'goal' });
     out.push({ id: 'document', kind: 'document' });
     out.push({ id: 'cost', kind: 'cost' });
+    out.push({ id: 'clock', kind: 'clock' });
     for (const m of room.team) {
       out.push({ id: `agent:${m.agentId}`, kind: 'agent', ref: m.agentId });
     }
@@ -244,6 +245,7 @@ export default function MissionCanvas() {
     if (item.kind === 'goal') return { x: cx - 220, y: 90, z: 5, rotation: -1.2 };
     if (item.kind === 'document') return { x: cx - 240, y: cy - 220, z: 4, rotation: 0.4 };
     if (item.kind === 'cost') return { x: vw - 130, y: 90, z: 6, rotation: 2 };
+    if (item.kind === 'clock') return { x: vw - 280, y: vh - 240, z: 7, rotation: -1.5 };
     if (item.kind === 'question') return { x: cx + 120, y: 200, z: 30, rotation: -3 };
     if (item.kind === 'agent') {
       // Fan agent cards along the right edge initially.
@@ -547,6 +549,7 @@ function ItemBody({
   if (item.kind === 'goal') return <GoalPlacard goal={room.goal} />;
   if (item.kind === 'document') return <DocumentPaper room={room} />;
   if (item.kind === 'cost') return <CostInkwell room={room} />;
+  if (item.kind === 'clock') return <DeskClock room={room} />;
   if (item.kind === 'agent') {
     const m = room.team.find(t => t.agentId === item.ref);
     if (!m) return null;
@@ -642,28 +645,147 @@ function CostInkwell({ room }: { room: MissionRoom }) {
   );
 }
 
+/**
+ * Desk clock — big segmented-LCD numerals, a brass-rimmed wooden bezel,
+ * and a small line under the time showing the mission heartbeat. The
+ * clock ties to the agents in two ways:
+ *
+ *   1. **Mission elapsed time** (`HH:MM:SS`) — counts up while at least
+ *      one agent is working, freezes on pause/done/failed. This is the
+ *      "we've been at it for 4 minutes" hint.
+ *   2. **Live agent counters** under the time: `3 working · 1 needs you`.
+ *      Each number is bigger than its label so the dial-glance reading
+ *      stays fast.
+ *
+ * Updates every second via a local interval so the seconds tick. The
+ * interval cleans itself up on unmount.
+ */
+function DeskClock({ room }: { room: MissionRoom }) {
+  const [now, setNow] = useState(Date.now());
+  // Tick the clock once per second so the seconds field updates.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Mission start → first message timestamp (or createdAt fallback).
+  const startMs = useMemo(() => new Date(room.createdAt).getTime(), [room.createdAt]);
+  const frozen = room.status === 'paused' || room.status === 'done' || room.status === 'failed';
+  const elapsedMs = frozen ? Math.max(0, new Date(room.updatedAt).getTime() - startMs) : Math.max(0, now - startMs);
+  const { hh, mm, ss } = splitHMS(elapsedMs);
+
+  const { working, blocked } = countTeam(room);
+
+  return (
+    <div
+      className="w-[260px] p-4 pb-3 text-[#f5d27a]"
+      style={{
+        // Wooden clock body — darker oak with a faint inner glow
+        background: 'radial-gradient(ellipse at 30% 25%, #4a2e18 0%, #2a1808 75%, #1a0e04 100%)',
+        borderRadius: 14,
+        // Brass bezel + drop shadow
+        boxShadow:
+          '0 0 0 3px #b08a3a, 0 0 0 5px #5a3a14, 0 12px 22px rgba(0,0,0,0.5), inset 0 0 16px rgba(0,0,0,0.6)',
+      }}
+    >
+      {/* Brand engraving */}
+      <div className="text-[9px] uppercase tracking-[0.28em] text-[#c4a14a] text-center mb-1.5">
+        TITAN · mission
+      </div>
+      {/* LCD numerals */}
+      <div
+        className="flex items-baseline justify-center gap-1 mb-1.5"
+        style={{
+          fontFamily: '"DSEG7 Classic", "Orbitron", "Menlo", monospace',
+          // Soft glow on the digits
+          textShadow: frozen
+            ? '0 0 6px rgba(245,210,122,0.25)'
+            : '0 0 10px rgba(245,210,122,0.65), 0 0 22px rgba(245,210,122,0.35)',
+        }}
+      >
+        <LCDPair value={hh} />
+        <span className="text-[28px] font-bold opacity-80 -translate-y-0.5">:</span>
+        <LCDPair value={mm} />
+        <span className="text-[20px] font-bold opacity-60 -translate-y-0.5">:</span>
+        <span className="text-[24px] font-bold opacity-80 tabular-nums">{ss}</span>
+      </div>
+      {/* Heartbeat row */}
+      <div
+        className="flex items-center justify-center gap-3 pt-2 border-t border-[#5a3a14]/60"
+        style={{ fontFamily: 'system-ui' }}
+      >
+        <ClockStat n={working} label={working === 1 ? 'working' : 'working'} tone="accent" />
+        <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
+        <ClockStat n={room.team.length} label="on team" tone="muted" />
+      </div>
+      {frozen && (
+        <div className="text-center text-[9px] uppercase tracking-[0.22em] text-[#c4a14a]/70 mt-1.5">
+          {room.status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LCDPair({ value }: { value: string }) {
+  return (
+    <span className="text-[34px] font-bold tabular-nums leading-none">{value}</span>
+  );
+}
+
+function ClockStat({ n, label, tone }: { n: number; label: string; tone: 'accent' | 'warn' | 'muted' }) {
+  const color = tone === 'accent' ? '#8ed1ff' : tone === 'warn' ? '#ff9c9c' : '#c4a14a';
+  return (
+    <div className="flex flex-col items-center leading-tight">
+      <span className="text-[18px] font-bold tabular-nums" style={{ color }}>{n}</span>
+      <span className="text-[9px] uppercase tracking-widest text-[#c4a14a]/80">{label}</span>
+    </div>
+  );
+}
+
+function splitHMS(ms: number): { hh: string; mm: string; ss: string } {
+  const totalSec = Math.floor(ms / 1000);
+  const hh = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+  const ss = String(totalSec % 60).padStart(2, '0');
+  return { hh, mm, ss };
+}
+
 function AgentCard({ member }: { member: MissionMember }) {
   const blocked = member.state === 'blocked';
   const active = member.state === 'working' || member.state === 'editing';
+  // v6.1.0-alpha.18 — agents are sticky notes now. Each agent's color
+  // tints its note, so the Scout's note feels different from the
+  // Builder's. Tape strip across the top. Slight desaturated paper
+  // texture from a linear-gradient.
+  const stickyBg = paperFromColor(member.color, blocked);
   return (
     <div
-      className="w-[230px] p-3.5 text-[#1a1f2e]"
+      className="w-[220px] p-3.5 pt-5 text-[#2a2418] relative"
       style={{
-        background: 'linear-gradient(180deg, #fdfaf0 0%, #f5efde 100%)',
-        borderRadius: 8,
-        boxShadow: '0 1px 0 rgba(255,255,255,0.4) inset, 0 0 0 1px rgba(0,0,0,0.05)',
+        background: stickyBg,
+        boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 12px 18px rgba(0,0,0,0.42)',
+        fontFamily: '"Bradley Hand", "Marker Felt", "Comic Sans MS", cursive',
       }}
     >
-      <div className="flex items-center gap-2 mb-2">
+      {/* Translucent washi tape across the top */}
+      <div
+        className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-20 h-4 opacity-70 pointer-events-none"
+        style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.25))',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+        }}
+      />
+      <div className="flex items-center gap-2 mb-1.5">
         <div
           className="w-7 h-7 rounded-md flex items-center justify-center text-white font-bold text-[13px]"
-          style={{ background: `linear-gradient(135deg, ${member.color}, ${shade(member.color, -25)})`, boxShadow: `0 2px 6px ${member.color}55` }}
+          style={{ background: `linear-gradient(135deg, ${member.color}, ${shade(member.color, -25)})`, boxShadow: `0 2px 6px ${member.color}55`, fontFamily: 'system-ui' }}
         >{member.name[0]}</div>
         <div className="leading-tight">
-          <div className="font-semibold text-[13px] text-[#1a1f2e]">{member.name}</div>
-          <div className="text-[10px] uppercase tracking-widest text-[#8a8472]">{member.role}</div>
+          <div className="font-semibold text-[15px] text-[#2a2418]">{member.name}</div>
+          <div className="text-[10px] uppercase tracking-widest text-[#6b5a3a]" style={{ fontFamily: 'system-ui' }}>{member.role}</div>
         </div>
-        <div className="ml-auto flex items-center gap-1 text-[10px] text-[#8a8472]">
+        <div className="ml-auto flex items-center gap-1 text-[10px] text-[#6b5a3a]" style={{ fontFamily: 'system-ui' }}>
           <span
             className={`w-1.5 h-1.5 rounded-full ${heartbeatClass(member.state)}`}
             style={{ boxShadow: `0 0 6px ${heartbeatColor(member.state)}` }}
@@ -671,12 +793,12 @@ function AgentCard({ member }: { member: MissionMember }) {
           <span>{stateLabel(member.state)}</span>
         </div>
       </div>
-      <div className="text-[12px] text-[#3a3525] leading-snug min-h-[2.4rem] break-words">
-        {member.currentActivity ?? <span className="italic text-[#8a8472]">standing by</span>}
+      <div className="text-[14px] text-[#2a2418] leading-snug min-h-[2.4rem] break-words">
+        {member.currentActivity ?? <span className="italic text-[#6b5a3a]">standing by</span>}
       </div>
       {(active || blocked) && (
         <div
-          className="absolute -inset-1 -z-10 pointer-events-none rounded-[10px] blur-md"
+          className="absolute -inset-1 -z-10 pointer-events-none rounded-[2px] blur-md"
           style={{
             background: blocked
               ? 'radial-gradient(circle at 50% 50%, rgba(239,68,68,0.6), transparent 70%)'
@@ -687,6 +809,43 @@ function AgentCard({ member }: { member: MissionMember }) {
       )}
     </div>
   );
+}
+
+/**
+ * Build a sticky-note background tinted by the agent's color. Uses two
+ * subtle linear-gradients to fake paper texture without an image asset.
+ * Blocked agents get a red-shifted tint so you spot them across the
+ * desk immediately.
+ */
+function paperFromColor(hex: string, blocked: boolean): string {
+  if (blocked) {
+    return 'linear-gradient(165deg, #ffd6d6 0%, #ffbaba 100%), linear-gradient(45deg, transparent 49%, rgba(0,0,0,0.04) 49% 51%, transparent 51%)';
+  }
+  // Map known agent colors to sticky-note tones. Falls back to a
+  // generic yellow if the color is unrecognized.
+  const lower = hex.toLowerCase();
+  if (lower.includes('6366f1') || lower.includes('8b5cf6')) {
+    // Scout / Sage — cool blue-violet → soft lavender note
+    return 'linear-gradient(160deg, #e7e1ff 0%, #cfc4ff 100%)';
+  }
+  if (lower.includes('22c55e') || lower.includes('10b981')) {
+    // Builder — green → mint
+    return 'linear-gradient(160deg, #d9f7d9 0%, #b8edb8 100%)';
+  }
+  if (lower.includes('f59e0b') || lower.includes('eab308')) {
+    // Writer / Analyst — amber → classic yellow
+    return 'linear-gradient(160deg, #fff2a8 0%, #ffe88a 100%)';
+  }
+  if (lower.includes('ef4444') || lower.includes('f97316')) {
+    // Critic-style — orange → coral
+    return 'linear-gradient(160deg, #ffd6c2 0%, #ffbf9e 100%)';
+  }
+  if (lower.includes('06b6d4') || lower.includes('0ea5e9')) {
+    // cool cyan → robin's egg
+    return 'linear-gradient(160deg, #cef3f7 0%, #a8e4ec 100%)';
+  }
+  // Default — soft pastel yellow Post-it
+  return 'linear-gradient(160deg, #fff2a8 0%, #ffe88a 100%)';
 }
 
 function FilePaper({ file, onOpen }: { file: FileSource; onOpen: () => void }) {

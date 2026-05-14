@@ -44,6 +44,41 @@
 
 ---
 
+## 🧑‍💼 What's new in v6.1 — Mission Chat + Desk view (current)
+
+> Status: `v6.1.0-alpha.18` (pre-release on Titan PC; not yet on npm or
+> a public release). The v6.0 "Presence" feature set below remains the
+> public-facing pitch — v6.1.0 layers a different surface on top of it.
+
+A chat-style team-control interface, plus a literal **wood desk** view
+where everything the team produces lands as a physical, draggable object.
+
+- 💬 **Mission Chat** — start a goal, TITAN forms a small team of AI
+  helpers, and they talk in a thread with you as they work. Click any
+  bubble to see full timing / cost / model details.
+- 🪵 **Mission Canvas (Desk)** — same data, beautiful spatial layout.
+  Wood-grain surface; a leather mission placard; an open paper sheet
+  with the running draft on real lined paper; agents as color-tinted
+  sticky notes; question tags with brass pins; a working desk clock
+  with big LCD numerals counting mission elapsed time and live
+  working / needs-you / on-team counts.
+- 🗃️ **Mission Library** — sessions browser for every past mission with
+  status filters and search.
+- 📜 **Always-on templates** — six starter recipes (daily research
+  digest, inbox triage, overnight code review, lead scout, market
+  watch, daily creative prompt). Click → 3-step walkthrough
+  (Customize → Schedule → Launch) → recurring AI agents that run
+  while you sleep.
+- 📄 **File viewer** — every file an agent writes appears as a clickable
+  paper on the desk. Double-click opens it in an in-app viewer
+  (markdown rendered, HTML sandboxed, images inline, PDF native).
+- 🛡️ **Self-referential autonomy gate** — widened in alpha.14 after
+  catching a runaway "Bootstrap test infrastructure" loop. The
+  autonomous proposer can't spawn test-infra / diagnostic /
+  self-improve goals on its own anymore.
+
+---
+
 ## 🌌 What's new in v6.0 — Presence
 
 TITAN used to be _a chatbot with superpowers_. v6.0 makes it something stranger and better: **an AI that lives in workspaces with you.**
