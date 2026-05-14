@@ -5,6 +5,62 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.39 — 2026-05-13 — `force: true` actually bypasses dedupe now
+
+> Tony: "did you break titan?"
+
+Screenshot showed a brand new mission (Scout / Writer / Sage all
+idle, $0.00, no activity 4 minutes after Begin). Looked broken.
+
+### Root cause
+
+Pre-existing bug, surfaced by a re-submitted prompt. `createGoal()`
+has three dedupe layers — the third one ("recent exact title
+match") was checking against ALL goal statuses, including
+`completed`. When Tony submitted the same MLK essay prompt as a
+fresh mission, dedupe layer 3 found the completed goal `c558a6fa`
+from earlier the same evening and returned it. The mission ended
+up linked to a completed goal with no driver state → GoalWatcher
+saw nothing to do → team idle forever.
+
+The `force: true` flag (set by `startMissionWork` for human-
+initiated missions) was supposed to be the trapdoor for this, but
+it only bypassed rate limits and hard caps — NOT dedupe. So the
+explicit "user hit Begin" intent silently got rerouted to an old
+goal.
+
+### Fix
+
+In `src/agent/goals.ts:createGoal`:
+
+  1. **Wrap all three dedupe layers in `if (!options.force)`.** When
+     a caller passes `force: true`, dedupe is skipped entirely.
+     `startMissionWork` already passes `force: true`, so Mission
+     Chat-initiated goals always get fresh records now.
+  2. **Layer 3 (recent exact match) only checks ACTIVE goals.** Was
+     checking ANY status. A completed/failed/cancelled goal has no
+     live driver — returning it instead of creating a fresh one is
+     silent confusion. If the user types the same title again, the
+     intent is "do this again."
+  3. **Log when force-bypass would have hit dedupe** — useful audit
+     trail to spot unintentional duplicate goals later. Doesn't
+     change behavior.
+
+### Cleanup on Titan PC
+
+The stuck mission `f32t19ol` (linked to completed goal `c558a6fa`)
+was removed from disk during deploy so Tony can submit fresh without
+the orphan in the Library.
+
+### Compatibility
+
+Autonomous goal proposer paths (no `force: true`) keep all three
+dedupe layers intact. The runaway-prevention story from alpha.14
+and alpha.38 is unchanged. Only the human-initiated path was
+unblocked.
+
+---
+
 ## v6.1.0-alpha.38 — 2026-05-13 — Retroactive self-mod gate at the driver scheduler
 
 > Tony: "check logs, something happened"
