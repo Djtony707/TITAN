@@ -5,6 +5,86 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.18 — 2026-05-13 — Sticky-note agents, desk clock, always-on templates
+
+> Tony: "Keep this beautiful — real paper feel, sticky notes for the
+> agents. There needs to be examples or templates people can click on
+> and walk through step by step to keep AI agents running around the
+> clock. Maybe have a desk clock with big numbers somewhere on the
+> desk that ties into the agents."
+
+Three layered upgrades — Mission Canvas polish, a real desk clock,
+and a templates gallery with a 3-step walkthrough — plus the docs
++ handoff refresh.
+
+### Mission Canvas polish
+
+- **Agents are sticky notes now.** Each agent's note is tinted by
+  their color (Scout = lavender, Builder = mint, Writer/Analyst =
+  classic yellow, etc.) with a translucent washi-tape strip across
+  the top, cursive font on the activity line, and a soft drop
+  shadow. Blocked agents shift red so they catch the eye fast.
+- **Live document keeps the lined paper feel** — kept, polished.
+- **Sticky `paperFromColor()`** helper maps the 5 known specialist
+  colors to specific sticky-note tones; unknown colors fall back to
+  pastel yellow.
+
+### Desk clock
+
+A new draggable object on the desk — a wooden clock body with a
+brass bezel and a soft glow around the digits. Shows:
+
+  1. **Mission elapsed time** as `HH:MM:SS` in big segmented-LCD
+     numerals. Counts up while at least one agent is working;
+     freezes on pause / done / failed. Ticks once a second.
+  2. **Live agent counters** under the time: `working / needs you /
+     on team`. Each number is bigger than its label so dial-glance
+     reading is instant.
+
+Same drag mechanics as everything else on the desk — moves freely,
+persists per-mission in localStorage, "Tidy up" snaps it back.
+
+### Always-on templates + 3-step walkthrough
+
+Six starter recipes for recurring missions, on the Mission Start
+page below the one-shot examples:
+
+| Icon | Template            | Default cadence       |
+|------|---------------------|-----------------------|
+| 📰   | Daily research digest | Daily at 7am        |
+| 📬   | Inbox triage         | Every 4 hours        |
+| 🔍   | Overnight code review | Nightly at 11pm     |
+| 🎯   | Lead scout           | Every 4 hours        |
+| 📈   | Market watch         | Every hour           |
+| 🎨   | Daily creative prompt | Daily at 7am        |
+
+Click any card → **3-step walkthrough modal**:
+
+  1. **Customize** — fill in the template's fields (topic, repo path,
+     tickers, skills, etc.). Live preview of the rendered goal text
+     so you see exactly what the team gets.
+  2. **Schedule** — pick a cadence (Every hour / Every 4h / Every 6h
+     / Daily at 7am / Twice daily / Nightly / Weekly). Each option
+     shows its cron expression for transparency.
+  3. **Launch** — recap of goal + cadence + a one-paragraph "What I'll
+     do" so the user knows what to expect, then **Launch first run**.
+
+The first run kicks off immediately. The chosen schedule is recorded
+to `localStorage['titan-pending-schedules']` ready for the recurring
+auto-fire daemon, which lands next ship — see
+[HANDOFF-2026-05-13.md](./HANDOFF-2026-05-13.md) for that handoff.
+
+### Docs + handoff
+
+- `README.md` — updated to mention v6.1.0 Mission Chat + Desk view +
+  templates.
+- `AGENTS.md` — adds a "v6.1.0 Mission Chat / Desk" section.
+- `HANDOFF-2026-05-13.md` (new) — full handoff for the next session:
+  what shipped, what's pending, what's at risk, exact next steps for
+  the recurring-mission daemon.
+
+---
+
 ## v6.1.0-alpha.17 — 2026-05-13 — Mission Canvas is now a true wood desk
 
 > Tony: "Make this a true canvas where everything is movable and
