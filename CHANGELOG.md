@@ -5,6 +5,61 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.35 — 2026-05-13 — HTML viewer hardened — images really load this time
+
+> Tony: "No images still." Despite alpha.34, his MLK essay was still
+> showing broken image icons. Three real Wikimedia URLs, all serving
+> HTTP 200 from the host, but the iframe couldn't load them.
+
+### Three things were stacking against the load
+
+1. **The agent stuck a `<script src="https://cdn.jsdelivr.net/npm/chart.js">`
+   in `<head>`.** The sandbox blocks execution, but in some sandbox
+   modes Chrome's parser still does work to fetch + discard, and
+   that can knock subsequent resource loads into a weird state.
+   Plus our system prompt explicitly says "no `<script>`" — the
+   agent shouldn't have it there.
+
+2. **Referrer policy `no-referrer-when-downgrade` (alpha.34) still
+   leaked `Referer: http://192.168.1.11:48420/…`.** Some image hosts
+   block requests with private-network referrers (10.x, 192.168.x,
+   127.x) as a hotlinking-abuse mitigation.
+
+3. **No explicit Content-Security-Policy meta tag** — the browser
+   was applying its own default which can be restrictive in
+   `srcDoc` iframes.
+
+### alpha.35 fixes all three
+
+`wrapHtmlForViewer()` was upgraded from "inject 2 meta tags" to a
+sanitize-and-wrap pass:
+
+  **Strip phase**:
+   - `<script>…</script>` blocks (open + close, even with content)
+   - Self-closing / unclosed `<script>` tags
+   - Inline event handlers (`onclick`, `onload`, `onerror`, etc.)
+   - `javascript:` URLs in `href` / `src` / `action`
+
+  **Inject phase** (into `<head>`):
+   - `<meta name="referrer" content="no-referrer">` — strips referer
+     entirely. Image hosts see an anonymous-public request and
+     happily serve.
+   - `<meta http-equiv="Content-Security-Policy" content="…">` —
+     explicit allowlist: any-origin images, any-origin fonts,
+     inline styles allowed, **scripts: none**, frames: none.
+   - `<base target="_blank">` (unchanged from alpha.34).
+
+Plus the iframe `referrerPolicy` attribute went from
+`no-referrer-when-downgrade` to `no-referrer` to match.
+
+### If images STILL don't show after this ship
+
+Hard-refresh the browser (Cmd+Shift+R / Ctrl+Shift+R). The
+FileViewer modal is loaded from the UI bundle, and your browser
+may have the pre-alpha.35 bundle cached.
+
+---
+
 ## v6.1.0-alpha.34 — 2026-05-13 — Images load in HTML reports
 
 > Tony screenshotted his MLK essay rendered as HTML: it looked great
