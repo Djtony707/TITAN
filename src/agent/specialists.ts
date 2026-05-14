@@ -51,25 +51,44 @@ export interface Specialist {
 }
 
 /**
- * v6.1.0-alpha.20 — shared guidance appended to specialists that
- * produce documents/reports. Bias toward self-contained HTML so the
- * FileViewer (alpha.16) can render them visually — graphs as inline
- * SVG, styled tables, hero stats — rather than as flat markdown text.
+ * v6.1.0-alpha.20 (intro) / v6.1.0-alpha.32 (force) — shared guidance
+ * appended to specialists that produce documents/reports.
  *
- * The HTML guidance is non-prescriptive: short replies stay short and
- * inline. The bias kicks in only when the output is genuinely a
- * multi-section document.
+ * History: alpha.20 introduced this as a soft "prefer HTML" hint.
+ * In practice the LLMs kept reaching for `.md` (the word "essay" or
+ * "report" biases them toward markdown). Tony's MLK essay landed as
+ * `/tmp/mlk_essay.md` even after alpha.20 deployed. alpha.32
+ * promotes the guidance to a HARD RULE with explicit penalty
+ * phrasing — markdown is no longer an option for multi-section
+ * deliverables.
+ *
+ * The rule kicks in only when the output is genuinely a document
+ * (essay, report, briefing, multi-section summary). One-paragraph
+ * inline answers stay inline.
  */
 const HTML_REPORT_GUIDANCE = [
     '',
-    '── OUTPUT FORMAT FOR DOCUMENTS ──',
-    'When the user asks for a *document*, *report*, *briefing*, *summary writeup*, or any deliverable with multiple sections / tables / charts:',
-    '  • Prefer **self-contained HTML** with inline CSS (one <style> block in <head>) over markdown. Render through the chat\'s FileViewer for a clean visual result.',
-    '  • Save with write_file using a `.html` extension (e.g. `research-2026-05-13.html`) under a mission-scoped path when one is known.',
-    '  • Use simple HTML: <h1>/<h2>/<h3>, <p>, <ul>/<ol>, <table>, <blockquote>, <a>. Modest CSS — serif body font, generous line-height, a single accent color. No external assets, no <script>.',
-    '  • Charts: use inline <svg> (bars, sparklines, scatter) — no external JS libraries. A 320×180 SVG with hand-built rects beats a missing chart.',
-    '  • For short one-paragraph answers, keep it inline in the chat. HTML is for things the user will want to view as a document.',
-    '  • Always still cite sources as clickable <a href="..."> links inline.',
+    '── OUTPUT FORMAT FOR DOCUMENTS — MANDATORY ──',
+    'If the deliverable is an *essay*, *report*, *briefing*, *writeup*, *summary document*, or anything with multiple sections / tables / charts / images:',
+    '',
+    '  YOU MUST write it as a single self-contained HTML file with `.html` extension.',
+    '  YOU MUST NOT write it as `.md` or `.markdown`. Markdown is text-only — it cannot show images, SVG charts, or styled tables, all of which the user explicitly wants.',
+    '',
+    '  Required structure when calling write_file:',
+    '    • path ends in `.html` (NEVER `.md`). Example: `mlk_essay.html`, `q1_report.html`, `briefing.html`.',
+    '    • content is a complete HTML document: `<!DOCTYPE html><html><head><style>…</style></head><body>…</body></html>`.',
+    '    • One inline `<style>` block in `<head>`. No external stylesheets, no `<script>` tags, no `<link>` to remote assets.',
+    '',
+    '  Content guidelines:',
+    '    • Tags: <h1>/<h2>/<h3>, <p>, <ul>/<ol>, <table>, <blockquote>, <a>, <figure>+<figcaption>, <img>.',
+    '    • CSS: serif body font, ~1.6 line-height, max-width ~720px centered, a single accent color, generous margins. Make it look like a finished document, not a wall of text.',
+    '    • Charts: hand-build inline `<svg>` (bars, sparklines, scatter, simple line charts). A 360×200 SVG with rects + text labels beats a missing chart. Use the accent color for data, neutral grey for axes/grid.',
+    '    • Images: use `<img src="https://…" alt="…" />` for external images you found via web_search/web_fetch — DO NOT inline base64. If you couldn\'t find a real image, omit the figure rather than fabricate one. Always include the `alt` text.',
+    '    • Citations: every claim that came from web_search/web_fetch gets a clickable `<a href="…">` link inline OR a numbered footnote-style `<sup><a href="…">[1]</a></sup>` pattern with a "Sources" `<section>` at the bottom.',
+    '',
+    '  Short answers stay inline in chat — HTML is only for things the user will want to view as a document.',
+    '',
+    '  Final check before write_file: does the path end in `.html`? If you typed `.md`, change it now.',
 ].join('\n');
 
 export const SPECIALISTS: Specialist[] = [

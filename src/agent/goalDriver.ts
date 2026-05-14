@@ -446,9 +446,21 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
     // spawns; for now one at a time per goal.)
     try {
         const startMs = Date.now();
+        // v6.1.0-alpha.32 — if the goal looks like a document deliverable,
+        // prepend a hard FORMAT directive to the task description. Belt
+        // and suspenders with the specialist system prompt's HTML_REPORT_
+        // GUIDANCE: even strong system-prompt rules can be drowned by a
+        // long context, but a directive at the top of the per-task user
+        // message is the LAST thing the LLM sees before producing output.
+        const baseTask = `${next.title}\n\n${next.description}${strategy.promptAdjustment ?? ''}`;
+        const documentLike = /\b(essay|report|briefing|writeup|write-up|summary|article|document|memo|paper|analysis|whitepaper|brief)\b/i.test(goal.title)
+            || /\b(essay|report|briefing|writeup|summary|article)\b/i.test(next.title);
+        const taskWithFormat = documentLike
+            ? `OUTPUT FORMAT — REQUIRED:\nThe user wants a real document they can view with images, charts, and styling. You MUST deliver this as a single self-contained .html file (write_file with a path ending in .html, e.g. "${slugForGoal(goal.title)}.html"). Do NOT write .md or .markdown — those can't show images or charts. See the OUTPUT FORMAT FOR DOCUMENTS section of your system prompt for the structure.\n\n──────────\n\n${baseTask}`
+            : baseTask;
         const result = await structuredSpawn({
             specialistId: strategy.specialist,
-            task: `${next.title}\n\n${next.description}${strategy.promptAdjustment ?? ''}`,
+            task: taskWithFormat,
             modelOverride: strategy.modelOverride,
             toolAllowlist: routeForKind(subState.kind).toolAllowlist,
             maxRounds: strategy.maxRounds,
@@ -1024,6 +1036,22 @@ async function pickNextReadySubtask(goal: Goal, state: DriverState): Promise<Sub
         return sub;
     }
     return null;
+}
+
+/**
+ * v6.1.0-alpha.32 — turn a goal title into a reasonable filename
+ * stem the LLM can use as a default for write_file. Lowercase,
+ * kebab-case, only alphanumerics + dashes, capped at 40 chars.
+ * Example: "Write a 3 page essay about Martin Luther King" →
+ * "write-a-3-page-essay-about-martin-l".
+ */
+function slugForGoal(title: string): string {
+    return title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40)
+        || 'report';
 }
 
 async function fileBlockedApproval(

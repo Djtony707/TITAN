@@ -5,6 +5,65 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.32 — 2026-05-13 — Force HTML output for documents (no more .md essays)
+
+> Tony screenshotted his MLK essay: `/tmp/mlk_essay.md`. "Its still
+> writing in .md files instead of html files for stuff. I want html
+> as it can have images and graphs and whatever inside it."
+
+The alpha.20 HTML guidance was a soft "Prefer HTML." The LLMs kept
+reaching for markdown anyway because the word "essay" or "report"
+biases them toward `.md`. alpha.32 makes it a hard rule via
+**two stacked enforcement layers**:
+
+### 1. System-prompt rule (forceful)
+
+`HTML_REPORT_GUIDANCE` in `src/agent/specialists.ts` rewritten:
+
+- "Prefer" → **"YOU MUST"** / **"YOU MUST NOT"**
+- Explicit penalty phrasing: markdown can't show images, SVG charts,
+  or styled tables — all of which the user wants when they ask for
+  a document
+- Concrete structure: `<!DOCTYPE html>…<head><style>…</style></head>
+  <body>…</body></html>`, inline CSS only, no `<script>`, no remote
+  assets
+- Image rule: use `<img src="https://…">` for external images found
+  via web_search/web_fetch, NOT base64; omit rather than fabricate
+- Citation rule: every claim gets a clickable `<a href="…">` or a
+  footnote-style `<sup>[N]</sup>` linking to a Sources section
+- Final-check directive: "does the path end in `.html`? If you
+  typed `.md`, change it now."
+
+### 2. Per-task FORMAT directive (belt + suspenders)
+
+`goalDriver.ts` now detects document-like goals via regex
+(`/essay|report|briefing|writeup|summary|article|document|memo|paper|analysis|whitepaper|brief/i`)
+on the goal/subtask title. When a match hits, it **prepends** a hard
+OUTPUT FORMAT block to the per-task user message — so the directive
+is at the top of every spawn's prompt, where the LLM definitely
+sees it even if context is long.
+
+The injected block includes a sensible default filename derived
+from the goal title via a new `slugForGoal()` helper:
+
+  > OUTPUT FORMAT — REQUIRED:
+  > The user wants a real document they can view with images, charts,
+  > and styling. You MUST deliver this as a single self-contained .html
+  > file (write_file with a path ending in .html, e.g.
+  > "write-a-3-page-essay-about-martin-l.html"). Do NOT write .md…
+
+System prompt is the policy; per-task directive is the enforcement.
+Both fire together for document goals, so the LLM has no graceful
+fallback to markdown.
+
+### Doesn't affect
+
+Short inline answers, code files (Builder still writes `.ts`/`.js`/
+etc.), or non-document goals. The format directive only injects
+when the goal title matches the document keyword list.
+
+---
+
 ## v6.1.0-alpha.31 — 2026-05-13 — Live activity stickies on the desk
 
 > Tony: "I liked the way we had it before when the Agents put sticky
