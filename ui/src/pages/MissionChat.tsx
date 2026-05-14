@@ -179,6 +179,14 @@ export default function MissionChat() {
         >
           Library
         </button>
+        {/* v6.1.0-alpha.23 — back to the main canvas / spaces home. */}
+        <button
+          onClick={() => navigate('/space/home')}
+          className="text-[10px] uppercase tracking-widest text-text-muted hover:text-text border border-border rounded-full px-2 py-0.5 shrink-0 inline-flex items-center gap-1"
+          title="Back to the canvas spaces"
+        >
+          🌌 Canvas
+        </button>
         <div className="font-semibold tracking-tight shrink-0">
           <span className="bg-gradient-to-r from-accent to-accent2 bg-clip-text text-transparent">TITAN</span>
           <span className="text-text-muted font-normal"> &nbsp;›&nbsp; </span>

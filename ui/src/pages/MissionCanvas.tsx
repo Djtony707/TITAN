@@ -460,6 +460,14 @@ export default function MissionCanvas() {
           >
             Library
           </button>
+          {/* v6.1.0-alpha.23 — back to the main canvas / spaces home. */}
+          <button
+            onClick={() => navigate('/space/home')}
+            className="text-[10px] uppercase tracking-widest text-[#d9c08c] hover:text-white border border-[#8a6a3a]/60 rounded-full px-2 py-0.5 inline-flex items-center gap-1"
+            title="Back to the canvas spaces"
+          >
+            🌌 Canvas
+          </button>
           <div className="font-semibold tracking-tight text-[#f3e9d0]">
             <span style={{ background: 'linear-gradient(90deg,#f3d27a,#d8a85a)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN</span>
             <span className="text-[#d9c08c] font-normal"> &nbsp;›&nbsp; </span>

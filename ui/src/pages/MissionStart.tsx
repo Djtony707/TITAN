@@ -74,6 +74,14 @@ export default function MissionStart() {
           >
             Past missions →
           </button>
+          {/* v6.1.0-alpha.23 — back to the main canvas / spaces home. */}
+          <button
+            onClick={() => navigate('/space/home')}
+            className="px-2 py-0.5 text-[10px] tracking-[0.18em] text-text-muted hover:text-text border border-border rounded-full transition-colors inline-flex items-center gap-1"
+            title="Back to the canvas spaces"
+          >
+            🌌 Canvas
+          </button>
         </div>
 
         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-center">
