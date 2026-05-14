@@ -70,6 +70,15 @@ describe('v6.1.0-alpha.14 — self-referential autonomy gate widened', () => {
             tags: ['testing', 'quality', 'regression-prevention'],
             description: 'Identify core agent behaviors needing test coverage.',
         },
+        // v6.1.0-alpha.38 — caught in the wild as the runaway goal
+        // 845ddce0. Bypassed alpha.14 because "test state cannot be
+        // established" only matches the bare `test\s+state` regex
+        // ambiguously; pinning it explicitly.
+        {
+            title: 'Investigate why test state cannot be established',
+            tags: ['testing', 'diagnostic'],
+            description: 'Pin down why the system reports tests cannot run.',
+        },
     ];
 
     for (const sample of WILD_CAUGHT) {

@@ -43,6 +43,7 @@ export async function ensureDrivers(): Promise<{ started: number; active: number
     let reconciled = 0;
     try {
         const { listGoals, updateGoal } = await import('./goals.js');
+        const { isSelfReferentialGoal } = await import('./goalProposer.js');
         const activeGoals = listGoals('active');
         const driverStates = listAllDrivers();
         const driverByGoal = new Map(driverStates.map(d => [d.goalId, d]));
@@ -54,6 +55,33 @@ export async function ensureDrivers(): Promise<{ started: number; active: number
         // whose status never transitioned (historical bug pre-v4.10.0).
         const candidates: Array<{ goal: typeof activeGoals[number]; driverPriority: number }> = [];
         for (const g of activeGoals) {
+            // v6.1.0-alpha.38 — retroactive self-mod gate. The
+            // normalizeProposal gate blocks NEW self-referential
+            // proposals, but goals on disk that pre-date the gate (or
+            // were hand-edited / imported) used to sail through here.
+            // Hit on 2026-05-13: goal 845ddce0 "Investigate why test
+            // state cannot be established" kept getting drivers
+            // ensured for it every tick, burning Ollama tokens in the
+            // exact pattern alpha.14 was designed to stop.
+            //
+            // Now we apply the same gate predicate at driver-start
+            // time and auto-cancel matching goals so they don't keep
+            // re-appearing in the candidate list.
+            if (isSelfReferentialGoal(g.title, g.description ?? '', g.tags)) {
+                try {
+                    updateGoal(g.id, { status: 'cancelled' });
+                    reconciled++;
+                    logger.warn(
+                        COMPONENT,
+                        `Auto-cancelled self-referential goal ${g.id} ("${g.title.slice(0, 60)}") — ` +
+                        `caught by retroactive alpha.38 gate. The goal proposer's gate blocks NEW ` +
+                        `proposals; this catches pre-existing ones on disk.`,
+                    );
+                } catch (err) {
+                    logger.warn(COMPONENT, `Failed to auto-cancel self-mod goal ${g.id}: ${(err as Error).message}`);
+                }
+                continue;
+            }
             const ds = driverByGoal.get(g.id);
             if (ds && (ds.phase === 'done' || ds.phase === 'failed' || ds.phase === 'cancelled')) {
                 // Driver is terminal but goal still active → reconcile.

@@ -5,6 +5,57 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.38 — 2026-05-13 — Retroactive self-mod gate at the driver scheduler
+
+> Tony: "check logs, something happened"
+
+Audit found goal `845ddce0` ("Investigate why test state cannot be
+established") active and burning Ollama tokens. Same self-referential
+test-infrastructure pattern alpha.14 was designed to stop. The
+goal *pre-dated* the alpha.14 gate (which only blocks NEW proposals
+via `normalizeProposal`), so it sailed past every check and the
+`GoalWatcher` daemon kept ensuring drivers for it on every tick.
+
+### Immediate response
+
+- Cancelled goal `845ddce0` in `~/.titan/goals.json` (status →
+  `cancelled`, reason recorded).
+- Cleared its driver state at `~/.titan/driver-state/845ddce0.json`.
+
+### Architectural fix
+
+Extracted the gate predicate so it can run at **two** points instead
+of one:
+
+  - `src/agent/goalProposer.ts` — new exported function
+    `isSelfReferentialGoal(title, description, tags)` returning
+    `true` if the inputs match the alpha.14 trigger set. The
+    `normalizeProposal` block was refactored to call it.
+  - `src/agent/driverScheduler.ts` — in `ensureDrivers()`, every
+    active goal now runs through the predicate before a driver is
+    started. If it matches, the goal is **auto-cancelled in place**
+    (status → `cancelled`, logged via WARN) and skipped.
+
+New regex added to catch the wild-caught wording that bit us:
+`/\binvestigate\s+why\s+\w+\s+(state|infrastructure|system|tests?)\s+cannot/i`.
+Plus a direct match for `\btest\s+state\s+cannot\s+be\s+established\b`.
+
+### Test
+
+`tests/v610-alpha14-test-infra-gate.test.ts` extended with a 7th
+wild-caught title: `"Investigate why test state cannot be established"`.
+All 10 cases pass. Legitimate-proposal passthrough still works.
+
+### Why this is the right shape
+
+The alpha.14 gate was always "block at the source." This was correct
+but incomplete — anything ALREADY on disk slipped past. alpha.38
+makes the gate retroactive: it runs at both **input** (proposer) and
+**dispatch** (scheduler). Even a hand-edited or imported goal that
+matches the pattern gets caught before it can burn cycles.
+
+---
+
 ## v6.1.0-alpha.37 — 2026-05-13 — Agents download images, embed as base64
 
 > Tony: "Still not working. Maybe instead of linking, the AI Agent
