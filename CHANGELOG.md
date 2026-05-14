@@ -5,6 +5,52 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.22 — 2026-05-13 — Sponsor pinned bottom-center · Mission Chat launcher with NEW badge
+
+> Tony: "The donation button is hidden under the spaces selector. Put
+> it center on the bottom of the screen so nothing can be in front
+> of it. And I want Mission Chat selectable in the canvas main page
+> with a new logo near it for people to check out and notice."
+
+### Single global sponsor mount
+
+Removed every per-page / per-shell SponsorFooter placement and
+replaced them with **one** fixed-bottom-center mount in `App.tsx`:
+
+  - `position: fixed; bottom: 6px; left: 0; right: 0;`
+  - `z-index: 2147483647` (max int — sits above the SpacesSidebar,
+    every modal backdrop, the voice overlay, and every canvas
+    overlay).
+  - Wrapper is `pointer-events-none` so background clicks pass
+    through; the link re-enables `pointer-events: auto`.
+  - Wrapped in a small rounded `bg-black/55 backdrop-blur` pill so
+    it stays legible over any background (light, dark, or wood).
+
+Now reachable on **every page**, never obscured by the spaces
+sidebar or any other layered UI.
+
+### Mission Chat launcher in the canvas main page
+
+`ui/src/titan2/canvas/TitanCanvas.tsx` — added a prominent launcher
+at the start of the canvas space header (where each canvas page
+lives). Custom inline-SVG logo: a stylized desk with a paper sheet
+and a yellow sticky note on top. Gradient gold/indigo border.
+Label "Mission Chat". Small **NEW** badge in brass-rimmed pill
+with a 2.4s gentle pulse so the eye finds it.
+
+Click → navigates to `/mission`. Visible to anyone using any
+canvas space, not just direct URL visitors.
+
+### Cleanups
+
+- Removed SponsorFooter inline mounts from: SpacesSidebar footer,
+  StatusBar, MissionStart, MissionChat, MissionCanvas, MissionLibrary.
+- AppShell stripped of its v6.1.0-alpha.21 sponsor wiring — turned
+  out AppShell isn't mounted anywhere (App.tsx is the actual root).
+  Moved the global mount to App.tsx where it really lives.
+
+---
+
 ## v6.1.0-alpha.21 — 2026-05-13 — Sponsor footer on every canvas · promoted to @latest
 
 > Tony: "Find a way to link my sponsor button somewhere at the bottom
