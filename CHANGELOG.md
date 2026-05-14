@@ -5,6 +5,41 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.15 — 2026-05-13 — Typing pill no longer eats text mid-word
+
+> Tony: "Scout I want you do do research and do a writeup on AI Agents and
+> how they help bus… — And I cannot read what it says after the …"
+
+### What happened
+
+The live "typing" pill at the bottom of Mission Chat shows what each
+agent is currently working on (`m.currentActivity`). For long user
+prompts, that activity string is literally the goal title. The
+lifecycle bridge was hard-capping it at 80 chars + `…` — a leftover
+from when this was rendered in a tiny tooltip — so anything beyond
+77 characters disappeared with no way to recover it from the chat.
+
+### Fix
+
+Two layers, no bandaid:
+
+1. **Data layer** (`src/agent/missionLifecycle.ts` — `shortenActivity`)
+   — bumped cap 80 → 240 chars. Still bounded so JSON payload + SSE
+   stream stay reasonable, but long enough to convey a full user
+   prompt.
+
+2. **UI layer** (`ui/src/pages/MissionChat.tsx` — `ActiveTyping`) —
+   the pill no longer uses `inline-flex` (which forces a single
+   line). Switched to a wrap-friendly `flex items-start` with
+   `max-w-[640px]` and `break-words`, plus a `title=` hover tooltip
+   carrying the full activity string for power users.
+
+Result: even a 240-char activity wraps cleanly inside the pill,
+hover shows the unbounded original, and the chat surface stays
+calm and readable.
+
+---
+
 ## v6.1.0-alpha.14 — 2026-05-13 — Self-referential autonomy gate widened
 
 > Tony: "Something is not right. look at the logs."
