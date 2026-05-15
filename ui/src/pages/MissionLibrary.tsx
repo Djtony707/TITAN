@@ -13,7 +13,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { listMissions, deleteMission, type MissionRoom } from '@/api/missions';
-import { DeskSurface } from '@/components/desk/DeskSurface';
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
@@ -83,8 +82,7 @@ export default function MissionLibrary() {
   }, [missions]);
 
   return (
-    <DeskSurface>
-      <div className="fixed inset-0 flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
+    <div className="h-full w-full flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
 
         {/* Top bar — leather strip */}
         <header className="relative z-20 flex items-center gap-4 px-5 py-3"
@@ -152,7 +150,6 @@ export default function MissionLibrary() {
         )}
       </main>
     </div>
-    </DeskSurface>
   );
 }
 

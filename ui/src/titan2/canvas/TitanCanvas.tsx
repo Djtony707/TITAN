@@ -97,7 +97,6 @@ import { AgentsWidget } from '../system/AgentsWidget';
 import { HealthWidget } from '../system/HealthWidget';
 import { StatsWidget } from '../system/StatsWidget';
 import { QuickLinksWidget } from '../system/QuickLinksWidget';
-import { DeskSurface } from '@/components/desk/DeskSurface';
 
 const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:nav': NavWidget,
@@ -698,19 +697,16 @@ export default function TitanCanvas() {
 
   if (!space) {
     return (
-      <DeskSurface>
-        <div className="h-full w-full flex items-center justify-center">
-          <div className="bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10">
-            <div className="text-[#d4d4d8] text-sm font-medium">Loading space...</div>
-          </div>
+      <div className="h-full w-full flex items-center justify-center">
+        <div className="bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10">
+          <div className="text-[#d4d4d8] text-sm font-medium">Loading space...</div>
         </div>
-      </DeskSurface>
+      </div>
     );
   }
 
   return (
-    <DeskSurface>
-      <div className="h-full w-full flex">
+    <div className="h-full w-full flex">
       <SpacesSidebar />
       <div ref={canvasRef} className="flex-1 relative overflow-auto">
       {/*
@@ -1133,7 +1129,6 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       <ShortcutsHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       </div>{/* /flex-1 canvas surface */}
     </div>
-    </DeskSurface>
   );
 }
 

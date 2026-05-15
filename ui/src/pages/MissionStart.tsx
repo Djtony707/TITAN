@@ -58,8 +58,7 @@ export default function MissionStart() {
   }
 
   return (
-    <DeskSurface>
-      <div className="fixed inset-0 flex flex-col items-center text-[#f3e9d0] overflow-y-auto" style={{ fontFamily: "'Georgia', serif" }}>
+    <div className="fixed inset-0 flex flex-col items-center text-[#f3e9d0] overflow-y-auto" style={{ fontFamily: "'Georgia', serif" }}>
       {/* Ambient gradient backdrop */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_15%,rgba(99,102,241,0.18)_0%,transparent_55%)]" />
 
@@ -194,7 +193,6 @@ export default function MissionStart() {
         />
       )}
     </div>
-    </DeskSurface>
   );
 }
 
