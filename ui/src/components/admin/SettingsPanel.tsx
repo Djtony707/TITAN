@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Save, CheckCircle, AlertCircle, Monitor, Cloud, Mic, RefreshCw, Wifi, WifiOff, Download, Loader2, Square, Play } from 'lucide-react';
 import { PageHeader, HelpBadge } from '@/components/shared';
+import { DeskThemePicker } from '@/components/desk/DeskThemePicker';
 import { getConfig, updateConfig, getModels, switchModel, getF5TtsStatus, getClonedVoices, uploadVoiceReference, deleteClonedVoice, previewVoice, apiFetch } from '@/api/client';
 import { trackEvent } from '@/api/telemetry';
 import type { ModelInfo } from '@/api/types';
@@ -473,6 +474,11 @@ function SettingsPanel() {
   return (
     <div className="space-y-4 md:space-y-6">
       <h2 className="text-base md:text-lg font-semibold text-text">Settings</h2>
+
+      {/* v6.1.0-alpha.49 — desk theme picker */}
+      <div className="rounded-lg border border-border bg-bg-secondary/50 px-3 py-2.5">
+        <DeskThemePicker />
+      </div>
 
       {toast && (
         <div
