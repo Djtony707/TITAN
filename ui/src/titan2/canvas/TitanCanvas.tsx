@@ -325,10 +325,10 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
       return <div className="w-full h-full flex items-center justify-center text-xs text-red-400">Unknown system widget: {widget.source}</div>;
     }
     return (
-      <div className="w-full h-full rounded-xl bg-[#18181b]/90 border border-[#27272a]/60 overflow-hidden flex flex-col group hover:border-[#6366f1]/30 transition-colors shadow-lg shadow-black/20">
-        <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#27272a]/40 panel-drag-handle cursor-move">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6366f1]/70">{widget.name}</span>
-          <button onClick={onRemove} className="opacity-0 group-hover:opacity-100 text-[#3f3f46] hover:text-red-400 text-xs px-1 transition-opacity">×</button>
+      <div className="w-full h-full rounded-xl overflow-hidden flex flex-col group transition-colors shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px rgba(60,40,15,0.15)' }}>
+        <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'rgba(58,37,24,0.05)' }}>
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-desk-accent)' }}>{widget.name}</span>
+          <button onClick={onRemove} className="opacity-0 group-hover:opacity-100 text-xs px-1 transition-opacity" style={{ color: 'var(--color-desk-text-muted)' }}>×</button>
         </div>
         <div className="flex-1 overflow-auto relative">
           <SystemWidgetErrorBoundary name={widget.name}>
@@ -345,21 +345,22 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
   // the change and re-renders us with the new (source, format, name),
   // which re-triggers the sandbox render effect above.
   return (
-    <div className="w-full h-full rounded-xl bg-[#18181b]/90 border border-[#27272a]/60 overflow-hidden flex flex-col">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#27272a]/40 panel-drag-handle cursor-move">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#6366f1]/70">{widget.name}</span>
+    <div className="w-full h-full rounded-xl overflow-hidden flex flex-col shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px rgba(60,40,15,0.15)' }}>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'rgba(58,37,24,0.05)' }}>
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-desk-accent)' }}>{widget.name}</span>
         <div className="flex items-center gap-1">
           <button
             onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('titan:widget:edit', { detail: { spaceId: space.id, widgetId: widget.id } })); }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="text-[#52525b] hover:text-[#a5b4fc] px-1"
+            className="px-1"
+            style={{ color: 'var(--color-desk-text-muted)' }}
             title="Edit widget"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m18 2 4 4-14 14H4v-4L18 2z" />
             </svg>
           </button>
-          <button onClick={onRemove} className="text-[#3f3f46] hover:text-red-400 text-xs px-1">×</button>
+          <button onClick={onRemove} className="text-xs px-1" style={{ color: "var(--color-desk-text-muted)" }}>×</button>
         </div>
       </div>
       <div className="flex-1 relative">
@@ -374,7 +375,7 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
               title={widget.name}
             />
             {loading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0f]/80 text-xs text-[#52525b]">
+              <div className="absolute inset-0 flex items-center justify-center text-xs font-serif" style={{ background: "rgba(253,246,227,0.85)", color: "var(--color-desk-text-muted)" }}>
                 <span className="animate-pulse">Loading widget…</span>
               </div>
             )}
@@ -698,8 +699,8 @@ export default function TitanCanvas() {
   if (!space) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <div className="bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10">
-          <div className="text-[#d4d4d8] text-sm font-medium">Loading space...</div>
+        <div className="rounded-xl px-6 py-3 border font-serif text-sm" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", color: "var(--color-desk-text-muted)" }}>
+          Loading space...
         </div>
       </div>
     );
@@ -750,7 +751,7 @@ export default function TitanCanvas() {
           content: "";
           position: absolute;
           width: 12px; height: 12px;
-          border: 2px solid #6366f1;
+          border: 2px solid var(--color-desk-brass);
           border-radius: 3px;
         }
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-se::after { right: 3px;  bottom: 3px; border-top: none; border-left: none; }
@@ -772,7 +773,7 @@ export default function TitanCanvas() {
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-w::after,
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-n::after,
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-s::after {
-          content: ""; position: absolute; background: #6366f1; border-radius: 2px;
+          content: ""; position: absolute; background: var(--color-desk-brass); border-radius: 2px;
         }
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-e::after,
         .titan-canvas-grid .react-grid-item > .react-resizable-handle-w::after {
@@ -796,14 +797,14 @@ export default function TitanCanvas() {
           opacity: 1 !important;
         }
       `}</style>
-      {/* Background texture — fixed so it covers the scrollable area */}
-      <div className="fixed inset-0 opacity-[0.03] pointer-events-none" style={{
-        backgroundImage: `radial-gradient(circle at 1px 1px, rgba(99,102,241,0.5) 1px, transparent 0)`,
+      {/* Background texture — warm grid over the desk */}
+      <div className="fixed inset-0 opacity-[0.04] pointer-events-none" style={{
+        backgroundImage: `radial-gradient(circle at 1px 1px, rgba(120,90,50,0.4) 1px, transparent 0)`,
         backgroundSize: '24px 24px',
       }} />
 
       {/* Space header */}
-      <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-4 z-40 border-b border-[#27272a]/30 bg-[#0a0a0f]/80 backdrop-blur-sm">
+      <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-4 z-40 border-b backdrop-blur-sm" style={{ borderColor: "var(--color-desk-border)", background: "var(--color-desk-header-bg)" }}>
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-xs font-bold uppercase tracking-widest" style={{ color: space.color || '#6366f1' }}>
             {space.name}
@@ -937,7 +938,8 @@ export default function TitanCanvas() {
           {/* Version chip */}
           <button
             disabled={updating}
-            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${updateInfo?.isNewer ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20 cursor-pointer' : 'bg-[#18181b] border-[#27272a] text-[#52525b]'}`}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${updateInfo?.isNewer ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20 cursor-pointer' : 'border text-[#6b5a45]'}`}
+            style={!updateInfo?.isNewer ? { background: 'rgba(253,246,227,0.7)', borderColor: 'var(--color-desk-border)' } : undefined}
             title={updateInfo?.isNewer ? `Update available: ${updateInfo.current} → ${updateInfo.latest}` : `TITAN ${updateInfo?.current || ''}`}
             onClick={async () => {
               if (!updateInfo?.isNewer || updating) return;
@@ -958,7 +960,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setGalleryOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#a78bfa] hover:bg-[#a78bfa]/10 transition-colors flex items-center gap-1.5"
+            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#a78bfa] hover:opacity-80 transition-colors flex items-center gap-1.5"
             title="Widget gallery"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -968,13 +970,13 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setCmdOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:opacity-80 transition-colors"
           >
             ⌘K
           </button>
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle'))}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:opacity-80 transition-colors"
           >
             ⌘J
           </button>
@@ -990,7 +992,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
         {validWidgets.length === 0 ? (
           <EmptyCanvas space={space} onAddWidget={handleAddSystemWidget} onOpenChat={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }))} />
         ) : (
-          <Suspense fallback={<div className="pt-12 text-center"><div className="inline-block bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10 text-[#d4d4d8] text-sm">Loading grid...</div></div>}>
+          <Suspense fallback={<div className="pt-12 text-center"><div className="inline-block rounded-xl px-6 py-3 border text-sm font-serif" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", color: "var(--color-desk-text-muted)" }}>Loading grid...</div></div>}>
             <ResponsiveGridLayout
               className="layout titan-canvas-grid"
               width={canvasWidth}
@@ -1178,20 +1180,21 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
 
   return (
     <div className="h-full flex items-center justify-center">
-      <div className="text-center max-w-lg bg-black/50 backdrop-blur-sm rounded-2xl px-8 py-10 border border-white/10">
-        <div className="w-16 h-16 rounded-2xl bg-[#6366f1]/10 border border-[#6366f1]/20 flex items-center justify-center mx-auto mb-5">
-          <svg className="w-7 h-7 text-[#6366f1]/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="text-center max-w-lg rounded-2xl px-8 py-10 border" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", boxShadow: "0 4px 16px rgba(60,40,15,0.12)" }}>
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5" style={{ background: "rgba(176,138,58,0.12)", border: "1px solid rgba(176,138,58,0.25)" }}>
+          <svg className="w-7 h-7" style={{ color: "var(--color-desk-brass)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-[#fafafa] mb-2">{space.name}</h2>
-        <p className="text-sm text-[#a1a1aa] mb-6">
+        <h2 className="text-xl font-bold mb-2" style={{ color: "var(--color-desk-text)" }}>{space.name}</h2>
+        <p className="text-sm mb-6" style={{ color: "var(--color-desk-text-secondary)" }}>
           This space is empty. Ask the agent to create widgets, or add system widgets below.
         </p>
         <div className="flex gap-2 justify-center mb-6 flex-wrap">
           <button
             onClick={onOpenChat}
-            className="px-4 py-2 rounded-xl bg-[#6366f1]/15 border border-[#6366f1]/25 text-[#a5b4fc] text-sm font-medium hover:bg-[#6366f1]/25 transition-all"
+            className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+            style={{ background: "rgba(176,138,58,0.15)", border: "1px solid rgba(176,138,58,0.25)", color: "var(--color-desk-accent)" }}
           >
             Ask Agent
           </button>
@@ -1201,7 +1204,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
             <button
               key={ex.source}
               onClick={() => onAddWidget(ex.source, ex.label, ex.w, ex.h)}
-              className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-[11px] text-[#a1a1aa] hover:text-white hover:border-white/20 transition-all"
+              className="px-3 py-1.5 rounded-lg text-[11px] transition-all" style={{ background: "rgba(58,37,24,0.06)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             >
               + {ex.label}
             </button>
