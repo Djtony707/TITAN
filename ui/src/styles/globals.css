@@ -52,6 +52,22 @@
   /* ── Resize handle ───────────────────────────────────── */
   --color-resize-handle: #27272a;
   --color-resize-active: #6366f1;
+
+  /* ── Desk Aesthetic (v6.1.0-alpha.49) ──────────────────── */
+  --color-desk-widget-bg: #fdf6e3;
+  --color-desk-widget-bg-dark: #3a2518;
+  --color-desk-border: rgba(90, 65, 40, 0.35);
+  --color-desk-border-light: rgba(120, 95, 65, 0.45);
+  --color-desk-text: #2a1f15;
+  --color-desk-text-secondary: #6b5a45;
+  --color-desk-text-muted: #9a8b78;
+  --color-desk-accent: #b08a3a;
+  --color-desk-accent-hover: #c99b3e;
+  --color-desk-header-bg: rgba(253, 246, 227, 0.92);
+  --color-desk-paper: #fdf6e3;
+  --color-desk-leather: #3a2518;
+  --color-desk-brass: #b08a3a;
+  --color-desk-cream: #f3e9d0;
 }
 
 :root {
