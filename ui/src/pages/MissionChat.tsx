@@ -21,6 +21,7 @@ import {
 } from '@/api/missions';
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 import { FileViewer } from '@/pages/mission/FileViewer';
+import { DeskSurface } from '@/components/desk/DeskSurface';
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 export default function MissionChat() {
@@ -153,30 +154,40 @@ export default function MissionChat() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-bg text-text-muted text-sm">
-        Loading mission…
-      </div>
+      <DeskSurface>
+        <div className="fixed inset-0 flex items-center justify-center text-[#a89070] text-sm" style={{ fontFamily: "'Georgia', serif" }}>
+          Loading mission…
+        </div>
+      </DeskSurface>
     );
   }
   if (error || !room) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-bg flex-col gap-3">
-        <div className="text-error text-sm">{error ?? 'Mission not found.'}</div>
-        <button onClick={() => navigate('/mission')} className="text-accent text-sm hover:underline">
-          ← Start a new mission
-        </button>
-      </div>
+      <DeskSurface>
+        <div className="fixed inset-0 flex items-center justify-center flex-col gap-3 text-[#f3e9d0]" style={{ fontFamily: "'Georgia', serif" }}>
+          <div className="text-[#c45050] text-sm">{error ?? 'Mission not found.'}</div>
+          <button onClick={() => navigate('/mission')} className="text-[#c4a35a] text-sm hover:underline">
+            ← Start a new mission
+          </button>
+        </div>
+      </DeskSurface>
     );
   }
 
   const { working, blocked } = countTeam(room);
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-bg text-text overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_60%_0%,rgba(99,102,241,0.12)_0%,transparent_45%)]" />
+    <DeskSurface>
+      <div className="fixed inset-0 flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
 
-      {/* Top bar */}
-      <header className="relative z-20 flex items-center gap-4 px-5 py-3 border-b border-border bg-bg/80 backdrop-blur-md">
+        {/* Top bar — leather strip */}
+        <header className="relative z-20 flex items-center gap-4 px-5 py-3"
+          style={{
+            background: 'linear-gradient(180deg, rgba(42,26,10,0.92), rgba(56,36,16,0.88))',
+            borderBottom: '1px solid rgba(138,106,58,0.5)',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          }}
+        >
         <button
           onClick={() => navigate('/mission')}
           className="text-text-muted hover:text-text text-sm shrink-0"
@@ -360,6 +371,7 @@ export default function MissionChat() {
         </div>
       )}
     </div>
+    </DeskSurface>
   );
 }
 

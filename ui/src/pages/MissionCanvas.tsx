@@ -476,17 +476,18 @@ export default function MissionCanvas() {
       };
     }
     if (item.kind === 'activity') {
-      // v6.1.0-alpha.31 — fan activity stickies along the top edge so
-      // they don't pile up on top of the live document. Newest go
-      // closest to the goal placard; older drift outward.
+      // v6.1.0-alpha.49 — activity stickies now start at the bottom edge
+      // to avoid covering the "Your Mission" goal placard. They fan upward
+      // on the desk as new ones arrive, like a pile of incoming mail.
       const idx = allItems.filter(i => i.kind === 'activity').findIndex(i => i.id === item.id);
-      const col = idx % 4;
-      const row = Math.floor(idx / 4);
+      const maxPerRow = Math.max(4, Math.floor((vw - 120) / 180));
+      const col = idx % maxPerRow;
+      const row = Math.floor(idx / maxPerRow);
       return {
-        x: 280 + col * 175 + (row % 2 === 0 ? 0 : 30),
-        y: 90 + row * 110,
+        x: 40 + col * 180 + (row % 2 === 0 ? 0 : 40),
+        y: vh - 200 - (row * 110),
         z: 14 + idx,
-        rotation: (idx % 2 === 0 ? -1 : 1) * (3 + (idx * 0.5)),
+        rotation: (idx % 2 === 0 ? -1 : 1) * (2 + (idx * 0.3)),
       };
     }
     return { x: 100, y: 100, z: 1, rotation: 0 };

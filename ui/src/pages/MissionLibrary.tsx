@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { listMissions, deleteMission, type MissionRoom } from '@/api/missions';
+import { DeskSurface } from '@/components/desk/DeskSurface';
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
@@ -82,32 +83,37 @@ export default function MissionLibrary() {
   }, [missions]);
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-bg-deep text-text overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_60%_0%,rgba(99,102,241,0.12)_0%,transparent_45%)]" />
+    <DeskSurface>
+      <div className="fixed inset-0 flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
 
-      {/* Top bar */}
-      <header className="relative z-20 flex items-center gap-4 px-5 py-3 border-b border-border bg-bg/80 backdrop-blur-md">
-        <button onClick={() => navigate('/mission')} className="text-text-muted hover:text-text text-sm" title="Start a new mission">←</button>
-        {/* v6.1.0-alpha.23 — back to the main canvas / spaces home. */}
-        <button
-          onClick={() => navigate('/space/home')}
-          className="text-[10px] uppercase tracking-widest text-text-muted hover:text-text border border-border rounded-full px-2 py-0.5 shrink-0 inline-flex items-center gap-1"
-          title="Back to the canvas spaces"
+        {/* Top bar — leather strip */}
+        <header className="relative z-20 flex items-center gap-4 px-5 py-3"
+          style={{
+            background: 'linear-gradient(180deg, rgba(42,26,10,0.92), rgba(56,36,16,0.88))',
+            borderBottom: '1px solid rgba(138,106,58,0.5)',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          }}
         >
-          🌌 Canvas
-        </button>
-        <div className="font-semibold tracking-tight shrink-0">
-          <span className="bg-gradient-to-r from-accent to-accent2 bg-clip-text text-transparent">TITAN</span>
-          <span className="text-text-muted font-normal"> &nbsp;›&nbsp; </span>
-          Mission Library
-        </div>
-        <div className="flex-1" />
-        <button onClick={refresh} className="text-xs text-text-muted hover:text-text px-3 py-1.5 bg-bg-secondary/60 border border-border rounded-full" title="Reload">⟳ refresh</button>
-        <button onClick={() => navigate('/mission')} className="px-3 py-1.5 text-xs bg-gradient-to-br from-accent to-accent2 text-bg-deep rounded-full font-semibold shadow-[0_0_16px_rgba(99,102,241,0.4)]">+ New mission</button>
-      </header>
+          <button onClick={() => navigate('/mission')} className="text-[#c4a35a] hover:text-[#f3e9d0] text-sm" title="Start a new mission">←</button>
+          <button
+            onClick={() => navigate('/space/home')}
+            className="text-[10px] uppercase tracking-widest text-[#c4a35a] hover:text-[#f3e9d0] border border-[#8a6a3a] rounded-full px-2 py-0.5 shrink-0 inline-flex items-center gap-1"
+            title="Back to the canvas spaces"
+          >
+            🌌 Canvas
+          </button>
+          <div className="font-semibold tracking-tight shrink-0 text-[#f3e9d0]">
+            <span className="text-[#c4a35a]">TITAN</span>
+            <span className="text-[#a89070] font-normal"> &nbsp;›&nbsp; </span>
+            Mission Library
+          </div>
+          <div className="flex-1" />
+          <button onClick={refresh} className="text-xs text-[#a89070] hover:text-[#f3e9d0] px-3 py-1.5 bg-[#4a3020]/80 border border-[#8a6a3a] rounded-full" title="Reload">⟳ refresh</button>
+          <button onClick={() => navigate('/mission')} className="px-3 py-1.5 text-xs bg-gradient-to-br from-[#c4a35a] to-[#8a6a3a] text-[#fdf6e3] rounded-full font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.2)]">+ New mission</button>
+        </header>
 
-      {/* Filter row */}
-      <div className="relative z-10 px-5 py-3 flex items-center gap-3 border-b border-border/40">
+        {/* Filter row */}
+        <div className="relative z-10 px-5 py-3 flex items-center gap-3 border-b border-[#8a6a3a]/40">
         <FilterChip active={filter === 'all'}    label="All"     count={counts.all}    onClick={() => setFilter('all')} />
         <FilterChip active={filter === 'live'}   label="In progress" count={counts.live} onClick={() => setFilter('live')} dotClass="bg-accent" />
         <FilterChip active={filter === 'done'}   label="Done"    count={counts.done}   onClick={() => setFilter('done')} dotClass="bg-success" />
@@ -146,6 +152,7 @@ export default function MissionLibrary() {
         )}
       </main>
     </div>
+    </DeskSurface>
   );
 }
 
