@@ -8,12 +8,13 @@
  * Wire-up:
  *   GET    /api/specialists             → list with defaultModel + activeModel
  *   GET    /api/models                  → { provider: ["provider/model", …] }
+ *   GET    /api/specialists/:id/recommendations → scored model list with badges
  *   PATCH  /api/specialists/:id  { model }        → set override
  *   PATCH  /api/specialists/:id  { model: null }  → clear override (revert to default)
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { apiFetch } from '@/api/client';
-import { Users, Check, RotateCcw, AlertCircle, RefreshCw } from 'lucide-react';
+import { Users, Check, RotateCcw, AlertCircle, RefreshCw, Info } from 'lucide-react';
 
 interface SpecialistRow {
     id: string;
@@ -27,21 +28,47 @@ interface SpecialistRow {
     reportsTo?: string | null;
 }
 
-// Describes a saved row that hasn't finished round-tripping yet, so we can
-// show the spinner next to the specific dropdown that was just touched.
+interface ScoreBreakdown {
+    capabilityScore: number;
+    specialistFit: number;
+    availability: number;
+}
+
+interface ModelRecommendation {
+    id: string;
+    label: string;
+    score: number;
+    breakdown: ScoreBreakdown;
+    isDefault: boolean;
+    isActive: boolean;
+    badges: string[];
+    rationale: string;
+}
+
 type PatchState = 'idle' | 'saving' | 'saved' | 'error';
 
 const ROLE_COLOR: Record<string, string> = {
-    researcher: '#60a5fa',  // blue
-    engineer: '#f87171',    // red
-    manager: '#a78bfa',     // purple
-    ceo: '#fbbf24',         // amber
-    general: '#9ca3af',     // gray
+    researcher: '#60a5fa',
+    engineer: '#f87171',
+    manager: '#a78bfa',
+    ceo: '#fbbf24',
+    general: '#9ca3af',
+};
+
+const BADGE_STYLES: Record<string, string> = {
+    Recommended: 'bg-[#10b981]/15 text-[#10b981] border-[#10b981]/30',
+    Reasoning: 'bg-[#8b5cf6]/15 text-[#8b5cf6] border-[#8b5cf6]/30',
+    Fast: 'bg-[#0ea5e9]/15 text-[#0ea5e9] border-[#0ea5e9]/30',
+    Light: 'bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/30',
+    'Long Context': 'bg-[#6366f1]/15 text-[#6366f1] border-[#6366f1]/30',
+    'High Output': 'bg-[#ec4899]/15 text-[#ec4899] border-[#ec4899]/30',
+    'Needs Key': 'bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30',
 };
 
 export function SettingsSpecialistsWidget() {
     const [specialists, setSpecialists] = useState<SpecialistRow[] | null>(null);
     const [models, setModels] = useState<Record<string, string[]>>({});
+    const [recommendations, setRecommendations] = useState<Record<string, ModelRecommendation[]>>({});
     const [error, setError] = useState<string | null>(null);
     const [rowState, setRowState] = useState<Record<string, PatchState>>({});
     const [loading, setLoading] = useState(true);
@@ -59,6 +86,21 @@ export function SettingsSpecialistsWidget() {
             const modelsRaw = (await modelRes.json()) as Record<string, string[]>;
             setSpecialists(specialistsRaw);
             setModels(modelsRaw);
+
+            // Fetch scored recommendations for each specialist in parallel
+            const recs: Record<string, ModelRecommendation[]> = {};
+            await Promise.all(
+                specialistsRaw.map(async (s) => {
+                    try {
+                        const r = await apiFetch(`/api/specialists/${encodeURIComponent(s.id)}/recommendations`);
+                        if (r.ok) {
+                            const body = (await r.json()) as { recommendations?: ModelRecommendation[] };
+                            if (body.recommendations) recs[s.id] = body.recommendations;
+                        }
+                    } catch { /* ignore per-row fetch failure */ }
+                }),
+            );
+            setRecommendations(recs);
         } catch (e) {
             setError((e as Error).message);
         } finally {
@@ -70,17 +112,15 @@ export function SettingsSpecialistsWidget() {
         void fetchAll();
     }, [fetchAll]);
 
-    // Flat, de-duped, sorted list of every known model across providers —
-    // used to populate each dropdown. If the specialist's current model is
-    // not in the discovered list (e.g. offline provider), we still include
-    // it so we don't show the picker as empty.
-    const allModels = useMemo(() => {
+    // Build a sorted model list per specialist using recommendation scores.
+    // Fallback to a flat sorted list if recommendations haven't loaded yet.
+    const getModelsForSpecialist = useCallback((id: string): string[] => {
+        const recList = recommendations[id];
+        if (recList && recList.length) {
+            return recList.map(r => r.id);
+        }
+        // Fallback: flat unique sorted list from /api/models
         const seen = new Set<string>();
-        // Defensive: /api/models can return either `{provider: string[]}`
-        // (router grouping) OR `{provider: {id: ...}[]}` (verbose form)
-        // depending on version. Only iterate entries that are actually
-        // array-shaped — anything else is ignored rather than throwing
-        // "object is not iterable" during render.
         if (models && typeof models === 'object') {
             for (const provider of Object.keys(models)) {
                 const list = (models as Record<string, unknown>)[provider];
@@ -100,7 +140,7 @@ export function SettingsSpecialistsWidget() {
             }
         }
         return Array.from(seen).sort((a, b) => a.localeCompare(b));
-    }, [models, specialists]);
+    }, [recommendations, models, specialists]);
 
     const setModelForSpecialist = useCallback(async (id: string, model: string | null) => {
         setRowState(prev => ({ ...prev, [id]: 'saving' }));
@@ -115,8 +155,6 @@ export function SettingsSpecialistsWidget() {
                 throw new Error(`PATCH failed (${res.status}): ${text || res.statusText}`);
             }
             const body = (await res.json()) as { ok?: boolean; activeModel?: string };
-            // Update local state optimistically — authoritative source is the
-            // server's `activeModel` return value.
             setSpecialists(prev => prev?.map(s =>
                 s.id === id
                     ? {
@@ -155,7 +193,7 @@ export function SettingsSpecialistsWidget() {
                     <Users className="w-4 h-4 text-[#6366f1]" />
                     <h3 className="font-semibold">Specialist Models</h3>
                     <span className="text-[10px] text-[#52525b]">
-                        {specialists?.length ?? 0} sub-agents · {allModels.length} models
+                        {specialists?.length ?? 0} sub-agents
                     </span>
                 </div>
                 <button
@@ -176,7 +214,7 @@ export function SettingsSpecialistsWidget() {
             )}
 
             {/* Rows */}
-            <div className="flex-1 overflow-auto px-4 py-3 space-y-2">
+            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
                 {specialists?.length === 0 && (
                     <div className="text-xs text-[#52525b] italic">No specialists registered.</div>
                 )}
@@ -184,7 +222,8 @@ export function SettingsSpecialistsWidget() {
                     <SpecialistRow
                         key={s.id}
                         row={s}
-                        allModels={allModels}
+                        models={getModelsForSpecialist(s.id)}
+                        recommendations={recommendations[s.id] ?? []}
                         state={rowState[s.id] ?? 'idle'}
                         onChange={(m) => setModelForSpecialist(s.id, m)}
                         onReset={() => setModelForSpecialist(s.id, null)}
@@ -194,7 +233,7 @@ export function SettingsSpecialistsWidget() {
 
             {/* Footer hint */}
             <div className="px-4 py-2 border-t border-[#27272a]/60 text-[10px] text-[#52525b]">
-                Overrides write to <span className="font-mono text-[#71717a]">config.specialists.overrides</span>. Reset reverts a specialist to its code default.
+                Overrides write to <span className="font-mono text-[#71717a]">config.specialists.overrides</span>. Top-scored models are recommended per specialist role.
             </div>
         </div>
     );
@@ -202,14 +241,19 @@ export function SettingsSpecialistsWidget() {
 
 interface RowProps {
     row: SpecialistRow;
-    allModels: string[];
+    models: string[];
+    recommendations: ModelRecommendation[];
     state: PatchState;
     onChange: (model: string) => void;
     onReset: () => void;
 }
 
-function SpecialistRow({ row, allModels, state, onChange, onReset }: RowProps) {
+function SpecialistRow({ row, models, recommendations, state, onChange, onReset }: RowProps) {
     const roleColor = ROLE_COLOR[row.role] ?? ROLE_COLOR.general;
+    const activeRec = recommendations.find(r => r.id === row.activeModel);
+    const topRec = recommendations[0] ?? null;
+    const [showInfo, setShowInfo] = useState(false);
+
     return (
         <div className="rounded-lg border border-[#27272a]/60 bg-[#18181b]/70 hover:border-[#3f3f46]/80 transition-colors">
             <div className="px-3 py-2 flex items-center gap-3">
@@ -233,10 +277,31 @@ function SpecialistRow({ row, allModels, state, onChange, onReset }: RowProps) {
                         className="flex-1 min-w-0 px-2 py-1 rounded bg-[#0a0a0f] border border-[#27272a] text-xs font-mono focus:outline-none focus:border-[#6366f1] disabled:opacity-50"
                         title={`default: ${row.defaultModel}`}
                     >
-                        {allModels.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                        ))}
+                        {models.map(m => {
+                            const rec = recommendations.find(r => r.id === m);
+                            const badges = rec?.badges ?? [];
+                            const label = badges.length ? `${m}  [${badges.join(', ')}]` : m;
+                            return (
+                                <option key={m} value={m}>
+                                    {label}
+                                </option>
+                            );
+                        })}
                     </select>
+
+                    {/* Active-model badge pills */}
+                    {activeRec && activeRec.badges.length > 0 && (
+                        <div className="hidden sm:flex items-center gap-1 shrink-0">
+                            {activeRec.badges.slice(0, 3).map(b => (
+                                <span
+                                    key={b}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] border ${BADGE_STYLES[b] ?? 'bg-[#27272a] text-[#a1a1aa] border-[#27272a]'}`}
+                                >
+                                    {b}
+                                </span>
+                            ))}
+                        </div>
+                    )}
 
                     {row.overridden && (
                         <button
@@ -250,6 +315,14 @@ function SpecialistRow({ row, allModels, state, onChange, onReset }: RowProps) {
                         </button>
                     )}
 
+                    <button
+                        onClick={() => setShowInfo(v => !v)}
+                        className="flex items-center justify-center w-6 h-6 rounded hover:bg-[#27272a]/60 text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+                        title="Show recommendation details"
+                    >
+                        <Info className="w-3.5 h-3.5" />
+                    </button>
+
                     <div className="w-5 h-5 flex items-center justify-center shrink-0">
                         {state === 'saving' && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#6366f1]" />}
                         {state === 'saved' && <Check className="w-3.5 h-3.5 text-[#10b981]" />}
@@ -257,6 +330,36 @@ function SpecialistRow({ row, allModels, state, onChange, onReset }: RowProps) {
                     </div>
                 </div>
             </div>
+
+            {/* Expandable info panel */}
+            {showInfo && (
+                <div className="px-3 pb-3 space-y-1.5">
+                    {activeRec && (
+                        <div className="flex items-start gap-2 text-[11px] text-[#a1a1aa]">
+                            <Info className="w-3 h-3 mt-0.5 shrink-0 text-[#6366f1]" />
+                            <span>{activeRec.rationale}</span>
+                        </div>
+                    )}
+                    {topRec && topRec.id !== row.activeModel && (
+                        <div className="flex items-center gap-2 text-[11px] text-[#10b981]">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span>
+                                Recommended upgrade: <span className="font-mono">{topRec.id}</span> (score {topRec.score}/100)
+                                {topRec.badges.length > 0 && (
+                                    <span className="ml-1 text-[#71717a]">[{topRec.badges.join(', ')}]</span>
+                                )}
+                            </span>
+                        </div>
+                    )}
+                    {activeRec && (
+                        <div className="grid grid-cols-3 gap-2 text-[10px] text-[#52525b]">
+                            <div>Capability: <span className="text-[#a1a1aa]">{activeRec.breakdown.capabilityScore}/40</span></div>
+                            <div>Fit: <span className="text-[#a1a1aa]">{activeRec.breakdown.specialistFit}/40</span></div>
+                            <div>Availability: <span className="text-[#a1a1aa]">{activeRec.breakdown.availability}/20</span></div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Metadata chip row */}
             <div className="px-3 pb-2 flex items-center gap-2 text-[10px] text-[#52525b]">

@@ -96,6 +96,30 @@ export function createSkillsRouter(channels: Map<string, ChannelAdapter>): Route
     }
   });
 
+  // ── Specialist Model Recommendations ─────────────────────────
+  router.get('/specialists/:id/recommendations', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { SPECIALISTS } = await import('../../agent/specialists.js');
+      const specialist = SPECIALISTS.find((s) => s.id === id);
+      if (!specialist) { res.status(404).json({ error: `Unknown specialist: ${id}` }); return; }
+
+      const { recommendModelsForSpecialist } = await import('../../providers/modelRecommender.js');
+      const { discoverAllModels } = await import('../../providers/router.js');
+
+      const cfg = loadConfig();
+      const overrides = (cfg as unknown as { specialists?: { overrides?: Record<string, { model?: string }> } }).specialists?.overrides || {};
+      const activeModel = overrides[id]?.model || null;
+
+      const models = await discoverAllModels(true);
+      const recommendations = recommendModelsForSpecialist(id, models, activeModel);
+      res.json({ ok: true, specialistId: id, recommendations });
+    } catch (e) {
+      logger.error(COMPONENT, `Recommendations error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
   // ── Marketplace ─────────────────────────────────────────────
   router.get('/marketplace', async (_req, res) => {
     try {
