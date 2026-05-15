@@ -878,45 +878,45 @@ export default function TitanCanvas() {
         </div>
         <div className="flex items-center gap-2">
           {/* Widget count + quick-add + clear */}
-          <span className="text-[10px] text-[#52525b]">{validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''}</span>
+          <span className="text-[10px]" style={{ color: "var(--color-desk-text-muted)" }}>{validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => handleAddSystemWidget('system:nav', 'Nav', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Navigation"
           >
             Nav
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:agents', 'Agents', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Agents"
           >
             Agents
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:health', 'Health', 3, 3)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Health"
           >
             Health
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:stats', 'Stats', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Stats"
           >
             Stats
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:quick-links', 'Quick Links', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Quick Links"
           >
             Links
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:chat', 'Chat', 4, 5)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Chat"
           >
             Chat
