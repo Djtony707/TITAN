@@ -121,16 +121,16 @@ export function SomaOrb() {
       {expanded && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setExpanded(false)}>
           <div
-            className="bg-[#18181b]/98 border border-[#27272a]/60 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden"
+            className="bg-[#1f1812]/95 border border-[#8b6b4a]/40 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden"
             style={{ width: 'min(900px, 90vw)', height: 'min(600px, 80vh)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[#27272a]/40">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[#8b6b4a]/30">
               <div className="flex items-center gap-2">
                 <Brain className="w-4 h-4" style={{ color: colors.primary }} />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#a1a1aa]">SOMA Consciousness</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#c8b89a]">SOMA Consciousness</span>
               </div>
-              <button onClick={() => setExpanded(false)} className="p-1 text-[#3f3f46] hover:text-[#71717a]">
+              <button onClick={() => setExpanded(false)} className="p-1 text-[#8b6b4a] hover:text-[#c8b89a]">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -153,24 +153,24 @@ export function SomaOrb() {
       >
         {/* Context menu */}
         {showMenu && (
-          <div className="absolute bottom-full left-0 mb-2 bg-[#18181b]/98 backdrop-blur-xl border border-[#27272a]/60 rounded-xl shadow-2xl shadow-black/60 overflow-hidden min-w-[160px] py-1">
+          <div className="absolute bottom-full left-0 mb-2 bg-[#2a2018]/95 backdrop-blur-xl border border-[#8b6b4a]/40 rounded-xl shadow-2xl shadow-black/60 overflow-hidden min-w-[160px] py-1">
             <button
               onClick={() => { setExpanded(true); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#a1a1aa] hover:bg-[#27272a]/40 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
             >
               <Brain className="w-3.5 h-3.5" style={{ color: colors.primary }} />
               Open SOMA
             </button>
             <button
               onClick={() => { setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#a1a1aa] hover:bg-[#27272a]/40 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#f59e0b]" />
               Summarize Canvas
             </button>
             <button
               onClick={() => { setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#a1a1aa] hover:bg-[#27272a]/40 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
             >
               <Zap className="w-3.5 h-3.5 text-[#6366f1]" />
               Run Self-Check
@@ -208,12 +208,12 @@ export function SomaOrb() {
             <Brain className="w-5 h-5 text-white/90" />
           </div>
 
-          {/* Activity label */}
-          <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
-            <span className="text-[9px] font-medium uppercase tracking-wider text-[#52525b] bg-[#0a0a0f]/80 px-1.5 py-0.5 rounded">
-              {somaState.activity}
-            </span>
-          </div>
+        {/* Activity label */}
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
+          <span className="text-[9px] font-medium uppercase tracking-wider text-[#e8dcc8] bg-black/60 px-1.5 py-0.5 rounded border border-[#8b6b4a]/30">
+            {somaState.activity}
+          </span>
+        </div>
         </div>
       </div>
     </>
