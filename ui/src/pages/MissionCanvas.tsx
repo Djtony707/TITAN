@@ -989,14 +989,32 @@ function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['stat
 
 function DocumentPaper({ room }: { room: MissionRoom }) {
   const content = room.artifact?.content ?? '';
+  const prevLenRef = useRef(content.length);
+  const [typing, setTyping] = useState(false);
+
+  useEffect(() => {
+    if (content.length > prevLenRef.current) {
+      setTyping(true);
+      const t = setTimeout(() => setTyping(false), 2000);
+      prevLenRef.current = content.length;
+      return () => clearTimeout(t);
+    }
+    prevLenRef.current = content.length;
+  }, [content]);
+
   const lines = useMemo(() => {
     const all = content.split('\n').filter(l => l.trim().length > 0);
     return all.slice(0, 10);
   }, [content]);
   const words = content.trim().split(/\s+/).filter(Boolean).length;
+
+  // If the team is active and the document recently grew, show a
+  // live-writing indicator with a blinking cursor.
+  const teamActive = room.team.some(t => t.state === 'working' || t.state === 'editing');
+
   return (
     <div
-      className="w-[460px] max-w-[88vw] bg-[#f7f5ee] text-[#1a1f2e] rounded-md p-7 pt-6"
+      className="w-[460px] max-w-[88vw] bg-[#f7f5ee] text-[#1a1f2e] rounded-md p-7 pt-6 relative"
       style={{
         fontFamily: '"Iowan Old Style", "Charter", "Georgia", serif',
         backgroundImage: 'repeating-linear-gradient(180deg, transparent 0 26px, #d8d3c2 26px 27px)',
@@ -1006,12 +1024,22 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
       <h1 className="text-[20px] font-semibold tracking-tight leading-tight mb-1">
         {shorten(room.goal, 70)}
       </h1>
-      <div className="text-[11px] uppercase tracking-widest text-[#8a8472] mb-4">
-        Draft · {words} words · {statusToLabel(room.status)}
+      <div className="text-[11px] uppercase tracking-widest text-[#8a8472] mb-4 flex items-center gap-2">
+        <span>Draft · {words} words · {statusToLabel(room.status)}</span>
+        {typing && teamActive && (
+          <span className="inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#c4a35a] animate-pulse" />
+            <span className="text-[10px] italic">Writing…</span>
+          </span>
+        )}
       </div>
       {lines.length > 0 ? (
         <div className="text-[13px] leading-[1.55] space-y-3">
-          {lines.map((line, i) => <p key={i}>{line}</p>)}
+          {lines.map((line, i) => (
+            <p key={i}>{line}{typing && teamActive && i === lines.length - 1 && (
+              <span className="inline-block w-0.5 h-3.5 bg-[#c4a35a] ml-0.5 align-middle animate-pulse" />
+            )}</p>
+          ))}
         </div>
       ) : (
         <div className="text-[12px] italic text-[#8a8472] py-6 text-center">
