@@ -806,7 +806,7 @@ export default function TitanCanvas() {
       {/* Space header */}
       <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-4 z-40 border-b backdrop-blur-sm" style={{ borderColor: "var(--color-desk-border)", background: "var(--color-desk-header-bg)" }}>
         <div className="flex items-center gap-3 min-w-0">
-          <span className="text-xs font-bold uppercase tracking-widest" style={{ color: space.color || '#6366f1' }}>
+          <span className="text-xs font-bold uppercase tracking-widest" style={{ color: space.color || 'var(--color-desk-accent)' }}>
             {space.name}
           </span>
           {/*
@@ -881,42 +881,42 @@ export default function TitanCanvas() {
           <span className="text-[10px] text-[#52525b]">{validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => handleAddSystemWidget('system:nav', 'Nav', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Navigation"
           >
             Nav
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:agents', 'Agents', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Agents"
           >
             Agents
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:health', 'Health', 3, 3)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Health"
           >
             Health
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:stats', 'Stats', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Stats"
           >
             Stats
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:quick-links', 'Quick Links', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Quick Links"
           >
             Links
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:chat', 'Chat', 4, 5)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#6366f1]/5 border border-[#6366f1]/10 text-[#818cf8]/70 hover:bg-[#6366f1]/10 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors"
             title="Add Chat"
           >
             Chat
@@ -960,7 +960,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setGalleryOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#a78bfa] hover:opacity-80 transition-colors flex items-center gap-1.5"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors flex items-center gap-1.5" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-accent)" }}
             title="Widget gallery"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -970,13 +970,13 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setCmdOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:opacity-80 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
           >
             ⌘K
           </button>
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle'))}
-            className="text-[10px] px-2 py-1 rounded-md bg-[#18181b] border border-[#27272a] text-[#52525b] hover:opacity-80 transition-colors"
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
           >
             ⌘J
           </button>

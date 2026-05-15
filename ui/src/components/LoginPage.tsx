@@ -26,11 +26,13 @@ export function LoginPage() {
   );
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen bg-bg overflow-hidden">
-      {/* Subtle animated background glow */}
+    <div className="relative flex items-center justify-center min-h-screen overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #6e4724 0%, #482a13 50%, #3d2815 100%)' }}
+    >
+      {/* Warm glow */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-[0.07] blur-[120px] pointer-events-none"
-        style={{ background: 'radial-gradient(circle, var(--color-accent), var(--color-accent2))' }}
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-[0.08] blur-[120px] pointer-events-none"
+        style={{ background: 'radial-gradient(circle, #b08a3a, transparent)' }}
       />
 
       <div className="relative z-10 w-full max-w-md mx-6">
@@ -38,9 +40,9 @@ export function LoginPage() {
         <div className="text-center mb-10">
           {/* TITAN Logo Mark */}
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-6" style={{
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))',
-            border: '1px solid rgba(99,102,241,0.25)',
-            boxShadow: '0 0 40px rgba(99,102,241,0.1), inset 0 1px 0 rgba(255,255,255,0.05)',
+            background: 'linear-gradient(135deg, rgba(176,138,58,0.2), rgba(120,90,50,0.2))',
+            border: '1px solid rgba(176,138,58,0.35)',
+            boxShadow: '0 0 40px rgba(176,138,58,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
           }}>
             <svg viewBox="0 0 32 32" fill="none" className="w-10 h-10">
               <path d="M16 3L4 9.5v13L16 29l12-6.5v-13L16 3z" stroke="url(#titan-grad)" strokeWidth={1.5} strokeLinejoin="round" />
@@ -48,26 +50,26 @@ export function LoginPage() {
               <circle cx={16} cy={16} r={4} fill="url(#titan-grad)" opacity={0.8} />
               <defs>
                 <linearGradient id="titan-grad" x1="4" y1="3" x2="28" y2="29">
-                  <stop stopColor="#6366f1" />
-                  <stop offset={1} stopColor="#a855f7" />
+                  <stop stopColor="#b08a3a" />
+                  <stop offset={1} stopColor="#8b6d35" />
                 </linearGradient>
               </defs>
             </svg>
           </div>
 
-          <h1 className="text-3xl font-bold text-text tracking-tight">
+          <h1 className="text-3xl font-bold text-white tracking-tight">
             TITAN
           </h1>
-          <p className="text-base text-text-muted mt-2 tracking-wide">
+          <p className="text-base mt-2 tracking-wide font-serif" style={{ color: '#c4b49a' }}>
             Mission Control
           </p>
         </div>
 
         {/* Login Card */}
         <div className="rounded-2xl p-8" style={{
-          background: 'linear-gradient(180deg, rgba(24,24,27,0.95), rgba(24,24,27,0.8))',
-          border: '1px solid rgba(63,63,70,0.6)',
-          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.02)',
+          background: 'linear-gradient(180deg, rgba(58,37,24,0.92), rgba(48,32,18,0.85))',
+          border: '1px solid rgba(120,95,65,0.4)',
+          boxShadow: '0 25px 50px -12px rgba(30,20,10,0.5), 0 0 0 1px rgba(255,255,255,0.03)',
           backdropFilter: 'blur(20px)',
         }}>
           <form onSubmit={handleSubmit} className="space-y-6">
