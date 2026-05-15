@@ -76,7 +76,7 @@ export function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-text-secondary mb-2"
+                className="block text-sm font-medium mb-2" style={{ color: "#c4b49a" }}
               >
                 Gateway Password
               </label>
@@ -91,20 +91,21 @@ export function LoginPage() {
                   if (error) setError('');
                 }}
                 placeholder="Enter your password"
-                className="w-full px-4 py-3 rounded-xl text-text placeholder:text-text-muted focus:outline-none transition-all text-sm"
+                className="w-full px-4 py-3 rounded-xl focus:outline-none transition-all text-sm"
                 style={{
-                  background: 'rgba(9,9,11,0.8)',
+                  background: 'rgba(30,20,10,0.55)',
                   border: error
                     ? '1px solid var(--color-error)'
-                    : '1px solid rgba(63,63,70,0.8)',
+                    : '1px solid rgba(120,95,65,0.4)',
+                  color: '#f3e9d0',
                   boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)',
                 }}
                 onFocus={(e) => {
                   if (!error) e.currentTarget.style.border = '1px solid var(--color-accent)';
-                  e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 3px rgba(99,102,241,0.15)';
+                  e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 3px rgba(176,138,58,0.2)';
                 }}
                 onBlur={(e) => {
-                  if (!error) e.currentTarget.style.border = '1px solid rgba(63,63,70,0.8)';
+                  if (!error) e.currentTarget.style.border = '1px solid rgba(120,95,65,0.4)';
                   e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2)';
                 }}
               />
@@ -127,23 +128,23 @@ export function LoginPage() {
               className="w-full py-3 rounded-xl text-white font-semibold text-sm tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               style={{
                 background: loading || !password.trim()
-                  ? 'rgba(99,102,241,0.3)'
-                  : 'linear-gradient(135deg, #6366f1, #7c3aed)',
+                  ? 'rgba(176,138,58,0.3)'
+                  : 'linear-gradient(135deg, #b08a3a, #8b6d35)',
                 boxShadow: loading || !password.trim()
                   ? 'none'
-                  : '0 4px 14px rgba(99,102,241,0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
+                  : '0 4px 14px rgba(176,138,58,0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
               }}
               onMouseEnter={(e) => {
                 if (!loading && password.trim()) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #818cf8, #8b5cf6)';
-                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(99,102,241,0.45), inset 0 1px 0 rgba(255,255,255,0.15)';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #c99b3e, #b08a3a)';
+                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(176,138,58,0.45), inset 0 1px 0 rgba(255,255,255,0.15)';
                   e.currentTarget.style.transform = 'translateY(-1px)';
                 }
               }}
               onMouseLeave={(e) => {
                 if (!loading && password.trim()) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1, #7c3aed)';
-                  e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.35), inset 0 1px 0 rgba(255,255,255,0.15)';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #b08a3a, #8b6d35)';
+                  e.currentTarget.style.boxShadow = '0 4px 14px rgba(176,138,58,0.35), inset 0 1px 0 rgba(255,255,255,0.15)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }
               }}
@@ -164,7 +165,7 @@ export function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-text-muted mt-8 opacity-60">
+        <p className="text-center text-xs mt-8 opacity-60 font-serif" style={{ color: "#a0806a" }}>
           TITAN Agent Framework
         </p>
       </div>
