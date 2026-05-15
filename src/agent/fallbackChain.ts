@@ -55,33 +55,40 @@ function matchesAny(err: string, patterns: RegExp[]): boolean {
 }
 
 // ── Model fallback ladders (per kind) ────────────────────────────
+// v6.1.0-alpha.45 fix: ladders updated to match current specialist models.
+//   Scout  → deepseek-v4-flash:cloud
+//   Builder→ deepseek-v4-pro:cloud
+//   Writer → minimax-m2.7:cloud
+//   Analyst→ deepseek-v4-pro:cloud
+//   Sage   → kimi-k2.6:cloud
+// gemma4:31b-cloud is deliberately omitted (Tony: freezes desk 120-180s).
 
 const CODE_MODEL_LADDER = [
-    undefined, // primary — Builder's glm-5.1:cloud
-    'ollama/minimax-m2.7:cloud',
-    'ollama/gemma4:31b-cloud',
-    'ollama/gemma4:31b', // local safety net
+    undefined, // primary — Builder's deepseek-v4-pro:cloud
+    'ollama/kimi-k2.6:cloud',
+    'ollama/deepseek-v4-flash:cloud',
+    'ollama/gemma4:31b', // local safety net only
 ];
 
 const RESEARCH_MODEL_LADDER = [
-    undefined, // primary — Scout's qwen3.5:cloud
-    'ollama/glm-5:cloud',
-    'ollama/gemma4:31b-cloud',
-    'ollama/gemma4:31b', // local safety net
+    undefined, // primary — Scout's deepseek-v4-flash:cloud
+    'ollama/deepseek-v4-pro:cloud',
+    'ollama/kimi-k2.6:cloud',
+    'ollama/gemma4:31b', // local safety net only
 ];
 
 const WRITE_MODEL_LADDER = [
     undefined, // primary — Writer's minimax-m2.7:cloud
-    'ollama/gemma4:31b-cloud',
-    'ollama/glm-5:cloud',
-    'ollama/gemma4:31b', // local safety net
+    'ollama/deepseek-v4-pro:cloud',
+    'ollama/kimi-k2.6:cloud',
+    'ollama/gemma4:31b', // local safety net only
 ];
 
 const ANALYSIS_MODEL_LADDER = [
-    undefined, // primary — Analyst's glm-5:cloud
-    'ollama/nemotron-3-super:cloud',
-    'ollama/gemma4:31b-cloud',
-    'ollama/gemma4:31b', // local safety net
+    undefined, // primary — Analyst's deepseek-v4-pro:cloud / Sage's kimi-k2.6:cloud
+    'ollama/kimi-k2.6:cloud',
+    'ollama/deepseek-v4-flash:cloud',
+    'ollama/gemma4:31b', // local safety net only
 ];
 
 function modelLadderFor(kind: SubtaskKind): Array<string | undefined> {

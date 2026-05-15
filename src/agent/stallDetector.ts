@@ -279,7 +279,18 @@ export function checkResponse(sessionId: string, content: string, round: number,
     return null;
 }
 
-/** Get a nudge message for the given stall type */
+// Pending nudges from triggerStall (silence stalls) — drained by agentLoop
+const pendingNudges = new Map<string, string>();
+
+/** Drain a pending nudge for a session. Call at the start of each agent round. */
+export function drainPendingNudge(sessionId: string): string | null {
+    const nudge = pendingNudges.get(sessionId);
+    if (nudge) {
+        pendingNudges.delete(sessionId);
+        return nudge;
+    }
+    return null;
+}
 export function getNudgeMessage(event: StallEvent): string {
     const state = sessions.get(event.sessionId);
     const nudgeNum = (state?.nudgeCount ?? 0) + 1;
@@ -346,6 +357,11 @@ async function triggerStall(sessionId: string, type: StallType, detail: string):
     };
 
     logger.warn(COMPONENT, `Stall detected [${type}] in session ${sessionId}: ${detail}`);
+
+    // v6.1.0-alpha.45 fix: store the nudge so agentLoop can inject it.
+    // Previously onStall returned a string but we discarded it.
+    const nudge = getNudgeMessage(event);
+    pendingNudges.set(sessionId, nudge);
 
     if (onStall) {
         await onStall(event).catch((e) => {
