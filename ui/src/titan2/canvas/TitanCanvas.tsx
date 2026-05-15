@@ -700,7 +700,9 @@ export default function TitanCanvas() {
     return (
       <DeskSurface>
         <div className="h-full w-full flex items-center justify-center">
-          <div className="text-[#52525b] text-sm">Loading space...</div>
+          <div className="bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10">
+            <div className="text-[#d4d4d8] text-sm font-medium">Loading space...</div>
+          </div>
         </div>
       </DeskSurface>
     );
@@ -992,7 +994,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
         {validWidgets.length === 0 ? (
           <EmptyCanvas space={space} onAddWidget={handleAddSystemWidget} onOpenChat={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }))} />
         ) : (
-          <Suspense fallback={<div className="text-[#52525b] text-sm">Loading grid...</div>}>
+          <Suspense fallback={<div className="pt-12 text-center"><div className="inline-block bg-black/50 backdrop-blur-sm rounded-xl px-6 py-3 border border-white/10 text-[#d4d4d8] text-sm">Loading grid...</div></div>}>
             <ResponsiveGridLayout
               className="layout titan-canvas-grid"
               width={canvasWidth}
@@ -1181,20 +1183,20 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
 
   return (
     <div className="h-full flex items-center justify-center">
-      <div className="text-center max-w-lg">
-        <div className="w-16 h-16 rounded-2xl bg-[#6366f1]/5 border border-[#6366f1]/10 flex items-center justify-center mx-auto mb-5">
-          <svg className="w-7 h-7 text-[#6366f1]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="text-center max-w-lg bg-black/50 backdrop-blur-sm rounded-2xl px-8 py-10 border border-white/10">
+        <div className="w-16 h-16 rounded-2xl bg-[#6366f1]/10 border border-[#6366f1]/20 flex items-center justify-center mx-auto mb-5">
+          <svg className="w-7 h-7 text-[#6366f1]/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
           </svg>
         </div>
         <h2 className="text-xl font-bold text-[#fafafa] mb-2">{space.name}</h2>
-        <p className="text-sm text-[#52525b] mb-6">
+        <p className="text-sm text-[#a1a1aa] mb-6">
           This space is empty. Ask the agent to create widgets, or add system widgets below.
         </p>
         <div className="flex gap-2 justify-center mb-6 flex-wrap">
           <button
             onClick={onOpenChat}
-            className="px-4 py-2 rounded-xl bg-[#6366f1]/10 border border-[#6366f1]/20 text-[#818cf8] text-sm font-medium hover:bg-[#6366f1]/20 transition-all"
+            className="px-4 py-2 rounded-xl bg-[#6366f1]/15 border border-[#6366f1]/25 text-[#a5b4fc] text-sm font-medium hover:bg-[#6366f1]/25 transition-all"
           >
             Ask Agent
           </button>
@@ -1204,7 +1206,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
             <button
               key={ex.source}
               onClick={() => onAddWidget(ex.source, ex.label, ex.w, ex.h)}
-              className="px-3 py-1.5 rounded-lg bg-[#18181b] border border-[#27272a] text-[11px] text-[#52525b] hover:text-[#a1a1aa] hover:border-[#3f3f46] transition-all"
+              className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-[11px] text-[#a1a1aa] hover:text-white hover:border-white/20 transition-all"
             >
               + {ex.label}
             </button>
