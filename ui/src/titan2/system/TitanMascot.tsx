@@ -79,11 +79,11 @@ interface Props {
 }
 
 const PALETTE = {
-    idle: { eye: '#6366f1', glow: '#818cf8', ring: '#6366f1', body: '#1e1b4b' },
-    thinking: { eye: '#a78bfa', glow: '#a78bfa', ring: '#a78bfa', body: '#1e1b4b' },
-    executing: { eye: '#34d399', glow: '#34d399', ring: '#10b981', body: '#053827' },
-    listening: { eye: '#60a5fa', glow: '#38bdf8', ring: '#0ea5e9', body: '#0c2a4d' },
-    error: { eye: '#ef4444', glow: '#fca5a5', ring: '#ef4444', body: '#3f1818' },
+    idle:     { eye: '#c4a35a', glow: '#f3d27a', ring: '#c4a35a',  body: '#2a1a0a' },
+    thinking: { eye: '#d4b06a', glow: '#e7c68a', ring: '#d4b06a',  body: '#2a1a0a' },
+    executing:{ eye: '#8ab840', glow: '#a8d460', ring: '#7aa830',  body: '#1a2a0a' },
+    listening:{ eye: '#60a0c0', glow: '#80c0e0', ring: '#5090b0',  body: '#0a1a2a' },
+    error:    { eye: '#c45050', glow: '#e08080', ring: '#c45050',  body: '#2a1010' },
 };
 
 const SLEEP_DEFAULT = 90_000;
@@ -613,13 +613,13 @@ export function TitanMascot({
             {/* Speech bubble — animated when bubblePhase is set */}
             {quip && (
                 <div
-                    className={`${bubbleClass} absolute left-1/2 px-2.5 py-1.5 rounded-xl bg-[#27272a] border border-[#3f3f46] text-[11px] text-[#e4e4e7] whitespace-nowrap shadow-lg`}
+                    className={`${bubbleClass} absolute left-1/2 px-2.5 py-1.5 rounded-xl bg-[#fdf6e3] border border-[#d4c5a8] text-[11px] text-[#2a2210] whitespace-nowrap shadow-lg`}
                     style={{ top: -8, maxWidth: size * 2.2, lineHeight: 1.35 }}
                     key={bubbleKey}
                 >
                     {quip}
                     <span
-                        className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-2.5 h-2.5 rotate-45 bg-[#27272a] border-r border-b border-[#3f3f46]"
+                        className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-2.5 h-2.5 rotate-45 bg-[#fdf6e3] border-r border-b border-[#d4c5a8]"
                     />
                 </div>
             )}
