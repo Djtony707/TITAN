@@ -909,22 +909,51 @@ export function setStatus(missionId: string, status: MissionStatus, note?: strin
     return room;
 }
 
-/** Delete a mission and its on-disk file. The Goal driver entry (if
- *  any) is NOT deleted here — that's a separate concern owned by the
- *  goals subsystem. */
+/** Delete a mission, its linked goal, and its driver state. Stops all
+ *  running agents immediately so the mission does not keep burning tokens
+ *  after the user deleted it. */
 export function deleteMission(missionId: string): boolean {
     const path = missionPath(missionId);
     if (!existsSync(path)) return false;
+
+    // Read goalId BEFORE we delete the mission file.
+    let goalId: string | undefined;
+    try {
+        const room = JSON.parse(readFileSync(path, 'utf-8')) as MissionRoom;
+        goalId = room.goalId;
+    } catch { /* no goalId = nothing to cancel */ }
+
     try {
         const tomb = path + '.deleted';
         renameSync(path, tomb);
         cache.delete(missionId);
         emit('mission_deleted', missionId, {});
-        return true;
     } catch (err) {
         logger.warn(COMPONENT, `Delete mission ${missionId} failed: ${(err as Error).message}`);
         return false;
     }
+
+    // v6.1.0-alpha.44 — stop the linked goal and driver so agents die
+    // immediately instead of continuing to burn tokens for a deleted mission.
+    if (goalId) {
+        (async () => {
+            try {
+                const { updateGoal } = await import('./goals.js');
+                updateGoal(goalId!, { status: 'failed' });
+            } catch (e) {
+                logger.warn(COMPONENT, `Failed to mark goal ${goalId} failed: ${(e as Error).message}`);
+            }
+            try {
+                const { cancelDriver, deleteDriverState } = await import('./goalDriver.js');
+                cancelDriver(goalId!);
+                deleteDriverState(goalId!);
+            } catch (e) {
+                logger.warn(COMPONENT, `Failed to cancel driver ${goalId}: ${(e as Error).message}`);
+            }
+        })();
+    }
+
+    return true;
 }
 
 // Test-only — reset cache so successive tests don't see each other.
