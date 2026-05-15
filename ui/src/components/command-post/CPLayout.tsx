@@ -16,12 +16,12 @@ const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
 const CPOrg = lazy(() => import('@/components/command-post/CPOrg'));
 
 function CPLoading() {
-  return <div className="flex items-center justify-center h-full text-sm text-text-muted">Loading...</div>;
+  return <div className="flex items-center justify-center h-full text-sm" style={{ color: '#c4b49a' }}>Loading...</div>;
 }
 
 export function CPLayout() {
   return (
-    <div className="flex h-screen bg-bg">
+    <div className="flex h-screen">
       <CPSidebar />
       <div className="flex-1 overflow-auto">
         <Suspense fallback={<CPLoading />}>

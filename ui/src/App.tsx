@@ -12,6 +12,8 @@ import { apiFetch } from '@/api/client';
 import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 import { SponsorFooter } from '@/components/SponsorFooter';
 
+import { DeskSurface } from '@/components/desk/DeskSurface';
+
 // ── Titan 3.0 Canvas ────────────────────────────────────────
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
 const CPLayout = lazy(() => import('@/components/command-post/CPLayout'));
@@ -29,7 +31,7 @@ const VoiceOverlay = lazy(() =>
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center h-full">
-      <div className="text-text-muted text-sm">Loading...</div>
+      <div className="text-sm font-serif" style={{ color: '#c4b49a' }}>Loading...</div>
     </div>
   );
 }
@@ -75,9 +77,11 @@ function AuthenticatedAppInner() {
 
   if (onboarded === null) {
     return (
-      <div className="flex items-center justify-center h-screen bg-bg">
-        <div className="text-text-muted text-sm">Loading...</div>
-      </div>
+      <DeskSurface noMotes>
+        <div className="flex items-center justify-center h-full">
+          <div className="text-sm font-serif" style={{ color: '#c4b49a' }}>Loading...</div>
+        </div>
+      </DeskSurface>
     );
   }
 
@@ -86,6 +90,7 @@ function AuthenticatedAppInner() {
   }
 
   return (
+    <DeskSurface noMotes>
     <ToastProvider>
     <ConfigProvider>
       <RouteTracker />
@@ -159,6 +164,7 @@ function AuthenticatedAppInner() {
       </div>
     </ConfigProvider>
     </ToastProvider>
+    </DeskSurface>
   );
 }
 
@@ -184,9 +190,11 @@ function AuthGate() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-bg">
-        <div className="text-text-muted text-sm">Loading...</div>
-      </div>
+      <DeskSurface noMotes>
+        <div className="flex items-center justify-center h-full">
+          <div className="text-sm font-serif" style={{ color: '#c4b49a' }}>Loading...</div>
+        </div>
+      </DeskSurface>
     );
   }
 

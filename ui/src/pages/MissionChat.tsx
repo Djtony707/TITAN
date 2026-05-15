@@ -21,7 +21,7 @@ import {
 } from '@/api/missions';
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 import { FileViewer } from '@/pages/mission/FileViewer';
-import { DeskSurface } from '@/components/desk/DeskSurface';
+// DeskSurface now provided by App.tsx
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 export default function MissionChat() {
@@ -154,31 +154,26 @@ export default function MissionChat() {
 
   if (loading) {
     return (
-      <DeskSurface>
-        <div className="fixed inset-0 flex items-center justify-center text-[#a89070] text-sm" style={{ fontFamily: "'Georgia', serif" }}>
-          Loading mission…
-        </div>
-      </DeskSurface>
+      <div className="flex items-center justify-center h-full text-[#a89070] text-sm" style={{ fontFamily: "'Georgia', serif" }}>
+        Loading mission…
+      </div>
     );
   }
   if (error || !room) {
     return (
-      <DeskSurface>
-        <div className="fixed inset-0 flex items-center justify-center flex-col gap-3 text-[#f3e9d0]" style={{ fontFamily: "'Georgia', serif" }}>
-          <div className="text-[#c45050] text-sm">{error ?? 'Mission not found.'}</div>
-          <button onClick={() => navigate('/mission')} className="text-[#c4a35a] text-sm hover:underline">
-            ← Start a new mission
-          </button>
-        </div>
-      </DeskSurface>
+      <div className="flex items-center justify-center h-full flex-col gap-3 text-[#f3e9d0]" style={{ fontFamily: "'Georgia', serif" }}>
+        <div className="text-[#c45050] text-sm">{error ?? 'Mission not found.'}</div>
+        <button onClick={() => navigate('/mission')} className="text-[#c4a35a] text-sm hover:underline">
+          ← Start a new mission
+        </button>
+      </div>
     );
   }
 
   const { working, blocked } = countTeam(room);
 
   return (
-    <DeskSurface>
-      <div className="fixed inset-0 flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
+    <div className="h-full w-full flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
 
         {/* Top bar — leather strip */}
         <header className="relative z-20 flex items-center gap-4 px-5 py-3"
@@ -371,7 +366,6 @@ export default function MissionChat() {
         </div>
       )}
     </div>
-    </DeskSurface>
   );
 }
 

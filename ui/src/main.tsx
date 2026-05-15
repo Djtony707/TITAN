@@ -6,6 +6,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import App from './App';
 import { queryClient } from './lib/queryClient';
 import './styles/globals.css';
+import { DeskThemeProvider } from '@/components/desk/DeskTheme';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -27,12 +28,14 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-        <ReactQueryDevtools initialIsOpen={false} />
-      </QueryClientProvider>
+      <DeskThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+          <ReactQueryDevtools initialIsOpen={false} />
+        </QueryClientProvider>
+      </DeskThemeProvider>
     </ErrorBoundary>
   </StrictMode>,
 );
