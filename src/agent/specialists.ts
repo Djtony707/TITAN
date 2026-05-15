@@ -97,7 +97,7 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Scout',
         role: 'researcher',
         title: 'Web research, monitoring, fact-checking',
-        model: 'ollama/qwen3.5:cloud',
+        model: 'ollama/deepseek-v4-flash:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: SCOUT ──',
@@ -120,9 +120,9 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Builder',
         role: 'engineer',
         title: 'Code, files, shell, deploys',
-        // v4.9.0-local.4: Builder uses glm-5.1:cloud (Ollama cloud).
-        // Strong code-task performance with 256K context via cloud endpoint.
-        model: 'ollama/glm-5.1:cloud',
+        // v6.1.0-alpha.44: Builder uses deepseek-v4-pro:cloud (Tony's preference).
+        // Better reasoning, more accurate code. ~10s/call on Titan PC CPU-only.
+        model: 'ollama/deepseek-v4-pro:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: BUILDER ──',
@@ -170,7 +170,8 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Analyst',
         role: 'researcher',
         title: 'Data, decisions, deep reasoning',
-        model: 'ollama/glm-5:cloud',
+        // v6.1.0-alpha.44: Analyst uses deepseek-v4-pro:cloud for deep reasoning.
+        model: 'ollama/deepseek-v4-pro:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: ANALYST ──',
@@ -194,8 +195,8 @@ export const SPECIALISTS: Specialist[] = [
         name: 'Sage',
         role: 'researcher',
         title: 'Reviewer + critic (Ollama cloud)',
-        // Uses a non-Claude-CLI model so TITAN never shells out to the local `claude` binary.
-        model: 'ollama/nemotron-3-super:cloud',
+        // v6.1.0-alpha.44: Sage uses kimi-k2.6:cloud — strong at catching bugs.
+        model: 'ollama/kimi-k2.6:cloud',
         systemPromptSuffix: [
             '',
             '── SPECIALIST: SAGE ──',
