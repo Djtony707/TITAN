@@ -97,6 +97,7 @@ import { AgentsWidget } from '../system/AgentsWidget';
 import { HealthWidget } from '../system/HealthWidget';
 import { StatsWidget } from '../system/StatsWidget';
 import { QuickLinksWidget } from '../system/QuickLinksWidget';
+import { DeskSurface } from '@/components/desk/DeskSurface';
 
 const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:nav': NavWidget,
@@ -697,19 +698,17 @@ export default function TitanCanvas() {
 
   if (!space) {
     return (
-      <div className="h-screen w-screen bg-[#0a0a0f] flex items-center justify-center">
-        <div className="text-[#52525b] text-sm">Loading space...</div>
-      </div>
+      <DeskSurface>
+        <div className="h-full w-full flex items-center justify-center">
+          <div className="text-[#52525b] text-sm">Loading space...</div>
+        </div>
+      </DeskSurface>
     );
   }
 
   return (
-    // v6.0 step 2 — Canvas layout is now a two-column flex: SpacesSidebar
-    // on the left (always visible on canvas routes), canvas surface on
-    // the right. The inner `<div ref={canvasRef}>` keeps its ref + classes
-    // so the existing ResizeObserver + scroll + grid-handle styles all
-    // continue working unchanged.
-    <div className="h-screen w-screen flex bg-[#0a0a0f]">
+    <DeskSurface>
+      <div className="h-full w-full flex">
       <SpacesSidebar />
       <div ref={canvasRef} className="flex-1 relative overflow-auto">
       {/*
@@ -1132,6 +1131,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       <ShortcutsHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       </div>{/* /flex-1 canvas surface */}
     </div>
+    </DeskSurface>
   );
 }
 
