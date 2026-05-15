@@ -14,7 +14,7 @@ import { LLMProvider } from '../src/providers/base.js';
 // ─── Constants ──────────────────────────────────────────────────
 describe('Constants', () => {
     it('should have correct version', () => {
-        expect(TITAN_VERSION).toBe('6.1.0-alpha.47');
+        expect(TITAN_VERSION).toBe('6.1.0-alpha.48');
     });
 
     it('should have correct name', () => {

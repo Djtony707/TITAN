@@ -987,11 +987,12 @@ function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['stat
 }
 
 function DocumentPaper({ room }: { room: MissionRoom }) {
+  const content = room.artifact?.content ?? '';
   const lines = useMemo(() => {
-    const all = room.artifact.content.split('\n').filter(l => l.trim().length > 0);
+    const all = content.split('\n').filter(l => l.trim().length > 0);
     return all.slice(0, 10);
-  }, [room.artifact.content]);
-  const words = room.artifact.content.trim().split(/\s+/).filter(Boolean).length;
+  }, [content]);
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
   return (
     <div
       className="w-[460px] max-w-[88vw] bg-[#f7f5ee] text-[#1a1f2e] rounded-md p-7 pt-6"

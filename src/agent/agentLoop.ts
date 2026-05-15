@@ -18,7 +18,7 @@ import { executeTools, type ToolResult } from './toolRunner.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
 import { hasActionDirectives, compileActions } from './actionCompiler.js';
-import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, checkToolCallCapability, resetToolCallFailures } from './stallDetector.js';
+import { heartbeat, recordToolCall, checkResponse, getNudgeMessage, checkToolCallCapability, resetToolCallFailures, drainPendingNudge } from './stallDetector.js';
 import { loadConfig } from '../config/config.js';
 import { checkForLoop } from './loopDetection.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
@@ -836,7 +836,14 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     }
 
     while (phase !== 'done' && round < ctx.effectiveMaxRounds) {
-        // ── Abort check ──────────────────���───────────────────────
+        // v6.1.0-alpha.45 fix: inject any pending stall nudge (silence stalls)
+        const pendingNudge = drainPendingNudge(ctx.sessionId);
+        if (pendingNudge) {
+            ctx.messages.push({ role: 'user', content: pendingNudge });
+            logger.info(COMPONENT, `[StallNudge] Injected pending nudge into round ${round}`);
+        }
+
+        // ── Abort check ────────────────────────────────────────────
         if (ctx.signal?.aborted || isKilled()) {
             logger.info(COMPONENT, `Session aborted by user at round ${round + 1} (${phase} phase)`);
             result.content = '[Stopped by user]';
