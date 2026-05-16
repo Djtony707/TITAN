@@ -29,7 +29,7 @@
  *   - docs/MIGRATIONS.md (lands as U6)
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -272,7 +272,7 @@ export async function rollbackMigration(migration: Migration, titanVersion: stri
 
 /** Test-only: reset the state file. Production code never calls this. */
 export function __resetStateForTests(): void {
-    try { require('fs').unlinkSync(statePath()); } catch { /* fine */ }
+    try { unlinkSync(statePath()); } catch { /* fine */ }
 }
 
 /** Test-only: read state directly. */

@@ -10,7 +10,7 @@
  * userId is `default-user` (per src/gateway/server.ts getUserIdFromReq).
  */
 import type { Migration } from './runner.js';
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 interface SomaProfile {
@@ -82,7 +82,7 @@ export const migration: Migration = {
         if (profile.learnedAboutUser.length === 0) {
             // Safe to remove — Soma hasn't learned anything yet.
             try {
-                require('fs').unlinkSync(join(ctx.titanHome, rel));
+                unlinkSync(join(ctx.titanHome, rel));
                 ctx.log(`Rolled back — removed untouched soma profile for ${userId}.`);
             } catch (err) {
                 ctx.log(`rollback unlink failed: ${(err as Error).message}`);

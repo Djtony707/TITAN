@@ -114,7 +114,7 @@ function streamFillNotebook(missionId: string, agentId: string, plainText: strin
         offset = Math.min(total, offset + chunkChars);
         const slice = plainText.slice(0, offset);
         try {
-            updateArtifact(missionId, agentId, slice);
+            updateArtifact(missionId, agentId, slice, 'live fill');
         } catch (err) {
             // Mission may have been deleted mid-stream.
             logger.debug(COMPONENT, `streamFillNotebook stopped on ${missionId}: ${(err as Error).message}`);

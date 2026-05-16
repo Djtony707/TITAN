@@ -34,7 +34,7 @@
  *   - Temporal Continue-As-New pattern
  *   - HumanLayer 12-factor agents §8 (Own Your Control Flow) + §12 (Stateless Reducer)
  */
-import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -255,6 +255,6 @@ export function replayGoal(goalId: string): GoalReplayState {
 export function __resetJournalForTests(scope: 'goals' | 'agents' | 'sessions', id: string): void {
     const path = shardPath(scope, id);
     if (existsSync(path)) {
-        try { require('fs').unlinkSync(path); } catch { /* fine */ }
+        try { unlinkSync(path); } catch { /* fine */ }
     }
 }

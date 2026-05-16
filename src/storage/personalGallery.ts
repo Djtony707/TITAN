@@ -16,7 +16,7 @@
  * Storage: `~/.titan/users/<userId>/gallery.json` (seeded as empty dir by
  * migration 004; this module owns the file itself).
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
@@ -172,5 +172,5 @@ export function removeFromPersonalGallery(userId: string, id: string): boolean {
 }
 
 export function __resetPersonalGalleryForTests(userId = 'default-user'): void {
-    try { require('fs').unlinkSync(galleryPath(userId)); } catch { /* fine */ }
+    try { unlinkSync(galleryPath(userId)); } catch { /* fine */ }
 }

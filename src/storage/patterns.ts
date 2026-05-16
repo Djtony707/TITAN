@@ -16,7 +16,7 @@
  * + counters. Pattern *interpretation* happens at read time, not write time,
  * so we don't lock the schema to today's specific heuristics.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -212,5 +212,5 @@ export function deriveSuggestions(userId: string, opts?: { windowDays?: number }
 }
 
 export function __resetPatternsForTests(userId = 'default-user'): void {
-    try { require('fs').unlinkSync(patternsPath(userId)); } catch { /* fine */ }
+    try { unlinkSync(patternsPath(userId)); } catch { /* fine */ }
 }
