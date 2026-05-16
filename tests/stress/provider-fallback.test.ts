@@ -21,6 +21,8 @@ vi.mock('../../src/agent/stallDetector.js', () => ({
     heartbeat: vi.fn(), recordToolCall: vi.fn(),
     checkResponse: vi.fn().mockReturnValue(null), getNudgeMessage: vi.fn(),
     checkToolCallCapability: mockCheckToolCallCapability, resetToolCallFailures: mockResetToolCallFailures,
+    // alpha.48
+    drainPendingNudge: vi.fn().mockReturnValue(null),
 }));
 const mockCheckForLoop = vi.hoisted(() => vi.fn());
 vi.mock('../../src/agent/loopDetection.js', () => ({ checkForLoop: mockCheckForLoop }));

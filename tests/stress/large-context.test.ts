@@ -23,6 +23,8 @@ vi.mock('../../src/agent/agent.js', () => ({ setCurrentSessionId: vi.fn() }));
 vi.mock('../../src/agent/stallDetector.js', () => ({
     heartbeat: vi.fn(), recordToolCall: vi.fn(), checkResponse: vi.fn().mockReturnValue(null),
     getNudgeMessage: vi.fn(), checkToolCallCapability: vi.fn().mockReturnValue(false), resetToolCallFailures: vi.fn(),
+    // alpha.48
+    drainPendingNudge: vi.fn().mockReturnValue(null),
 }));
 vi.mock('../../src/agent/loopDetection.js', () => ({ checkForLoop: vi.fn().mockReturnValue({ allowed: true }) }));
 vi.mock('../../src/agent/costOptimizer.js', () => ({

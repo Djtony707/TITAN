@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TITAN Mascot Concepts</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --c-oak-1: #6e4724;  --c-oak-2: #482a13;  --c-oak-3: #3d2815;
+    --c-cream: #f3e9d0;  --c-paper: #fdf6e3;  --c-brass: #b08a3a;
+    --c-brass-light: #d4a84c;  --c-leather: #3a2518;
+    --c-ink: #2a1f15;  --c-muted: #9a8b78;  --c-parchment: #e8dfc5;
+    --c-walnut: #5a3d22;  --c-shadow: rgba(30,18,8,0.35);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: linear-gradient(160deg, var(--c-oak-1) 0%, var(--c-oak-2) 50%, var(--c-oak-3) 100%);
+    color: var(--c-cream);
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  .wrap { max-width:1200px; margin:0 auto; }
+  header { text-align:center; margin-bottom:48px; }
+  header h1 { font-family:'Cormorant Garamond', serif; font-size:42px; font-weight:700; letter-spacing:2px; color:var(--c-paper); }
+  header p { font-size:16px; color:var(--c-muted); margin-top:8px; letter-spacing:0.3px; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:28px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--c-paper) 0%, var(--c-parchment) 120%);
+    border:1px solid rgba(176,138,58,0.25);
+    border-radius:18px;
+    padding:32px 28px 28px;
+    box-shadow:0 8px 24px var(--c-shadow);
+    transition: transform 180ms ease, box-shadow 180ms ease;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before {
+    content:''; position:absolute; top:0; left:32px; right:32px; height:3px;
+    background: linear-gradient(90deg, transparent, var(--c-brass), transparent);
+    opacity:.4;
+  }
+  .card:hover { transform: translateY(-4px); box-shadow:0 14px 36px rgba(30,18,8,0.45); }
+
+  .mascot { width:110px; height:110px; margin:0 auto 20px; position:relative; display:flex; align-items:center; justify-content:center; }
+
+  .name { font-family:'Cormorant Garamond', serif; font-size:24px; font-weight:700; color:var(--c-ink); text-align:center; letter-spacing:1px; }
+  .tag { display:inline-block; font-size:10px; text-transform:uppercase; letter-spacing:2px; color:var(--c-brass); border:1px solid rgba(176,138,58,0.35); padding:3px 10px; border-radius:20px; margin:12px auto 0; text-align:center; width:fit-content; display:block; }
+  .desc { font-size:13px; color:var(--c-muted); margin-top:14px; line-height:1.65; }
+
+  /* ── 1. Owl Scholar ────────────────────────────────────── */
+  .owl-body { width:64px; height:72px; background:linear-gradient(180deg,#5a3d22,#3d2815); border-radius:50% 50% 46% 46%; position:relative; }
+  .owl-eyes { position:absolute; top:22px; left:50%; transform:translateX(-50%); display:flex; gap:8px; }
+  .owl-eye { width:20px; height:20px; background:var(--c-paper); border-radius:50%; box-shadow:inset 0 0 0 3px var(--c-brass); position:relative; }
+  .owl-eye::after { content:''; position:absolute; width:6px; height:6px; background:var(--c-ink); border-radius:50%; top:7px; left:7px; }
+  .owl-beak { position:absolute; top:36px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid var(--c-brass); }
+  .owl-book { position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); width:52px; height:14px; background:var(--c-brass); border-radius:2px; box-shadow:0 2px 4px rgba(0,0,0,.25); }
+  .owl-feather { position:absolute; width:0; height:0; border-left:8px solid transparent; border-right:8px solid transparent; border-bottom:12px solid var(--c-brass); opacity:.5; }
+  .owl-feather.l { left:-4px; top:28px; transform:rotate(-25deg); }
+  .owl-feather.r { right:-4px; top:28px; transform:rotate(25deg); }
+
+  /* ── 2. Brass Automaton ────────────────────────────────── */
+  .bird-body { width:56px; height:48px; background:linear-gradient(145deg,#c4a04e,#8f6e2c); border-radius:50% 50% 42% 42%; position:relative; box-shadow:inset 0 -2px 6px rgba(0,0,0,.25), 0 2px 4px rgba(0,0,0,.2); }
+  .bird-head { position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:30px; height:26px; background:linear-gradient(145deg,#d4a84c,#a88332); border-radius:50% 50% 40% 40%; box-shadow:inset 0 1px 2px rgba(255,255,255,.3); }
+  .bird-eye { position:absolute; top:8px; left:7px; width:6px; height:6px; background:#2a1f15; border-radius:50%; border:1.5px solid #5a3d22; }
+  .bird-eye.r { left:auto; right:7px; }
+  .bird-beak { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:6px; height:8px; background:#3a2518; border-radius:0 0 3px 3px; }
+  .gear { position:absolute; width:14px; height:14px; border:2px dashed var(--c-brass); border-radius:50%; opacity:.4; }
+  .gear.g1 { left:-6px; top:18px; }
+  .gear.g2 { right:-6px; top:18px; }
+  .gear.g3 { left:50%; bottom:-8px; transform:translateX(-50%); }
+
+  /* ── 3. Fox Quill ──────────────────────────────────────── */
+  .fox-head { width:48px; height:44px; background:linear-gradient(145deg,#b06d3a,#7a4520); border-radius:50% 50% 46% 46%; position:relative; }
+  .fox-snout { position:absolute; bottom:6px; left:50%; transform:translateX(-50%); width:20px; height:16px; background:linear-gradient(180deg,#f3e9d0,#d9c08c); border-radius:50%; }
+  .fox-nose { position:absolute; top:3px; left:50%; transform:translateX(-50%); width:6px; height:5px; background:#2a1f15; border-radius:50%; }
+  .fox-eye { position:absolute; top:16px; width:7px; height:7px; background:var(--c-paper); border-radius:50%; border:2px solid #2a1f15; }
+  .fox-eye.l { left:10px; }
+  .fox-eye.r { right:10px; }
+  .fox-eye::after { content:''; position:absolute; width:3px; height:3px; background:#2a1f15; border-radius:50%; top:1.5px; left:1.5px; }
+  .fox-ear { position:absolute; top:-10px; width:14px; height:18px; background:linear-gradient(145deg,#b06d3a,#5a3d22); border-radius:50% 50% 0 0; }
+  .fox-ear.l { left:4px; transform:rotate(-12deg); }
+  .fox-ear.r { right:4px; transform:rotate(12deg); }
+  .quill { position:absolute; bottom:-10px; right:-8px; width:4px; height:44px; background:var(--c-brass); border-radius:2px; transform:rotate(22deg); box-shadow:0 2px 4px rgba(0,0,0,.25); }
+  .quill::after { content:''; position:absolute; top:-4px; left:-2px; width:8px; height:8px; background:#f3e9d0; border-radius:50%; }
+
+  /* ── 4. Parchment Wolf ─────────────────────────────────── */
+  .wolf-body { width:68px; height:44px; background:var(--c-parchment); border-radius:12px 12px 40% 40%; position:relative; border:1px solid rgba(176,138,58,.3); overflow:hidden; }
+  .wolf-map-line { position:absolute; width:100%; height:1px; background:rgba(176,138,58,.15); }
+  .wolf-map-line:nth-child(1) { top:10px; }
+  .wolf-map-line:nth-child(2) { top:22px; }
+  .wolf-map-line:nth-child(3) { top:34px; }
+  .wolf-head { position:absolute; top:-12px; left:50%; transform:translateX(-50%); width:32px; height:28px; background:var(--c-paper); border-radius:50% 50% 44% 44%; border:1px solid rgba(176,138,58,.35); box-shadow:0 2px 6px rgba(0,0,0,.1); }
+  .wolf-eye { position:absolute; top:10px; width:5px; height:5px; background:#2a1f15; border-radius:50%; }
+  .wolf-eye.l { left:7px; }
+  .wolf-eye.r { right:7px; }
+  .wolf-nose { position:absolute; bottom:6px; left:50%; transform:translateX(-50%); width:5px; height:4px; background:#3a2518; border-radius:50%; }
+  .compass { position:absolute; bottom:8px; right:10px; width:16px; height:16px; border:1.5px solid var(--c-brass); border-radius:50%; }
+  .compass::after { content:''; position:absolute; top:2px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:3px solid transparent; border-right:3px solid transparent; border-bottom:6px solid var(--c-brass); }
+
+  /* ── 5. Desk Dragon ────────────────────────────────────── */
+  .dragon-body { width:58px; height:52px; background:linear-gradient(145deg,#5a3d22,#3d2815); border-radius:46% 46% 42% 42%; position:relative; }
+  .dragon-eye { position:absolute; top:16px; width:8px; height:8px; background:var(--c-brass); border-radius:50%; box-shadow:inset 0 0 0 2px #2a1f15; }
+  .dragon-eye.l { left:12px; }
+  .dragon-eye.r { right:12px; }
+  .dragon-horn { position:absolute; top:-10px; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:14px solid var(--c-brass); }
+  .dragon-horn.l { left:10px; transform:rotate(-10deg); }
+  .dragon-horn.r { right:10px; transform:rotate(10deg); }
+  .wing { position:absolute; width:14px; height:22px; background:linear-gradient(180deg,var(--c-brass),#7a5a28); border-radius:50% 50% 40% 10%; opacity:.5; }
+  .wing.l { left:-8px; top:12px; transform:rotate(-20deg); }
+  .wing.r { right:-8px; top:12px; transform:rotate(20deg); }
+  .inkwell { position:absolute; bottom:-8px; left:50%; transform:translateX(-50%); width:20px; height:14px; background:#2a1f15; border-radius:4px 4px 8px 8px; }
+  .inkwell::after { content:''; position:absolute; top:-3px; left:2px; right:2px; height:3px; background:var(--c-brass); border-radius:2px; }
+
+  /* ── 6. Lantern Spirit ─────────────────────────────────── */
+  .spirit-body { width:42px; height:56px; background:radial-gradient(ellipse at 50% 40%, rgba(212,168,76,.45), rgba(176,138,58,.12)); border-radius:50% 50% 48% 48%; position:relative; animation:bob 3s ease-in-out infinite; filter:blur(0.5px); }
+  @keyframes bob { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-4px); } }
+  .spirit-eye { position:absolute; top:18px; width:5px; height:5px; background:rgba(243,233,208,.8); border-radius:50%; }
+  .spirit-eye.l { left:12px; }
+  .spirit-eye.r { right:12px; }
+  .lantern { position:absolute; bottom:-14px; left:50%; transform:translateX(-50%); width:18px; height:22px; background:rgba(212,168,76,.25); border:1px solid rgba(212,168,76,.4); border-radius:4px; }
+  .lantern::after { content:''; position:absolute; top:-4px; left:50%; transform:translateX(-50%); width:8px; height:4px; background:var(--c-brass); border-radius:2px; }
+  .glow { position:absolute; top:10px; left:50%; transform:translateX(-50%); width:90px; height:90px; background:radial-gradient(circle, rgba(212,168,76,.12), transparent 70%); border-radius:50%; }
+
+  /* ── 7. Clockwork Cat ────────────────────────────────────── */
+  .cat-body { width:48px; height:40px; background:linear-gradient(145deg,#5a3d22,#3d2815); border-radius:14px 14px 16px 16px; position:relative; }
+  .cat-head { position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:32px; height:28px; background:linear-gradient(145deg,#6e4e2e,#3d2815); border-radius:12px 12px 10px 10px; }
+  .cat-ear { position:absolute; top:-8px; width:10px; height:14px; background:#5a3d22; border-radius:50% 50% 0 0; }
+  .cat-ear.l { left:4px; transform:rotate(-15deg); }
+  .cat-ear.r { right:4px; transform:rotate(15deg); }
+  .cat-eye { position:absolute; top:10px; width:5px; height:5px; background:var(--c-brass); border-radius:50%; }
+  .cat-eye.l { left:6px; }
+  .cat-eye.r { right:6px; }
+  .cat-stripe { position:absolute; top:10px; left:50%; transform:translateX(-50%); width:2px; height:6px; background:rgba(0,0,0,.25); border-radius:1px; }
+  .cat-tail { position:absolute; bottom:4px; right:-12px; width:22px; height:6px; background:#5a3d22; border-radius:0 3px 3px 0; transform:rotate(-12deg); }
+  .cat-tail::after { content:''; position:absolute; right:0; top:-2px; width:10px; height:10px; border:1.5px dashed var(--c-brass); border-radius:50%; opacity:.5; }
+  .paper-stack { position:absolute; bottom:-6px; left:-8px; width:32px; height:4px; background:var(--c-paper); border-radius:1px; box-shadow:0 1px 2px rgba(0,0,0,.15); transform:rotate(-8deg); }
+  .paper-stack::before { content:''; position:absolute; top:-3px; left:2px; width:28px; height:4px; background:var(--c-parchment); border-radius:1px; }
+
+  /* ── 8. Tome Beetle ────────────────────────────────────── */
+  .beetle-body { width:46px; height:36px; background:linear-gradient(180deg,#8f6e2c,#5a3d22); border-radius:50%; position:relative; }
+  .beetle-head { position:absolute; top:-8px; left:50%; transform:translateX(-50%); width:18px; height:14px; background:#5a3d22; border-radius:50% 50% 40% 40%; }
+  .beetle-eye { position:absolute; top:4px; width:3px; height:3px; background:var(--c-paper); border-radius:50%; }
+  .beetle-eye.l { left:4px; }
+  .beetle-eye.r { right:4px; }
+  .beetle-wing { position:absolute; top:6px; width:20px; height:24px; background:linear-gradient(135deg,rgba(176,138,58,.6),rgba(120,90,50,.3)); border-radius:50% 50% 40% 10%; border:1px solid rgba(176,138,58,.4); }
+  .beetle-wing.l { left:-2px; transform:rotate(-15deg); }
+  .beetle-wing.r { right:-2px; transform:rotate(15deg); }
+  .antenna { position:absolute; top:-14px; width:1.5px; height:10px; background:var(--c-brass); border-radius:1px; }
+  .antenna.l { left:14px; transform:rotate(-18deg); }
+  .antenna.r { right:14px; transform:rotate(18deg); }
+  .antenna::after { content:''; position:absolute; top:-2px; left:-1px; width:4px; height:4px; background:var(--c-brass); border-radius:50%; }
+  .tome { position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:40px; height:10px; background:var(--c-leather); border-radius:2px; border:1px solid rgba(176,138,58,.3); }
+  .tome::after { content:''; position:absolute; top:1px; left:50%; transform:translateX(-50%); width:14px; height:8px; background:var(--c-paper); border-radius:1px; }
+
+  /* pick label */
+  .pick { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:18px; }
+  .pick input { accent-color:var(--c-brass); width:16px; height:16px; cursor:pointer; }
+  .pick label { font-size:12px; color:var(--c-ink); cursor:pointer; font-weight:500; }
+
+  footer { text-align:center; margin-top:60px; font-size:13px; color:var(--c-muted); }
+  footer span { color:var(--c-brass); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>TITAN Mascot Concepts</h1>
+    <p>Warm, desk-bound companions — each hand-crafted for the wood surface</p>
+  </header>
+
+  <div class="grid">
+    <!-- 1. Owl Scholar -->
+    <div class="card">
+      <div class="mascot">
+        <div class="owl-body">
+          <div class="owl-eyes">
+            <div class="owl-eye"></div>
+            <div class="owl-eye"></div>
+          </div>
+          <div class="owl-beak"></div>
+          <div class="owl-feather l"></div>
+          <div class="owl-feather r"></div>
+          <div class="owl-book"></div>
+        </div>
+      </div>
+      <div class="name">Owl Scholar</div>
+      <div class="tag">Classic &middot; Wise</div>
+      <div class="desc">A brass spectacled owl perched atop a leather-bound book. Represents knowledge, deliberation, and the keeper of the desk. Its presence says "this workspace has depth."</div>
+      <div class="pick"><input type="radio" name="mascot" id="m1" value="owl"><label for="m1">Pick Owl Scholar</label></div>
+    </div>
+
+    <!-- 2. Brass Automaton -->
+    <div class="card">
+      <div class="mascot">
+        <div class="bird-body">
+          <div class="bird-head">
+            <div class="bird-eye"></div>
+            <div class="bird-eye r"></div>
+            <div class="bird-beak"></div>
+          </div>
+          <div class="gear g1"></div>
+          <div class="gear g2"></div>
+          <div class="gear g3"></div>
+        </div>
+      </div>
+      <div class="name">Brass Automaton</div>
+      <div class="tag">Steampunk &middot; Mechanical</div>
+      <div class="desc">A pocket-sized clockwork bird assembled from gears and polished brass. It ticks softly and occasionally whirs its gears when TITAN is thinking. Industrial warmth without the cold of chrome.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m2" value="automaton"><label for="m2">Pick Automaton</label></div>
+    </div>
+
+    <!-- 3. Fox Quill -->
+    <div class="card">
+      <div class="mascot">
+        <div class="fox-head">
+          <div class="fox-ear l"></div>
+          <div class="fox-ear r"></div>
+          <div class="fox-eye l"></div>
+          <div class="fox-eye r"></div>
+          <div class="fox-snout">
+            <div class="fox-nose"></div>
+          </div>
+          <div class="quill"></div>
+        </div>
+      </div>
+      <div class="name">Fox Quill</div>
+      <div class="tag">Clever &middot; Agile</div>
+      <div class="desc">A russet fox with a brass quill tucked behind its ear. Quick-witted and always ready to write the next thought. The quill tip leaves faint ink trails when excited.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m3" value="fox"><label for="m3">Pick Fox Quill</label></div>
+    </div>
+
+    <!-- 4. Parchment Wolf -->
+    <div class="card">
+      <div class="mascot">
+        <div class="wolf-body">
+          <div class="wolf-map-line"></div>
+          <div class="wolf-map-line"></div>
+          <div class="wolf-map-line"></div>
+          <div class="wolf-head">
+            <div class="wolf-eye l"></div>
+            <div class="wolf-eye r"></div>
+            <div class="wolf-nose"></div>
+          </div>
+          <div class="compass"></div>
+        </div>
+      </div>
+      <div class="name">Parchment Wolf</div>
+      <div class="tag">Explorer &middot; Map-maker</div>
+      <div class="desc">A wolf formed from folded parchment and ink lines, wearing a tiny compass. When a mission reaches new territory, the map-lines on its fur redraw themselves. Stoic and dependable.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m4" value="wolf"><label for="m4">Pick Parchment Wolf</label></div>
+    </div>
+
+    <!-- 5. Desk Dragon -->
+    <div class="card">
+      <div class="mascot">
+        <div class="dragon-body">
+          <div class="dragon-eye l"></div>
+          <div class="dragon-eye r"></div>
+          <div class="dragon-horn l"></div>
+          <div class="dragon-horn r"></div>
+          <div class="wing l"></div>
+          <div class="wing r"></div>
+          <div class="inkwell"></div>
+        </div>
+      </div>
+      <div class="name">Desk Dragon</div>
+      <div class="tag">Guardian &middot; Magical</div>
+      <div class="desc">A small brass-horned dragon curled around an inkwell no bigger than a thimble. Its wings fold into desk ornaments when idle. Warmly protective, slightly mischievous.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m5" value="dragon"><label for="m5">Pick Desk Dragon</label></div>
+    </div>
+
+    <!-- 6. Lantern Spirit -->
+    <div class="card">
+      <div class="mascot">
+        <div class="glow"></div>
+        <div class="spirit-body">
+          <div class="spirit-eye l"></div>
+          <div class="spirit-eye r"></div>
+          <div class="lantern"></div>
+        </div>
+      </div>
+      <div class="name">Lantern Spirit</div>
+      <div class="tag">Ethereal &middot; Gentle</div>
+      <div class="desc">A soft amber spirit carrying a tiny brass lantern. It drifts slowly above the desk and glows brighter when TITAN has something important to share. Not a robot — a presence.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m6" value="spirit"><label for="m6">Pick Lantern Spirit</label></div>
+    </div>
+
+    <!-- 7. Clockwork Cat -->
+    <div class="card">
+      <div class="mascot">
+        <div class="cat-body">
+          <div class="cat-head">
+            <div class="cat-ear l"></div>
+            <div class="cat-ear r"></div>
+            <div class="cat-eye l"></div>
+            <div class="cat-eye r"></div>
+            <div class="cat-stripe"></div>
+          </div>
+          <div class="cat-tail"></div>
+          <div class="paper-stack"></div>
+        </div>
+      </div>
+      <div class="name">Clockwork Cat</div>
+      <div class="tag">Curious &middot; Watchful</div>
+      <div class="desc">A wooden mechanical cat with brass eyes and a spring-wind tail. It perches on paper stacks and tracks the cursor. Tail flicks when new data arrives. Familiar and comforting.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m7" value="cat"><label for="m7">Pick Clockwork Cat</label></div>
+    </div>
+
+    <!-- 8. Tome Beetle -->
+    <div class="card">
+      <div class="mascot">
+        <div class="beetle-body">
+          <div class="beetle-head">
+            <div class="beetle-eye l"></div>
+            <div class="beetle-eye r"></div>
+          </div>
+          <div class="beetle-wing l"></div>
+          <div class="beetle-wing r"></div>
+          <div class="antenna l"></div>
+          <div class="antenna r"></div>
+          <div class="tome"></div>
+        </div>
+      </div>
+      <div class="name">Tome Beetle</div>
+      <div class="tag">Scavenger &middot; Archivist</div>
+      <div class="desc">A beetle whose brass-gilded wing-cases look like miniature book covers. It burrows through stacks of papers and emerges with the right document. Industrious, quiet, essential.</div>
+      <div class="pick"><input type="radio" name="mascot" id="m8" value="beetle"><label for="m8">Pick Tome Beetle</label></div>
+    </div>
+  </div>
+
+  <footer>
+    Designed for <span>TITAN v6.1.0-alpha.49</span> &mdash; pick a mascot and tell me "make it real"
+  </footer>
+</div>
+</body>
+</html>

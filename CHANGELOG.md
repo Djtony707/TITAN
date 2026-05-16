@@ -5,6 +5,272 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.50 — 2026-05-15 — Anti-whack-a-mole: gate widening + essay classifier + 80 test fixes
+
+> Tony, returning from a 2-day break: "do what needs to be done in
+> the best order — no whack-a-mole."
+
+Disciplined audit + fix pass following addyosmani/agent-skills
+methodology: verify before claim, fix at root, regression-test
+everything.
+
+### Test suite: 85 fails → 0 (one root cause × eight regressions)
+
+`npm test` baseline showed 85 fails. Tracked to:
+- **80 fails** — alpha.48 added `drainPendingNudge` export to
+  `stallDetector.ts` but didn't update test mocks. Four `vi.mock(
+  '../src/agent/stallDetector.js', …)` sites needed
+  `drainPendingNudge: vi.fn().mockReturnValue(null)` added.
+- **4 fails** — version assertions stuck at alpha.48 while HEAD was
+  alpha.49. Bumped to alpha.50 across `tests/core.test.ts` +
+  `tests/mission-control.test.ts`.
+- **1 fail** — alpha.29 enriched the blocked-question fallback when
+  payload has `specialist` info, but `tests/v610-alpha1-bridge.test.ts`
+  still asserted the pre-alpha.29 generic fallback. Updated to
+  match the new (better) enriched output.
+- Remaining: 1 test (`readme-claims`) waiting on this CHANGELOG entry.
+
+Final: **7229/7232** with 1 skipped, 0 failing once this entry lands.
+
+### Self-mod gate widened (Phase 1)
+
+Audit found goals `8490b4a8` ("Establish test suite infrastructure and
+baselines") and `5b0b8ce0` ("Investigate code_snippet canary
+regression") active on Titan PC despite alpha.38's retroactive gate.
+
+Two pattern misses:
+- **"test SUITE infrastructure"** — alpha.14's regex `/\btest\s+
+  (infrastructure|harness|infra)\b/i` required `test` immediately
+  followed by the noun. The word `suite` between them blocked the
+  match. Widened to `/\btest\b[\s\w-]{0,20}\b(infrastructure|harness|
+  infra)\b/i`.
+- **"canary regression"** — no regex matched the canary-eval
+  category at the title level (only the `canary-eval` tag, which
+  the proposer doesn't always attach). Added
+  `/\bcanary\s+(regression|eval|drift|test)\b/i` and `/\binvestigate\b
+  [^.]{0,30}\b(canary|regression|baseline)\b/i`.
+- **"establish … baselines"** — added
+  `/\bestablish\b[^.]{0,40}\bbaselines?\b/i` as a defense.
+
+Deployed to Titan PC. Both leakers auto-failed on the first driver
+tick after restart:
+
+```
+WARN [DriverScheduler] Auto-failed self-referential goal 5b0b8ce0
+  ("Investigate code_snippet canary regression") — caught by
+  retroactive alpha.38 gate.
+WARN [DriverScheduler] Auto-failed self-referential goal 8490b4a8
+  ("Establish test suite infrastructure and baselines") — caught
+  by retroactive alpha.38 gate.
+```
+
+Two new regression cases pinned in `tests/v610-alpha14-test-infra-
+gate.test.ts`. 12/12 pass.
+
+### Specialist auto-selection — actually fixed this time (Phase 2)
+
+Reported by Tony May 13. Hermes's alpha.43 added `download|embed|save`
+to ARTIFACT_VERBS — fixed image-download tasks, **but missed the
+essay-writing path**.
+
+Root cause: `subtaskTaxonomy.ts` line-107 write-title regex listed
+`document|guide|report|spec|post|article|readme|summary|changelog`
+but NOT `essay`. With an empty description, keyword-scoring all
+returned 0 → default `analysis`. Result: "Write a 3 page essay
+about MLK" routed to Analyst (no `write_file` tool), not Writer.
+
+Fixes:
+- Added `essay|piece|paper|blog|email|letter|note|message|reply|
+  story|review|memo|brief|writeup|write-up` to the write-noun list.
+- Changed `\w+` to `[\w-]+` so hyphenated length-modifiers like
+  `long-form`, `1-paragraph`, `non-fiction` no longer break the
+  slack-token chain.
+
+### Latent shell-verb false-positive fixed (Phase 2 bonus)
+
+While testing the essay fix, found a v4-era latent bug: `SHELL_VERBS`
+included substring tokens `'rm '`, `'ls '`, `'mv '`, `'cp '`,
+`'mkdir '`. Substring-search via `String.includes()` made `'rm '`
+**falsely match `"form "` inside `"long-form paper"`**, routing the
+task to `shell`. Likely had been misclassifying anything containing
+`"form "`, `"warm "`, `"farm "`, `"perform "`, etc. since the
+classifier shipped.
+
+Split SHELL_VERBS into two lists:
+- `SHELL_VERBS_SUBSTRING` — multi-character tokens safe for
+  substring matching (`run command`, `chmod`, `mkdir `, `systemctl`).
+- `SHELL_VERBS_BOUNDED` — regex `/\b(rm|ls|mv|cp|cd)\s+[^\s]/` for
+  the two-letter Unix commands that need word boundaries.
+
+### End-to-end verification on Titan PC (no faith-shipping)
+
+Submitted a fresh mission via `POST /api/missions`: "Write a short
+1-paragraph essay about photosynthesis." Logs show:
+
+```
+[StructuredSpawn] Spawning writer (model=ollama/minimax-m2.7:cloud,
+  maxRounds=10)
+```
+
+Writer — not Analyst. Bug verified fixed on prod, not just unit-
+tested.
+
+### Activity stickies confirmed working
+
+Live mission `g7ggv48w` accumulated 8 activity-sticky entries on the
+Analyst card during alpha.50 testing — `🌐 read a page · …`,
+`🔍 searched the web · …`. The alpha.31/.41 plumbing works end-to-
+end. The Tony-reported "lined paper not filling out live" complaint
+was actually two separate things: (a) the crash that alpha.48 fixed
+(`room.artifact?.content ?? ''`) and (b) the agents not producing
+because of misrouting (which alpha.50 fixes upstream).
+
+---
+
+## v6.1.0-alpha.49 — 2026-05-15 — Universal wood-desk aesthetic (Hermes batch)
+
+Eight commits from Hermes (May 15 morning + afternoon) converging
+the entire app on the warm wood-desk aesthetic that Mission Canvas
+pioneered. Author: Tony's git identity (Hermes operated under it).
+
+- `e0f2baed` — Desk aesthetic for MissionChat, MissionLibrary,
+  MissionStart + sticky-note bottom-edge placement.
+- `503a85e5` — Warm brass mascot palette + paper speech bubbles.
+- `af055a66` — Live notebook typing indicator + theme picker
+  (Oak / Walnut / Mahogany / White).
+- `2a8594aa` — Universal `<DeskSurface>` component, every page
+  on the wood desk.
+- `3a6adfab` — TitanCanvas warm aesthetic — paper widgets, brass
+  accents, wood surface. Removed stray `.bak` files.
+- `b33269bf` + `3a5cc5b8` — LoginPage redesigned over the wood
+  desk with leather card, brass accents, remaining dark buttons
+  warmed up.
+- `fbd7ebb4` — Fix duplicate `style` attrs on TitanCanvas header
+  buttons.
+
+Net: removes the dark-void aesthetic. Whole UI now reads as
+furniture on a desk. Theme picker persists choice in
+`localStorage['titan-desk-theme']` and broadcasts via
+`desk-theme` custom event.
+
+---
+
+## v6.1.0-alpha.48 — 2026-05-15 — Three real bug fixes (Hermes)
+
+Authored by Hermes May 15. **All three bugs Tony reported.**
+
+- **Stale fallback chain** — `fallbackChain.ts` model ladders still
+  referenced dead pre-v6 model ids (`glm-5.1:cloud`, `glm-5:cloud`,
+  `qwen3.5:cloud`, `nemotron-3-super:cloud`). Updated to the
+  alpha.44 specialist mapping (Builder/Analyst →
+  `deepseek-v4-pro:cloud`, Scout → `deepseek-v4-flash:cloud`,
+  Writer → `minimax-m2.7:cloud`, Sage → `kimi-k2.6:cloud`). Also
+  removed `gemma4:31b-cloud` (Tony: freezes desk).
+- **Lined-paper widget crash** — `DocumentPaper` in MissionCanvas
+  accessed `room.artifact.content` without a null guard. New
+  missions before first artifact threw TypeError → canvas blank.
+  Fix: `room.artifact?.content ?? ''`.
+- **Nudge never injected** — `stallDetector.triggerStall()` computed
+  a nudge via `getNudgeMessage()` but the string was never used.
+  Now stores it in `pendingNudges` Map; new `drainPendingNudge()`
+  export. `agentLoop.ts` calls it at the top of each round and
+  injects into `ctx.messages`.
+
+---
+
+## v6.1.0-alpha.47 — 2026-05-14 — Desk readability fix + SomaOrb warmth (Hermes)
+
+Contrast pass on the desk surface: TitanCanvas elements darker on
+warm backgrounds, SomaOrb palette warmed to match.
+
+---
+
+## v6.1.0-alpha.46 — 2026-05-14 — Universal DeskSurface foundation (Hermes)
+
+`ui/src/components/desk/DeskSurface.tsx` (228 lines) — shared
+wood-desk background component. 4 theme variants (oak / walnut /
+mahogany / white). CSS gradients, dust motes, vignette, glow — no
+image assets. `DeskTheme.tsx` provides React context for theme
+switching. Foundation for the alpha.49 convergence work.
+
+---
+
+## v6.1.0-alpha.45 — 2026-05-14 — Model recommendations for specialists (Hermes)
+
+New `src/providers/modelRecommender.ts` (304 lines) — stateless
+scorer that rates every discovered model for each specialist role.
+Adapts immediately when a provider key changes or an Ollama model
+is pulled. Exposed via new `/api/skills/recommend` endpoint. UI
+updates in `SettingsSpecialistsWidget.tsx` to surface "Recommended /
+Fast / Reasoning" badges next to the model dropdown.
+
+---
+
+## v6.1.0-alpha.44 — 2026-05-14 — Specialist model remap + deleteMission cleanup (Hermes)
+
+Two commits:
+- `6b7323e8` — Remapped specialist defaults to current best cloud
+  models. Builder → `glm-5.1:cloud`, Analyst → `gemma4:31b-cloud`,
+  Scout → `qwen3.5:cloud`, Writer → `minimax-m2.7:cloud`, Sage →
+  `nemotron-3-super:cloud`. (alpha.48 later replaced these with
+  DeepSeek V4 Pro/Flash after Tony's testing showed freezes.)
+- `fb8d64f6` — `deleteMission()` now stops in-flight agents,
+  cancels the linked goal, and reaps driver state. Previously
+  delete left orphan drivers consuming Ollama tokens.
+
+---
+
+## v6.1.0-alpha.43 — 2026-05-14 — Kimi's bug audit fixes (Hermes)
+
+Hermes shipped 4 of Kimi K2.6's 6 bug-audit findings
+(`BUG_AUDIT_FINAL.md`). Includes regression-test discipline new for
+this codebase — three new test files paired with three new fixes.
+
+- **subtaskTaxonomy.ts** — added `download | embed | save` to
+  `ARTIFACT_VERBS` so file-producing tasks classify as `code`, not
+  `analysis`. (Note: `essay`-class writing was NOT in this fix —
+  alpha.50 catches that.)
+- **verifier.ts** — new `shouldSkipLLMJudge()` gate: code/shell
+  tasks with confidence ≥ 0.90 skip the LLM judge. Stops the
+  prose-judge from rejecting successful file-producing runs.
+- **goalDriver.ts** — detect `allResolved` post-verify and jump to
+  whole-goal verify (was getting stuck in `delegating` after the
+  last subtask). Auto-reject stale pending approvals after 15min.
+- **FileViewer.tsx** — `overflow-hidden` → `overflow-auto` so
+  long docs scroll.
+- New tests: `tests/unit/{subtaskTaxonomy,verifier,goalDriver}.test.ts`.
+
+Companion fix `f46a265c` corrected a typecheck: `'cancelled' →
+'failed'` in driverScheduler (`Goal['status']` doesn't allow
+`'cancelled'`), `tagsLower` scoping in goalProposer.
+
+---
+
+## v6.1.0-alpha.42 — 2026-05-13 — goalId threading + zombie cleanup + consolidate gate
+
+(Previous Claude session — final ship before Kimi/Hermes took over.)
+
+- Threaded `goalId` through `spawnSubAgent` → `agentEvents.tool_call`
+  so the Mission lifecycle bridge can correlate tool calls back to
+  the mission room (and drop activity stickies on the desk).
+- Cancelled 5 zombie goals blocking the scheduler's 5-concurrent cap
+  (`d1cd0c02`, `5727f1df`, `afc67095`, `32da165e`, `0c9703ef`).
+- Added `consolidate-duplicate-goals` regex to the autonomy gate
+  after the proposer started filing META goals to dedupe itself.
+
+---
+
+## v6.1.0-alpha.40 / .41 — 2026-05-13 — Internal-only intermediate ships
+
+Version-bump intermediates between alpha.39 and alpha.42. No
+behavior shipped under alpha.40 specifically (typecheck pass during
+the goalId-threading work). alpha.41 added `goalId` field to
+`SubAgentConfig` interface, threading the value through
+`structuredSpawn` → `spawnSubAgent` so `subAgent.ts`'s tool_call
+emit could include it in `data.goalId`.
+
+---
+
 ## v6.1.0-alpha.39 — 2026-05-13 — `force: true` actually bypasses dedupe now
 
 > Tony: "did you break titan?"

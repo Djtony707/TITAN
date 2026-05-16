@@ -73,6 +73,40 @@ describe('classifySubtask', () => {
         expect(result).toBe('write');
     });
 
+    // v6.1.0-alpha.50 — regression: "Write a 3 page essay about MLK"
+    // pre-alpha.50 returned 'analysis' (default) because the write-title
+    // regex listed `report|spec|post|article|readme|summary|changelog`
+    // but NOT `essay`. The empty description killed keyword-scoring.
+    // Caught in the wild as misrouting MLK / moon-landing essay
+    // missions to the Analyst specialist (no write_file tool).
+    it('classifies "Write a 3 page essay about Martin Luther King" as write (alpha.50 fix)', () => {
+        expect(classifySubtask({
+            title: 'Write a 3 page essay about Martin Luther King',
+            description: '',
+        })).toBe('write');
+    });
+
+    it('classifies "Write a short 1-paragraph essay about the moon landing with one image" as write (alpha.50 fix)', () => {
+        expect(classifySubtask({
+            title: 'Write a short 1-paragraph essay about the moon landing with one image.',
+            description: '',
+        })).toBe('write');
+    });
+
+    it('classifies "Write a blog post on AI" as write', () => {
+        expect(classifySubtask({
+            title: 'Write a blog post on AI',
+            description: '',
+        })).toBe('write');
+    });
+
+    it('classifies "Write a long-form paper on climate" as write', () => {
+        expect(classifySubtask({
+            title: 'Write a long-form paper on climate',
+            description: '',
+        })).toBe('write');
+    });
+
     it('classifies verify task as verify', () => {
         const result = classifySubtask({
             title: 'Verify all tests pass',

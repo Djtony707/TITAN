@@ -146,6 +146,8 @@ vi.mock('../src/agent/stallDetector.js', () => ({
     checkToolCallCapability: vi.fn().mockReturnValue(null),
     resetToolCallFailures: vi.fn(),
     getStallStats: vi.fn().mockReturnValue([]),
+    // alpha.48: drainPendingNudge returns null when no nudge queued (default test state)
+    drainPendingNudge: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../src/agent/selfAwareness.js', () => ({
