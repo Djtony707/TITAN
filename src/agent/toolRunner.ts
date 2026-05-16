@@ -16,6 +16,7 @@ import { executeToolsParallel } from './parallelTools.js';
 import { capToolOutput } from './toolOutputCap.js';
 import { runPreTool, runPostTool } from '../plugins/contextEngine.js';
 import type { ContextEnginePlugin } from '../plugins/contextEngine.js';
+import { run as runInIsolatedWorktree } from './worktreeExecutor.js';
 
 /** Tool hook plugins — set during agent initialization */
 let toolHookPlugins: ContextEnginePlugin[] = [];
@@ -175,7 +176,7 @@ export interface ToolHandler {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
-    execute: (args: Record<string, unknown>) => Promise<string>;
+    execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) => Promise<string>;
     /**
      * beta.15 (Phase D.3) — optional declarative contract. When set,
      * the tool runner validates incoming args against
@@ -776,17 +777,37 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         logger.info(COMPONENT, formatBreadcrumb(handler.name, classification));
     }
 
+    const useWorktreeIsolation =
+        config.security.useWorktreeIsolation === true &&
+        contractToUse?.sideEffects.includes('destructive') === true;
+
     for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
         try {
             // On timeout retry, double the timeout
             const timeout = (attempt > 0 && lastErrorClass === 'timeout') ? baseTimeout * 2 : baseTimeout;
 
+            const timeoutController = useWorktreeIsolation ? new AbortController() : undefined;
+            const timeoutError = new Error(`Tool "${handler.name}" timed out after ${timeout}ms`);
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
             let result = await Promise.race([
-                handler.execute(args),
-                new Promise<string>((_, reject) =>
-                    setTimeout(() => reject(new Error(`Tool "${handler.name}" timed out after ${timeout}ms`)), timeout)
-                ),
-            ]);
+                useWorktreeIsolation
+                    ? runInIsolatedWorktree({
+                        spawnId: toolCall.id,
+                        args,
+                        execute: handler.execute,
+                        baseCwd: process.cwd(),
+                        signal: timeoutController?.signal,
+                    })
+                    : handler.execute(args),
+                new Promise<string>((_, reject) => {
+                    timeoutHandle = setTimeout(() => {
+                        timeoutController?.abort(timeoutError);
+                        reject(timeoutError);
+                    }, timeout);
+                }),
+            ]).finally(() => {
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+            });
 
             // Secret exfiltration guard — scan tool output before it leaves
             result = redactSecrets(result);

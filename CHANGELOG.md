@@ -5,6 +5,57 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.20 — 2026-05-16 — Worktree isolation for destructive tools (Phase D.5)
+
+Destructive tool calls can now run inside an isolated git worktree
+so the parent workspace stays untouched until you choose to merge.
+Opt-in behind a new config flag, default off.
+
+### What changed
+
+- **New `src/agent/worktreeExecutor.ts`** wraps any tool call whose
+  contract declares `sideEffects` that includes `'destructive'`
+  inside a per-spawn git worktree at
+  `~/.titan/worktrees/<spawnId>/`. The skill's `execute()` runs with
+  its `cwd` pointed at the worktree.
+- **Parent edits are mirrored into the worktree on creation.** If
+  you've used `write_file`, `edit_file`, or `apply_patch` to stage
+  changes in the parent workspace and then run a destructive
+  `shell` command (e.g. `npm test`), the worktree sees those edits
+  rather than stale `HEAD` content. Without this, an
+  edit-then-verify sequence would silently test the wrong code.
+- **`getWorktreeDiff(spawnId)`** returns a unified diff vs the base
+  so the result can be reviewed before merging.
+- **Cleanup on abort AND on timeout.** If `execute()` throws, the
+  spawn is cancelled, OR the outer tool-runner timeout fires, the
+  worktree directory is removed and the in-flight state is cleared.
+  Same-spawn retries no longer collide with a half-cleaned-up
+  state.
+- **`src/agent/toolRunner.ts`** routes destructive calls through
+  `worktreeExecutor.run()` ONLY when the new config flag is on.
+  Non-destructive calls keep the existing dispatch path unchanged.
+- **`src/config/schema.ts`** adds `security.useWorktreeIsolation`,
+  default `false`. Opt-in until proven on real missions.
+
+### Tests
+
+- `tests/worktree-executor.test.ts` (new): 7 cases including
+  - destructive routing into the worktree
+  - non-destructive passthrough
+  - `getWorktreeDiff` output after a write
+  - cleanup on abort
+  - worktree initialization
+  - **regression: destructive shell sees parent `edit_file` content
+    instead of stale HEAD**
+  - **regression: timeout abort removes the worktree and a
+    same-spawn retry does not collide**
+- 238 / 238 tests pass across the touched-area sweep.
+
+No API contract changes. No schema breakage (new field is
+optional). No new dependencies.
+
+---
+
 ## v6.1.0-beta.19 — 2026-05-16 — list_dir recursive listing
 
 The `list_dir` tool now actually supports the `recursive` parameter
