@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Tony Elliott (https://github.com/Djtony707)
+Copyright (c) 2026 Tony Elliott
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,31 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-ACKNOWLEDGMENTS
-
-TITAN's architecture is inspired by OpenClaw (https://github.com/openclaw/openclaw),
-an open-source personal AI assistant framework, licensed under the MIT License.
-Thank you to the OpenClaw team and all open-source contributors.
-
-Voice interface adapted from LiveKit Agent Starter React
-(https://github.com/livekit-examples/agent-starter-react).
-Copyright (c) 2025 LiveKit, Inc. Licensed under the MIT License.
-Thank you to the LiveKit team for their excellent real-time WebRTC platform.
-
-Mission Control v2 frontend built with React 19 (MIT), Vite (MIT),
-Tailwind CSS 4 (MIT), React Router v7 (MIT), react-markdown (MIT),
-Lucide React (ISC), and Motion (MIT).
-
-Voice infrastructure powered by faster-whisper (MIT), Kokoro FastAPI (MIT),
-Caddy (Apache-2.0), and the LiveKit Agents SDK (Apache-2.0).
-
-Temporal knowledge graph inspired by Graphiti (https://github.com/getzep/graphiti)
-by Zep AI, licensed under Apache-2.0.
-
-Browser automation patterns inspired by Skyvern (https://github.com/Skyvern-AI/skyvern)
-by Skyvern AI, licensed under AGPL-3.0 (separate service, not bundled).
-
-For the complete list of third-party dependencies, see THIRD_PARTY_NOTICES.md.
