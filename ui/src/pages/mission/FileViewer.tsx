@@ -21,6 +21,7 @@
 import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { MissionFile } from '@/api/missions';
+import { wrapHtmlForViewer } from './htmlSanitize';
 
 interface ViewerState {
   ref: string;
@@ -255,24 +256,110 @@ function HtmlShadowFrame({ html }: { html: string }) {
     const styles = head ? Array.from(head[1].matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi)).map(m => m[0]).join('\n') : '';
     const body = bodyMatch ? bodyMatch[1] : html;
     // Top-level container styles so the report renders into a real
-    // page region (not just dumped flush to the modal edges).
+    // page region (not just dumped flush to the modal edges). The
+    // `.titan-img-missing` rule matches the desk-aesthetic
+    // wood/brass placeholder we substitute for broken external
+    // images (alpha.52, Picrew "graceful degradation" pattern).
     const baseStyle = `
       :host { all: initial; display: block; width: 100%; height: 100%; background: #fdfaf3; color: #1a1f2e; overflow: auto; }
       .titan-doc-root { padding: 24px 32px; font-family: Georgia, "Iowan Old Style", serif; line-height: 1.6; max-width: 900px; margin: 0 auto; }
       .titan-doc-root img { max-width: 100%; height: auto; }
       .titan-doc-root a { color: #6a3d12; }
+      .titan-img-missing {
+        display: block;
+        margin: 18px auto;
+        padding: 22px 24px;
+        max-width: 540px;
+        background: linear-gradient(180deg, #ede1c6 0%, #e0d2af 100%);
+        border: 1px solid #b8a070;
+        border-radius: 8px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 2px rgba(60,40,20,0.18);
+        text-align: center;
+        color: #5a3818;
+        font-family: Georgia, "Iowan Old Style", serif;
+      }
+      .titan-img-missing .titan-img-missing__icon {
+        font-size: 28px;
+        line-height: 1;
+        margin-bottom: 6px;
+        color: #8a5a2a;
+      }
+      .titan-img-missing .titan-img-missing__caption {
+        font-style: italic;
+        font-size: 14px;
+        line-height: 1.45;
+        color: #5a3818;
+        margin: 0;
+      }
+      .titan-img-missing .titan-img-missing__sub {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #8a6a3a;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
     `;
     root.innerHTML = `<style>${baseStyle}</style>${styles}<div class="titan-doc-root">${body}</div>`;
+
+    // v6.1.0-alpha.52 — runtime fallback for any external <img> that
+    // *did* render but failed to load (CORS, dead link, hotlink
+    // blocked, host returned HTML/error page). Picrew "graceful
+    // degradation" pattern: never leave a broken-icon glyph in front
+    // of the user. We replace the failed image with a wood/brass
+    // captioned placeholder that uses the alt text. Stops here for
+    // raster <img> only; data: URLs and SVG are unaffected.
+    const swapBroken = (img: HTMLImageElement) => {
+      const alt = (img.getAttribute('alt') || '').trim();
+      const caption = alt || 'Image unavailable';
+      const fig = document.createElement('figure');
+      fig.className = 'titan-img-missing';
+      fig.innerHTML = `
+        <div class="titan-img-missing__icon" aria-hidden="true">⚙</div>
+        <figcaption class="titan-img-missing__caption">${escapeForHtml(caption)}</figcaption>
+        <div class="titan-img-missing__sub">Image source unavailable</div>
+      `;
+      img.replaceWith(fig);
+    };
+    const imgs = root.querySelectorAll('img');
+    imgs.forEach((img) => {
+      const el = img as HTMLImageElement;
+      // Already loaded with non-zero natural size → real image, leave.
+      if (el.complete && el.naturalWidth > 0) return;
+      // Already loaded but 0x0 (broken / blocked) → swap immediately.
+      if (el.complete && el.naturalWidth === 0) { swapBroken(el); return; }
+      // Still loading → listen for completion.
+      el.addEventListener('error', () => swapBroken(el), { once: true });
+      el.addEventListener('load', () => {
+        if (el.naturalWidth === 0) swapBroken(el);
+      }, { once: true });
+    });
   }, [html]);
 
   return <div ref={hostRef} className="w-full h-full bg-[#fdfaf3] overflow-auto" />;
 }
 
+// Tiny inline escaper — only used for alt text we inject into the
+// placeholder figcaption. The shadow DOM is isolated but we still
+// don't want to inject raw user-controlled HTML.
+function escapeForHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
- * v6.1.0-alpha.34 (intro) / v6.1.0-alpha.35 (harden) — prepare the
- * agent's HTML for sandboxed-iframe rendering.
+ * NOTE — alpha.52: `wrapHtmlForViewer` moved to `./htmlSanitize.ts`
+ * so it can be unit-tested without React. The block below remains
+ * for documentation of the historical reasoning.
  *
- * Two passes:
+ * v6.1.0-alpha.34 (intro) / v6.1.0-alpha.35 (harden) / v6.1.0-alpha.52
+ * (graceful-degradation pass) — prepare the agent's HTML for
+ * sandboxed shadow-DOM rendering.
+ *
+ * Three passes:
  *
  *   **Strip dangerous / unhelpful content**:
  *      - `<script>...</script>` blocks (the sandbox blocks execution,
@@ -283,6 +370,13 @@ function HtmlShadowFrame({ html }: { html: string }) {
  *        etc.) — same XSS-tier risk, no useful purpose in our
  *        document viewer.
  *      - `javascript:` URLs in href/src.
+ *
+ *   **Rewrite external <img> to placeholders** (alpha.52, Picrew
+ *      graceful-degradation pattern) — Writer prompt asks for inline
+ *      data: URLs only, but the LLM keeps emitting raw external
+ *      links to hallucinated image URLs. Enforced in code at the
+ *      rendering boundary so the user never sees a broken-icon
+ *      glyph again.
  *
  *   **Inject into the document head**:
  *      - `<meta name="referrer" content="no-referrer">` — the most
@@ -302,39 +396,6 @@ function HtmlShadowFrame({ html }: { html: string }) {
  * tags into the head. If it wrote a fragment, we wrap with a
  * minimal shell.
  */
-function wrapHtmlForViewer(content: string): string {
-    // Strip <script> blocks (including their content)
-    let cleaned = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-    // Strip self-closing / unclosed script tags too
-    cleaned = cleaned.replace(/<script\b[^>]*\/?>/gi, '');
-    // Strip inline event handlers (onclick=, onload=, onerror=, etc.)
-    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
-    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
-    cleaned = cleaned.replace(/\son[a-z]+\s*=\s*[^"'\s>]+/gi, '');
-    // Neuter javascript: URLs
-    cleaned = cleaned.replace(/(href|src|action)\s*=\s*"javascript:[^"]*"/gi, '$1="#"');
-    cleaned = cleaned.replace(/(href|src|action)\s*=\s*'javascript:[^']*'/gi, "$1='#'");
-
-    const HEAD_INJECT = [
-        '<meta name="referrer" content="no-referrer">',
-        '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\' data: blob:; img-src * data: blob:; font-src * data:; style-src \'self\' \'unsafe-inline\' *; script-src \'none\'; frame-src \'none\'; object-src \'none\';">',
-        '<base target="_blank">',
-    ].join('\n');
-
-    const trimmed = cleaned.trim();
-    const headMatch = /<head\b[^>]*>/i.exec(trimmed);
-    if (headMatch) {
-        const insertAt = headMatch.index + headMatch[0].length;
-        return trimmed.slice(0, insertAt) + '\n' + HEAD_INJECT + trimmed.slice(insertAt);
-    }
-    const htmlMatch = /<html\b[^>]*>/i.exec(trimmed);
-    if (htmlMatch) {
-        const insertAt = htmlMatch.index + htmlMatch[0].length;
-        return trimmed.slice(0, insertAt) + `\n<head>${HEAD_INJECT}</head>` + trimmed.slice(insertAt);
-    }
-    return `<!DOCTYPE html><html><head>${HEAD_INJECT}</head><body>${trimmed}</body></html>`;
-}
-
 function fileIcon(mime: string | undefined): string {
   if (!mime) return '📄';
   if (mime === 'text/markdown') return '📝';
