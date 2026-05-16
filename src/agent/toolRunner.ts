@@ -9,6 +9,7 @@ import {
     validateToolCall,
     formatValidationError,
 } from './toolContract.js';
+import { classifyToolCall, shouldGate, formatBreadcrumb } from './autoModeClassifier.js';
 import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
@@ -691,12 +692,40 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         logger.warn(COMPONENT, `Invariant check failed (fail-open): ${(err as Error).message}`);
     }
 
+    // beta.16 (Phase D.4) — auto-mode classifier. Reads the tool's
+    // contract.riskLevel from the contract registry and decides whether
+    // to short-circuit the approval gate ('auto'), proceed with a passive
+    // breadcrumb ('notify'), or hand off to the existing approval-gate
+    // path below ('gate'). Conservative defaults — unknown tools and
+    // unrecognised policies fall to 'gate'.
+    const classification = classifyToolCall(handler.name);
+    if (classification.decision === 'auto') {
+        logger.debug(COMPONENT, formatBreadcrumb(handler.name, classification));
+        // Skip the legacy approval-gate block. The execute() path runs
+        // unchanged below — same retries, timeouts, output capping.
+    } else if (classification.decision === 'notify') {
+        // Passive notification. Future hook point for Mission Canvas
+        // toasts / trajectory `note` events. For first cut we log at
+        // info level so the action shows up in titan-gateway.log + the
+        // existing structured log pipeline.
+        logger.info(COMPONENT, formatBreadcrumb(handler.name, classification));
+    }
+
     // v5.0: Approval gates — human-in-the-loop before executing dangerous tools.
     // This wires the approval_gates.ts skill into the execution path, closing the
     // safety gap identified during the 2026-04-28 overnight audit.
-    try {
+    //
+    // beta.16 — short-circuit on classification.decision === 'auto'. The
+    // legacy `requiresApproval()` is the pre-classifier policy; we keep
+    // it as a SECOND gate so a tool that's safe-by-contract but on the
+    // explicit-dangerous-tool list still gets gated. Belt + suspenders.
+    if (shouldGate(classification)) try {
         const { requiresApproval, createApprovalRequest } = await import('../skills/builtin/approval_gates.js');
-        if (requiresApproval(handler.name)) {
+        // Force-gate even if requiresApproval would have returned false:
+        // the classifier said 'gate' and that decision wins. Skills
+        // without a contract land here because the classifier defaults
+        // unknowns to 'gate' (conservative).
+        if (classification.decision === 'gate' || requiresApproval(handler.name)) {
             logger.info(COMPONENT, `[ApprovalGate] Tool "${handler.name}" requires human approval — filing request`);
             const request = createApprovalRequest(handler.name, args, sessionId || toolCall.id);
             if (request.status === 'pending') {
