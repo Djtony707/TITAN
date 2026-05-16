@@ -5,6 +5,117 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.52 — 2026-05-15 — Broken-image graceful degradation (Picrew pattern)
+
+> Tony, returning to a fresh mission: the moon-landing essay
+> rendered with a broken-image icon where Buzz Aldrin should
+> have been. He asked to apply the patterns from
+> https://github.com/Picrew/awesome-agent-harness to fix it.
+
+### Root cause
+
+The Writer specialist's HTML output is good (headings, prose,
+figure, caption, citation, footer) but it occasionally emits a
+raw external `<img src="https://…">` for a URL the LLM
+hallucinated. The viewer faithfully tries to load it, the browser
+returns 0×0, and the user sees a broken-icon glyph in front of an
+otherwise polished document.
+
+The Writer prompt already says "OMIT the image rather than
+fabricate" — the LLM ignores that line ~20% of the time.
+
+### Fix — Picrew "graceful degradation" at the rendering boundary
+
+The Picrew/awesome-agent-harness corpus consistently recommends
+**enforcing output contracts in code, not via prompts**. Anthropic's
+"Effective harnesses for long-running agents" makes the same case:
+the harness must produce a graceful answer when the agent output
+is imperfect. So instead of re-asking the LLM to please not do
+that, we rewrite the broken image at the viewer.
+
+#### 1. Sanitize-time rewrite (`ui/src/pages/mission/htmlSanitize.ts`)
+
+Extracted `wrapHtmlForViewer` out of `FileViewer.tsx` so it's
+unit-testable without React. New pass rewrites every non-trusted
+`<img>` to a wood/brass placeholder block:
+
+```html
+<figure class="titan-img-missing">
+  <div class="titan-img-missing__icon">⚙</div>
+  <figcaption class="titan-img-missing__caption">{alt text}</figcaption>
+  <div class="titan-img-missing__sub">Image source unavailable</div>
+</figure>
+```
+
+Trusted sources (passed through untouched):
+- `data:image/…` URLs (preferred — Writer is told to use these)
+- `blob:` URLs
+- same-origin relative paths (artifact-dir files)
+
+Everything else (`https://`, `http://`, `//host/img.jpg`) becomes
+a placeholder. The placeholder uses the original `alt` text as the
+caption so the document reads naturally — "Buzz Aldrin on the
+lunar surface" — just without the broken-icon glyph.
+
+#### 2. Runtime onerror fallback (`HtmlShadowFrame`)
+
+Defense in depth. Any `<img>` that does render but fails to load
+(CORS, dead link, host returned an error page) gets caught by an
+`error` event listener and swapped to the same placeholder block.
+This catches edge cases the sanitize-time rewrite missed
+(e.g. trusted-looking absolute paths that don't actually exist).
+
+#### 3. CSS in `HtmlShadowFrame` (`.titan-img-missing`)
+
+Wood/brass gradient, brass-tone border, drop shadow, italic Georgia
+caption. Matches the universal desk aesthetic from alpha.49 so the
+placeholder reads as an intentional document element, not an error.
+
+#### 4. Tightened Writer guidance (`src/agent/specialists.ts`)
+
+Old wording: "NEVER use a raw external `<img src="https://…">`
+link in your HTML; the viewer can't reliably load those."
+
+New wording: "ONLY two acceptable forms — (a) `<img src="data:…"
+…>` after `download_image`, or (b) inline `<svg>…`. NEVER emit
+`<img src="https://…">` — **the viewer enforces this and replaces
+any raw external `<img>` with a placeholder block**. Fabricated
+image URLs guarantee a broken placeholder."
+
+The capitalized "the viewer enforces this" makes the consequence
+visible to the LLM. Combined with the sanitize-time rewrite, the
+broken-icon glyph is now structurally impossible.
+
+### Tests
+
+`tests/v610-alpha52-broken-img.test.ts` — 12 cases pinning the
+rewrite behavior:
+
+- https://, http://, //protocol-relative all rewritten
+- data:image/* pass through
+- blob: pass through
+- relative paths pass through
+- empty `alt` falls back to "Image unavailable"
+- HTML special chars in alt are escaped
+- existing `<script>` strip + onclick strip + head injection
+  preserved
+
+`npm test` → **7251 / 7253 passing, 2 skipped, 0 failed** (was
+7239/7241 at alpha.51; +12 from the new alpha.52 regression
+file).
+
+### Files touched
+
+- `ui/src/pages/mission/htmlSanitize.ts` (new) — extracted sanitizer
+- `ui/src/pages/mission/FileViewer.tsx` — import sanitizer, add
+  shadow-DOM onerror handler, `.titan-img-missing` CSS
+- `src/agent/specialists.ts` — tightened Writer HTML guidance
+- `tests/v610-alpha52-broken-img.test.ts` (new, 12 tests)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts` — version bump
+
+---
+
 ## v6.1.0-alpha.51 — 2026-05-15 — Auto-reject question-loop fix + steampunk mascot
 
 > Tony: "When the agent is doing work it comes to a point where it
