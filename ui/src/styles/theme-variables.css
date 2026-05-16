@@ -1,0 +1,135 @@
+/*
+ * TITAN — Phase 0a Theme Variables (v6.1.0-beta.3)
+ *
+ * Three CSS-variable palettes scoped to `:root[data-theme=…]`. Set the
+ * attribute via `useThemeVariables()` (see ../hooks/useThemeVariables.ts)
+ * and any descendant that reads `var(--theme-...)` re-skins automatically.
+ *
+ * Phase 0a is plumbing only — no inline-style migration yet. Phase 0d
+ * does the page-by-page replacement work.
+ *
+ * Three themes per the mission canvas polish plan
+ * (~/Desktop/titan-mission-canvas-plan.md):
+ *
+ *   • office       — warm wood desk, brass, paper (current DeskSurface vibe)
+ *   • workshop     — brushed steel, blueprint grid, terminal green accent
+ *   • observatory  — deep indigo, starfield, holographic cyan
+ *
+ * Defaults:
+ *   • /mission*  → observatory
+ *   • everything else → office
+ *
+ * Variable naming convention: `--theme-<category>-<role>` so we never
+ * collide with Tailwind's own `--color-*` family from `globals.css`.
+ */
+
+/* ─────────────  OFFICE — wood desk + brass + paper  ───────────── */
+:root[data-theme='office'] {
+    --theme-bg-base:       #5a3818;
+    --theme-bg-grain:      #4a2e18;
+    --theme-bg-vignette:   rgba(20, 10, 0, 0.5);
+
+    --theme-paper:         #f7f5ee;
+    --theme-paper-line:    #d8d3c2;
+
+    --theme-ink:           #1a1f2e;
+    --theme-ink-soft:      #6a5a44;
+
+    --theme-metal:         #c4a35a;          /* brass */
+    --theme-metal-bright:  #f3d27a;
+    --theme-metal-dark:    #8a6a3a;
+    --theme-bolt:          #2a1808;
+
+    --theme-leather:       #4a2818;
+    --theme-leather-edge:  #2a1408;
+    --theme-leather-stitch:#d4a060;
+    --theme-leather-tag:   #6e3a18;
+
+    --theme-accent:        #c45a30;          /* lamp glow */
+    --theme-shadow:        rgba(20, 10, 0, 0.45);
+
+    --theme-sticky-yellow: #f5e89c;
+    --theme-sticky-pink:   #f5b3b8;
+    --theme-sticky-tape:   rgba(245, 235, 200, 0.7);
+
+    --theme-gauge-face:    #f3e9d0;
+    --theme-gauge-ring:    #c4a35a;
+    --theme-gauge-needle:  #1a0e08;
+
+    --theme-font-display: 'Iowan Old Style', 'Charter', 'Georgia', serif;
+    --theme-font-mono:    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ─────────────  WORKSHOP — brushed steel + blueprint + terminal green  ───────────── */
+:root[data-theme='workshop'] {
+    --theme-bg-base:       #1a2030;
+    --theme-bg-grain:      #141925;
+    --theme-bg-vignette:   rgba(0, 0, 0, 0.6);
+
+    --theme-paper:         #e8eef4;
+    --theme-paper-line:    #b8c4d4;
+
+    --theme-ink:           #0c1420;
+    --theme-ink-soft:      #4a5870;
+
+    --theme-metal:         #8a9aa8;          /* brushed steel */
+    --theme-metal-bright:  #c8d4e0;
+    --theme-metal-dark:    #4a5868;
+    --theme-bolt:          #0c1420;
+
+    --theme-leather:       #2a3548;
+    --theme-leather-edge:  #141a28;
+    --theme-leather-stitch:#4ade80;
+    --theme-leather-tag:   #3a4658;
+
+    --theme-accent:        #4ade80;          /* terminal green */
+    --theme-shadow:        rgba(0, 0, 0, 0.55);
+
+    --theme-sticky-yellow: #d4e8a0;
+    --theme-sticky-pink:   #c8a4b8;
+    --theme-sticky-tape:   rgba(120, 140, 160, 0.6);
+
+    --theme-gauge-face:    #c8d4e0;
+    --theme-gauge-ring:    #8a9aa8;
+    --theme-gauge-needle:  #0c1420;
+
+    --theme-font-display: 'IBM Plex Sans', 'Inter', system-ui, sans-serif;
+    --theme-font-mono:    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ─────────────  OBSERVATORY — deep indigo + starfield + holographic cyan  ───────────── */
+:root[data-theme='observatory'] {
+    --theme-bg-base:       #1a1235;
+    --theme-bg-grain:      #0e0820;
+    --theme-bg-vignette:   rgba(0, 0, 0, 0.7);
+
+    --theme-paper:         rgba(40, 40, 80, 0.85);
+    --theme-paper-line:    rgba(160, 200, 255, 0.18);
+
+    --theme-ink:           #e8e8ff;
+    --theme-ink-soft:      #a0a8d0;
+
+    --theme-metal:         #6a78a8;          /* polished cobalt */
+    --theme-metal-bright:  #a8b8e8;
+    --theme-metal-dark:    #3a4878;
+    --theme-bolt:          #0a0820;
+
+    --theme-leather:       #2a2050;
+    --theme-leather-edge:  #14102e;
+    --theme-leather-stitch:#5ee0ff;
+    --theme-leather-tag:   #3a3068;
+
+    --theme-accent:        #5ee0ff;          /* holographic cyan */
+    --theme-shadow:        rgba(0, 0, 0, 0.7);
+
+    --theme-sticky-yellow: rgba(200, 200, 255, 0.85);
+    --theme-sticky-pink:   rgba(255, 180, 220, 0.78);
+    --theme-sticky-tape:   rgba(160, 180, 255, 0.45);
+
+    --theme-gauge-face:    rgba(60, 60, 110, 0.85);
+    --theme-gauge-ring:    #6a78a8;
+    --theme-gauge-needle:  #5ee0ff;
+
+    --theme-font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    --theme-font-mono:    'JetBrains Mono', ui-monospace, monospace;
+}

@@ -5,6 +5,110 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.2 — 2026-05-15 — PostHog Phase B + theme system foundation (Phase 0a + 0b)
+
+> Tony: "Why are you pausing?" — fair point, this bundles two
+> tracks that don't conflict (PostHog Phase B on the backend, theme
+> system Phase 0a/0b on the UI) into one ship.
+
+### PostHog Phase B — consent + posthog-node + CLI subcommands
+
+- **posthog-node SDK migration** (`src/analytics/posthog.ts` rewritten):
+  - Replaces hand-rolled `fetch()` with the official `posthog-node`
+    PostHog client
+  - **Lazy import**: `posthog-node` is `await import()`-ed ONLY
+    inside the send path AND only after consent + enabled checks
+    pass. Users who never opt in never load the module. GDPR
+    "no pre-consent network calls" guarantee.
+  - CLI-tuned init: `flushAt: 1`, `flushInterval: 0`,
+    `disableGeoip: true` (events flush immediately on short-lived
+    CLI invocations vs. the SDK's default 20/10s batching)
+  - Graceful shutdown hooks on `SIGTERM` / `SIGINT` / `beforeExit`
+    so queued events aren't dropped on Ctrl-C
+  - `$process_person_profile: false` on every event by default
+    (anonymous capture, no person profile created). Identified
+    capture lands when `titan login` ships.
+  - Preserves Phase A env-var overrides + EU/US auto-detection
+    + secret scrubber on outbound payloads.
+
+- **v5→v6 re-consent flow** (`src/analytics/consent.ts`,
+  `src/cli/reconsent.ts`):
+  - `REQUIRED_CONSENT_VERSION = 2` — bumped because v6 collects
+    a slightly different bucket (CPU/RAM fingerprint, feature
+    flags). GDPR requires fresh consent on material scope
+    changes.
+  - Startup hook detects `enabled: true && consentVersion < 2`
+    and shows a clear re-consent prompt. Default to OFF on any
+    non-affirmative response (dismiss, blank, Ctrl-C). Once
+    answered the version is recorded so we never re-prompt
+    the same user twice.
+
+- **`titan telemetry` subcommands** (`src/cli/index.ts`):
+  - `titan telemetry status` — prints enabled + host + consent
+    version + install ID
+  - `titan telemetry enable` — interactive consent + version bump
+  - `titan telemetry disable` — hard off
+  - `TITAN_TELEMETRY_DISABLED=1|true` env honored as runtime kill
+    switch (overrides config without touching disk)
+
+### Theme system foundation — Phase 0a + 0b
+
+- **Phase 0a — CSS variables + bridge hook** (`ui/src/styles/theme-variables.css`,
+  `ui/src/hooks/useThemeVariables.ts`):
+  - Three `:root[data-theme=office|workshop|observatory]` blocks,
+    each defining ~20 CSS variables for the page chrome (paper,
+    ink, metal, accent, leather, sticky notes, gauge faces, fonts)
+  - Bridge hook reads the existing `DeskTheme` React context AND
+    a new `localStorage['titan-theme-name']` override; sets
+    `<html data-theme=…>` accordingly
+  - Listens for `titan-theme-change` events (same tab) + `storage`
+    events (cross-tab) so the picker stays in sync everywhere
+
+- **Phase 0b — Topbar theme picker** (`ui/src/components/TopbarThemePicker.tsx`):
+  - Three-segment fixed-position pill (top-right, every page)
+  - Office picks intentionally clear the override so the
+    existing wood-variant choice (oak/walnut/mahogany/white
+    from Settings) still drives sub-aesthetic
+  - Workshop / Observatory write the override; bridge hook
+    reattributes; CSS variables re-skin the chrome immediately
+
+- **Phase 0c (next ship)** will add `WorkshopSurface.tsx` +
+  `ObservatorySurface.tsx` so the background fully swaps from
+  wood to steel-blueprint / starfield when the user picks those
+  themes. Until 0c lands, picking Workshop/Observatory changes
+  the CSS variables but the wood DeskSurface remains underneath
+  — visible but harmless half-step.
+
+### Files touched
+
+- `src/analytics/posthog.ts` — full rewrite (lazy posthog-node)
+- `src/analytics/consent.ts` (new) — `REQUIRED_CONSENT_VERSION`
+- `src/cli/reconsent.ts` (new) — `runReconsent`, `needsReconsent`,
+  `reconsentIfNeeded`, `RECONSENT_PROMPT`
+- `src/cli/index.ts` — `titan telemetry status|enable|disable` +
+  startup re-consent hook
+- `src/config/schema.ts` — added `consentVersion` to telemetry
+- `tests/v610-posthog-reconsent.test.ts` (new, 6)
+- `tests/v610-posthog-lazy-require.test.ts` (new, 4)
+- `tests/v610-posthog-node-sdk.test.ts` (new, 6)
+- `tests/v610-telemetry-cli.test.ts` (new, 9)
+- `tests/v610-posthog-env-override.test.ts` — migrated from fetch
+  spy to `posthog-node` constructor spy
+- `ui/src/styles/theme-variables.css` (new)
+- `ui/src/hooks/useThemeVariables.ts` (new)
+- `ui/src/components/TopbarThemePicker.tsx` (new)
+- `ui/src/main.tsx`, `ui/src/App.tsx` — wire-up
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+### Tests
+
+**25 new Phase B tests** + Phase A suite (51) still green +
+adjacent regression suite (98) still green. Phase 0 tests
+deferred to Phase 0c when the visual surface actually swaps.
+
+---
+
 ## v6.1.0-beta.1 — 2026-05-15 — Schema promotion + live notebook + sub-agent date context + PostHog hardening
 
 > Tony: "alpha 58 is a bit high for versions. Do the versioning the

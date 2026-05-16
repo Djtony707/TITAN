@@ -13,6 +13,12 @@ import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 import { SponsorFooter } from '@/components/SponsorFooter';
 
 import { DeskSurface } from '@/components/desk/DeskSurface';
+// v6.1.0-beta.2 Phase 0a — bridges the existing DeskTheme context to a
+// `:root[data-theme=…]` attribute so CSS variables in
+// `./styles/theme-variables.css` re-skin the UI on theme change.
+import { useThemeVariables } from '@/hooks/useThemeVariables';
+// v6.1.0-beta.2 Phase 0b — fixed top-right pill: Office/Workshop/Observatory.
+import { TopbarThemePicker } from '@/components/TopbarThemePicker';
 
 // ── Titan 3.0 Canvas ────────────────────────────────────────
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
@@ -206,9 +212,17 @@ function AuthGate() {
 }
 
 export default function App() {
+  // Phase 0a — sync `<html data-theme=…>` to the active DeskTheme so the
+  // CSS-variable palettes in `./styles/theme-variables.css` take effect.
+  // Pure side-effect; no rendered output.
+  useThemeVariables();
   return (
     <AuthProvider>
       <AuthGate />
+      {/* Phase 0b — fixed-position theme picker visible on every page
+          (sits outside the per-page chrome so adopting it doesn't
+          require touching MissionCanvas / MissionChat / etc.). */}
+      <TopbarThemePicker />
     </AuthProvider>
   );
 }
