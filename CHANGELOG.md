@@ -5,6 +5,69 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.18 — 2026-05-16 — Tool contract / skill parameter alignment (Codex P1)
+
+Beta.15 introduced declarative Zod contracts for the 9 canonical
+skills. Codex's review caught that several contracts' field names
+and shapes didn't match the actual skill registrations — and Zod's
+default `.strip()` behavior silently dropped unknown keys before
+they reached `execute()`. So an LLM passing a valid argument that
+matched the SKILL's parameter name but not the CONTRACT's name
+would lose the option without any error.
+
+### Field-name corrections
+
+| Skill          | Beta.15 contract (WRONG)              | Beta.18 contract (matches skill) |
+|----------------|---------------------------------------|----------------------------------|
+| `web_search`   | `{ query, numResults }`               | `{ query, maxResults }` |
+| `web_fetch`    | `{ url, method, headers, body }`      | `{ url, extractMode?: 'markdown'\|'text', maxChars }` |
+| `shell`        | `{ command, cwd, timeoutMs }`         | `{ command, cwd, timeout, background, verify_port }` |
+| `read_file`    | extra `byteOffset/byteLimit` (not in skill) | `{ path, startLine, endLine }` |
+| `list_dir`     | extra `pattern` (not in skill)        | `{ path, recursive }` |
+
+`write_file`, `append_file`, `edit_file`, `download_image` were
+already correct.
+
+### `.passthrough()` added to ALL canonical input schemas
+
+Even with the field names corrected, future skill additions could
+introduce the same silent-strip bug. Every canonical contract now
+uses `.passthrough()` so unknown keys are PRESERVED instead of
+stripped. Validation still rejects malformed required fields and
+type mismatches; it just stops eating optional extras.
+
+### What this fixed at runtime
+
+- `shell { command: 'npm run dev', background: true, verify_port: 3000 }`
+  now actually starts a background process. Pre-beta.18, `background`
+  and `verify_port` were stripped before the shell skill saw them,
+  so the command ran synchronously and the dev server didn't launch
+  the way the LLM intended.
+- `web_search` with an explicit count (`maxResults: 5`) now respects
+  it. Pre-beta.18, the count was lost and the skill used its default.
+- `web_fetch` extraction options (`extractMode: 'text'`,
+  `maxChars: 5000`) now reach the skill. Pre-beta.18, the LLM's
+  formatting choice was silently ignored.
+
+### Tests
+
+- 5 new regression tests in `tool-contract.test.ts`:
+  - `web_search` accepts the correct `maxResults` field (renamed)
+  - `web_search` preserves unknown keys via `.passthrough()`
+  - `web_fetch` accepts `extractMode` + `maxChars` (the actual skill shape)
+  - `web_fetch` rejects an invalid `extractMode` enum value
+  - `shell` accepts `background` + `verify_port` for dev-server launches
+  - `shell` uses `timeout` (not `timeoutMs`) and rejects out-of-range `verify_port`
+- 459 / 459 tests pass across the touched-area sweep.
+
+### Credit
+
+Found by Codex during P1 review of beta.17. The bridge protocol
+(`.ai_bridge.json`) continues to pay for itself — second
+cross-agent catch in two betas.
+
+---
+
 ## v6.1.0-beta.17 — 2026-05-16 — Auto-mode P1 fixes (review pass)
 
 Four P1 corrections to beta.16 after a paranoid review. Two were
