@@ -103,41 +103,75 @@ export function QuickSwitcher({ open, onClose }: QuickSwitcherProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden">
+      <div className="absolute inset-0 titan-menu-overlay" onClick={onClose} />
+      <div
+        className="relative w-full max-w-md mx-4 titan-modal-surface overflow-hidden"
+        style={{ fontFamily: 'var(--theme-font-display)' }}
+      >
         {/* Search input */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <Search size={16} className="text-text-muted flex-shrink-0" />
+        <div
+          className="flex items-center gap-2 px-4 py-3"
+          style={{ borderBottom: '1px solid var(--theme-menu-border)' }}
+        >
+          <Search size={16} style={{ color: 'var(--theme-ink-soft)', flexShrink: 0 }} />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Jump to panel..."
-            className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-muted"
+            className="flex-1 bg-transparent text-sm outline-none"
+            style={{ color: 'var(--theme-ink)' }}
           />
-          <kbd className="text-[10px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded border border-border">ESC</kbd>
+          <kbd
+            className="text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              color: 'var(--theme-ink-soft)',
+              background: 'var(--theme-menu-hover)',
+              border: '1px solid var(--theme-menu-border)',
+              fontFamily: 'var(--theme-font-mono)',
+            }}
+          >
+            ESC
+          </kbd>
         </div>
 
         {/* Results */}
         <div className="max-h-72 overflow-y-auto py-1">
           {filtered.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-text-muted">No panels found</div>
-          )}
-          {filtered.map((panel, i) => (
-            <button
-              key={panel.path}
-              onClick={() => select(panel.path)}
-              className={clsx(
-                'flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors',
-                i === selectedIndex ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-bg-tertiary',
-              )}
+            <div
+              className="px-4 py-6 text-center text-sm"
+              style={{ color: 'var(--theme-ink-soft)' }}
             >
-              <span className="flex-shrink-0 opacity-60">{panel.icon}</span>
-              <span className="font-medium">{panel.label}</span>
-              <span className="ml-auto text-xs text-text-muted">{panel.group}</span>
-            </button>
-          ))}
+              No panels found
+            </div>
+          )}
+          {filtered.map((panel, i) => {
+            const isActive = i === selectedIndex;
+            return (
+              <button
+                key={panel.path}
+                onClick={() => select(panel.path)}
+                data-active={isActive || undefined}
+                className={clsx(
+                  'titan-menu-item flex w-full items-center gap-3 text-sm',
+                )}
+                style={{ padding: '8px 16px' }}
+              >
+                <span className="flex-shrink-0 opacity-70">{panel.icon}</span>
+                <span className="font-medium">{panel.label}</span>
+                <span
+                  className="ml-auto text-xs"
+                  style={{
+                    color: isActive ? 'var(--theme-menu-active-fg)' : 'var(--theme-ink-soft)',
+                    fontFamily: 'var(--theme-font-mono)',
+                  }}
+                >
+                  {panel.group}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

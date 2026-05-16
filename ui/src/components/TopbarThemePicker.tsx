@@ -47,11 +47,12 @@ export function TopbarThemePicker({ className = '' }: Props) {
             className={`fixed right-3 z-50 flex gap-0 rounded-full p-0.5 ${className}`}
             style={{
                 top: 48,
-                background: 'rgba(20,12,4,0.55)',
-                border: '1px solid var(--theme-metal-dark, #8a6a3a)',
-                fontFamily: 'var(--theme-font-display, "Iowan Old Style", Georgia, serif)',
-                backdropFilter: 'blur(8px)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                background: 'var(--theme-menu-bg)',
+                border: '1px solid var(--theme-menu-border)',
+                fontFamily: 'var(--theme-font-display)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                boxShadow: '0 6px 18px var(--theme-shadow)',
             }}
         >
             {OPTIONS.map((opt) => {
@@ -70,14 +71,15 @@ export function TopbarThemePicker({ className = '' }: Props) {
                             fontSize: 11,
                             fontWeight: active ? 600 : 500,
                             color: active
-                                ? 'var(--theme-bolt, #2a1808)'
-                                : 'var(--theme-ink-soft, #c4b49a)',
+                                ? 'var(--theme-menu-active-fg)'
+                                : 'var(--theme-ink-soft)',
                             background: active
-                                ? 'var(--theme-metal, #c4a35a)'
+                                ? 'var(--theme-menu-active-bg)'
                                 : 'transparent',
                             borderRadius: 999,
                             transition: 'background 180ms ease, color 180ms ease',
                             letterSpacing: '0.02em',
+                            fontFamily: 'var(--theme-font-display)',
                         }}
                     >
                         {opt.label}

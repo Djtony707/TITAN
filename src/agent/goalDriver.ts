@@ -517,12 +517,14 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
 
         // Decide phase based on spawn status
         if (result.status === 'done') {
+            subState.consecutiveNeedsInfoCount = 0; // reset on non-needs_info
             state.phase = 'verifying';
             appendHistory(state, 'verifying', `Spawn returned done with ${result.artifacts.length} artifact(s), confidence ${result.confidence.toFixed(2)}`);
             // Stash the spawn result so verifying can read it
             (subState as DriverSubtaskState & { lastSpawnResult?: unknown }).lastSpawnResult = result;
         } else if (result.status === 'failed') {
             subState.lastError = result.reasoning || 'failed';
+            subState.consecutiveNeedsInfoCount = 0; // reset on non-needs_info
             state.phase = 'iterating';
             appendHistory(state, 'iterating', `Spawn returned failed: ${subState.lastError.slice(0, 120)}`);
         } else if (result.status === 'needs_info' || result.status === 'blocked') {
@@ -534,6 +536,49 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             const attemptCount = subState.attempts;
             const lastErr = subState.lastError;
             const rawQuestion = result.questions[0] ?? '';
+
+            // v6.1.0-beta.4 — defensive consecutive-needs_info counter.
+            // Reproduces the mzzbajnj bug: a specialist returns
+            // `needs_info` with EMPTY question string, the
+            // genericQuestionRejected→fail path *should* terminate it on
+            // attempt 2, but in practice the loop ran 17 minutes before
+            // Tony cancelled. Belt-and-suspenders guard independent of
+            // genericQuestionRejected/commitOverride/dedupe state: count
+            // consecutive needs_info, force-fail at threshold regardless
+            // of any other flag. This guarantees termination even if a
+            // future refactor breaks one of the other guards.
+            subState.consecutiveNeedsInfoCount = (subState.consecutiveNeedsInfoCount || 0) + 1;
+            const trimmedQuestion = rawQuestion.trim();
+            const needsInfoCount = subState.consecutiveNeedsInfoCount;
+            // Empty/whitespace question + attempts >= 2 → fail
+            // immediately. An empty needs_info on a retry is a sure
+            // sign the specialist has nothing to say.
+            if (trimmedQuestion.length === 0 && attemptCount >= 2) {
+                try {
+                    const { failSubtask } = await import('./goals.js');
+                    failSubtask(goal.id, next.id, `Specialist ${specialistName} returned needs_info with an empty question on attempt ${attemptCount}. No actionable signal — failing subtask to break the loop.`);
+                } catch { /* ok */ }
+                subState.lastError = `Failed: empty needs_info on attempt ${attemptCount} (specialist ${specialistName})`;
+                state.currentSubtaskId = undefined;
+                state.phase = 'delegating';
+                appendHistory(state, 'delegating', `Empty needs_info fail on ${next.id} (attempt ${attemptCount})`);
+                subState.pendingSpawn = undefined;
+                return;
+            }
+            // Three consecutive needs_info on this subtask → fail
+            // regardless of question content. Forward progress check.
+            if (needsInfoCount >= 3) {
+                try {
+                    const { failSubtask } = await import('./goals.js');
+                    failSubtask(goal.id, next.id, `Specialist ${specialistName} returned needs_info ${needsInfoCount}× in a row on this subtask. Forcing failure to break the loop. Last question: "${trimmedQuestion.slice(0, 160)}"`);
+                } catch { /* ok */ }
+                subState.lastError = `Failed: ${needsInfoCount} consecutive needs_info returns`;
+                state.currentSubtaskId = undefined;
+                state.phase = 'delegating';
+                appendHistory(state, 'delegating', `Consecutive needs_info fail on ${next.id} (${needsInfoCount}×)`);
+                subState.pendingSpawn = undefined;
+                return;
+            }
 
             // v6.1.0-alpha.51 — commit-override short-circuit. If the
             // previous block was auto-rejected (15-min timeout) we set

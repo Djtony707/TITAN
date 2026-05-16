@@ -1,4 +1,5 @@
 import { useState, useCallback, type FormEvent } from 'react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 export function LoginPage() {
@@ -6,6 +7,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
@@ -17,7 +20,7 @@ export function LoginPage() {
       try {
         await login(password);
       } catch {
-        setError('Incorrect password. Please try again.');
+        setError('Incorrect access token. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -25,137 +28,233 @@ export function LoginPage() {
     [password, login],
   );
 
+  const canSubmit = password.trim().length > 0 && !loading;
+
   return (
-    <div className="relative flex items-center justify-center min-h-screen overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #6e4724 0%, #482a13 50%, #3d2815 100%)' }}
+    <div
+      className="relative flex items-center justify-center min-h-screen overflow-hidden px-6"
+      style={{
+        background:
+          'linear-gradient(135deg, var(--theme-bg-base) 0%, var(--theme-bg-grain) 55%, var(--theme-leather-edge) 100%)',
+        fontFamily: 'var(--theme-font-display)',
+      }}
     >
-      {/* Warm glow */}
+      {/* Vignette */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-[0.08] blur-[120px] pointer-events-none"
-        style={{ background: 'radial-gradient(circle, #b08a3a, transparent)' }}
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, transparent 40%, var(--theme-bg-vignette) 100%)',
+        }}
       />
 
-      <div className="relative z-10 w-full max-w-md mx-6">
-        {/* Header */}
-        <div className="text-center mb-10">
-          {/* TITAN Logo Mark */}
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-6" style={{
-            background: 'linear-gradient(135deg, rgba(176,138,58,0.2), rgba(120,90,50,0.2))',
-            border: '1px solid rgba(176,138,58,0.35)',
-            boxShadow: '0 0 40px rgba(176,138,58,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
-          }}>
-            <svg viewBox="0 0 32 32" fill="none" className="w-10 h-10">
-              <path d="M16 3L4 9.5v13L16 29l12-6.5v-13L16 3z" stroke="url(#titan-grad)" strokeWidth={1.5} strokeLinejoin="round" />
-              <path d="M16 3v26M4 9.5L28 22.5M28 9.5L4 22.5" stroke="url(#titan-grad)" strokeWidth={1} opacity={0.4} />
-              <circle cx={16} cy={16} r={4} fill="url(#titan-grad)" opacity={0.8} />
-              <defs>
-                <linearGradient id="titan-grad" x1="4" y1="3" x2="28" y2="29">
-                  <stop stopColor="#b08a3a" />
-                  <stop offset={1} stopColor="#8b6d35" />
-                </linearGradient>
-              </defs>
+      {/* Lamp glow — centered behind the login card, intimate radius */}
+      <div
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[420px] h-[420px] rounded-full pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(circle, var(--theme-accent) 0%, transparent 65%)',
+          opacity: 0.2,
+          filter: 'blur(60px)',
+        }}
+      />
+
+      <div className="relative z-10 w-[360px] max-w-full">
+        {/* Brand */}
+        <div className="text-center mb-8">
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5"
+            style={{
+              background:
+                'linear-gradient(135deg, var(--theme-metal) 0%, var(--theme-metal-dark) 100%)',
+              border: '1px solid var(--theme-metal-dark)',
+              boxShadow:
+                '0 0 40px color-mix(in srgb, var(--theme-accent) 30%, transparent), inset 0 1px 0 var(--theme-metal-bright)',
+            }}
+          >
+            <svg viewBox="0 0 32 32" fill="none" className="w-9 h-9">
+              <path
+                d="M16 3L4 9.5v13L16 29l12-6.5v-13L16 3z"
+                stroke="var(--theme-bolt)"
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+              />
+              <path
+                d="M16 3v26M4 9.5L28 22.5M28 9.5L4 22.5"
+                stroke="var(--theme-bolt)"
+                strokeWidth={1}
+                opacity={0.4}
+              />
+              <circle cx={16} cy={16} r={4} fill="var(--theme-bolt)" opacity={0.85} />
             </svg>
           </div>
 
-          <h1 className="text-3xl font-bold text-white tracking-tight">
+          <h1
+            className="text-5xl font-bold"
+            style={{
+              color: 'var(--theme-paper)',
+              fontFamily: 'var(--theme-font-display)',
+              letterSpacing: '0.05em',
+              textShadow:
+                '0 0 24px color-mix(in srgb, var(--theme-accent) 45%, transparent), 0 2px 12px var(--theme-shadow)',
+            }}
+          >
             TITAN
           </h1>
-          <p className="text-base mt-2 tracking-wide font-serif" style={{ color: '#c4b49a' }}>
-            Mission Control
+          <p
+            className="text-sm mt-3 italic"
+            style={{
+              color: 'var(--theme-ink-soft)',
+              letterSpacing: '0.04em',
+            }}
+          >
+            Mission Control awaits
           </p>
         </div>
 
-        {/* Login Card */}
-        <div className="rounded-2xl p-8" style={{
-          background: 'linear-gradient(180deg, rgba(58,37,24,0.92), rgba(48,32,18,0.85))',
-          border: '1px solid rgba(120,95,65,0.4)',
-          boxShadow: '0 25px 50px -12px rgba(30,20,10,0.5), 0 0 0 1px rgba(255,255,255,0.03)',
-          backdropFilter: 'blur(20px)',
-        }}>
-          <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Login card */}
+        <div
+          className="rounded-2xl"
+          style={{
+            padding: '40px',
+            background:
+              'linear-gradient(180deg, var(--theme-leather) 0%, var(--theme-leather-edge) 100%)',
+            border: '1px solid var(--theme-metal-dark)',
+            boxShadow:
+              '0 18px 60px var(--theme-shadow), inset 0 1px 0 color-mix(in srgb, var(--theme-metal-bright) 18%, transparent), inset 0 -1px 0 var(--theme-leather-edge)',
+          }}
+        >
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium mb-2" style={{ color: "#c4b49a" }}
-              >
-                Gateway Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoFocus
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (error) setError('');
-                }}
-                placeholder="Enter your password"
-                className="w-full px-4 py-3 rounded-xl focus:outline-none transition-all text-sm"
+                className="block text-xs font-medium mb-2 uppercase"
                 style={{
-                  background: 'rgba(30,20,10,0.55)',
-                  border: error
-                    ? '1px solid var(--color-error)'
-                    : '1px solid rgba(120,95,65,0.4)',
-                  color: '#f3e9d0',
-                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)',
+                  color: 'var(--theme-ink-soft)',
+                  letterSpacing: '0.12em',
                 }}
-                onFocus={(e) => {
-                  if (!error) e.currentTarget.style.border = '1px solid var(--color-accent)';
-                  e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 3px rgba(176,138,58,0.2)';
-                }}
-                onBlur={(e) => {
-                  if (!error) e.currentTarget.style.border = '1px solid rgba(120,95,65,0.4)';
-                  e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2)';
-                }}
-              />
+              >
+                Access Token
+              </label>
+
+              <div className="relative">
+                <input
+                  id="password"
+                  type={revealed ? 'text' : 'password'}
+                  autoFocus
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                  placeholder="Enter your TITAN access token"
+                  className="w-full rounded-xl focus:outline-none transition-all"
+                  style={{
+                    padding: '12px 44px 12px 14px',
+                    fontFamily: 'var(--theme-font-mono)',
+                    fontSize: '14px',
+                    letterSpacing: revealed ? '0.02em' : '0.18em',
+                    color: 'var(--theme-paper)',
+                    background:
+                      'color-mix(in srgb, var(--theme-paper) 10%, transparent)',
+                    border: error
+                      ? '1px solid var(--theme-accent)'
+                      : focused
+                        ? '1px solid var(--theme-metal-bright)'
+                        : '1px solid var(--theme-metal-dark)',
+                    boxShadow: error
+                      ? '0 0 0 4px color-mix(in srgb, var(--theme-accent) 18%, transparent), inset 0 2px 4px var(--theme-shadow)'
+                      : focused
+                        ? '0 0 0 4px color-mix(in srgb, var(--theme-metal-bright) 20%, transparent), inset 0 2px 4px var(--theme-shadow)'
+                        : 'inset 0 2px 4px var(--theme-shadow)',
+                  }}
+                />
+
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setRevealed((v) => !v)}
+                  aria-label={revealed ? 'Hide token' : 'Show token'}
+                  className="absolute top-1/2 -translate-y-1/2 right-3 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
+                  style={{
+                    color: 'var(--theme-ink-soft)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--theme-paper)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--theme-ink-soft)';
+                  }}
+                >
+                  {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+
+              {/* Inline error — calm, color via accent */}
+              {error && (
+                <p
+                  className="mt-2 text-xs"
+                  style={{
+                    color: 'var(--theme-accent)',
+                    fontFamily: 'var(--theme-font-mono)',
+                    letterSpacing: '0.02em',
+                  }}
+                  role="alert"
+                >
+                  {error}
+                </p>
+              )}
             </div>
 
-            {/* Error message */}
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-error">
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                {error}
-              </div>
-            )}
-
-            {/* Submit button */}
+            {/* Primary CTA */}
             <button
               type="submit"
-              disabled={loading || !password.trim()}
-              className="w-full py-3 rounded-xl text-white font-semibold text-sm tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              disabled={!canSubmit}
+              className="w-full rounded-xl transition-all"
               style={{
-                background: loading || !password.trim()
-                  ? 'rgba(176,138,58,0.3)'
-                  : 'linear-gradient(135deg, #b08a3a, #8b6d35)',
-                boxShadow: loading || !password.trim()
-                  ? 'none'
-                  : '0 4px 14px rgba(176,138,58,0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
+                padding: '12px 16px',
+                fontFamily: 'var(--theme-font-display)',
+                fontWeight: 600,
+                fontSize: '15px',
+                letterSpacing: '0.04em',
+                color: 'var(--theme-bolt)',
+                background: canSubmit
+                  ? 'linear-gradient(180deg, var(--theme-metal-bright) 0%, var(--theme-metal) 55%, var(--theme-metal-dark) 100%)'
+                  : 'linear-gradient(180deg, color-mix(in srgb, var(--theme-metal) 40%, transparent), color-mix(in srgb, var(--theme-metal-dark) 40%, transparent))',
+                border: '1px solid var(--theme-metal-dark)',
+                boxShadow: canSubmit
+                  ? '0 4px 14px var(--theme-shadow), inset 0 1px 0 color-mix(in srgb, var(--theme-metal-bright) 60%, transparent)'
+                  : 'none',
+                opacity: canSubmit ? 1 : 0.55,
+                cursor: canSubmit ? 'pointer' : 'not-allowed',
               }}
               onMouseEnter={(e) => {
-                if (!loading && password.trim()) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #c99b3e, #b08a3a)';
-                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(176,138,58,0.45), inset 0 1px 0 rgba(255,255,255,0.15)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }
+                if (!canSubmit) return;
+                e.currentTarget.style.background =
+                  'linear-gradient(180deg, var(--theme-metal-bright) 0%, var(--theme-metal-bright) 50%, var(--theme-metal) 100%)';
+                e.currentTarget.style.boxShadow =
+                  '0 8px 22px color-mix(in srgb, var(--theme-accent) 35%, transparent), 0 4px 14px var(--theme-shadow), inset 0 1px 0 var(--theme-paper)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
               }}
               onMouseLeave={(e) => {
-                if (!loading && password.trim()) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #b08a3a, #8b6d35)';
-                  e.currentTarget.style.boxShadow = '0 4px 14px rgba(176,138,58,0.35), inset 0 1px 0 rgba(255,255,255,0.15)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }
+                if (!canSubmit) return;
+                e.currentTarget.style.background =
+                  'linear-gradient(180deg, var(--theme-metal-bright) 0%, var(--theme-metal) 55%, var(--theme-metal-dark) 100%)';
+                e.currentTarget.style.boxShadow =
+                  '0 4px 14px var(--theme-shadow), inset 0 1px 0 color-mix(in srgb, var(--theme-metal-bright) 60%, transparent)';
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Signing in...
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin" />
+                  Signing in
                 </span>
               ) : (
                 'Sign In'
@@ -164,9 +263,17 @@ export function LoginPage() {
           </form>
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-xs mt-8 opacity-60 font-serif" style={{ color: "#a0806a" }}>
-          TITAN Agent Framework
+        {/* Attribution footer */}
+        <p
+          className="text-center mt-8 text-xs"
+          style={{
+            color: 'var(--theme-ink-soft)',
+            fontFamily: 'var(--theme-font-mono)',
+            opacity: 0.5,
+            letterSpacing: '0.04em',
+          }}
+        >
+          Built by Tony Elliott · github.com/Djtony707
         </p>
       </div>
     </div>

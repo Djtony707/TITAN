@@ -156,7 +156,14 @@ function FileBody({ file }: { file: MissionFile }) {
 
   if (mimeType === 'text/markdown') {
     return (
-      <div className="px-6 md:px-10 py-6 bg-[#f7f5ee] text-[#1a1f2e] prose prose-sm md:prose-base max-w-none font-serif markdown-body">
+      <div
+        className="px-6 md:px-10 py-6 prose prose-sm md:prose-base max-w-none markdown-body"
+        style={{
+          background: 'var(--theme-paper, #f7f5ee)',
+          color: 'var(--theme-ink, #1a1f2e)',
+          fontFamily: 'var(--theme-font-display, ui-serif, Georgia, serif)',
+        }}
+      >
         <ReactMarkdown>{content}</ReactMarkdown>
       </div>
     );
@@ -260,41 +267,45 @@ function HtmlShadowFrame({ html }: { html: string }) {
     // `.titan-img-missing` rule matches the desk-aesthetic
     // wood/brass placeholder we substitute for broken external
     // images (alpha.52, Picrew "graceful degradation" pattern).
+    // CSS custom properties from :root inherit through the shadow boundary
+    // by spec, so the agent's report picks up the active theme automatically.
+    // Hex fallbacks preserve the leather/paper aesthetic for browsers that
+    // somehow don't resolve the theme variable on the shadow host.
     const baseStyle = `
-      :host { all: initial; display: block; width: 100%; height: 100%; background: #fdfaf3; color: #1a1f2e; overflow: auto; }
-      .titan-doc-root { padding: 24px 32px; font-family: Georgia, "Iowan Old Style", serif; line-height: 1.6; max-width: 900px; margin: 0 auto; }
+      :host { all: initial; display: block; width: 100%; height: 100%; background: var(--theme-paper, #fdfaf3); color: var(--theme-ink, #1a1f2e); overflow: auto; }
+      .titan-doc-root { padding: 24px 32px; font-family: var(--theme-font-display, Georgia, "Iowan Old Style", serif); line-height: 1.6; max-width: 900px; margin: 0 auto; }
       .titan-doc-root img { max-width: 100%; height: auto; }
-      .titan-doc-root a { color: #6a3d12; }
+      .titan-doc-root a { color: var(--theme-accent, #6a3d12); }
       .titan-img-missing {
         display: block;
         margin: 18px auto;
         padding: 22px 24px;
         max-width: 540px;
-        background: linear-gradient(180deg, #ede1c6 0%, #e0d2af 100%);
-        border: 1px solid #b8a070;
+        background: linear-gradient(180deg, var(--theme-paper, #ede1c6) 0%, var(--theme-paper-line, #e0d2af) 100%);
+        border: 1px solid var(--theme-metal-dark, #b8a070);
         border-radius: 8px;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 2px rgba(60,40,20,0.18);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 2px var(--theme-shadow, rgba(60,40,20,0.18));
         text-align: center;
-        color: #5a3818;
-        font-family: Georgia, "Iowan Old Style", serif;
+        color: var(--theme-ink-soft, #5a3818);
+        font-family: var(--theme-font-display, Georgia, "Iowan Old Style", serif);
       }
       .titan-img-missing .titan-img-missing__icon {
         font-size: 28px;
         line-height: 1;
         margin-bottom: 6px;
-        color: #8a5a2a;
+        color: var(--theme-metal-dark, #8a5a2a);
       }
       .titan-img-missing .titan-img-missing__caption {
         font-style: italic;
         font-size: 14px;
         line-height: 1.45;
-        color: #5a3818;
+        color: var(--theme-ink-soft, #5a3818);
         margin: 0;
       }
       .titan-img-missing .titan-img-missing__sub {
         margin-top: 6px;
         font-size: 11px;
-        color: #8a6a3a;
+        color: var(--theme-metal-dark, #8a6a3a);
         letter-spacing: 0.04em;
         text-transform: uppercase;
       }
@@ -335,7 +346,7 @@ function HtmlShadowFrame({ html }: { html: string }) {
     });
   }, [html]);
 
-  return <div ref={hostRef} className="w-full h-full bg-[#fdfaf3] overflow-auto" />;
+  return <div ref={hostRef} className="w-full h-full overflow-auto" style={{ background: 'var(--theme-paper, #fdfaf3)' }} />;
 }
 
 // Tiny inline escaper — only used for alt text we inject into the

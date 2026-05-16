@@ -89,52 +89,52 @@ export function SomaAdvisoryToast() {
 
     return (
         <div
+            className="titan-toast-surface"
             style={{
                 position: 'fixed',
                 bottom: 100,
                 right: 24,
                 maxWidth: 340,
                 padding: '12px 14px',
-                borderRadius: 12,
-                background: 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.14))',
-                border: '1px solid rgba(165,180,252,0.35)',
-                color: '#e0e7ff',
+                borderRadius: 10,
+                borderLeft: '3px solid var(--theme-accent)',
                 fontSize: 12,
-                boxShadow: '0 12px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.15)',
                 zIndex: 60,
-                animation: 'soma-advisory-in 220ms cubic-bezier(0.22, 1, 0.36, 1)',
-                backdropFilter: 'blur(8px)',
             }}
         >
-            <style>{`
-                @keyframes soma-advisory-in {
-                    from { opacity: 0; transform: translateY(8px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-            `}</style>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, color: '#a5b4fc', marginBottom: 4 }}>
+                    <div
+                        style={{
+                            fontSize: 10,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.8,
+                            color: 'var(--theme-accent)',
+                            marginBottom: 4,
+                            fontFamily: 'var(--theme-font-mono)',
+                        }}
+                    >
                         TITAN noticed
                     </div>
-                    <div style={{ lineHeight: 1.45, color: '#fafafa' }}>{current.rationale}</div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    <div style={{ lineHeight: 1.45, color: 'var(--theme-ink)' }}>{current.rationale}</div>
+                    <div
+                        style={{
+                            fontSize: 10,
+                            color: 'var(--theme-ink-soft)',
+                            marginTop: 6,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                            fontFamily: 'var(--theme-font-mono)',
+                        }}
+                    >
                         suggestion: {current.action}
                     </div>
                 </div>
                 <button
                     onClick={dismiss}
                     aria-label="Dismiss"
-                    style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'rgba(255,255,255,0.5)',
-                        fontSize: 18,
-                        lineHeight: 1,
-                        cursor: 'pointer',
-                        padding: 0,
-                        marginTop: -2,
-                    }}
+                    className="titan-close-btn"
+                    style={{ fontSize: 16, lineHeight: 1, marginTop: -2 }}
                 >
                     ×
                 </button>

@@ -139,12 +139,13 @@ export function AgentMenu({
 
       <div
         ref={ref}
-        className="absolute z-[61] flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-2xl overflow-hidden"
+        className="absolute z-[61] flex flex-col titan-modal-surface overflow-hidden"
         style={{
           left: padded.x,
           top: padded.y,
           width: POPOVER_W,
           maxHeight: POPOVER_H,
+          borderRadius: 12,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -161,7 +162,14 @@ export function AgentMenu({
               {member.role} · {stateLabel(member)}
             </div>
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded-full bg-bg-tertiary/60 border border-border text-text-muted hover:text-text flex items-center justify-center text-sm">✕</button>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="titan-close-btn w-7 h-7 rounded-full flex items-center justify-center text-sm"
+            style={{ border: '1px solid var(--theme-menu-border)' }}
+          >
+            ✕
+          </button>
         </div>
 
         {/* Current activity preview */}
