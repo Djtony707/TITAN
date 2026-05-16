@@ -7,6 +7,11 @@ import { join, resolve } from 'path';
 import { homedir } from 'os';
 import { registerSkill } from '../registry.js';
 import { resolveImageReferences } from '../../agent/imageRegistry.js';
+import {
+    verifyFileWrite,
+    recordVerificationEvent,
+    formatVerificationSuffix,
+} from '../../agent/verification.js';
 
 /** S4: Block access to sensitive system paths */
 const BLOCKED_PATHS = ['/etc', '/root', '/sys', '/proc', '/dev', '/boot', '/var/log', '/var/run'];
@@ -248,7 +253,16 @@ NEVER output the file content as a plain code block in the chat when the user as
                         }
                     }
                     writeFileSync(filePath, newContent, 'utf-8');
-                    return `Successfully wrote ${newContent.length} bytes to ${filePath}`;
+                    // beta.9 — verify-after-write. Reads back, checks
+                    // size + a 256-byte head sample. Failed checks do
+                    // NOT throw (the file is already on disk) but are
+                    // surfaced in the return string AND pushed to the
+                    // verification ring so the driver loop's
+                    // consecutiveAssertionFailures counter can escalate.
+                    const written = Buffer.byteLength(newContent, 'utf-8');
+                    const result = verifyFileWrite(filePath, written, newContent);
+                    recordVerificationEvent({ kind: 'file_write', result, artifactRef: filePath });
+                    return `Successfully wrote ${newContent.length} bytes to ${filePath}${formatVerificationSuffix(result)}`;
                 } catch (e) { return `Error writing file: ${(e as Error).message}`; }
             },
         },
@@ -293,8 +307,17 @@ Errors: same set as write_file (EACCES, BLOCKED: sensitive path, ENOSPC).`,
                     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
                     // v6.1.0-alpha.56 — resolve tdi:// image references before append.
                     const resolved = resolveImageReferences(args.content as string);
+                    // beta.9 — capture pre-append size BEFORE the write
+                    // so we can assert post-size == pre-size + appended
+                    // bytes. Catches partial writes, mount-readonly
+                    // silent failures, and anyone wedging a hook
+                    // between us and the disk.
+                    const preSize = existsSync(filePath) ? statSync(filePath).size : 0;
                     appendFileSync(filePath, resolved, 'utf-8');
-                    return `Successfully appended ${resolved.length} bytes to ${filePath}`;
+                    const appended = Buffer.byteLength(resolved, 'utf-8');
+                    const result = verifyFileWrite(filePath, preSize + appended);
+                    recordVerificationEvent({ kind: 'file_append', result, artifactRef: filePath });
+                    return `Successfully appended ${appended} bytes to ${filePath}${formatVerificationSuffix(result)}`;
                 } catch (e) { return `Error appending to file: ${(e as Error).message}`; }
             },
         },
@@ -376,7 +399,13 @@ NEVER guess at the target — read_file first, always.`,
                                 const after = contentLines.slice(endIdx + 1).join('\n');
                                 content = before + (before ? '\n' : '') + (args.replacement as string) + (after ? '\n' : '') + after;
                                 writeFileSync(filePath, content, 'utf-8');
-                                return `Successfully edited ${filePath} (fuzzy whitespace match applied)`;
+                                const fuzzResult = verifyFileWrite(
+                                    filePath,
+                                    Buffer.byteLength(content, 'utf-8'),
+                                    content,
+                                );
+                                recordVerificationEvent({ kind: 'file_edit', result: fuzzResult, artifactRef: filePath });
+                                return `Successfully edited ${filePath} (fuzzy whitespace match applied)${formatVerificationSuffix(fuzzResult)}`;
                             }
                         }
 
@@ -399,7 +428,16 @@ NEVER guess at the target — read_file first, always.`,
                     const resolvedReplacement = resolveImageReferences(args.replacement as string);
                     content = content.split(target).join(resolvedReplacement);
                     writeFileSync(filePath, content, 'utf-8');
-                    return `Successfully edited ${filePath}`;
+                    // beta.9 — verify-after-edit. Full content sample
+                    // here is safe because we already hold the post-edit
+                    // bytes in memory; readback confirms disk matches.
+                    const editResult = verifyFileWrite(
+                        filePath,
+                        Buffer.byteLength(content, 'utf-8'),
+                        content,
+                    );
+                    recordVerificationEvent({ kind: 'file_edit', result: editResult, artifactRef: filePath });
+                    return `Successfully edited ${filePath}${formatVerificationSuffix(editResult)}`;
                 } catch (e) { return `Error editing file: ${(e as Error).message}`; }
             },
         },

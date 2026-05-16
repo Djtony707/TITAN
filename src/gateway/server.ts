@@ -2337,6 +2337,63 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  /**
+   * beta.10 — Verification event stream.
+   *
+   * Server-Sent Events stream that emits every `recordVerificationEvent`
+   * call (write_file readback, download_image magic-byte check, …) as
+   * it happens. The Mission Canvas trust line subscribes here so the
+   * pen / paper aesthetic can reflect actual artifact health rather
+   * than a cosmetic indicator.
+   *
+   * Connection flow:
+   *   1. Client sends `Accept: text/event-stream` on GET.
+   *   2. Server writes recent ring buffer contents as `event: snapshot`
+   *      so a late subscriber sees existing state immediately.
+   *   3. Server subscribes to live events and writes each as
+   *      `event: verification`.
+   *   4. On disconnect we unsubscribe + close cleanly.
+   *
+   * Auth: protected by the same token middleware as other /api/* routes.
+   * No per-user filtering — verification events are workspace-global.
+   */
+  app.get('/api/verification/stream', async (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const sseWrite = setupSSEFlush(res);
+    try {
+      const { recentVerificationEvents, subscribeVerification } = await import('../agent/verification.js');
+      // Snapshot — replay the last 32 events so a fresh subscriber
+      // sees the trust-line's current state without polling.
+      const snapshot = recentVerificationEvents(32);
+      sseWrite(`event: snapshot\ndata: ${JSON.stringify({ events: snapshot })}\n\n`);
+      // Live subscription — each new event gets its own SSE frame.
+      const unsubscribe = subscribeVerification((event) => {
+        try { sseWrite(`event: verification\ndata: ${JSON.stringify(event)}\n\n`); }
+        catch { /* socket likely closed — unsubscribe on cleanup below */ }
+      });
+      // Keep-alive heartbeat every 15s so proxies don't reap us.
+      const hb = setInterval(() => {
+        try { sseWrite(`event: heartbeat\ndata: ${Date.now()}\n\n`); }
+        catch { /* closed */ }
+      }, 15_000);
+      const cleanup = () => {
+        unsubscribe();
+        clearInterval(hb);
+        try { res.end(); } catch { /* already closed */ }
+      };
+      res.on('close', cleanup);
+      res.on('error', cleanup);
+    } catch (err) {
+      logger.error(COMPONENT, `verification SSE: ${(err as Error).message}`);
+      try { sseWrite(`event: error\ndata: ${JSON.stringify({ message: 'verification stream unavailable' })}\n\n`); res.end(); }
+      catch { /* ok */ }
+    }
+  });
+
   app.get('/api/health/deep', async (_req, res) => {
     const checks: Record<string, { status: 'ok' | 'degraded' | 'down'; detail?: string }> = {};
     let overall: 'ok' | 'degraded' | 'down' = 'ok';

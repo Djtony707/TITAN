@@ -5,6 +5,107 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.10 — 2026-05-16 — Verification stuck-loop detector + live event stream
+
+Two follow-ups on the beta.9 verify-after-write foundation:
+
+### Driver-loop assertion-failure counter
+
+When a specialist's spawn produces an artifact that fails its
+post-write check (byte-count drift, magic-header mismatch, partial
+write), the driver loop now increments a per-subtask
+`consecutiveAssertionFailures` counter. Three failures in a row on
+the same subtask force a `verify_fail` block — preventing the
+"specialist keeps reporting success but the artifact never matches"
+stuck-loop pattern. A passing verification resets the counter.
+
+Pairs with the existing `consecutiveIdenticalErrors` (catches
+repeated tool throws) and `consecutiveNeedsInfoCount` (catches empty
+needs_info loops) — three independent termination paths now defend
+the driver from different stuck-loop shapes.
+
+### `GET /api/verification/stream` (Server-Sent Events)
+
+New SSE endpoint that pushes every verification event as it happens
+(`file_write` / `file_append` / `file_edit` / `image_download` /
+`browser_fetch`). On connect the server replays the last 32 events
+as a `snapshot` frame so a fresh subscriber sees current state
+without polling. Heartbeat every 15 s keeps proxies from reaping
+the connection.
+
+Subscribed by the Mission Canvas trust line in a follow-up UI ship.
+
+### Tests
+
+- 5 new tests in `tests/verification.test.ts` (24 total) for
+  `verificationEventsSince` time + kind filtering and for
+  `subscribeVerification` fan-out, unsubscribe, and listener
+  isolation (a thrown listener does not break the recorder).
+- 57 driver-state tests continue to pass with the new branch.
+
+No API contract changes. No schema changes. No new dependencies.
+
+---
+
+## v6.1.0-beta.9 — 2026-05-16 — Verify-after-write for file + image tools
+
+Every tool call that produces an artifact now reads the artifact back
+and reports a verification status alongside its success message. This
+catches silent failure modes (partial writes on a full disk, CDNs
+serving HTML error pages with `content-type: image/jpeg`, hooks
+wedging between the tool and the disk) that previously slipped
+through with a successful-looking return value.
+
+### Changes
+
+- **`write_file` / `append_file` / `edit_file`** — after writing,
+  the file is re-stat'd to confirm the byte count matches the
+  intended write, and the first 256 bytes are sampled and compared
+  to the in-memory content. Result is appended to the return
+  string: `Successfully wrote 1234 bytes to /path [verify: verified 1234b on disk]`.
+- **`download_image`** — before registering the bytes for HTML
+  embedding, the magic-number header is matched against the
+  claimed MIME type. PNG / JPEG / GIF / WebP / BMP / AVIF are
+  bit-exact; SVG is text-sniffed; unknown types accept with a
+  lower confidence score. Mismatches now return an error instead
+  of silently embedding HTML-error-page bytes as a "JPEG".
+- New `src/agent/verification.ts` exposes a bounded ring buffer
+  of recent verification events plus a helper for counting
+  consecutive trailing failures by artifact kind. Lays the
+  groundwork for driver-loop escalation on a stuck-loop of
+  failing artifacts.
+
+### Tests
+
+- 19 new tests in `tests/verification.test.ts` covering readback
+  correctness, byte-count drift, head-sample integrity, all six
+  image magic-number paths, the HTML-mimic failure mode, ring
+  buffer ordering, and trailing-failure-with-kind-filter.
+
+No API changes. No schema changes. No new dependencies.
+
+---
+
+## v6.1.0-beta.8 — 2026-05-16 — Small-viewport polish (Mission Library + Mission Start)
+
+Two UI polish fixes after a pass on smaller displays (1280×800).
+
+### Fixes
+
+- **Mission Library row hover**: when the action rail (Open / Delete)
+  faded in on hover, it visually overlapped the status badge and
+  relative-time pinned to the same top-right corner of each card. The
+  badge + time now fade out on hover so the action rail has the
+  corner to itself. (`ui/src/pages/MissionLibrary.tsx`)
+- **Mission Start bottom clearance**: at 800-px viewport height, the
+  second row of template cards sat behind the global sponsor footer
+  pill. Added 80 px of bottom spacer to the page so the last row
+  clears the footer cleanly. (`ui/src/pages/MissionStart.tsx`)
+
+No API changes. No schema changes. No new dependencies.
+
+---
+
 ## v6.1.0-beta.7 — 2026-05-16 — Sidebar overlap fixes (SomaOrb + NavWidget)
 
 > Tony: "The SOMA button that says exploring is covering everything,
