@@ -21,6 +21,7 @@
  * Idempotent: subscribing a second mission doesn't double-fire. We
  * track per-mission unsubscribe functions in `lifecycles`.
  */
+import { readFileSync, existsSync, statSync } from 'fs';
 import logger from '../utils/logger.js';
 import { createGoal } from './goals.js';
 import {
@@ -37,11 +38,129 @@ import {
     listMissions,
     setLinkedGoal,
     setLinkedIssue,
+    updateArtifact,
     type MissionRoom,
     type MissionStatus,
 } from './missionRoom.js';
 import { onAgentEvent, type AgentEvent } from './agentEvents.js';
 import { createIssue, updateIssue, addIssueComment } from './commandPost.js';
+
+// v6.1.0-alpha.57 — track in-flight notebook fills per mission so a
+// second agent_done can cancel the prior typewriter (rather than the
+// two of them racing on `updateArtifact`).
+const notebookFillTimers = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Convert HTML to plain text suitable for the lined-paper notebook
+ * view. The notebook component renders `content.split('\n').filter`
+ * and slices to 10 lines per page — it wants prose, not markup.
+ *
+ *   - Strip <script>/<style> blocks (including content)
+ *   - Convert <br>/<p>/<h1-6>/<li>/<tr> to line breaks
+ *   - Strip every other tag
+ *   - Decode the 5 standard entities + numeric refs
+ *   - Collapse runs of 3+ blank lines to 2
+ */
+function htmlToNotebookText(html: string): string {
+    if (!html) return '';
+    let s = html;
+    s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+    s = s.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+    s = s.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '');
+    s = s.replace(/<(?:br|hr)\s*\/?>/gi, '\n');
+    s = s.replace(/<\/(?:p|h[1-6]|li|tr|div|section|article|figure|figcaption|blockquote)\s*>/gi, '\n\n');
+    s = s.replace(/<[^>]+>/g, '');
+    s = s.replace(/&nbsp;/gi, ' ')
+         .replace(/&amp;/gi, '&')
+         .replace(/&lt;/gi, '<')
+         .replace(/&gt;/gi, '>')
+         .replace(/&quot;/gi, '"')
+         .replace(/&#39;/gi, "'")
+         .replace(/&#(\d+);/g, (_m, n) => String.fromCharCode(Number(n)));
+    s = s.replace(/[ \t]+/g, ' ');
+    s = s.replace(/\n{3,}/g, '\n\n');
+    return s.trim();
+}
+
+/**
+ * Stream plain text into a mission's artifact buffer in small
+ * chunks. Each chunk fires an `artifact_updated` SSE event so the
+ * DocumentPaper notebook fills in like someone writing into it.
+ *
+ *   - Default chunk = 40 chars every 80ms → ~500 chars/sec, feels
+ *     human-paced (faster than typing, slower than dumping)
+ *   - Cap total fill time at ~6s so a 3-page essay doesn't take
+ *     forever; long content scales chunk size up
+ *   - Fire-and-forget — caller doesn't await, but we expose the
+ *     promise so tests can await on it
+ *   - Cancelable: a second call for the same mission cancels the
+ *     prior animation
+ */
+function streamFillNotebook(missionId: string, agentId: string, plainText: string): void {
+    if (!plainText) return;
+    // Cancel any in-flight fill for this mission.
+    const prior = notebookFillTimers.get(missionId);
+    if (prior) clearInterval(prior);
+
+    const total = plainText.length;
+    // Scale chunk size so total fill time is roughly 3–6s.
+    const TARGET_MS = 4000;
+    const TICK_MS = 80;
+    const ticks = Math.max(20, Math.ceil(TARGET_MS / TICK_MS));
+    const chunkChars = Math.max(20, Math.ceil(total / ticks));
+    let offset = 0;
+
+    const id = setInterval(() => {
+        offset = Math.min(total, offset + chunkChars);
+        const slice = plainText.slice(0, offset);
+        try {
+            updateArtifact(missionId, agentId, slice);
+        } catch (err) {
+            // Mission may have been deleted mid-stream.
+            logger.debug(COMPONENT, `streamFillNotebook stopped on ${missionId}: ${(err as Error).message}`);
+            clearInterval(id);
+            notebookFillTimers.delete(missionId);
+            return;
+        }
+        if (offset >= total) {
+            clearInterval(id);
+            notebookFillTimers.delete(missionId);
+        }
+    }, TICK_MS);
+    notebookFillTimers.set(missionId, id);
+}
+
+/**
+ * If `agent_done` brought a file artifact (HTML/markdown/text the
+ * Writer just produced), read it and start the notebook fill so the
+ * user watches the document appear on the lined paper. Defensive on
+ * everything — bad file, missing file, oversize file all silently
+ * skip rather than crashing the lifecycle bridge.
+ */
+function maybeFillNotebookFromFileArtifact(
+    missionId: string,
+    agentId: string,
+    artifacts: Array<{ type: string; ref: string }>,
+): void {
+    const file = artifacts.find(
+        (a) => a.type === 'file' && typeof a.ref === 'string' && a.ref.length > 0,
+    );
+    if (!file) return;
+    try {
+        if (!existsSync(file.ref)) return;
+        const stat = statSync(file.ref);
+        // Cap at 1 MB to avoid loading huge accidentally-large files
+        // into memory + streaming them as a 25-minute animation.
+        if (stat.size > 1024 * 1024) return;
+        const raw = readFileSync(file.ref, 'utf-8');
+        const isHtml = /\.html?$/i.test(file.ref) || /<html[\s>]/i.test(raw);
+        const plain = isHtml ? htmlToNotebookText(raw) : raw;
+        if (plain.trim().length === 0) return;
+        streamFillNotebook(missionId, agentId, plain);
+    } catch (err) {
+        logger.debug(COMPONENT, `maybeFillNotebookFromFileArtifact skipped: ${(err as Error).message}`);
+    }
+}
 
 const COMPONENT = 'MissionLifecycle';
 
@@ -138,6 +257,24 @@ function ensureGlobalBusBridge(): void {
                             if (sources.length >= 12) break;
                         }
                     }
+                    // v6.1.0-alpha.57 — live notebook fill. If the
+                    // specialist produced a file artifact, stream its
+                    // plain-text contents into the mission's
+                    // `room.artifact.content` buffer in small chunks
+                    // (~4s total). The DocumentPaper component on the
+                    // canvas watches that buffer and re-renders as it
+                    // grows, so the user sees the document fill in
+                    // line-by-line like the AI is writing in a
+                    // notebook. Fire-and-forget; safe if the file is
+                    // missing / too large / unreadable.
+                    if (sources.length > 0) {
+                        maybeFillNotebookFromFileArtifact(
+                            mission.id,
+                            agentId,
+                            sources.map((s) => ({ type: s.type, ref: s.ref })),
+                        );
+                    }
+
                     // v6.1.0-alpha.7 — scrub internal-error stack traces.
                     // When a spawn fails, the `reasoning` field can be the
                     // raw error chain: "Parser could not extract JSON...

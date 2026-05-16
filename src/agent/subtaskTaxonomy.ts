@@ -153,6 +153,21 @@ export function classifySubtask(subtask: Pick<Subtask, 'title' | 'description'>)
         return 'code';
     }
 
+    // v6.1.0-alpha.57 — Tony's goal "Do a complete and detailed
+    // writeup on the advances on AI…" classified as `analysis`
+    // because "writeup" only matched as the noun-half of the
+    // verb-anchored write regex above. This noun-only pass catches
+    // titles that unambiguously name a document type even without a
+    // "write/draft/compose" verb. Placed AFTER the ARTIFACT_VERBS
+    // code-classifier so code-y titles like "download images and
+    // embed in essay" still route to 'code' (the verb signal wins;
+    // the noun is incidental). When ARTIFACT_VERBS didn't fire we
+    // know the title isn't artifact-producing, so a document noun
+    // is the dominant signal.
+    if (/\b(writeup|write-up|essay|article|whitepaper|press\s*release|newsletter|op-?ed|briefing)\b/i.test(title)) {
+        return 'write';
+    }
+
     // Title didn't have a strong signal — fall through to description-level
     // analysis. Code signals require BOTH a file path AND a code verb — a
     // mere file mention ("check ~/.titan/foo.json for events") is not

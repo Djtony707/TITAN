@@ -15,9 +15,10 @@
  * before they leave the machine. The local file is the un-scrubbed
  * source of truth for the operator.
  */
-import { existsSync, mkdirSync, readFileSync, appendFileSync, statSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, statSync, renameSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
+import { redactSecrets } from '../security/secretGuard.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'BugReports';
@@ -94,6 +95,70 @@ function rotateIfNeeded(): void {
     } catch {
         /* non-fatal */
     }
+}
+
+/**
+ * v6.1.0 Phase A — Gap 6: date-based TTL. GDPR storage-limitation says
+ * delete personal data when no longer needed. Drops every entry older
+ * than `daysOlderThan` from `bug-reports.jsonl`. Atomic via tmp + rename
+ * so a crash mid-write can't corrupt the operator's record.
+ *
+ * Best-effort: silently no-ops if the file is missing or the rewrite
+ * fails — the caller (captureBugReport) must never throw.
+ */
+export function purgeOldEntries(daysOlderThan: number): { kept: number; dropped: number } {
+    const result = { kept: 0, dropped: 0 };
+    try {
+        if (!existsSync(BUG_REPORTS_PATH)) return result;
+        const cutoff = Date.now() - daysOlderThan * 24 * 60 * 60 * 1000;
+        const raw = readFileSync(BUG_REPORTS_PATH, 'utf-8');
+        const lines = raw.split('\n').filter(Boolean);
+        const kept: string[] = [];
+        for (const line of lines) {
+            try {
+                const r = JSON.parse(line) as BugReport;
+                const ts = r?.ts ? Date.parse(r.ts) : NaN;
+                // Keep malformed (no ts) entries — operator can clean by hand.
+                if (!Number.isFinite(ts) || ts >= cutoff) {
+                    kept.push(line);
+                    result.kept += 1;
+                } else {
+                    result.dropped += 1;
+                }
+            } catch {
+                // Malformed JSON line — keep it; manual review later.
+                kept.push(line);
+                result.kept += 1;
+            }
+        }
+        if (result.dropped === 0) return result;
+        const tmp = BUG_REPORTS_PATH + '.tmp';
+        writeFileSync(tmp, kept.length ? kept.join('\n') + '\n' : '');
+        renameSync(tmp, BUG_REPORTS_PATH);
+    } catch (err) {
+        logger.debug(COMPONENT, `purgeOldEntries failed: ${(err as Error).message}`);
+    }
+    return result;
+}
+
+/**
+ * Resolve the local retention window. Reads `telemetry.localRetentionDays`
+ * from config when available; falls back to 30 days. Wrapped in try so
+ * config-load failures during early startup don't break capture.
+ */
+function getLocalRetentionDays(): number {
+    try {
+        // Lazy require to avoid a top-level cycle with config -> logger
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { loadConfig } = require('../config/config.js');
+        const cfg = loadConfig();
+        const tel = cfg?.telemetry as Record<string, unknown> | undefined;
+        const v = tel?.localRetentionDays;
+        if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+    } catch {
+        /* fall through */
+    }
+    return 30;
 }
 
 function safeStack(err: Error): string {
@@ -174,6 +239,10 @@ export async function captureBugReport(err: unknown, context: BugReportContext =
             ensureDir();
             rotateIfNeeded();
             appendFileSync(BUG_REPORTS_PATH, JSON.stringify(report) + '\n');
+            // v6.1.0 Phase A — Gap 6: drop entries past retention window.
+            // Cheap O(n) over the jsonl on every append; the file is
+            // size-capped at 5 MB so this stays well under a ms.
+            purgeOldEntries(getLocalRetentionDays());
         } catch (writeErr) {
             logger.warn(COMPONENT, `Local persist failed: ${(writeErr as Error).message}`);
         }
@@ -186,10 +255,22 @@ export async function captureBugReport(err: unknown, context: BugReportContext =
         // were all under 'bug_report'.
         try {
             const { trackEvent } = await import('./featureTracker.js');
+            // v6.1.0 Phase A — Gap 3: scrub every outbound string. Stack
+            // traces can carry API keys (e.g. `Authorization: Bearer …` in
+            // an axios error.config.headers dump) and operator home-dir
+            // paths. Local jsonl keeps the un-scrubbed copy.
+            const scrubbedMsg = redactSecrets(report.error.message);
+            const scrubbedStack = redactSecrets(report.error.stack);
+            const scrubbedUserMsg = report.context.lastUserMessage
+                ? redactSecrets(report.context.lastUserMessage)
+                : undefined;
+            const scrubbedAsstPrev = report.context.lastAssistantPreview
+                ? redactSecrets(report.context.lastAssistantPreview)
+                : undefined;
             await trackEvent('error', {
                 bug_id: report.id,
                 error_name: report.error.name,
-                error_message: report.error.message,
+                error_message: scrubbedMsg,
                 origin: report.context.origin,
                 model: report.context.model,
                 channel: report.context.channel,
@@ -202,7 +283,9 @@ export async function captureBugReport(err: unknown, context: BugReportContext =
                 ram_gb: report.system.ramGB,
                 gpu_vram_gb: report.system.gpuVramGB,
                 titan_version: report.version,
-                stack_preview: report.error.stack.slice(0, 800),
+                stack_preview: scrubbedStack.slice(0, 800),
+                last_user_message: scrubbedUserMsg,
+                last_assistant_preview: scrubbedAsstPrev,
             });
         } catch (sendErr) {
             logger.debug(COMPONENT, `Remote send skipped: ${(sendErr as Error).message}`);

@@ -5,6 +5,265 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.1 — 2026-05-15 — Schema promotion + live notebook + sub-agent date context + PostHog hardening
+
+> Tony: "alpha 58 is a bit high for versions. Do the versioning the
+> correct way please. And also, TITAN Agents don't know the correct
+> time and date. And use sub-agents to help you build this correctly
+> using the skills from addyosmani/agent-skills. Also implement
+> PostHog correctly, do some research on how to do this correctly
+> and legally."
+
+**Schema promoted alpha → beta.** The v6.1.0 Mission Chat / Desk
+feature set is feature-complete after alpha.50-.57 of bug-fix /
+polish work; beta tier signals "no more new features in 6.1.0,
+just stabilization." Future ships are `6.1.0-beta.N` → `rc.N` →
+`6.1.0` final. New features land in `6.2.0-alpha.1`.
+
+### 1. Live notebook fill (rolled up from alpha.57 work)
+
+The DocumentPaper component on MissionCanvas reads
+`room.artifact.content` and has a "Writing…" indicator with a
+blinking cursor — fully wired, but a grep showed `updateArtifact()`
+had ZERO callers. The artifact stayed empty for the entire
+mission lifecycle. The notebook never filled.
+
+Fixed in `src/agent/missionLifecycle.ts`:
+- `htmlToNotebookText(html)` strips tags, decodes entities,
+  collapses whitespace into prose suitable for lined-paper rendering
+- `streamFillNotebook(missionId, agentId, text)` chunks the text
+  into ~80ms intervals (~4s total) so the user watches it appear
+  like the AI is writing into a notebook
+- `maybeFillNotebookFromFileArtifact()` hook in the `agent_done`
+  handler — when a specialist produces a file artifact, read it
+  (1 MB cap), strip HTML if `.html`, kick off the fill
+
+### 2. Classifier widening — "writeup" routes to write (not analysis)
+
+Tony's goal "Do a complete and detailed writeup on the advances
+on AI…" classified as `analysis` because the existing write regex
+needed a leading `write` / `draft` / `compose` verb before the
+noun. New noun-only pass catches standalone `writeup|essay|
+article|whitepaper|press release|newsletter|op-ed|briefing`.
+Ordered AFTER the ARTIFACT_VERBS code-classifier so titles like
+"download images and embed in essay" still route to `code`.
+
+### 3. Sub-agent date context — agents finally know what "now" means
+
+Tony: "TITAN Agents don't know the correct time and date."
+
+The main agent already had date/time via `dynamicContext` in
+`agent.ts`, but sub-agents (Scout / Builder / Writer / Analyst /
+Sage) spawned through `subAgent.ts` bypassed that path. Result:
+goals referencing "end of March until now" failed because the
+LLM had no anchor for "now."
+
+New `src/agent/dateContext.ts` exports `formatCurrentDateContext()`
+which uses `Intl.DateTimeFormat` against `America/Los_Angeles` to
+produce a ~360-char `## Current Context` block injected at
+`subAgent.ts:527` BEFORE the role template. Includes the IANA
+zone + UTC offset + a directive on how to interpret relative
+times.
+
+### 4. PostHog Phase A — compliance hardening
+
+Tony: "implement PostHog correctly, do some research on how to do
+this correctly and legally."
+
+An Explore sub-agent audited the existing implementation; a
+research sub-agent prescribed compliance fixes citing PostHog
+GDPR/CCPA docs + Next.js / Homebrew / Bun telemetry patterns. Six
+gaps identified; Tony approved all of them for beta.1. Phase A
+of three lands here (the local-only fixes); Phase B + C ship as
+beta.2 + beta.3 (consent UX migration testing + rights API).
+
+- **Gap 3 — Secret scrubbing on PostHog payloads.** Existing
+  `redactSecrets()` in `src/security/secretGuard.ts` extended
+  with broader OpenAI key pattern + posthog_key pattern + home-
+  dir → `~` rewrite. Applied to `error.message`, `stack`,
+  `lastUserMessage`, `lastAssistantPreview` in
+  `src/analytics/bugReports.ts` before PostHog send. Local
+  `~/.titan/bug-reports.jsonl` stays un-scrubbed (operator truth).
+- **Gap 5 — Env-var override for the PostHog public key.**
+  `TITAN_POSTHOG_KEY` and `TITAN_POSTHOG_HOST` now wins over
+  config + bundled defaults. Project key is write-only (PostHog
+  docs explicitly say client-embedded is safe) but env override
+  is best-practice for self-hosters + Docker users.
+- **Gap 6 — 30-day TTL on local bug-reports.jsonl.** GDPR
+  storage-limitation principle. `localRetentionDays: 30`
+  configurable. New exported `purgeOldEntries(days)` function
+  runs atomically on every append.
+- **Gap 1 (added inline) — EU/US auto-detection.** New
+  `resolvePostHogHost()` consults
+  `Intl.DateTimeFormat().resolvedOptions().timeZone`; EU zones
+  (`Europe/*`, Atlantic Azores/Canary/Faroe/Madeira/Reykjavik,
+  Africa/Ceuta) → `eu.i.posthog.com` (PostHog Cloud Frankfurt);
+  everything else → `us.i.posthog.com`. Zero pre-consent network
+  calls, zero IP lookup (timezone is offline-resolvable).
+
+### Deferred to beta.2 (Phase B)
+- v5→v6 re-consent prompt (`telemetryConsentVersion` schema +
+  startup hook, defaults to OFF on dismiss per Tony)
+- `titan telemetry status|enable|disable` subcommands
+- `TITAN_TELEMETRY_DISABLED=1` env-var honor
+- Migration from hand-rolled `fetch()` to `posthog-node` SDK with
+  lazy-require (zero PostHog bytes before consent)
+
+### Deferred to beta.3 (Phase C)
+- `titan telemetry forget` — POST to PostHog async-deletion API
+- `titan telemetry export` — CCPA portability
+- `titan telemetry purge` — local wipe
+- `PRIVACY.md` rewrite + README telemetry section
+
+### Sub-agent discipline applied (addyosmani/agent-skills)
+
+This ship deployed three sub-agents:
+1. **Explore agent** → located the single best date-injection
+   point across 4 candidate files (verify-before-claim)
+2. **General-purpose agent** → implemented dateContext.ts +
+   subAgent.ts injection + 5 tests, reported files + test counts
+   (bounded delegation + audit trail)
+3. **Explore + general-purpose pair** → audited PostHog and
+   prescribed compliance fixes with PostHog/Next.js/Homebrew
+   citations, then implemented Phase A with 14 new tests
+
+The discipline: every non-trivial change gets one Explore pass to
+find the right surface, then one general-purpose pass to
+implement-and-verify, then I review and ship.
+
+### Files touched
+
+- `src/agent/dateContext.ts` (new) — Pacific-time helper
+- `src/agent/subAgent.ts` — inject `## Current Context`
+- `src/agent/missionLifecycle.ts` — live notebook fill (3 helpers)
+- `src/agent/subtaskTaxonomy.ts` — noun-only write pass
+- `src/analytics/posthog.ts` — env-var + EU detection
+- `src/analytics/bugReports.ts` — secret scrubber + date TTL
+- `src/security/secretGuard.ts` — expanded patterns
+- `src/config/schema.ts` — `localRetentionDays`
+- `tests/v610-date-context.test.ts` (new, 5)
+- `tests/v610-alpha57-live-notebook.test.ts` (new, 8)
+- `tests/v610-posthog-scrub.test.ts` (new, 6)
+- `tests/v610-posthog-env-override.test.ts` (new, 4)
+- `tests/v610-posthog-jsonl-ttl.test.ts` (new, 4)
+- `tests/v610-posthog-eu-detection.test.ts` (new, 37)
+- `package.json` — added `posthog-node` dep (for the Phase B
+  migration in beta.2)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+  from alpha.57 to beta.1
+
+### Tests
+**64 new tests + the existing suite all green.**
+
+---
+
+## v6.1.0-alpha.57 — UNRELEASED — Live notebook fill + classifier widening
+
+> The original alpha.57 draft below was consolidated into the
+> beta.1 entry above. Keeping the original notes for historical
+> reference.
+
+> Tony, opening a fresh mission "Do a complete and detailed
+> writeup on the advances on AI and AI Agents from the end of
+> march until now": "This part with the lined paper is not live
+> and I do not see it writing in it yet. … It's supposed to look
+> like the AI is writing in a notebook. Then once a page gets
+> full it turns the page."
+
+Two separate problems hiding behind one symptom.
+
+### Problem 1 — `updateArtifact()` was never being called
+
+`missionRoom.ts` exports `updateArtifact(missionId, agentId,
+content)` which mutates `room.artifact.content` and emits an
+`artifact_updated` SSE event. The DocumentPaper UI watches that
+buffer and animates a "Writing…" indicator with a blinking cursor
+as it grows. All wired up. But a grep across the codebase showed
+ZERO callers. The artifact stayed empty for the entire mission
+lifecycle. The notebook never filled.
+
+Fix in `missionLifecycle.ts`:
+
+- New helper `htmlToNotebookText(html)` — strips `<script>`/
+  `<style>`/`<head>` blocks, converts block tags to newlines,
+  removes everything else, decodes the 5 standard entities +
+  numeric refs, collapses whitespace. Produces clean prose
+  suitable for lined-paper rendering.
+- New helper `streamFillNotebook(missionId, agentId, plainText)`
+  — chunks the text into ~80ms intervals (~4s total fill time),
+  scales chunk size to length so a 1-paragraph essay and a 3-page
+  whitepaper both finish in roughly the same animation window,
+  and cancels prior in-flight fills for the same mission so two
+  agent_done events don't race.
+- New `maybeFillNotebookFromFileArtifact(missionId, agentId,
+  sources)` — called from the `agent_done` handler. Picks the
+  first `type: 'file'` artifact, reads it (1 MB cap), strips
+  HTML if .html, kicks off the chunked fill. Defensive on every
+  failure mode — missing file / unreadable / oversize all
+  silently skip.
+
+The hook fires fire-and-forget right after sources are extracted.
+The chat thread still gets the agent's reasoning message, the
+sources list still renders, and ALSO the lined paper now fills
+in over ~4 seconds like the AI is writing into a notebook.
+
+Page-turn animation when the notebook fills past the visible
+window is a UI follow-up — alpha.57 ships the backend stream so
+there's content to turn.
+
+### Problem 2 — Classifier routed "writeup" to analysis instead of write
+
+Tony's goal text: "Do a complete and detailed writeup on the
+advances on AI and AI Agents from the end of march until now".
+
+`subtaskTaxonomy.ts` had `writeup` listed only as the noun-half
+of a `write [adjective]+ writeup` regex — bare "writeup" without
+a leading "write" / "draft" / "compose" verb fell through to
+`analysis`. The Analyst specialist would then handle it.
+Analyst's prompt has `HTML_REPORT_GUIDANCE` so it COULD produce
+the essay, but the wrong specialist gets the work and the
+mission stickies say "Analyst" instead of "Writer".
+
+Fix: new noun-only pass after the verb-anchored regex:
+
+```ts
+if (/\b(writeup|write-up|essay|article|whitepaper|press\s*release|
+       newsletter|op-?ed|briefing)\b/i.test(title)) {
+    return 'write';
+}
+```
+
+Catches every realistic title where the noun unambiguously names
+a document type. Tony's goal now routes correctly to Writer.
+
+### Tests
+
+`tests/v610-alpha57-live-notebook.test.ts` — 8 cases:
+
+- Tony's exact goal text classifies as `write` (was `analysis`)
+- Bare "writeup" titles classify as `write`
+- "essay" / "article" / "whitepaper" titles classify as `write`
+- "press release" / "newsletter" / "op-ed" / "briefing" classify
+  as `write`
+- "analyze" / "audit" titles still classify as `analysis` (sanity)
+- `updateArtifact` is exported from missionRoom
+- `updateArtifact` mutates content + the next read sees the new
+  value (round-trip)
+- `htmlToNotebookText` is reachable (smoke)
+
+### Files touched
+
+- `src/agent/missionLifecycle.ts` — `htmlToNotebookText`,
+  `streamFillNotebook`, `maybeFillNotebookFromFileArtifact`, hook
+  into `agent_done` handler
+- `src/agent/subtaskTaxonomy.ts` — new noun-only write pass
+- `tests/v610-alpha57-live-notebook.test.ts` (new, 8 tests)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+---
+
 ## v6.1.0-alpha.56 — 2026-05-15 — Image registry side-channel (THE actual fix)
 
 > Tony: "FIX THE NO IMAGE IN ESSAY PROBLEM!!!!!"

@@ -12,13 +12,67 @@ const COMPONENT = 'PostHog';
 let cachedKey: string | undefined;
 let cachedHost: string | undefined;
 
+/**
+ * v6.1.0-beta.1 — env-var override + EU/US auto-detection.
+ *
+ * Precedence (highest first):
+ *   1. `process.env.TITAN_POSTHOG_KEY`  → overrides project key
+ *   2. `process.env.TITAN_POSTHOG_HOST` → overrides ingest host
+ *   3. `telemetry.posthogApiKey` / `telemetry.posthogHost` from config
+ *   4. EU/US auto-detection via IANA timezone (NO network / NO IP lookup —
+ *      privacy-safe + offline-safe)
+ *   5. US default
+ *
+ * EU detection (GDPR data-residency):
+ *   `Intl.DateTimeFormat().resolvedOptions().timeZone` is consulted; if it
+ *   starts with `Europe/`, or matches one of the EU-adjacent Atlantic /
+ *   Africa zones (Azores, Canary, Faroe, Madeira, Reykjavik, Ceuta) the
+ *   host resolves to `https://eu.i.posthog.com` (PostHog Cloud Frankfurt).
+ *   Everything else routes to the US.
+ *
+ * Rationale: timezone is offline-resolvable, requires zero pre-consent
+ * network calls, and is good-enough for "is this user EU?" at the
+ * data-residency level. IP-based geolocation would be more precise but
+ * costs a privacy hit + a network round-trip BEFORE consent is granted
+ * — exactly what GDPR is trying to prevent.
+ */
+const EU_TIMEZONE_REGEX = /^Europe\//;
+const EU_ADJACENT_ZONES = new Set([
+    'Atlantic/Azores',
+    'Atlantic/Canary',
+    'Atlantic/Faroe',
+    'Atlantic/Madeira',
+    'Atlantic/Reykjavik',
+    'Africa/Ceuta',
+]);
+
+export function resolvePostHogHost(now?: { timeZone?: string }): string {
+    if (process.env.TITAN_POSTHOG_HOST) return process.env.TITAN_POSTHOG_HOST;
+    const tz = (() => {
+        if (now?.timeZone) return now.timeZone;
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+        catch { return ''; }
+    })();
+    if (EU_TIMEZONE_REGEX.test(tz) || EU_ADJACENT_ZONES.has(tz)) {
+        return 'https://eu.i.posthog.com';
+    }
+    return 'https://us.i.posthog.com';
+}
+
 function getPostHogConfig(): { apiKey: string; host: string } | undefined {
     const cfg = loadConfig();
     const tel = cfg.telemetry as Record<string, unknown> | undefined;
     if (!tel?.enabled) return undefined;
-    const apiKey = (tel.posthogApiKey as string) || undefined;
+    const apiKey = process.env.TITAN_POSTHOG_KEY || (tel.posthogApiKey as string) || undefined;
     if (!apiKey) return undefined;
-    const host = (tel.posthogHost as string) || 'https://us.i.posthog.com';
+    // env > config-explicit > auto-detected (EU vs US via timezone) > US default
+    // NOTE: env var must be checked here too — the test "TITAN_POSTHOG_HOST
+    // overrides the schema host" exercises the case where config has a
+    // non-empty default (which would otherwise short-circuit before
+    // resolvePostHogHost() is reached).
+    const host = process.env.TITAN_POSTHOG_HOST
+        || (tel.posthogHost as string)
+        || resolvePostHogHost();
     return { apiKey, host };
 }
 

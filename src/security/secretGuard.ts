@@ -15,6 +15,7 @@
  *   - Env var assignments (KEY=secret)
  */
 
+import { homedir } from 'os';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'SecretGuard';
@@ -41,9 +42,12 @@ interface SecretPattern {
 }
 
 const PATTERNS: SecretPattern[] = [
-    // OpenAI
-    { name: 'openai_api_key', regex: /\bsk-[a-zA-Z0-9]{48}\b/g, previewLen: 8 },
+    // OpenAI (broad — 20+ chars catches `sk-abc123…`-style stack-trace leaks
+    // in addition to canonical 48-char keys)
+    { name: 'openai_api_key', regex: /\bsk-[a-zA-Z0-9]{20,}\b/g, previewLen: 8 },
     { name: 'openai_project_key', regex: /\bproj-[a-zA-Z0-9]{24}\b/g, previewLen: 8 },
+    // PostHog project / personal keys
+    { name: 'posthog_key', regex: /\bphc_[a-zA-Z0-9]{40,}\b/g, previewLen: 8 },
     // Anthropic
     { name: 'anthropic_api_key', regex: /\bsk-ant-api03-[a-zA-Z0-9-_]{40,}\b/g, previewLen: 12 },
     // Google
@@ -135,9 +139,21 @@ export function scanForSecrets(text: string): ScanResult {
 /**
  * Convenience: scan + redact in one call. Returns the redacted text.
  * Logs warnings when secrets are found.
+ *
+ * Also rewrites the current user's home directory to `~` so paths like
+ * `/Users/<name>/Desktop/foo` don't leak the operator's username through
+ * stack traces. The home dir is resolved at call time (not module load)
+ * so test environments that override $HOME behave correctly.
  */
 export function redactSecrets(text: string): string {
-    return scanForSecrets(text).redacted;
+    let out = scanForSecrets(text).redacted;
+    const home = process.env.HOME || homedir();
+    if (home && home !== '/' && out.includes(home)) {
+        // Escape regex metachars so paths with `.` etc match literally
+        const safe = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(safe, 'g'), '~');
+    }
+    return out;
 }
 
 /**
