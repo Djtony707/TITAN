@@ -189,105 +189,192 @@ export function SpacesSidebar() {
   }
 
   return (
-    <aside className="w-56 bg-[#0a0e1a] border-r border-[#1f2937] flex flex-col relative flex-shrink-0">
-      <div className="px-3 py-2 border-b border-[#1f2937] flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-[#a1a1aa] font-medium">Spaces</span>
-        <div className="flex items-center gap-1">
+    <aside
+      className="w-60 flex flex-col relative flex-shrink-0"
+      style={{
+        background: 'var(--theme-menu-bg-solid, #0a0e1a)',
+        borderRight: '1px solid var(--theme-menu-border, #1f2937)',
+        color: 'var(--theme-ink, #d4d4d8)',
+        fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)',
+      }}
+    >
+      {/* Brand mark — replaces the misleading "Spaces" label that
+          previously sat above MISSIONS content. The wordmark anchors
+          the rail and gives the eye a stable point to return to.
+          Brass T tile + serif TITAN wordmark per the v6 desk aesthetic. */}
+      <div
+        className="px-4 pt-4 pb-3 flex items-center justify-between"
+        style={{ borderBottom: '1px solid var(--theme-menu-border, #1f2937)' }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate('/space/home')}
+          className="flex items-center gap-2 group"
+          title="TITAN home"
+        >
+          <span
+            className="w-7 h-7 rounded-md flex items-center justify-center text-[14px] font-bold leading-none"
+            style={{
+              background: 'var(--theme-metal, #c4a35a)',
+              color: 'var(--theme-bolt, #2a1808)',
+              boxShadow: '0 1px 2px var(--theme-shadow, rgba(0,0,0,0.3))',
+              fontFamily: 'var(--theme-font-display, serif)',
+            }}
+          >T</span>
+          <span
+            className="text-[15px] tracking-[0.18em] font-semibold leading-none"
+            style={{ color: 'var(--theme-ink, #e8e8ff)' }}
+          >TITAN</span>
+        </button>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="w-6 h-6 rounded-md flex items-center justify-center text-base transition-colors"
+          style={{ color: 'var(--theme-ink-soft, #a1a1aa)' }}
+          title="Hide sidebar"
+          aria-label="Hide sidebar"
+        >‹</button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto py-3 px-2">
+        {/* MISSIONS section — sibling, equal-weight items under a
+            clear section header. Library is no longer indented-orphan
+            below Missions; the section header groups them visually
+            without the misleading parent/child indentation. */}
+        <div className="mb-5">
+          <SectionHeader>Missions</SectionHeader>
+          <SidebarLink
+            onClick={() => navigate('/mission')}
+            active={onMissionRoute && location.pathname === '/mission'}
+            icon="✶"
+            label="New Mission"
+            title="Start a new mission or pick a template"
+          />
+          <SidebarLink
+            onClick={() => navigate('/mission/library')}
+            active={location.pathname === '/mission/library'}
+            icon="❑"
+            label="Library"
+            title="Every mission you've run"
+          />
+        </div>
+
+        {/* WORKSPACES section — clearly labeled. "+" sits in the section
+            header so creating a Workspace is one click and obviously
+            scoped to this section. */}
+        <div className="mb-2 flex items-center justify-between px-2">
+          <SectionHeader inline>Workspaces</SectionHeader>
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="text-[#a1a1aa] hover:text-white text-lg leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-[#1f2937]"
-            title="Create a new Space"
-            aria-label="Create a new Space"
+            className="w-5 h-5 rounded flex items-center justify-center text-sm leading-none transition-colors"
+            style={{ color: 'var(--theme-ink-soft, #a1a1aa)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--theme-menu-hover, rgba(244,215,145,0.10))';
+              e.currentTarget.style.color = 'var(--theme-ink, #fff)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--theme-ink-soft, #a1a1aa)';
+            }}
+            title="Create a new Workspace"
+            aria-label="Create a new Workspace"
           >+</button>
-          {/* v6.1.0-alpha.28 — collapse toggle. Twin of the pull-tab
-              shown when collapsed. */}
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            className="text-[#a1a1aa] hover:text-white text-sm leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-[#1f2937]"
-            title="Hide sidebar"
-            aria-label="Hide sidebar"
-          >‹</button>
         </div>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto py-2">
-        {/* v6.1.0-alpha.20 — Missions: pinned entry. Two-line item:
-            "Missions" → /mission (start a new one or pick a template),
-            "Library" → /mission/library (past missions). */}
-        <div className="px-1.5 mb-2">
-          <button
-            type="button"
-            onClick={() => navigate('/mission')}
-            className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
-              onMissionRoute && location.pathname === '/mission'
-                ? 'bg-[#1f2937] text-white'
-                : 'text-[#d4d4d8] hover:bg-[#1a1f2e] hover:text-white'
-            }`}
-            title="Start a new mission or open a template"
-          >
-            <span className="text-base leading-none">🪵</span>
-            <span className="flex-1 truncate">Missions</span>
-            <span className="text-[10px] text-[#71717a]">desk</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/mission/library')}
-            className={`w-full text-left px-2 py-1 rounded text-[12px] flex items-center gap-2 ml-3 ${
-              location.pathname === '/mission/library'
-                ? 'bg-[#1f2937] text-white'
-                : 'text-[#a1a1aa] hover:bg-[#1a1f2e] hover:text-white'
-            }`}
-            title="Past missions"
-          >
-            <span>📚</span>
-            <span className="flex-1 truncate">Library</span>
-          </button>
-        </div>
-        <div className="px-3 pt-1 pb-1 text-[10px] uppercase tracking-wider text-[#71717a]">Spaces</div>
         {error && (
-          <div className="px-3 py-2 text-[11px] text-[#ef4444] bg-[#1f0a0a]">
+          <div
+            className="mx-1 my-1 px-2 py-2 text-[11px] rounded"
+            style={{
+              color: 'var(--theme-accent, #ef4444)',
+              background: 'rgba(239,68,68,0.08)',
+            }}
+          >
             {error}
           </div>
         )}
+
         {spaces.length === 0 && !error && (
-          <div className="px-3 py-4 text-[11px] text-[#71717a]">
-            No Spaces yet. Use + to create one, or ask TITAN "make me a workspace for…".
+          <div
+            className="px-2 py-3 text-[11px] leading-relaxed italic"
+            style={{ color: 'var(--theme-ink-soft, #71717a)' }}
+          >
+            No Workspaces yet. Tap + above, or ask TITAN
+            <br />"make me a workspace for…"
           </div>
         )}
+
         {spaces.map(space => {
           const isActive = space.id === activeId;
+          // Themed Workspace row. Same right-click-to-archive behavior
+          // as v5.x preserved — context menu still archives.
           return (
-            <div key={space.id} className="group flex items-center px-1.5">
-              <button
-                type="button"
-                onClick={() => handleActivate(space.id)}
-                onContextMenu={(e) => { e.preventDefault(); handleArchive(space.id); }}
-                className={`flex-1 text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
-                  isActive
-                    ? 'bg-[#1f2937] text-white'
-                    : 'text-[#d4d4d8] hover:bg-[#1a1f2e] hover:text-white'
-                }`}
-                title={`${space.name} · right-click to archive`}
-              >
-                {space.icon && <span className="text-base leading-none">{space.icon}</span>}
-                <span className="flex-1 truncate">{space.name}</span>
-                {space.widgets.length > 0 && (
-                  <span className="text-[10px] text-[#71717a]">{space.widgets.length}</span>
-                )}
-              </button>
-            </div>
+            <button
+              key={space.id}
+              type="button"
+              onClick={() => handleActivate(space.id)}
+              onContextMenu={(e) => { e.preventDefault(); handleArchive(space.id); }}
+              className="w-full text-left px-2 py-1.5 rounded text-[13px] flex items-center gap-2 transition-colors"
+              style={{
+                background: isActive
+                  ? 'var(--theme-menu-active-bg, #1f2937)'
+                  : 'transparent',
+                color: isActive
+                  ? 'var(--theme-menu-active-fg, #fff)'
+                  : 'var(--theme-ink, #d4d4d8)',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = 'var(--theme-menu-hover, rgba(244,215,145,0.10))';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+              title={`${space.name} · right-click to archive`}
+            >
+              {space.icon && <span className="text-base leading-none">{space.icon}</span>}
+              <span className="flex-1 truncate">{space.name}</span>
+              {space.widgets.length > 0 && (
+                <span
+                  className="text-[10px] tabular-nums px-1.5 rounded-full"
+                  style={{
+                    color: 'var(--theme-ink-soft, #71717a)',
+                    background: 'var(--theme-menu-hover, rgba(244,215,145,0.10))',
+                  }}
+                >
+                  {space.widgets.length}
+                </span>
+              )}
+            </button>
           );
         })}
       </nav>
 
-      <div className="px-3 py-2 border-t border-[#1f2937] flex items-center justify-between gap-2">
+      {/* Bottom rail — equal-weight Admin + Log out, themed to the
+          active surface. Previously these were tiny grey links wedged
+          into a flex row; now they're full-width hover targets with
+          icons so they read as primary affordances. */}
+      <div
+        className="px-2 py-2 flex flex-col gap-0.5"
+        style={{ borderTop: '1px solid var(--theme-menu-border, #1f2937)' }}
+      >
         <a
           href="/command-post"
-          className="text-[11px] text-[#71717a] hover:text-[#d4d4d8] flex items-center gap-1"
+          className="px-2 py-1.5 rounded text-[12px] flex items-center gap-2 transition-colors no-underline"
+          style={{ color: 'var(--theme-ink-soft, #a1a1aa)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--theme-menu-hover, rgba(244,215,145,0.10))';
+            e.currentTarget.style.color = 'var(--theme-ink, #fff)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.color = 'var(--theme-ink-soft, #a1a1aa)';
+          }}
         >
-          ⚙ Admin
+          <span aria-hidden>⚙</span>
+          <span>Admin</span>
         </a>
         {/*
           v6.1.0-alpha.27 — Logout button. Previously you had to nuke
@@ -305,10 +392,20 @@ export function SpacesSidebar() {
             // re-evaluate. Avoids any stale module-scoped state.
             window.location.assign('/');
           }}
-          className="text-[11px] text-[#71717a] hover:text-[#ef4444] inline-flex items-center gap-1"
+          className="w-full text-left px-2 py-1.5 rounded text-[12px] flex items-center gap-2 transition-colors"
+          style={{ color: 'var(--theme-ink-soft, #a1a1aa)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--theme-menu-hover, rgba(244,215,145,0.10))';
+            e.currentTarget.style.color = 'var(--theme-accent, #ef4444)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.color = 'var(--theme-ink-soft, #a1a1aa)';
+          }}
           title="Sign out — mints a fresh token next login"
         >
-          ⇥ Log out
+          <span aria-hidden>⇥</span>
+          <span>Sign out</span>
         </button>
       </div>
 
@@ -394,3 +491,73 @@ function CreateSpaceModal(props: {
 }
 
 export default SpacesSidebar;
+
+/* ────────────────────────  Sidebar helper components  ────────────────────────
+ *
+ * SectionHeader + SidebarLink are small, theme-aware presentational
+ * helpers extracted to keep the main SpacesSidebar body legible.
+ * Both use the --theme-* CSS variables so they re-skin automatically
+ * when the user toggles Office / Workshop / Observatory. */
+
+function SectionHeader({
+  children, inline = false,
+}: { children: React.ReactNode; inline?: boolean }) {
+  return (
+    <div
+      className={`${inline ? '' : 'px-2 mb-1.5'} text-[10px] uppercase tracking-[0.18em] font-semibold`}
+      style={{ color: 'var(--theme-metal, #c4a35a)' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SidebarLink({
+  active, icon, label, title, onClick,
+}: {
+  active: boolean;
+  icon: string;
+  label: string;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-2 py-1.5 rounded text-[13px] flex items-center gap-2 transition-colors"
+      style={{
+        background: active
+          ? 'var(--theme-menu-active-bg, #1f2937)'
+          : 'transparent',
+        color: active
+          ? 'var(--theme-menu-active-fg, #fff)'
+          : 'var(--theme-ink, #d4d4d8)',
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = 'var(--theme-menu-hover, rgba(244,215,145,0.10))';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = 'transparent';
+        }
+      }}
+      title={title}
+    >
+      <span
+        className="w-5 text-center leading-none"
+        style={{
+          color: active
+            ? 'var(--theme-menu-active-fg, #fff)'
+            : 'var(--theme-metal, #c4a35a)',
+        }}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span className="flex-1 truncate">{label}</span>
+    </button>
+  );
+}
