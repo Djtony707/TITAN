@@ -51,7 +51,14 @@ export function wrapHtmlForViewer(content: string): string {
             const trusted =
                 /^data:image\//i.test(src) ||
                 /^blob:/i.test(src) ||
-                (!/^https?:\/\//i.test(src) && !/^\/\//.test(src));
+                // v6.1.0-alpha.56 — `tdi://` is TITAN's image-registry
+                // reference scheme. write_file resolves these into real
+                // data: URLs before writing, so a tdi:// token reaching
+                // the viewer means the resolver couldn't find the entry
+                // (e.g. server restart between download_image and
+                // write_file). Treat as untrusted → placeholder, which
+                // is the correct graceful-degradation.
+                (!/^https?:\/\//i.test(src) && !/^\/\//.test(src) && !/^tdi:\/\//i.test(src));
             if (trusted) return `<img${pre} src="${src}"${post}>`;
             const altMatch =
                 /\balt\s*=\s*"([^"]*)"/i.exec(pre + post) ||
