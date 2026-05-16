@@ -78,12 +78,36 @@ interface Props {
     edgeHidden?: boolean;
 }
 
+// v6.1.0-alpha.51 — Steampunk brass-and-mahogany palette to match the
+// universal wood-desk aesthetic from alpha.49. The mascot is now a
+// brass automaton: warm-amber lens, polished brass shell, wood
+// chestplate with a glass viewport showing live cogwork. State
+// changes shift the lens glow + steam color; the rest stays warm
+// brass so the silhouette holds against any desk theme.
 const PALETTE = {
-    idle:     { eye: '#c4a35a', glow: '#f3d27a', ring: '#c4a35a',  body: '#2a1a0a' },
-    thinking: { eye: '#d4b06a', glow: '#e7c68a', ring: '#d4b06a',  body: '#2a1a0a' },
-    executing:{ eye: '#8ab840', glow: '#a8d460', ring: '#7aa830',  body: '#1a2a0a' },
-    listening:{ eye: '#60a0c0', glow: '#80c0e0', ring: '#5090b0',  body: '#0a1a2a' },
-    error:    { eye: '#c45050', glow: '#e08080', ring: '#c45050',  body: '#2a1010' },
+    idle:     { eye: '#c4a35a', glow: '#f3d27a', ring: '#a47a3a',  body: '#3a2410' },
+    thinking: { eye: '#d4b06a', glow: '#e7c68a', ring: '#b4863a',  body: '#3a2410' },
+    executing:{ eye: '#d4a040', glow: '#f0c060', ring: '#a47a3a',  body: '#3a2410' },
+    listening:{ eye: '#8ab8c4', glow: '#a8c8d8', ring: '#6a8a98',  body: '#2a2010' },
+    error:    { eye: '#c45a30', glow: '#e08050', ring: '#a04a20',  body: '#3a1810' },
+};
+
+// Brass / wood / glass tones used across the body shell, irrespective
+// of state. These mirror DeskSurface's palette (warm wood + amber-gold
+// accent) so the mascot reads as one of the desk's brass instruments.
+const STEAM = {
+    brassDark:   '#7a5a2a',
+    brassMid:    '#b8902f',
+    brassBright: '#e8c478',
+    brassHi:     '#f7e3a8',
+    woodDark:    '#3a2412',
+    woodMid:     '#5a3818',
+    woodHi:      '#8a5a2a',
+    glassDark:   '#0e1612',
+    glassMid:    '#1c2820',
+    rivet:       '#3a2a14',
+    steam:       '#e6d8b8',
+    bolt:        '#2a1808',
 };
 
 const SLEEP_DEFAULT = 90_000;
@@ -529,6 +553,45 @@ export function TitanMascot({
                     50% { transform: translate3d(0, -4px, 0); }
                     75% { transform: translate3d(-4px, -8px, 0); }
                 }
+                /* v6.1.0-alpha.51 — Steampunk motion layers. Lots of
+                   movement so the mascot feels mechanical and alive,
+                   not just a static figure that bobs. */
+                @keyframes mascot-cog-spin {
+                    from { transform: rotate(0deg); }
+                    to   { transform: rotate(360deg); }
+                }
+                @keyframes mascot-cog-spin-rev {
+                    from { transform: rotate(0deg); }
+                    to   { transform: rotate(-360deg); }
+                }
+                @keyframes mascot-pendulum {
+                    0%, 100% { transform: rotate(-14deg); }
+                    50%      { transform: rotate(14deg); }
+                }
+                @keyframes mascot-steam-puff {
+                    0%   { transform: translate3d(0, 0, 0) scale(0.5); opacity: 0; }
+                    25%  { opacity: 0.85; }
+                    100% { transform: translate3d(-3px, -22px, 0) scale(1.6); opacity: 0; }
+                }
+                @keyframes mascot-piston {
+                    0%, 100% { transform: translate3d(0, 0, 0); }
+                    50%      { transform: translate3d(0, -2.2px, 0); }
+                }
+                @keyframes mascot-gauge-tick {
+                    0%, 80%, 100% { transform: rotate(-18deg); }
+                    85%, 95%      { transform: rotate(22deg); }
+                }
+                @keyframes mascot-bolt-glint {
+                    0%, 92%, 100% { opacity: 0.55; }
+                    96%            { opacity: 1; }
+                }
+                .mascot-cog       { animation: mascot-cog-spin     7s linear infinite; transform-origin: 50px 86px; }
+                .mascot-cog-sm    { animation: mascot-cog-spin-rev 4s linear infinite; transform-origin: 57px 92px; }
+                .mascot-pendulum  { animation: mascot-pendulum     2.6s ease-in-out infinite; transform-origin: 50px 78px; }
+                .mascot-steam     { animation: mascot-steam-puff   3.2s ease-out infinite; transform-origin: center; }
+                .mascot-piston    { animation: mascot-piston       1.4s ease-in-out infinite; }
+                .mascot-gauge     { animation: mascot-gauge-tick   4.8s ease-in-out infinite; }
+                .mascot-bolt-glint{ animation: mascot-bolt-glint   6s ease-in-out infinite; }
                 /* ── Speech bubble keyframes (Space Agent port) ── */
                 @keyframes titan-bubble-land {
                     0% { opacity: 0; transform: translate3d(-50%, 14px, 0) scale(0.76) rotate(-3deg); }
@@ -604,7 +667,10 @@ export function TitanMascot({
                 @media (prefers-reduced-motion: reduce) {
                     .mascot-body, .mascot-torso, .mascot-listen-ring,
                     .mascot-zzz, .mascot-hand-r.waving, .mascot-halo.soma,
-                    .mascot-thinking-particle, .mascot-bubble {
+                    .mascot-thinking-particle, .mascot-bubble,
+                    .mascot-cog, .mascot-cog-sm, .mascot-pendulum,
+                    .mascot-steam, .mascot-piston, .mascot-gauge,
+                    .mascot-bolt-glint {
                         animation: none !important;
                     }
                 }
@@ -736,61 +802,114 @@ export function TitanMascot({
                         className={`mascot-halo ${state} ${somaActive ? 'soma' : ''}`}
                     />
 
-                    {/* Antenna — a thin stalk topped with a glowing tip
-                        that pulses with state. Antenna says "I'm listening". */}
-                    <line x1="50" y1="18" x2="50" y2="8" stroke="#e2e8f5" strokeWidth="1.3" strokeLinecap="round" opacity="0.85" />
-                    <circle cx="50" cy="6.5" r="2.6" fill={p.glow} opacity="0.95">
+                    {/* v6.1.0-alpha.51 — Steampunk antenna stalk:
+                        brass rod with a coiled spring at the base and a
+                        glass-bell amber lamp at the top. Lamp pulses
+                        with state, bell faceting catches the glow. */}
+                    {/* Coiled spring base */}
+                    <path
+                        d="M48 18 Q52 16 48 14 Q52 12 48 10"
+                        stroke={STEAM.brassMid}
+                        strokeWidth="1.3"
+                        fill="none"
+                        strokeLinecap="round"
+                    />
+                    <line x1="50" y1="11" x2="50" y2="6" stroke={STEAM.brassDark} strokeWidth="1.4" strokeLinecap="round" />
+                    {/* Glass bell housing */}
+                    <ellipse cx="50" cy="5" rx="3.4" ry="3.8" fill={STEAM.glassMid} stroke={STEAM.brassBright} strokeWidth="0.7" opacity="0.9" />
+                    {/* Inner filament */}
+                    <circle cx="50" cy="5" r="2" fill={p.glow} opacity="0.95">
                         {!reducedMotion && (
                             <animate
                                 attributeName="r"
-                                values="2.3;3.1;2.3"
+                                values="1.6;2.4;1.6"
                                 dur={state === 'executing' ? '0.7s' : (somaActive ? '3.2s' : '2.6s')}
                                 repeatCount="indefinite"
                             />
                         )}
                     </circle>
-                    <circle cx="50" cy="6.5" r="4.5" fill={p.glow} opacity="0.18">
+                    <circle cx="50" cy="5" r="5.5" fill={p.glow} opacity="0.18">
                         {!reducedMotion && (
-                            <animate attributeName="opacity" values="0.08;0.28;0.08" dur="2.6s" repeatCount="indefinite" />
+                            <animate attributeName="opacity" values="0.08;0.32;0.08" dur="2.6s" repeatCount="indefinite" />
                         )}
                     </circle>
+                    {/* Glass highlight glint */}
+                    <path d="M48.5 3.5 Q49.5 3 50.5 3.6" stroke="#fff7d8" strokeWidth="0.7" fill="none" opacity="0.85" />
 
-                    {/* Backpack — peeks behind the head/shoulders. Slightly
-                        darker white than the suit so the silhouette has depth. */}
-                    <rect x="34" y="42" width="32" height="22" rx="10" fill="#c8cfdc" opacity="0.7" />
+                    {/* Steam vent puffs from a top valve — three
+                        staggered puffs constantly drift up. Lots of
+                        movement per Tony's ask. */}
+                    {!reducedMotion && (
+                        <g opacity="0.7">
+                            <circle className="mascot-steam" cx="63" cy="20" r="2.4" fill={STEAM.steam} style={{ animationDelay: '0s' }} />
+                            <circle className="mascot-steam" cx="66" cy="22" r="1.8" fill={STEAM.steam} style={{ animationDelay: '1.1s' }} />
+                            <circle className="mascot-steam" cx="60" cy="19" r="2.0" fill={STEAM.steam} style={{ animationDelay: '2.0s' }} />
+                        </g>
+                    )}
+                    {/* The vent itself — brass funnel on right shoulder */}
+                    <path
+                        d="M60 22 L62 19 L66 19 L68 22 Z"
+                        fill={STEAM.brassMid}
+                        stroke={STEAM.brassDark}
+                        strokeWidth="0.6"
+                    />
+                    <ellipse cx="64" cy="22" rx="4" ry="1" fill={STEAM.brassDark} />
 
-                    {/* Helmet outer dome — large, round, white. THIS is the
-                        change Tony asked for: a clearly visible head shape.
-                        We use a slight gradient at the bottom so the head
-                        has volume without breaking the silhouette. */}
-                    <g filter={`url(#mascot-shadow-${state})`}>
-                        <circle cx="50" cy="38" r="22.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
-                        {/* Helmet inner rim — narrow dark band around the visor. */}
-                        <circle cx="50" cy="38" r="18.5" fill="#16182a" />
+                    {/* Back tank — pressure cylinder peeking behind
+                        head/shoulders. Brass with two pumping pistons
+                        on top. */}
+                    <rect x="32" y="44" width="36" height="22" rx="6" fill={STEAM.brassDark} stroke={STEAM.bolt} strokeWidth="0.7" />
+                    <rect x="34" y="46" width="32" height="18" rx="5" fill={STEAM.brassMid} opacity="0.85" />
+                    {/* Tank seam */}
+                    <line x1="32" y1="55" x2="68" y2="55" stroke={STEAM.brassDark} strokeWidth="0.6" opacity="0.7" />
+                    {/* Twin pistons on the back tank (visible as small
+                        brass cylinders behind shoulders) */}
+                    <g className="mascot-piston">
+                        <rect x="36" y="40" width="3" height="6" rx="0.8" fill={STEAM.brassBright} stroke={STEAM.bolt} strokeWidth="0.4" />
+                    </g>
+                    <g className="mascot-piston" style={{ animationDelay: '0.7s' }}>
+                        <rect x="61" y="40" width="3" height="6" rx="0.8" fill={STEAM.brassBright} stroke={STEAM.bolt} strokeWidth="0.4" />
                     </g>
 
-                    {/* Visor — glossy mood-tinted disc. The visor IS the
-                        face. Eye / brows / mouth render inside it below. */}
-                    <ellipse cx="50" cy="39" rx="17" ry="13.5" fill={p.body} stroke={p.ring} strokeWidth="0.7" strokeOpacity="0.7" />
-                    {/* Visor reflection sweep — a thin bright arc top-left
-                        catching the "light", same trick Space Agent's
-                        astronaut uses to feel alive. */}
-                    <path
-                        d="M37 31 Q41 27 49 27"
-                        stroke="#ffffff"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        fill="none"
-                        opacity="0.7"
-                    />
-                    <path
-                        d="M55 28 Q58 28 60 29.5"
-                        stroke="#ffffff"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        fill="none"
-                        opacity="0.45"
-                    />
+                    {/* Helmet outer dome — polished brass. Riveted
+                        edge gives it the automaton silhouette. */}
+                    <g filter={`url(#mascot-shadow-${state})`}>
+                        <circle cx="50" cy="38" r="23" fill={STEAM.brassMid} stroke={STEAM.bolt} strokeWidth="0.9" />
+                        {/* Brass top-cap highlight */}
+                        <path
+                            d="M32 32 Q50 12 68 32"
+                            stroke={STEAM.brassHi}
+                            strokeWidth="1.4"
+                            fill="none"
+                            opacity="0.55"
+                        />
+                        {/* Inner monocle frame — dark brass ring around the lens */}
+                        <circle cx="50" cy="38" r="19" fill={STEAM.brassDark} />
+                        <circle cx="50" cy="38" r="17.5" fill={STEAM.glassDark} />
+                        {/* Six rivets around the helmet rim */}
+                        <g fill={STEAM.bolt} opacity="0.85">
+                            <circle cx="32" cy="38" r="1.1" />
+                            <circle cx="68" cy="38" r="1.1" />
+                            <circle cx="37" cy="22" r="1.0" />
+                            <circle cx="63" cy="22" r="1.0" className="mascot-bolt-glint" />
+                            <circle cx="37" cy="54" r="1.0" />
+                            <circle cx="63" cy="54" r="1.0" />
+                        </g>
+                    </g>
+
+                    {/* Lens — glass disc tinted to state glow. The
+                        eye / brows / mouth render inside this lens,
+                        keeping all the existing mood logic. */}
+                    <ellipse cx="50" cy="39" rx="16" ry="13" fill={p.body} stroke={STEAM.brassBright} strokeWidth="0.9" />
+                    {/* Inner glass tint */}
+                    <ellipse cx="50" cy="39" rx="15" ry="12" fill={p.glow} opacity="0.12" />
+                    {/* Brass cross-hairs faintly etched on the lens — a
+                        steampunk monocle touch. */}
+                    <line x1="34" y1="39" x2="66" y2="39" stroke={STEAM.brassDark} strokeWidth="0.35" opacity="0.45" />
+                    <line x1="50" y1="26" x2="50" y2="52" stroke={STEAM.brassDark} strokeWidth="0.35" opacity="0.45" />
+                    {/* Glass reflection sweep top-left */}
+                    <path d="M37 31 Q41 27 49 27" stroke="#fff7d8" strokeWidth="1.7" strokeLinecap="round" fill="none" opacity="0.55" />
+                    <path d="M55 28 Q58 28 60 29.5" stroke="#fff7d8" strokeWidth="1.0" strokeLinecap="round" fill="none" opacity="0.4" />
 
                     {/* Eye — translates toward cursor, scales for blink/yawn,
                         morphs with mood. Now floats INSIDE the visor.
@@ -851,14 +970,24 @@ export function TitanMascot({
                         />
                     )}
 
-                    {/* Neck ring + collar of suit — thin white band where
-                        helmet meets body. */}
-                    <rect x="42" y="60" width="16" height="4" rx="1.5" fill="#dde2ee" />
-                    <ellipse cx="50" cy="64" rx="22" ry="4" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
+                    {/* Brass collar / neck-coupling where helmet meets
+                        body. A short ribbed sleeve, riveted at the
+                        corners — reads as a mechanical joint. */}
+                    <rect x="40" y="60" width="20" height="4.5" rx="1" fill={STEAM.brassDark} />
+                    <rect x="40" y="60" width="20" height="2" rx="0.6" fill={STEAM.brassBright} opacity="0.85" />
+                    <ellipse cx="50" cy="65" rx="22" ry="4" fill={STEAM.brassMid} stroke={STEAM.bolt} strokeWidth="0.6" />
+                    {/* Collar rivets */}
+                    <circle cx="32" cy="65" r="0.9" fill={STEAM.bolt} />
+                    <circle cx="68" cy="65" r="0.9" fill={STEAM.bolt} />
 
-                    {/* Body — white spacesuit, rounded blob shape. Slightly
-                        wider at the hips for a chibi/friendly silhouette. */}
+                    {/* Body — mahogany-and-brass chassis. Slightly
+                        wider at the hips for a chibi automaton
+                        silhouette. mascot-torso class still drives the
+                        breathing scale animation. */}
                     <g className="mascot-torso">
+                        {/* Wood backplate — the warm mahogany behind
+                            the brass plating. Same grain palette as
+                            DeskSurface. */}
                         <path
                             d="M28 66
                                Q28 64 32 64
@@ -868,65 +997,120 @@ export function TitanMascot({
                                Q74 116 66 116
                                L34 116
                                Q26 116 26 108 Z"
-                            fill="#f4f6fb"
-                            stroke="#dde2ee"
-                            strokeWidth="0.8"
+                            fill={STEAM.woodMid}
+                            stroke={STEAM.bolt}
+                            strokeWidth="0.9"
                             filter={`url(#mascot-shadow-${state})`}
                         />
-                        {/* Body shading — a soft vertical highlight runs down
-                            the center so the suit feels rounded, not flat. */}
-                        <path
-                            d="M44 68 L56 68 L57 110 L43 110 Z"
-                            fill="#ffffff"
-                            opacity="0.55"
-                        />
+                        {/* Wood-grain hint — two faint curving lines */}
+                        <path d="M30 78 Q50 76 70 78" stroke={STEAM.woodDark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                        <path d="M30 100 Q50 98 70 100" stroke={STEAM.woodDark} strokeWidth="0.5" fill="none" opacity="0.5" />
 
-                        {/* Chest plate — recessed dark panel with a glowing
-                            colored indicator that PULSES with state. This is
-                            where mood broadcasts to anyone looking. */}
-                        <rect x="38" y="78" width="24" height="16" rx="3.5" fill="#16182a" stroke="#0d0f1d" strokeWidth="0.6" />
-                        {/* Three indicator lights — orange / cyan / lime —
-                            same "control panel" hint Space Agent uses, but
-                            TITAN-themed. Middle one pulses with current state. */}
-                        <circle cx="44" cy="86" r="1.7" fill="#f59e0b" opacity="0.85" />
-                        <circle cx="50" cy="86" r="1.9" fill={p.glow}>
-                            {!reducedMotion && (
-                                <animate
-                                    attributeName="opacity"
-                                    values="0.5;1;0.5"
-                                    dur={state === 'executing' ? '0.6s' : (somaActive ? '3.2s' : '2.4s')}
-                                    repeatCount="indefinite"
-                                />
-                            )}
-                        </circle>
-                        <circle cx="56" cy="86" r="1.7" fill="#34d399" opacity="0.85" />
-                        {/* Status bar under the lights — mood color. */}
-                        <rect x="41" y="90" width="18" height="1.6" rx="0.6" fill={p.glow} opacity="0.7">
+                        {/* Brass chest-plate frame — bolted to the
+                            wood. The plate holds the glass viewport
+                            that shows the cogwork inside. */}
+                        <rect x="34" y="70" width="32" height="38" rx="3" fill={STEAM.brassMid} stroke={STEAM.bolt} strokeWidth="0.7" />
+                        {/* Plate inner highlight */}
+                        <rect x="35" y="71" width="30" height="2" rx="1" fill={STEAM.brassHi} opacity="0.7" />
+                        {/* Corner rivets */}
+                        <g fill={STEAM.bolt}>
+                            <circle cx="36.5" cy="72.5" r="0.9" />
+                            <circle cx="63.5" cy="72.5" r="0.9" />
+                            <circle cx="36.5" cy="105.5" r="0.9" />
+                            <circle cx="63.5" cy="105.5" r="0.9" />
+                        </g>
+
+                        {/* Glass viewport — circular window showing
+                            cogwork and pendulum (the agent's "heart"). */}
+                        <circle cx="50" cy="86" r="11" fill={STEAM.glassDark} stroke={STEAM.brassDark} strokeWidth="1.2" />
+                        <circle cx="50" cy="86" r="10" fill={STEAM.glassMid} opacity="0.85" />
+                        {/* Inner glass tint with the state glow — so
+                            the heart-chamber subtly shifts color with
+                            mood. */}
+                        <circle cx="50" cy="86" r="9.5" fill={p.glow} opacity="0.10" />
+
+                        {/* Main cog — rotates always. 12 teeth around
+                            a hub. */}
+                        <g className="mascot-cog">
+                            <path
+                                d="M50 78 L51.6 80 L54 79.4 L54.6 81.8 L56.8 82.4 L56.4 84.8 L58.4 86 L56.4 87.2 L56.8 89.6 L54.6 90.2 L54 92.6 L51.6 92 L50 94 L48.4 92 L46 92.6 L45.4 90.2 L43.2 89.6 L43.6 87.2 L41.6 86 L43.6 84.8 L43.2 82.4 L45.4 81.8 L46 79.4 L48.4 80 Z"
+                                fill={STEAM.brassBright}
+                                stroke={STEAM.brassDark}
+                                strokeWidth="0.5"
+                            />
+                            <circle cx="50" cy="86" r="2.2" fill={STEAM.brassDark} />
+                            <circle cx="50" cy="86" r="0.8" fill={STEAM.bolt} />
+                        </g>
+
+                        {/* Small auxiliary cog — counter-rotating */}
+                        <g className="mascot-cog-sm">
+                            <path
+                                d="M57 89 L57.8 90 L59 89.7 L59.3 90.9 L60.4 91.2 L60.2 92.4 L61.2 93 L60.2 93.6 L60.4 94.8 L59.3 95.1 L59 96.3 L57.8 96 L57 97 L56.2 96 L55 96.3 L54.7 95.1 L53.6 94.8 L53.8 93.6 L52.8 93 L53.8 92.4 L53.6 91.2 L54.7 90.9 L55 89.7 L56.2 90 Z"
+                                fill={STEAM.brassMid}
+                                stroke={STEAM.brassDark}
+                                strokeWidth="0.4"
+                            />
+                            <circle cx="57" cy="93" r="1" fill={STEAM.brassDark} />
+                        </g>
+
+                        {/* Pendulum — swings inside the chamber.
+                            Anchored at top of the glass, brass rod
+                            with a heavy bob at the bottom. */}
+                        <g className="mascot-pendulum">
+                            <line x1="50" y1="78" x2="50" y2="93" stroke={STEAM.brassBright} strokeWidth="0.9" strokeLinecap="round" />
+                            <circle cx="50" cy="94.5" r="1.8" fill={STEAM.brassDark} stroke={STEAM.brassHi} strokeWidth="0.4" />
+                        </g>
+
+                        {/* Pressure gauge on lower-right of plate —
+                            needle ticks. */}
+                        <g transform="translate(60, 102)">
+                            <circle r="3.5" fill={STEAM.brassDark} stroke={STEAM.bolt} strokeWidth="0.4" />
+                            <circle r="2.8" fill={STEAM.brassHi} opacity="0.7" />
+                            <line className="mascot-gauge" x1="0" y1="0" x2="0" y2="-2.4" stroke={STEAM.bolt} strokeWidth="0.55" strokeLinecap="round" />
+                            <circle r="0.5" fill={STEAM.bolt} />
+                        </g>
+                        {/* Status lozenge — mood-tinted, on lower-left */}
+                        <rect x="36" y="100" width="14" height="3" rx="1" fill={STEAM.glassDark} />
+                        <rect x="37" y="100.6" width="12" height="1.8" rx="0.5" fill={p.glow}>
                             {state === 'executing' && !reducedMotion && (
                                 <animate attributeName="opacity" values="0.4;0.95;0.4" dur="0.6s" repeatCount="indefinite" />
                             )}
                         </rect>
                     </g>
 
-                    {/* Hands — two rounded white manipulators on either
-                        side. The right one waves when listening. */}
+                    {/* Hands — brass orb manipulators with a glowing
+                        amber gem in the center. Right hand waves when
+                        listening. */}
                     <g transform="translate(20, 96)">
                         <g className="mascot-hand-l">
-                            <circle r="5.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
-                            <circle r="2" fill={p.glow} opacity="0.85" />
+                            <circle r="5.8" fill={STEAM.brassMid} stroke={STEAM.bolt} strokeWidth="0.8" />
+                            <circle r="4.2" fill={STEAM.brassBright} opacity="0.85" />
+                            <circle r="1.8" fill={p.glow} opacity="0.95" />
+                            <circle r="0.6" fill="#fff7d8" opacity="0.95" />
                         </g>
                     </g>
                     <g transform="translate(80, 96)">
                         <g className={`${waving ? 'mascot-hand-r waving' : 'mascot-hand-r'}`}>
-                            <circle r="5.5" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.8" />
-                            <circle r="2" fill={p.glow} opacity="0.85" />
+                            <circle r="5.8" fill={STEAM.brassMid} stroke={STEAM.bolt} strokeWidth="0.8" />
+                            <circle r="4.2" fill={STEAM.brassBright} opacity="0.85" />
+                            <circle r="1.8" fill={p.glow} opacity="0.95" />
+                            <circle r="0.6" fill="#fff7d8" opacity="0.95" />
                         </g>
                     </g>
 
-                    {/* Feet — two short white blobs poking out the bottom of
-                        the suit so the silhouette is grounded. */}
-                    <ellipse cx="42" cy="118" rx="6" ry="3" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
-                    <ellipse cx="58" cy="118" rx="6" ry="3" fill="#f4f6fb" stroke="#dde2ee" strokeWidth="0.6" />
+                    {/* Feet — wood-and-brass boots with riveted toe-caps. */}
+                    <g>
+                        <ellipse cx="42" cy="118" rx="6.5" ry="3.4" fill={STEAM.woodDark} stroke={STEAM.bolt} strokeWidth="0.6" />
+                        <ellipse cx="42" cy="117" rx="6.5" ry="1.3" fill={STEAM.brassMid} />
+                        <circle cx="39" cy="117" r="0.7" fill={STEAM.bolt} />
+                        <circle cx="45" cy="117" r="0.7" fill={STEAM.bolt} />
+                    </g>
+                    <g>
+                        <ellipse cx="58" cy="118" rx="6.5" ry="3.4" fill={STEAM.woodDark} stroke={STEAM.bolt} strokeWidth="0.6" />
+                        <ellipse cx="58" cy="117" rx="6.5" ry="1.3" fill={STEAM.brassMid} />
+                        <circle cx="55" cy="117" r="0.7" fill={STEAM.bolt} />
+                        <circle cx="61" cy="117" r="0.7" fill={STEAM.bolt} />
+                    </g>
 
                     {/* Thinking particles above head */}
                     {state === 'thinking' && (
