@@ -5,6 +5,69 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.15 — 2026-05-16 — Tool contracts (Phase D.3)
+
+Declarative input schemas + risk metadata for the 9 most-used
+built-in skills. The tool runner now validates incoming tool-call
+arguments against a Zod schema BEFORE the skill's execute() runs —
+malformed calls get rejected with a clear, LLM-friendly error
+message instead of crashing the skill or returning a confusing
+string.
+
+### Skills with contracts in this beta
+
+| Skill            | Side effects        | Risk     |
+|------------------|---------------------|----------|
+| `read_file`      | read                | safe     |
+| `list_dir`       | read                | safe     |
+| `write_file`     | write               | safe     |
+| `append_file`    | write               | safe     |
+| `edit_file`      | write               | safe     |
+| `web_search`     | network, read       | moderate |
+| `web_fetch`      | network, read       | moderate |
+| `download_image` | network, write      | moderate |
+| `shell`          | destructive         | high     |
+
+The risk + side-effects metadata is read by the upcoming auto-mode
+classifier (next phase) — `safe` will auto-run without prompting,
+`high` will require explicit approval.
+
+### Wire-in
+
+- `src/agent/toolContract.ts` (new): `ToolContract` interface,
+  `ToolValidationError`, `validateToolCall`, `formatValidationError`,
+  + a global registry (`registerToolContract`, `getToolContract`,
+  `listToolContracts`).
+- `src/skills/builtin/contracts.ts` (new): the 9 canonical contracts
+  with Zod schemas, side-effects, risk levels, and example calls.
+- `src/agent/toolRunner.ts`: optional `contract` field on
+  ToolHandler + registry-lookup fallback. Validation runs right
+  after JSON parsing, before the legacy required-fields check, so
+  contract-bearing skills get precise error messages while skills
+  without contracts continue to work unchanged.
+- `src/skills/registry.ts`: `initBuiltinSkills` registers the
+  canonical contracts FIRST so they're available before any tool
+  dispatch.
+
+### Tests
+
+- 54 new tests in `tests/tool-contract.test.ts`:
+  - `validateToolCall` happy/sad paths
+  - Registry round-trip + idempotency
+  - Every canonical contract has a non-empty summary
+  - **Every example call validates against its own input schema** —
+    catches "I changed the schema but forgot the example"
+  - Risk-level + side-effects shape checks
+  - End-to-end rejection tests for write_file / web_fetch / shell
+    with malformed args
+- 412 / 412 tests pass across the touched-area sweep.
+
+No API contract changes (everything is additive). 239 other tools
+continue to use the legacy required-fields validation; contracts
+are opt-in per skill.
+
+---
+
 ## v6.1.0-beta.14 — 2026-05-16 — Memory façade (Phase D.2)
 
 New `src/memory/facade.ts` exposes TITAN's memory subsystem through

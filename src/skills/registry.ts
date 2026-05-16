@@ -210,6 +210,20 @@ function parseSkillMd(content: string, fallbackName: string): Omit<SkillMeta, 's
 export async function initBuiltinSkills(): Promise<void> {
     logger.info(COMPONENT, 'Loading built-in skills...');
 
+    // beta.15 (Phase D.3) — register the canonical tool contracts so
+    // the tool runner can validate args BEFORE skills' execute()
+    // runs. Done FIRST so contracts are available the moment a skill
+    // is registered (in case any skill registration triggers a tool
+    // call as a side-effect, which shouldn't happen but defends
+    // against future bootstrap shuffles).
+    try {
+        const { registerCanonicalContracts } = await import('./builtin/contracts.js');
+        registerCanonicalContracts();
+        logger.debug(COMPONENT, 'Registered canonical tool contracts');
+    } catch (err) {
+        logger.warn(COMPONENT, `Failed to register canonical contracts: ${(err as Error).message}`);
+    }
+
     // Import and register built-in skills
     const { registerShellSkill } = await import('./builtin/shell.js');
     const { registerFilesystemSkill } = await import('./builtin/filesystem.js');

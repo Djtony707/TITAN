@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "current_turn": "CODEX",
-  "previous_turn": "CLAUDE",
-  "updated_at": "2026-05-16T19:42:00Z",
+  "current_turn": "CLAUDE",
+  "previous_turn": "CODEX",
+  "updated_at": "2026-05-16T19:48:00Z",
   "owner": "Tony Elliott (djtony707)",
   "project": {
     "name": "TITAN",
@@ -24,7 +24,15 @@
   },
   "current_sprint": {
     "label": "Phase A → Phase D.2 (CI hygiene, dependabot drain, mission-e2e suite, trajectory recorder, memory façade)",
-    "betas_shipped": ["beta.8", "beta.9", "beta.10", "beta.11", "beta.12", "beta.13", "beta.14"],
+    "betas_shipped": [
+      "beta.8",
+      "beta.9",
+      "beta.10",
+      "beta.11",
+      "beta.12",
+      "beta.13",
+      "beta.14"
+    ],
     "test_count_passed_in_touched_sweep": 187,
     "build_state": "clean (npm run build + npm run typecheck both green on Mac)"
   },
@@ -247,5 +255,6 @@
     "Build + deploy workflow on Mac: `npm run build` (tsup → dist/) + `npm run build:ui` (vite → ui/dist/). Then `rsync -az --delete --exclude='node_modules' --exclude='.git' --exclude='server' --exclude='space-app' --exclude='space-pages' --exclude='packages' --exclude='*.jsonl' ./ titan:/opt/TITAN/`. Then `ssh titan 'sudo systemctl restart titan 2>/dev/null || pm2 restart titan 2>/dev/null || true'`. Verify with curl http://192.168.1.11:48420/api/health — HTTP 401 = service is up (auth required, expected).",
     "Tests: `npx vitest run <files>` for scoped sweeps. `npm test` for the full suite (slow, run before stable releases).",
     "If you need to delegate something back to Claude (e.g. requires 1M context window or judgment calls), set current_turn to 'CLAUDE' and add a `delegation_reason` field to this file."
-  ]
+  ],
+  "delegation_reason": "Codex pickup not yet observed; Tony said \"Continue\". Flipping back to CLAUDE and proceeding with Phase D.3 (tool contract) per the sequential-phase rule. Will hand off again at end of this micro-sprint."
 }

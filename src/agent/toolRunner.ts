@@ -3,6 +3,12 @@
  * Executes tool calls from the LLM with sandboxing, timeouts, and result formatting.
  */
 import type { ToolCall, ToolDefinition } from '../providers/base.js';
+import {
+    type ToolContract,
+    ToolValidationError,
+    validateToolCall,
+    formatValidationError,
+} from './toolContract.js';
 import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
@@ -169,6 +175,14 @@ export interface ToolHandler {
     description: string;
     parameters: Record<string, unknown>;
     execute: (args: Record<string, unknown>) => Promise<string>;
+    /**
+     * beta.15 (Phase D.3) — optional declarative contract. When set,
+     * the tool runner validates incoming args against
+     * `contract.input` BEFORE calling execute() and rejects malformed
+     * calls with a clear, LLM-friendly error message. Skills without
+     * a contract continue to work unchanged — opt-in upgrade.
+     */
+    contract?: ToolContract;
 }
 
 /** Global tool registry */
@@ -284,6 +298,49 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                     durationMs: Date.now() - startTime,
                 };
             }
+        }
+    }
+
+    // beta.15 (Phase D.3) — Zod contract validation. Runs BEFORE the
+    // legacy required-fields check below so contract-bearing skills
+    // get a precise error message. Skills without a contract fall
+    // through to the legacy check unchanged.
+    //
+    // Contracts can be attached two ways:
+    //   1. Directly on the ToolHandler (handler.contract — for new skills
+    //      that want a self-contained file).
+    //   2. Registered in the global contract registry (for retrofitting
+    //      contracts onto existing skills without touching their files).
+    // We check both, in that order.
+    let contractToUse = handler.contract;
+    if (!contractToUse) {
+        try {
+            const { getToolContract } = await import('./toolContract.js');
+            contractToUse = getToolContract(handler.name);
+        } catch { /* contract registry unavailable — skip */ }
+    }
+    if (contractToUse) {
+        try {
+            // Replace `args` with the parsed (possibly coerced) shape
+            // so execute() receives Zod-cleaned arguments — string
+            // numerics become numbers, undefined fields get defaults, etc.
+            args = validateToolCall(contractToUse, args) as Record<string, unknown>;
+        } catch (validationErr) {
+            if (validationErr instanceof ToolValidationError) {
+                logger.warn(
+                    'ToolRunner',
+                    `Contract validation rejected ${handler.name}: ${validationErr.message}`,
+                );
+                return {
+                    toolCallId: toolCall.id,
+                    name: handler.name,
+                    content: formatValidationError(validationErr),
+                    success: false,
+                    durationMs: Date.now() - startTime,
+                };
+            }
+            // Unexpected non-validation error during parse — fall
+            // through and let the rest of the runner handle it.
         }
     }
 
