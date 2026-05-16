@@ -49,7 +49,13 @@ export const WRITE_FILE_CONTRACT: ToolContract<
         content: z.string(), // empty content is valid — touching a file
     }),
     sideEffects: ['write'],
-    riskLevel: 'safe',
+    // beta.17 — writes are 'moderate' (was 'safe'). Codex P1 #2: writes
+    // can overwrite files and mutate user state. The auto-mode classifier
+    // maps 'moderate' to 'notify' under standard policy (runs but logs)
+    // and 'gate' under 'paranoid'. Path-aware scoping (allowing /tmp/*
+    // and ~/.titan/workspace/* writes to auto-run) is a follow-up — see
+    // claude_notes in .ai_bridge.json.
+    riskLevel: 'moderate',
     exampleCalls: [
         {
             description: 'write a small note',
@@ -101,7 +107,8 @@ export const EDIT_FILE_CONTRACT: ToolContract<
         replacement: z.string(),
     }),
     sideEffects: ['write'],
-    riskLevel: 'safe',
+    // beta.17 — see WRITE_FILE_CONTRACT comment. Writes are 'moderate'.
+    riskLevel: 'moderate',
     exampleCalls: [
         {
             description: 'fix a typo',
@@ -121,7 +128,8 @@ export const APPEND_FILE_CONTRACT: ToolContract<
         content: z.string().min(1, 'content must not be empty'),
     }),
     sideEffects: ['write'],
-    riskLevel: 'safe',
+    // beta.17 — see WRITE_FILE_CONTRACT comment. Writes are 'moderate'.
+    riskLevel: 'moderate',
     exampleCalls: [
         {
             description: 'append a log line',

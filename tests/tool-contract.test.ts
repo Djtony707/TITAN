@@ -204,6 +204,17 @@ describe('Canonical contracts', () => {
         expect(getToolContract('list_dir')?.riskLevel).toBe('safe');
     });
 
+    // beta.17 (Codex P1 #2): writes mutate user state. Even when the
+    // path guard restricts to home + /tmp, a wrong overwrite is not
+    // recoverable for non-versioned files. Until path-aware
+    // classification ships, writes stay 'moderate' so auto-mode
+    // notifies on every call rather than silently fully auto-running.
+    it('write contracts have riskLevel=moderate (not safe — bumped in beta.17)', () => {
+        expect(getToolContract('write_file')?.riskLevel).toBe('moderate');
+        expect(getToolContract('edit_file')?.riskLevel).toBe('moderate');
+        expect(getToolContract('append_file')?.riskLevel).toBe('moderate');
+    });
+
     it('network contracts have riskLevel=moderate', () => {
         expect(getToolContract('web_search')?.riskLevel).toBe('moderate');
         expect(getToolContract('web_fetch')?.riskLevel).toBe('moderate');

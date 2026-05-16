@@ -256,16 +256,42 @@ describe('classifyToolCall — canonical skill contracts', () => {
         registerCanonicalContracts();
     });
 
-    it('read_file → auto', () => {
+    it('read_file → auto (read-only)', () => {
         expect(classifyToolCall('read_file').decision).toBe('auto');
     });
 
-    it('write_file → auto (safe in workspace)', () => {
-        expect(classifyToolCall('write_file').decision).toBe('auto');
+    it('list_dir → auto (read-only)', () => {
+        expect(classifyToolCall('list_dir').decision).toBe('auto');
+    });
+
+    // beta.17 fix (Codex P1 #2 + #4): writes are moderate, not safe.
+    // Auto-mode treats moderate as `notify` — the call runs but logs
+    // a breadcrumb instead of fully silent auto. Path-aware
+    // classification (allowing /tmp/* writes to fully auto-run) is a
+    // follow-up; until then writes notify so an autonomous overwrite
+    // is at least visible in the log/trajectory.
+    it('write_file → notify (moderate — was safe; bumped in beta.17)', () => {
+        expect(classifyToolCall('write_file').decision).toBe('notify');
+    });
+
+    it('edit_file → notify (moderate — was safe; bumped in beta.17)', () => {
+        expect(classifyToolCall('edit_file').decision).toBe('notify');
+    });
+
+    it('append_file → notify (moderate — was safe; bumped in beta.17)', () => {
+        expect(classifyToolCall('append_file').decision).toBe('notify');
     });
 
     it('web_search → notify (moderate, network)', () => {
         expect(classifyToolCall('web_search').decision).toBe('notify');
+    });
+
+    it('web_fetch → notify (moderate, network)', () => {
+        expect(classifyToolCall('web_fetch').decision).toBe('notify');
+    });
+
+    it('download_image → notify (moderate, network + write)', () => {
+        expect(classifyToolCall('download_image').decision).toBe('notify');
     });
 
     it('shell → gate (high risk, destructive)', () => {

@@ -9,7 +9,7 @@ import {
     validateToolCall,
     formatValidationError,
 } from './toolContract.js';
-import { classifyToolCall, shouldGate, formatBreadcrumb } from './autoModeClassifier.js';
+import { classifyToolCall, formatBreadcrumb } from './autoModeClassifier.js';
 import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { TELEMETRY_EVENTS_PATH } from '../utils/constants.js';
 import { executeToolsParallel } from './parallelTools.js';
@@ -692,41 +692,50 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
         logger.warn(COMPONENT, `Invariant check failed (fail-open): ${(err as Error).message}`);
     }
 
-    // beta.16 (Phase D.4) — auto-mode classifier. Reads the tool's
-    // contract.riskLevel from the contract registry and decides whether
-    // to short-circuit the approval gate ('auto'), proceed with a passive
-    // breadcrumb ('notify'), or hand off to the existing approval-gate
-    // path below ('gate'). Conservative defaults — unknown tools and
-    // unrecognised policies fall to 'gate'.
+    // beta.16 (Phase D.4) — auto-mode classifier + approval gate.
+    //
+    // PRECEDENCE (fixed in beta.17 after Codex P1 review):
+    //   1. USER-CONFIGURED requiresApproval(handler.name) WINS FIRST.
+    //      If the user has explicitly added this tool to their
+    //      approval list, we file the approval regardless of what
+    //      the classifier says. The classifier never overrides
+    //      explicit user policy — auto-mode is a CONVENIENCE for
+    //      contract-declared safe tools, not a license to ignore
+    //      user-configured guards.
+    //   2. THEN the classifier. If classifier says 'gate', file
+    //      approval (even if requiresApproval was false). If 'auto'
+    //      or 'notify', proceed past the gate; 'notify' logs a
+    //      breadcrumb so the autonomous action is visible.
+    //
+    // Beta.16 had these reversed: classifier short-circuited past
+    // requiresApproval. That meant the user adding `write_file` to
+    // their approval list did nothing because the classifier
+    // unilaterally decided `auto` for it. Codex caught it on
+    // review — P1 #1.
     const classification = classifyToolCall(handler.name);
-    if (classification.decision === 'auto') {
-        logger.debug(COMPONENT, formatBreadcrumb(handler.name, classification));
-        // Skip the legacy approval-gate block. The execute() path runs
-        // unchanged below — same retries, timeouts, output capping.
-    } else if (classification.decision === 'notify') {
-        // Passive notification. Future hook point for Mission Canvas
-        // toasts / trajectory `note` events. For first cut we log at
-        // info level so the action shows up in titan-gateway.log + the
-        // existing structured log pipeline.
-        logger.info(COMPONENT, formatBreadcrumb(handler.name, classification));
+
+    // Step 1 — user-configured approval ALWAYS runs first. The
+    // user's explicit list is the source of truth.
+    let userApprovalWantsGate = false;
+    try {
+        const { requiresApproval } = await import('../skills/builtin/approval_gates.js');
+        userApprovalWantsGate = requiresApproval(handler.name);
+    } catch (approvalErr) {
+        // Approval gates module unavailable → log + fall through.
+        // Classifier still gets to decide. Fail-open behavior preserved.
+        logger.warn(COMPONENT, `Approval-config probe failed (fail-open): ${(approvalErr as Error).message}`);
     }
 
-    // v5.0: Approval gates — human-in-the-loop before executing dangerous tools.
-    // This wires the approval_gates.ts skill into the execution path, closing the
-    // safety gap identified during the 2026-04-28 overnight audit.
-    //
-    // beta.16 — short-circuit on classification.decision === 'auto'. The
-    // legacy `requiresApproval()` is the pre-classifier policy; we keep
-    // it as a SECOND gate so a tool that's safe-by-contract but on the
-    // explicit-dangerous-tool list still gets gated. Belt + suspenders.
-    if (shouldGate(classification)) try {
-        const { requiresApproval, createApprovalRequest } = await import('../skills/builtin/approval_gates.js');
-        // Force-gate even if requiresApproval would have returned false:
-        // the classifier said 'gate' and that decision wins. Skills
-        // without a contract land here because the classifier defaults
-        // unknowns to 'gate' (conservative).
-        if (classification.decision === 'gate' || requiresApproval(handler.name)) {
-            logger.info(COMPONENT, `[ApprovalGate] Tool "${handler.name}" requires human approval — filing request`);
+    // Step 2 — file an approval if EITHER the user's list demands it
+    // OR the classifier says 'gate'. Belt + suspenders, with the user
+    // explicitly first.
+    if (userApprovalWantsGate || classification.decision === 'gate') {
+        try {
+            const { createApprovalRequest } = await import('../skills/builtin/approval_gates.js');
+            const gateReason = userApprovalWantsGate
+                ? 'user approval policy'
+                : `classifier policy=${classification.policy} risk=${classification.riskLevel ?? 'unknown'}`;
+            logger.info(COMPONENT, `[ApprovalGate] Tool "${handler.name}" requires human approval (${gateReason}) — filing request`);
             const request = createApprovalRequest(handler.name, args, sessionId || toolCall.id);
             if (request.status === 'pending') {
                 return {
@@ -736,14 +745,11 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                         `Request ID: ${request.id}. ` +
                         `Approve with "approve ${request.id}" or deny with "deny ${request.id}".`,
                     success: false,
-                    // v5.0: Signal to the loop that this is an approval pause, not a failure
                     approvalPending: true,
                     approvalRequestId: request.id,
                     durationMs: Date.now() - startTime,
                 };
             }
-            // If request was auto-denied (e.g. preference set to 'always_deny'), 'createApprovalRequest'
-            // returns a request with status 'denied' and we should abort.
             if (request.status === 'denied') {
                 return {
                     toolCallId: toolCall.id,
@@ -754,10 +760,20 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                     durationMs: Date.now() - startTime,
                 };
             }
+            // status === 'approved' or anything else → fall through to execute().
+        } catch (approvalErr) {
+            // Approval gates module unavailable → fail-open so the agent
+            // doesn't deadlock. We've already warned above.
+            logger.warn(COMPONENT, `Approval gate check failed (fail-open): ${(approvalErr as Error).message}`);
         }
-    } catch (approvalErr) {
-        // Approval gates module unavailable → fail-open so the agent doesn't deadlock
-        logger.warn(COMPONENT, `Approval gate check failed (fail-open): ${(approvalErr as Error).message}`);
+    } else if (classification.decision === 'auto') {
+        logger.debug(COMPONENT, formatBreadcrumb(handler.name, classification));
+    } else if (classification.decision === 'notify') {
+        // Passive notification. Future hook point for Mission Canvas
+        // toasts / trajectory `note` events. Logged at info level so
+        // the autonomous action is visible in titan-gateway.log + the
+        // structured log pipeline.
+        logger.info(COMPONENT, formatBreadcrumb(handler.name, classification));
     }
 
     for (; attempt <= (retryEnabled ? maxRetries : 0); attempt++) {
