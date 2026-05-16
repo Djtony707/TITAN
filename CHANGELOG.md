@@ -5,6 +5,108 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.53 — 2026-05-15 — download_image: fix the actual bug, not just the symptom
+
+> Tony, after seeing the alpha.52 placeholders: "Why doesn't TITAN
+> download the images itself and then link them in each document?"
+
+He was 100% right to ask. alpha.52 made broken images render as
+pretty placeholders — which is correct as a safety net — but the
+real fix is to actually download the images and embed them, which
+is what TITAN was supposed to do all along.
+
+### Root cause (Picrew "verify-before-claim" pattern caught this)
+
+The `download_image` skill was implemented back in alpha.37
+(`src/skills/builtin/download_image.ts`). It fetches an image URL
+server-side, returns it as a base64 `data:` URL, caps at 4 MB,
+blocks private-network targets, infers MIME from URL +
+content-type. Fully wired into the skills registry. The Writer's
+system-prompt explicitly tells the LLM to call it.
+
+But the `routeForKind('write')` tool allowlist in
+`specialistRouter.ts` did NOT include `download_image`:
+
+```ts
+write: {
+    toolAllowlist: [
+        'read_file', 'write_file', 'memory',
+        'web_search', 'web_fetch', 'send_agent_message',
+        // ← download_image was missing
+    ],
+    ...
+},
+```
+
+`structuredSpawn` passes that allowlist as `tools: opts.toolAllowlist`
+to `spawnSubAgent`, which scope-locks the LLM's tool table. So the
+specialist's tool list literally did not contain
+`download_image` — the LLM was being told in the system prompt to
+call a tool that wasn't in its tool table. It tried the next-best
+thing (hotlinking external `<img>` URLs), which then hit the
+alpha.52 placeholder rewrite.
+
+This is exactly the gap the Picrew/awesome-agent-harness corpus
+warns about: a tool that exists in the skill registry but isn't
+plumbed into the specialist's scope. "Verify before claim" cuts
+both ways — the prompt said one thing, the harness did another.
+
+### Fix
+
+Added `download_image` to the four allowlists that need it:
+
+- `write` (Writer) — primary use case
+- `research` (Scout) — preload hero images during research
+- `analysis` (Analyst) — falls back here from write
+- `report` (final summary) — reports often include images
+
+Deliberately NOT added to:
+
+- `verify` (Sage / Analyst-as-verifier) — verification is
+  read-only, no downloads
+- `code` / `shell` (Builder) — no allowlist (full toolkit), so
+  Builder already has it implicitly
+
+Also strengthened the Writer's prompt — replaced the one-liner
+"call download_image" instruction with a numbered MANDATORY
+workflow that walks the LLM through web_search → download_image →
+embed-as-data-URL with a concrete example. New text also says
+explicitly "those will be REPLACED with a 'image unavailable'
+placeholder block at the viewer (server enforces this in code,
+not by asking nicely)" so the consequence of trying to hotlink
+is visible up front.
+
+### Tests
+
+`tests/v610-alpha53-download-image-allowlist.test.ts` — 9 cases:
+
+- `download_image` is in write / research / analysis / report
+- `web_search` / `web_fetch` / `write_file` still in write
+- `download_image` is NOT in verify (read-only invariant)
+- Writer's prompt names `download_image({url})` explicitly
+- Writer's prompt warns about the placeholder consequence
+
+Full suite: **7260 / 7262 passing, 2 skipped, 0 failed** (was
+7251/7253 at alpha.52; +9 from the new alpha.53 regression file).
+
+### Net effect
+
+The alpha.52 placeholder is still there as a safety net for
+genuinely unreachable URLs — but the common case (Writer writing
+an essay) now actually downloads and inlines images as `data:`
+URLs. Self-contained HTML files, portable to phone / email / any
+viewer, no broken icons, no placeholders for happy-path images.
+
+### Files touched
+
+- `src/agent/specialistRouter.ts` — allowlist additions
+- `src/agent/specialists.ts` — strengthened Writer HTML guidance
+- `tests/v610-alpha53-download-image-allowlist.test.ts` (new, 9 tests)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+---
+
 ## v6.1.0-alpha.52 — 2026-05-15 — Broken-image graceful degradation (Picrew pattern)
 
 > Tony, returning to a fresh mission: the moon-landing essay
