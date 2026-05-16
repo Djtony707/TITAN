@@ -422,10 +422,17 @@ describe('goalDriver state machine', () => {
     });
 
     it('transitions to blocked when spawn returns needs_info', async () => {
+        // v6.1.0-alpha.54: the question must be SPECIFIC (decision
+        // marker present) to reach blocked. Generic questions are
+        // now intercepted by isGenericQuestion() and force-retried.
+        // Pre-alpha.54 this test used "What URL should I use?" which
+        // is now classified as generic (no decision marker, very
+        // short). Updated to use a decision-ready question so the
+        // existing happy-path-to-blocked transition still validates.
         vi.mocked(mockedStructuredSpawn).mockResolvedValueOnce({
             status: 'needs_info',
             artifacts: [],
-            questions: ['What URL should I use?'],
+            questions: ['Sources disagree on the URL — cite https://nasa.gov/x or https://wikimedia.org/y?'],
             confidence: 0.1,
             reasoning: 'missing target',
             rawResponse: '',

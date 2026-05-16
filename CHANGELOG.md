@@ -5,6 +5,129 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.54 — 2026-05-15 — Generic-question gate + deliberation rules
+
+> Tony, after the Writer asked "What should they focus on?" for
+> a perfectly clear MLK essay goal: "I don't want it to ask what
+> should I focus on. The AI agents should deliberate amongst
+> themselves and help themselves out, unless it is a serious
+> question, in which case it should ask me the question instead
+> of writing me a generic one line question that explains
+> nothing."
+
+### Two layers — code gate + prompt discipline
+
+#### 1. `isGenericQuestion()` code-level classifier (`src/agent/questionQuality.ts`)
+
+A regex-based classifier that returns true for low-information
+questions. Catches:
+
+- "What should I/we/they focus on?"
+- "How should I proceed?"
+- "Please clarify" / "Can you elaborate?"
+- "Needs more direction" / "needs guidance"
+- "What do you want me to do/write?"
+- "Can you give me more detail?"
+- "What angle / tone / style?"
+- "Should I proceed?" (yes/no with no choice)
+- "What's next?"
+- "I don't know what to do"
+- Anything under 25 chars with no decision marker
+
+Negative check: questions containing a decision marker
+(`vs`/`or`/`option X`/`source 1`/quoted name/year/URL/dollar
+amount/percentage) are presumed specific and pass through.
+
+#### 2. goalDriver `needs_info` pre-pass (`src/agent/goalDriver.ts`)
+
+When a specialist returns `needs_info`, the question gets
+classified BEFORE filing an approval to Tony:
+
+- **Generic + first time** → set `lastError` to
+  `forceCommitDirective(...)` and bounce back to `delegating`.
+  The specialist gets one free retry with a stricter directive
+  telling it to (a) commit to its best interpretation, (b) use
+  `send_agent_message` to consult a teammate if it genuinely
+  can't commit, (c) only return `needs_info` again with a
+  decision-ready question.
+- **Generic + second time** → fail the subtask. The specialist
+  clearly can't figure it out alone; rather than escalate a
+  generic question to Tony, mark the subtask failed and let the
+  driver decide. New flag `genericQuestionRejected` on
+  `DriverSubtaskState` enforces the one-shot.
+- **Specific** → existing approval flow, ships to Tony as
+  before.
+
+#### 3. `DELIBERATION_RULES` in every specialist prompt
+
+A new shared block appended to Scout / Builder / Writer /
+Analyst / Sage that tells each specialist:
+
+```
+STEP 1 — Try to commit. For 95% of tasks the goal is clearer
+  than you think. Pick the obvious framing and DO THE WORK.
+
+STEP 2 — If you can't commit, consult a teammate via
+  send_agent_message (Scout=facts, Analyst=data, Sage=judgment,
+  Builder=code, Writer=voice).
+
+STEP 3 — Only return needs_info if (a) you can't commit alone
+  AND (b) no teammate can answer. The question must be
+  specific, decision-ready, short.
+
+❌ AUTO-REJECTED: "What should I focus on?", "Please clarify",
+  "Needs more direction", "How should I proceed?", …
+
+✅ ACCEPTABLE: "Sources disagree on date — cite 1963 (NYT) or
+  1964 (Britannica)?"
+```
+
+### Tests
+
+`tests/v610-alpha54-generic-question-gate.test.ts` — 49 cases:
+
+- 31 generic patterns all flagged (every variant in the
+  classifier, plus exact Tony-reported phrasing)
+- 10 specific decision-marked questions pass through
+- `forceCommitDirective` has the right tag, original-question
+  echo, goal-title anchor, send_agent_message reference, and
+  acceptable-example
+- All 5 specialists carry `DELIBERATION_RULES` + the
+  auto-rejected list
+- Existing `goalDriver.test.ts` "transitions to blocked when
+  spawn returns needs_info" updated to use a specific question
+  (the old generic one is now correctly intercepted by the gate)
+
+`npm test` → **7309 / 7311 passing, 2 skipped, 0 failed** (was
+7260/7262 at alpha.53; +49 new tests + 1 updated).
+
+### Effect
+
+The Writer in Tony's MLK essay run asked "What should they
+focus on?" because the prompt didn't make the commit-first
+expectation explicit AND the harness had no gate. Post-alpha.54:
+
+- That exact question is classified generic → force-retry with
+  commit directive → Writer writes the essay
+- If Writer still can't commit, it'll consult Scout/Analyst/Sage
+  via `send_agent_message` (already in its tool table)
+- The only questions reaching Tony will be SPECIFIC, decision-
+  ready prompts with quoted names / year / URL / option-A-vs-B
+  framing
+
+### Files touched
+
+- `src/agent/questionQuality.ts` (new) — classifier + directive
+- `src/agent/goalDriver.ts` — needs_info pre-pass
+- `src/agent/goalDriverTypes.ts` — `genericQuestionRejected` flag
+- `src/agent/specialists.ts` — `DELIBERATION_RULES` block, appended to all 5 specialists
+- `tests/v610-alpha54-generic-question-gate.test.ts` (new, 49 tests)
+- `tests/goalDriver.test.ts` — updated needs_info test to use specific question
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+---
+
 ## v6.1.0-alpha.53 — 2026-05-15 — download_image: fix the actual bug, not just the symptom
 
 > Tony, after seeing the alpha.52 placeholders: "Why doesn't TITAN
