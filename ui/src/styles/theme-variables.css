@@ -30,6 +30,14 @@
     --theme-bg-vignette:   rgba(20, 10, 0, 0.5);
 
     --theme-paper:         #f7f5ee;
+    /* v6.1.0-beta.6 — paper-fg = "the color to use as TEXT when
+       you're rendering on a NON-paper background (e.g. the canvas)
+       and want a paper-tone look." Always LIGHT across all themes.
+       In Office it's a cream paper-tone (essentially same as paper).
+       In Observatory paper is inverted to dark indigo (for surfaces)
+       but text using paper-as-color was invisible on the dark canvas
+       → paper-fg gives those text sites a stable light color. */
+    --theme-paper-fg:      #f3e9d0;
     --theme-paper-line:    #d8d3c2;
 
     --theme-ink:           #1a1f2e;
@@ -76,6 +84,7 @@
     --theme-bg-vignette:   rgba(0, 0, 0, 0.6);
 
     --theme-paper:         #e8eef4;
+    --theme-paper-fg:      #e8eef4;
     --theme-paper-line:    #b8c4d4;
 
     --theme-ink:           #0c1420;
@@ -122,6 +131,10 @@
     --theme-bg-vignette:   rgba(0, 0, 0, 0.7);
 
     --theme-paper:         rgba(40, 40, 80, 0.85);
+    /* Observatory's surface paper is intentionally DARK indigo for
+       the deep-space aesthetic. paper-fg stays LIGHT so any text
+       site using "paper-tone color" reads against the canvas. */
+    --theme-paper-fg:      #e8e8ff;
     --theme-paper-line:    rgba(160, 200, 255, 0.18);
 
     --theme-ink:           #e8e8ff;

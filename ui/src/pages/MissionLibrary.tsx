@@ -123,7 +123,7 @@ export default function MissionLibrary() {
     <div
       className="h-full w-full flex flex-col overflow-hidden"
       style={{
-        color: 'var(--theme-paper)',
+        color: 'var(--theme-paper-fg)',
         fontFamily: 'var(--theme-font-display)',
         background: 'var(--theme-bg-base)',
       }}
@@ -157,7 +157,7 @@ export default function MissionLibrary() {
         >
           🌌 Canvas
         </button>
-        <div className="font-semibold tracking-tight shrink-0" style={{ color: 'var(--theme-paper)' }}>
+        <div className="font-semibold tracking-tight shrink-0" style={{ color: 'var(--theme-paper-fg)' }}>
           <span style={{ color: 'var(--theme-metal)' }}>TITAN</span>
           <span className="font-normal" style={{ color: 'var(--theme-ink-soft)' }}> &nbsp;›&nbsp; </span>
           Mission Library
@@ -592,7 +592,7 @@ function EmptyState({ filter, query, onStart }: { filter: StatusFilter; query: s
       <div className="max-w-md mx-auto px-5 py-12 text-center">
         <div
           className="text-sm mb-2"
-          style={{ color: 'var(--theme-paper)', fontFamily: 'var(--theme-font-display)' }}
+          style={{ color: 'var(--theme-paper-fg)', fontFamily: 'var(--theme-font-display)' }}
         >
           No missions match "{query}"
         </div>
@@ -637,7 +637,7 @@ function EmptyState({ filter, query, onStart }: { filter: StatusFilter; query: s
       </div>
       <div
         className="text-base"
-        style={{ color: 'var(--theme-paper)', fontFamily: 'var(--theme-font-display)' }}
+        style={{ color: 'var(--theme-paper-fg)', fontFamily: 'var(--theme-font-display)' }}
       >
         No missions yet.
       </div>

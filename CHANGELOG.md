@@ -5,6 +5,74 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.6 — 2026-05-16 — Observatory readability hotfix (paper-fg token)
+
+> Tony: "This doesn't look so good. And we cannot see words."
+
+Tony's screenshot of /mission/:id/canvas on Observatory theme showed
+the Active Mission title "Write a short status report on Q1 progress"
+as dark-on-dark — invisible. Chrome MCP contrast probe surfaced 23
+violations across the page.
+
+### Root cause
+
+Many components used `color: var(--theme-paper)` for TEXT. In Office
++ Workshop, `--theme-paper` is light (cream / pale-blue) so text on
+the dark canvas was readable. In Observatory, paper is intentionally
+INVERTED to `rgba(40, 40, 80, 0.85)` (dark indigo) for the deep-space
+surface aesthetic — but that meant text using paper-as-color went
+dark on the dark canvas, becoming invisible.
+
+### Fix — new `--theme-paper-fg` token
+
+```css
+:root[data-theme='office']      { --theme-paper-fg: #f3e9d0; }
+:root[data-theme='workshop']    { --theme-paper-fg: #e8eef4; }
+:root[data-theme='observatory'] { --theme-paper-fg: #e8e8ff; }
+```
+
+Always light across all three themes. Sites that need "paper-tone
+text on a non-paper background" now reference `--theme-paper-fg`
+instead of `--theme-paper`. Surface backgrounds still use the
+original `--theme-paper` (so Observatory keeps its dark-indigo
+paper-surface look).
+
+Bulk replace across 4 files:
+- `ui/src/components/LoginPage.tsx`
+- `ui/src/pages/MissionLibrary.tsx`
+- `ui/src/pages/MissionChat.tsx`
+- `ui/src/pages/MissionCanvas.tsx`
+
+22 `color: var(--theme-paper…)` sites migrated to `var(--theme-paper-fg…)`
+with fallbacks preserved.
+
+### Verification
+
+Chrome MCP probe after fix:
+- Active Mission title now renders with `color: rgb(232, 232, 255)`
+  (light indigo paper-fg) on the GoalPlacard leather-red gradient
+  (`rgb(42, 32, 80) → rgb(10, 8, 32)`) — high-contrast readable.
+- 23 → 11 raw flagged contrast issues; all 11 remaining are
+  gradient-backed elements (CostInkwell radial, sticky notes,
+  brass nameplates) that the probe can't read background-image
+  colors for. Visually verified each is readable in all 3 themes.
+
+No code-logic changes. No new tests needed (palette tokens only).
+
+### Still queued for the bigger plan
+
+- **Phase 1**: full visual-audit completion across multi-viewport
+  (1728 / 1440 / 1280) × 3 themes × 5 pages = 45 probes
+- **Phase 2**: feature inventory + end-to-end verification — Tony's
+  "everything we say it does, needs to do" directive
+- **Phase 3**: AI-agent trend research (Feb-May 2026) + competitive
+  analysis (Openclaw, Hermes) + harness refactor with patterns from
+  github.com/Picrew/awesome-agent-harness
+
+Plan doc at `~/Desktop/titan-feature-completeness-plan.md`.
+
+---
+
 ## v6.1.0-beta.5 — 2026-05-16 — Wastebasket-behind-clock fix + bigger plan published
 
 > Tony: "The waste basket is hidden behind the clock also. I want

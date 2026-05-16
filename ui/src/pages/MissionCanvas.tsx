@@ -546,13 +546,13 @@ export default function MissionCanvas() {
   // ── Early-return guards (after all hooks) ─────────────────────
 
   if (loading) {
-    return <div className="fixed inset-0 flex items-center justify-center text-sm" style={{ background: 'var(--theme-bg-base, #3a2a1c)', color: 'var(--theme-paper, #f3e9d0)' }}>Setting the desk…</div>;
+    return <div className="fixed inset-0 flex items-center justify-center text-sm" style={{ background: 'var(--theme-bg-base, #3a2a1c)', color: 'var(--theme-paper-fg, #f3e9d0)' }}>Setting the desk…</div>;
   }
   if (error || !room) {
     return (
       <div className="fixed inset-0 flex items-center justify-center flex-col gap-3" style={{ background: 'var(--theme-bg-base, #3a2a1c)' }}>
         <div className="text-[#ffb4a2] text-sm">{error ?? 'Mission not found.'}</div>
-        <button onClick={() => navigate('/mission')} className="text-sm hover:underline" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>← Start a new mission</button>
+        <button onClick={() => navigate('/mission')} className="text-sm hover:underline" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>← Start a new mission</button>
       </div>
     );
   }
@@ -560,7 +560,7 @@ export default function MissionCanvas() {
   const { working, blocked } = countTeam(room);
 
   return (
-    <div className="fixed inset-0 overflow-hidden font-sans" style={{ ...deskStyle, color: 'var(--theme-paper, #f3e9d0)', fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)' }}>
+    <div className="fixed inset-0 overflow-hidden font-sans" style={{ ...deskStyle, color: 'var(--theme-paper-fg, #f3e9d0)', fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)' }}>
       {/* warm window-light glow + vignette */}
       <div className="pointer-events-none absolute inset-0" style={glowStyle} />
       <div className="pointer-events-none absolute inset-0" style={vignetteStyle} />
@@ -586,7 +586,7 @@ export default function MissionCanvas() {
           >
             🌌 Canvas
           </button>
-          <div className="font-semibold tracking-tight" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>
+          <div className="font-semibold tracking-tight" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>
             <span style={{ background: 'linear-gradient(90deg, var(--theme-metal-bright, #f3d27a), var(--theme-metal, #d8a85a))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN</span>
             <span className="font-normal" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}> &nbsp;›&nbsp; </span>
             <span className="font-normal" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>Desk</span>
@@ -776,7 +776,7 @@ export default function MissionCanvas() {
               onChange={(e) => setSteerInput(e.target.value)}
               placeholder='Tell the team — "Add a one-line risk note at the top"'
               className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#d9c08c]/50"
-              style={{ color: 'var(--theme-paper, #f3e9d0)' }}
+              style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}
             />
             <span className="px-2 py-1 text-[10px] uppercase tracking-widest rounded" style={{ color: 'var(--theme-ink-soft, #d9c08c)', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>↵</span>
           </form>
@@ -804,7 +804,7 @@ export default function MissionCanvas() {
           style={{ background: 'var(--theme-leather, rgba(42,29,17,0.95))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
         >
           <button onClick={() => setHelpOpen(false)} className="absolute top-3 right-3 hover:text-white text-sm" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>✕</button>
-          <h3 className="font-semibold text-sm mb-2" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>The desk</h3>
+          <h3 className="font-semibold text-sm mb-2" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>The desk</h3>
           <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>
             Everything the team produces lands on this desk as a physical object.
             Drag anything anywhere. <b>Tidy up</b> resets the layout if it gets cluttered.
@@ -1007,7 +1007,7 @@ function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['stat
         boxShadow:
           'inset 0 0 24px var(--theme-shadow, rgba(0,0,0,0.5)), 0 0 0 4px rgba(0,0,0,0.08), 0 0 32px color-mix(in srgb, var(--theme-accent, #c45a30) 28%, transparent)',
         backgroundBlendMode: 'multiply',
-        color: 'var(--theme-paper, #f3e9d0)',
+        color: 'var(--theme-paper-fg, #f3e9d0)',
       }}
     >
       {/* Eyebrow — "ACTIVE MISSION" sets the hierarchy frame. */}
@@ -1023,7 +1023,7 @@ function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['stat
       </div>
       <div
         className="leading-snug font-semibold tracking-tight"
-        style={{ fontSize: 22, color: 'var(--theme-paper, #f3e9d0)' }}
+        style={{ fontSize: 22, color: 'var(--theme-paper-fg, #f3e9d0)' }}
       >
         {goal}
       </div>
@@ -1190,7 +1190,7 @@ function CostInkwell({ room }: { room: MissionRoom }) {
       style={{
         background: 'radial-gradient(circle at 35% 30%, var(--theme-leather, #2b1a14) 0%, var(--theme-leather-edge, #1a0e08) 70%)',
         boxShadow: 'inset 0 0 18px var(--theme-shadow, rgba(0,0,0,0.6)), 0 0 0 5px var(--theme-metal-dark, #6e4a26), 0 0 0 6px var(--theme-bolt, #382213)',
-        color: 'var(--theme-paper, #f3e9d0)',
+        color: 'var(--theme-paper-fg, #f3e9d0)',
       }}
       title="Tokens + dollars spent this mission"
     >
@@ -1494,7 +1494,7 @@ function FilePaper({ file, onOpen }: { file: FileSource; onOpen: () => void }) {
         data-no-drag
         onClick={onOpen}
         className="mt-2 w-full px-2 py-1 text-[10px] font-semibold uppercase tracking-widest rounded"
-        style={{ background: 'var(--theme-ink, #1a1f2e)', color: 'var(--theme-paper, #f3e9d0)' }}
+        style={{ background: 'var(--theme-ink, #1a1f2e)', color: 'var(--theme-paper-fg, #f3e9d0)' }}
       >Open ↗</button>
     </div>
   );
