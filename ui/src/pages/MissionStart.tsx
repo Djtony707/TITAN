@@ -341,7 +341,11 @@ export default function MissionStart() {
           </div>
         </section>
 
-        <div className="h-8" />
+        {/* Bottom clearance — keeps last template row above the global
+            fixed sponsor footer pill (pinned to viewport bottom-1.5).
+            At 800px viewport the second row otherwise tucked behind
+            the footer's backdrop. */}
+        <div className="h-20" />
       </div>
 
       {activeTemplate && (

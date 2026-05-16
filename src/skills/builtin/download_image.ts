@@ -33,6 +33,7 @@
 import { registerSkill } from '../registry.js';
 import { TITAN_VERSION } from '../../utils/constants.js';
 import { registerImage } from '../../agent/imageRegistry.js';
+import { verifyImageDownload, recordVerificationEvent } from '../../agent/verification.js';
 
 // Block private-network / loopback addresses. Mirrors web_fetch.ts.
 function isInternalUrl(urlStr: string): boolean {
@@ -168,6 +169,24 @@ NEVER use a fabricated URL. Only embed images whose URL came from an actual web_
                         }
                     }
                     const buf = Buffer.concat(chunks.map(c => Buffer.from(c)));
+                    // beta.9 — verify-before-embed. Sniff the magic header
+                    // against the claimed MIME type. Catches the "CDN
+                    // served an HTML error page with content-type
+                    // image/jpeg" failure mode that otherwise looks
+                    // like a successful download until the user opens
+                    // the report and sees broken images. On magic
+                    // mismatch we still register the bytes (the LLM
+                    // might be downloading SVG via a quirky CDN) but
+                    // we record the failure for the driver loop's
+                    // assertion counter.
+                    const verifyResult = verifyImageDownload(buf, mimeType);
+                    recordVerificationEvent({ kind: 'image_download', result: verifyResult, artifactRef: url });
+                    if (!verifyResult.passed) {
+                        return JSON.stringify({
+                            ok: false,
+                            error: `${verifyResult.reason}. URL: ${url}. The CDN may have served a non-image response (HTML error page, redirect, hotlink-blocker). Try a different image source.`,
+                        });
+                    }
                     const base64 = buf.toString('base64');
                     const realDataUrl = `data:${mimeType};base64,${base64}`;
                     // v6.1.0-alpha.56 — register the real data URL in

@@ -436,15 +436,22 @@ function MissionRow({
           >
             {mission.goal || '(no goal)'}
           </div>
-          <StatusBadge status={mission.status} />
+          {/* Status + updated fade out on hover so the action rail
+              (also pinned top-right) doesn't visually collide. */}
           <div
-            className="text-[11px] shrink-0"
-            style={{
-              color: 'var(--theme-ink-soft)',
-              fontFamily: 'var(--theme-font-mono)',
-            }}
+            className="flex items-center gap-3 transition-opacity"
+            style={{ opacity: hover ? 0 : 1 }}
           >
-            {updated}
+            <StatusBadge status={mission.status} />
+            <div
+              className="text-[11px] shrink-0"
+              style={{
+                color: 'var(--theme-ink-soft)',
+                fontFamily: 'var(--theme-font-mono)',
+              }}
+            >
+              {updated}
+            </div>
           </div>
         </div>
         <div

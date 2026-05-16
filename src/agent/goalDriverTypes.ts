@@ -104,6 +104,23 @@ export interface DriverSubtaskState {
      * any non-`needs_info` status. The mzzbajnj 17-min loop fix.
      */
     consecutiveNeedsInfoCount?: number;
+    /**
+     * v6.1.0-beta.9 — count of consecutive verification failures
+     * (write_file readback mismatch, download_image magic-byte
+     * mismatch, etc.) observed during this subtask. Reset on any
+     * passing verification.
+     *
+     * Threshold semantics (enforced in the driver loop):
+     *   2 → log a warning + nudge the specialist to re-verify
+     *   3 → fail the subtask (verify_fail block kind)
+     *
+     * Defense-in-depth pair with `consecutiveIdenticalErrors`: that
+     * counter catches "tool keeps throwing the same error", this
+     * one catches "tool reports success but the artifact doesn't
+     * match what it claimed". Different failure modes, both
+     * stuck-loop bombs.
+     */
+    consecutiveAssertionFailures?: number;
     /** Result of the most-recent verification check. */
     verificationResult?: {
         passed: boolean;

@@ -33,6 +33,7 @@ import { DEFAULT_BUDGET_CAPS, checkBudget, suggestDegradation, recordSpend } fro
 import { structuredSpawn } from './structuredSpawn.js';
 import { verifyByKind } from './verifier.js';
 import { isGenericQuestion, forceCommitDirective } from './questionQuality.js';
+import { verificationEventsSince } from './verification.js';
 import { onGoalCompleted, onGoalFailed, onGoalBlocked } from './somaFeedback.js';
 import type { Goal, Subtask } from './goals.js';
 import { emitAgentEvent } from './agentEvents.js';
@@ -518,6 +519,52 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
         // Decide phase based on spawn status
         if (result.status === 'done') {
             subState.consecutiveNeedsInfoCount = 0; // reset on non-needs_info
+
+            // beta.10 — runtime assertion failure detector. Look at the
+            // verification ring for events recorded during this spawn
+            // window (between pendingSpawn.attemptedAt and now). If any
+            // verifications failed AND none passed, increment the
+            // assertion counter; if any passed, reset it. Threshold
+            // 3 → fail the subtask with verify_fail block kind so we
+            // don't loop forever on a spawn that keeps producing
+            // artifacts that don't survive readback.
+            try {
+                const spawnStartMs = subState.pendingSpawn?.attemptedAt
+                    ? new Date(subState.pendingSpawn.attemptedAt).getTime()
+                    : Date.now() - durationMs;
+                const events = verificationEventsSince(spawnStartMs);
+                const failed = events.filter(e => !e.result.passed);
+                const passed = events.filter(e => e.result.passed);
+                if (failed.length > 0 && passed.length === 0) {
+                    subState.consecutiveAssertionFailures =
+                        (subState.consecutiveAssertionFailures ?? 0) + 1;
+                    const count = subState.consecutiveAssertionFailures;
+                    appendHistory(
+                        state,
+                        'observing',
+                        `Spawn produced ${failed.length} verification failure(s) (counter=${count}): ${failed[0].result.reason.slice(0, 100)}`,
+                    );
+                    if (count >= 3) {
+                        try {
+                            const { failSubtask } = await import('./goals.js');
+                            failSubtask(
+                                goal.id,
+                                next.id,
+                                `Subtask failed verification ${count}× in a row. Last failure: ${failed[0].result.reason.slice(0, 200)}. The specialist keeps producing artifacts that don't survive readback (byte-count drift, magic-header mismatch, partial write). Failing to break the loop.`,
+                            );
+                        } catch { /* ok */ }
+                        subState.lastError = `Failed: ${count} consecutive verification failures`;
+                        subState.pendingSpawn = undefined;
+                        state.currentSubtaskId = undefined;
+                        state.phase = 'delegating';
+                        appendHistory(state, 'delegating', `Verification stuck-loop fail on ${next.id} (${count}× failures)`);
+                        return;
+                    }
+                } else if (passed.length > 0) {
+                    subState.consecutiveAssertionFailures = 0;
+                }
+            } catch { /* assertion counting never gates the happy path */ }
+
             state.phase = 'verifying';
             appendHistory(state, 'verifying', `Spawn returned done with ${result.artifacts.length} artifact(s), confidence ${result.confidence.toFixed(2)}`);
             // Stash the spawn result so verifying can read it
