@@ -5,6 +5,71 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.17 — 2026-05-16 — Auto-mode P1 fixes (review pass)
+
+Four P1 corrections to beta.16 after a paranoid review. Two were
+actual bugs; two were schema / test drift caught alongside.
+
+### Fixes
+
+1. **Approval-gate precedence fixed.** Beta.16 ran the auto-mode
+   classifier first and short-circuited past the approval gate on
+   `auto` / `notify` decisions. That meant a tool the user had
+   explicitly added to their approval list could still run silently.
+   Beta.17 reverses the order: `requiresApproval(toolName)` is
+   ALWAYS checked first; if the user's explicit list says gate,
+   the call gates regardless of classifier policy. The classifier
+   can ESCALATE (force a gate the legacy list didn't request) but
+   never DE-ESCALATE the user's intent.
+
+2. **Write-side-effect risk bumped `safe` → `moderate`.** Beta.16
+   marked `write_file` / `edit_file` / `append_file` as `safe`,
+   which made the classifier return `auto` for every write. Even
+   with the path guard restricting writes to home + /tmp, an
+   accidental overwrite isn't recoverable for non-versioned files.
+   These tools now classify as `moderate` (which auto-mode maps to
+   `notify` — the call runs but logs a breadcrumb). Path-aware
+   classification (which would let `/tmp/*` writes fully auto-run)
+   is a follow-up.
+
+3. **`security.autoMode.policy` added to the Zod config schema.**
+   The classifier reads `config.security.autoMode.policy` but
+   beta.16 never declared the field in `src/config/schema.ts`, so
+   typos and invalid values would silently fall through to
+   `standard`. Now schema-validated — invalid policies fail at
+   boot.
+
+4. **Tests no longer encode the unsafe expectation.** The auto-
+   mode-classifier suite previously asserted `write_file → auto`;
+   that expectation was a side-effect of bug #2 and locked it in.
+   Updated to `write_file → notify`. Added a `tool-contract`
+   regression that pins write contracts to `moderate`.
+
+### New regression test
+
+`tests/auto-mode-precedence.test.ts` (5 tests) drives the toolRunner
+with a mocked `approval_gates` module and asserts the precedence
+rule: when `requiresApproval()` returns true, the call gates even
+if the classifier returned `auto`. The exact bug Codex caught,
+locked in as a regression test.
+
+### Test sweep
+
+454 / 454 tests pass (auto-mode-precedence + auto-mode-classifier
++ tool-contract + memory-facade + trajectoryRecorder + eval/mission-
+e2e + stub-provider + core + verification + goalDriver +
+builtin-skills).
+
+Build + typecheck clean. No new dependencies.
+
+### Credit
+
+Found by Codex during P1 review of beta.16. The bridge protocol
+(`.ai_bridge.json`) was added one beta earlier specifically to make
+this kind of cross-agent review possible — and it just paid off.
+
+---
+
 ## v6.1.0-beta.16 — 2026-05-16 — Auto-mode classifier (Phase D.4)
 
 The tool runner now reads `contract.riskLevel` before each tool call

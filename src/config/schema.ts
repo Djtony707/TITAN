@@ -121,6 +121,26 @@ export const SecurityConfigSchema = z.object({
     /** v5.0: Pre-execution command scanner for dangerous patterns */
     preExecScan: z.enum(['off', 'warn', 'block']).default('warn'),
     preExecScanAllow: z.array(z.string()).default([]),
+    /**
+     * beta.17 (Phase D.4) — auto-mode classifier policy. Reads by
+     * `src/agent/autoModeClassifier.ts` to decide whether contract-
+     * declared risk levels short-circuit the approval gate, or every
+     * call still requires explicit approval.
+     *
+     * Modes:
+     *   - 'standard'   — (default) safe→auto, moderate→notify, high→gate
+     *   - 'paranoid'   — every call gates regardless of risk
+     *   - 'permissive' — moderate promotes to auto; high still gates
+     *   - 'yolo'       — everything auto, including high. Sandbox-only.
+     *                    Logs a loud warning the first time it activates.
+     *
+     * User-configured `requiresApproval()` is ALWAYS checked first;
+     * a tool on the explicit approval list still gates even under
+     * 'permissive' or 'yolo'. Codex P1 #1.
+     */
+    autoMode: z.object({
+        policy: z.enum(['standard', 'paranoid', 'permissive', 'yolo']).default('standard'),
+    }).default({}),
 });
 
 export const GatewayConfigSchema = z.object({

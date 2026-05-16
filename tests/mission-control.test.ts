@@ -232,7 +232,7 @@ vi.mock("../src/providers/router.js", () => ({
 vi.mock("../src/utils/updater.js", () => ({
   getUpdateInfo: vi
     .fn()
-    .mockResolvedValue({ current: "6.1.0-beta.16", latest: "6.1.0-beta.16", upToDate: true }),
+    .mockResolvedValue({ current: "6.1.0-beta.17", latest: "6.1.0-beta.17", upToDate: true }),
 }));
 
 vi.mock("../src/skills/registry.js", () => ({
@@ -385,7 +385,7 @@ describe("Mission Control v2", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.status).toBe("ok");
-      expect(body.version).toBe("6.1.0-beta.16");
+      expect(body.version).toBe("6.1.0-beta.17");
       expect(typeof body.uptime).toBe("number");
     });
 
@@ -393,7 +393,7 @@ describe("Mission Control v2", () => {
       const res = await fetch(`${BASE}/api/stats`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.version).toBe("6.1.0-beta.16");
+      expect(body.version).toBe("6.1.0-beta.17");
       expect(typeof body.uptime).toBe("number");
     });
   });
@@ -418,7 +418,7 @@ describe("Mission Control v2", () => {
       const res = await fetch(`${BASE}/api/update`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.current).toBe("6.1.0-beta.16");
+      expect(body.current).toBe("6.1.0-beta.17");
     });
   });
 
