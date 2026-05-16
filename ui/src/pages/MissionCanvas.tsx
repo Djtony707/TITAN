@@ -437,9 +437,15 @@ export default function MissionCanvas() {
     if (item.kind === 'goal') return { x: cx - 220, y: 90, z: 5, rotation: -1.2 };
     if (item.kind === 'document') return { x: cx - 240, y: cy - 220, z: 4, rotation: 0.4 };
     if (item.kind === 'cost') return { x: vw - 130, y: 90, z: 6, rotation: 2 };
-    if (item.kind === 'clock') return { x: vw - 280, y: vh - 240, z: 7, rotation: -1.5 };
+    // v6.1.0-beta.5 — clock x moved from vw-280 to vw-440 so the
+    // clock's actual rendered width (264 px) no longer extends past
+    // x = vw - 16 and onto the wastebasket's slot at x = vw - 130.
+    // Trash z also bumped 3→13 (above clock z=7 and above agent cards
+    // z=10/11/12) so even if a future furniture move re-introduces
+    // overlap the wastebasket stays visible.
+    if (item.kind === 'clock') return { x: vw - 440, y: vh - 240, z: 7, rotation: -1.5 };
     if (item.kind === 'cabinet') return { x: 30, y: vh - 280, z: 3, rotation: 0 };
-    if (item.kind === 'trash') return { x: vw - 130, y: vh - 220, z: 3, rotation: 0 };
+    if (item.kind === 'trash') return { x: vw - 130, y: vh - 220, z: 13, rotation: 0 };
     if (item.kind === 'question') return { x: cx + 120, y: 200, z: 30, rotation: -3 };
     if (item.kind === 'agent') {
       // Fan agent cards along the right edge initially.
