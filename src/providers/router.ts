@@ -16,6 +16,7 @@ import { GoogleProvider } from './google.js';
 import { OllamaProvider } from './ollama.js';
 import { ClaudeCodeProvider } from './claudeCode.js';
 import { OpenAICompatProvider, PROVIDER_PRESETS } from './openai_compat.js';
+import { StubProvider, shouldUseStubProvider } from './stub.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 import { findModelOnMesh } from '../mesh/registry.js';
@@ -145,6 +146,16 @@ function initProviders(): void {
     providers.set('google', new GoogleProvider());
     providers.set('ollama', new OllamaProvider());
     providers.set('claude-code', new ClaudeCodeProvider());
+    // beta.11 — CI stub. Deterministic pattern-matched responses so
+    // Eval Gate suites can run on every PR without LLM credentials.
+    // Gated on shouldUseStubProvider() so it never registers in
+    // normal runtime — otherwise the failover walker would silently
+    // land on the stub when real providers go down, masking outages.
+    // CI/eval flow sets TITAN_STUB_PROVIDER=1 to opt in; production
+    // never has it.
+    if (shouldUseStubProvider()) {
+        providers.set('stub', new StubProvider());
+    }
     // OpenAI-compatible providers (Groq, Mistral, OpenRouter, xAI, etc.)
     for (const preset of PROVIDER_PRESETS) {
         providers.set(preset.name, new OpenAICompatProvider(preset));

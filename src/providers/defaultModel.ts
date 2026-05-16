@@ -30,6 +30,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { shouldUseStubProvider } from './stub.js';
 
 const TITAN_HOME_DEFAULT = join(homedir(), '.titan');
 
@@ -165,6 +166,26 @@ export function pickDefaultModel(): DefaultModelPick {
             aliases: defaultAliasesForProvider(provider),
             reason: `user config (agent.model=${userAgentModel})`,
             provider,
+        };
+    }
+
+    // 1b. beta.11 — CI stub fallback. When TITAN_STUB_PROVIDER=1 OR
+    // when we're in CI without any real provider key, route everything
+    // to the deterministic stub so Eval Gate runs can score. Slotted
+    // BEFORE the cloud-key checks so an accidental leftover key on a
+    // CI runner doesn't suddenly start spending real money. The
+    // explicit user-config branch above still beats the stub.
+    if (shouldUseStubProvider()) {
+        return {
+            model: 'stub/echo',
+            aliases: {
+                fast: 'stub/echo',
+                smart: 'stub/echo',
+                cheap: 'stub/echo',
+                reasoning: 'stub/json',
+            },
+            reason: 'CI / TITAN_STUB_PROVIDER set — using deterministic stub provider (no LLM calls)',
+            provider: 'stub',
         };
     }
 

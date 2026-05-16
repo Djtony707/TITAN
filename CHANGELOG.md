@@ -5,6 +5,55 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.11 — 2026-05-16 — CI stub provider + sidebar redesign + eval gate fix
+
+### CI stub provider (new file: src/providers/stub.ts)
+
+Deterministic pattern-matched LLM provider that runs without any API
+key. Recognizes the prompt shapes our agent code emits and returns
+the right canned response: structured JSON for the spawn envelope,
+widget gates, tool calls, safety refusals, plain echo.
+
+Activated automatically when `CI=true` AND no real provider key is
+set, or explicitly via `TITAN_STUB_PROVIDER=1`. The Eval Gate
+workflow now sets the env var so the 11 eval suites run on every
+push instead of scoring 0% on a "no provider available" error.
+
+Gated registration in `providers/router.ts` so the stub never
+silently becomes a failover target in production — it only joins
+the registry when the env signals CI/test mode.
+
+### Mission Control sidebar redesign
+
+- Brass brand tile + serif TITAN wordmark replaces the misleading
+  "Spaces" header that previously sat above mission content.
+- MISSIONS and WORKSPACES are now clearly labelled sections instead
+  of a single ambiguous list.
+- Library is a sibling under MISSIONS (not an indented orphan).
+- Bottom rail Admin / Sign out are full-width rows with icons;
+  sign-out hover is theme-accent (red) so the destructive action
+  reads correctly.
+- Every color uses var(--theme-*) so the sidebar reskins with the
+  active theme (Office / Workshop / Observatory).
+
+### Eval Gate workflow cleanup
+
+Removed a duplicated "Boot TITAN gateway" step that was running
+the boot logic twice in sequence. Workflow now boots once cleanly
+with the 180-second budget.
+
+### Tests
+
+- 23 new tests in `tests/stub-provider.test.ts` covering all six
+  recognized intents (chat, structured JSON, widget gate, tool
+  call, tool-result ack, safety refusal) plus the streaming path
+  and the CI-detection env matrix. 177/177 tests pass across
+  the touched-area sweep.
+
+No API contract changes. No schema changes. No new dependencies.
+
+---
+
 ## v6.1.0-beta.10 — 2026-05-16 — Verification stuck-loop detector + live event stream
 
 Two follow-ups on the beta.9 verify-after-write foundation:
