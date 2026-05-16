@@ -5,6 +5,50 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.14 — 2026-05-16 — Memory façade (Phase D.2)
+
+New `src/memory/facade.ts` exposes TITAN's memory subsystem through
+a clean three-layer API: working / episodic / semantic. Thin wrapper
+over the existing stores (workingMemory.ts, episodic.ts,
+hindsightBridge.ts, memory.ts, relationship.ts, learning.ts) — no
+re-architecture, no behavior change. Every method passes through to
+the same underlying function it always did.
+
+### What the layers cover
+
+- **`memory.working`** — in-flight session state: open questions,
+  decisions, artifacts, notes. Cleared on session close.
+- **`memory.episodic`** — past interactions, recallable by recency
+  or vector similarity. Includes the cross-session Hindsight bridge
+  for recalling across processes.
+- **`memory.semantic`** — facts, learned tool patterns, the user
+  model (name, contacts, preferences, goals, technical level).
+
+### Why this matters
+
+- New skills + provider modules + specialist prompts now have a
+  single, stable import (`import { memory } from '@/memory/facade'`)
+  instead of chasing six imports to find where TITAN remembers
+  things.
+- Docs + the skill-author guide can point at one place.
+- The shape matches what every reliable agent harness exposes, so
+  external contributors recognize the pattern on sight.
+
+### Tests
+
+- 42 new tests in `tests/memory-facade.test.ts` covering the shape
+  contract (exactly three layers, named exports = top-level
+  members), every method exists as a function, and a handful of
+  thread-through smoke tests (open/decide/close, remember/recall,
+  profile shape). TITAN_HOME is mocked to a temp dir so tests
+  don't accumulate state in the real `~/.titan/`.
+- 187 / 187 tests pass across the touched-area sweep.
+
+No API contract changes (everything is additive). No schema
+changes. No new dependencies.
+
+---
+
 ## v6.1.0-beta.13 — 2026-05-16 — Per-spawn trajectory recorder (Phase D.1)
 
 Every sub-agent spawn now writes a per-spawn JSONL trajectory file
