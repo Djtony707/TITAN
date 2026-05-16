@@ -65,7 +65,7 @@ jobs:
           # v5.4.2: Increased to 180s — dependabot bumps added deps that extend
           # cold-start compilation time. 60s was generous for v5.3, insufficient
           # after 11 dep updates expanded the module graph.
-          node dist/gateway/server.js > /tmp/titan-gateway.log 2>&1 &
+          node dist/cli/index.js gateway --skip-usable-check > /tmp/titan-gateway.log 2>&1 &
           echo $! > /tmp/titan-gateway.pid
           for i in $(seq 1 180); do
             if curl -fs http://localhost:48420/api/health > /dev/null 2>&1; then
@@ -86,7 +86,7 @@ jobs:
         run: |
           # Background the gateway, wait for /api/health to come back 200.
           # 60s budget is generous — first boot loads 248 tools and 11 plugins.
-          node dist/gateway/server.js > /tmp/titan-gateway.log 2>&1 &
+          node dist/cli/index.js gateway --skip-usable-check > /tmp/titan-gateway.log 2>&1 &
           echo $! > /tmp/titan-gateway.pid
           for i in $(seq 1 60); do
             if curl -fs http://localhost:48420/api/health > /dev/null 2>&1; then
