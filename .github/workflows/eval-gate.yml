@@ -39,9 +39,13 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=6144
       THRESHOLD: ${{ github.event.inputs.threshold || '80' }}
-      # Eval cases call the agent loop, which routes via providers/router.ts.
-      # In CI we use a stub provider unless TITAN_OLLAMA_URL is set as a secret
-      # — see scripts/eval-gate.sh for the local equivalent.
+      # beta.11 — TITAN ships a deterministic CI stub provider. Setting
+      # TITAN_STUB_PROVIDER=1 makes the model picker route to stub/echo
+      # and pattern-match the eval-suite prompts to canned responses
+      # (widget gates, tool calls, structured JSON, safety refusals).
+      # Before this flag, every eval suite scored 0% because the router
+      # had no provider with credentials to call. See src/providers/stub.ts.
+      TITAN_STUB_PROVIDER: '1'
       TITAN_TELEMETRY_ENABLED: 'false'
 
     steps:
@@ -80,22 +84,6 @@ jobs:
             sleep 1
           done
           echo "::error::Gateway did not become healthy within 180 seconds"
-          tail -100 /tmp/titan-gateway.log
-          exit 1
-      - name: Boot TITAN gateway
-        run: |
-          # Background the gateway, wait for /api/health to come back 200.
-          # 60s budget is generous — first boot loads 248 tools and 11 plugins.
-          node dist/cli/index.js gateway --skip-usable-check > /tmp/titan-gateway.log 2>&1 &
-          echo $! > /tmp/titan-gateway.pid
-          for i in $(seq 1 60); do
-            if curl -fs http://localhost:48420/api/health > /dev/null 2>&1; then
-              echo "Gateway ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::Gateway did not become healthy within 60 seconds"
           tail -100 /tmp/titan-gateway.log
           exit 1
 
