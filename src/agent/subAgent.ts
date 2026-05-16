@@ -11,6 +11,11 @@
  */
 import { chat } from '../providers/router.js';
 import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.js';
+import {
+    startSpawnTrajectory,
+    finishSpawnTrajectory,
+    type TrajectoryHandle,
+} from './trajectoryRecorder.js';
 import { loadConfig } from '../config/config.js';
 import type { ChatMessage, ToolDefinition } from '../providers/base.js';
 import logger from '../utils/logger.js';
@@ -434,6 +439,12 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     const agentTrackingId = `${agentName}-${Date.now()}`;
     activeSubAgentIds.add(agentTrackingId);
 
+    // beta.13 (Phase D.1) — trajectory recorder. Initialized after
+    // model + tool resolution below; held nullable here so the
+    // success/error/finally paths can safely finish() regardless of
+    // whether init reached the post-resolution point.
+    let trajectoryHandle: TrajectoryHandle | null = null;
+
     // Phase 8: log agent spawn
     try {
         const { logActivity } = await import('../telemetry/activityLog.js');
@@ -506,6 +517,19 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     if (isChild && blockedForChildren.size > 0) {
         availableTools = availableTools.filter(t => !blockedForChildren.has(t.function.name));
     }
+
+    // beta.13 (Phase D.1) — open the trajectory file. We start the
+    // record AFTER tool resolution so the start event captures the
+    // exact toolset this spawn was offered. Captures only the names
+    // (not full schemas) to keep the trajectory file small.
+    trajectoryHandle = startSpawnTrajectory({
+        spawnId: agentTrackingId,
+        specialist: agentName,
+        model,
+        task: config.task,
+        goalId: config.goalId,
+        toolNames: availableTools.map(t => t.function.name),
+    });
 
     // Build system prompt: TITAN core (minimal) + role template + persona.
     //
@@ -803,6 +827,19 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             { childName: agentName, success: !finalContent.toLowerCase().startsWith('error') && validated, rounds, durationMs },
         );
 
+        // beta.13 — close the trajectory with the resolved status.
+        // `done` vs `failed` follows the same rule used to compute
+        // success: non-error prefix AND validated.
+        if (trajectoryHandle) {
+            const success = !finalContent.toLowerCase().startsWith('error') && validated;
+            finishSpawnTrajectory(trajectoryHandle, {
+                status: success ? 'done' : 'failed',
+                content: finalContent,
+                totalRounds: rounds,
+                toolsUsed: [...new Set(toolsUsed)],
+            });
+            trajectoryHandle = null;
+        }
         return {
             content: finalContent,
             toolsUsed: [...new Set(toolsUsed)],
@@ -824,6 +861,16 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             'subagent_returned',
             { childName: agentName, success: false, error: (err as Error).message, rounds, durationMs },
         );
+        // beta.13 — close the trajectory with the failure details.
+        if (trajectoryHandle) {
+            finishSpawnTrajectory(trajectoryHandle, {
+                status: 'failed',
+                content: `Sub-agent error: ${(err as Error).message}`,
+                totalRounds: rounds,
+                toolsUsed: [...new Set(toolsUsed)],
+            });
+            trajectoryHandle = null;
+        }
         return {
             content: `Sub-agent error: ${(err as Error).message}`,
             toolsUsed: [...new Set(toolsUsed)],
@@ -833,6 +880,19 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             validated: false,
         };
     } finally {
+        // beta.13 — defensive trajectory close in case neither
+        // success nor catch handled it (e.g. an unusual exit path).
+        // Marked aborted so the trajectory is clearly distinguishable
+        // from clean completions.
+        if (trajectoryHandle) {
+            finishSpawnTrajectory(trajectoryHandle, {
+                status: 'aborted',
+                content: '',
+                totalRounds: rounds,
+                toolsUsed: [...new Set(toolsUsed)],
+            });
+            trajectoryHandle = null;
+        }
         activeSubAgentIds.delete(agentTrackingId);
 
         // ── Message Bus: unregister mailbox on completion ──

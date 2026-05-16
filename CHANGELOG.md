@@ -5,6 +5,55 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.13 — 2026-05-16 — Per-spawn trajectory recorder (Phase D.1)
+
+Every sub-agent spawn now writes a per-spawn JSONL trajectory file
+to `~/.titan/trajectories/<YYYY-MM-DD>/<spawnId>.jsonl`. First line
+is a `start` event with the spawn metadata (specialist, model, task,
+tool names offered); last line is a `finish` event with the
+terminal status (done / failed / aborted), final content, total
+rounds, and tools actually invoked.
+
+### Why this matters
+
+- The beta.9/10 verification ring tells you WHETHER a write
+  succeeded. Trajectories tell you HOW the spawn got there: which
+  model, which tools were offered, which were used, how long it
+  took, and what the final response looked like. Pair them and a
+  stuck mission becomes diagnosable from disk alone — no re-runs
+  needed.
+- Trajectories are also the dataset shape future fine-tuning
+  pipelines (TITAN-Soma policy net) consume, so capturing them now
+  pays off later without re-instrumentation.
+
+### Wire-in
+
+- `src/agent/trajectoryRecorder.ts` (new): start/round/tool_call/
+  tool_result/note/finish event API + reader (loadTrajectory,
+  listTrajectories) + day-bucketed on-disk layout. Sister to the
+  existing bulk dataset capture in `trajectory.ts`; different
+  shapes, different consumers.
+- `src/agent/subAgent.ts`: opens the trajectory after tool
+  resolution; closes it on success, error, and a finally-block
+  safety net (status: 'aborted' if neither the success nor catch
+  paths fired).
+- Opt-out via `TITAN_TRAJECTORY_RECORD=0` for hot benchmark runs.
+
+### Caps + safety
+
+- Tool args truncated at 2 KB, tool results at 4 KB so a single
+  50 MB HTML-report write doesn't bloat trajectories.
+- Recorder failures are silent — disk full / read-only doesn't
+  fail the actual spawn.
+
+### Tests
+
+- 9 new tests in `tests/trajectoryRecorder.test.ts` (happy path,
+  opt-out, reader API, payload caps, on-disk format).
+- 145 / 145 tests pass across the touched-area sweep.
+
+---
+
 ## v6.1.0-beta.12 — 2026-05-16 — Mission end-to-end eval suite
 
 New tier-1 eval test exercising the canonical TITAN journey via the
