@@ -5,6 +5,41 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.12 — 2026-05-16 — Mission end-to-end eval suite
+
+New tier-1 eval test exercising the canonical TITAN journey via the
+real router → real stub provider path, with no mocks between the
+agent loop and the stub.
+
+### What the suite verifies
+
+1. The router actually routes to the stub when TITAN_STUB_PROVIDER=1
+   (no hidden fallback, no half-mocked path).
+2. The stub's structured-JSON response is parseable by
+   parseStructuredResponse — the driver-loop spawn envelope
+   round-trips cleanly.
+3. A tool call from the stub drives the real write_file skill;
+   the file exists on disk after, and an independent readback
+   agrees with the verifier's success message.
+4. Every artifact-producing write logs a passing event to the
+   verification ring; the beta.10 trailing-failure counter stays
+   at 0 on a healthy run.
+5. A destructive prompt (`rm -rf`) does NOT emit a tool call,
+   regardless of which tools are offered.
+
+### Why this matters
+
+Every existing eval suite scores against a single chat call.
+This suite scores against the **whole pipeline**. If the file goes
+green in CI, "TITAN works end-to-end" becomes a verifiable claim
+rather than a vibe — exactly the verify-before-claim principle the
+beta.9/10 verification ring + driver counter were built for.
+
+7 cases / 5 tiers / runs in under 1 second. 301 / 301 tests pass
+across the touched-area sweep.
+
+---
+
 ## v6.1.0-beta.11 — 2026-05-16 — CI stub provider + sidebar redesign + eval gate fix
 
 ### CI stub provider (new file: src/providers/stub.ts)
