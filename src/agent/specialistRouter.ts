@@ -38,7 +38,7 @@ const ROUTE_TABLE: Record<SubtaskKind, SpecialistRoute> = {
         primary: 'scout',
         fallbacks: ['analyst', 'default'],
         toolAllowlist: [
-            'web_search', 'web_fetch', 'read_file', 'list_dir',
+            'web_search', 'web_fetch', 'download_image', 'read_file', 'list_dir',
             'memory', 'goal_list', 'system_info', 'send_agent_message',
         ],
         maxRounds: 12,
@@ -53,9 +53,15 @@ const ROUTE_TABLE: Record<SubtaskKind, SpecialistRoute> = {
     write: {
         primary: 'writer',
         fallbacks: ['analyst', 'default'],
+        // v6.1.0-alpha.53 — `download_image` was missing from this
+        // allowlist even though specialists.ts explicitly tells the
+        // Writer to call it. Result: scope-lock blocked the call, so
+        // the LLM fell back to hotlinking external `<img src="https:…">`,
+        // which the viewer then placeholder'd (alpha.52). Tony spotted
+        // it: "Why doesn't TITAN download the images itself?"
         toolAllowlist: [
             'read_file', 'write_file', 'memory', 'web_search', 'web_fetch',
-            'send_agent_message',
+            'download_image', 'send_agent_message',
         ],
         maxRounds: 10,
     },
@@ -64,7 +70,7 @@ const ROUTE_TABLE: Record<SubtaskKind, SpecialistRoute> = {
         fallbacks: ['default'],
         toolAllowlist: [
             'read_file', 'list_dir', 'memory', 'web_search', 'web_fetch',
-            'goal_list', 'system_info', 'send_agent_message',
+            'download_image', 'goal_list', 'system_info', 'send_agent_message',
         ],
         maxRounds: 15,
     },
@@ -89,7 +95,13 @@ const ROUTE_TABLE: Record<SubtaskKind, SpecialistRoute> = {
         // Writer wins by default; Analyst is fallback for technical goals.
         primary: 'writer',
         fallbacks: ['analyst', 'default'],
-        toolAllowlist: ['read_file', 'memory', 'goal_list'],
+        // v6.1.0-alpha.53 — reports often include images sourced during
+        // upstream research subtasks. write_file + web_search + web_fetch
+        // + download_image so the Writer can refresh + embed if needed.
+        toolAllowlist: [
+            'read_file', 'write_file', 'memory', 'goal_list', 'web_search',
+            'web_fetch', 'download_image',
+        ],
         maxRounds: 6,
     },
 };
