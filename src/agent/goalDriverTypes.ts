@@ -72,6 +72,21 @@ export interface DriverSubtaskState {
      */
     consecutiveIdenticalErrors?: number;
     lastErrorFingerprint?: string;
+    /**
+     * v6.1.0-alpha.51 — after a 15-min auto-reject (stale pending
+     * approval) or an N-repeat-question dedupe trigger, set this flag
+     * so the NEXT spawn that returns `needs_info` does NOT block
+     * again. Instead the driver forces a best-effort commit (or fails
+     * the subtask if no progress is possible). One-shot: cleared after
+     * application so subsequent normal blocks still work.
+     */
+    commitOverride?: boolean;
+    /**
+     * v6.1.0-alpha.51 — fingerprints of questions this subtask has
+     * already asked. Used by the mission-room dedupe + the
+     * force-commit guard so the same question isn't filed twice.
+     */
+    askedQuestionFingerprints?: string[];
     /** Result of the most-recent verification check. */
     verificationResult?: {
         passed: boolean;

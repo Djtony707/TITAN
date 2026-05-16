@@ -525,7 +525,6 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             state.phase = 'iterating';
             appendHistory(state, 'iterating', `Spawn returned failed: ${subState.lastError.slice(0, 120)}`);
         } else if (result.status === 'needs_info' || result.status === 'blocked') {
-            state.phase = 'blocked';
             // v4.14.0: build a rich, contextual blocked reason instead of
             // the generic "Specialist requires input" that tells the user
             // nothing about what actually went wrong.
@@ -535,11 +534,63 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
             const lastErr = subState.lastError;
             const rawQuestion = result.questions[0] ?? '';
 
+            // v6.1.0-alpha.51 — commit-override short-circuit. If the
+            // previous block was auto-rejected (15-min timeout) we set
+            // commitOverride. The specialist had its one free re-try with
+            // a "commit, don't re-ask" directive in lastError; if it STILL
+            // came back with needs_info, the question is structurally
+            // unanswerable from current context. File the subtask as
+            // committed (best-effort done) rather than re-blocking — this
+            // breaks the "Auto-rejected... What should the specialist do
+            // next?" infinite ask loop Tony reported.
+            if (subState.commitOverride) {
+                subState.commitOverride = false; // one-shot
+                try {
+                    const { failSubtask } = await import('./goals.js');
+                    failSubtask(goal.id, next.id, `Auto-committed after timeout: specialist still needs info but no human is available. Original question: "${rawQuestion.slice(0, 160)}"`);
+                } catch { /* ok */ }
+                subState.lastError = `Auto-committed after timeout. Last unresolved question: ${rawQuestion.slice(0, 160)}`;
+                state.currentSubtaskId = undefined;
+                state.phase = 'delegating';
+                appendHistory(state, 'delegating', `Commit-override applied on ${next.id} — no re-block after timeout`);
+                subState.pendingSpawn = undefined;
+                return;
+            }
+
+            // v6.1.0-alpha.51 — dedupe repeated questions. If the
+            // specialist has already asked this same question (by
+            // fingerprint) before on this subtask, don't file the
+            // approval again. Convert to a forced commit instead so
+            // the user isn't pestered with the same prompt 3 times.
+            const rawFp = rawQuestion ? fingerprintBlockedQuestion(rawQuestion) : '';
+            const askedBefore = !!rawFp && (subState.askedQuestionFingerprints || []).includes(rawFp);
+            if (askedBefore) {
+                try {
+                    const { failSubtask } = await import('./goals.js');
+                    failSubtask(goal.id, next.id, `Repeat-question dedupe: specialist asked the same question ("${rawQuestion.slice(0, 120)}") twice. Marking subtask failed to avoid pestering the human.`);
+                } catch { /* ok */ }
+                subState.lastError = `Repeat question detected — failed subtask. Last question: ${rawQuestion.slice(0, 160)}`;
+                state.currentSubtaskId = undefined;
+                state.phase = 'delegating';
+                appendHistory(state, 'delegating', `Repeat-question dedupe on ${next.id}`);
+                subState.pendingSpawn = undefined;
+                return;
+            }
+            if (rawFp) {
+                subState.askedQuestionFingerprints = [
+                    ...(subState.askedQuestionFingerprints || []),
+                    rawFp,
+                ].slice(-8);
+            }
+
+            state.phase = 'blocked';
             let richQuestion: string;
             if (rawQuestion && rawQuestion.length > 10 && !rawQuestion.toLowerCase().includes('specialist requires')) {
                 // The specialist gave a real question — use it but wrap with context
                 richQuestion = `Goal "${goal.title}" is stuck on subtask "${subtaskTitle}" (attempt ${attemptCount}, specialist: ${specialistName}).\n\n${rawQuestion}`;
-            } else if (lastErr) {
+            } else if (lastErr && !/TIMEOUT_DIRECTIVE/.test(lastErr)) {
+                // v6.1.0-alpha.51 — guard against propagating internal
+                // commit-override directive into the user-facing question.
                 richQuestion = `Goal "${goal.title}" — subtask "${subtaskTitle}" failed after ${attemptCount} attempt(s) with specialist ${specialistName}.\n\nError: ${lastErr.slice(0, 200)}\n\nWhat should the specialist do next?`;
             } else {
                 richQuestion = `Goal "${goal.title}" — subtask "${subtaskTitle}" is blocked after ${attemptCount} attempt(s) with specialist ${specialistName}. The specialist could not complete the task and needs guidance on how to proceed.`;
@@ -886,11 +937,21 @@ async function tickBlocked(goal: Goal, state: DriverState): Promise<void> {
                 const sub = state.subtaskStates[currentId];
                 sub.attempts = Math.floor(sub.attempts / 2);
                 sub.consecutiveIdenticalErrors = 0;
-                sub.lastError = 'Auto-rejected: question timed out (no human response within 15 min). Retry with your best interpretation.';
+                // v6.1.0-alpha.51 — the previous wording ("Retry with
+                // your best interpretation. What should the specialist
+                // do next?") would propagate into the next richQuestion
+                // (line ~543) and surface verbatim to the user as a
+                // pending question, creating an infinite ask loop. Rephrase
+                // as a directive that does NOT read like a user-question,
+                // and set commitOverride so the next needs_info short-
+                // circuits to a commit/fail instead of filing another
+                // approval.
+                sub.lastError = 'TIMEOUT_DIRECTIVE: previous block timed out (no human within 15min). Commit to your best-effort interpretation now and proceed — do NOT ask another question. If no reasonable assumption is possible, return status=done with a "could not complete: <reason>" note in reasoning.';
+                sub.commitOverride = true;
             }
             state.blockedReason = undefined;
             state.phase = 'iterating';
-            appendHistory(state, 'iterating', `Stale pending approval ${approvalId} auto-rejected after ${Math.round(sinceMs / 60000)}min — iterating with fresh attempt`);
+            appendHistory(state, 'iterating', `Stale pending approval ${approvalId} auto-rejected after ${Math.round(sinceMs / 60000)}min — iterating with commit-override`);
             return;
         }
     }

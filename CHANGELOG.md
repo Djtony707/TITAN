@@ -5,6 +5,107 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.51 — 2026-05-15 — Auto-reject question-loop fix + steampunk mascot
+
+> Tony: "When the agent is doing work it comes to a point where it
+> asks me to intervene, and asks over and over until I respond.
+> Please fix that. And also, it always says — Error: Auto-rejected:
+> question timed out (no human response within 15 min). Retry with
+> your best interpretation. What should the specialist do next? —
+> Please fix this also." Plus: redesign the mascot in a steampunk
+> style that matches the wood-desk aesthetic, with lots of movement.
+
+### Root cause — the auto-reject ask loop (`src/agent/goalDriver.ts`)
+
+When the 15-minute stale-pending-approval auto-reject fired
+(alpha.43), it set:
+
+```ts
+sub.lastError = 'Auto-rejected: question timed out (no human response
+                 within 15 min). Retry with your best interpretation.';
+```
+
+The next time the specialist returned `needs_info`, the
+`richQuestion` builder wrapped that string in:
+
+```
+Error: ${lastErr.slice(0, 200)}
+What should the specialist do next?
+```
+
+That whole thing got filed as a new approval — surfaced to Tony
+verbatim as a pending question. He'd ignore it (the question is
+internal noise), the 15-min timer fired again, same lastError, same
+richQuestion, same approval. Infinite ask loop.
+
+### Three fixes, defense in depth
+
+1. **Rephrase the auto-reject `lastError`.** Now a clearly internal
+   `TIMEOUT_DIRECTIVE: …commit to your best-effort interpretation
+   now and proceed — do NOT ask another question…` string with no
+   user-question phrasing. Plus a guard in `richQuestion`
+   (`!/TIMEOUT_DIRECTIVE/.test(lastErr)`) so even if it does end up
+   in the error slot it won't propagate.
+2. **`commitOverride` one-shot flag.** Auto-reject now sets
+   `sub.commitOverride = true`. The next `needs_info` short-circuits:
+   the subtask is failed (with the unresolved-question logged) and
+   the driver moves on rather than filing another approval. Flag is
+   cleared after one application so normal blocks still work.
+3. **Repeat-question dedupe.** Every blocking question is
+   fingerprinted (existing `fingerprintBlockedQuestion`) and stored
+   on `sub.askedQuestionFingerprints`. If the SAME fingerprint comes
+   back twice on the same subtask, fail it instead of re-filing.
+   Tony only ever sees a given question once.
+
+Regression test: `tests/v610-alpha51-question-loop.test.ts` — 9
+cases pinning directive wording, type-shape, short-circuit logic,
+richQuestion guard, and fingerprint stability.
+
+### Steampunk mascot redesign (`ui/src/titan2/system/TitanMascot.tsx`)
+
+White-spacesuit "TITAN Bot" → brass-and-mahogany automaton, palette
+matched to `DeskSurface.tsx` (warm wood + amber-gold accent) so the
+mascot reads as one of the desk's brass instruments.
+
+Visual shell:
+- Brass dome helmet with 6 rivets around the rim
+- Glass monocle lens (still mood-tinted; eye / brows / mouth all
+  keep working) with brass cross-hairs etched on it
+- Mahogany wood torso with grain hints + brass chest-plate
+- Glass viewport in chest showing rotating cog + counter-rotating
+  small cog + swinging brass pendulum (the "heart")
+- Brass pressure gauge with a ticking needle
+- Glowing glass-bell antenna with a coiled-spring base
+- Steam vent on the right shoulder emitting three staggered puffs
+- Twin pumping pistons on the back pressure tank
+- Brass orb hands with amber gemstone palms
+- Wood-and-brass riveted boots
+
+Seven new motion layers (lots of movement per Tony's ask): cog spin,
+counter-cog spin, pendulum swing, steam puffs, piston pump, gauge
+needle tick, bolt glint. All routed through the existing
+`prefers-reduced-motion: reduce` block.
+
+### Files touched
+
+- `src/agent/goalDriverTypes.ts` — add `commitOverride`,
+  `askedQuestionFingerprints` to `DriverSubtaskState`
+- `src/agent/goalDriver.ts` — directive rephrase, commit-override
+  short-circuit, repeat-question dedupe, richQuestion guard
+- `tests/v610-alpha51-question-loop.test.ts` (new, 9 tests)
+- `ui/src/titan2/system/TitanMascot.tsx` — STEAM palette + 7 new
+  keyframes + new SVG shell (helmet, lens, torso, viewport, cogs,
+  pendulum, gauge, hands, boots)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts` — version bump
+
+### Tests
+
+`npm test` → **7239 / 7241 passing, 2 skipped, 0 failed** (was
+7230/7232; +9 from the new alpha.51 regression file).
+
+---
+
 ## v6.1.0-alpha.50 — 2026-05-15 — Anti-whack-a-mole: gate widening + essay classifier + 80 test fixes
 
 > Tony, returning from a 2-day break: "do what needs to be done in
