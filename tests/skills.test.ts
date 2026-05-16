@@ -172,6 +172,29 @@ describe('Filesystem Skill', () => {
         const result = await handler.execute({ path: '/tmp' });
         expect(result).toContain('Directory: /tmp');
     });
+
+    it('list_dir should recurse only when recursive is true', async () => {
+        const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
+        const { join } = await import('path');
+        const testDir = mkdtempSync('/tmp/titan-list-dir-');
+        const nestedDir = join(testDir, 'nested');
+        mkdirSync(nestedDir);
+        writeFileSync(join(testDir, 'root.txt'), 'root', 'utf-8');
+        writeFileSync(join(nestedDir, 'child.txt'), 'child', 'utf-8');
+        try {
+            const handler = fsSkillHandlers.get('list_dir');
+            const shallow = await handler.execute({ path: testDir });
+            expect(shallow).toContain('root.txt');
+            expect(shallow).toContain('nested/');
+            expect(shallow).not.toContain('nested/child.txt');
+
+            const recursive = await handler.execute({ path: testDir, recursive: true });
+            expect(recursive).toContain('(recursive)');
+            expect(recursive).toContain('nested/child.txt');
+        } finally {
+            try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+        }
+    });
 });
 
 // ─── Model Switch Skill Tests ─────────────────────────────────────

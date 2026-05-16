@@ -5,6 +5,29 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.19 — 2026-05-16 — list_dir recursive listing
+
+The `list_dir` tool now actually supports the `recursive` parameter
+that its schema has advertised. Previously `recursive: true` had no
+effect and you only ever got the top-level entries.
+
+### Changes
+
+- `src/skills/builtin/filesystem.ts`: `list_dir` walks subdirectories
+  when `recursive: true`. The header includes `(recursive)` so the
+  output is easy to distinguish from a shallow listing.
+- Bounded traversal: a single call returns at most 50,000 entries.
+  This prevents runaway scans on dense trees (e.g. an accidental
+  `recursive: true` against `~/`). When the cap is hit, the output
+  ends with a `... [truncated at 50000 entries]` marker.
+- `tests/skills.test.ts`: new test pins the behavior. A shallow
+  listing must NOT contain nested entries; a recursive listing on
+  the same temp tree must.
+
+No API contract changes. No schema changes. No new dependencies.
+
+---
+
 ## v6.1.0-beta.18 — 2026-05-16 — Tool contract / skill parameter alignment (Codex P1)
 
 Beta.15 introduced declarative Zod contracts for the 9 canonical
