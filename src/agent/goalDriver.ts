@@ -32,6 +32,7 @@ import { nextFallback } from './fallbackChain.js';
 import { DEFAULT_BUDGET_CAPS, checkBudget, suggestDegradation, recordSpend } from './budgetEnforcer.js';
 import { structuredSpawn } from './structuredSpawn.js';
 import { verifyByKind } from './verifier.js';
+import { isGenericQuestion, forceCommitDirective } from './questionQuality.js';
 import { onGoalCompleted, onGoalFailed, onGoalBlocked } from './somaFeedback.js';
 import type { Goal, Subtask } from './goals.js';
 import { emitAgentEvent } from './agentEvents.js';
@@ -581,6 +582,42 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
                     ...(subState.askedQuestionFingerprints || []),
                     rawFp,
                 ].slice(-8);
+            }
+
+            // v6.1.0-alpha.54 — generic-question pre-pass. Tony asked
+            // not to be pinged with low-info questions ("What should
+            // I focus on?", "Please clarify", etc.). isGenericQuestion
+            // classifies the rawQuestion; if generic AND we haven't
+            // already rejected one for this subtask, we set
+            // `lastError` to a forceCommitDirective and bounce back
+            // to delegating — the specialist gets one free retry with
+            // explicit "commit your best interpretation OR consult a
+            // teammate" guidance. If the specialist STILL returns
+            // generic on the retry, we fail the subtask rather than
+            // burn Tony's attention. Specific questions (with a
+            // decision marker, named option, year, URL, quoted name,
+            // etc.) pass through to the existing approval flow.
+            if (isGenericQuestion(rawQuestion)) {
+                if (!subState.genericQuestionRejected) {
+                    subState.genericQuestionRejected = true;
+                    subState.lastError = forceCommitDirective(rawQuestion, goal.title);
+                    state.phase = 'delegating';
+                    appendHistory(state, 'delegating', `Generic question rejected — forcing commit retry on ${next.id}`);
+                    subState.pendingSpawn = undefined;
+                    return;
+                }
+                // Second generic question in a row → fail the subtask
+                // instead of looping. Don't ship to Tony either way.
+                try {
+                    const { failSubtask } = await import('./goals.js');
+                    failSubtask(goal.id, next.id, `Two generic questions in a row from ${specialistName}. Last: "${rawQuestion.slice(0, 160)}". The specialist couldn't commit on its own after a force-retry — marking subtask failed rather than escalating a low-info question to the human.`);
+                } catch { /* ok */ }
+                subState.lastError = `Failed after two generic questions. Last: ${rawQuestion.slice(0, 160)}`;
+                state.currentSubtaskId = undefined;
+                state.phase = 'delegating';
+                appendHistory(state, 'delegating', `Generic-question fail on ${next.id} after force-retry`);
+                subState.pendingSpawn = undefined;
+                return;
             }
 
             state.phase = 'blocked';

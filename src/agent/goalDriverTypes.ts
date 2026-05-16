@@ -87,6 +87,14 @@ export interface DriverSubtaskState {
      * force-commit guard so the same question isn't filed twice.
      */
     askedQuestionFingerprints?: string[];
+    /**
+     * v6.1.0-alpha.54 — set true after we've rejected one generic
+     * question and forced the specialist to retry. If a SECOND
+     * needs_info comes back generic, we stop forcing retries (the
+     * specialist clearly can't figure it out without help) and
+     * fail the subtask instead — saves Tony from a runaway loop.
+     */
+    genericQuestionRejected?: boolean;
     /** Result of the most-recent verification check. */
     verificationResult?: {
         passed: boolean;

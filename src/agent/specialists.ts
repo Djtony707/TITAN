@@ -66,6 +66,62 @@ export interface Specialist {
  * (essay, report, briefing, multi-section summary). One-paragraph
  * inline answers stay inline.
  */
+/**
+ * v6.1.0-alpha.54 — DELIBERATION RULES.
+ *
+ * Tony's instruction: "The AI agents should deliberate amongst
+ * themselves and help themselves out, unless it is a serious
+ * question, in which it should ask me the question instead of
+ * writing me a generic one line question that explains nothing."
+ *
+ * This shared block is appended to every specialist prompt. It
+ * works in concert with the code-level `isGenericQuestion()` gate
+ * in `goalDriver.ts` — the gate auto-rejects generic questions
+ * and force-retries the specialist. These rules tell the LLM
+ * what the gate is looking for and how to avoid hitting it.
+ */
+const DELIBERATION_RULES = [
+    '',
+    '── DELIBERATION RULES — when to ask Tony vs commit yourself ──',
+    'Tony does NOT want to be pinged with low-information questions. Before you EVER return status="needs_info":',
+    '',
+    '  STEP 1 — Try to commit. Re-read the goal title. For 95% of tasks the goal is clearer than you think. Pick the most-obvious reasonable framing and DO THE WORK. Tony can edit afterward. Examples:',
+    '    • Goal "Write a 1-page essay on MLK" → just write it. Don\'t ask "what should I focus on?" — pick the obvious framing (life, civil rights movement, March on Washington, I Have a Dream, legacy).',
+    '    • Goal "Summarize this article" → write the summary. Don\'t ask "what angle?" — neutral overview is the obvious default.',
+    '    • Goal "Make a chart of Q1 sales" → make the bar chart. Don\'t ask "what chart type?" — bars are the default for category data.',
+    '',
+    '  STEP 2 — If you genuinely cannot commit, consult a teammate via `send_agent_message`:',
+    '    • Scout — facts, sources, dates, URLs (research questions)',
+    '    • Analyst — numbers, comparisons, judgment calls about data',
+    '    • Sage — strategy, reviewer perspective, "does this make sense?"',
+    '    • Builder — code / shell / build / test questions',
+    '    • Writer — voice, tone, structure',
+    '  Send ONE focused question, wait for the reply on your next round, then proceed. Treat the teammate\'s reply as authoritative for that question.',
+    '',
+    '  STEP 3 — Only return status="needs_info" if BOTH (a) you cannot commit alone AND (b) no teammate can answer. The question must be:',
+    '    • SPECIFIC — name what fact / option / decision is missing',
+    '    • DECISION-READY — frame it as "X vs Y" with the trade-off, OR cite a quoted name / year / URL / dollar amount that nails the ambiguity',
+    '    • SHORT — one sentence the user can answer in one line',
+    '',
+    '  ❌ AUTO-REJECTED (do not ship to Tony — the code-level gate will force-retry you with a stricter directive):',
+    '    • "What should I focus on?"',
+    '    • "Please clarify"',
+    '    • "Needs more direction"',
+    '    • "How should I proceed?"',
+    '    • "Can you give me more detail?"',
+    '    • "What angle / tone / style should I take?"',
+    '    • "Should I proceed?" (yes/no with no real choice)',
+    '    • Any question under 25 chars with no specific noun',
+    '',
+    '  ✅ ACCEPTABLE (ships to Tony, gets answered, work continues):',
+    '    • "I found two conflicting dates for the March on Washington (NYT 1963 vs Britannica 1964). Cite the 1963 consensus or note both?"',
+    '    • "The CSV has 12 rows tagged \'pending\' — include those in the Q1 total or exclude as not-yet-revenue?"',
+    '    • "Sources disagree on whether to attribute the quote to MLK or Mary McLeod Bethune — should I cite both or pick one?"',
+    '',
+    'Red flag: returning needs_info on your very first round. That\'s almost always a "try harder" signal, not a real ambiguity. Commit first; ask second.',
+    '',
+].join('\n');
+
 const HTML_REPORT_GUIDANCE = [
     '',
     '── OUTPUT FORMAT FOR DOCUMENTS — MANDATORY ──',
@@ -115,7 +171,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "This page looks authoritative" → check the date. On fast-moving topics anything >12 months old needs a fresh check.',
             '• "Three sources agree" → confirm they\'re not all citing each other or a single original.',
             'Red flag: returning facts without an actual web_fetch or web_search call. That is guessing dressed as research.',
-        ].join('\n') + HTML_REPORT_GUIDANCE,
+        ].join('\n') + DELIBERATION_RULES + HTML_REPORT_GUIDANCE,
         templateMatches: ['explorer', 'browser', 'researcher', 'scout'],
         reportsTo: 'default',
     },
@@ -141,7 +197,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "TypeScript is happy" → types catch shape errors, not logic. Did you verify the runtime behavior?',
             '• "I wrote the file" → did you re-read it after the edit landed? Edit tools have edge cases.',
             'Red flag: shipping a write_file without running the relevant test or smoke command afterward.',
-        ].join('\n'),
+        ].join('\n') + DELIBERATION_RULES,
         templateMatches: ['coder', 'engineer', 'builder'],
         reportsTo: 'default',
     },
@@ -165,7 +221,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "Short is good" → short to whom? Match the reader\'s expected length, not your default brevity.',
             '• "I added a hook" → would you scroll past it? Read the first line cold and answer honestly.',
             'Red flag: handing back a draft without re-reading it once as if you were the recipient.',
-        ].join('\n') + HTML_REPORT_GUIDANCE,
+        ].join('\n') + DELIBERATION_RULES + HTML_REPORT_GUIDANCE,
         templateMatches: ['writer', 'content', 'social'],
         reportsTo: 'default',
     },
@@ -190,7 +246,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "I aggregated the data" → over what window? Were the partitions consistent across both sides?',
             '• "It\'s statistically significant" → significant at what p-value, against what null hypothesis?',
             'Red flag: reporting a comparison without stating the baseline, or a percentage without the absolute value behind it.',
-        ].join('\n') + HTML_REPORT_GUIDANCE,
+        ].join('\n') + DELIBERATION_RULES + HTML_REPORT_GUIDANCE,
         templateMatches: ['analyst', 'deliberator', 'reasoner'],
         reportsTo: 'default',
     },
@@ -216,7 +272,7 @@ export const SPECIALISTS: Specialist[] = [
             '• "We can revert later" → can you really? Has data been written, money moved, messages sent, secrets exposed?',
             '• "The tests cover this" → which test? Which assertion? Did you actually open it and verify?',
             'Red flag: approving anything irreversible (publish, send, delete, deploy) without stating the worst-case scenario in one line.',
-        ].join('\n'),
+        ].join('\n') + DELIBERATION_RULES,
         templateMatches: ['sage', 'reviewer', 'critic'],
         reportsTo: 'default',
     },
