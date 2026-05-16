@@ -128,7 +128,7 @@
   "overrides": {
     "esbuild": "^0.25.0",
     "yauzl": "^3.2.1",
-    "langsmith": "^0.5.19",
+    "langsmith": "^0.7.1",
     "picomatch": "^4.0.4",
     "flatted": "^3.4.2",
     "basic-ftp": "^5.3.1",
