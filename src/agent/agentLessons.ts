@@ -26,7 +26,7 @@
  *   - Picrew/awesome-agent-harness pattern #6
  *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -228,6 +228,6 @@ export function readLessonsMarkdown(agentId: string): string {
 export function __resetLessonsForTests(agentId: string): void {
     const path = lessonsPath(agentId);
     if (existsSync(path)) {
-        try { require('fs').unlinkSync(path); } catch { /* fine */ }
+        try { unlinkSync(path); } catch { /* fine */ }
     }
 }

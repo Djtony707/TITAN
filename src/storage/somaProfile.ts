@@ -17,7 +17,7 @@
  * observations; this module reads them and exposes them as the
  * `learnedAboutUser` list the system prompt can reference.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -185,5 +185,5 @@ export function renderSomaProfileForPrompt(userId = 'default-user'): string {
 
 /** Test helper — reset profile + remove file. */
 export function __resetProfileForTests(userId = 'default-user'): void {
-    try { require('fs').unlinkSync(profilePath(userId)); } catch { /* fine */ }
+    try { unlinkSync(profilePath(userId)); } catch { /* fine */ }
 }

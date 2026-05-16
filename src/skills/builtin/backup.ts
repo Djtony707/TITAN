@@ -39,6 +39,7 @@ import {
 } from '../../storage/backup.js';
 import { join, basename } from 'path';
 import { homedir } from 'os';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import logger from '../../utils/logger.js';
 
 const COMPONENT = 'BackupSkill';
@@ -274,7 +275,6 @@ function schedulePath(): string { return join(titanHome(), 'backup-schedule.json
 
 function loadSchedule(): ScheduleConfig {
     try {
-        const { readFileSync, existsSync } = require('fs') as typeof import('fs');
         const p = schedulePath();
         if (existsSync(p)) {
             return JSON.parse(readFileSync(p, 'utf-8')) as ScheduleConfig;
@@ -284,7 +284,6 @@ function loadSchedule(): ScheduleConfig {
 }
 
 function saveSchedule(s: ScheduleConfig): void {
-    const { writeFileSync, mkdirSync } = require('fs') as typeof import('fs');
     try { mkdirSync(titanHome(), { recursive: true }); } catch { /* exists */ }
     writeFileSync(schedulePath(), JSON.stringify(s, null, 2));
 }

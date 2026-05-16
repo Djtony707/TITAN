@@ -11,6 +11,8 @@
  * No code change is forced; the file is purely declarative data the
  * frontend reads on first load.
  */
+import { unlinkSync } from 'fs';
+import { join } from 'path';
 import type { Migration } from './runner.js';
 
 interface RouteRedirect {
@@ -99,7 +101,7 @@ export const migration: Migration = {
         // bad UX but reversible by re-running the migration. Only remove
         // when the user has reverted to a v5.x codebase that won't read it.
         try {
-            require('fs').unlinkSync(require('path').join(ctx.titanHome, 'route-redirects.json'));
+            unlinkSync(join(ctx.titanHome, 'route-redirects.json'));
             ctx.log('Removed route-redirects.json.');
         } catch {
             ctx.log('rollback: route-redirects.json already absent.');

@@ -29,7 +29,7 @@
  *   - Cognition "Devin annual performance review 2025"
  *   - Picrew/awesome-agent-harness pattern #2 (Recitation via living plan file)
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -167,7 +167,7 @@ export function parsePlanMd(raw: string, goalId: string): GoalPlan {
     let title = goalId;
     let intent = '';
     let updatedAt = new Date().toISOString();
-    let createdAt = updatedAt;
+    const createdAt = updatedAt;
     const steps: PlanStep[] = [];
     let scratchpad: string | undefined;
 
@@ -240,6 +240,6 @@ export function renderGoalPlanForPrompt(goalId: string): string {
 export function __resetGoalPlanForTests(goalId: string): void {
     const path = planMdPath(goalId);
     if (existsSync(path)) {
-        try { require('fs').unlinkSync(path); } catch { /* fine */ }
+        try { unlinkSync(path); } catch { /* fine */ }
     }
 }
