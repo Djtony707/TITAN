@@ -32,6 +32,7 @@
  */
 import { registerSkill } from '../registry.js';
 import { TITAN_VERSION } from '../../utils/constants.js';
+import { registerImage } from '../../agent/imageRegistry.js';
 
 // Block private-network / loopback addresses. Mirrors web_fetch.ts.
 function isInternalUrl(urlStr: string): boolean {
@@ -73,19 +74,22 @@ export function registerDownloadImageSkill(): void {
         { name: 'download_image', description: 'Download an image as a base64 data URL for HTML embedding', version: '1.0.0', source: 'bundled', enabled: true },
         {
             name: 'download_image',
-            description: `Download an image from a URL server-side and return it as a base64 data URL suitable for embedding directly in HTML as <img src="data:image/jpeg;base64,…">.
+            description: `Download an image from a URL server-side and return a SHORT reference token (tdi://...) suitable for embedding directly in HTML as <img src="tdi://...">.
 
 USE WHEN: you are writing an HTML report and want to include images that will reliably display in the user's viewer, on any machine, even offline. The viewer's iframe sandbox + referer-policy + private-network mitigations can block hotlinked <img src="https://…"> URLs from many hosts (Wikimedia, Pinterest, Imgur, etc.). Downloading and embedding sidesteps all of that.
 
 WORKFLOW:
 1. Find the image URL (typically via web_search results that include image links, or known Wikimedia Commons URLs from your research).
 2. Call download_image with the URL.
-3. Use the returned dataUrl string directly as the src attribute of an <img> tag in your HTML.
+3. Use the returned dataUrl string (a short "tdi://abc123def456" token, ~30 chars) directly as the src attribute of an <img> tag in your HTML.
+4. When write_file persists your HTML, the token is automatically substituted with the actual base64 data URL on disk. The final file is self-contained and portable.
 
 Example:
   Call: download_image({ url: "https://upload.wikimedia.org/wikipedia/commons/0/05/Martin_Luther_King%2C_Jr..jpg" })
-  Returns: { ok: true, dataUrl: "data:image/jpeg;base64,/9j/4AAQSk...", sizeBytes: 191378, mimeType: "image/jpeg" }
-  Then in your HTML: <img src="data:image/jpeg;base64,/9j/4AAQSk..." alt="MLK portrait" style="max-width:380px;">
+  Returns: { ok: true, dataUrl: "tdi://9f3a2c1b8e5d7f06", sizeBytes: 191378, mimeType: "image/jpeg" }
+  Then in your HTML: <img src="tdi://9f3a2c1b8e5d7f06" alt="MLK portrait" style="max-width:380px;">
+
+IMPORTANT: the token is intentionally short. Do NOT try to "expand" it, "decode" it, or pass it through other tools — just paste it AS-IS inside <img src="...">. The file-write tools handle the expansion automatically.
 
 DO NOT USE FOR:
 - Local files you already have on disk → use read_file or reference the path directly.
@@ -165,12 +169,29 @@ NEVER use a fabricated URL. Only embed images whose URL came from an actual web_
                     }
                     const buf = Buffer.concat(chunks.map(c => Buffer.from(c)));
                     const base64 = buf.toString('base64');
-                    const dataUrl = `data:${mimeType};base64,${base64}`;
+                    const realDataUrl = `data:${mimeType};base64,${base64}`;
+                    // v6.1.0-alpha.56 — register the real data URL in
+                    // the side-channel and return a short opaque token
+                    // (`tdi://abc123def456`) as the `dataUrl` field.
+                    // The LLM treats it like a normal URL and embeds
+                    // it as `<img src="tdi://...">`. write_file resolves
+                    // the token to the full data URL right before
+                    // writing to disk, so the file on disk is portable
+                    // self-contained HTML with the image embedded.
+                    //
+                    // This fixes the long-standing "Writer hotlinks
+                    // external URL instead of embedding" problem,
+                    // whose root cause was never the tool itself — it
+                    // was that asking an LLM to copy 270 KB of base64
+                    // verbatim through its context window is fragile
+                    // even when nothing in the harness strips it.
+                    const ref = registerImage(realDataUrl, mimeType, buf.length);
                     return JSON.stringify({
                         ok: true,
-                        dataUrl,
+                        dataUrl: ref,
                         mimeType,
                         sizeBytes: buf.length,
+                        note: 'dataUrl is a short reference token; embed it directly as <img src="..."> and the file-write tools will substitute the real image bytes before saving.',
                     });
                 } catch (err) {
                     const e = err as Error;

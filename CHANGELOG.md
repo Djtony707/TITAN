@@ -5,6 +5,114 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.56 — 2026-05-15 — Image registry side-channel (THE actual fix)
+
+> Tony: "FIX THE NO IMAGE IN ESSAY PROBLEM!!!!!"
+
+Five iterations earlier didn't actually fix it. alpha.52 placeholdered
+broken images, alpha.53 wired download_image into the Writer's
+allowlist, alpha.54 stopped generic asks, alpha.55 exempted
+download_image from ToolRunner truncation. The Writer's logs
+confirmed it was calling `download_image` 8 times per run — but
+the final HTML still had `<img src="https://upload.wikimedia.org/…">`.
+
+### The real root cause
+
+Even with NO harness layer stripping the output, asking an LLM
+to copy a 270 KB base64 string verbatim through its chat context
+into a `write_file({content: "…"})` argument is structurally
+fragile. LLMs:
+
+- Truncate huge strings silently when emitting
+- Avoid pasting 200 KB blobs (training favors brevity)
+- Hit subtle boundary effects in token streaming
+- Burn ~70 K tokens per round-trip, crowding out the prose
+
+Even when nothing was stripping the data URL, the LLM itself was
+giving up on emitting it and falling back to inlining the source
+URL. Every "now it will work" claim in alpha.53→.55 was wrong
+because the bug wasn't in the harness — it was in the data flow.
+
+### The architectural fix
+
+Never round-trip the base64 through the LLM. Use a side-channel:
+
+```
+src/agent/imageRegistry.ts   (new module)
+
+download_image  → registerImage(dataUrl, mime, size)
+                  stores dataUrl keyed by content-hash
+                  returns short token "tdi://abc123def456" (~30 chars)
+                  returns that token as the `dataUrl` field
+
+Writer          → pastes the token into HTML as
+                  <img src="tdi://abc123def456" alt="...">
+                  (sees a 30-char string, not 270 KB of base64)
+
+write_file      → resolveImageReferences(content) before
+                  writeFileSync — substitutes every tdi:// token
+                  with the real data:image/jpeg;base64,... URL
+
+Disk            → HTML file contains real embedded data URLs,
+                  self-contained and portable
+
+FileViewer      → renders the real photo, no placeholder
+```
+
+Properties of the registry:
+
+- Token is ~30 chars regardless of image size — LLM never has to
+  emit a 200 KB literal
+- Content-hashed for natural dedupe (same image twice = same token)
+- LRU-bounded at 64 entries → no memory leak from long sessions
+- "tdi://" private scheme avoids `data:` (which `sanitizeBase64`
+  would strip) and `https:` (which the alpha.52 placeholder
+  rewrite would intercept)
+- Unresolved tokens (e.g. server restart between download_image
+  and write_file) fall through to the alpha.52 brass placeholder
+  → graceful degradation
+
+### Files touched
+
+- `src/agent/imageRegistry.ts` (new) — `registerImage`,
+  `resolveImageReferences`, `hasImageReferences`, `clearImageRegistry`,
+  LRU eviction, `TDI_SCHEME` constant
+- `src/skills/builtin/download_image.ts` — registers + returns
+  `tdi://hash` instead of the raw data URL; updated tool description
+  to teach the new flow
+- `src/skills/builtin/filesystem.ts` — `write_file` / `append_file`
+  / `edit_file` each call `resolveImageReferences` before writing
+  to disk; write_file's "destructive overwrite" guard exempts
+  files containing resolved data URLs (which are one very long
+  line and would false-positive the line-count check)
+- `src/agent/specialists.ts` — Writer HTML_REPORT_GUIDANCE rewritten
+  for the `tdi://` workflow
+- `ui/src/pages/mission/htmlSanitize.ts` — sanitizer recognizes
+  `tdi://` as untrusted-with-fallback (unresolved → brass
+  placeholder, never raw broken-icon)
+- `tests/v610-alpha56-image-registry.test.ts` (new, 12 tests)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+### Tests
+
+12 cases pin every step:
+- `registerImage` returns a short token
+- Token is much shorter than the data URL (≤35 vs 100K+)
+- Identical content produces identical token (dedupe)
+- Different content produces different tokens
+- `resolveImageReferences` swaps tokens for real URLs
+- Pass-through when no tokens present
+- Multiple tokens in one document resolved together
+- Unknown tokens pass through unchanged (graceful)
+- LRU keeps registry ≤ 64 entries after 200 registers
+- htmlSanitize placeholders unresolved tdi:// tokens
+
+Full suite: **7328 / 7330 passing, 2 skipped, 0 failed** (was
+7316/7318 at alpha.55; +12 new tests).
+
+---
+
 ## v6.1.0-alpha.55 — 2026-05-15 — download_image output not getting truncated by ToolRunner
 
 > Tony: "Check the logs please."

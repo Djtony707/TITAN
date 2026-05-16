@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSy
 import { join, resolve } from 'path';
 import { homedir } from 'os';
 import { registerSkill } from '../registry.js';
+import { resolveImageReferences } from '../../agent/imageRegistry.js';
 
 /** S4: Block access to sensitive system paths */
 const BLOCKED_PATHS = ['/etc', '/root', '/sys', '/proc', '/dev', '/boot', '/var/log', '/var/run'];
@@ -222,18 +223,28 @@ NEVER output the file content as a plain code block in the chat when the user as
                 try {
                     const dir = join(filePath, '..');
                     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                    const newContent = args.content as string;
-                    // Guard: prevent destructive overwrites of existing files
+                    // v6.1.0-alpha.56 — substitute `tdi://hash` reference
+                    // tokens from download_image with their real data
+                    // URLs RIGHT before writing to disk. The LLM never
+                    // had to handle the full base64 in its context.
+                    const newContent = resolveImageReferences(args.content as string);
+                    // Guard: prevent destructive overwrites of existing files.
+                    // Use newContent.length-vs-existing.length ratio rather
+                    // than line count, because resolved data URLs span one
+                    // very long line and would trigger false-positive
+                    // "destructive expansion" warnings on the line-count check.
                     if (existsSync(filePath)) {
                         const existing = readFileSync(filePath, 'utf-8');
                         const existingLines = existing.split('\n').length;
                         const newLines = newContent.split('\n').length;
-                        // If file exists and new content is <40% of original size, block it
-                        if (existingLines > 20 && newLines < existingLines * 0.4) {
-                            return `Error: write_file would replace ${existingLines} lines with only ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks destructive. Use edit_file to make surgical changes instead of rewriting the entire file.`;
-                        }
-                        if (existingLines > 20 && newLines > existingLines * 3) {
-                            return `Error: write_file would expand ${existingLines} lines to ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks like accidental file duplication. Use edit_file to make targeted changes instead of rewriting the entire file.`;
+                        const containsDataUrls = /data:image\/[^;]+;base64,/.test(newContent);
+                        if (!containsDataUrls) {
+                            if (existingLines > 20 && newLines < existingLines * 0.4) {
+                                return `Error: write_file would replace ${existingLines} lines with only ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks destructive. Use edit_file to make surgical changes instead of rewriting the entire file.`;
+                            }
+                            if (existingLines > 20 && newLines > existingLines * 3) {
+                                return `Error: write_file would expand ${existingLines} lines to ${newLines} lines (${Math.round(newLines / existingLines * 100)}% of original). This looks like accidental file duplication. Use edit_file to make targeted changes instead of rewriting the entire file.`;
+                            }
                         }
                     }
                     writeFileSync(filePath, newContent, 'utf-8');
@@ -280,8 +291,10 @@ Errors: same set as write_file (EACCES, BLOCKED: sensitive path, ENOSPC).`,
                     const { appendFileSync } = await import('fs');
                     const dir = join(filePath, '..');
                     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                    appendFileSync(filePath, args.content as string, 'utf-8');
-                    return `Successfully appended ${(args.content as string).length} bytes to ${filePath}`;
+                    // v6.1.0-alpha.56 — resolve tdi:// image references before append.
+                    const resolved = resolveImageReferences(args.content as string);
+                    appendFileSync(filePath, resolved, 'utf-8');
+                    return `Successfully appended ${resolved.length} bytes to ${filePath}`;
                 } catch (e) { return `Error appending to file: ${(e as Error).message}`; }
             },
         },
@@ -379,7 +392,12 @@ NEVER guess at the target — read_file first, always.`,
                             : contentLines.slice(0, 10).map((l: string, i: number) => `  ${i + 1}: ${l}`).join('\n');
                         return `Error: Target string not found in ${filePath}. The target must match EXACTLY (including whitespace/indentation). Closest match area:\n${nearby}\n\nTIP: Use read_file with startLine/endLine to get the exact text, then copy it precisely as the target.`;
                     }
-                    content = content.split(target).join(args.replacement as string);
+                    // v6.1.0-alpha.56 — resolve tdi:// references in the
+                    // replacement before splicing so the LLM can paste a
+                    // download_image token into edit_file's replacement
+                    // and get the full data URL on disk.
+                    const resolvedReplacement = resolveImageReferences(args.replacement as string);
+                    content = content.split(target).join(resolvedReplacement);
                     writeFileSync(filePath, content, 'utf-8');
                     return `Successfully edited ${filePath}`;
                 } catch (e) { return `Error editing file: ${(e as Error).message}`; }
