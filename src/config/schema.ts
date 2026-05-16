@@ -1266,6 +1266,16 @@ export const TitanConfigSchema = z.object({
         /** Days to retain local telemetry events */
         retentionDays: z.number().default(90),
         /**
+         * v6.1.0 Phase A — Gap 6: date-based TTL on the local
+         * `~/.titan/bug-reports.jsonl` file. Entries older than this
+         * are dropped on every append. Defaults to 30 days, matching
+         * the GDPR storage-limitation principle ("delete when no
+         * longer needed"). Set to a larger number to keep more
+         * history; cannot be disabled (set to a very large number if
+         * you want effectively-forever retention).
+         */
+        localRetentionDays: z.number().default(30),
+        /**
          * Default remote endpoint. When `enabled=true`, system_profile /
          * heartbeat / error events get POSTed here. The TITAN project's
          * default collector is fronted by Tailscale Funnel pointing at the

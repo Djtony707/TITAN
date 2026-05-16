@@ -21,6 +21,7 @@ import { getActivePersonaContent } from '../personas/manager.js';
 import { assembleSystemPrompt } from './systemPromptParts.js';
 import { recordJournalEvent } from './durableJournal.js';
 import { emitAgentEvent } from './agentEvents.js';
+import { formatCurrentDateContext } from './dateContext.js';
 
 const COMPONENT = 'SubAgent';
 
@@ -524,7 +525,8 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
         persona: config.persona || 'default',
         mode: 'minimal',
     });
-    let systemPrompt = `${titanCore}\n\n## Role\n${roleTemplate}`;
+    const dateContext = formatCurrentDateContext();
+    let systemPrompt = `${titanCore}\n\n## Current Context\n${dateContext}\n\n## Role\n${roleTemplate}`;
 
     // ── Persona: inject persona content from assets/personas/ ──
     const personaId = config.persona;
