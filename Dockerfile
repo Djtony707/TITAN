@@ -12,6 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY scripts ./scripts
 COPY tsconfig.json ./
+COPY tsup.config.ts ./
 
 # Install all deps (including devDependencies for tsup + Vite build)
 RUN npm ci

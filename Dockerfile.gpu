@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY scripts ./scripts
 COPY tsconfig.json ./
+COPY tsup.config.ts ./
 RUN npm ci
 COPY src ./src
 COPY ui ./ui
@@ -48,7 +49,9 @@ COPY .env.example ./.env.example
 # Copy voice components
 COPY titan-voice-server ./titan-voice-server
 COPY titan-voice-agent ./titan-voice-agent
-COPY scripts/qwen3-tts-server.py ./scripts/qwen3-tts-server.py
+# Voice TTS server — we use F5-TTS (Qwen3-TTS reference was stale).
+COPY scripts/f5-tts-server.py ./scripts/f5-tts-server.py
+COPY scripts/f5-tts-gpu-server.py ./scripts/f5-tts-gpu-server.py
 
 # Create non-root titan user
 RUN groupadd -g 1001 titan && useradd -u 1001 -g titan -m -d /home/titan titan \
