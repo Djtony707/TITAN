@@ -16,6 +16,7 @@ import {
 /** S4: Block access to sensitive system paths */
 const BLOCKED_PATHS = ['/etc', '/root', '/sys', '/proc', '/dev', '/boot', '/var/log', '/var/run'];
 const BLOCKED_PATTERNS = ['.ssh', '.gnupg', '.aws', '.env', 'id_rsa', 'id_ed25519', '.netrc', '.npmrc'];
+const MAX_DIR_ENTRIES = 50_000;
 
 /** Expand ~ and resolve to absolute path */
 function expandPath(filePath: string): string {
@@ -481,17 +482,32 @@ Errors:
                 if (dirErr) return dirErr;
                 if (!existsSync(dirPath)) return `Error: Directory not found: ${dirPath}`;
                 try {
-                    const entries = readdirSync(dirPath, { withFileTypes: true });
-                    const lines = entries.map((entry) => {
-                        const fullPath = join(dirPath, entry.name);
-                        if (entry.isDirectory()) {
-                            return `📁 ${entry.name}/`;
+                    const recursive = args.recursive === true;
+                    const lines: string[] = [];
+                    let truncated = false;
+                    const addEntries = (currentPath: string, prefix = ''): void => {
+                        const entries = readdirSync(currentPath, { withFileTypes: true });
+                        for (const entry of entries) {
+                            if (lines.length >= MAX_DIR_ENTRIES) {
+                                truncated = true;
+                                return;
+                            }
+                            const fullPath = join(currentPath, entry.name);
+                            const displayName = prefix ? `${prefix}/${entry.name}` : entry.name;
+                            if (entry.isDirectory()) {
+                                lines.push(`📁 ${displayName}/`);
+                                if (recursive) addEntries(fullPath, displayName);
+                                if (truncated) return;
+                                continue;
+                            }
+                            const stat = statSync(fullPath);
+                            const size = stat.size < 1024 ? `${stat.size}B` : stat.size < 1048576 ? `${(stat.size / 1024).toFixed(1)}KB` : `${(stat.size / 1048576).toFixed(1)}MB`;
+                            lines.push(`📄 ${displayName} (${size})`);
                         }
-                        const stat = statSync(fullPath);
-                        const size = stat.size < 1024 ? `${stat.size}B` : stat.size < 1048576 ? `${(stat.size / 1024).toFixed(1)}KB` : `${(stat.size / 1048576).toFixed(1)}MB`;
-                        return `📄 ${entry.name} (${size})`;
-                    });
-                    return `Directory: ${dirPath}\n${lines.join('\n')}`;
+                    };
+                    addEntries(dirPath);
+                    const suffix = truncated ? `\n... [truncated at ${MAX_DIR_ENTRIES} entries]` : '';
+                    return `Directory: ${dirPath}${recursive ? ' (recursive)' : ''}\n${lines.join('\n')}${suffix}`;
                 } catch (e) { return `Error listing directory: ${(e as Error).message}`; }
             },
         },
