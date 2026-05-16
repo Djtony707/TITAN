@@ -5,6 +5,58 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.16 — 2026-05-16 — Auto-mode classifier (Phase D.4)
+
+The tool runner now reads `contract.riskLevel` before each tool call
+and decides automatically whether the call can run autonomously,
+deserves a passive notification, or requires explicit human
+approval. Removes the per-call approval prompt from the safe paths
+that dominate normal missions.
+
+### Decisions
+
+| Contract `riskLevel` | Decision   | What happens                                        |
+|----------------------|------------|-----------------------------------------------------|
+| `safe`               | `auto`     | Runs immediately. Read/write inside the workspace. |
+| `moderate`           | `notify`   | Runs, logs a breadcrumb. Network calls.            |
+| `high`               | `gate`     | Pauses for human approval. Destructive ops.        |
+| (no contract)        | `gate`     | Conservative default — unknown tools always gated. |
+
+### Policy modes (`config.security.autoMode.policy`)
+
+- `standard`   — table above (default).
+- `paranoid`   — every call gates, regardless of risk.
+- `permissive` — `moderate` promotes to `auto`; `high` still gates.
+- `yolo`       — everything auto, including `high`. Sandboxed eval
+  runs only; logs a loud warning the first time it activates.
+
+### Wire-in
+
+- `src/agent/autoModeClassifier.ts` (new): `classifyToolCall`,
+  `getAutoModePolicy`, `shouldGate`, `formatBreadcrumb`, plus a
+  one-shot yolo warning so logs aren't spammed.
+- `src/agent/toolRunner.ts`: classifier runs right before the
+  existing approval-gate block. `auto` short-circuits past the
+  gate; `notify` runs with an info-level breadcrumb; `gate`
+  defers to the existing approval flow (now also gates on
+  classifier `gate` decision, not only the hardcoded dangerous-tool
+  list — the classifier wins).
+
+### Tests
+
+- 31 new tests in `tests/auto-mode-classifier.test.ts` covering all
+  four policies × the three risk levels × unknown-tool defaults +
+  the yolo-once-warning + canonical-skill integration smoke tests
+  (read_file→auto, write_file→auto, web_search→notify, shell→gate).
+- 472 / 472 tests pass across the broader sweep (mission-e2e +
+  tool-contract + memory-facade + trajectoryRecorder + stub-provider
+  + core + verification + goalDriver + builtin-skills + skills).
+
+No new dependencies. No schema changes (the policy field is read
+defensively from config; absent fields default to `standard`).
+
+---
+
 ## v6.1.0-beta.15 — 2026-05-16 — Tool contracts (Phase D.3)
 
 Declarative input schemas + risk metadata for the 9 most-used
