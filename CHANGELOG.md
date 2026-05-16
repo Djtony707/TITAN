@@ -5,6 +5,68 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.3 — 2026-05-15 — Phase 0c surfaces (Workshop + Observatory) + picker overlap fix
+
+> Tony: "There is stuff covering stuff on all these pages. need to
+> look at them yourself after building them."
+
+He was right. The beta.2 theme picker at `top: 12, right: 12`
+collided with existing top-right chrome on `/space/home`
+(version-pill / Gallery / ⌘K / ⌘J) and the `/mission/:id/canvas`
+button row (Tidy up / Chat view / Pause / Delete / ?). I verified
+the overlap with a Chrome MCP bounding-box probe across all
+pages — 4 buttons covered on `/space/home`, others sat exactly
+in the same row but escaped the strict-overlap check because
+their right-edge sits just outside the picker's left-edge.
+
+### Fix 1 — Picker repositioned to `top: 48`
+- Now sits BELOW any per-page top-row chrome (existing topbars end
+  at ~y=44). Universal empty space verified via Chrome MCP probe
+  across `/space/home`, `/mission`, `/mission/library`,
+  `/mission/:id`, `/mission/:id/canvas`.
+- Background bumped to `rgba(20,12,4,0.55)` and added soft drop-
+  shadow — better contrast against the wood/space/workshop
+  backgrounds without dominating attention.
+
+### Fix 2 — Workshop and Observatory base surfaces (Phase 0c)
+- `ui/src/components/desk/WorkshopSurface.tsx` (new) — slate-blue
+  gradient base (`#1a2030` → `#141925`), 32-px blueprint-grid
+  overlay at ~6% blue, vignette, suppressible spec-dust particles
+- `ui/src/components/desk/ObservatorySurface.tsx` (new) — deep
+  indigo gradient (`#1a1235` → `#0e0820`), 8 fixed-position
+  radial-gradient stars, vignette, slow twinkle keyframe
+- `ui/src/components/desk/DeskSurface.tsx` — refactored: the
+  public `DeskSurface` is now a switcher that reads
+  `document.documentElement.getAttribute('data-theme')` and
+  delegates to `WorkshopSurface` / `ObservatorySurface` / the
+  original wood implementation (renamed to private
+  `WoodDeskSurface`). Subscribes via `MutationObserver` on the
+  attribute so it re-renders when the picker changes themes.
+  Public Props interface + all consumer call sites unchanged.
+
+Now picking Workshop in the picker actually paints a workshop
+background. Picking Observatory paints a starfield. Picking
+Office returns to the wood-desk variant from your Settings tab.
+
+### Tests
+
+- `tests/v610-workshop-observatory-surfaces.test.ts` (new, 3
+  smoke tests) — module shape, displayName parity, DeskSurface
+  API preserved
+- All other tests green
+
+### Files touched
+
+- `ui/src/components/TopbarThemePicker.tsx` — picker position fix
+- `ui/src/components/desk/DeskSurface.tsx` — switcher refactor
+- `ui/src/components/desk/WorkshopSurface.tsx` (new)
+- `ui/src/components/desk/ObservatorySurface.tsx` (new)
+- `tests/v610-workshop-observatory-surfaces.test.ts` (new)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+---
+
 ## v6.1.0-beta.2 — 2026-05-15 — PostHog Phase B + theme system foundation (Phase 0a + 0b)
 
 > Tony: "Why are you pausing?" — fair point, this bundles two

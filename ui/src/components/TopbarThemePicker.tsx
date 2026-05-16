@@ -37,12 +37,21 @@ export function TopbarThemePicker({ className = '' }: Props) {
         <div
             role="tablist"
             aria-label="Visual theme"
-            className={`fixed top-3 right-3 z-50 flex gap-0 rounded-full p-0.5 ${className}`}
+            // v6.1.0-beta.3 — sits at top: 48 (BELOW the existing per-page
+            // chrome row at top: 0-44) so it never covers page buttons.
+            // Tony's first beta.2 placement at top: 3 collided with
+            // /space/home's "v6.1.0 / Gallery / ⌘K / ⌘J" cluster and with
+            // /mission/:id/canvas's "Tidy up / Chat view / Pause / Delete /
+            // ?" cluster. Universal-empty position verified via Chrome MCP
+            // bounding-box probe across all pages.
+            className={`fixed right-3 z-50 flex gap-0 rounded-full p-0.5 ${className}`}
             style={{
-                background: 'rgba(0,0,0,0.32)',
+                top: 48,
+                background: 'rgba(20,12,4,0.55)',
                 border: '1px solid var(--theme-metal-dark, #8a6a3a)',
                 fontFamily: 'var(--theme-font-display, "Iowan Old Style", Georgia, serif)',
-                backdropFilter: 'blur(6px)',
+                backdropFilter: 'blur(8px)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
             }}
         >
             {OPTIONS.map((opt) => {
