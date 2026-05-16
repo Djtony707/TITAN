@@ -5,6 +5,42 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.7 — 2026-05-16 — Sidebar overlap fixes (SomaOrb + NavWidget)
+
+> Tony: "The SOMA button that says exploring is covering everything,
+> and then the SPACES button on the bottom left is covering Admin
+> and Log out."
+
+Two floating elements were docked at left-coordinates that landed
+INSIDE the SpacesSidebar's rail (240 px wide), covering its content.
+
+Chrome MCP probe identified them:
+
+1. **SomaOrb** (`ui/src/titan2/system/SomaOrb.tsx`) — defaulted to
+   `{ x: 24, y: 80 }`. Sat at x=24-72 over the Missions / Library
+   sidebar entries.
+2. **NavWidget** (`ui/src/titan2/canvas/TitanCanvas.tsx`) — rendered
+   as `<FloatingWidget position="bottom-left">` at `left-4 bottom-4
+   z-50`. Sat at x=16-196 over the sidebar's Admin / Log out
+   footer.
+
+### Fix
+
+- **SomaOrb default position**: `{ x: 24, y: 80 }` → `{ x: 280, y: 80 }`.
+  280 px is just RIGHT of the 240-px-wide sidebar. User can still
+  drag the orb anywhere; we just don't start it over sidebar chrome.
+- **NavWidget position**: `bottom-left` → custom `right-4 bottom-32`
+  (just above the mascot at right:4 bottom:4). Clears the sidebar
+  footer entirely.
+
+### Verification
+
+Chrome MCP probe after fix re-runs the same overlap detector. The
+"left-side fixed elements covering sidebar content" check should
+return zero matches.
+
+---
+
 ## v6.1.0-beta.6 — 2026-05-16 — Observatory readability hotfix (paper-fg token)
 
 > Tony: "This doesn't look so good. And we cannot see words."

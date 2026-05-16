@@ -1052,13 +1052,18 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
         )}
       </div>
 
-      {/* Floating Nav */}
-      <FloatingWidget position="bottom-left">
+      {/* Floating Nav — v6.1.0-beta.7 — moved from bottom-LEFT to
+          bottom-RIGHT (offset above the mascot at right:4 bottom:4).
+          The bottom-LEFT corner overlapped the SpacesSidebar's
+          Admin/Logout footer; bottom-RIGHT clears it. The NavWidget
+          is partially redundant with the SpacesSidebar but kept for
+          users who collapse the sidebar. */}
+      <div className="fixed right-4 bottom-32 z-50">
         <NavWidget
           currentSpaceId={space.id}
           onSpaceSelect={(id) => navigate(`/space/${id}`)}
         />
-      </FloatingWidget>
+      </div>
 
       {/*
         Floating Chat Dock — v5.0 "Spacewalk" unification. Replaces both

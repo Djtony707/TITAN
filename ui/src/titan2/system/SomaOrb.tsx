@@ -55,7 +55,13 @@ export function SomaOrb() {
   const [expanded, setExpanded] = useState(false);
   const [somaState, setSomaState] = useState<SomaState>({ emotion: 'calm', intensity: 0.3, activity: 'Observing' });
   const [showMenu, setShowMenu] = useState(false);
-  const [position, setPosition] = useState({ x: 24, y: 80 });
+  // v6.1.0-beta.7 — default position moved from (24, 80) to (280, 80)
+  // so the orb sits to the RIGHT of the SpacesSidebar (which is 240px
+  // wide) instead of on top of the Missions / Library entries.
+  // User can still drag it anywhere; we just don't START it overtop
+  // sidebar chrome. Tony's screenshot showed the orb covering the
+  // first sidebar rows on /space/home.
+  const [position, setPosition] = useState({ x: 280, y: 80 });
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const orbRef = useRef<HTMLDivElement>(null);
