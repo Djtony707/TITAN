@@ -92,7 +92,7 @@ export function LoginPage() {
           <h1
             className="text-5xl font-bold"
             style={{
-              color: 'var(--theme-paper)',
+              color: 'var(--theme-paper-fg)',
               fontFamily: 'var(--theme-font-display)',
               letterSpacing: '0.05em',
               textShadow:
@@ -157,7 +157,7 @@ export function LoginPage() {
                     fontFamily: 'var(--theme-font-mono)',
                     fontSize: '14px',
                     letterSpacing: revealed ? '0.02em' : '0.18em',
-                    color: 'var(--theme-paper)',
+                    color: 'var(--theme-paper-fg)',
                     background:
                       'color-mix(in srgb, var(--theme-paper) 10%, transparent)',
                     border: error

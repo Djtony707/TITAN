@@ -196,7 +196,7 @@ export default function MissionChat() {
         className="flex items-center justify-center h-full flex-col gap-3"
         style={{
           fontFamily: "var(--theme-font-display, 'Georgia', serif)",
-          color: 'var(--theme-paper, #f3e9d0)',
+          color: 'var(--theme-paper-fg, #f3e9d0)',
         }}
       >
         <div className="text-sm" style={{ color: 'var(--theme-accent, #c45050)' }}>{error ?? 'Mission not found.'}</div>
@@ -218,7 +218,7 @@ export default function MissionChat() {
       className="h-full w-full flex flex-col overflow-hidden"
       style={{
         fontFamily: "var(--theme-font-display, 'Georgia', serif)",
-        color: 'var(--theme-paper, #f3e9d0)',
+        color: 'var(--theme-paper-fg, #f3e9d0)',
         minHeight: 0,
       }}
     >
@@ -497,7 +497,7 @@ function SenderChip({
       </div>
       <span
         className="text-[12px] font-semibold tracking-tight"
-        style={{ color: 'var(--theme-paper)' }}
+        style={{ color: 'var(--theme-paper-fg)' }}
       >
         {name}
       </span>
@@ -640,7 +640,7 @@ function MessageRow({
             style={{
               // Brass-tinted background ~30% so it still feels like leather underneath.
               background: 'color-mix(in srgb, var(--theme-metal-dark) 30%, transparent)',
-              color: 'var(--theme-paper)',
+              color: 'var(--theme-paper-fg)',
               border: '1px solid color-mix(in srgb, var(--theme-metal) 40%, transparent)',
               boxShadow: '0 2px 6px var(--theme-shadow)',
               fontFamily: 'var(--theme-font-display)',
@@ -715,7 +715,7 @@ function MessageRow({
             borderLeftColor: msg.from.color,
             border: '1px solid rgba(239,68,68,0.35)',
             borderLeft: `3px solid ${msg.from.color}`,
-            color: 'var(--theme-paper)',
+            color: 'var(--theme-paper-fg)',
             fontFamily: 'var(--theme-font-display)',
             boxShadow: '0 2px 6px var(--theme-shadow)',
           }}
@@ -776,7 +776,7 @@ function MessageRow({
             // Paper-tinted background ~6% over the leather DeskSurface — gives the agent
             // a faint "page laid on the desk" feel without losing the leather warmth.
             background: 'color-mix(in srgb, var(--theme-paper) 6%, transparent)',
-            color: 'var(--theme-paper)',
+            color: 'var(--theme-paper-fg)',
             border: '1px solid color-mix(in srgb, var(--theme-metal-dark) 35%, transparent)',
             borderLeft: `3px solid ${msg.from.color}`,
             boxShadow: '0 2px 6px var(--theme-shadow)',
