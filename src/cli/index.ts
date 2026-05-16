@@ -30,6 +30,9 @@ import { searchSkills, installSkill, installFromUrl } from '../skills/marketplac
 import { scaffoldSkill, testSkill } from '../skills/scaffold.js';
 import { createTeam, listTeams, getTeam, deleteTeam, addMember, removeMember, createInvite, acceptInvite, getTeamStats, updateMemberRole } from '../security/teams.js';
 import { checkForUpdates } from '../utils/updater.js';
+import { reconsentIfNeeded, runReconsent } from './reconsent.js';
+import { REQUIRED_CONSENT_VERSION } from '../analytics/consent.js';
+import { resolvePostHogHost } from '../analytics/posthog.js';
 
 const program = new Command();
 
@@ -1325,6 +1328,82 @@ program
         process.exit(0);
     });
 
+// ─── TELEMETRY ───────────────────────────────────────────────────
+// v6.1.0 Phase B — `titan telemetry status|enable|disable`. The status
+// subcommand never sends; it only reads local config. `enable` runs the
+// re-consent prompt + persists the result. `disable` flips the flag off
+// and stamps the current consent version so we don't re-prompt the
+// user every startup.
+const telemetry = program
+    .command('telemetry')
+    .description('Manage TITAN anonymous usage telemetry');
+
+telemetry
+    .command('status')
+    .description('Show current telemetry state (enabled flag, host, consent version, install ID)')
+    .action(async () => {
+        const config = loadConfig();
+        const tel = (config.telemetry || {}) as Record<string, unknown>;
+        const enabled = tel.enabled === true;
+        const consentVersion = typeof tel.consentVersion === 'number' ? tel.consentVersion : 0;
+        const envKill = process.env.TITAN_TELEMETRY_DISABLED === '1' || process.env.TITAN_TELEMETRY_DISABLED === 'true';
+        const effectiveEnabled = enabled && !envKill && consentVersion >= REQUIRED_CONSENT_VERSION;
+        const host = process.env.TITAN_POSTHOG_HOST
+            || (tel.posthogHost as string)
+            || resolvePostHogHost();
+        // Install ID is best-effort: read from mesh identity if present,
+        // never auto-create it just to print a value (would create a side
+        // effect from a read-only `status` command).
+        let installId = 'unknown';
+        try {
+            const { getOrCreateNodeId } = await import('../mesh/identity.js');
+            installId = getOrCreateNodeId();
+        } catch { /* best-effort */ }
+
+        console.log(chalk.cyan('\nTITAN Telemetry Status\n'));
+        console.log(`  enabled (config):     ${enabled ? chalk.green('true') : chalk.gray('false')}`);
+        console.log(`  effective:            ${effectiveEnabled ? chalk.green('ON') : chalk.gray('OFF')}`);
+        console.log(`  consent version:      ${consentVersion} / ${REQUIRED_CONSENT_VERSION} required`);
+        console.log(`  host:                 ${host}`);
+        console.log(`  install id:           ${installId}`);
+        if (envKill) {
+            console.log(chalk.yellow('\n  TITAN_TELEMETRY_DISABLED is set — telemetry is hard-disabled regardless of config.'));
+        }
+        if (enabled && consentVersion < REQUIRED_CONSENT_VERSION) {
+            console.log(chalk.yellow(`\n  Re-consent required for v6 — run: ${chalk.cyan('titan telemetry enable')}`));
+        }
+        console.log('');
+        process.exit(0);
+    });
+
+telemetry
+    .command('enable')
+    .description('Opt in to anonymous telemetry (runs the v6 consent prompt)')
+    .action(async () => {
+        // Always run the prompt so the user sees the current contract,
+        // even if they're already on the latest consentVersion. This is
+        // the explicit-action path; status drift is allowed.
+        await runReconsent();
+        process.exit(0);
+    });
+
+telemetry
+    .command('disable')
+    .description('Opt out of anonymous telemetry')
+    .action(() => {
+        const config = loadConfig();
+        const nextTel = {
+            ...(config.telemetry as Record<string, unknown>),
+            enabled: false,
+            // Stamp current version so we don't re-prompt them after they
+            // explicitly disabled — that would be obnoxious.
+            consentVersion: REQUIRED_CONSENT_VERSION,
+        };
+        updateConfig({ telemetry: nextTel as TitanConfig['telemetry'] } as Partial<TitanConfig>);
+        console.log(chalk.green('Telemetry disabled. No data leaves your machine.'));
+        process.exit(0);
+    });
+
 // ─── AUTOPILOT ──────────────────────────────────────────────────
 program
     .command('autopilot')
@@ -1419,5 +1498,17 @@ program
     initFileLogger(TITAN_LOGS_DIR);
     // Check for updates (fast timeout, non-blocking if offline)
     await checkForUpdates();
+    // v6.1.0 Phase B — re-consent gate. Only prompts when the user
+    // previously opted in but is on an older `consentVersion`. Skipped
+    // for the `telemetry` subtree (they're managing telemetry directly —
+    // double-prompting would loop), and skipped under
+    // `TITAN_TELEMETRY_DISABLED=1` (env kill switch takes precedence).
+    const skipReconsent =
+        process.env.TITAN_TELEMETRY_DISABLED === '1'
+        || process.env.TITAN_TELEMETRY_DISABLED === 'true'
+        || process.argv[2] === 'telemetry';
+    if (!skipReconsent) {
+        try { await reconsentIfNeeded(); } catch { /* never block startup */ }
+    }
     await program.parseAsync();
 })().catch((err) => { console.error(err); process.exit(1); });

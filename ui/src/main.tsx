@@ -6,6 +6,10 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import App from './App';
 import { queryClient } from './lib/queryClient';
 import './styles/globals.css';
+// v6.1.0-beta.3 Phase 0a — adds CSS variables under :root[data-theme=…]
+// for Office / Workshop / Observatory. Bridge hook in App sets the
+// attribute from the existing DeskTheme React context.
+import './styles/theme-variables.css';
 import { DeskThemeProvider } from '@/components/desk/DeskTheme';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {

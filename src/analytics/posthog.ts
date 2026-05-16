@@ -1,16 +1,32 @@
 /**
  * TITAN — PostHog Analytics Bridge
- * Sends opt-in telemetry events to PostHog Cloud (or self-hosted).
- * Only active when telemetry.enabled=true AND posthogApiKey is configured.
+ *
+ * v6.1.0 Phase B (`6.1.0-beta.2`):
+ *   - Migrated from hand-rolled `fetch()` to the official `posthog-node` SDK.
+ *   - SDK is **lazy-imported** — `posthog-node` never enters memory until
+ *     telemetry is enabled AND the user has consented to the current
+ *     `REQUIRED_CONSENT_VERSION`. This is the GDPR "no pre-consent network
+ *     calls" guarantee.
+ *   - CLI-tuned init: `flushAt: 1`, `flushInterval: 0`, `disableGeoip: true`
+ *     so events flush immediately on short-lived CLI invocations.
+ *   - Graceful shutdown on `SIGTERM`, `SIGINT`, `beforeExit`.
+ *   - `$process_person_profile: false` on every event by default — anonymous
+ *     capture, no person profile is created. Identified capture (with
+ *     `$set` / `$set_once`) will land in a later phase once `titan login`
+ *     ships.
+ *   - Preserves Phase A: env-var override (`TITAN_POSTHOG_KEY`,
+ *     `TITAN_POSTHOG_HOST`), EU/US timezone-based resolver, secret scrubber
+ *     on outbound payloads.
+ *   - Honors `TITAN_TELEMETRY_DISABLED=1` (or `'true'`) — runtime kill switch
+ *     that overrides any config state and short-circuits before any
+ *     `posthog-node` import.
  */
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
+import { redactSecrets } from '../security/secretGuard.js';
+import { REQUIRED_CONSENT_VERSION } from './consent.js';
 
 const COMPONENT = 'PostHog';
-
-// In-memory cache for config-derived client state
-let cachedKey: string | undefined;
-let cachedHost: string | undefined;
 
 /**
  * v6.1.0-beta.1 — env-var override + EU/US auto-detection.
@@ -29,12 +45,6 @@ let cachedHost: string | undefined;
  *   Africa zones (Azores, Canary, Faroe, Madeira, Reykjavik, Ceuta) the
  *   host resolves to `https://eu.i.posthog.com` (PostHog Cloud Frankfurt).
  *   Everything else routes to the US.
- *
- * Rationale: timezone is offline-resolvable, requires zero pre-consent
- * network calls, and is good-enough for "is this user EU?" at the
- * data-residency level. IP-based geolocation would be more precise but
- * costs a privacy hit + a network round-trip BEFORE consent is granted
- * — exactly what GDPR is trying to prevent.
  */
 const EU_TIMEZONE_REGEX = /^Europe\//;
 const EU_ADJACENT_ZONES = new Set([
@@ -59,71 +69,120 @@ export function resolvePostHogHost(now?: { timeZone?: string }): string {
     return 'https://us.i.posthog.com';
 }
 
+/**
+ * Runtime kill switch. Honored before any consent / config check so an
+ * operator can hard-disable telemetry without touching config files (CI,
+ * sandboxes, ephemeral container runs, paranoid users).
+ */
+function isHardDisabledByEnv(): boolean {
+    const v = process.env.TITAN_TELEMETRY_DISABLED;
+    return v === '1' || v === 'true';
+}
+
+/**
+ * Read consent + config. Returns `undefined` if telemetry isn't supposed
+ * to fire (disabled, no key, no consent for current version, hard env
+ * kill). Caller MUST treat undefined as "do nothing" — no network, no
+ * `posthog-node` import.
+ */
 function getPostHogConfig(): { apiKey: string; host: string } | undefined {
+    if (isHardDisabledByEnv()) return undefined;
     const cfg = loadConfig();
     const tel = cfg.telemetry as Record<string, unknown> | undefined;
     if (!tel?.enabled) return undefined;
+    // v6.1.0 Phase B — re-consent gate. If the user hasn't agreed to the
+    // current payload generation, treat as opted-out until the CLI
+    // re-prompts and bumps consentVersion.
+    const consentVersion = typeof tel.consentVersion === 'number' ? tel.consentVersion : 0;
+    if (consentVersion < REQUIRED_CONSENT_VERSION) return undefined;
     const apiKey = process.env.TITAN_POSTHOG_KEY || (tel.posthogApiKey as string) || undefined;
     if (!apiKey) return undefined;
-    // env > config-explicit > auto-detected (EU vs US via timezone) > US default
-    // NOTE: env var must be checked here too — the test "TITAN_POSTHOG_HOST
-    // overrides the schema host" exercises the case where config has a
-    // non-empty default (which would otherwise short-circuit before
-    // resolvePostHogHost() is reached).
     const host = process.env.TITAN_POSTHOG_HOST
         || (tel.posthogHost as string)
         || resolvePostHogHost();
     return { apiKey, host };
 }
 
-/** Fire a single event to PostHog's /capture endpoint via fetch. */
-async function capture(
-    apiKey: string,
-    host: string,
-    distinctId: string,
-    event: string,
-    properties: Record<string, unknown>,
-    timestamp?: string
-): Promise<void> {
-    const url = `${host.replace(/\/$/, '')}/capture/`;
-    const body = {
-        api_key: apiKey,
-        event,
-        distinct_id: distinctId,
-        properties: {
-            ...properties,
-            // Mark these as TITAN-generated so PostHog filters work
-            $lib: 'titan-analytics',
-            $lib_version: (await import('../utils/constants.js')).TITAN_VERSION,
-        },
-        timestamp: timestamp || new Date().toISOString(),
+// ── Lazy SDK client ────────────────────────────────────────────────
+//
+// `posthog-node` must NOT be imported at module load. It's only pulled in
+// the first time a send is attempted AND only after consent + enabled
+// checks pass. Once instantiated the client is reused for the lifetime
+// of the process.
+
+// Use a structural type so we don't import `PostHog` at module load. The
+// real type comes in via dynamic `await import('posthog-node')`.
+interface MinimalPostHogClient {
+    capture(props: {
+        distinctId: string;
+        event: string;
+        properties?: Record<string, unknown>;
+        timestamp?: Date;
+    }): unknown;
+    shutdown(): Promise<void> | unknown;
+    flush?(): Promise<void> | unknown;
+}
+
+let _client: MinimalPostHogClient | null = null;
+let _shutdownHooksInstalled = false;
+
+/**
+ * Install graceful-shutdown hooks once per process so queued events
+ * aren't dropped on `SIGTERM` / `SIGINT` / `beforeExit`. PostHog docs
+ * explicitly require `await posthog.shutdown()` before process exit.
+ */
+function installShutdownHooks(): void {
+    if (_shutdownHooksInstalled) return;
+    _shutdownHooksInstalled = true;
+    const shutdown = async () => {
+        if (!_client) return;
+        try {
+            await _client.shutdown();
+        } catch {
+            /* never let telemetry shutdown itself crash exit */
+        }
     };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+    process.on('beforeExit', shutdown);
+}
 
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(8000),
+/**
+ * Lazy SDK accessor. Returns `null` if telemetry is off or unconfigured.
+ * The `posthog-node` module is only `import()`-ed inside the success
+ * branch, so a user who never opts in has the module out of their
+ * `require.cache` entirely.
+ */
+async function getClient(): Promise<{
+    client: MinimalPostHogClient;
+    apiKey: string;
+    host: string;
+} | null> {
+    const cfg = getPostHogConfig();
+    if (!cfg) return null;
+    if (_client) return { client: _client, apiKey: cfg.apiKey, host: cfg.host };
+
+    // Lazy import — first place `posthog-node` enters memory.
+    const mod = await import('posthog-node');
+    const PostHog = (mod as unknown as { PostHog: new (key: string, opts: Record<string, unknown>) => MinimalPostHogClient }).PostHog;
+    _client = new PostHog(cfg.apiKey, {
+        host: cfg.host,
+        // CLI-tuned: TITAN commands are usually short-lived. The SDK
+        // defaults (`flushAt: 20`, `flushInterval: 10000`) would delay
+        // events past process exit.
+        flushAt: 1,
+        flushInterval: 0,
+        // Explicitly pin geoip off — the SDK default is true but we want
+        // a hard guarantee that no IP-based geolocation is happening on
+        // our anonymous events. EU/US routing is already handled via
+        // `resolvePostHogHost()` from the local IANA timezone.
+        disableGeoip: true,
     });
-
-    if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`PostHog HTTP ${res.status}: ${text.slice(0, 200)}`);
-    }
+    installShutdownHooks();
+    return { client: _client, apiKey: cfg.apiKey, host: cfg.host };
 }
 
-/** Send a $identify call with person properties (hardware profile). */
-async function identify(
-    apiKey: string,
-    host: string,
-    distinctId: string,
-    properties: Record<string, unknown>,
-    timestamp?: string
-): Promise<void> {
-    await capture(apiKey, host, distinctId, '$identify', {
-        $set: properties,
-    }, timestamp);
-}
+// ── Status surface ─────────────────────────────────────────────────
 
 export interface PostHogSendStatus {
     enabled: boolean;
@@ -139,19 +198,47 @@ export function getPostHogStatus(): PostHogSendStatus {
     return { ...status };
 }
 
+// ── Payload scrubbing ──────────────────────────────────────────────
+//
+// Defense-in-depth: callers (bugReports.ts, featureTracker.ts) already
+// scrub before handing payloads here, but anything string-shaped that
+// slips through gets caught here too. The local jsonl keeps the
+// un-scrubbed copy for operator review.
+
+function scrubProps(props: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(props)) {
+        if (typeof v === 'string') {
+            out[k] = redactSecrets(v);
+        } else if (Array.isArray(v)) {
+            out[k] = v.map(item => (typeof item === 'string' ? redactSecrets(item) : item));
+        } else {
+            out[k] = v;
+        }
+    }
+    return out;
+}
+
 /**
  * Map a TITAN analytics payload to PostHog event(s) and send.
- * This is best-effort: failures are logged but not thrown.
+ * Best-effort: failures are logged but never thrown.
+ *
+ * Anonymous capture default — every event sets `$process_person_profile:
+ * false` so PostHog does NOT create a person profile. Events remain
+ * queryable by `distinct_id` (the anonymous install UUID) for funnels /
+ * retention, but no `$set` person properties accumulate. The hardware
+ * fingerprint that used to flow through `$identify` is now sent as
+ * regular event properties on a `system_profile` event.
  */
 export async function sendPostHogEvent(payload: Record<string, unknown>): Promise<void> {
-    const cfg = getPostHogConfig();
-    if (!cfg) {
+    const handle = await getClient();
+    if (!handle) {
         status.enabled = false;
         return;
     }
 
     status.enabled = true;
-    const { apiKey, host } = cfg;
+    const { client } = handle;
     const distinctId = typeof payload.installId === 'string' ? payload.installId : 'unknown';
     const type = typeof payload.type === 'string' ? payload.type : 'unknown';
     const timestamp = typeof payload.timestamp === 'string'
@@ -160,26 +247,42 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
             ? payload.collectedAt
             : undefined;
 
-    const ts = timestamp || new Date().toISOString();
+    const tsDate = timestamp ? new Date(timestamp) : new Date();
+
     try {
+        const { TITAN_VERSION } = await import('../utils/constants.js');
+        // Common properties stamped on every event so downstream PostHog
+        // filters can pivot by library + version without re-checking
+        // each event type.
+        const baseProps: Record<string, unknown> = {
+            // Anonymous-by-default — no person profile created.
+            // Switch to identified capture (with `$set` / `$set_once`)
+            // only after an explicit `titan login` flow.
+            $process_person_profile: false,
+            $lib: 'titan-analytics',
+            $lib_version: TITAN_VERSION,
+        };
+
+        const send = (event: string, props: Record<string, unknown>) => {
+            client.capture({
+                distinctId,
+                event,
+                properties: scrubProps({ ...baseProps, ...props }),
+                timestamp: tsDate,
+            });
+        };
+
         if (type === 'system_profile') {
-            // Hardware specs become person properties so we can segment by GPU, OS, etc.
-            const personProps: Record<string, unknown> = {};
             const allowlist = [
                 'os', 'osRelease', 'arch', 'cpuCores',
                 'ramTotalGB', 'gpuVendor', 'gpuVramGB',
                 'installMethod', 'diskTotalGB', 'version', 'nodeVersion',
             ];
+            const props: Record<string, unknown> = {};
             for (const key of allowlist) {
-                if (key in payload) personProps[key] = payload[key];
+                if (key in payload) props[key] = payload[key];
             }
-            await identify(apiKey, host, distinctId, personProps, ts);
-
-            // Also fire a lightweight system_profile event for funnels
-            await capture(apiKey, host, distinctId, 'system_profile', {
-                version: payload.version,
-                installMethod: payload.installMethod,
-            }, ts);
+            send('system_profile', props);
         } else if (type === 'heartbeat') {
             const props: Record<string, unknown> = {
                 uptime_seconds: payload.uptimeSeconds,
@@ -192,24 +295,29 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
                     props[`feature_${k}`] = v;
                 }
             }
-            await capture(apiKey, host, distinctId, 'heartbeat', props, ts);
+            send('heartbeat', props);
         } else if (type === 'install' || type === 'update') {
-            await capture(apiKey, host, distinctId, type, {
+            send(type, {
                 version: payload.version,
                 from_version: payload.fromVersion,
                 install_method: payload.installMethod,
-            }, ts);
+            });
         } else if (type === 'error') {
-            await capture(apiKey, host, distinctId, 'error', {
+            send('error', {
                 error_type: payload.errorType,
                 message: payload.message,
                 version: payload.version,
-            }, ts);
+            });
         } else {
             // Passthrough for any future event types
             const { type: _type, installId: _installId, ...rest } = payload;
-            await capture(apiKey, host, distinctId, type, rest, ts);
+            send(type, rest);
         }
+
+        // flushAt=1 means each capture flushes immediately, but call
+        // flush() defensively in case the user is on a gateway runtime
+        // that overrode the CLI defaults.
+        try { await client.flush?.(); } catch { /* ignore */ }
 
         status.sentCount += 1;
         status.lastSuccessAt = new Date().toISOString();
@@ -219,4 +327,15 @@ export async function sendPostHogEvent(payload: Record<string, unknown>): Promis
         status.lastError = (err as Error).message || String(err);
         logger.debug(COMPONENT, `PostHog send failed: ${status.lastError}`);
     }
+}
+
+/**
+ * Test-only: reset the lazy client + shutdown-hook installation flag.
+ * Real CLI flow keeps the client alive for the process lifetime. Used by
+ * `tests/v610-posthog-lazy-require.test.ts` to verify the module isn't
+ * imported until consent + enabled gates pass.
+ */
+export function _resetPostHogClientForTests(): void {
+    _client = null;
+    _shutdownHooksInstalled = false;
 }

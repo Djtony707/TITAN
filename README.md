@@ -46,7 +46,7 @@
 
 ## 🪵 NEW in v6.1 — Mission Chat + Desk view
 
-> Status: `v6.1.0-beta.1` — live on npm at `@latest` and `@beta`. Alpha series concluded with `6.1.0-alpha.57`; we promoted the schema once features stabilized.
+> Status: `v6.1.0-beta.2` — live on npm at `@latest` and `@beta`. Alpha series concluded with `6.1.0-alpha.57`; the schema promoted to beta once features stabilized.
 > Install with `npm i -g titan-agent` (or `npm update -g titan-agent`).
 > The v6.0 "Presence" feature set below still applies — v6.1.0 layers
 > a beautiful new surface on top of it.

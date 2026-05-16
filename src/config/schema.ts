@@ -1317,6 +1317,17 @@ export const TitanConfigSchema = z.object({
         consentedAt: z.string().optional(),
         /** Which TITAN version the user was on when they consented. */
         consentedVersion: z.string().optional(),
+        /**
+         * v6.1.0 Phase B — re-consent flow.
+         *
+         * Integer that tracks which generation of the telemetry payload
+         * the user has agreed to. When this is < `REQUIRED_CONSENT_VERSION`
+         * (defined in `src/analytics/consent.ts`) the CLI re-prompts at
+         * startup. Default 0 = "never consented to current shape" so
+         * legacy v5.x opt-in users get re-asked exactly once before v6
+         * telemetry flows.
+         */
+        consentVersion: z.number().default(0),
     }).default({}),
 
     /**
