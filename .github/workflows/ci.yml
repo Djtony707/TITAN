@@ -76,9 +76,15 @@ jobs:
         run: |
           PKG_VER=$(node -e "console.log(require('./package.json').version)")
           CONST_VER=$(grep -oP "TITAN_VERSION\s*=\s*'(\K[^']+)" src/utils/constants.ts || echo "NOT_FOUND")
-          CORE_TEST_VER=$(grep -oP "toBe\('(\K\d+\.\d+\.\d+)" tests/core.test.ts | head -1 || echo "NOT_FOUND")
+          # Capture full semver INCLUDING optional pre-release suffix
+          # (e.g. -beta.10, -alpha.3, -rc.1). The previous regex stopped
+          # at the patch digit, dropping pre-release qualifiers and
+          # spuriously failing version-consistency on every pre-release.
+          CORE_TEST_VER=$(grep -oP "toBe\('(\K[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.\-]+)?)" tests/core.test.ts | head -1 || echo "NOT_FOUND")
           MC_TEST_COUNT=$(grep -c "$PKG_VER" tests/mission-control.test.ts || echo "0")
-          CHANGELOG_VER=$(grep -oP "^## \[?(\K\d+\.\d+\.\d+)" CHANGELOG.md | head -1 || echo "NOT_FOUND")
+          # CHANGELOG headers are `## v6.1.0-beta.N — …` — accept optional
+          # `v` prefix and pre-release suffix.
+          CHANGELOG_VER=$(grep -oP "^## v?\[?(\K[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.\-]+)?)" CHANGELOG.md | head -1 || echo "NOT_FOUND")
 
           echo "package.json:              $PKG_VER"
           echo "constants.ts:              $CONST_VER"
