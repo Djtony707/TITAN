@@ -69,11 +69,39 @@ import { getSessionGoal } from './autonomyContext.js';
 const COMPONENT = 'ToolRunner';
 
 /**
+ * Tools whose entire purpose is to RETURN a data: URL for the LLM
+ * to embed in downstream output. These bypass `sanitizeBase64` (which
+ * would strip the very thing they were called to produce) and the
+ * 30KB smart-truncation (which would chop the data URL mid-base64
+ * making it unembeddable).
+ *
+ * v6.1.0-alpha.55 added `download_image` here. Tony spotted the bug
+ * the way only Tony would: "Why doesn't TITAN download the images
+ * itself?" → we added the tool in alpha.53 → ToolRunner sanitizer
+ * stripped its output → Writer never saw the data URL → hotlinked
+ * external URLs instead → alpha.52 placeholder caught them →
+ * appearance of "alpha.53 doesn't work." It worked perfectly. We
+ * were just throwing away its output two lines later.
+ *
+ * If you add a new tool here, also update the 30KB truncation
+ * exemption below (line ~685) since both share this list.
+ */
+const DATA_URL_PRODUCING_TOOLS = new Set([
+    'download_image',
+]);
+
+/**
  * G1: Sanitize base64 image data from tool results (OpenClaw pattern).
  * Prevents token explosion when vision/screenshot tools return raw base64.
  * Replaces data URIs with a compact placeholder showing byte count.
+ *
+ * v6.1.0-alpha.55 — takes optional `toolName` so we can EXEMPT the
+ * tools whose entire output IS a data URL (see
+ * DATA_URL_PRODUCING_TOOLS above). Default behavior unchanged for
+ * every other tool.
  */
-function sanitizeBase64(content: string): string {
+function sanitizeBase64(content: string, toolName?: string): string {
+    if (toolName && DATA_URL_PRODUCING_TOOLS.has(toolName)) return content;
     return content.replace(
         /data:image\/[^;]+;base64,[A-Za-z0-9+/=]{100,}/g,
         (match) => {
@@ -81,6 +109,15 @@ function sanitizeBase64(content: string): string {
             return `[image: ${(bytes / 1024).toFixed(1)}KB omitted]`;
         },
     );
+}
+
+/**
+ * v6.1.0-alpha.55 — exported alias for tests + future callers. The
+ * Set is the source of truth for "tools that intentionally return a
+ * data: URL for the LLM to embed downstream."
+ */
+export function isDataUrlProducingTool(toolName: string): boolean {
+    return DATA_URL_PRODUCING_TOOLS.has(toolName);
 }
 
 /** Error classification for retry decisions */
@@ -674,11 +711,19 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
                 logger.info(COMPONENT, `Tool ${handler.name} completed in ${durationMs}ms`);
             }
 
-            // G1: Strip base64 image data before size check (prevents token explosion)
-            let finalContent = sanitizeBase64(result);
+            // G1: Strip base64 image data before size check (prevents token
+            // explosion). v6.1.0-alpha.55 — passes tool name so
+            // DATA_URL_PRODUCING_TOOLS (download_image) get exempted; for
+            // those the data URL IS the point of calling the tool.
+            let finalContent = sanitizeBase64(result, handler.name);
 
-            // Smart truncation — keep head + tail for large results (TITAN pattern)
-            if (finalContent.length > 30000) {
+            // Smart truncation — keep head + tail for large results (TITAN pattern).
+            // v6.1.0-alpha.55 — DATA_URL_PRODUCING_TOOLS are exempted because
+            // truncating mid-base64 produces an unusable data URL. The Writer
+            // would then fall back to hotlinking the source URL, which is
+            // exactly what Tony was seeing before alpha.55 ("alpha.53 didn't
+            // work" — it did, this layer was killing it).
+            if (finalContent.length > 30000 && !DATA_URL_PRODUCING_TOOLS.has(handler.name)) {
                 const head = finalContent.slice(0, 20000);
                 const tail = finalContent.slice(-5000);
                 finalContent = head + '\n\n[... ' + (finalContent.length - 25000) + ' chars omitted ...]\n\n' + tail;

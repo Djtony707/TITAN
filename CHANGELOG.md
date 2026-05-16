@@ -5,6 +5,101 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-alpha.55 — 2026-05-15 — download_image output not getting truncated by ToolRunner
+
+> Tony: "Check the logs please."
+>
+> The logs showed why the alpha.54 MLK essay run still landed
+> with a hotlinked `<img src="https://upload.wikimedia.org/…">`
+> after the Writer called `download_image` 8 times. ToolRunner
+> was throwing away the data URL on the return trip.
+
+### Root cause — three layers of context protection killing the feature
+
+```
+2026-05-15 19:05:17 INFO  [ToolRunner] Tool download_image output truncated: 779570 → 25034 chars
+```
+
+Three independent safeguards in `toolRunner.ts` + `toolOutputCap.ts`
+all targeted "tools that emit huge base64 blobs that the LLM
+shouldn't see" — and all three caught `download_image`, whose
+entire purpose is to give the LLM a data URL to embed.
+
+1. **`sanitizeBase64()`** — strips every `data:image/...;base64,…`
+   URI from every tool result, replacing with `[image: NNN KB
+   omitted]`. Necessary for vision / screenshot tools; fatal for
+   download_image.
+2. **30 KB head-tail smart truncation** — even if the data URL
+   survived sanitization, a 779 KB output got chopped to head+tail
+   (20K + 5K), yielding broken base64.
+3. **`capToolOutput()` 100 KB hard cap** — same chop, just at a
+   different layer.
+
+Writer received `{ ok: true, dataUrl: "[image: 270.5KB omitted]",
+... }`. Had no actual base64 to embed. Did the only thing it
+could: inlined the source URL it had searched up.
+alpha.52's placeholder rewrite then converted that hotlink into a
+brass "Image unavailable" block. Tony saw a placeholder and
+correctly concluded the download_image flow wasn't working — even
+though the tool had executed perfectly. The bug wasn't in
+download_image, it was two layers downstream throwing away the
+output.
+
+### Fix — `DATA_URL_PRODUCING_TOOLS` allowlist
+
+A small shared set, currently `{ 'download_image' }`. All three
+trim layers consult it and bypass for any tool in the set:
+
+- `sanitizeBase64(content, toolName)` — new optional `toolName`
+  param; data-URL producers pass through.
+- 30 KB head-tail block — checks `handler.name` before chopping.
+- `capToolOutput()` in `toolOutputCap.ts` — same set duplicated
+  there with a sync-comment so future additions update both.
+
+`download_image` already enforces its own 4 MB raw / ~5.3 MB
+base64 source-side ceiling. That's a semantically correct limit
+for this use case — much better than the generic context-window
+caps which were never meant for data URLs.
+
+Other data-URL-producing tools (e.g. a future `generate_image_inline`)
+can join the set with a one-line addition.
+
+### Tests
+
+`tests/v610-alpha55-download-image-passthrough.test.ts` — 7 cases:
+
+- 800 KB synthetic data URL survives `capToolOutput('download_image')` unchanged
+- Same-size payload via `shell` still gets capped (sanity)
+- `web_fetch` still gets capped
+- Small payloads pass through unmodified
+- `isDataUrlProducingTool('download_image')` true; everything else false
+- 270 KB realistic MLK-photo payload survives intact end-to-end
+
+Full suite: **7316 / 7318 passing, 2 skipped, 0 failed** (was
+7309/7311 at alpha.54; +7 new tests).
+
+### Files touched
+
+- `src/agent/toolRunner.ts` — `DATA_URL_PRODUCING_TOOLS` set,
+  `sanitizeBase64(content, toolName)`, exempt 30 KB block,
+  `isDataUrlProducingTool()` exported for tests
+- `src/agent/toolOutputCap.ts` — second copy of the set,
+  `capToolOutput()` bypasses cap for those tools
+- `tests/v610-alpha55-download-image-passthrough.test.ts` (new, 7 tests)
+- `package.json`, `src/utils/constants.ts`, `tests/core.test.ts`,
+  `tests/mission-control.test.ts`, `README.md` — version bump
+
+### Effect
+
+The Writer's next essay run will receive the actual data URL,
+embed it as `<img src="data:image/jpeg;base64,…">`, and the
+viewer will render the real photo. The alpha.52 placeholder
+remains as a safety net for the genuinely-hotlinked case (broken
+or unreachable URLs), but the happy path will produce
+self-contained HTML with real images embedded.
+
+---
+
 ## v6.1.0-alpha.54 — 2026-05-15 — Generic-question gate + deliberation rules
 
 > Tony, after the Writer asked "What should they focus on?" for

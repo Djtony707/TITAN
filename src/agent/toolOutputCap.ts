@@ -31,6 +31,21 @@
 /** Default cap in CHARACTERS. ~25 k tokens at 4 chars/token. */
 export const DEFAULT_OUTPUT_CAP = 100_000;
 
+/**
+ * v6.1.0-alpha.55 — tools whose output IS a data URL the LLM is
+ * meant to embed downstream. Truncating mid-base64 produces an
+ * unusable URL, so these bypass the cap. download_image already
+ * enforces its own 4 MB raw / ~5.3 MB base64 ceiling on the
+ * source side; that's a tighter and more semantically correct
+ * limit for this use case than the generic 100 KB context cap.
+ *
+ * Mirrors `DATA_URL_PRODUCING_TOOLS` in `toolRunner.ts` — keep
+ * the lists in sync.
+ */
+const DATA_URL_PRODUCING_TOOLS = new Set<string>([
+    'download_image',
+]);
+
 /** Per-call override options. */
 export interface ToolOutputCapOptions {
     /** Override the cap in characters. */
@@ -111,6 +126,13 @@ export function capToolOutput(toolName: string, result: unknown, opts?: ToolOutp
     const cap = opts?.cap ?? DEFAULT_OUTPUT_CAP;
     const stringified = stringify(result);
     const originalSize = stringified.length;
+
+    // v6.1.0-alpha.55 — bypass cap for data-URL producing tools.
+    // Truncating mid-base64 yields an unusable URL; the tool's own
+    // source-side byte limit is the right control here.
+    if (DATA_URL_PRODUCING_TOOLS.has(toolName)) {
+        return { content: stringified, truncated: false, originalSize, hint: null };
+    }
 
     if (originalSize <= cap) {
         return { content: stringified, truncated: false, originalSize, hint: null };
