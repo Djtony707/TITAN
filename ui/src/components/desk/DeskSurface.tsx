@@ -11,6 +11,8 @@
  *   - children render ON TOP of the surface (z-0 → z-10)
  */
 import React from 'react';
+import { WorkshopSurface } from './WorkshopSurface';
+import { ObservatorySurface } from './ObservatorySurface';
 
 export type DeskTheme = 'oak' | 'walnut' | 'mahogany' | 'white';
 
@@ -107,7 +109,61 @@ interface ThemeAssets {
 
 // ── Component ────────────────────────────────────────────────────
 
-export function DeskSurface({ theme: propTheme, noMotes, className, children }: Props) {
+/**
+ * Phase 0c — Themed surface switcher.
+ *
+ * Reads `<html data-theme="...">` (written by `useThemeVariables`, beta.2)
+ * and swaps the BASE background to match the topbar theme picker:
+ *
+ *   office | oak | walnut | mahogany | white | null   → WoodDeskSurface
+ *   workshop                                          → WorkshopSurface
+ *   observatory                                       → ObservatorySurface
+ *
+ * Uses a MutationObserver instead of a React context so this works for
+ * every consumer that already wraps pages in `<DeskSurface>` — no need
+ * to plumb a new prop through. The observer is cheap (one attr filter,
+ * no subtree) and the re-render only flips the outermost wrapper.
+ *
+ * If a `theme` prop is passed explicitly, it always wins (matches the
+ * old DeskSurface API for callers that want a hard-coded wood variant).
+ */
+export function DeskSurface(props: Props) {
+  const [themeAttr, setThemeAttr] = React.useState<string | null>(() => {
+    if (typeof document === 'undefined') return null;
+    return document.documentElement.getAttribute('data-theme');
+  });
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+    const root = document.documentElement;
+    // Initial sync in case the attribute changed between render and effect.
+    setThemeAttr(root.getAttribute('data-theme'));
+    const obs = new MutationObserver(() => {
+      setThemeAttr(root.getAttribute('data-theme'));
+    });
+    obs.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+
+  // Explicit prop wins — preserves the legacy API where callers force a
+  // wood variant regardless of the global theme.
+  if (props.theme) return <WoodDeskSurface {...props} />;
+
+  if (themeAttr === 'workshop') {
+    const { noMotes, className, children } = props;
+    return <WorkshopSurface noMotes={noMotes} className={className}>{children}</WorkshopSurface>;
+  }
+  if (themeAttr === 'observatory') {
+    const { noMotes, className, children } = props;
+    return <ObservatorySurface noMotes={noMotes} className={className}>{children}</ObservatorySurface>;
+  }
+  // office / oak / walnut / mahogany / white / null → wood
+  return <WoodDeskSurface {...props} />;
+}
+
+DeskSurface.displayName = 'DeskSurface';
+
+function WoodDeskSurface({ theme: propTheme, noMotes, className, children }: Props) {
   const t = THEMES[propTheme ?? readStoredTheme()];
 
   const deskStyle: React.CSSProperties = {
