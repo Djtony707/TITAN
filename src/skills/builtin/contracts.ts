@@ -47,7 +47,7 @@ export const WRITE_FILE_CONTRACT: ToolContract<
     input: z.object({
         path: z.string().min(1, 'path is required'),
         content: z.string(), // empty content is valid — touching a file
-    }),
+    }).passthrough(),
     sideEffects: ['write'],
     // beta.17 — writes are 'moderate' (was 'safe'). Codex P1 #2: writes
     // can overwrite files and mutate user state. The auto-mode classifier
@@ -69,18 +69,22 @@ export const WRITE_FILE_CONTRACT: ToolContract<
 };
 
 export const READ_FILE_CONTRACT: ToolContract<
-    { path: string; startLine?: number; endLine?: number; byteOffset?: number; byteLimit?: number },
+    { path: string; startLine?: number; endLine?: number },
     string
 > = {
     name: 'read_file',
     summary: 'Read a file from disk. Optional startLine/endLine for partial reads.',
+    // beta.17 (Codex P1): matched to the actual filesystem.ts skill
+    // shape — read_file accepts {path, startLine, endLine}. The
+    // byteOffset/byteLimit fields the original contract had don't
+    // exist on the skill; Zod was silently stripping them.
+    // .passthrough() preserves any extras so a future skill addition
+    // doesn't silently drop before we catch up the contract.
     input: z.object({
         path: z.string().min(1),
         startLine: z.number().int().nonnegative().optional(),
         endLine: z.number().int().nonnegative().optional(),
-        byteOffset: z.number().int().nonnegative().optional(),
-        byteLimit: z.number().int().positive().optional(),
-    }),
+    }).passthrough(),
     sideEffects: ['read'],
     riskLevel: 'safe',
     exampleCalls: [
@@ -105,7 +109,7 @@ export const EDIT_FILE_CONTRACT: ToolContract<
         path: z.string().min(1),
         target: z.string().min(1, 'target must not be empty'),
         replacement: z.string(),
-    }),
+    }).passthrough(),
     sideEffects: ['write'],
     // beta.17 — see WRITE_FILE_CONTRACT comment. Writes are 'moderate'.
     riskLevel: 'moderate',
@@ -126,7 +130,7 @@ export const APPEND_FILE_CONTRACT: ToolContract<
     input: z.object({
         path: z.string().min(1),
         content: z.string().min(1, 'content must not be empty'),
-    }),
+    }).passthrough(),
     sideEffects: ['write'],
     // beta.17 — see WRITE_FILE_CONTRACT comment. Writes are 'moderate'.
     riskLevel: 'moderate',
@@ -139,16 +143,18 @@ export const APPEND_FILE_CONTRACT: ToolContract<
 };
 
 export const LIST_DIR_CONTRACT: ToolContract<
-    { path: string; recursive?: boolean; pattern?: string },
+    { path: string; recursive?: boolean },
     string
 > = {
     name: 'list_dir',
-    summary: 'List the contents of a directory. Optionally recursive or filtered by glob pattern.',
+    summary: 'List the contents of a directory. Optionally recursive.',
+    // beta.17 (Codex P1): matched to actual filesystem.ts skill shape.
+    // The skill accepts {path, recursive}; the original contract added
+    // a `pattern` field the skill doesn't read. Dropped.
     input: z.object({
         path: z.string().min(1),
         recursive: z.boolean().optional(),
-        pattern: z.string().optional(),
-    }),
+    }).passthrough(),
     sideEffects: ['read'],
     riskLevel: 'safe',
     exampleCalls: [
@@ -157,8 +163,8 @@ export const LIST_DIR_CONTRACT: ToolContract<
             args: { path: '.' },
         },
         {
-            description: 'find all TypeScript files in src/',
-            args: { path: 'src', recursive: true, pattern: '*.ts' },
+            description: 'list a tree recursively',
+            args: { path: 'src', recursive: true },
         },
     ],
 };
@@ -166,15 +172,20 @@ export const LIST_DIR_CONTRACT: ToolContract<
 /* ──────────────────────────  Network  ────────────────────────── */
 
 export const WEB_SEARCH_CONTRACT: ToolContract<
-    { query: string; numResults?: number },
+    { query: string; maxResults?: number },
     string
 > = {
     name: 'web_search',
     summary: 'Search the public web. Returns ranked results with titles, URLs, and snippets.',
+    // beta.17 (Codex P1): the actual web_search.ts skill uses `maxResults`,
+    // not `numResults`. The original contract silently dropped the
+    // caller's count preference because Zod stripped the unknown
+    // `maxResults` and the skill only saw `query`. Field renamed to
+    // match; .passthrough() guards against future skill additions.
     input: z.object({
         query: z.string().min(1, 'query must not be empty'),
-        numResults: z.number().int().min(1).max(50).optional(),
-    }),
+        maxResults: z.number().int().min(1).max(50).optional(),
+    }).passthrough(),
     sideEffects: ['network', 'read'],
     riskLevel: 'moderate',
     exampleCalls: [
@@ -184,29 +195,39 @@ export const WEB_SEARCH_CONTRACT: ToolContract<
         },
         {
             description: 'a focused lookup with explicit count',
-            args: { query: 'Anthropic harness engineering', numResults: 5 },
+            args: { query: 'discriminated unions', maxResults: 5 },
         },
     ],
 };
 
 export const WEB_FETCH_CONTRACT: ToolContract<
-    { url: string; method?: 'GET' | 'POST'; headers?: Record<string, string>; body?: string },
+    { url: string; extractMode?: 'markdown' | 'text'; maxChars?: number },
     string
 > = {
     name: 'web_fetch',
-    summary: 'Fetch a URL over HTTP(S). Internal/private network addresses are blocked.',
+    summary: 'Fetch a URL over HTTP(S) and return its content as markdown or text. Internal/private network addresses are blocked.',
+    // beta.17 (Codex P1): the actual web_fetch.ts skill accepts
+    // {url, extractMode: 'markdown'|'text', maxChars}, NOT
+    // {url, method, headers, body}. The original contract advertised a
+    // generic HTTP-call shape the skill never had; LLMs passing
+    // method/headers/body were getting them silently stripped.
+    // Schema now mirrors the actual skill. .passthrough() preserves
+    // any future additions.
     input: z.object({
         url: z.string().url('url must be a valid http(s) URL'),
-        method: z.enum(['GET', 'POST']).optional(),
-        headers: z.record(z.string(), z.string()).optional(),
-        body: z.string().optional(),
-    }),
+        extractMode: z.enum(['markdown', 'text']).optional(),
+        maxChars: z.number().int().positive().max(200_000).optional(),
+    }).passthrough(),
     sideEffects: ['network', 'read'],
     riskLevel: 'moderate',
     exampleCalls: [
         {
-            description: 'fetch an article',
+            description: 'fetch an article as markdown',
             args: { url: 'https://example.com/article' },
+        },
+        {
+            description: 'fetch as plain text with a tighter cap',
+            args: { url: 'https://example.com/long-page', extractMode: 'text', maxChars: 8000 },
         },
     ],
 };
@@ -217,9 +238,12 @@ export const DOWNLOAD_IMAGE_CONTRACT: ToolContract<
 > = {
     name: 'download_image',
     summary: 'Download an image and return a tdi:// reference token for embedding in HTML.',
+    // beta.17 (Codex P1 audit): download_image.ts skill takes {url} only;
+    // contract matches. .passthrough() added defensively in case the
+    // skill grows options later.
     input: z.object({
         url: z.string().url('url must be a valid http(s) URL'),
-    }),
+    }).passthrough(),
     sideEffects: ['network', 'write'],
     riskLevel: 'moderate',
     exampleCalls: [
@@ -233,16 +257,32 @@ export const DOWNLOAD_IMAGE_CONTRACT: ToolContract<
 /* ──────────────────────────  Shell (destructive)  ────────────────────────── */
 
 export const SHELL_CONTRACT: ToolContract<
-    { command: string; cwd?: string; timeoutMs?: number },
+    {
+        command: string;
+        cwd?: string;
+        timeout?: number;
+        background?: boolean;
+        verify_port?: number;
+    },
     string
 > = {
     name: 'shell',
     summary: 'Execute a shell command. Destructive — guarded by the sandbox + approval gate.',
+    // beta.17 (Codex P1): matched to actual shell.ts skill shape. The
+    // skill uses `timeout` (not `timeoutMs`) and also accepts
+    // `background` + `verify_port` for dev-server launches. The
+    // original contract used the wrong name + missed the background
+    // path entirely. Zod was silently stripping `background` /
+    // `verify_port` whenever the LLM tried to launch a background
+    // process — the agent would then complain that the dev server
+    // "didn't start" because shell took the command synchronously.
     input: z.object({
         command: z.string().min(1, 'command must not be empty'),
         cwd: z.string().optional(),
-        timeoutMs: z.number().int().positive().max(300_000).optional(),
-    }),
+        timeout: z.number().int().positive().max(600_000).optional(),
+        background: z.boolean().optional(),
+        verify_port: z.number().int().min(1).max(65535).optional(),
+    }).passthrough(),
     sideEffects: ['destructive'],
     riskLevel: 'high',
     exampleCalls: [
@@ -253,6 +293,10 @@ export const SHELL_CONTRACT: ToolContract<
         {
             description: 'check disk usage in a specific dir',
             args: { command: 'du -sh', cwd: '/var/log' },
+        },
+        {
+            description: 'launch a dev server in the background, wait for port 3000',
+            args: { command: 'npm run dev', background: true, verify_port: 3000 },
         },
     ],
 };

@@ -238,14 +238,65 @@ describe('Canonical contracts', () => {
         expect(() => validateToolCall(c, { command: '' })).toThrow(ToolValidationError);
     });
 
-    it('web_search accepts a valid query and optional numResults', () => {
+    // beta.17 (Codex P1): field name corrected from numResults → maxResults
+    // to match the actual web_search.ts skill registration. Old name was
+    // being silently stripped by Zod, losing the caller's count preference.
+    it('web_search accepts a valid query and optional maxResults', () => {
         const c = getToolContract('web_search')!;
         expect(() => validateToolCall(c, { query: 'TypeScript' })).not.toThrow();
-        expect(() => validateToolCall(c, { query: 'TypeScript', numResults: 10 })).not.toThrow();
+        expect(() => validateToolCall(c, { query: 'TypeScript', maxResults: 10 })).not.toThrow();
     });
 
-    it('web_search rejects numResults above 50', () => {
+    it('web_search rejects maxResults above 50', () => {
         const c = getToolContract('web_search')!;
-        expect(() => validateToolCall(c, { query: 'x', numResults: 1000 })).toThrow(ToolValidationError);
+        expect(() => validateToolCall(c, { query: 'x', maxResults: 1000 })).toThrow(ToolValidationError);
+    });
+
+    // beta.17 regression: contracts use .passthrough() so unknown keys
+    // are PRESERVED (forward-compat) rather than silently stripped. This
+    // is what lets a future skill add a parameter without breaking the
+    // contract day-zero.
+    it('web_search preserves unknown keys via .passthrough()', () => {
+        const c = getToolContract('web_search')!;
+        const parsed = validateToolCall(c, { query: 'x', futureExtra: 'preserved' }) as Record<string, unknown>;
+        expect(parsed.futureExtra).toBe('preserved');
+    });
+
+    // beta.17 regression: web_fetch field names match the actual skill.
+    // The skill takes {url, extractMode, maxChars} — not {url, method, headers, body}.
+    it('web_fetch accepts extractMode + maxChars (the actual skill shape)', () => {
+        const c = getToolContract('web_fetch')!;
+        expect(() => validateToolCall(c, {
+            url: 'https://example.com',
+            extractMode: 'text',
+            maxChars: 5000,
+        })).not.toThrow();
+    });
+
+    it('web_fetch rejects an invalid extractMode enum value', () => {
+        const c = getToolContract('web_fetch')!;
+        expect(() => validateToolCall(c, {
+            url: 'https://example.com',
+            extractMode: 'pdf-export',
+        })).toThrow(ToolValidationError);
+    });
+
+    // beta.17 regression: shell field names match the actual skill.
+    // The skill takes {command, cwd, timeout, background, verify_port} —
+    // not {command, cwd, timeoutMs}.
+    it('shell accepts background + verify_port for dev-server launches', () => {
+        const c = getToolContract('shell')!;
+        expect(() => validateToolCall(c, {
+            command: 'npm run dev',
+            background: true,
+            verify_port: 3000,
+        })).not.toThrow();
+    });
+
+    it('shell uses "timeout" (not "timeoutMs") for the timeout parameter', () => {
+        const c = getToolContract('shell')!;
+        expect(() => validateToolCall(c, { command: 'sleep 1', timeout: 5000 })).not.toThrow();
+        // verify_port out of range still rejects
+        expect(() => validateToolCall(c, { command: 'sleep 1', verify_port: 999999 })).toThrow(ToolValidationError);
     });
 });
