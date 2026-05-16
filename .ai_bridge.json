@@ -1,0 +1,251 @@
+{
+  "schemaVersion": 1,
+  "current_turn": "CODEX",
+  "previous_turn": "CLAUDE",
+  "updated_at": "2026-05-16T19:42:00Z",
+  "owner": "Tony Elliott (djtony707)",
+  "project": {
+    "name": "TITAN",
+    "repo": "https://github.com/Djtony707/TITAN",
+    "head_commit": "1ff03906",
+    "head_branch": "main",
+    "version": "6.1.0-beta.14",
+    "deploy_target": "/opt/TITAN on Titan PC (ssh titan)",
+    "dashboard": "http://192.168.1.11:48420"
+  },
+  "standing_rules": {
+    "public_language": "All PUBLIC artifacts (CHANGELOG entries, commit messages, release notes, README, PR descriptions) use terse user-visible language. NO mention of OpenClaw, Hermes, competitor names, strategy, capability matrices, monetization plans. Plans and rationale stay on Tony's ~/Desktop only.",
+    "local_only_deploys": "Per CLAUDE.md v6.0 standing rule: deploy to /opt/TITAN via SSH only. The v6.1.0 BETA series HAS been pushed to GitHub + npm @beta (Tony approved). The v6.1.0 STABLE release still requires explicit Tony approval before tagging.",
+    "no_self_calls_at_runtime": "TITAN runtime never calls Claude Code, the `claude` CLI, or any other coding agent CLI from inside its own loop. Local dev notes in ~/.claude/ are fine; runtime adapters are not.",
+    "explain_why": "When announcing fixes/decisions: WHAT changed, WHY this approach, TRADE-OFF accepted, FOLLOW-UP queued. Standard format for handoff messages.",
+    "quality_over_speed": "Tony's exact phrasing: 'Never skimp on quality. Always use the best approach, not shortcuts.' Solo-mode (no second pair of eyes): run the FULL test sweep on touched areas, re-read the diff before commit, smoke-probe on Titan PC after deploy.",
+    "no_force_push_to_main": "Never force-push main. Never skip hooks (--no-verify) without explicit Tony approval.",
+    "verify_before_claim": "Every tool call that asserts 'I did X' must produce a checkable artifact, and the runtime reads that artifact back before reporting completion. Pattern from awesome-agent-harness — see src/agent/verification.ts for the in-tree implementation."
+  },
+  "current_sprint": {
+    "label": "Phase A → Phase D.2 (CI hygiene, dependabot drain, mission-e2e suite, trajectory recorder, memory façade)",
+    "betas_shipped": ["beta.8", "beta.9", "beta.10", "beta.11", "beta.12", "beta.13", "beta.14"],
+    "test_count_passed_in_touched_sweep": 187,
+    "build_state": "clean (npm run build + npm run typecheck both green on Mac)"
+  },
+  "modules_modified_this_sprint": [
+    {
+      "path": "src/agent/verification.ts",
+      "status": "NEW",
+      "beta": "9, 10",
+      "summary": "Verify-after-write primitives: verifyFileWrite (readback + byte-count + head-sample), verifyImageDownload (magic-byte sniff for PNG/JPEG/GIF/WebP/BMP/AVIF, text-sniff for SVG), bounded ring buffer of recent verification events, subscribeVerification fan-out for SSE, verificationEventsSince + consecutiveTrailingFailures for the driver loop's escalation counter.",
+      "test_file": "tests/verification.test.ts (24 tests)"
+    },
+    {
+      "path": "src/skills/builtin/filesystem.ts",
+      "status": "MODIFIED",
+      "beta": "9",
+      "summary": "write_file / append_file / edit_file each call verifyFileWrite after writing and append the result to the return string ('[verify: …]' or '[⚠ verify FAIL: …]'). Failed verifications also push to the ring buffer.",
+      "audit_note": "Three writeFileSync sites (write, edit-exact, edit-fuzzy). All three wired. Append uses pre-size capture to compute expected post-size. Path guard restricts writes to home and /tmp."
+    },
+    {
+      "path": "src/skills/builtin/download_image.ts",
+      "status": "MODIFIED",
+      "beta": "9",
+      "summary": "After download, magic-byte sniff via verifyImageDownload BEFORE the registry push. Mismatch returns { ok: false, error: 'magic header MISMATCH …' } instead of silently embedding HTML error pages as JPEGs."
+    },
+    {
+      "path": "src/agent/goalDriverTypes.ts",
+      "status": "MODIFIED",
+      "beta": "9",
+      "summary": "Added consecutiveAssertionFailures?: number to DriverSubtaskState. Pair with consecutiveIdenticalErrors and consecutiveNeedsInfoCount for three-pronged stuck-loop detection."
+    },
+    {
+      "path": "src/agent/goalDriver.ts",
+      "status": "MODIFIED",
+      "beta": "10",
+      "summary": "Spawn-completion branch (status==='done') walks the verification ring for events since pendingSpawn.attemptedAt. failed events with no offsetting passes → increment counter. Counter ≥ 3 → force-fail the subtask with a verify_fail message and skip to delegating.",
+      "audit_note": "Threshold logic + ring scan window are the delicate piece. The defensive try/catch around the assertion counter means failures here never gate the happy path. Worth a paranoid read."
+    },
+    {
+      "path": "src/gateway/server.ts",
+      "status": "MODIFIED",
+      "beta": "10",
+      "summary": "New SSE endpoint GET /api/verification/stream. On connect: writes a 'snapshot' event with the last 32 ring entries, then subscribes via subscribeVerification for live fan-out. 15s heartbeat to prevent proxy reaping. Cleanup on disconnect/error.",
+      "audit_note": "Auth: protected by the same token middleware as other /api/* routes. No per-user filtering — verification events are workspace-global."
+    },
+    {
+      "path": "src/providers/stub.ts",
+      "status": "NEW",
+      "beta": "11",
+      "summary": "Deterministic LLM stub provider for CI eval. Pattern-matches the agent loop's prompt shapes: chat echo, safety refusal (rm -rf / delete everything), structured JSON envelope (spawn output), widget gate (Mission Canvas), tool calls (web_search / write_file / list_dir / read_file / web_fetch / download_image), tool-result acknowledgement. shouldUseStubProvider() gates activation on CI=true+no key OR TITAN_STUB_PROVIDER=1.",
+      "test_file": "tests/stub-provider.test.ts (23 tests)",
+      "audit_note": "Pattern recognizers are the public contract with the agent loop. When the agent loop's prompt shapes change, this file must change too. Tracked dependency."
+    },
+    {
+      "path": "src/providers/router.ts",
+      "status": "MODIFIED",
+      "beta": "11",
+      "summary": "initProviders gated: providers.set('stub', new StubProvider()) only fires when shouldUseStubProvider() returns true. Prevents the failover walker from silently landing on the stub in production.",
+      "audit_note": "If a future refactor lifts this gate, real-LLM outages would silently route to the stub and look like success in prod. The gate is load-bearing."
+    },
+    {
+      "path": "src/providers/defaultModel.ts",
+      "status": "MODIFIED",
+      "beta": "11",
+      "summary": "pickDefaultModel() inserts a stub branch between the user-config-explicit check and the cloud-key checks. Returns stub/echo + reasoning model stub/json when shouldUseStubProvider() is true."
+    },
+    {
+      "path": ".github/workflows/eval-gate.yml",
+      "status": "MODIFIED",
+      "beta": "11",
+      "summary": "Added TITAN_STUB_PROVIDER=1 to the env block. Removed a duplicated 'Boot TITAN gateway' step. Eval suites should now actually run on every PR.",
+      "audit_note": "Has not yet gone green on a real CI run with the stub in place — needs verification on next push."
+    },
+    {
+      "path": "package.json",
+      "status": "MODIFIED",
+      "beta": "11",
+      "summary": "npm override: langsmith bumped from ^0.5.19 to ^0.7.1. Closes the 3 remaining langsmith Dependabot alerts (the patched npm version is 0.6.0; 0.7.1 is the highest published)."
+    },
+    {
+      "path": "ui/src/components/shell/SpacesSidebar.tsx",
+      "status": "MODIFIED",
+      "beta": "11",
+      "summary": "Full redesign. Replaced misleading 'Spaces' header (sat above MISSIONS content) with a brass-T-tile + serif TITAN wordmark. Two clearly-labelled sections (MISSIONS, WORKSPACES) with full-width rows. Themed throughout via var(--theme-*). Bottom rail Admin + Sign out with icons; sign-out hover uses theme-accent (red) so the destructive action reads correctly.",
+      "audit_note": "Added two small helper components at the bottom of the file: SectionHeader, SidebarLink. Verify both Office/Workshop/Observatory themes render correctly — I did not screenshot each."
+    },
+    {
+      "path": "ui/src/pages/MissionLibrary.tsx",
+      "status": "MODIFIED",
+      "beta": "8",
+      "summary": "Row hover: status badge + relative-time fade out when the action rail (Open/Delete) fades in. Eliminates the visual collision at the top-right corner."
+    },
+    {
+      "path": "ui/src/pages/MissionStart.tsx",
+      "status": "MODIFIED",
+      "beta": "8",
+      "summary": "Added 80 px bottom spacer so the second template row clears the global sponsor footer at 800-px viewport height."
+    },
+    {
+      "path": "src/agent/trajectoryRecorder.ts",
+      "status": "NEW",
+      "beta": "13",
+      "summary": "Per-spawn JSONL trajectory recorder. start / round / tool_call / tool_result / note / finish event API. Files at ~/.titan/trajectories/<YYYY-MM-DD>/<spawnId>.jsonl. Reader API: loadTrajectory(spawnId), listTrajectories({since,limit,goalId}). Tool args capped at 2 KB, results at 4 KB. Opt-out via TITAN_TRAJECTORY_RECORD=0.",
+      "test_file": "tests/trajectoryRecorder.test.ts (9 tests)"
+    },
+    {
+      "path": "src/agent/subAgent.ts",
+      "status": "MODIFIED",
+      "beta": "13",
+      "summary": "Trajectory wire-in at 3 exit points: success return (done/failed), catch (failed with err), finally (aborted safety net). trajectoryHandle is nulled after each finish so the finally safety net only fires if neither happy nor error path closed it.",
+      "audit_note": "Three exit points. Defensive `if (trajectoryHandle)` guards prevent double-finish. Worth a paranoid read."
+    },
+    {
+      "path": "src/memory/facade.ts",
+      "status": "NEW",
+      "beta": "14",
+      "summary": "Three-layer memory API (working / episodic / semantic) on top of 9 existing memory modules. Thin wrapper — every method passes through unchanged to the underlying function. New code uses `import { memory } from '../memory/facade.js'` for a stable, legible import surface.",
+      "test_file": "tests/memory-facade.test.ts (42 tests)"
+    }
+  ],
+  "tests_added_this_sprint": [
+    "tests/verification.test.ts — 24 tests (verifyFileWrite paths, verifyImageDownload magic-byte coverage, ring buffer ordering, consecutiveTrailingFailures with kind filter, verificationEventsSince time filter, subscribeVerification fan-out + thrown-listener isolation)",
+    "tests/stub-provider.test.ts — 23 tests (chat echo, structured JSON envelope, widget gate, tool calls including web_search/write_file/list_dir, tool-result acknowledgement, safety refusal, streaming path, CI-detection env matrix)",
+    "tests/eval/mission-e2e.test.ts — 7 tests (5 tiers: router→stub plumbing / spawn envelope parses / tool dispatch → real skill → disk artifact + ring event passes / safety refusal end-to-end / assertion counter stays at 0 across 5 healthy writes)",
+    "tests/trajectoryRecorder.test.ts — 9 tests (happy path with start/round/tool_call/tool_result/finish, opt-out via env, reader API filter by goalId + since + limit, payload caps at 2 KB args / 4 KB result, on-disk JSONL format)",
+    "tests/memory-facade.test.ts — 42 tests (shape contract: exactly three layers; method existence on each layer; thread-through smoke tests: working open/decide/close, semantic rememberFact/recallFact, profile shape)"
+  ],
+  "tests_run": {
+    "command_used": "npx vitest run <files>",
+    "final_sweep_at_beta_14": "187/187 across tests/memory-facade tests/trajectoryRecorder tests/eval/mission-e2e tests/stub-provider tests/core tests/verification tests/goalDriver",
+    "broader_sweep_at_beta_11": "318/318 across the touched-area files including providers-extended and default-model-picker",
+    "build_state": "npm run build + npm run typecheck both clean",
+    "full_suite_run_in_session": false,
+    "full_suite_caveat": "I ran the touched-area sweep only (faster, scoped). A full `npm test` was not run in this session. Codex or Tony should run `npm test` before any v6.1.0 stable release tag."
+  },
+  "files_needing_strict_audit": [
+    {
+      "path": "src/agent/goalDriver.ts",
+      "concern": "consecutiveAssertionFailures wiring in the spawn-completion branch (status==='done'). The ring-scan window uses pendingSpawn.attemptedAt as the lower bound — verify this is set before the ring scan happens. The threshold-3 force-fail must call failSubtask correctly + transition to 'delegating'."
+    },
+    {
+      "path": "src/agent/subAgent.ts",
+      "concern": "Three trajectory finish points (success / catch / finally-abort). Defensive `if (trajectoryHandle)` guards mean any leaked path produces 'aborted'. Verify no early-return path I missed leaves trajectoryHandle un-nulled."
+    },
+    {
+      "path": "src/providers/router.ts + src/providers/defaultModel.ts",
+      "concern": "Stub gating: `providers.set('stub', new StubProvider())` is wrapped in `if (shouldUseStubProvider())`. If this gate is ever lifted or the env-check function changes, real-LLM outages in production would silently route to the stub and look like success. The gate is load-bearing."
+    },
+    {
+      "path": "src/providers/stub.ts",
+      "concern": "Pattern recognizers (chat / structured JSON / widget gate / tool call / safety refusal / tool-result ack) are the contract with the agent loop's prompt shapes. When agent prompts change, this file must change too. Verify the recognizers still match current spawnSubAgent + structuredSpawn output."
+    },
+    {
+      "path": ".github/workflows/eval-gate.yml",
+      "concern": "Has not yet gone green on a real CI run with TITAN_STUB_PROVIDER=1 + the duplicate-boot-step removed. Verify on the next push that the workflow actually runs eval suites end-to-end (vs the pre-stub 0% scoring state)."
+    },
+    {
+      "path": "package.json (overrides.langsmith)",
+      "concern": "Override is ^0.7.1. Dependabot's advisory metadata listed pip patched version 0.8.0 but npm patched is 0.6.0; 0.7.1 satisfies that. Confirm 0.7.1 didn't change langsmith's public API surface used by @langchain/core via @browserbasehq/stagehand."
+    }
+  ],
+  "files_intentionally_skipped_or_deferred": [
+    {
+      "path": "src/agent/subAgent.ts (per-round trajectory instrumentation)",
+      "reason": "Current cut captures only start + finish from outside the round loop. recordRound / recordToolCall / recordToolResult are public API on trajectoryRecorder but the round-loop wire-in is deferred to keep the spawn-loop diff small. Codex or a follow-up sprint can hook them inside the round loop."
+    },
+    {
+      "path": "Mission Canvas UI",
+      "reason": "Verification SSE endpoint (/api/verification/stream) is up but no UI consumer subscribes yet. The 'trust line' on Mission Canvas would be the natural consumer. Deferred to a future UI sprint."
+    },
+    {
+      "path": "src/skills/builtin/web_browse_llm.ts",
+      "reason": "Large file (66 KB). Verification was wired into filesystem.ts + download_image.ts but the browser-fetch verifier is still TBD. Deferred to Phase D follow-up."
+    }
+  ],
+  "phase_plan": {
+    "completed": [
+      "A.1 — CI green on main",
+      "A.2 — Dependabot triage (29 → 0)",
+      "A.3 — LICENSE pure MIT (parser-friendly)",
+      "A.4 — zombie branches deleted",
+      "A.5 — repo description / homepage / topics refreshed",
+      "A.6 — Eval Gate workflow fixed (gateway entry + skip-usable-check)",
+      "A.7 — Docker builds fixed (tsup.config.ts + qwen3 → f5-tts ref)",
+      "B.1 — feature truth table (local doc on ~/Desktop)",
+      "B.3 — CI stub provider",
+      "C — mission-end-to-end eval suite",
+      "D.1 — per-spawn trajectory recorder",
+      "D.2 — memory façade"
+    ],
+    "pending": [
+      "D.3 — tool contract (declarative input/output schemas + validators per skill; start with 5-10 canonical skills, leave long-tail opt-in)",
+      "D.4 — auto-mode classifier (Claude Code auto-mode pattern — gate destructive tool calls behind a per-call risk classifier so safe edits don't prompt the user)",
+      "D.5 — worktree isolation (sandboxed execution surfaces for self-mod tasks — Archon-style YAML-defined phases + isolated worktrees)",
+      "E — README counts update + hero GIF + GitHub release backfill (40+ missing tags) + eval badge",
+      "F — v6.1.0 stable release prep (CHANGELOG codename + soak window + Tony approval gate)"
+    ],
+    "deferred_to_v6_2_or_later": [
+      "Multi-tenant scoping in the gateway (userId on every mission / file / memory) — prerequisite for any hosted SaaS tier",
+      "Clerk auth integration",
+      "Stripe Checkout + webhook handler",
+      "Mission Canvas trajectory pane (live UI consumer of /api/trajectories/stream when that endpoint ships)",
+      "titan trajectory replay <spawnId> CLI command",
+      "titan trajectory prune retention CLI"
+    ]
+  },
+  "local_only_docs_on_tony_desktop": [
+    "~/Desktop/titan-github-fix-plan.md — 10-section repo remediation playbook",
+    "~/Desktop/titan-feature-truth-table.md — feature inventory (Phase B.1)",
+    "~/Desktop/titan-capability-matrix-may2026.md — TITAN vs OpenClaw vs Hermes scorecard (local-only — NEVER reference in public)",
+    "~/Desktop/titan-monetization-plan.md — hosting + tier pricing + 60-day MVP plan",
+    "~/Desktop/titan-public-explainer-plan.md — how to caption TITAN screenshots so regular people understand them",
+    "Plus older planning docs from prior sprints — see ~/Desktop/titan-*.md"
+  ],
+  "handoff_notes_for_codex": [
+    "Read CLAUDE.md and AGENTS.md first if you haven't yet — the standing rules apply to every commit.",
+    "Public language ONLY in commits / CHANGELOG / PR descriptions. NO mention of competitor analysis, capability matrix, monetization strategy. Plans stay on ~/Desktop only.",
+    "Tony asked for sequential phase work (no skipping around). Current phase to start on: D.3 (tool contract).",
+    "Recommended D.3 scope: define a declarative ToolContract type in src/agent/toolContract.ts. Each skill exports a contract { name, summary, input: ZodSchema, output: ZodSchema, sideEffects: 'read'|'write'|'network'|'destructive', riskLevel: 'safe'|'moderate'|'high', exampleCalls }. Start with the 5-10 most-used skills (write_file, read_file, web_search, web_fetch, download_image, shell, list_dir, edit_file, append_file). Validate inputs via Zod at tool dispatch in src/agent/toolRunner.ts. Reject invalid args with a clear error before the skill runs. Tests pass tool calls with malformed args and assert the rejection.",
+    "Version bump rule: every functional change bumps the version. Update 5 sites (package.json, src/utils/constants.ts, tests/core.test.ts, tests/mission-control.test.ts ×4 places, CHANGELOG.md). Vitest core.test.ts will fail if you forget any one.",
+    "Build + deploy workflow on Mac: `npm run build` (tsup → dist/) + `npm run build:ui` (vite → ui/dist/). Then `rsync -az --delete --exclude='node_modules' --exclude='.git' --exclude='server' --exclude='space-app' --exclude='space-pages' --exclude='packages' --exclude='*.jsonl' ./ titan:/opt/TITAN/`. Then `ssh titan 'sudo systemctl restart titan 2>/dev/null || pm2 restart titan 2>/dev/null || true'`. Verify with curl http://192.168.1.11:48420/api/health — HTTP 401 = service is up (auth required, expected).",
+    "Tests: `npx vitest run <files>` for scoped sweeps. `npm test` for the full suite (slow, run before stable releases).",
+    "If you need to delegate something back to Claude (e.g. requires 1M context window or judgment calls), set current_turn to 'CLAUDE' and add a `delegation_reason` field to this file."
+  ]
+}
