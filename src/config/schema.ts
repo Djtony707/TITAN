@@ -103,6 +103,13 @@ export const SecurityConfigSchema = z.object({
     maxMemoryMB: z.number().default(2048),
     maxSubprocesses: z.number().default(10),
     maxDiskWriteMB: z.number().default(1024),
+    /**
+     * Phase D.5: opt-in worktree isolation for contract-declared
+     * destructive tools. Default false preserves legacy cwd behavior;
+     * enabling it routes those calls into ~/.titan/worktrees/<spawnId>
+     * so risky filesystem effects are reviewable before landing.
+     */
+    useWorktreeIsolation: z.boolean().default(false),
     vault: z.object({
         enabled: z.boolean().default(false),
         path: z.string().optional(),
