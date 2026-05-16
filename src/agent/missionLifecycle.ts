@@ -350,7 +350,12 @@ function ensureGlobalBusBridge(): void {
                             : `Done.`;
                         postAgentMessage(mission.id, agentId, summary, actions.length > 0 ? actions : undefined, meta, sourcesArg);
                     }
-                    setMemberState(mission.id, agentId, 'idle', undefined);
+                    // v6.1.0-beta.4 — explicitly reset currentActivity
+                    // to a calm string. Passing `undefined` here used to
+                    // leave stale strings like "running download_image"
+                    // visible on the team strip long after the agent
+                    // went idle. The mzzbajnj writer stuck-on-string bug.
+                    setMemberState(mission.id, agentId, 'idle', 'standing by');
                     const tokens = typeof data.tokensUsed === 'number' ? data.tokensUsed : 0;
                     const cost = typeof data.costUsd === 'number' ? data.costUsd : 0;
                     if (tokens > 0 || cost > 0) {

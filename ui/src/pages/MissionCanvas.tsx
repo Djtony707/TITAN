@@ -540,13 +540,13 @@ export default function MissionCanvas() {
   // ── Early-return guards (after all hooks) ─────────────────────
 
   if (loading) {
-    return <div className="fixed inset-0 flex items-center justify-center bg-[#3a2a1c] text-[#f3e9d0] text-sm">Setting the desk…</div>;
+    return <div className="fixed inset-0 flex items-center justify-center text-sm" style={{ background: 'var(--theme-bg-base, #3a2a1c)', color: 'var(--theme-paper, #f3e9d0)' }}>Setting the desk…</div>;
   }
   if (error || !room) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#3a2a1c] flex-col gap-3">
+      <div className="fixed inset-0 flex items-center justify-center flex-col gap-3" style={{ background: 'var(--theme-bg-base, #3a2a1c)' }}>
         <div className="text-[#ffb4a2] text-sm">{error ?? 'Mission not found.'}</div>
-        <button onClick={() => navigate('/mission')} className="text-[#f3e9d0] text-sm hover:underline">← Start a new mission</button>
+        <button onClick={() => navigate('/mission')} className="text-sm hover:underline" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>← Start a new mission</button>
       </div>
     );
   }
@@ -554,7 +554,7 @@ export default function MissionCanvas() {
   const { working, blocked } = countTeam(room);
 
   return (
-    <div className="fixed inset-0 overflow-hidden font-sans text-[#f3e9d0]" style={deskStyle}>
+    <div className="fixed inset-0 overflow-hidden font-sans" style={{ ...deskStyle, color: 'var(--theme-paper, #f3e9d0)', fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)' }}>
       {/* warm window-light glow + vignette */}
       <div className="pointer-events-none absolute inset-0" style={glowStyle} />
       <div className="pointer-events-none absolute inset-0" style={vignetteStyle} />
@@ -562,10 +562,11 @@ export default function MissionCanvas() {
       {/* Top bar */}
       <header className="relative z-30 flex items-center justify-between px-5 py-3.5">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/mission')} className="text-[#e7d6a8] hover:text-white text-sm" title="New mission">←</button>
+          <button onClick={() => navigate('/mission')} className="hover:text-white text-sm" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }} title="New mission">←</button>
           <button
             onClick={() => navigate('/mission/library')}
-            className="text-[10px] uppercase tracking-widest text-[#d9c08c] hover:text-white border border-[#8a6a3a]/60 rounded-full px-2 py-0.5"
+            className="text-[10px] uppercase tracking-widest hover:text-white rounded-full px-2 py-0.5"
+            style={{ color: 'var(--theme-ink-soft, #d9c08c)', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
             title="Browse past missions"
           >
             Library
@@ -573,29 +574,30 @@ export default function MissionCanvas() {
           {/* v6.1.0-alpha.23 — back to the main canvas / spaces home. */}
           <button
             onClick={() => navigate('/space/home')}
-            className="text-[10px] uppercase tracking-widest text-[#d9c08c] hover:text-white border border-[#8a6a3a]/60 rounded-full px-2 py-0.5 inline-flex items-center gap-1"
+            className="text-[10px] uppercase tracking-widest hover:text-white rounded-full px-2 py-0.5 inline-flex items-center gap-1"
+            style={{ color: 'var(--theme-ink-soft, #d9c08c)', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
             title="Back to the canvas spaces"
           >
             🌌 Canvas
           </button>
-          <div className="font-semibold tracking-tight text-[#f3e9d0]">
-            <span style={{ background: 'linear-gradient(90deg,#f3d27a,#d8a85a)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN</span>
-            <span className="text-[#d9c08c] font-normal"> &nbsp;›&nbsp; </span>
-            <span className="text-[#e7d6a8] font-normal">Desk</span>
+          <div className="font-semibold tracking-tight" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>
+            <span style={{ background: 'linear-gradient(90deg, var(--theme-metal-bright, #f3d27a), var(--theme-metal, #d8a85a))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN</span>
+            <span className="font-normal" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}> &nbsp;›&nbsp; </span>
+            <span className="font-normal" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>Desk</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-xs">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs" style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>
             <span className={`w-2 h-2 rounded-full ${blocked > 0 ? 'bg-error animate-pulse' : working > 0 ? 'bg-accent animate-pulse' : 'bg-success'}`} />
-            <span className="text-[#e7d6a8]">{statusBlurb(room.status, working, blocked)}</span>
+            <span style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>{statusBlurb(room.status, working, blocked)}</span>
           </div>
           {room.longRunningMode && (
             <div
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
               style={{
                 background: 'linear-gradient(90deg, rgba(245,210,122,0.18), rgba(176,138,58,0.18))',
-                border: '1px solid #b08a3a',
-                color: '#ffd86e',
+                border: '1px solid var(--theme-metal-dark, #b08a3a)',
+                color: 'var(--theme-metal-bright, #ffd86e)',
               }}
               title="Marathon mode — long-running multi-agent collaboration (72h cap)"
             >
@@ -604,29 +606,33 @@ export default function MissionCanvas() {
           )}
           <button
             onClick={tidyUp}
-            className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#e7d6a8] hover:text-white"
+            className="px-3 py-1.5 text-xs rounded-full hover:text-white"
+            style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))', color: 'var(--theme-metal-bright, #e7d6a8)' }}
             title="Reset every item to a sensible starting position"
           >Tidy up</button>
           <button
             onClick={() => navigate(`/mission/${room.id}`)}
-            className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#e7d6a8] hover:text-white"
+            className="px-3 py-1.5 text-xs rounded-full hover:text-white"
+            style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))', color: 'var(--theme-metal-bright, #e7d6a8)' }}
             title="Switch to the chat thread view"
           >Chat view</button>
           <button
             onClick={onTogglePause}
-            className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#e7d6a8] hover:text-white"
+            className="px-3 py-1.5 text-xs rounded-full hover:text-white"
+            style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))', color: 'var(--theme-metal-bright, #e7d6a8)' }}
           >
             {room.status === 'paused' ? 'Resume' : 'Pause'}
           </button>
           {/* v6.1.0-alpha.27 — delete mission. Wood-tone, red on hover. */}
           <button
             onClick={onDelete}
-            className="px-3 py-1.5 text-xs bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full text-[#d9c08c] hover:text-[#ff9c9c] hover:border-[#ff9c9c]/50 transition-colors"
+            className="px-3 py-1.5 text-xs rounded-full hover:text-[#ff9c9c] hover:border-[#ff9c9c]/50 transition-colors"
+            style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))', color: 'var(--theme-ink-soft, #d9c08c)' }}
             title="Delete this mission"
           >
             🗑 Delete
           </button>
-          <button onClick={() => setHelpOpen(v => !v)} className="w-8 h-8 rounded-full bg-[#2a1d11]/70 border border-[#8a6a3a]/60 text-[#e7d6a8] hover:text-white font-semibold text-sm flex items-center justify-center" title="What's this?">?</button>
+          <button onClick={() => setHelpOpen(v => !v)} className="w-8 h-8 rounded-full hover:text-white font-semibold text-sm flex items-center justify-center" style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))', color: 'var(--theme-metal-bright, #e7d6a8)' }} title="What's this?">?</button>
         </div>
       </header>
 
@@ -736,32 +742,47 @@ export default function MissionCanvas() {
       })()}
 
       {/* Bottom rail — slash quick steers + steer input. Same layout as before. */}
-      <footer className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-5 pt-3 flex flex-col gap-2 bg-gradient-to-t from-[#1d130a]/95 to-transparent">
+      <footer
+        className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-5 pt-3 flex flex-col gap-2"
+        style={{ background: 'linear-gradient(to top, var(--theme-leather-edge, rgba(29,19,10,0.95)), transparent)' }}
+      >
         <div className="flex flex-wrap items-center gap-2 max-w-5xl mx-auto w-full">
-          <span className="text-[10px] uppercase tracking-widest text-[#d9c08c]">quick steer</span>
+          <span className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>quick steer</span>
           {SLASH_COMMANDS.map(s => (
             <button
               key={s.cmd}
               onClick={() => sendSteer(s.cmd)}
               disabled={sending}
               title={s.hint}
-              className="px-2.5 py-1 text-[11px] text-[#e7d6a8] bg-[#2a1d11]/70 border border-[#8a6a3a]/60 rounded-full hover:text-white disabled:opacity-50"
+              className="px-2.5 py-1 text-[11px] rounded-full hover:text-white disabled:opacity-50"
+              style={{ color: 'var(--theme-metal-bright, #e7d6a8)', background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
             >{s.label}</button>
           ))}
         </div>
         <div className="flex items-center gap-3 max-w-5xl mx-auto w-full">
           <form
             onSubmit={(e) => { e.preventDefault(); sendSteer(steerInput); }}
-            className="flex-1 h-11 flex items-center gap-2.5 px-3.5 bg-[#2a1d11]/80 border border-[#8a6a3a]/60 rounded-full"
+            className="flex-1 h-11 flex items-center gap-2.5 px-3.5 rounded-full"
+            style={{ background: 'var(--theme-leather, rgba(42,29,17,0.8))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
           >
             <input
               value={steerInput}
               onChange={(e) => setSteerInput(e.target.value)}
               placeholder='Tell the team — "Add a one-line risk note at the top"'
-              className="flex-1 bg-transparent outline-none text-sm text-[#f3e9d0] placeholder:text-[#d9c08c]/50"
+              className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#d9c08c]/50"
+              style={{ color: 'var(--theme-paper, #f3e9d0)' }}
             />
-            <span className="px-2 py-1 text-[10px] uppercase tracking-widest text-[#d9c08c] border border-[#8a6a3a]/60 rounded">↵</span>
+            <span className="px-2 py-1 text-[10px] uppercase tracking-widest rounded" style={{ color: 'var(--theme-ink-soft, #d9c08c)', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>↵</span>
           </form>
+        </div>
+        {/* Phase 3 polish — permanent trust line. Frames the safety
+            contract without explaining it. Muted via theme-ink-soft
+            so it never competes with the actual decision moment. */}
+        <div
+          className="max-w-5xl mx-auto w-full text-center text-[11px] italic"
+          style={{ color: 'var(--theme-ink-soft, #d9c08c)', opacity: 0.7 }}
+        >
+          Your team works independently, but asks before risky or sensitive changes.
         </div>
       </footer>
 
@@ -772,14 +793,17 @@ export default function MissionCanvas() {
 
       {/* Help panel */}
       {helpOpen && (
-        <div className="fixed top-16 right-5 w-80 bg-[#2a1d11]/95 border border-[#8a6a3a]/60 rounded-xl p-4 backdrop-blur-xl shadow-2xl z-40">
-          <button onClick={() => setHelpOpen(false)} className="absolute top-3 right-3 text-[#d9c08c] hover:text-white text-sm">✕</button>
-          <h3 className="font-semibold text-sm mb-2 text-[#f3e9d0]">The desk</h3>
-          <p className="text-xs text-[#e7d6a8] leading-relaxed mb-3">
+        <div
+          className="fixed top-16 right-5 w-80 rounded-xl p-4 backdrop-blur-xl shadow-2xl z-40"
+          style={{ background: 'var(--theme-leather, rgba(42,29,17,0.95))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
+        >
+          <button onClick={() => setHelpOpen(false)} className="absolute top-3 right-3 hover:text-white text-sm" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>✕</button>
+          <h3 className="font-semibold text-sm mb-2" style={{ color: 'var(--theme-paper, #f3e9d0)' }}>The desk</h3>
+          <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>
             Everything the team produces lands on this desk as a physical object.
             Drag anything anywhere. <b>Tidy up</b> resets the layout if it gets cluttered.
           </p>
-          <ul className="space-y-2 text-xs text-[#e7d6a8]">
+          <ul className="space-y-2 text-xs" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>
             <li className="flex gap-2"><span>📜</span><span><b className="text-white">Leather placard</b> — your mission goal.</span></li>
             <li className="flex gap-2"><span>📄</span><span><b className="text-white">Paper sheets</b> — files the team wrote. Double-click to open.</span></li>
             <li className="flex gap-2"><span>👤</span><span><b className="text-white">Index cards</b> — each AI helper, showing what they're doing now.</span></li>
@@ -964,19 +988,40 @@ function GoalPlacard({ goal, status }: { goal: string; status: MissionRoom['stat
   const meta = labels[status] ?? labels.working;
   return (
     <div
-      className="w-[420px] px-5 py-3.5 text-[#f3e9d0]"
+      className="w-[420px] px-5 py-4 relative"
       style={{
         background:
-          'linear-gradient(140deg, #6b2c2a 0%, #4a1816 60%, #3b110f 100%)',
-        border: '1px solid #2a0908',
+          'linear-gradient(140deg, var(--theme-leather, #6b2c2a) 0%, var(--theme-leather-edge, #4a1816) 60%, var(--theme-bolt, #3b110f) 100%)',
+        border: '1px solid var(--theme-bolt, #2a0908)',
         borderRadius: 10,
-        boxShadow: 'inset 0 0 24px rgba(0,0,0,0.5), 0 0 0 4px rgba(0,0,0,0.08)',
+        // Inner depth + outer accent glow tied to the active theme.
+        // Phase 1 polish — promotes the placard to the top of the
+        // visual hierarchy (100% contrast). Glow is held at low alpha
+        // so it reads premium and quiet, not loud.
+        boxShadow:
+          'inset 0 0 24px var(--theme-shadow, rgba(0,0,0,0.5)), 0 0 0 4px rgba(0,0,0,0.08), 0 0 32px color-mix(in srgb, var(--theme-accent, #c45a30) 28%, transparent)',
         backgroundBlendMode: 'multiply',
+        color: 'var(--theme-paper, #f3e9d0)',
       }}
     >
-      <div className="text-[10px] uppercase tracking-[0.22em] text-[#d9c08c] mb-1">Your mission</div>
-      <div className="text-[15px] leading-snug font-semibold tracking-tight">{goal}</div>
-      <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#d9c08c]/70">
+      {/* Eyebrow — "ACTIVE MISSION" sets the hierarchy frame. */}
+      <div
+        className="text-[10px] uppercase mb-1.5"
+        style={{
+          letterSpacing: '0.16em',
+          color: 'var(--theme-ink-soft, #d9c08c)',
+          fontWeight: 600,
+        }}
+      >
+        Active Mission
+      </div>
+      <div
+        className="leading-snug font-semibold tracking-tight"
+        style={{ fontSize: 22, color: 'var(--theme-paper, #f3e9d0)' }}
+      >
+        {goal}
+      </div>
+      <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, rgba(217,192,140,0.7))' }}>
         <span
           className={`inline-block w-2 h-2 rounded-full ${status === 'working' || status === 'blocked' || status === 'forming' ? 'animate-pulse' : ''}`}
           style={{ background: meta.dotColor, boxShadow: `0 0 6px ${meta.dotGlow}` }}
@@ -1012,40 +1057,122 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
   // live-writing indicator with a blinking cursor.
   const teamActive = room.team.some(t => t.state === 'working' || t.state === 'editing');
 
+  // Phase 1 polish — show a polished SVG chart skeleton when an
+  // Analyst is computing (heuristic: any team member named "Analyst"
+  // or with role containing "analyst" is in working/editing state).
+  const analystComputing = teamActive && room.team.some(t =>
+    (t.state === 'working' || t.state === 'editing') &&
+    (t.name.toLowerCase().includes('analyst') || (t.role ?? '').toLowerCase().includes('analyst'))
+  );
+
   return (
     <div
-      className="w-[460px] max-w-[88vw] bg-[#f7f5ee] text-[#1a1f2e] rounded-md p-7 pt-6 relative"
+      className="w-[620px] max-w-[92vw] rounded-md p-8 pt-7 relative"
       style={{
-        fontFamily: '"Iowan Old Style", "Charter", "Georgia", serif',
-        backgroundImage: 'repeating-linear-gradient(180deg, transparent 0 26px, #d8d3c2 26px 27px)',
-        backgroundPosition: '0 48px',
+        background: 'var(--theme-paper, #f7f5ee)',
+        color: 'var(--theme-ink, #1a1f2e)',
+        fontFamily: 'var(--theme-font-display, "Iowan Old Style", "Charter", "Georgia", serif)',
+        backgroundImage: 'repeating-linear-gradient(180deg, transparent 0 26px, var(--theme-paper-line, #d8d3c2) 26px 27px)',
+        backgroundPosition: '0 56px',
+        // Phase 1 — central document is hierarchy rank #2 (90%
+        // contrast, elevated). Stacked drop shadow + faint accent
+        // halo so the eye lands here second.
+        boxShadow:
+          '0 18px 40px var(--theme-shadow, rgba(0,0,0,0.45)), 0 6px 14px var(--theme-shadow, rgba(0,0,0,0.35)), 0 0 0 1px color-mix(in srgb, var(--theme-accent, #c45a30) 12%, transparent)',
       }}
     >
-      <h1 className="text-[20px] font-semibold tracking-tight leading-tight mb-1">
+      <h1 className="text-[22px] font-semibold tracking-tight leading-tight mb-1">
         {shorten(room.goal, 70)}
       </h1>
-      <div className="text-[11px] uppercase tracking-widest text-[#8a8472] mb-4 flex items-center gap-2">
+      <div className="text-[11px] uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: 'var(--theme-ink-soft, #8a8472)' }}>
         <span>Draft · {words} words · {statusToLabel(room.status)}</span>
         {typing && teamActive && (
           <span className="inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#c4a35a] animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--theme-accent, #c4a35a)' }} />
             <span className="text-[10px] italic">Writing…</span>
           </span>
         )}
       </div>
       {lines.length > 0 ? (
-        <div className="text-[13px] leading-[1.55] space-y-3">
+        <div className="text-[14px] leading-[1.6] space-y-3">
           {lines.map((line, i) => (
             <p key={i}>{line}{typing && teamActive && i === lines.length - 1 && (
-              <span className="inline-block w-0.5 h-3.5 bg-[#c4a35a] ml-0.5 align-middle animate-pulse" />
+              <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse" style={{ background: 'var(--theme-accent, #c4a35a)' }} />
             )}</p>
           ))}
         </div>
       ) : (
-        <div className="text-[12px] italic text-[#8a8472] py-6 text-center">
+        <div className="text-[12px] italic py-6 text-center" style={{ color: 'var(--theme-ink-soft, #8a8472)' }}>
           The team is just getting started — your document fills in as they work.
         </div>
       )}
+      {analystComputing && <ChartSkeleton />}
+    </div>
+  );
+}
+
+/**
+ * Phase 1 polish — polished SVG chart skeleton shown when an Analyst
+ * is computing. Replaces what used to be an empty rect placeholder.
+ * Axis lines, dashed bars (the dashes animate to convey "loading"),
+ * and an italic "Analyst computing…" caption. Every color is sourced
+ * from theme CSS variables so workshop / observatory themes reskin
+ * the chart with their own ink + accent palette.
+ */
+function ChartSkeleton() {
+  return (
+    <div className="mt-5 pt-4" style={{ borderTop: '1px dashed var(--theme-paper-line, #d8d3c2)' }}>
+      <svg
+        viewBox="0 0 320 110"
+        className="w-full h-[110px]"
+        aria-hidden
+        style={{ overflow: 'visible' }}
+      >
+        {/* Y axis */}
+        <line x1="22" y1="6" x2="22" y2="92"
+          stroke="var(--theme-ink-soft, #8a8472)" strokeWidth="1" opacity="0.5" />
+        {/* X axis */}
+        <line x1="22" y1="92" x2="312" y2="92"
+          stroke="var(--theme-ink-soft, #8a8472)" strokeWidth="1" opacity="0.5" />
+        {/* Y axis ticks */}
+        {[20, 44, 68].map(y => (
+          <line key={y} x1="18" y1={y} x2="22" y2={y}
+            stroke="var(--theme-ink-soft, #8a8472)" strokeWidth="1" opacity="0.35" />
+        ))}
+        {/* Dashed bars (skeleton). Heights vary so it reads as a bar
+            chart not a histogram. Stroke is the active theme accent
+            so observatory cyan / workshop green / office copper all
+            render correctly without extra logic. */}
+        {[
+          { x:  40, h: 52 },
+          { x:  82, h: 68 },
+          { x: 124, h: 32 },
+          { x: 166, h: 78 },
+          { x: 208, h: 46 },
+          { x: 250, h: 62 },
+          { x: 292, h: 40 },
+        ].map((b, i) => (
+          <rect
+            key={i}
+            x={b.x - 12}
+            y={92 - b.h}
+            width={24}
+            height={b.h}
+            fill="none"
+            stroke="var(--theme-accent, #c45a30)"
+            strokeWidth="1.5"
+            strokeDasharray="4 3"
+            opacity="0.55"
+            style={{ animation: 'tetherFlow 2.4s linear infinite' }}
+          />
+        ))}
+      </svg>
+      <div
+        className="text-[11px] italic mt-1 text-center"
+        style={{ color: 'var(--theme-ink-soft, #8a8472)' }}
+      >
+        Analyst computing…
+      </div>
     </div>
   );
 }
@@ -1053,16 +1180,17 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
 function CostInkwell({ room }: { room: MissionRoom }) {
   return (
     <div
-      className="w-[110px] h-[110px] rounded-full flex flex-col items-center justify-center text-[#f3e9d0]"
+      className="w-[110px] h-[110px] rounded-full flex flex-col items-center justify-center"
       style={{
-        background: 'radial-gradient(circle at 35% 30%, #2b1a14 0%, #1a0e08 70%)',
-        boxShadow: 'inset 0 0 18px rgba(0,0,0,0.6), 0 0 0 5px #6e4a26, 0 0 0 6px #382213',
+        background: 'radial-gradient(circle at 35% 30%, var(--theme-leather, #2b1a14) 0%, var(--theme-leather-edge, #1a0e08) 70%)',
+        boxShadow: 'inset 0 0 18px var(--theme-shadow, rgba(0,0,0,0.6)), 0 0 0 5px var(--theme-metal-dark, #6e4a26), 0 0 0 6px var(--theme-bolt, #382213)',
+        color: 'var(--theme-paper, #f3e9d0)',
       }}
       title="Tokens + dollars spent this mission"
     >
-      <span className="text-[9px] uppercase tracking-widest text-[#d9c08c]">spent</span>
+      <span className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>spent</span>
       <span className="text-[20px] font-bold tabular-nums">${room.cost.usd.toFixed(2)}</span>
-      <span className="text-[9px] text-[#d9c08c]/80 tabular-nums">{(room.cost.tokens / 1000).toFixed(1)}k tok</span>
+      <span className="text-[9px] tabular-nums" style={{ color: 'var(--theme-ink-soft, rgba(217,192,140,0.8))' }}>{(room.cost.tokens / 1000).toFixed(1)}k tok</span>
     </div>
   );
 }
@@ -1117,15 +1245,16 @@ function DeskClock({ room }: { room: MissionRoom }) {
 
   return (
     <div
-      className="w-[260px] p-4 pb-3 text-[#f5d27a]"
+      className="w-[260px] p-4 pb-3"
       style={{
-        background: 'radial-gradient(ellipse at 30% 25%, #4a2e18 0%, #2a1808 75%, #1a0e04 100%)',
+        background: 'radial-gradient(ellipse at 30% 25%, var(--theme-leather, #4a2e18) 0%, var(--theme-bolt, #2a1808) 75%, var(--theme-leather-edge, #1a0e04) 100%)',
         borderRadius: 14,
         boxShadow:
-          '0 0 0 3px #b08a3a, 0 0 0 5px #5a3a14, 0 12px 22px rgba(0,0,0,0.5), inset 0 0 16px rgba(0,0,0,0.6)',
+          '0 0 0 3px var(--theme-metal-dark, #b08a3a), 0 0 0 5px var(--theme-bolt, #5a3a14), 0 12px 22px var(--theme-shadow, rgba(0,0,0,0.5)), inset 0 0 16px rgba(0,0,0,0.6)',
+        color: 'var(--theme-metal-bright, #f5d27a)',
       }}
     >
-      <div className="text-[9px] uppercase tracking-[0.28em] text-[#c4a14a] text-center mb-1.5">
+      <div className="text-[9px] uppercase tracking-[0.28em] text-center mb-1.5" style={{ color: 'var(--theme-metal, #c4a14a)' }}>
         TITAN{tzShort ? ' · ' + tzShort : ''}
       </div>
       {/* Big local-time numerals */}
@@ -1144,15 +1273,15 @@ function DeskClock({ room }: { room: MissionRoom }) {
       </div>
       {/* Mission elapsed — small secondary line */}
       <div
-        className="text-center text-[10px] uppercase tracking-[0.22em] text-[#c4a14a]/85 mb-1.5"
-        style={{ fontFamily: 'system-ui' }}
+        className="text-center text-[10px] uppercase tracking-[0.22em] mb-1.5"
+        style={{ fontFamily: 'system-ui', color: 'var(--theme-metal, rgba(196,161,74,0.85))' }}
       >
         Mission · {elapsed.hh}:{elapsed.mm}:{elapsed.ss}
-        {frozen && <span className="ml-1.5 text-[#d9c08c]/70">· {room.status}</span>}
+        {frozen && <span className="ml-1.5" style={{ color: 'var(--theme-ink-soft, rgba(217,192,140,0.7))' }}>· {room.status}</span>}
       </div>
       <div
-        className="flex items-center justify-center gap-3 pt-2 border-t border-[#5a3a14]/60"
-        style={{ fontFamily: 'system-ui' }}
+        className="flex items-center justify-center gap-3 pt-2"
+        style={{ fontFamily: 'system-ui', borderTop: '1px solid var(--theme-bolt, rgba(90,58,20,0.6))' }}
       >
         <ClockStat n={working} label="working" tone="accent" />
         <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
@@ -1169,11 +1298,12 @@ function LCDPair({ value }: { value: string }) {
 }
 
 function ClockStat({ n, label, tone }: { n: number; label: string; tone: 'accent' | 'warn' | 'muted' }) {
-  const color = tone === 'accent' ? '#8ed1ff' : tone === 'warn' ? '#ff9c9c' : '#c4a14a';
+  // accent/warn are semantic status colors; muted reads as brass (themable).
+  const color = tone === 'accent' ? '#8ed1ff' : tone === 'warn' ? '#ff9c9c' : 'var(--theme-metal, #c4a14a)';
   return (
     <div className="flex flex-col items-center leading-tight">
       <span className="text-[18px] font-bold tabular-nums" style={{ color }}>{n}</span>
-      <span className="text-[9px] uppercase tracking-widest text-[#c4a14a]/80">{label}</span>
+      <span className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--theme-metal, rgba(196,161,74,0.8))' }}>{label}</span>
     </div>
   );
 }
@@ -1188,19 +1318,40 @@ function splitHMS(ms: number): { hh: string; mm: string; ss: string } {
 
 function AgentCard({ member }: { member: MissionMember }) {
   const blocked = member.state === 'blocked';
-  const active = member.state === 'working' || member.state === 'editing';
+  const editing = member.state === 'editing';
+  const working = member.state === 'working';
+  const done    = member.state === 'done';
+  const active  = working || editing;
   // v6.1.0-alpha.18 — agents are sticky notes now. Each agent's color
   // tints its note, so the Scout's note feels different from the
-  // Builder's. Tape strip across the top. Slight desaturated paper
-  // texture from a linear-gradient.
+  // Builder's. Tape strip across the top.
   const stickyBg = paperFromColor(member.color, blocked);
-  // v6.1.0-alpha.24 — gentle breathing bob on the sticky when the agent
-  // is actively working. Lives on the OUTER card so the desk's parent
-  // Draggable rotation transform composes correctly (CSS transforms on
-  // separate elements stack predictably). 3.4s loop with a slight
-  // per-agent phase offset (driven by the first agentId char's char
-  // code mod 10) so multiple working agents don't bob in unison.
+  // Phase 2 polish — breathing animation is now gated on state so an
+  // idle card stays calm. Working uses the 3.4s breath; the
+  // "needs you" state pulses faster (1.2s) for urgency; done has no
+  // animation and is faded.
   const phaseDelay = active ? `${(member.agentId.charCodeAt(0) % 10) * 0.34}s` : '0s';
+  const cardAnimation =
+    blocked ? 'stickyBreatheUrgent 1.2s ease-in-out infinite' :
+    working ? 'stickyBreathe 1.8s ease-in-out infinite' :
+    editing ? 'stickyBreathe 2.4s ease-in-out infinite' :
+    'none';
+  // Phase 2 polish — "done" cards fade to ~65% opacity. Transition
+  // duration covers the 400ms soft-fade requirement when a card
+  // moves from working → done.
+  const cardOpacity = done ? 0.65 : 1;
+  // Idle / editing labels with present-progressive verb tense. Done
+  // gets a check glyph. needs_info gets the warm rose treatment via
+  // the stickyBg helper above.
+  const stateLabelText = stateLabel(member.state);
+  // Activity copy: present-progressive when working; tense-aware
+  // otherwise. Empty fallback uses "standing by" for idle to match
+  // the spec.
+  const activityCopy = member.currentActivity ?? (
+    done    ? 'wrapped up'  :
+    blocked ? 'awaiting your call' :
+              'standing by'
+  );
   return (
     <div
       className="w-[220px] p-3.5 pt-5 text-[#2a2418] relative"
@@ -1208,8 +1359,10 @@ function AgentCard({ member }: { member: MissionMember }) {
         background: stickyBg,
         boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 12px 18px rgba(0,0,0,0.42)',
         fontFamily: '"Bradley Hand", "Marker Felt", "Comic Sans MS", cursive',
-        animation: active ? 'stickyBreathe 3.4s ease-in-out infinite' : 'none',
+        animation: cardAnimation,
         animationDelay: phaseDelay,
+        opacity: cardOpacity,
+        transition: 'opacity 400ms ease-out',
       }}
     >
       {/* Translucent washi tape across the top */}
@@ -1230,16 +1383,22 @@ function AgentCard({ member }: { member: MissionMember }) {
           <div className="text-[10px] uppercase tracking-widest text-[#6b5a3a]" style={{ fontFamily: 'system-ui' }}>{member.role}</div>
         </div>
         <div className="ml-auto flex items-center gap-1 text-[10px] text-[#6b5a3a]" style={{ fontFamily: 'system-ui' }}>
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${heartbeatClass(member.state)}`}
-            style={{ boxShadow: `0 0 6px ${heartbeatColor(member.state)}` }}
-          />
-          <span>{stateLabel(member.state)}</span>
+          {done ? (
+            <span className="text-[12px] leading-none" aria-label="done">✓</span>
+          ) : (
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${heartbeatClass(member.state)}`}
+              style={{ boxShadow: `0 0 6px ${heartbeatColor(member.state)}` }}
+            />
+          )}
+          <span>{stateLabelText}</span>
         </div>
       </div>
       <div className="text-[14px] text-[#2a2418] leading-snug min-h-[2.4rem] break-words">
-        {member.currentActivity ?? <span className="italic text-[#6b5a3a]">standing by</span>}
+        {member.currentActivity ?? <span className="italic text-[#6b5a3a]">{activityCopy}</span>}
       </div>
+      {/* Soft accent glow — only when the card is actually working or
+          waiting. Idle/done cards stay calm. */}
       {(active || blocked) && (
         <div
           className="absolute -inset-1 -z-10 pointer-events-none rounded-[2px] blur-md"
@@ -1247,7 +1406,7 @@ function AgentCard({ member }: { member: MissionMember }) {
             background: blocked
               ? 'radial-gradient(circle at 50% 50%, rgba(239,68,68,0.6), transparent 70%)'
               : `radial-gradient(circle at 30% 30%, ${member.color}55, transparent 70%)`,
-            animation: blocked ? 'deskAlarm 1.8s ease-in-out infinite' : 'deskGlow 4.2s ease-in-out infinite',
+            animation: blocked ? 'deskAlarm 1.2s ease-in-out infinite' : 'deskGlow 4.2s ease-in-out infinite',
           }}
         />
       )}
@@ -1301,9 +1460,10 @@ function FilePaper({ file, onOpen }: { file: FileSource; onOpen: () => void }) {
     <div
       onDoubleClick={onOpen}
       title="Double-click to open"
-      className="w-[200px] p-3 text-[#1a1f2e]"
+      className="w-[200px] p-3"
       style={{
-        background: 'linear-gradient(170deg, #fdfbf3 0%, #f1eada 100%)',
+        background: 'linear-gradient(170deg, var(--theme-paper, #fdfbf3) 0%, var(--theme-paper, #f1eada) 100%)',
+        color: 'var(--theme-ink, #1a1f2e)',
         borderRadius: 4,
         boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset, 0 0 0 1px rgba(0,0,0,0.06)',
       }}
@@ -1312,22 +1472,23 @@ function FilePaper({ file, onOpen }: { file: FileSource; onOpen: () => void }) {
       <div
         className="absolute top-0 right-0 w-4 h-4"
         style={{
-          background: 'linear-gradient(225deg, #d8cdb3 0%, #f1eada 50%, transparent 50%)',
+          background: 'linear-gradient(225deg, var(--theme-paper-line, #d8cdb3) 0%, var(--theme-paper, #f1eada) 50%, transparent 50%)',
           borderBottomLeftRadius: 4,
         }}
       />
       <div className="flex items-center gap-1.5 mb-2">
         <span className="text-base leading-none">{file.type === 'report' ? '📊' : '📄'}</span>
-        <span className="text-[9px] uppercase tracking-widest text-[#8a8472]">{file.type}</span>
+        <span className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, #8a8472)' }}>{file.type}</span>
       </div>
-      <div className="font-semibold text-[12px] leading-tight break-words text-[#1a1f2e]">{filename}</div>
+      <div className="font-semibold text-[12px] leading-tight break-words" style={{ color: 'var(--theme-ink, #1a1f2e)' }}>{filename}</div>
       {file.description && (
-        <div className="text-[10px] text-[#5a5240] mt-1 leading-snug line-clamp-2">{file.description}</div>
+        <div className="text-[10px] mt-1 leading-snug line-clamp-2" style={{ color: 'var(--theme-ink-soft, #5a5240)' }}>{file.description}</div>
       )}
       <button
         data-no-drag
         onClick={onOpen}
-        className="mt-2 w-full px-2 py-1 text-[10px] font-semibold uppercase tracking-widest bg-[#1a1f2e] text-[#f3e9d0] rounded hover:bg-[#3a3525]"
+        className="mt-2 w-full px-2 py-1 text-[10px] font-semibold uppercase tracking-widest rounded"
+        style={{ background: 'var(--theme-ink, #1a1f2e)', color: 'var(--theme-paper, #f3e9d0)' }}
       >Open ↗</button>
     </div>
   );
@@ -1339,18 +1500,19 @@ function StickyNote({ fact }: { fact: FactSource }) {
   const text = fact.description ?? fact.ref;
   return (
     <div
-      className="w-[160px] p-3 text-[#3a2e10]"
+      className="w-[160px] p-3"
       style={{
-        background: 'linear-gradient(160deg, #fff2a8 0%, #ffe88a 100%)',
-        boxShadow: '0 1px 0 rgba(255,255,255,0.5) inset, 0 8px 14px rgba(0,0,0,0.35)',
+        background: 'linear-gradient(160deg, var(--theme-sticky-yellow, #fff2a8) 0%, var(--theme-sticky-yellow, #ffe88a) 100%)',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.5) inset, 0 8px 14px var(--theme-shadow, rgba(0,0,0,0.35))',
         fontFamily: '"Bradley Hand", "Comic Sans MS", cursive',
+        color: 'var(--theme-ink, #3a2e10)',
       }}
     >
       {/* Tape across the top */}
       <div
         className="absolute -top-2 left-1/2 -translate-x-1/2 w-12 h-3.5 opacity-60"
         style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
+          background: 'linear-gradient(180deg, var(--theme-sticky-tape, rgba(255,255,255,0.65)), rgba(255,255,255,0.25))',
         }}
       />
       <div className="text-[12px] leading-snug">{text}</div>
@@ -1372,33 +1534,34 @@ function ActivityStickyNote({ sticky }: { sticky: ActivitySticky }) {
   const bg = activityPaperFromColor(sticky.agentColor);
   return (
     <div
-      className="w-[170px] p-2.5 text-[#2a2418] relative"
+      className="w-[170px] p-2.5 relative"
       title={`${sticky.agentName} ${sticky.activity}${sticky.detail ? ': ' + sticky.detail : ''} · ${new Date(sticky.at).toLocaleTimeString()}`}
       style={{
         background: bg,
-        boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 6px 10px rgba(0,0,0,0.32)',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 6px 10px var(--theme-shadow, rgba(0,0,0,0.32))',
         fontFamily: '"Bradley Hand", "Marker Felt", "Comic Sans MS", cursive',
+        color: 'var(--theme-ink, #2a2418)',
       }}
     >
       {/* Tape across the top */}
       <div
         className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-10 h-3 opacity-60 pointer-events-none"
         style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.25))',
+          background: 'linear-gradient(180deg, var(--theme-sticky-tape, rgba(255,255,255,0.7)), rgba(255,255,255,0.25))',
         }}
       />
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-base leading-none">{sticky.icon}</span>
         <span
-          className="text-[10px] uppercase tracking-widest text-[#6b5a3a] truncate"
-          style={{ fontFamily: 'system-ui' }}
+          className="text-[10px] uppercase tracking-widest truncate"
+          style={{ fontFamily: 'system-ui', color: 'var(--theme-ink-soft, #6b5a3a)' }}
         >
           {sticky.agentName}
         </span>
       </div>
       <div className="text-[12px] leading-snug">{sticky.activity}</div>
       {sticky.detail && (
-        <div className="text-[11px] text-[#5a4818] mt-1 leading-snug break-words line-clamp-3">
+        <div className="text-[11px] mt-1 leading-snug break-words line-clamp-3" style={{ color: 'var(--theme-ink-soft, #5a4818)' }}>
           {sticky.detail}
         </div>
       )}
@@ -1442,24 +1605,44 @@ function QuestionTag({
 
   return (
     <div
-      className="w-[280px] p-3.5 rounded-xl text-[#5c1820]"
+      className="w-[300px] p-4 rounded-xl"
       style={{
-        background: 'linear-gradient(180deg, #ffe9eb, #ffd0d4)',
-        boxShadow: '0 8px 28px rgba(255,93,108,0.4), 0 0 0 1px rgba(160,41,56,0.18)',
-        animation: 'deskFloat 4s ease-in-out infinite',
+        background: 'linear-gradient(180deg, var(--theme-sticky-pink, #ffe9eb), var(--theme-sticky-pink, #ffd0d4))',
+        // Phase 3 polish — warm accent rim (rose-toned, themed) +
+        // elevated by ~10px via translateY in the animation. Larger
+        // glow than the placard since this is the "needs you"
+        // decision moment — hierarchy rank #3 in the brief.
+        boxShadow:
+          '0 18px 36px rgba(255,93,108,0.45), 0 0 0 1.5px var(--theme-accent, rgba(196,90,48,0.6)), 0 0 0 4px rgba(255,93,108,0.12)',
+        animation: 'questionLift 4s ease-in-out infinite',
+        color: '#5c1820',
+        transform: 'translateY(-10px)',
       }}
     >
       {/* Brass pin */}
       <div
         className="absolute -top-2 -right-2 w-5 h-5 rounded-full"
         style={{
-          background: 'radial-gradient(circle at 35% 30%, #ffd86e 0%, #b07a1a 70%, #6a4710 100%)',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+          background: 'radial-gradient(circle at 35% 30%, var(--theme-metal-bright, #ffd86e) 0%, var(--theme-metal-dark, #b07a1a) 70%, var(--theme-bolt, #6a4710) 100%)',
+          boxShadow: '0 2px 4px var(--theme-shadow, rgba(0,0,0,0.5))',
         }}
       />
+      {/* Phase 3 polish — eyebrow label matches the ACTIVE MISSION
+          treatment on the placard so the eye reads them as the same
+          tier of object. */}
+      <div
+        className="text-[10px] uppercase mb-1.5"
+        style={{
+          letterSpacing: '0.16em',
+          color: 'rgba(92,24,32,0.7)',
+          fontWeight: 600,
+        }}
+      >
+        {msg.from.name} asks
+      </div>
       <div className="inline-flex items-center gap-1.5 px-2 py-0.5 mb-2 bg-[#5c1820] text-[#ffd0d4] text-[10px] uppercase tracking-widest font-bold rounded-full">
         <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-        {msg.from.name} asks
+        TITAN paused — your call.
       </div>
       <div className="text-[13px] leading-snug">{msg.content}</div>
       {!customMode ? (
@@ -1471,7 +1654,7 @@ function QuestionTag({
               onClick={() => onAnswer(q)}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
                 i === msg.quickReplies.length - 1
-                  ? 'bg-[#1a1f2e] text-[#f3e9d0] border-transparent'
+                  ? 'border-transparent text-[var(--theme-paper,#f3e9d0)] bg-[var(--theme-ink,#1a1f2e)]'
                   : 'bg-white border-[rgba(160,41,56,0.25)] text-[#5c1820]'
               }`}
             >{q}</button>
@@ -1508,7 +1691,7 @@ function QuestionTag({
               data-no-drag
               onClick={() => { const t = customText.trim(); if (t) onAnswer(t); }}
               disabled={!customText.trim()}
-              className="px-2 py-0.5 rounded text-[11px] font-semibold bg-[#1a1f2e] text-[#f3e9d0] disabled:opacity-50"
+              className="px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-50 text-[var(--theme-paper,#f3e9d0)] bg-[var(--theme-ink,#1a1f2e)]"
             >Send</button>
           </div>
         </div>
@@ -1532,7 +1715,8 @@ function FilingCabinet({ count, onOpen }: { count: number; onOpen: () => void })
   return (
     <div
       data-drop-target="cabinet"
-      className="w-[140px] flex flex-col text-[#f5d27a]"
+      className="w-[140px] flex flex-col"
+      style={{ color: 'var(--theme-metal-bright, #f5d27a)' }}
       title={count > 0 ? `${count} filed — click to open` : 'Drop files & notes here'}
     >
       <button
@@ -1546,18 +1730,19 @@ function FilingCabinet({ count, onOpen }: { count: number; onOpen: () => void })
             className="relative w-full h-[58px] flex items-center justify-center"
             style={{
               background:
-                'linear-gradient(180deg, #5a3a18 0%, #3a230b 100%), repeating-linear-gradient(90deg, rgba(255,180,90,0.05) 0px, rgba(60,30,10,0.08) 2px)',
-              border: '1px solid #2a1808',
+                'linear-gradient(180deg, var(--theme-leather, #5a3a18) 0%, var(--theme-leather-edge, #3a230b) 100%), repeating-linear-gradient(90deg, rgba(255,180,90,0.05) 0px, rgba(60,30,10,0.08) 2px)',
+              border: '1px solid var(--theme-bolt, #2a1808)',
               boxShadow: 'inset 0 -2px 0 rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.08) inset',
             }}
           >
             {/* Brass label plate */}
             <div
-              className="px-3 py-0.5 text-[10px] uppercase tracking-widest text-[#3a2a10] font-bold"
+              className="px-3 py-0.5 text-[10px] uppercase tracking-widest font-bold"
               style={{
-                background: 'linear-gradient(180deg, #ffd86e 0%, #b07a1a 100%)',
+                background: 'linear-gradient(180deg, var(--theme-metal-bright, #ffd86e) 0%, var(--theme-metal-dark, #b07a1a) 100%)',
                 borderRadius: 2,
-                boxShadow: '0 1px 2px rgba(0,0,0,0.4)',
+                boxShadow: '0 1px 2px var(--theme-shadow, rgba(0,0,0,0.4))',
+                color: 'var(--theme-bolt, #3a2a10)',
               }}
             >
               {row === 0 ? 'Files' : 'Drafts'}
@@ -1566,15 +1751,15 @@ function FilingCabinet({ count, onOpen }: { count: number; onOpen: () => void })
             <div
               className="absolute right-3 w-6 h-1.5 rounded"
               style={{
-                background: 'linear-gradient(180deg, #ffd86e 0%, #8a5810 100%)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                background: 'linear-gradient(180deg, var(--theme-metal-bright, #ffd86e) 0%, var(--theme-metal-dark, #8a5810) 100%)',
+                boxShadow: '0 1px 2px var(--theme-shadow, rgba(0,0,0,0.5))',
               }}
             />
           </div>
         ))}
       </button>
       {count > 0 && (
-        <div className="mt-1 text-center text-[10px] uppercase tracking-widest text-[#d9c08c]">
+        <div className="mt-1 text-center text-[10px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>
           {count} {count === 1 ? 'item' : 'items'} inside
         </div>
       )}
@@ -1606,8 +1791,8 @@ function Wastebasket({ count, onOpen }: { count: number; onOpen: () => void }) {
             style={{
               width: 18 + ((i * 5) % 14),
               height: 18 + ((i * 7) % 12),
-              background: 'radial-gradient(circle at 35% 30%, #fffaee 0%, #d6cdb1 70%, #a99b71 100%)',
-              boxShadow: 'inset -2px -2px 4px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.3)',
+              background: 'radial-gradient(circle at 35% 30%, var(--theme-paper, #fffaee) 0%, var(--theme-paper-line, #d6cdb1) 70%, var(--theme-ink-soft, #a99b71) 100%)',
+              boxShadow: 'inset -2px -2px 4px rgba(0,0,0,0.18), 0 1px 2px var(--theme-shadow, rgba(0,0,0,0.3))',
               transform: `rotate(${(i * 37) % 60 - 30}deg)`,
             }}
           />
@@ -1619,24 +1804,24 @@ function Wastebasket({ count, onOpen }: { count: number; onOpen: () => void }) {
         style={{
           clipPath: 'polygon(8% 0%, 92% 0%, 100% 100%, 0% 100%)',
           background:
-            'repeating-linear-gradient(90deg, #5a3a18 0px, #5a3a18 2px, #3a230b 2px, #3a230b 4px),' +
+            'repeating-linear-gradient(90deg, var(--theme-leather, #5a3a18) 0px, var(--theme-leather, #5a3a18) 2px, var(--theme-leather-edge, #3a230b) 2px, var(--theme-leather-edge, #3a230b) 4px),' +
             'repeating-linear-gradient(0deg, transparent 0 6px, rgba(0,0,0,0.25) 6px 7px)',
-          border: '1px solid #2a1808',
+          border: '1px solid var(--theme-bolt, #2a1808)',
           borderRadius: 4,
-          boxShadow: 'inset 0 4px 8px rgba(0,0,0,0.5)',
+          boxShadow: 'inset 0 4px 8px var(--theme-shadow, rgba(0,0,0,0.5))',
         }}
       />
       {/* Rim */}
       <div
         className="absolute left-1 right-1 bottom-[78px] h-2.5 rounded-sm"
         style={{
-          background: 'linear-gradient(180deg, #6b4720 0%, #3a230b 100%)',
-          border: '1px solid #1a0f05',
+          background: 'linear-gradient(180deg, var(--theme-metal-dark, #6b4720) 0%, var(--theme-leather-edge, #3a230b) 100%)',
+          border: '1px solid var(--theme-bolt, #1a0f05)',
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1)',
         }}
       />
       {count > 0 && (
-        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-[#d9c08c] whitespace-nowrap">
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest whitespace-nowrap" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>
           {count} tossed
         </div>
       )}
@@ -1724,31 +1909,32 @@ function CabinetDrawer({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl overflow-hidden text-[#f5d27a]"
+        className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'linear-gradient(180deg, #4a2e18 0%, #2a1808 100%)',
-          boxShadow: '0 0 0 3px #b08a3a, 0 30px 60px rgba(0,0,0,0.6)',
+          background: 'linear-gradient(180deg, var(--theme-leather, #4a2e18) 0%, var(--theme-bolt, #2a1808) 100%)',
+          boxShadow: '0 0 0 3px var(--theme-metal-dark, #b08a3a), 0 30px 60px var(--theme-shadow, rgba(0,0,0,0.6))',
+          color: 'var(--theme-metal-bright, #f5d27a)',
         }}
       >
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-[#6e4724]">
+        <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid var(--theme-metal-dark, #6e4724)' }}>
           <span className="text-2xl">🗄️</span>
           <div className="flex-1">
             <div className="text-sm font-semibold tracking-tight">Filing cabinet</div>
-            <div className="text-[11px] text-[#d9c08c]">{itemIds.length} item{itemIds.length === 1 ? '' : 's'} filed · drag a row out, or click <b>to desk</b></div>
+            <div className="text-[11px]" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>{itemIds.length} item{itemIds.length === 1 ? '' : 's'} filed · drag a row out, or click <b>to desk</b></div>
           </div>
-          <button data-no-drag onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a0f05] border border-[#6e4724] text-[#d9c08c] hover:text-white flex items-center justify-center">✕</button>
+          <button data-no-drag onClick={onClose} className="w-8 h-8 rounded-full hover:text-white flex items-center justify-center" style={{ background: 'var(--theme-leather-edge, #1a0f05)', border: '1px solid var(--theme-metal-dark, #6e4724)', color: 'var(--theme-ink-soft, #d9c08c)' }}>✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
           {itemIds.length === 0 && (
-            <div className="text-center py-12 text-[#d9c08c] italic">
+            <div className="text-center py-12 italic" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>
               Nothing filed yet. Drag a file or sticky note onto the cabinet to file it.
             </div>
           )}
           {itemIds.map(itemId => {
             const item = items.find(i => i.id === itemId);
             if (!item) return (
-              <div key={itemId} className="flex items-center justify-between px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg text-[#d9c08c]/70">
+              <div key={itemId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: 'var(--theme-leather-edge, rgba(26,15,5,0.4))', border: '1px solid var(--theme-metal-dark, rgba(110,71,36,0.5))', color: 'var(--theme-ink-soft, rgba(217,192,140,0.7))' }}>
                 <span className="text-xs italic">{itemId} (no longer in mission)</span>
                 <button data-no-drag onClick={() => onRestore(itemId)} className="text-[11px] hover:text-white">remove</button>
               </div>
@@ -1762,20 +1948,21 @@ function CabinetDrawer({
               <div
                 key={itemId}
                 onMouseDown={(e) => startDragOut(e, itemId, label, icon)}
-                className="flex items-center gap-3 px-3 py-2 bg-[#1a0f05]/40 border border-[#6e4724]/50 rounded-lg hover:bg-[#1a0f05]/60 transition-colors cursor-grab active:cursor-grabbing"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing"
+                style={{ background: 'var(--theme-leather-edge, rgba(26,15,5,0.4))', border: '1px solid var(--theme-metal-dark, rgba(110,71,36,0.5))' }}
                 title="Drag out to place on the desk, or use the buttons →"
               >
                 <span className="text-lg leading-none">{icon}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-[#f5d27a] truncate">{label}</div>
+                  <div className="text-xs truncate" style={{ color: 'var(--theme-metal-bright, #f5d27a)' }}>{label}</div>
                   {(f?.description ?? fact?.description) && (
-                    <div className="text-[10px] text-[#d9c08c] truncate">{f?.description ?? fact?.description}</div>
+                    <div className="text-[10px] truncate" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>{f?.description ?? fact?.description}</div>
                   )}
                 </div>
                 {f && (
-                  <button data-no-drag onClick={() => onOpenFile(f.ref)} className="px-2 py-1 text-[10px] bg-[#6e4724] border border-[#b08a3a] rounded text-[#f5d27a] hover:text-white">Open ↗</button>
+                  <button data-no-drag onClick={() => onOpenFile(f.ref)} className="px-2 py-1 text-[10px] rounded hover:text-white" style={{ background: 'var(--theme-metal-dark, #6e4724)', border: '1px solid var(--theme-metal-dark, #b08a3a)', color: 'var(--theme-metal-bright, #f5d27a)' }}>Open ↗</button>
                 )}
-                <button data-no-drag onClick={() => onRestore(itemId)} className="px-2 py-1 text-[10px] bg-[#1a0f05] border border-[#6e4724] rounded text-[#d9c08c] hover:text-white">to desk</button>
+                <button data-no-drag onClick={() => onRestore(itemId)} className="px-2 py-1 text-[10px] rounded hover:text-white" style={{ background: 'var(--theme-leather-edge, #1a0f05)', border: '1px solid var(--theme-metal-dark, #6e4724)', color: 'var(--theme-ink-soft, #d9c08c)' }}>to desk</button>
               </div>
             );
           })}
@@ -1789,8 +1976,8 @@ function CabinetDrawer({
           style={{ left: dragOut.x - 80, top: dragOut.y - 20 }}
         >
           <div
-            className="px-3 py-2 rounded bg-[#fdfbf3] text-[#1a1f2e] text-xs flex items-center gap-2 shadow-2xl"
-            style={{ transform: 'rotate(-2deg)' }}
+            className="px-3 py-2 rounded text-xs flex items-center gap-2 shadow-2xl"
+            style={{ transform: 'rotate(-2deg)', background: 'var(--theme-paper, #fdfbf3)', color: 'var(--theme-ink, #1a1f2e)' }}
           >
             <span>{dragOut.icon}</span>
             <span className="font-semibold truncate max-w-[200px]">{dragOut.label}</span>
@@ -1838,7 +2025,7 @@ function TrashDrawer({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: 'linear-gradient(180deg, #4a2018 0%, #2a0e08 100%)',
-          boxShadow: '0 0 0 3px #c46a52, 0 30px 60px rgba(0,0,0,0.6)',
+          boxShadow: '0 0 0 3px #c46a52, 0 30px 60px var(--theme-shadow, rgba(0,0,0,0.6))',
         }}
       >
         <div className="flex items-center gap-3 px-5 py-3 border-b border-[#6e3024]">
@@ -1924,8 +2111,10 @@ const deskStyle: React.CSSProperties = {
     'repeating-linear-gradient(92deg, rgba(255,180,90,0.05) 0px, rgba(60,30,10,0.08) 3px, rgba(255,180,90,0.04) 7px, rgba(60,30,10,0.10) 11px, rgba(255,180,90,0.06) 16px)',
     // Slight cross grain for texture variation
     'repeating-linear-gradient(0deg, rgba(0,0,0,0.04) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.03) 4px)',
-    // Base wood color
-    'linear-gradient(180deg, #6e4724 0%, #5a3717 50%, #482a13 100%)',
+    // Base wood / surface color — uses theme variables so the workshop /
+    // observatory themes can fully repaint the desk with their own
+    // background palette while keeping the same grain overlay.
+    'linear-gradient(180deg, var(--theme-bg-base, #6e4724) 0%, var(--theme-bg-grain, #5a3717) 50%, var(--theme-leather-edge, #482a13) 100%)',
   ].join(','),
 };
 
@@ -1934,7 +2123,7 @@ const glowStyle: React.CSSProperties = {
 };
 
 const vignetteStyle: React.CSSProperties = {
-  background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.45) 100%)',
+  background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 50%, var(--theme-bg-vignette, rgba(0,0,0,0.45)) 100%)',
 };
 
 const KEYFRAMES = `
@@ -1950,12 +2139,31 @@ const KEYFRAMES = `
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-3px); }
 }
+/* Phase 3 polish — Sage decision card sits ~10px elevated and
+   floats gently. Uses an offset baseline so the card stays raised
+   relative to the rest of the desk furniture. */
+@keyframes questionLift {
+  0%, 100% { transform: translateY(-10px); }
+  50%      { transform: translateY(-13px); }
+}
 /* v6.1.0-alpha.24 — gentle bob on working sticky notes. Lives on an
    INNER wrapper so it composes with the parent Draggable's rotation
    transform. */
 @keyframes stickyBreathe {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-2.5px); }
+}
+/* Phase 2 polish — faster breath for "needs you" cards (1.2s). */
+@keyframes stickyBreatheUrgent {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3.5px); }
+}
+/* Phase 2 polish — generic bead-fade keyframe. Actual path travel
+   is implemented via SVG animateMotion + mpath in LivingDeskLayer
+   so it works without offset-path support. Kept as a fallback. */
+@keyframes beadFlow {
+  0%, 100% { opacity: 0; }
+  10%, 90% { opacity: 0.9; }
 }
 /* Tether-line dash flow — animates stroke-dashoffset to give the
    thread a moving-current feel. The dasharray defines the segment
@@ -2034,8 +2242,10 @@ function LivingDeskLayer({
   // (We don't measure DOM here — the dimensions are stable from the JSX.)
   const AGENT_W = 220;
   const AGENT_H = 110;
-  const DOC_W = 460;
-  const DOC_H = 260;
+  // Phase 1 polish bumped DocumentPaper width from 460 → 620 so the
+  // tether endpoints have to follow.
+  const DOC_W = 620;
+  const DOC_H = 300;
 
   return (
     <>
@@ -2048,8 +2258,8 @@ function LivingDeskLayer({
         >
           <defs>
             <radialGradient id="tetherNodeGlow">
-              <stop offset="0%"  stopColor="#ffd86e" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#ffd86e" stopOpacity="0" />
+              <stop offset="0%"  stopColor="var(--theme-metal-bright, #ffd86e)" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="var(--theme-metal-bright, #ffd86e)" stopOpacity="0" />
             </radialGradient>
           </defs>
           {activeAgents.map(({ item, member, pose }) => {
@@ -2066,9 +2276,18 @@ function LivingDeskLayer({
               member.state === 'editing' ? 'rgba(245, 158, 11, 0.55)' :
               member.state === 'blocked' ? 'rgba(239, 68, 68, 0.7)' :
               'rgba(255, 216, 110, 0.55)';
+            // Phase 2 polish — energy bead riding the connector path
+            // from helper → document. Bead color matches the helper's
+            // own accent so the user can see at a glance who's
+            // pushing energy into the doc. Only mounted for
+            // working/editing helpers (filter applied above) so a
+            // calm desk has no beads.
+            const beadColor = member.color;
+            const pathId = `tether-path-${item.id}`;
             return (
               <g key={item.id}>
                 <path
+                  id={pathId}
                   d={path}
                   fill="none"
                   stroke={tetherColor}
@@ -2078,6 +2297,15 @@ function LivingDeskLayer({
                 />
                 {/* Small glow at the agent end of the thread */}
                 <circle cx={ax} cy={ay} r={14} fill="url(#tetherNodeGlow)" />
+                {/* Energy bead — small color-tinted dot that rides
+                    the bezier from helper to doc. Uses SVG
+                    <animateMotion> with mpath so it follows the
+                    exact curve without re-parameterizing. */}
+                <circle r={3.2} fill={beadColor} opacity={0.95}>
+                  <animateMotion dur="2.2s" repeatCount="indefinite">
+                    <mpath href={`#${pathId}`} />
+                  </animateMotion>
+                </circle>
               </g>
             );
           })}

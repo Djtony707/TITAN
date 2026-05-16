@@ -9,6 +9,12 @@
  * Data plane: `listMissions()` from the API client returns summaries
  * (no `messages`, no `artifact.content`) so the list page stays small
  * even when there are dozens of historical missions.
+ *
+ * Beta.4 Wave 5 polish: full theme-token migration, scannable rows
+ * with brass hover affordance, status pills, grouped by Active /
+ * Recent / Archived, mono timestamps, brand-voice empty state,
+ * brass-nameplate section headers, action buttons aligned to the
+ * leather/metal palette, right gutter for the TopbarThemePicker.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -16,6 +22,10 @@ import { listMissions, deleteMission, type MissionRoom } from '@/api/missions';
 // v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
+
+/** Reserves the right side of the leather strip so content doesn't
+ * underflow the global TopbarThemePicker at top:48 right:12 w:238 h:33. */
+const TOPBAR_GUTTER = 258;
 
 export default function MissionLibrary() {
   const navigate = useNavigate();
@@ -81,62 +91,147 @@ export default function MissionLibrary() {
     return c;
   }, [missions]);
 
+  /**
+   * Group rows by Active / Recent / Archived for long lists. "Active"
+   * means the mission is doing something or wants attention; "Recent"
+   * is finished within the last 7 days; "Archived" is everything else.
+   * Only used when the list is long enough to benefit from sectioning.
+   */
+  const groups = useMemo(() => {
+    const active: MissionRoom[] = [];
+    const recent: MissionRoom[] = [];
+    const archived: MissionRoom[] = [];
+    const sevenDays = 7 * 86_400_000;
+    const now = Date.now();
+    for (const m of filtered) {
+      if (['working', 'blocked', 'paused', 'forming'].includes(m.status)) {
+        active.push(m);
+        continue;
+      }
+      const age = (() => {
+        try { return now - new Date(m.updatedAt).getTime(); } catch { return Infinity; }
+      })();
+      if (age < sevenDays) recent.push(m);
+      else archived.push(m);
+    }
+    return { active, recent, archived };
+  }, [filtered]);
+
+  const showGroups = filtered.length > 8;
+
   return (
-    <div className="h-full w-full flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
-
-        {/* Top bar — leather strip */}
-        <header className="relative z-20 flex items-center gap-4 px-5 py-3"
+    <div
+      className="h-full w-full flex flex-col overflow-hidden"
+      style={{
+        color: 'var(--theme-paper)',
+        fontFamily: 'var(--theme-font-display)',
+        background: 'var(--theme-bg-base)',
+      }}
+    >
+      {/* Top bar — leather strip. Right padding reserves room for the
+          global TopbarThemePicker so our buttons don't underflow it. */}
+      <header
+        className="relative z-20 flex items-center gap-4 px-5 py-3"
+        style={{
+          paddingRight: TOPBAR_GUTTER,
+          background: 'linear-gradient(180deg, var(--theme-leather-edge), var(--theme-leather))',
+          borderBottom: '1px solid var(--theme-metal-dark)',
+          boxShadow: '0 2px 12px var(--theme-shadow)',
+        }}
+      >
+        <button
+          onClick={() => navigate('/mission')}
+          className="text-sm"
+          style={{ color: 'var(--theme-metal)' }}
+          title="Start a new mission"
+        >←</button>
+        <button
+          onClick={() => navigate('/space/home')}
+          className="text-[10px] uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 inline-flex items-center gap-1 border"
           style={{
-            background: 'linear-gradient(180deg, rgba(42,26,10,0.92), rgba(56,36,16,0.88))',
-            borderBottom: '1px solid rgba(138,106,58,0.5)',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+            color: 'var(--theme-metal)',
+            borderColor: 'var(--theme-metal-dark)',
+            fontFamily: 'var(--theme-font-display)',
           }}
+          title="Back to the canvas spaces"
         >
-          <button onClick={() => navigate('/mission')} className="text-[#c4a35a] hover:text-[#f3e9d0] text-sm" title="Start a new mission">←</button>
-          <button
-            onClick={() => navigate('/space/home')}
-            className="text-[10px] uppercase tracking-widest text-[#c4a35a] hover:text-[#f3e9d0] border border-[#8a6a3a] rounded-full px-2 py-0.5 shrink-0 inline-flex items-center gap-1"
-            title="Back to the canvas spaces"
-          >
-            🌌 Canvas
-          </button>
-          <div className="font-semibold tracking-tight shrink-0 text-[#f3e9d0]">
-            <span className="text-[#c4a35a]">TITAN</span>
-            <span className="text-[#a89070] font-normal"> &nbsp;›&nbsp; </span>
-            Mission Library
-          </div>
-          <div className="flex-1" />
-          <button onClick={refresh} className="text-xs text-[#a89070] hover:text-[#f3e9d0] px-3 py-1.5 bg-[#4a3020]/80 border border-[#8a6a3a] rounded-full" title="Reload">⟳ refresh</button>
-          <button onClick={() => navigate('/mission')} className="px-3 py-1.5 text-xs bg-gradient-to-br from-[#c4a35a] to-[#8a6a3a] text-[#fdf6e3] rounded-full font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.2)]">+ New mission</button>
-        </header>
-
-        {/* Filter row */}
-        <div className="relative z-10 px-5 py-3 flex items-center gap-3 border-b border-[#8a6a3a]/40">
-        <FilterChip active={filter === 'all'}    label="All"     count={counts.all}    onClick={() => setFilter('all')} />
-        <FilterChip active={filter === 'live'}   label="In progress" count={counts.live} onClick={() => setFilter('live')} dotClass="bg-accent" />
-        <FilterChip active={filter === 'done'}   label="Done"    count={counts.done}   onClick={() => setFilter('done')} dotClass="bg-success" />
-        <FilterChip active={filter === 'failed'} label="Stopped" count={counts.failed} onClick={() => setFilter('failed')} dotClass="bg-error" />
+          🌌 Canvas
+        </button>
+        <div className="font-semibold tracking-tight shrink-0" style={{ color: 'var(--theme-paper)' }}>
+          <span style={{ color: 'var(--theme-metal)' }}>TITAN</span>
+          <span className="font-normal" style={{ color: 'var(--theme-ink-soft)' }}> &nbsp;›&nbsp; </span>
+          Mission Library
+        </div>
         <div className="flex-1" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search goals…"
-          className="w-72 bg-bg-secondary/70 border border-border rounded-full px-4 py-1.5 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-accent/50"
-        />
+        <button
+          onClick={refresh}
+          className="text-xs px-3 py-1.5 rounded-full border transition-colors"
+          style={{
+            color: 'var(--theme-ink-soft)',
+            background: 'var(--theme-leather)',
+            borderColor: 'var(--theme-metal-dark)',
+            fontFamily: 'var(--theme-font-display)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = 'var(--theme-metal-bright)';
+            e.currentTarget.style.borderColor = 'var(--theme-metal)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--theme-ink-soft)';
+            e.currentTarget.style.borderColor = 'var(--theme-metal-dark)';
+          }}
+          title="Reload"
+        >⟳ refresh</button>
+        <button
+          onClick={() => navigate('/mission')}
+          className="px-3 py-1.5 text-xs rounded-full font-semibold"
+          style={{
+            background: 'linear-gradient(135deg, var(--theme-metal-bright), var(--theme-metal-dark))',
+            color: 'var(--theme-bolt)',
+            boxShadow: '0 2px 8px var(--theme-shadow)',
+            fontFamily: 'var(--theme-font-display)',
+          }}
+        >+ New mission</button>
+      </header>
+
+      {/* Filter / search row */}
+      <div
+        className="relative z-10 px-5 py-3 flex items-center gap-3 border-b"
+        style={{
+          borderBottomColor: 'var(--theme-metal-dark)',
+          background: 'var(--theme-leather-edge)',
+        }}
+      >
+        <FilterChip active={filter === 'all'}    label="All"         count={counts.all}    onClick={() => setFilter('all')} />
+        <FilterChip active={filter === 'live'}   label="In progress" count={counts.live}   onClick={() => setFilter('live')}   dotColor="var(--theme-accent)" />
+        <FilterChip active={filter === 'done'}   label="Done"        count={counts.done}   onClick={() => setFilter('done')}   dotColor="var(--theme-metal)" />
+        <FilterChip active={filter === 'failed'} label="Stopped"     count={counts.failed} onClick={() => setFilter('failed')} dotColor="var(--theme-ink-soft)" />
+        <div className="flex-1" />
+        <ThemedSearchInput value={query} onChange={setQuery} />
       </div>
 
       {/* Body */}
       <main className="relative z-10 flex-1 overflow-y-auto">
         {error && (
-          <div className="max-w-3xl mx-auto px-5 py-6 text-error">{error}</div>
+          <div
+            className="max-w-3xl mx-auto px-5 py-6 text-sm"
+            style={{ color: 'var(--theme-accent)', fontFamily: 'var(--theme-font-mono)' }}
+          >
+            {error}
+          </div>
         )}
         {missions === null && !error && (
-          <div className="max-w-3xl mx-auto px-5 py-6 text-text-muted text-sm">Loading missions…</div>
+          <div
+            className="max-w-3xl mx-auto px-5 py-6 text-sm"
+            style={{ color: 'var(--theme-ink-soft)', fontFamily: 'var(--theme-font-mono)' }}
+          >
+            Loading missions…
+          </div>
         )}
         {missions !== null && filtered.length === 0 && (
           <EmptyState filter={filter} query={query} onStart={() => navigate('/mission')} />
         )}
-        {missions !== null && filtered.length > 0 && (
+        {missions !== null && filtered.length > 0 && !showGroups && (
           <ul className="max-w-3xl mx-auto px-5 py-4 flex flex-col gap-2">
             {filtered.map(m => (
               <MissionRow
@@ -148,29 +243,158 @@ export default function MissionLibrary() {
             ))}
           </ul>
         )}
+        {missions !== null && filtered.length > 0 && showGroups && (
+          <div className="max-w-3xl mx-auto px-5 py-4 flex flex-col gap-6">
+            {groups.active.length > 0 && (
+              <Section title="Active" subtitle="working, blocked, paused, or forming">
+                {groups.active.map(m => (
+                  <MissionRow
+                    key={m.id}
+                    mission={m}
+                    onClick={() => navigate(`/mission/${m.id}`)}
+                    onDelete={() => handleDelete(m.id, m.goal)}
+                  />
+                ))}
+              </Section>
+            )}
+            {groups.recent.length > 0 && (
+              <Section title="Recent" subtitle="completed within the last 7 days">
+                {groups.recent.map(m => (
+                  <MissionRow
+                    key={m.id}
+                    mission={m}
+                    onClick={() => navigate(`/mission/${m.id}`)}
+                    onDelete={() => handleDelete(m.id, m.goal)}
+                  />
+                ))}
+              </Section>
+            )}
+            {groups.archived.length > 0 && (
+              <Section title="Archived" subtitle="older finished missions">
+                {groups.archived.map(m => (
+                  <MissionRow
+                    key={m.id}
+                    mission={m}
+                    onClick={() => navigate(`/mission/${m.id}`)}
+                    onDelete={() => handleDelete(m.id, m.goal)}
+                  />
+                ))}
+              </Section>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
 }
 
+/* ─────────────────────────── Section header ─────────────────────────── */
+
+/** Brass nameplate style: a leather plate with metal border and
+ *  display-font caption. Used to fence off long lists into Active /
+ *  Recent / Archived. */
+function Section({
+  title, subtitle, children,
+}: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div
+        className="inline-flex items-baseline gap-3 self-start px-3 py-1 rounded-md border"
+        style={{
+          background: 'linear-gradient(180deg, var(--theme-leather), var(--theme-leather-edge))',
+          borderColor: 'var(--theme-metal-dark)',
+          boxShadow: 'inset 0 0 0 1px var(--theme-metal-dark), 0 1px 4px var(--theme-shadow)',
+        }}
+      >
+        <span
+          className="text-[11px] uppercase tracking-[0.18em] font-semibold"
+          style={{ color: 'var(--theme-metal-bright)', fontFamily: 'var(--theme-font-display)' }}
+        >
+          {title}
+        </span>
+        {subtitle && (
+          <span
+            className="text-[10px]"
+            style={{ color: 'var(--theme-ink-soft)', fontFamily: 'var(--theme-font-mono)' }}
+          >
+            {subtitle}
+          </span>
+        )}
+      </div>
+      <ul className="flex flex-col gap-2">{children}</ul>
+    </section>
+  );
+}
+
+/* ─────────────────────────── Search input ─────────────────────────── */
+
+function ThemedSearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      placeholder="Search goals…"
+      className="w-72 rounded-full px-4 py-1.5 text-sm outline-none transition-colors"
+      style={{
+        background: 'var(--theme-paper)',
+        color: 'var(--theme-ink)',
+        border: `1px solid ${focused ? 'var(--theme-metal)' : 'var(--theme-metal-dark)'}`,
+        boxShadow: focused ? '0 0 0 2px var(--theme-menu-hover)' : 'none',
+        fontFamily: 'var(--theme-font-display)',
+      }}
+    />
+  );
+}
+
+/* ─────────────────────────── Filter chip ─────────────────────────── */
+
 function FilterChip({
-  active, label, count, onClick, dotClass,
-}: { active: boolean; label: string; count: number; onClick: () => void; dotClass?: string }) {
+  active, label, count, onClick, dotColor,
+}: { active: boolean; label: string; count: number; onClick: () => void; dotColor?: string }) {
+  const [hover, setHover] = useState(false);
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border transition-colors ${
-        active
-          ? 'bg-bg-secondary border-border-light text-text'
-          : 'bg-bg-secondary/40 border-border text-text-muted hover:text-text'
-      }`}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border transition-colors"
+      style={{
+        background: active
+          ? 'var(--theme-menu-active-bg)'
+          : hover
+            ? 'var(--theme-menu-hover)'
+            : 'transparent',
+        color: active
+          ? 'var(--theme-menu-active-fg)'
+          : 'var(--theme-ink-soft)',
+        borderColor: active ? 'var(--theme-metal)' : 'var(--theme-metal-dark)',
+        fontFamily: 'var(--theme-font-display)',
+      }}
     >
-      {dotClass && <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />}
+      {dotColor && (
+        <span
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ background: dotColor }}
+        />
+      )}
       <span>{label}</span>
-      <span className="text-text-muted/70">{count}</span>
+      <span
+        style={{
+          color: active ? 'var(--theme-menu-active-fg)' : 'var(--theme-ink-soft)',
+          opacity: 0.7,
+          fontFamily: 'var(--theme-font-mono)',
+        }}
+      >
+        {count}
+      </span>
     </button>
   );
 }
+
+/* ─────────────────────────── Mission row ─────────────────────────── */
 
 function MissionRow({
   mission, onClick, onDelete,
@@ -179,21 +403,57 @@ function MissionRow({
   onClick: () => void;
   onDelete: () => void;
 }) {
+  const [hover, setHover] = useState(false);
   const updated = relativeTime(mission.updatedAt);
+  const isLive = ['working', 'blocked', 'paused', 'forming'].includes(mission.status);
+
   return (
-    <li className="relative group">
+    <li
+      className="relative group"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
       <button
         onClick={onClick}
-        className="w-full text-left bg-bg-secondary/40 hover:bg-bg-secondary/70 border border-border rounded-xl px-4 py-3 transition-colors"
+        className="w-full text-left rounded-xl px-4 py-3 transition-all"
+        style={{
+          background: hover ? 'var(--theme-menu-hover)' : 'var(--theme-paper)',
+          color: 'var(--theme-ink)',
+          border: `1px solid ${hover ? 'var(--theme-metal)' : 'var(--theme-metal-dark)'}`,
+          boxShadow: hover
+            ? '0 3px 10px var(--theme-shadow)'
+            : '0 1px 3px var(--theme-shadow)',
+          transform: hover ? 'translateY(-1px)' : 'translateY(0)',
+        }}
       >
         <div className="flex items-center gap-3 mb-2">
-          <StatusBadge status={mission.status} />
-          <div className="text-sm font-medium text-text flex-1 truncate">
+          <div
+            className="text-sm font-semibold flex-1 truncate"
+            style={{
+              color: 'var(--theme-ink)',
+              fontFamily: 'var(--theme-font-display)',
+            }}
+          >
             {mission.goal || '(no goal)'}
           </div>
-          <div className="text-[11px] text-text-muted shrink-0">{updated}</div>
+          <StatusBadge status={mission.status} />
+          <div
+            className="text-[11px] shrink-0"
+            style={{
+              color: 'var(--theme-ink-soft)',
+              fontFamily: 'var(--theme-font-mono)',
+            }}
+          >
+            {updated}
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-text-muted">
+        <div
+          className="flex items-center gap-3 text-[11px]"
+          style={{
+            color: 'var(--theme-ink-soft)',
+            fontFamily: 'var(--theme-font-mono)',
+          }}
+        >
           <span className="flex items-center gap-1">
             <span>{mission.team.length}</span>
             <span>helper{mission.team.length === 1 ? '' : 's'}</span>
@@ -207,69 +467,206 @@ function MissionRow({
             <span>· ${mission.cost.usd.toFixed(2)} effort</span>
           )}
           {mission.playId && (
-            <span className="ml-auto text-text-muted/60 text-[10px] uppercase tracking-widest">{mission.playId}</span>
+            <span
+              className="ml-auto text-[10px] uppercase tracking-widest"
+              style={{ color: 'var(--theme-metal-dark)' }}
+            >
+              {mission.playId}
+            </span>
           )}
         </div>
       </button>
-      {/* v6.1.0-alpha.27 — delete affordance per row. Shows on hover.
-          stopPropagation so it doesn't also fire the row's onClick. */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-bg-tertiary/60 border border-border text-text-muted hover:text-error hover:bg-error/15 hover:border-error/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-sm"
-        title="Delete this mission"
-        aria-label="Delete mission"
+
+      {/* Action rail — appears on hover. stopPropagation so clicks
+          don't also fire the row's onClick. */}
+      <div
+        className="absolute top-2 right-2 flex items-center gap-1.5 transition-opacity"
+        style={{ opacity: hover ? 1 : 0 }}
       >
-        🗑
-      </button>
+        <RowActionButton
+          label={isLive ? 'Resume' : 'Open'}
+          icon={isLive ? '▶' : '↗'}
+          variant="primary"
+          onClick={(e) => { e.stopPropagation(); onClick(); }}
+        />
+        <RowActionButton
+          label="Delete"
+          icon="🗑"
+          variant="muted"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        />
+      </div>
     </li>
   );
 }
 
-function StatusBadge({ status }: { status: MissionRoom['status'] }) {
-  const config: Record<MissionRoom['status'], { label: string; cls: string }> = {
-    forming:  { label: 'forming',  cls: 'bg-bg-tertiary/60 text-text-secondary border-border' },
-    working:  { label: 'live',     cls: 'bg-accent/15 text-accent border-accent/30' },
-    blocked:  { label: 'needs you',cls: 'bg-error/15 text-error border-error/30 animate-pulse' },
-    paused:   { label: 'paused',   cls: 'bg-warning/15 text-warning border-warning/30' },
-    done:     { label: 'done',     cls: 'bg-success/15 text-success border-success/30' },
-    failed:   { label: 'stopped',  cls: 'bg-text-muted/15 text-text-muted border-border' },
-  };
-  const c = config[status] ?? { label: status, cls: 'bg-bg-tertiary/60 text-text-secondary border-border' };
+/* ─────────────────────────── Row action button ─────────────────────────── */
+
+function RowActionButton({
+  label, icon, variant, onClick,
+}: {
+  label: string;
+  icon: string;
+  variant: 'primary' | 'muted';
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  if (variant === 'primary') {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-widest border transition-colors"
+        style={{
+          background: hover ? 'var(--theme-metal-bright)' : 'var(--theme-metal)',
+          color: 'var(--theme-bolt)',
+          borderColor: 'var(--theme-metal-dark)',
+          fontFamily: 'var(--theme-font-display)',
+        }}
+        title={label}
+        aria-label={label}
+      >
+        <span aria-hidden>{icon}</span>
+        <span>{label}</span>
+      </button>
+    );
+  }
+  // muted — delete. Turns rose/accent on hover.
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border uppercase tracking-widest ${c.cls}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-sm border transition-colors"
+      style={{
+        background: hover ? 'var(--theme-accent)' : 'var(--theme-paper)',
+        color: hover ? 'var(--theme-paper)' : 'var(--theme-ink-soft)',
+        borderColor: hover ? 'var(--theme-accent)' : 'var(--theme-metal-dark)',
+      }}
+      title={label}
+      aria-label={label}
+    >
+      <span aria-hidden>{icon}</span>
+    </button>
+  );
+}
+
+/* ─────────────────────────── Status badge ─────────────────────────── */
+
+function StatusBadge({ status }: { status: MissionRoom['status'] }) {
+  // Map each status to a (background, foreground, border) tuple drawn
+  // from theme tokens, so the pill always feels native to the active
+  // theme rather than carrying hardcoded reds/greens.
+  const config: Record<MissionRoom['status'], { label: string; bg: string; fg: string; border: string; pulse?: boolean }> = {
+    forming:  { label: 'forming',    bg: 'var(--theme-leather)',       fg: 'var(--theme-metal-bright)', border: 'var(--theme-metal-dark)' },
+    working:  { label: 'live',       bg: 'var(--theme-accent)',        fg: 'var(--theme-paper)',        border: 'var(--theme-accent)' },
+    blocked:  { label: 'needs you',  bg: 'var(--theme-accent)',        fg: 'var(--theme-paper)',        border: 'var(--theme-accent)', pulse: true },
+    paused:   { label: 'paused',     bg: 'var(--theme-metal)',         fg: 'var(--theme-bolt)',         border: 'var(--theme-metal-dark)' },
+    done:     { label: 'done',       bg: 'var(--theme-menu-active-bg)',fg: 'var(--theme-menu-active-fg)', border: 'var(--theme-metal-dark)' },
+    failed:   { label: 'stopped',    bg: 'var(--theme-leather-edge)',  fg: 'var(--theme-ink-soft)',     border: 'var(--theme-metal-dark)' },
+  };
+  const c = config[status] ?? config.forming;
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border uppercase tracking-widest ${c.pulse ? 'animate-pulse' : ''}`}
+      style={{
+        background: c.bg,
+        color: c.fg,
+        borderColor: c.border,
+        fontFamily: 'var(--theme-font-display)',
+      }}
+    >
       {c.label}
     </span>
   );
 }
 
+/* ─────────────────────────── Empty state ─────────────────────────── */
+
 function EmptyState({ filter, query, onStart }: { filter: StatusFilter; query: string; onStart: () => void }) {
   if (query.trim().length > 0) {
     return (
       <div className="max-w-md mx-auto px-5 py-12 text-center">
-        <div className="text-text-muted text-sm mb-2">No missions match "{query}"</div>
-        <div className="text-text-muted/70 text-xs">Try a shorter search term, or clear the filter.</div>
+        <div
+          className="text-sm mb-2"
+          style={{ color: 'var(--theme-paper)', fontFamily: 'var(--theme-font-display)' }}
+        >
+          No missions match "{query}"
+        </div>
+        <div
+          className="text-xs"
+          style={{ color: 'var(--theme-ink-soft)', fontFamily: 'var(--theme-font-mono)' }}
+        >
+          Try a shorter search term, or clear the filter.
+        </div>
       </div>
     );
   }
   if (filter !== 'all') {
     return (
       <div className="max-w-md mx-auto px-5 py-12 text-center">
-        <div className="text-text-muted text-sm">No {filter === 'live' ? 'in-progress' : filter} missions right now.</div>
+        <div
+          className="text-sm"
+          style={{ color: 'var(--theme-ink-soft)', fontFamily: 'var(--theme-font-display)' }}
+        >
+          No {filter === 'live' ? 'in-progress' : filter} missions right now.
+        </div>
       </div>
     );
   }
   return (
-    <div className="max-w-md mx-auto px-5 py-16 text-center">
-      <div className="text-text-secondary text-base mb-2">Nothing here yet.</div>
-      <div className="text-text-muted text-sm mb-5">Past missions show up here so you can pick them back up anytime.</div>
+    <div className="max-w-md mx-auto px-5 py-16 text-center flex flex-col items-center gap-5">
+      {/* A calm brass medallion — pure CSS so it adopts the active
+          theme's metal automatically. Reads as a stamped library tag. */}
+      <div
+        className="w-20 h-20 rounded-full flex items-center justify-center"
+        style={{
+          background: 'radial-gradient(circle at 30% 25%, var(--theme-metal-bright), var(--theme-metal-dark) 70%)',
+          boxShadow: 'inset 0 -3px 6px var(--theme-shadow), 0 4px 14px var(--theme-shadow)',
+          border: '1px solid var(--theme-metal-dark)',
+          color: 'var(--theme-bolt)',
+          fontFamily: 'var(--theme-font-display)',
+          fontSize: 28,
+        }}
+        aria-hidden
+      >
+        ⚙
+      </div>
+      <div
+        className="text-base"
+        style={{ color: 'var(--theme-paper)', fontFamily: 'var(--theme-font-display)' }}
+      >
+        No missions yet.
+      </div>
+      <div
+        className="text-sm"
+        style={{ color: 'var(--theme-ink-soft)', fontFamily: 'var(--theme-font-display)' }}
+      >
+        Start one from the Mission Start page.
+      </div>
       <button
         onClick={onStart}
-        className="px-4 py-2 rounded-xl bg-gradient-to-br from-accent to-accent2 text-bg-deep font-semibold shadow-[0_0_24px_rgba(99,102,241,0.45)]"
-      >Start your first mission</button>
+        className="px-4 py-2 rounded-xl font-semibold transition-transform"
+        style={{
+          background: 'linear-gradient(135deg, var(--theme-metal-bright), var(--theme-metal-dark))',
+          color: 'var(--theme-bolt)',
+          boxShadow: '0 4px 14px var(--theme-shadow)',
+          border: '1px solid var(--theme-metal-dark)',
+          fontFamily: 'var(--theme-font-display)',
+        }}
+        onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
+        onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+      >
+        Start your first mission
+      </button>
     </div>
   );
 }
+
+/* ─────────────────────────── Helpers ─────────────────────────── */
 
 function relativeTime(iso: string): string {
   try {

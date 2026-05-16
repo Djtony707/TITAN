@@ -1,6 +1,5 @@
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import { CheckCircle2, XCircle, AlertCircle, Info, X } from 'lucide-react';
-import clsx from 'clsx';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -20,19 +19,27 @@ export function useToast() {
   return useContext(ToastContext);
 }
 
-const icons: Record<ToastType, ReactNode> = {
-  success: <CheckCircle2 size={16} className="text-success" />,
-  error: <XCircle size={16} className="text-error" />,
-  warning: <AlertCircle size={16} className="text-warning" />,
-  info: <Info size={16} className="text-info" />,
+const accentByType: Record<ToastType, string> = {
+  success: 'var(--theme-leather-stitch)',
+  error: 'var(--theme-accent)',
+  warning: 'var(--theme-metal-bright)',
+  info: 'var(--theme-metal)',
 };
 
-const borderColors: Record<ToastType, string> = {
-  success: 'border-success/30',
-  error: 'border-error/30',
-  warning: 'border-warning/30',
-  info: 'border-info/30',
-};
+function ToastIcon({ type }: { type: ToastType }) {
+  const color = accentByType[type];
+  const props = { size: 16, style: { color } };
+  switch (type) {
+    case 'success':
+      return <CheckCircle2 {...props} />;
+    case 'error':
+      return <XCircle {...props} />;
+    case 'warning':
+      return <AlertCircle {...props} />;
+    case 'info':
+      return <Info {...props} />;
+  }
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -54,19 +61,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
 
       {/* Toast container */}
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div
+        className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none"
+        style={{ fontFamily: 'var(--theme-font-display)' }}
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={clsx(
-              'pointer-events-auto flex items-center gap-2.5 rounded-lg border bg-bg-secondary px-4 py-3 shadow-lg',
-              'animate-in slide-in-from-right-5 fade-in duration-200',
-              borderColors[t.type],
-            )}
+            role="status"
+            className="titan-toast-surface pointer-events-auto flex items-center gap-2.5 px-4 py-3"
+            style={{ borderLeft: `3px solid ${accentByType[t.type]}` }}
           >
-            {icons[t.type]}
-            <span className="text-sm text-text">{t.message}</span>
-            <button onClick={() => dismiss(t.id)} className="ml-2 text-text-muted hover:text-text">
+            <ToastIcon type={t.type} />
+            <span className="text-sm" style={{ color: 'var(--theme-ink)' }}>
+              {t.message}
+            </span>
+            <button
+              onClick={() => dismiss(t.id)}
+              className="titan-close-btn ml-2"
+              aria-label="Dismiss"
+            >
               <X size={14} />
             </button>
           </div>

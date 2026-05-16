@@ -50,6 +50,16 @@ export default function MissionChat() {
     });
   }, []);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * v6.1.0-beta.4 Wave 6 — scroll-anchor smoothness.
+   * `isAtBottomRef` tracks whether the user is currently parked near the
+   * bottom of the thread (within 100px). When a new message arrives, we
+   * only auto-scroll if they were already there — if they scrolled up to
+   * read history, we leave them alone. Smooth-scroll on new messages so
+   * the thread feels calm rather than jamming the viewport.
+   */
+  const isAtBottomRef = useRef(true);
 
   /**
    * v6.1.0-alpha.16 — file viewer modal state. When the user clicks a
@@ -107,12 +117,27 @@ export default function MissionChat() {
     return unsub;
   }, [id, navigate]);
 
-  // Auto-scroll to bottom on new messages, but only if user is near bottom.
+  // v6.1.0-beta.4 Wave 6 — track whether the user is parked near the bottom.
+  // Updates on every scroll event so the auto-scroll-on-new-message logic
+  // below can honour the user's reading position.
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    const onScroll = () => {
+      isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    };
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); };
+  }, [room?.id]);
+
+  // Auto-scroll to bottom on new messages — but only if the user is already
+  // near the bottom. Smooth-scrolls to the anchor so the thread feels calm.
+  useEffect(() => {
+    if (!isAtBottomRef.current) return;
+    const anchor = bottomAnchorRef.current;
+    if (!anchor) return;
+    anchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [room?.messages.length]);
 
   const onSend = useCallback(async () => {
@@ -154,16 +179,32 @@ export default function MissionChat() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-[#a89070] text-sm" style={{ fontFamily: "'Georgia', serif" }}>
+      <div
+        className="flex items-center justify-center h-full text-sm"
+        style={{
+          fontFamily: "var(--theme-font-display, 'Georgia', serif)",
+          color: 'var(--theme-ink-soft, #a89070)',
+        }}
+      >
         Loading mission…
       </div>
     );
   }
   if (error || !room) {
     return (
-      <div className="flex items-center justify-center h-full flex-col gap-3 text-[#f3e9d0]" style={{ fontFamily: "'Georgia', serif" }}>
-        <div className="text-[#c45050] text-sm">{error ?? 'Mission not found.'}</div>
-        <button onClick={() => navigate('/mission')} className="text-[#c4a35a] text-sm hover:underline">
+      <div
+        className="flex items-center justify-center h-full flex-col gap-3"
+        style={{
+          fontFamily: "var(--theme-font-display, 'Georgia', serif)",
+          color: 'var(--theme-paper, #f3e9d0)',
+        }}
+      >
+        <div className="text-sm" style={{ color: 'var(--theme-accent, #c45050)' }}>{error ?? 'Mission not found.'}</div>
+        <button
+          onClick={() => navigate('/mission')}
+          className="text-sm hover:underline"
+          style={{ color: 'var(--theme-metal, #c4a35a)' }}
+        >
           ← Start a new mission
         </button>
       </div>
@@ -173,13 +214,21 @@ export default function MissionChat() {
   const { working, blocked } = countTeam(room);
 
   return (
-    <div className="h-full w-full flex flex-col text-[#f3e9d0] overflow-hidden" style={{ fontFamily: "'Georgia', serif" }}>
+    <div
+      className="h-full w-full flex flex-col overflow-hidden"
+      style={{
+        fontFamily: "var(--theme-font-display, 'Georgia', serif)",
+        color: 'var(--theme-paper, #f3e9d0)',
+        minHeight: 0,
+      }}
+    >
 
         {/* Top bar — leather strip */}
-        <header className="relative z-20 flex items-center gap-4 px-5 py-3"
+        <header
+          className="relative z-20 flex items-center gap-4 px-5 py-3 shrink-0"
           style={{
-            background: 'linear-gradient(180deg, rgba(42,26,10,0.92), rgba(56,36,16,0.88))',
-            borderBottom: '1px solid rgba(138,106,58,0.5)',
+            background: 'linear-gradient(180deg, var(--theme-leather, rgba(42,26,10,0.92)), var(--theme-leather-edge, rgba(56,36,16,0.88)))',
+            borderBottom: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.5))',
             boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
           }}
         >
@@ -268,28 +317,46 @@ export default function MissionChat() {
         </div>
       </header>
 
-      {/* Chat thread */}
-      <main ref={threadRef} className="relative z-10 flex-1 overflow-y-auto">
+      {/* Chat thread — `min-h-0` is critical here: without it, a `flex-1`
+          child with `overflow-y-auto` won't actually clip overflow inside
+          a `flex-col` parent — the scrollarea grows past its container and
+          messages bleed under the footer + sponsor mount. */}
+      <main
+        ref={threadRef}
+        className="relative z-10 flex-1 overflow-y-auto"
+        style={{ minHeight: 0 }}
+      >
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 flex flex-col gap-3">
-          {room.messages.map((msg) => (
-            <MessageRow
-              key={msg.id}
-              msg={msg}
-              artifact={room.artifact}
-              artifactExpanded={artifactExpanded}
-              onToggleArtifact={() => setArtifactExpanded(v => !v)}
-              onAnswer={onAnswer}
-              onOpenFile={handleOpenFile}
-              expanded={expandedIds.has(msg.id)}
-              onToggleExpand={() => toggleExpanded(msg.id)}
-            />
-          ))}
+          {room.messages.length === 0 ? (
+            <EmptyThread />
+          ) : (
+            room.messages.map((msg) => (
+              <MessageRow
+                key={msg.id}
+                msg={msg}
+                artifact={room.artifact}
+                artifactExpanded={artifactExpanded}
+                onToggleArtifact={() => setArtifactExpanded(v => !v)}
+                onAnswer={onAnswer}
+                onOpenFile={handleOpenFile}
+                expanded={expandedIds.has(msg.id)}
+                onToggleExpand={() => toggleExpanded(msg.id)}
+              />
+            ))
+          )}
           <ActiveTyping room={room} />
+          {/* Smooth-scroll anchor — see scroll-anchor effect above. */}
+          <div ref={bottomAnchorRef} aria-hidden="true" />
         </div>
       </main>
 
-      {/* Bottom input */}
-      <footer className="relative z-20 bg-bg/80 backdrop-blur-md border-t border-border">
+      {/* Bottom input — `shrink-0` so it never collapses; `paddingBottom`
+          leaves room for the global sponsor footer chip (mounted in App.tsx
+          at `fixed bottom-1.5`, ~30px tall + 6px gap ≈ 40px). */}
+      <footer
+        className="relative z-20 bg-bg/80 backdrop-blur-md border-t border-border shrink-0"
+        style={{ paddingBottom: 40 }}
+      >
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3">
           <form
             onSubmit={(e) => { e.preventDefault(); onSend(); }}
@@ -309,14 +376,35 @@ export default function MissionChat() {
               placeholder='Type to the team — or @Sage to talk to one helper'
               className="flex-1 bg-transparent outline-none text-text placeholder:text-text-muted/60 text-sm py-2 px-1"
             />
+            {/* v6.1.0-beta.4 Wave 6 — brass-rim disabled mic. Polished rather
+                than hidden so users discover that voice is coming, but the
+                "soon" badge + cursor-not-allowed make it clear it is not
+                wired up yet. */}
             <button
               type="button"
               title="Voice coming next release"
               disabled
-              className="relative w-9 h-9 rounded-full bg-bg-tertiary border border-border text-text-muted opacity-50 cursor-not-allowed flex items-center justify-center"
+              aria-disabled="true"
+              className="relative w-9 h-9 rounded-full flex items-center justify-center cursor-not-allowed transition-colors"
+              style={{
+                background: 'color-mix(in srgb, var(--theme-leather-edge) 60%, transparent)',
+                border: '1px solid var(--theme-metal-dark)',
+                color: 'var(--theme-metal)',
+                boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--theme-metal) 25%, transparent)',
+                opacity: 0.7,
+              }}
             >
-              🎤
-              <span className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-text-muted">soon</span>
+              <span aria-hidden="true">🎤</span>
+              <span
+                className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest"
+                style={{
+                  color: 'var(--theme-ink-soft)',
+                  fontFamily: 'var(--theme-font-mono)',
+                  letterSpacing: '0.15em',
+                }}
+              >
+                soon
+              </span>
             </button>
             <button
               type="submit"
@@ -370,6 +458,123 @@ export default function MissionChat() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────
+
+/**
+ * v6.1.0-beta.4 Wave 6 — unified sender chip header for every message
+ * group. Avatar uses the agent's dynamic colour (per-agent identity, not a
+ * theme token — leave it). Name uses the display font in paper, role + time
+ * use the mono font in ink-soft so the visual hierarchy reads at a glance:
+ * "who" loud, "what role / when" quiet.
+ */
+function SenderChip({
+  name, role, at, align, color, colorOverride, hint,
+}: {
+  name: string;
+  role: string;
+  at: string;
+  align: 'left' | 'right';
+  color?: string;
+  colorOverride?: string;
+  hint?: string;
+}) {
+  const initial = name[0] ?? '?';
+  const avatarBg = color
+    ? `linear-gradient(135deg, ${color}, ${shade(color, -25)})`
+    : colorOverride ?? 'var(--theme-metal-bright)';
+  return (
+    <div
+      className={`flex items-center gap-2 mb-1 ${align === 'right' ? 'flex-row-reverse' : ''}`}
+      style={{ fontFamily: 'var(--theme-font-display)' }}
+    >
+      <div
+        className="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[11px]"
+        style={{
+          background: avatarBg,
+          color: 'var(--theme-leather-edge)',
+        }}
+      >
+        {initial}
+      </div>
+      <span
+        className="text-[12px] font-semibold tracking-tight"
+        style={{ color: 'var(--theme-paper)' }}
+      >
+        {name}
+      </span>
+      {role && (
+        <span
+          className="text-[10px] uppercase tracking-widest"
+          style={{
+            color: 'var(--theme-ink-soft)',
+            fontFamily: 'var(--theme-font-mono)',
+          }}
+        >
+          {role}
+        </span>
+      )}
+      <span
+        className={align === 'right' ? 'text-[10px] mr-auto' : 'text-[10px] ml-auto'}
+        style={{
+          color: 'var(--theme-ink-soft)',
+          fontFamily: 'var(--theme-font-mono)',
+        }}
+      >
+        {shortTime(at)}
+      </span>
+      {hint && (
+        <span
+          className="text-[10px]"
+          style={{
+            color: 'var(--theme-ink-soft)',
+            opacity: 0.6,
+            fontFamily: 'var(--theme-font-mono)',
+          }}
+        >
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * v6.1.0-beta.4 Wave 6 — calm placeholder for the brief moment before the
+ * first message lands. The chat is otherwise an empty rectangle of leather;
+ * a quiet line of paper-toned italic copy lets the user know the team is
+ * spinning up without the page looking broken.
+ */
+function EmptyThread() {
+  return (
+    <div className="self-center my-12 max-w-md text-center flex flex-col items-center gap-3">
+      <span
+        className="inline-flex gap-1"
+        aria-hidden="true"
+      >
+        <span
+          className="w-1.5 h-1.5 rounded-full animate-bounce"
+          style={{ background: 'var(--theme-metal)', animationDelay: '0ms' }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full animate-bounce"
+          style={{ background: 'var(--theme-metal)', animationDelay: '150ms' }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full animate-bounce"
+          style={{ background: 'var(--theme-metal)', animationDelay: '300ms' }}
+        />
+      </span>
+      <p
+        className="italic text-sm leading-relaxed"
+        style={{
+          color: 'var(--theme-ink-soft)',
+          fontFamily: 'var(--theme-font-display)',
+        }}
+      >
+        Your team will start replying any moment now…
+      </p>
+    </div>
+  );
+}
 
 function TeamStrip({ room }: { room: MissionRoom }) {
   return (
@@ -428,13 +633,19 @@ function MessageRow({
   if (msg.kind === 'user') {
     return (
       <div className="self-end max-w-[88%] flex flex-col items-end">
-        <div className="flex items-center gap-2 mb-1 flex-row-reverse">
-          <div className="w-6 h-6 rounded-md bg-white flex items-center justify-center text-bg-deep font-bold text-[11px]">Y</div>
-          <span className="text-[11px] font-semibold">You</span>
-          <span className="text-[10px] text-text-muted">{shortTime(msg.at)}</span>
-        </div>
+        <SenderChip name="You" role="" at={msg.at} align="right" colorOverride="var(--theme-metal-bright)" />
         {expandable(
-          <div className="px-3.5 py-2.5 rounded-2xl rounded-br-md text-bg-deep bg-gradient-to-br from-accent to-accent2 shadow-[0_4px_16px_rgba(99,102,241,0.25)] text-sm leading-relaxed cursor-pointer">
+          <div
+            className="px-3.5 py-2.5 rounded-2xl rounded-br-md text-sm leading-relaxed cursor-pointer"
+            style={{
+              // Brass-tinted background ~30% so it still feels like leather underneath.
+              background: 'color-mix(in srgb, var(--theme-metal-dark) 30%, transparent)',
+              color: 'var(--theme-paper)',
+              border: '1px solid color-mix(in srgb, var(--theme-metal) 40%, transparent)',
+              boxShadow: '0 2px 6px var(--theme-shadow)',
+              fontFamily: 'var(--theme-font-display)',
+            }}
+          >
             {msg.content}
           </div>,
         )}
@@ -443,12 +654,22 @@ function MessageRow({
     );
   }
   if (msg.kind === 'system') {
+    const tag = msg.tag === 'team_formed' ? 'Team formed' : msg.tag === 'team_expanded' ? 'Team change' : (msg.tag ?? 'note');
     return (
-      <div className="self-center flex flex-col items-center max-w-[88%]">
+      <div className="self-center flex flex-col items-center max-w-[88%] my-1">
         {expandable(
-          <div className="text-[12px] text-text-muted bg-bg-secondary/60 border border-border rounded-full px-3 py-1 backdrop-blur-sm cursor-pointer">
-            <span className="text-text-secondary font-medium">{msg.tag === 'team_formed' ? 'Team formed' : msg.tag === 'team_expanded' ? 'Team change' : (msg.tag ?? 'note')}</span>
-            {' · '}{msg.content.replace(/^Team formed —\s*/, '').replace(/\.$/, '')}
+          <div
+            className="italic text-center text-[12px] leading-relaxed cursor-pointer px-3 py-1"
+            style={{
+              color: 'var(--theme-ink-soft)',
+              fontFamily: 'var(--theme-font-display)',
+            }}
+          >
+            <span className="not-italic" style={{ fontFamily: 'var(--theme-font-mono)', letterSpacing: '0.08em', fontSize: '10px', textTransform: 'uppercase' }}>
+              {tag}
+            </span>
+            <span className="mx-2 opacity-50">·</span>
+            {msg.content.replace(/^Team formed —\s*/, '').replace(/\.$/, '')}
           </div>,
         )}
         {expanded && <DetailsPanel msg={msg} />}
@@ -472,17 +693,13 @@ function MessageRow({
   if (msg.kind === 'question') {
     return (
       <div className="max-w-[88%] flex flex-col">
-        <div className="flex items-center gap-2 mb-1">
-          <div
-            className="w-6 h-6 rounded-md flex items-center justify-center text-bg-deep font-bold text-[11px]"
-            style={{ background: `linear-gradient(135deg, ${msg.from.color}, ${shade(msg.from.color, -25)})` }}
-          >
-            {msg.from.name[0]}
-          </div>
-          <span className="text-[11px] font-semibold" style={{ color: msg.from.color }}>{msg.from.name}</span>
-          <span className="text-[11px] text-text-muted">{msg.from.role}</span>
-          <span className="text-[10px] text-text-muted">{shortTime(msg.at)}</span>
-        </div>
+        <SenderChip
+          name={msg.from.name}
+          role={msg.from.role}
+          at={msg.at}
+          align="left"
+          color={msg.from.color}
+        />
         <span className="self-start inline-flex items-center gap-1 px-2 py-0.5 mb-1.5 bg-error text-white text-[10px] uppercase tracking-widest font-bold rounded-full">
           <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
           Needs you
@@ -498,6 +715,9 @@ function MessageRow({
             borderLeftColor: msg.from.color,
             border: '1px solid rgba(239,68,68,0.35)',
             borderLeft: `3px solid ${msg.from.color}`,
+            color: 'var(--theme-paper)',
+            fontFamily: 'var(--theme-font-display)',
+            boxShadow: '0 2px 6px var(--theme-shadow)',
           }}
         >
           {msg.content}
@@ -541,23 +761,27 @@ function MessageRow({
   // agent
   return (
     <div className="max-w-[88%] flex flex-col">
-      <div className="flex items-center gap-2 mb-1">
-        <div
-          className="w-6 h-6 rounded-md flex items-center justify-center text-bg-deep font-bold text-[11px]"
-          style={{ background: `linear-gradient(135deg, ${msg.from.color}, ${shade(msg.from.color, -25)})` }}
-        >
-          {msg.from.name[0]}
-        </div>
-        <span className="text-[11px] font-semibold" style={{ color: msg.from.color }}>{msg.from.name}</span>
-        <span className="text-[11px] text-text-muted">{msg.from.role}</span>
-        <span className="text-[10px] text-text-muted">{shortTime(msg.at)}</span>
-        {/* Subtle "click to see details" hint for first-time discovery */}
-        <span className="text-[10px] text-text-muted/60 ml-auto">{expanded ? 'click to hide' : 'click for details'}</span>
-      </div>
+      <SenderChip
+        name={msg.from.name}
+        role={msg.from.role}
+        at={msg.at}
+        align="left"
+        color={msg.from.color}
+        hint={expanded ? 'click to hide' : 'click for details'}
+      />
       {expandable(
         <div
-          className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-bg-secondary/60 border border-border text-sm leading-relaxed backdrop-blur-sm cursor-pointer hover:bg-bg-secondary/80 transition-colors"
-          style={{ borderLeft: `3px solid ${msg.from.color}` }}
+          className="px-3.5 py-2.5 rounded-2xl rounded-bl-md text-sm leading-relaxed backdrop-blur-sm cursor-pointer transition-colors"
+          style={{
+            // Paper-tinted background ~6% over the leather DeskSurface — gives the agent
+            // a faint "page laid on the desk" feel without losing the leather warmth.
+            background: 'color-mix(in srgb, var(--theme-paper) 6%, transparent)',
+            color: 'var(--theme-paper)',
+            border: '1px solid color-mix(in srgb, var(--theme-metal-dark) 35%, transparent)',
+            borderLeft: `3px solid ${msg.from.color}`,
+            boxShadow: '0 2px 6px var(--theme-shadow)',
+            fontFamily: 'var(--theme-font-display)',
+          }}
         >
           <RichMessageBody text={msg.content} sources={msg.sources} onOpenFile={onOpenFile} />
           {msg.actions && msg.actions.length > 0 && (
@@ -810,8 +1034,16 @@ function ArtifactCard({
           {preview || <span className="text-text-muted not-italic">empty for now…</span>}
         </div>
       ) : (
-        <div className="px-5 py-4 bg-[#f7f5ee] text-[#1a1f2e] font-serif text-sm leading-relaxed whitespace-pre-wrap">
-          {artifact.content || <span className="text-[#8a8472] italic">empty for now…</span>}
+        <div
+          className="px-5 py-4 font-serif text-sm leading-relaxed whitespace-pre-wrap"
+          style={{
+            background: 'var(--theme-paper, #f7f5ee)',
+            color: 'var(--theme-ink, #1a1f2e)',
+          }}
+        >
+          {artifact.content || (
+            <span className="italic" style={{ color: 'var(--theme-ink-soft, #8a8472)' }}>empty for now…</span>
+          )}
         </div>
       )}
     </div>

@@ -5,6 +5,208 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.4 — 2026-05-16 — Comprehensive polish ship (10 parallel waves)
+
+> Tony: "There is stuff covering stuff on all these pages. need to
+> look at them yourself after building them. TITAN seems stuck, and
+> also check to make sure everything matches the style of the canvas
+> selected. No shortcuts! fix everything before doing releases!
+> Releases have to have some meat in them before releasing, instead
+> of whack a mole releases. All menus also need to be looking good
+> also and matching. I want all pages looking good and polished
+> before beta.4 releases."
+
+Heard. Beta.4 bundles 10 parallel sub-agent waves into one substantial
+release — every page polished, every menu themed, the stuck-mission
+loop bug eliminated, no whack-a-mole.
+
+### A1 — Driver loop fix + stale member activity (`src/agent/`)
+
+The mzzbajnj mission ran 17 minutes without progress before Tony
+cancelled it. Root cause: specialist returned `needs_info` with an
+empty question string, and the alpha.51/.54 generic-question gates
+had no belt-and-suspenders if their state flags got lost. New
+defensive counter `consecutiveNeedsInfoCount` (in
+`DriverSubtaskState`) is incremented on every `needs_info` return —
+force-commits at 2, fails the subtask at 3. Counter resets on `done`
+/ `failed` so it doesn't interfere with normal long-running tasks.
+
+Also fixed the silent contract bug in `setMemberState`:
+passing `undefined` for activity was a no-op (so `writer.currentActivity`
+stuck on "running download_image" forever). agent_done handler now
+passes `'standing by'` explicitly to clear stale strings.
+
+12 new tests in `tests/v610-beta4-empty-needs-info-loop.test.ts`,
+all green. Existing alpha.51/.54/.1/foundation suites (96/96)
+still pass.
+
+### A2 — Non-mission pages Phase 0d migration
+
+Hardcoded wood-theme hex literals replaced with `var(--theme-*)`
+references across:
+- `MissionStart.tsx` (2 literals)
+- `MissionLibrary.tsx` (~14 literals, 0 wood literals left)
+- `LoginPage.tsx` (~18 literals, 0 wood literals left)
+- `TitanCanvas.tsx` (~13 literals migrated)
+
+### A3 — MissionChat overflow + Phase 0d
+
+Pre-existing layout bug: chat messages extended 109 px below the
+footer/input row at y=803. Root cause: `flex-1 overflow-y-auto` on
+the message list, but missing `min-height: 0` on the parent flex
+container — without that override, the child grows past the
+container instead of clipping/scrolling. Added `min-height: 0` to
+root + main, `paddingBottom: 40` on footer to clear the global
+SponsorFooter, `shrink-0` on header/footer. A3 also migrated 8
+literals to theme vars.
+
+### Wave 2 — MissionCanvas Phase 0d migration
+
+The big one — `~100 hex literals` in `MissionCanvas.tsx` (2203
+lines) migrated to `var(--theme-*)` references. Touched
+GoalPlacard, DocumentPaper, AgentCard, StickyNote,
+ActivityStickyNote, QuestionTag, FilingCabinet, Wastebasket,
+CabinetDrawer, CostInkwell, DeskClock chrome. Plus 10 literals in
+`mission/FileViewer.tsx` (HtmlShadowFrame + `.titan-img-missing`
+placeholder). `mission/AgentMenu.tsx` and `mission/RichMessageBody.tsx`
+already used Tailwind theme tokens — no migration needed.
+
+Left as-is intentionally: per-agent dynamic color blending
+(`shade(member.color, -25)`, `paperFromColor`), semantic state
+colors (error red, warn amber, success green), TrashDrawer's
+signature rose-leather identity.
+
+### Wave 3 — MissionCanvas polish (canvas plan Phases 1+2+3)
+
+**Phase 1 — Hierarchy**:
+- GoalPlacard: "Active Mission" eyebrow (10px, uppercase, 0.16em
+  letter-spacing), title bumped 15px → 22px semibold, soft accent
+  glow via `box-shadow color-mix(var(--theme-accent) 28%)`
+- DocumentPaper: width 460 → 620, padding bumped, stacked
+  drop-shadow + faint accent halo, title 20 → 22 px, body 13 → 14 px
+- New ChartSkeleton sub-component: polished SVG with X/Y axes, 7
+  dashed bars (themed accent stroke), italic "Analyst computing…"
+  caption. Renders only when an Analyst is working.
+- LivingDeskLayer DOC_W / DOC_H updated to match.
+
+**Phase 2 — Helper states + connector beads**:
+- AgentCard pulse animation state-gated: `working` → 1.8 s
+  stickyBreathe, `editing` → 2.4 s, `blocked` → new 1.2 s urgent
+  rhythm, `done` / `idle` → no animation. `done` cards fade to
+  0.65 opacity with a 400 ms ease-out + check glyph.
+- Connector lines: per-helper "energy bead" — SVG circle riding
+  the existing bezier via `animateMotion` + `mpath` at 2.2 s loop.
+  Bead color matches each helper's `member.color`. Only mounts for
+  working/editing helpers, so a calm desk has zero beads.
+
+**Phase 3 — Decision card + trust line**:
+- QuestionTag lifted via `questionLift` keyframe (-10px sustained
+  float with gentle drift), warm rose rim via layered box-shadow,
+  "Sage asks" eyebrow, "TITAN paused — your call." microcopy.
+  Two-button reply preserved.
+- Trust line below input: italic "Your team works independently,
+  but asks before risky or sensitive changes." in
+  `--theme-ink-soft` at 70% opacity, always visible.
+
+### Wave 4 — MissionStart polish
+
+Welcome card promoted to "main event" — leather-bound section, brass
+corner stitches, "◆ NEW MISSION" eyebrow, display-font title,
+3-row textarea (was single-line), ⌘↵ to submit. Template gallery
+rebuilt as leather-bound dossier cards with brass title plates
+(matches the operations mockup from `~/Desktop/titan-ops-mockup.html`).
+Primary "Start mission" CTA = 3-stop brass gradient with bolt text.
+Walkthrough modal themed-through with leather body + brass strip.
+`paddingRight: 260` gutter for the TopbarThemePicker.
+
+### Wave 5 — MissionLibrary polish
+
+91 `var(--theme-*)` references, zero hex literals. Row chrome
+upgraded (title + status pill + mono timestamp + actions on hover).
+Auto-grouping into Active / Recent / Archived under brass-nameplate
+section headers when list > 8. Filter chips use the new menu tokens
+(`--theme-menu-active-bg/fg`, `--theme-menu-hover`). Empty state
+gets a brass medallion + brand-voice copy + primary CTA. Top-bar
+gutter for the picker.
+
+### Wave 6 — MissionChat polish (beyond A3)
+
+User vs agent bubble distinction with theme-aware tints. New
+SenderChip component (avatar / name / role / timestamp). Scroll-anchor
+smoothness — `isAtBottomRef` updated via passive scroll listener
+with 100 px threshold; new messages only jump to bottom if user
+was already there. Mic "soon" button reskinned as brass-rim
+disabled circle with mono "SOON" badge. EmptyThread component
+with bouncing brass dots for first-message state. A3 overflow fix
+preserved.
+
+### Wave 7 — LoginPage polish
+
+5xl TITAN wordmark with 0.05em letter-spacing + dual-layer text-shadow
+(accent glow + soft shadow), italic "Mission Control awaits" tagline.
+Lamp glow reduced to 420 px / 0.20 opacity, centered behind the card,
+recolored to `var(--theme-accent)` so it adapts per theme (rose /
+green / cyan). 360 px login card with leather gradient + brass border
++ inset metal-bright highlight. Token input recessed paper-tray over
+leather with brass-bright focus ring + eye / eye-off toggle. 3-stop
+brass CTA gradient with bolt text. "Built by Tony Elliott ·
+github.com/Djtony707" attribution footer.
+
+### Wave 8 — TitanCanvas polish
+
+EmptyCanvas widget-add buttons rebuilt as five categorical groups
+(System / Intelligence / Tools / Workflows / Comms) under brass-mono
+nameplates with hairline rules. Each chip = 110 px wide, paper bg +
+brass rim, hover brightens + lifts 1 px. "Ask Agent" promoted to
+hero (bigger, accent-coloured, lamp-glow on hover, lightbulb icon).
+TopbarThemePicker gutter raised pt-10 → pt-24. Bug fix: removed
+`system:daemon` and `system:paperclip` chips (widgets deleted in
+v6.0 step 1, would have rendered "Unknown system widget" on click).
+
+### Wave 9 — Menus polish (ALL menus matching theme)
+
+New theme tokens: `--theme-menu-bg`, `--theme-menu-bg-solid`,
+`--theme-menu-border`, `--theme-menu-hover`, `--theme-menu-active-bg`,
+`--theme-menu-active-fg`, `--theme-menu-overlay`. Shared keyframes
+(`titan-menu-in`, `titan-toast-in`, `titan-overlay-in`) + utility
+classes (`.titan-menu-surface`, `.titan-menu-item`,
+`.titan-modal-surface`, `.titan-toast-surface`, `.titan-close-btn`)
+= single source of truth for menu chrome.
+
+Components migrated: `Modal.tsx`, `Toast.tsx`, `Tooltip.tsx`
+(removed broken decorative arrow), `ConfirmDialog.tsx`
+(inherits Modal), `QuickSwitcher.tsx` (⌘K palette),
+`TopbarThemePicker.tsx`, `AgentMenu.tsx`, `SomaAdvisoryToast.tsx`
+(was hardcoded purple-indigo gradient → now accent-themed),
+`WidgetGallery.tsx` shell.
+
+### Files touched
+
+~25 files across `ui/src/pages/`, `ui/src/components/`,
+`ui/src/components/shared/`, `ui/src/components/desk/`,
+`ui/src/hooks/`, `ui/src/styles/`, `ui/src/titan2/`,
+`src/agent/goalDriver.ts`, `src/agent/goalDriverTypes.ts`,
+`src/agent/missionLifecycle.ts`. Plus version + CHANGELOG.
+
+### Tests
+
+- 12 new beta.4 driver-loop regression tests
+- 7432 / 7434 pass / 2 skipped / **0 failed**
+- Both backend (`npm run build`) and UI (`cd ui && npm run build`)
+  succeed cleanly
+
+### Deferred to beta.5 (documented, not whack-a-mole)
+
+- SpacesSidebar Admin/Log out vertical overlap + "New space" button
+- WidgetGallery internal grid cards (~10 hex literals on category
+  pills + search bar + template cards)
+- Tailwind-token aliasing for admin-panel `<select>` chrome
+- SpaceInstructionsEditor + WidgetEditor modals (inside TitanCanvas
+  ownership boundary)
+- Phase 0e: per-agent dynamic-color blending refactor
+
+---
+
 ## v6.1.0-beta.3 — 2026-05-15 — Phase 0c surfaces (Workshop + Observatory) + picker overlap fix
 
 > Tony: "There is stuff covering stuff on all these pages. need to

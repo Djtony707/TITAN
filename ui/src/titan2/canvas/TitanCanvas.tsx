@@ -325,8 +325,8 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
       return <div className="w-full h-full flex items-center justify-center text-xs text-red-400">Unknown system widget: {widget.source}</div>;
     }
     return (
-      <div className="w-full h-full rounded-xl overflow-hidden flex flex-col group transition-colors shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px rgba(60,40,15,0.15)' }}>
-        <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'rgba(58,37,24,0.05)' }}>
+      <div className="w-full h-full rounded-xl overflow-hidden flex flex-col group transition-colors shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px var(--theme-shadow, rgba(60,40,15,0.15))' }}>
+        <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'var(--theme-leather, rgba(58,37,24,0.05))' }}>
           <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-desk-accent)' }}>{widget.name}</span>
           <button onClick={onRemove} className="opacity-0 group-hover:opacity-100 text-xs px-1 transition-opacity" style={{ color: 'var(--color-desk-text-muted)' }}>×</button>
         </div>
@@ -345,8 +345,8 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
   // the change and re-renders us with the new (source, format, name),
   // which re-triggers the sandbox render effect above.
   return (
-    <div className="w-full h-full rounded-xl overflow-hidden flex flex-col shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px rgba(60,40,15,0.15)' }}>
-      <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'rgba(58,37,24,0.05)' }}>
+    <div className="w-full h-full rounded-xl overflow-hidden flex flex-col shadow-md" style={{ background: 'var(--color-desk-widget-bg)', border: '1px solid var(--color-desk-border)', boxShadow: '0 4px 12px var(--theme-shadow, rgba(60,40,15,0.15))' }}>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b panel-drag-handle cursor-move" style={{ borderColor: 'var(--color-desk-border-light)', background: 'var(--theme-leather, rgba(58,37,24,0.05))' }}>
         <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-desk-accent)' }}>{widget.name}</span>
         <div className="flex items-center gap-1">
           <button
@@ -375,7 +375,7 @@ function GridWidgetRaw({ widget, space, onRemove }: { widget: WidgetDef; space: 
               title={widget.name}
             />
             {loading && (
-              <div className="absolute inset-0 flex items-center justify-center text-xs font-serif" style={{ background: "rgba(253,246,227,0.85)", color: "var(--color-desk-text-muted)" }}>
+              <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ background: "var(--theme-paper, rgba(253,246,227,0.85))", color: "var(--color-desk-text-muted)", fontFamily: "var(--theme-font-display, 'Georgia', serif)" }}>
                 <span className="animate-pulse">Loading widget…</span>
               </div>
             )}
@@ -699,7 +699,7 @@ export default function TitanCanvas() {
   if (!space) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <div className="rounded-xl px-6 py-3 border font-serif text-sm" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", color: "var(--color-desk-text-muted)" }}>
+        <div className="rounded-xl px-6 py-3 border text-sm" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", color: "var(--color-desk-text-muted)", fontFamily: "var(--theme-font-display, 'Georgia', serif)" }}>
           Loading space...
         </div>
       </div>
@@ -799,7 +799,7 @@ export default function TitanCanvas() {
       `}</style>
       {/* Background texture — warm grid over the desk */}
       <div className="fixed inset-0 opacity-[0.04] pointer-events-none" style={{
-        backgroundImage: `radial-gradient(circle at 1px 1px, rgba(120,90,50,0.4) 1px, transparent 0)`,
+        backgroundImage: `radial-gradient(circle at 1px 1px, var(--theme-metal-dark, rgba(120,90,50,0.4)) 1px, transparent 0)`,
         backgroundSize: '24px 24px',
       }} />
 
@@ -825,31 +825,31 @@ export default function TitanCanvas() {
             title="Open Mission Chat — a chat-style team-control surface with a real desk view"
             style={{
               background: 'linear-gradient(120deg, rgba(176,138,58,0.18) 0%, rgba(99,102,241,0.16) 100%)',
-              border: '1px solid rgba(176,138,58,0.45)',
+              border: '1px solid var(--theme-metal, rgba(176,138,58,0.45))',
               boxShadow: '0 0 0 0 rgba(176,138,58,0.4)',
             }}
           >
             {/* Inline SVG logo — a stylized desk with a paper sheet
                 and a sticky note, in 16×16. */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: '#f5d27a', flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: 'var(--theme-metal-bright, #f5d27a)', flexShrink: 0 }}>
               {/* desk surface */}
               <path d="M3 17h18" strokeLinecap="round" />
               <path d="M5 17V9a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8" />
               {/* paper sheet */}
-              <rect x="8" y="9" width="6" height="6" rx="0.5" fill="rgba(247,245,238,0.85)" stroke="rgba(40,30,15,0.6)" strokeWidth="0.8" />
+              <rect x="8" y="9" width="6" height="6" rx="0.5" fill="var(--theme-paper, rgba(247,245,238,0.85))" stroke="var(--theme-ink, rgba(40,30,15,0.6))" strokeWidth="0.8" />
               {/* sticky note (offset, rotated visual via overlap) */}
-              <rect x="13" y="10.5" width="4" height="4" rx="0.3" fill="rgba(255,242,168,0.95)" stroke="rgba(120,90,30,0.5)" strokeWidth="0.7" />
+              <rect x="13" y="10.5" width="4" height="4" rx="0.3" fill="var(--theme-sticky-yellow, rgba(255,242,168,0.95))" stroke="var(--theme-metal-dark, rgba(120,90,30,0.5))" strokeWidth="0.7" />
               {/* desk legs */}
               <path d="M7 17v3M17 17v3" strokeLinecap="round" />
             </svg>
-            <span className="text-[11px] font-semibold tracking-tight text-[#f5d27a] group-hover:text-white">
+            <span className="text-[11px] font-semibold tracking-tight group-hover:text-white" style={{ color: 'var(--theme-metal-bright, #f5d27a)' }}>
               Mission Chat
             </span>
             <span
               className="text-[8px] font-bold uppercase tracking-widest text-bg-deep px-1.5 py-[1px] rounded-full"
               style={{
-                background: 'linear-gradient(180deg, #ffd86e 0%, #b07a1a 100%)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.4)',
+                background: 'linear-gradient(180deg, var(--theme-metal-bright, #ffd86e) 0%, var(--theme-metal-dark, #b07a1a) 100%)',
+                boxShadow: '0 1px 2px var(--theme-shadow, rgba(0,0,0,0.4))',
                 animation: 'missionPulse 2.4s ease-in-out infinite',
               }}
             >
@@ -881,42 +881,42 @@ export default function TitanCanvas() {
           <span className="text-[10px]" style={{ color: "var(--color-desk-text-muted)" }}>{validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => handleAddSystemWidget('system:nav', 'Nav', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Navigation"
           >
             Nav
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:agents', 'Agents', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Agents"
           >
             Agents
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:health', 'Health', 3, 3)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Health"
           >
             Health
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:stats', 'Stats', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Stats"
           >
             Stats
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:quick-links', 'Quick Links', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Quick Links"
           >
             Links
           </button>
           <button
             onClick={() => handleAddSystemWidget('system:chat', 'Chat', 4, 5)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
             title="Add Chat"
           >
             Chat
@@ -939,7 +939,7 @@ export default function TitanCanvas() {
           <button
             disabled={updating}
             className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${updateInfo?.isNewer ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20 cursor-pointer' : 'border text-[#6b5a45]'}`}
-            style={!updateInfo?.isNewer ? { background: 'rgba(253,246,227,0.7)', borderColor: 'var(--color-desk-border)' } : undefined}
+            style={!updateInfo?.isNewer ? { background: 'var(--theme-paper, rgba(253,246,227,0.7))', borderColor: 'var(--color-desk-border)' } : undefined}
             title={updateInfo?.isNewer ? `Update available: ${updateInfo.current} → ${updateInfo.latest}` : `TITAN ${updateInfo?.current || ''}`}
             onClick={async () => {
               if (!updateInfo?.isNewer || updating) return;
@@ -960,7 +960,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setGalleryOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors flex items-center gap-1.5" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-accent)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors flex items-center gap-1.5" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-accent)" }}
             title="Widget gallery"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -970,13 +970,13 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           </button>
           <button
             onClick={() => setCmdOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
           >
             ⌘K
           </button>
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle'))}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "rgba(253,246,227,0.7)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
+            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
           >
             ⌘J
           </button>
@@ -987,8 +987,13 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       {/* Dropped the p-3 padding — RGL computes positions relative to this
           wrapper's width, and any extra CSS padding lied about the
           available horizontal room. containerPadding on the grid itself
-          handles the inner gutter. */}
-      <div ref={gridWrapRef} className="relative pt-10 min-h-[5000px]">
+          handles the inner gutter.
+
+          pt-24 (96px) clears both the absolute h-10 header (40px) and the
+          fixed TopbarThemePicker (top:48 + h:33 → bottom edge ≈ 81px) so
+          neither the empty-state card nor placed widgets underflow the
+          picker. */}
+      <div ref={gridWrapRef} className="relative pt-24 min-h-[5000px]">
         {validWidgets.length === 0 ? (
           <EmptyCanvas space={space} onAddWidget={handleAddSystemWidget} onOpenChat={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }))} />
         ) : (
@@ -1141,73 +1146,202 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
   onAddWidget: (source: string, name: string, w?: number, h?: number) => void;
   onOpenChat: () => void;
 }) {
-  const examples = [
-    { label: 'SOMA', source: 'system:soma', w: 6, h: 6 },
-    { label: 'Command Post', source: 'system:command-post', w: 8, h: 6 },
-    { label: 'Intelligence', source: 'system:intelligence', w: 6, h: 5 },
-    { label: 'Memory Graph', source: 'system:memory-graph', w: 8, h: 7 },
-    { label: 'Voice', source: 'system:voice', w: 5, h: 5 },
-    { label: 'Files', source: 'system:files', w: 4, h: 6 },
-    { label: 'Infra', source: 'system:infra', w: 6, h: 4 },
-    { label: 'Tools', source: 'system:tools', w: 5, h: 4 },
-    { label: 'Daemon', source: 'system:daemon', w: 6, h: 6 },
-    { label: 'Memory Wiki', source: 'system:memory-wiki', w: 6, h: 6 },
-    { label: 'Autoresearch', source: 'system:autoresearch', w: 6, h: 6 },
-    { label: 'Self-Proposals', source: 'system:self-proposals', w: 6, h: 6 },
-    { label: 'Overview', source: 'system:overview', w: 6, h: 5 },
-    { label: 'Sessions', source: 'system:sessions', w: 6, h: 5 },
-    { label: 'Watch', source: 'system:watch', w: 8, h: 7 },
-    { label: 'Backup', source: 'system:backup', w: 6, h: 6 },
-    { label: 'Training', source: 'system:training', w: 6, h: 6 },
-    { label: 'Recipes', source: 'system:recipes', w: 6, h: 6 },
-    { label: 'VRAM', source: 'system:vram', w: 6, h: 6 },
-    { label: 'Teams', source: 'system:teams', w: 6, h: 6 },
-    { label: 'Cron', source: 'system:cron', w: 6, h: 6 },
-    { label: 'Checkpoints', source: 'system:checkpoints', w: 6, h: 5 },
-    { label: 'Organism', source: 'system:organism', w: 6, h: 6 },
-    { label: 'Fleet', source: 'system:fleet', w: 6, h: 5 },
-    { label: 'Browser', source: 'system:browser', w: 6, h: 5 },
-    // v6.0 step 1 — system:paperclip removed (Bucket C / killed branding).
-    { label: 'Eval', source: 'system:eval', w: 6, h: 6 },
-    // v6.0.5 — Time Travel panel: file-checkpoint history with diff + restore.
-    { label: 'Time Travel', source: 'system:time-travel', w: 8, h: 6 },
-    // v6.0.0-beta.4 — Long-running autonomy: live driver state + overnight digest.
-    { label: 'Mission Driver', source: 'system:mission-driver', w: 7, h: 7 },
-    { label: 'Daily Digest', source: 'system:daily-digest', w: 5, h: 7 },
-    // v6.0 final — Visual workflow surface (subtask DAG).
-    { label: 'Mission Graph', source: 'system:mission-graph', w: 8, h: 7 },
+  /**
+   * Beta.4 Wave 8 — categorical widget chips.
+   *
+   * The flat alphabetical list was a "dump of every system widget"
+   * visually identical to a tag cloud, which read as inventory not as
+   * a real workspace. Group by intent so a first-time founder/investor
+   * sees a curated mental model: System / Intelligence / Tools /
+   * Workflows / Comms. Each category is a small section heading
+   * (brass nameplate aesthetic) with paper chips below it.
+   *
+   * `system:daemon` is intentionally absent — DaemonWidget was removed
+   * in v6.0 step 1 (Bucket C). The old EmptyCanvas list still pointed
+   * at it which would have rendered "Unknown system widget" on click.
+   *
+   * "Paperclip" is also gone (pre-v5 branding, removed v6.0 step 1).
+   */
+  type Chip = { label: string; source: string; w: number; h: number };
+  const groups: Array<{ title: string; items: Chip[] }> = [
+    {
+      title: 'System',
+      items: [
+        { label: 'SOMA',         source: 'system:soma',          w: 6, h: 6 },
+        { label: 'Command Post', source: 'system:command-post',  w: 8, h: 6 },
+        { label: 'Overview',     source: 'system:overview',      w: 6, h: 5 },
+        { label: 'Organism',     source: 'system:organism',      w: 6, h: 6 },
+        { label: 'Infra',        source: 'system:infra',         w: 6, h: 4 },
+        { label: 'VRAM',         source: 'system:vram',          w: 6, h: 6 },
+        { label: 'Fleet',        source: 'system:fleet',         w: 6, h: 5 },
+      ],
+    },
+    {
+      title: 'Intelligence',
+      items: [
+        { label: 'Intelligence',    source: 'system:intelligence',    w: 6, h: 5 },
+        { label: 'Memory Graph',    source: 'system:memory-graph',    w: 8, h: 7 },
+        { label: 'Memory Wiki',     source: 'system:memory-wiki',     w: 6, h: 6 },
+        { label: 'Autoresearch',    source: 'system:autoresearch',    w: 6, h: 6 },
+        { label: 'Self-Proposals',  source: 'system:self-proposals',  w: 6, h: 6 },
+        { label: 'Training',        source: 'system:training',        w: 6, h: 6 },
+        { label: 'Eval',            source: 'system:eval',            w: 6, h: 6 },
+      ],
+    },
+    {
+      title: 'Tools',
+      items: [
+        { label: 'Tools',     source: 'system:tools',    w: 5, h: 4 },
+        { label: 'Files',     source: 'system:files',    w: 4, h: 6 },
+        { label: 'Browser',   source: 'system:browser',  w: 6, h: 5 },
+        { label: 'Recipes',   source: 'system:recipes',  w: 6, h: 6 },
+        { label: 'Voice',     source: 'system:voice',    w: 5, h: 5 },
+      ],
+    },
+    {
+      title: 'Workflows',
+      items: [
+        { label: 'Mission Driver', source: 'system:mission-driver', w: 7, h: 7 },
+        { label: 'Mission Graph',  source: 'system:mission-graph',  w: 8, h: 7 },
+        { label: 'Daily Digest',   source: 'system:daily-digest',   w: 5, h: 7 },
+        { label: 'Time Travel',    source: 'system:time-travel',    w: 8, h: 6 },
+        { label: 'Sessions',       source: 'system:sessions',       w: 6, h: 5 },
+        { label: 'Checkpoints',    source: 'system:checkpoints',    w: 6, h: 5 },
+        { label: 'Cron',           source: 'system:cron',           w: 6, h: 6 },
+      ],
+    },
+    {
+      title: 'Comms',
+      items: [
+        { label: 'Watch',  source: 'system:watch',  w: 8, h: 7 },
+        { label: 'Backup', source: 'system:backup', w: 6, h: 6 },
+        { label: 'Teams',  source: 'system:teams',  w: 6, h: 6 },
+      ],
+    },
   ];
 
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="text-center max-w-lg rounded-2xl px-8 py-10 border" style={{ background: "var(--color-desk-widget-bg)", borderColor: "var(--color-desk-border)", boxShadow: "0 4px 16px rgba(60,40,15,0.12)" }}>
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5" style={{ background: "rgba(176,138,58,0.12)", border: "1px solid rgba(176,138,58,0.25)" }}>
-          <svg className="w-7 h-7" style={{ color: "var(--color-desk-brass)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <div className="h-full flex items-start justify-center pt-10 pb-32 px-6">
+      <div className="text-center w-full max-w-3xl rounded-2xl px-8 py-10 border" style={{
+        background: 'var(--color-desk-widget-bg)',
+        borderColor: 'var(--color-desk-border)',
+        boxShadow: '0 4px 16px var(--theme-shadow)',
+      }}>
+        {/*
+          Scoped chip styles — keeps the brass-rim + hover-lift logic
+          out of inline `style` attributes (CSS pseudo-states like :hover
+          can't live in React inline styles).
+        */}
+        <style>{`
+          .titan-empty-hero {
+            background: linear-gradient(180deg,
+              color-mix(in srgb, var(--theme-metal-bright) 22%, transparent) 0%,
+              color-mix(in srgb, var(--theme-metal) 14%, transparent) 100%);
+            color: var(--theme-accent);
+            border: 1px solid color-mix(in srgb, var(--theme-metal) 55%, transparent);
+            box-shadow:
+              0 0 0 0 color-mix(in srgb, var(--theme-accent) 0%, transparent),
+              0 2px 6px var(--theme-shadow);
+            transition: transform 140ms ease, box-shadow 220ms ease, border-color 140ms ease;
+            font-family: var(--theme-font-display);
+          }
+          .titan-empty-hero:hover {
+            transform: translateY(-1px);
+            border-color: var(--theme-metal-bright);
+            box-shadow:
+              0 0 24px color-mix(in srgb, var(--theme-accent) 35%, transparent),
+              0 4px 12px var(--theme-shadow);
+          }
+          .titan-empty-chip {
+            width: 110px;
+            background: var(--theme-paper);
+            color: var(--theme-ink-soft);
+            border: 1px solid color-mix(in srgb, var(--theme-metal) 40%, transparent);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-paper-line) 50%, transparent);
+            font-family: var(--theme-font-display);
+            transition: transform 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+          }
+          .titan-empty-chip:hover {
+            transform: translateY(-1px);
+            border-color: var(--theme-metal-bright);
+            color: var(--theme-ink);
+            box-shadow:
+              inset 0 0 0 1px color-mix(in srgb, var(--theme-metal-bright) 35%, transparent),
+              0 2px 6px var(--theme-shadow);
+          }
+          .titan-empty-group-label {
+            font-family: var(--theme-font-mono);
+            color: var(--theme-metal-dark);
+            letter-spacing: 0.18em;
+          }
+          .titan-empty-rule {
+            background: linear-gradient(90deg,
+              transparent 0%,
+              color-mix(in srgb, var(--theme-metal) 50%, transparent) 50%,
+              transparent 100%);
+          }
+        `}</style>
+
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5" style={{
+          background: 'color-mix(in srgb, var(--theme-metal) 16%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--theme-metal) 35%, transparent)',
+        }}>
+          <svg className="w-7 h-7" style={{ color: 'var(--theme-metal)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold mb-2" style={{ color: "var(--color-desk-text)" }}>{space.name}</h2>
-        <p className="text-sm mb-6" style={{ color: "var(--color-desk-text-secondary)" }}>
-          This space is empty. Ask the agent to create widgets, or add system widgets below.
+        <h2 className="text-xl font-bold mb-2" style={{
+          color: 'var(--theme-ink)',
+          fontFamily: 'var(--theme-font-display)',
+        }}>
+          {space.name}
+        </h2>
+        <p className="text-sm mb-7" style={{
+          color: 'var(--theme-ink-soft)',
+          fontFamily: 'var(--theme-font-display)',
+        }}>
+          This space is empty. Ask the agent to materialize something for you, or place a system panel below.
         </p>
-        <div className="flex gap-2 justify-center mb-6 flex-wrap">
+
+        {/* Hero — Ask Agent. Bigger, lamp-glow, accent-coloured. */}
+        <div className="flex justify-center mb-8">
           <button
             onClick={onOpenChat}
-            className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            style={{ background: "rgba(176,138,58,0.15)", border: "1px solid rgba(176,138,58,0.25)", color: "var(--color-desk-accent)" }}
+            className="titan-empty-hero inline-flex items-center gap-2 px-6 py-3 rounded-xl text-base font-semibold"
           >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z" />
+              <path d="M10 22h4" />
+            </svg>
             Ask Agent
           </button>
         </div>
-        <div className="flex gap-2 justify-center flex-wrap">
-          {examples.map(ex => (
-            <button
-              key={ex.source}
-              onClick={() => onAddWidget(ex.source, ex.label, ex.w, ex.h)}
-              className="px-3 py-1.5 rounded-lg text-[11px] transition-all" style={{ background: "rgba(58,37,24,0.06)", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            >
-              + {ex.label}
-            </button>
+
+        {/* Categorical chip groups. Each group: brass nameplate label →
+            rule → chips. Reading top-to-bottom should feel like an
+            organized workshop pegboard, not a tag cloud. */}
+        <div className="space-y-5 text-left">
+          {groups.map(group => (
+            <div key={group.title}>
+              <div className="flex items-center gap-3 mb-2.5 px-1">
+                <span className="titan-empty-group-label text-[10px] font-bold uppercase">
+                  {group.title}
+                </span>
+                <span className="titan-empty-rule flex-1 h-px" />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {group.items.map(ex => (
+                  <button
+                    key={ex.source}
+                    onClick={() => onAddWidget(ex.source, ex.label, ex.w, ex.h)}
+                    className="titan-empty-chip px-3 py-1.5 rounded-lg text-[11px] text-center"
+                    title={`Add ${ex.label}`}
+                  >
+                    + {ex.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>

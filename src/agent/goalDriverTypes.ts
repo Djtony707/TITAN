@@ -95,6 +95,15 @@ export interface DriverSubtaskState {
      * fail the subtask instead — saves Tony from a runaway loop.
      */
     genericQuestionRejected?: boolean;
+    /**
+     * v6.1.0-beta.4 — count of consecutive `needs_info` returns on
+     * this subtask. Defensive: even if the genericQuestionRejected
+     * flag somehow gets lost (state corruption, schema drift, future
+     * refactor), an empty/generic `needs_info` loop is force-failed
+     * once this counter hits 2 (force-commit) or 3 (fail). Reset on
+     * any non-`needs_info` status. The mzzbajnj 17-min loop fix.
+     */
+    consecutiveNeedsInfoCount?: number;
     /** Result of the most-recent verification check. */
     verificationResult?: {
         passed: boolean;

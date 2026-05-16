@@ -150,28 +150,36 @@ export function WidgetGallery({ open, onClose }: Props) {
 
     return (
         <div
-            className="fixed inset-0 z-[2147483150] flex items-center justify-center p-4"
-            style={{ background: 'rgba(0, 0, 0, 0.66)', backdropFilter: 'blur(4px)' }}
+            className="fixed inset-0 z-[2147483150] flex items-center justify-center p-4 titan-menu-overlay"
             onClick={onClose}
         >
             <div
-                className="w-full max-w-4xl rounded-2xl border border-[#27272a] bg-[#0c0c10] shadow-2xl flex flex-col"
-                style={{ height: 'min(720px, 90vh)' }}
+                className="w-full max-w-4xl titan-modal-surface flex flex-col"
+                style={{ height: 'min(720px, 90vh)', borderRadius: 12 }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-[#27272a]">
+                <div
+                    className="flex items-center justify-between px-5 py-3"
+                    style={{ borderBottom: '1px solid var(--theme-menu-border)' }}
+                >
                     <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-[#a78bfa]" />
-                        <h3 className="font-semibold text-white text-sm">Widget gallery</h3>
-                        <span className="text-[10px] text-[#71717a]">
+                        <Sparkles className="w-4 h-4" style={{ color: 'var(--theme-accent)' }} />
+                        <h3
+                            className="font-semibold text-sm"
+                            style={{ color: 'var(--theme-ink)', fontFamily: 'var(--theme-font-display)' }}
+                        >
+                            Widget gallery
+                        </h3>
+                        <span className="text-[10px]" style={{ color: 'var(--theme-ink-soft)' }}>
                             {loading ? 'Loading…' : `${templates.length} templates`}
                         </span>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1 rounded text-[#71717a] hover:bg-[#18181b] hover:text-white transition-colors"
+                        className="titan-close-btn"
                         title="Close (Esc)"
+                        aria-label="Close"
                     >
                         <X className="w-4 h-4" />
                     </button>

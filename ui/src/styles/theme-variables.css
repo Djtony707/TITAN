@@ -58,6 +58,15 @@
 
     --theme-font-display: 'Iowan Old Style', 'Charter', 'Georgia', serif;
     --theme-font-mono:    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+    /* Beta.4 Wave 9 — derived menu / overlay tokens. */
+    --theme-menu-bg:        rgba(58, 36, 18, 0.96);
+    --theme-menu-bg-solid:  #4a2818;
+    --theme-menu-border:    #8a6a3a;
+    --theme-menu-hover:     rgba(244, 215, 145, 0.10);
+    --theme-menu-active-bg: #c4a35a;
+    --theme-menu-active-fg: #2a1808;
+    --theme-menu-overlay:   rgba(20, 10, 0, 0.62);
 }
 
 /* ─────────────  WORKSHOP — brushed steel + blueprint + terminal green  ───────────── */
@@ -95,6 +104,15 @@
 
     --theme-font-display: 'IBM Plex Sans', 'Inter', system-ui, sans-serif;
     --theme-font-mono:    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+    /* Beta.4 Wave 9 — derived menu / overlay tokens. */
+    --theme-menu-bg:        rgba(26, 32, 48, 0.96);
+    --theme-menu-bg-solid:  #2a3548;
+    --theme-menu-border:    #4a5868;
+    --theme-menu-hover:     rgba(74, 222, 128, 0.10);
+    --theme-menu-active-bg: #8a9aa8;
+    --theme-menu-active-fg: #0c1420;
+    --theme-menu-overlay:   rgba(0, 0, 0, 0.68);
 }
 
 /* ─────────────  OBSERVATORY — deep indigo + starfield + holographic cyan  ───────────── */
@@ -132,4 +150,120 @@
 
     --theme-font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
     --theme-font-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+    /* Beta.4 Wave 9 — derived menu / overlay tokens. */
+    --theme-menu-bg:        rgba(20, 16, 46, 0.96);
+    --theme-menu-bg-solid:  #2a2050;
+    --theme-menu-border:    #3a4878;
+    --theme-menu-hover:     rgba(94, 224, 255, 0.12);
+    --theme-menu-active-bg: #6a78a8;
+    --theme-menu-active-fg: #0a0820;
+    --theme-menu-overlay:   rgba(0, 0, 0, 0.78);
+}
+
+/* ─────────────  Beta.4 Wave 9 — shared menu / overlay primitives  ─────────────
+   These animations + classes provide a single source of truth for menus,
+   dropdowns, popovers, modals and toasts. Components reference them so the
+   visual language (radius, shadow, blur, fade-scale-in) stays consistent.
+*/
+
+@keyframes titan-menu-in {
+    from { opacity: 0; transform: scale(0.98) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+@keyframes titan-toast-in {
+    from { opacity: 0; transform: translateX(20px) scale(0.98); }
+    to   { opacity: 1; transform: translateX(0)    scale(1);    }
+}
+
+@keyframes titan-overlay-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.titan-menu-surface {
+    background: var(--theme-menu-bg);
+    border: 1px solid var(--theme-menu-border);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px var(--theme-shadow);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--theme-ink);
+    font-family: var(--theme-font-display);
+    animation: titan-menu-in 150ms ease-out;
+}
+
+.titan-menu-item {
+    padding: 8px 12px;
+    color: var(--theme-ink);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-family: var(--theme-font-display);
+    transition: background 140ms ease, color 140ms ease;
+    text-align: left;
+    width: 100%;
+}
+
+.titan-menu-item:hover:not(:disabled) {
+    background: var(--theme-menu-hover);
+}
+
+.titan-menu-item[aria-selected='true'],
+.titan-menu-item[data-active='true'] {
+    background: var(--theme-menu-active-bg);
+    color: var(--theme-menu-active-fg);
+}
+
+.titan-menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.titan-menu-overlay {
+    background: var(--theme-menu-overlay);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: titan-overlay-in 150ms ease-out;
+}
+
+.titan-modal-surface {
+    background: var(--theme-menu-bg-solid);
+    border: 1px solid var(--theme-menu-border);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px var(--theme-shadow), 0 0 0 1px var(--theme-leather-edge);
+    color: var(--theme-ink);
+    font-family: var(--theme-font-display);
+    animation: titan-menu-in 180ms ease-out;
+}
+
+.titan-toast-surface {
+    background: var(--theme-menu-bg);
+    border: 1px solid var(--theme-menu-border);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px var(--theme-shadow);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--theme-ink);
+    font-family: var(--theme-font-display);
+    animation: titan-toast-in 200ms ease-out;
+}
+
+.titan-close-btn {
+    color: var(--theme-ink-soft);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    padding: 4px;
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.titan-close-btn:hover {
+    color: var(--theme-ink);
+    background: var(--theme-menu-hover);
 }
