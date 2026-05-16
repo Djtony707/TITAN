@@ -267,7 +267,15 @@ export function isSelfReferentialGoal(
         // v6.1.0-alpha.14 wave: test-infrastructure / diagnostics /
         // self-improve / regression-prevention. Caught a 7-goal
         // runaway on Tony's box (6× tests/smoke.test.js writes / 24h).
-        /\btest\s+(infrastructure|harness|infra)\b/i,
+        //
+        // v6.1.0-alpha.50 — widened the "test … infrastructure"
+        // family. Pre-alpha.50 the regex required `test` to be
+        // immediately followed by `infrastructure|harness|infra`.
+        // Caught in the wild as `8490b4a8` "Establish test SUITE
+        // infrastructure and baselines" — the word `suite` between
+        // `test` and `infrastructure` made the old pattern miss it.
+        // Now allow up to ~20 chars of slack between the two.
+        /\btest\b[\s\w-]{0,20}\b(infrastructure|harness|infra)\b/i,
         /\bsmoke\s+tests?\b/i,
         /\bbootstrap\b[^.]{0,40}\btests?\b/i,
         /\bdiagnose\b[^.]{0,40}\b(test|root\s*cause|infrastructure)\b/i,
@@ -275,6 +283,18 @@ export function isSelfReferentialGoal(
         /\btest[\s-]state\b/i,
         /\btest\s+state\s+cannot\s+be\s+established/i,
         /\bregression\s+prevention\b/i,
+        // v6.1.0-alpha.50 — "establish baselines" pattern from
+        // `8490b4a8`. Almost always emitted by the autonomous
+        // self-improve proposer ("Establish performance baselines",
+        // "Establish test baselines", etc.). The verb `establish` +
+        // the noun `baselines?` is a strong self-improve signal.
+        /\bestablish\b[^.]{0,40}\bbaselines?\b/i,
+        // v6.1.0-alpha.50 — canary / regression investigation.
+        // Caught `5b0b8ce0` "Investigate code_snippet canary
+        // regression" — autonomous canary-eval pattern that pre-
+        // alpha.50 had a tag (`canary-eval`) but no regex.
+        /\bcanary\s+(regression|eval|drift|test)\b/i,
+        /\binvestigate\b[^.]{0,30}\b(canary|regression|baseline)\b/i,
         // v6.1.0-alpha.38 — picked up "investigate why X cannot be
         // established" pattern from the 845ddce0 runaway. The phrase
         // is generic enough that it could match legitimate goals,

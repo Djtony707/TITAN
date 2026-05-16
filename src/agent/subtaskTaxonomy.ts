@@ -61,12 +61,17 @@ const VERIFY_VERBS = [
     'ensure', 'assert', 'prove',
 ];
 
-const SHELL_VERBS = [
+// v6.1.0-alpha.50 — separated shell verbs into safe-substring and
+// strict-boundary lists. Pre-alpha.50 the substring `'rm '` matched
+// `"form "` inside `"long-form paper"` (false positive → essay
+// classified as `shell`). The two-letter Unix-command tokens
+// (`rm`, `ls`, `mv`, `cp`, `cd`) need word-boundary matching.
+const SHELL_VERBS_SUBSTRING = [
     'run command', 'execute command', 'run script', 'invoke',
     'run build', 'run tests', 'run npm', 'run bash', 'run shell',
-    'chmod', 'rm ', 'mv ', 'cp ', 'mkdir ', 'ls ', 'systemctl',
-    'restart service', 'kill process',
+    'chmod', 'mkdir ', 'systemctl', 'restart service', 'kill process',
 ];
+const SHELL_VERBS_BOUNDED = /\b(rm|ls|mv|cp|cd)\s+[^\s]/;
 
 const REPORT_VERBS = [
     'report on', 'summarize goal', 'final report', 'wrap up',
@@ -104,7 +109,22 @@ export function classifySubtask(subtask: Pick<Subtask, 'title' | 'description'>)
     if (/\b(research|investigate|find out|explore|discover|look into|identify|gather|survey|scan for|search for|enumerate|locate|list known)\b/.test(title)) {
         return 'research';
     }
-    if (/\b(document|write(?: a)? (?:document|guide|report|spec|post|article|readme|summary|changelog)|draft|compose|author|describe in prose)\b/.test(title)) {
+    // v6.1.0-alpha.50 — added `essay|piece|paper|blog|email|letter|
+    // note|message|reply|story|review` to the noun list. Pre-alpha.50
+    // the regex covered `write a report` / `write a spec` but missed
+    // `write a 3 page essay about Martin Luther King` — the latter
+    // routed to `analysis` (the no-signal default) and then to the
+    // Analyst specialist, which has no `write_file`/`shell` tools
+    // and couldn't deliver. The bug was: "write … essay" wasn't in
+    // the title-level write regex. Also widened to allow optional
+    // length modifiers ("3 page", "short", "long-form", etc.)
+    // between `write (a/the)?` and the noun.
+    // v6.1.0-alpha.50 — handle hyphenated length-modifiers like
+    // `long-form`, `1-paragraph`, `non-fiction` between `write` and
+    // the noun. The previous `\w+` didn't match hyphens. Switch to
+    // `[\w-]+`. Also accept the noun directly after `write` (no
+    // slack) for terse titles like "Write essay".
+    if (/\b(document|write(?:\s+[\w-]+){0,4}\s+(?:document|guide|report|spec|post|article|readme|summary|changelog|essay|piece|paper|blog|email|letter|note|message|reply|story|review|memo|brief|writeup|write-up)|draft|compose|author|describe in prose)\b/.test(title)) {
         return 'write';
     }
     if (/\b(analyze|assess|evaluate|audit|interpret|synthesize|categorize|classify|judge|score|decide between|select)\b/.test(title)) {
@@ -144,8 +164,9 @@ export function classifySubtask(subtask: Pick<Subtask, 'title' | 'description'>)
     // Mere file mention in prose → NOT code.
     if ((hasCodeVerb && hasFilePathSignal) || hasWriteFileTool) return 'code';
 
-    // Shell mentions
-    if (matchAny(text, SHELL_VERBS)) return 'shell';
+    // Shell mentions — substring set is unambiguous; bounded set
+    // is the two-letter Unix commands that need word-boundary check.
+    if (matchAny(text, SHELL_VERBS_SUBSTRING) || SHELL_VERBS_BOUNDED.test(text)) return 'shell';
 
     // Verify in description (title check above handles most)
     if (matchAny(text, VERIFY_VERBS)) return 'verify';

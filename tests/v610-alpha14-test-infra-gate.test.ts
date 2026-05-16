@@ -79,6 +79,28 @@ describe('v6.1.0-alpha.14 — self-referential autonomy gate widened', () => {
             tags: ['testing', 'diagnostic'],
             description: 'Pin down why the system reports tests cannot run.',
         },
+        // v6.1.0-alpha.50 — caught in the wild as goal 8490b4a8
+        // "Establish test suite infrastructure and baselines".
+        // Bypassed alpha.14 because the regex required `test`
+        // immediately followed by `infrastructure` — the word
+        // `suite` between them broke the match. alpha.50 widens to
+        // allow ~20 chars of slack.
+        {
+            title: 'Establish test suite infrastructure and baselines',
+            tags: ['testing'],
+            description: 'Set up a comprehensive test suite with baseline metrics.',
+        },
+        // v6.1.0-alpha.50 — caught in the wild as goal 5b0b8ce0
+        // "Investigate code_snippet canary regression". Bypassed
+        // every regex; only matched the `canary-eval` TAG which the
+        // autonomous proposer didn't always attach. alpha.50 adds
+        // explicit `canary\s+regression` + `investigate ... canary`
+        // patterns.
+        {
+            title: 'Investigate code_snippet canary regression',
+            tags: [],
+            description: 'Find why the code_snippet eval canary regressed.',
+        },
     ];
 
     for (const sample of WILD_CAUGHT) {

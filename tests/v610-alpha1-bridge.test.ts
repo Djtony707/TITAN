@@ -507,11 +507,15 @@ describe('v6.1.0-alpha.1 — goalDriver event → mission room bridge', () => {
         const after = getMission(room.id)!;
         const q = after.messages.find(m => m.kind === 'question') as { content: string } | undefined;
         expect(q).toBeDefined();
-        // No subtask jargon.
-        expect(q!.content).not.toMatch(/specialist\s+analyst/);
+        // No driver-jargon prefix ("subtask X failed after N attempt(s) with specialist Y").
         expect(q!.content).not.toMatch(/subtask\s+"/);
-        // Has the friendly fallback.
-        expect(q!.content).toMatch(/more direction/i);
+        expect(q!.content).not.toMatch(/attempt\(s\)\s+with\s+specialist/i);
+        // alpha.29 enrichment: when payload.specialist is set, the bridge
+        // composes a contextual question naming the helper and asking
+        // what to focus on. Old assertion was on the bare /more direction/i
+        // fallback that only fires when there's NO payload context.
+        expect(q!.content).toMatch(/Analyst/);
+        expect(q!.content).toMatch(/focus on/i);
     });
 
     it('approval bridge: commandpost:approval:created event for a linked goal raises a question message', async () => {
