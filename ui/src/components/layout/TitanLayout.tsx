@@ -1,3 +1,7 @@
+/**
+ * @deprecated 2026-05-17 (v6.1.0-beta.22) — see AppShell.tsx header.
+ * Stale layout wrapping TitanSidebar, not mounted anywhere. Hard-delete in beta.24.
+ */
 import { Outlet, useLocation, Link } from 'react-router';
 import { useEffect, useMemo } from 'react';
 import {

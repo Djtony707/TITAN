@@ -1,3 +1,7 @@
+/**
+ * @deprecated 2026-05-17 (v6.1.0-beta.22) — see AppShell.tsx header.
+ * Stale mobile nav, not mounted anywhere. Hard-delete in beta.24.
+ */
 import { useState } from 'react';
 import { NavLink } from 'react-router';
 import { Crosshair, Shield, Brain, Wrench, Server, Settings, Heart, Users, X, Menu } from 'lucide-react';

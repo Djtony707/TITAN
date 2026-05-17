@@ -3,7 +3,7 @@ import {
   Compass, Bot, Activity, Gauge, Zap, MessageSquare, FileText,
   Sparkles, Hexagon, Brain, Server, Wrench, Settings,
   BookOpen, FlaskConical, GitPullRequest, Eye, Clock,
-  Archive, Cpu, Users, Shield, Radio, Globe, Paperclip as PaperclipIcon, TestTube, Save,
+  Archive, Cpu, Users, Shield, Radio, Globe, TestTube, Save,
 } from 'lucide-react';
 
 const LINKS = [
@@ -19,7 +19,10 @@ const LINKS = [
   { label: 'Infra', source: 'system:infra', w: 6, h: 4, icon: <Server className="w-3.5 h-3.5" /> },
   { label: 'Tools', source: 'system:tools', w: 5, h: 4, icon: <Wrench className="w-3.5 h-3.5" /> },
   { label: 'Settings', source: 'system:settings', w: 4, h: 6, icon: <Settings className="w-3.5 h-3.5" /> },
-  { label: 'Daemon', source: 'system:daemon', w: 5, h: 5, icon: <Activity className="w-3.5 h-3.5" /> },
+  // beta.22 — 'Daemon' chip removed. The underlying system:daemon widget was
+  // killed in v6.0 step 1 (it overlapped with system:organism). The chip was
+  // still here, so clicking it created an "Unknown system widget" panel.
+  // See TitanCanvas.tsx line 140 for the widget-side comment.
   { label: 'Wiki', source: 'system:memory-wiki', w: 5, h: 5, icon: <BookOpen className="w-3.5 h-3.5" /> },
   { label: 'Research', source: 'system:autoresearch', w: 5, h: 5, icon: <FlaskConical className="w-3.5 h-3.5" /> },
   { label: 'Proposals', source: 'system:self-proposals', w: 5, h: 5, icon: <GitPullRequest className="w-3.5 h-3.5" /> },
@@ -36,7 +39,9 @@ const LINKS = [
   { label: 'Organism', source: 'system:organism', w: 5, h: 5, icon: <Shield className="w-3.5 h-3.5" /> },
   { label: 'Fleet', source: 'system:fleet', w: 5, h: 5, icon: <Radio className="w-3.5 h-3.5" /> },
   { label: 'Browser', source: 'system:browser', w: 5, h: 5, icon: <Globe className="w-3.5 h-3.5" /> },
-  { label: 'Paperclip', source: 'system:paperclip', w: 5, h: 5, icon: <PaperclipIcon className="w-3.5 h-3.5" /> },
+  // beta.22 — 'Paperclip' chip removed. system:paperclip was killed in v6.0
+  // step 1 as pre-v5 branding. Chip stayed and produced an "Unknown system
+  // widget" panel on click. See TitanCanvas.tsx line 157.
   { label: 'Eval', source: 'system:eval', w: 5, h: 5, icon: <TestTube className="w-3.5 h-3.5" /> },
 ];
 

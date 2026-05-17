@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SpaceEngine } from '../canvas/SpaceEngine';
-import { Search, X, Home, Brain, Terminal, Network, Server, Wrench, Settings, FileText, LayoutGrid, MessageSquare, Database, Mic, Activity, BookOpen, FlaskConical, GitPullRequest, Eye, Clock, Archive, Cpu, Users, Shield, Radio, Globe, Paperclip as PaperclipIcon, TestTube, Save } from 'lucide-react';
+import { Search, X, Home, Brain, Terminal, Network, Server, Wrench, Settings, FileText, LayoutGrid, MessageSquare, Database, Mic, Activity, BookOpen, FlaskConical, GitPullRequest, Eye, Clock, Archive, Cpu, Users, Shield, Radio, Globe, TestTube, Save } from 'lucide-react';
 
 interface Props {
   currentSpaceId: string;
@@ -26,7 +26,9 @@ const ACTIONS = [
   { type: 'widget' as const, source: 'system:tools', name: 'Tools', w: 5, h: 4, icon: <Wrench className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:settings', name: 'Settings', w: 5, h: 5, icon: <Settings className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:files', name: 'Files', w: 4, h: 6, icon: <FileText className="w-4 h-4" /> },
-  { type: 'widget' as const, source: 'system:daemon', name: 'Daemon', w: 6, h: 6, icon: <Activity className="w-4 h-4" /> },
+  // beta.22 — 'Daemon' entry removed. system:daemon was killed in v6.0 step 1
+  // (overlapped with system:organism). Clicking it from the palette created
+  // an "Unknown system widget" panel.
   { type: 'widget' as const, source: 'system:memory-wiki', name: 'Memory Wiki', w: 6, h: 6, icon: <BookOpen className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:autoresearch', name: 'Autoresearch', w: 6, h: 6, icon: <FlaskConical className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:self-proposals', name: 'Self-Proposals', w: 6, h: 6, icon: <GitPullRequest className="w-4 h-4" /> },
@@ -43,7 +45,8 @@ const ACTIONS = [
   { type: 'widget' as const, source: 'system:organism', name: 'Organism Monitor', w: 6, h: 6, icon: <Shield className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:fleet', name: 'Fleet Router', w: 6, h: 5, icon: <Radio className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:browser', name: 'Browser Tools', w: 6, h: 5, icon: <Globe className="w-4 h-4" /> },
-  { type: 'widget' as const, source: 'system:paperclip', name: 'Paperclip', w: 6, h: 5, icon: <PaperclipIcon className="w-4 h-4" /> },
+  // beta.22 — 'Paperclip' entry removed. system:paperclip was killed in v6.0
+  // step 1 as pre-v5 branding. Clicking it created an "Unknown system widget".
   { type: 'widget' as const, source: 'system:eval', name: 'Test Lab', w: 6, h: 6, icon: <TestTube className="w-4 h-4" /> },
 ];
 

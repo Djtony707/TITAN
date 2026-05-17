@@ -5,6 +5,95 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.22 — 2026-05-17 — Menu IA cleanup (Phase 1 of 3)
+
+First of three menu/IA betas. Stops the visible bleeding: dead launcher
+entries that produce "Unknown system widget" panels, a seeded broken
+widget in the Tools space, a dead /command-post/files link, and four
+stale sidebar shells that aren't mounted anywhere but lurk as dev
+landmines.
+
+Joint Claude + Codex audit (full report in `~/Desktop` notes) flagged
+these as high-impact discovery problems Tony was hitting daily.
+
+### What changed
+
+- **`system:daemon` + `system:paperclip` removed from launchers.** Both
+  widget sources were killed in v6.0 step 1, but the `QuickLinksWidget`
+  chips and `CmdPaletteWidget` entries still listed them. Clicking
+  either spawned an "Unknown system widget" panel.
+- **Seeded Paperclip widget removed from the Tools space + healed for
+  existing installs.** The Tools-space seed inserted
+  `tools-paperclip` → `system:paperclip` into the layout on first boot,
+  even though `system:paperclip` was killed in v6.0 step 1.
+  `SEED_VERSION` stays at 11 (bumping it would have triggered the
+  wholesale-reseed branch in `loadFromStorage()` and dropped every
+  user-added widget — Codex P1). Instead, the cleanup runs on every
+  load: `REMOVED_BUILTIN_IDS.tools` now lists `tools-paperclip` for
+  the seed ID, and a new `REMOVED_SOURCES` set catches any widget
+  whose source is `system:paperclip` or `system:daemon` regardless
+  of ID (so user-added Paperclip / Daemon widgets created from the
+  old QuickLinks / CmdPalette entries are evicted too). Both
+  `healYSpaceOnSync` (CRDT/Yjs) and the localStorage filter run the
+  same check.
+- **`/command-post/files` route wired.** `CPSidebar` advertised the
+  link but `CPLayout` had no `<Route path="files">`, so clicking
+  produced a 404 fallback to `/command-post`. `CPFiles` already
+  existed as a component — just plugged it into the route table.
+- **Stale nav components marked `@deprecated`.** `AppShell`,
+  `IconRail`, `MobileNav`, `TitanSidebar`, and `TitanLayout` are not
+  mounted from `App.tsx`. The live sidebars are `SpacesSidebar`
+  (mounted inside `TitanCanvas`) and `CPSidebar` (mounted inside
+  `CPLayout`). The orphans get a JSDoc deprecation header so devs
+  don't accidentally revive them; hard-deletion is scheduled for
+  beta.24 after one beta soak.
+- **`legacyToSpace()` removed from `App.tsx`.** Dead helper that
+  mapped old top-level routes to canvas space IDs but was never
+  called — the JSX `<Route>` redirects already handle it directly.
+
+### Why this approach
+
+- Three-beta plan, not one big rewrite. Tony's user-visible pain is
+  the dead links and the broken Paperclip widget; that's beta.22.
+  The proper 6-section sidebar redesign + theme-variable audit is
+  beta.23. The big consolidation (Eval+EvalHarness → Quality Lab,
+  Backup+Checkpoints+TimeTravel → Recovery, etc.) is beta.24. Each
+  beta is small enough to verify in isolation.
+- Soft-delete before hard-delete. Marking the four orphan shells
+  `@deprecated` rather than removing them gives one beta to catch
+  any transitive imports we missed. The cost of the comments is
+  zero; the cost of removing a file that something silently depended
+  on is a broken build.
+
+### Trade-off
+
+- The dashboard still has two sidebars (`SpacesSidebar` for canvas,
+  `CPSidebar` for Command Post) until beta.23 ships the canonical
+  one. Tony's complaint that "things are hard to find" isn't fully
+  resolved this beta — just the dead-end clicks are.
+
+### Follow-ups (beta.23 + beta.24)
+
+- One canonical 6-section sidebar: Home / Missions & Work / Team /
+  Knowledge / Tools & Connections / System. All legacy routes
+  redirect to canonical destinations.
+- Theme-variable audit: every shell surface (sidebar, Command Post,
+  Mission Chat, admin panels) consumes `var(--titan-*)` so the
+  Office/Workshop/Observatory theme picker re-skins the whole app,
+  not just `DeskSurface`. Tony explicitly asked for this.
+- Consolidation: `EvalPanel` + `EvalHarnessPanel` → `Quality Lab`;
+  `BackupPanel` + `CheckpointsPanel` + `TimeTravelWidget` →
+  `Recovery`; `CPFiles` + `FilesPanel` → one Files;
+  `PersonasPanel` + `PersonaProfilesPanel` → one Personas;
+  `AgentsPanel` + `CPAgents` → one Agents.
+- Renames: `Canvas` → `Mission Desk`, `Admin` → `Command Center`,
+  `Spaces` → `Workspaces`, `Eval` → `Quality Lab`.
+- Workspaces (canvas) demoted to opt-in (sidebar bottom), no longer
+  the default landing.
+- Hard-delete the four `@deprecated` nav shells after beta.23 soak.
+
+---
+
 ## v6.1.0-beta.21 — 2026-05-16 — CI green: blocklist-during-recursion + classifier env override
 
 Three small fixes that together turn CI from 20 failing → 0 failing

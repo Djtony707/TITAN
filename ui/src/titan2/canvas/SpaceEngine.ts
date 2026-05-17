@@ -117,9 +117,13 @@ const BUILTIN_SPACES: Space[] = [
       makeWidget('tools-channels', 'Channels', 'system:tools-channels', 4, 6, 4, 5),
       makeWidget('tools-mesh', 'Mesh Network', 'system:tools-mesh', 8, 6, 4, 5),
       makeWidget('tools-recipes', 'Recipes', 'system:recipes', 0, 11, 6, 5),
-      makeWidget('tools-paperclip', 'Paperclip', 'system:paperclip', 6, 11, 6, 5),
-      makeWidget('tools-browser', 'Browser', 'system:browser', 0, 16, 6, 5),
-      makeWidget('tools-cron', 'Cron', 'system:cron', 6, 16, 6, 5),
+      // beta.22 — 'tools-paperclip' deleted from the seed. system:paperclip
+      // was killed in v6.0 step 1 as pre-v5 branding; the seed kept inserting
+      // a broken widget on every fresh install. Existing installs are healed
+      // by REMOVED_BUILTIN_IDS below (Tools space) plus the v9 empty-source
+      // sweep, which together remove the orphan from Yjs.
+      makeWidget('tools-browser', 'Browser', 'system:browser', 6, 11, 6, 5),
+      makeWidget('tools-cron', 'Cron', 'system:cron', 0, 16, 6, 5),
     ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -173,10 +177,38 @@ const BUILTIN_SPACES: Space[] = [
 //
 // v9 (5.0 "Spacewalk" empty-widget cleanup): deletes any widget with
 // empty source so blank iframes disappear for existing installs.
+//
+// SEED_VERSION intentionally NOT bumped for the v6.1.0-beta.22 paperclip
+// cleanup. The `needsReseed` branch in loadFromStorage() (line ~283) does
+// a wholesale replace of persisted spaces with BUILTIN_SPACES, which
+// would drop every user-added widget on the next boot — Codex P1 flagged
+// this on the first review pass. Instead, the paperclip removal is
+// handled surgically: `REMOVED_BUILTIN_IDS` is consulted on EVERY load
+// (CRDT via healYSpaceOnSync, localStorage via the post-parse filter in
+// loadFromStorage), so the broken widget gets stripped without touching
+// user customizations.
 const SEED_VERSION = 11;
 const REMOVED_BUILTIN_IDS: Record<string, Set<string>> = {
   home: new Set(['home-chat']),
+  // v6.1.0-beta.22 — tools-paperclip is dead: system:paperclip was killed
+  // in v6.0 step 1 (pre-v5 branding) but the seed kept inserting it and
+  // the dedup healer only matched widget IDs, not widgets whose source
+  // had been removed from SYSTEM_COMPONENTS. Every existing install
+  // carried a broken "Unknown system widget" Paperclip panel in Tools.
+  tools: new Set(['tools-paperclip']),
 };
+
+// v6.1.0-beta.22 — source-based cleanup. Tony's installs accumulated
+// user-added Paperclip and Daemon widgets via QuickLinks / CmdPalette
+// before those launcher entries were removed this beta. Those widgets
+// have random `widget_*` IDs, so REMOVED_BUILTIN_IDS doesn't match them —
+// they survive as "Unknown system widget" panels forever. REMOVED_SOURCES
+// catches them by source string regardless of ID. Consulted on every
+// load by both healYSpaceOnSync (CRDT) and loadFromStorage (localStorage).
+const REMOVED_SOURCES = new Set<string>([
+  'system:paperclip',
+  'system:daemon',
+]);
 
 /**
  * Hydration-aware healer. Runs for every space after `whenSynced` resolves:
@@ -199,9 +231,32 @@ function healYSpaceOnSync(space: Space, needsReseed: boolean): void {
         console.info(`[SpaceEngine] healed ${removed} duplicate widget(s) in "${space.id}"`);
       }
 
-      // Step 2: on version bump, reconcile built-in widgets with the
+      // Step 2a: ALWAYS strip removed-builtin IDs from Yjs, regardless of
+      // version. Before v6.1.0-beta.22 this lived inside `if (needsReseed)`
+      // so a dead builtin (e.g. tools-paperclip) only got cleaned up when
+      // SEED_VERSION bumped. But bumping SEED_VERSION wipes user widgets
+      // via the wholesale-reseed branch in loadFromStorage(), so the
+      // cleanup couldn't ship that way. Pulling the removal out of the
+      // version gate means an entry in REMOVED_BUILTIN_IDS reliably evicts
+      // the widget from every existing install on the next CRDT sync,
+      // without disturbing user-added widgets (those IDs aren't in the
+      // builtin removal set).
+      const removedIds = REMOVED_BUILTIN_IDS[space.id] ?? new Set<string>();
+      if (removedIds.size > 0 || REMOVED_SOURCES.size > 0) {
+        for (let i = widgets.length - 1; i >= 0; i--) {
+          const yw = widgets.get(i);
+          const id = yw?.get('id');
+          const src = yw?.get('source');
+          const idHit = typeof id === 'string' && removedIds.has(id);
+          const srcHit = typeof src === 'string' && REMOVED_SOURCES.has(src);
+          if (idHit || srcHit) {
+            widgets.delete(i, 1);
+          }
+        }
+      }
+
+      // Step 2b: on version bump, reconcile built-in widgets with the
       // current seed.
-      //   - Removed built-in IDs (REMOVED_BUILTIN_IDS[spaceId]) → deleted
       //   - Missing built-in IDs → appended (backfill)
       //   - Existing built-in IDs → geometry rewritten to match seed
       //     (so v7's new paired Settings layout actually lands for users
@@ -209,16 +264,6 @@ function healYSpaceOnSync(space: Space, needsReseed: boolean): void {
       //   - Non-built-in IDs (user-added widgets) → never touched
       //   - Empty-source widgets → deleted (v9 cleanup)
       if (needsReseed) {
-        const removedIds = REMOVED_BUILTIN_IDS[space.id] ?? new Set<string>();
-        // Delete removed widgets first (iterate in reverse so index
-        // mutations during `delete` don't skip items).
-        for (let i = widgets.length - 1; i >= 0; i--) {
-          const yw = widgets.get(i);
-          const id = yw?.get('id');
-          if (typeof id === 'string' && removedIds.has(id)) {
-            widgets.delete(i, 1);
-          }
-        }
         // v9 cleanup: purge widgets with empty source
         for (let i = widgets.length - 1; i >= 0; i--) {
           const yw = widgets.get(i);
@@ -281,6 +326,17 @@ function loadFromStorage(): Space[] {
       if (!Array.isArray(s.widgets)) s.widgets = [];
       s.widgets = s.widgets
         .filter(w => w && typeof w.id === 'string')
+        // v6.1.0-beta.22 — strip widgets whose ID is in REMOVED_BUILTIN_IDS
+        // for this space, OR whose source is in REMOVED_SOURCES regardless
+        // of ID (catches user-added widgets created from the dead
+        // QuickLinks / CmdPalette entries before they were removed; those
+        // have random `widget_*` IDs). Mirror of the CRDT-side cleanup in
+        // healYSpaceOnSync. Runs on every load (no version gate) so that
+        // existing localStorage caches drop dead builtins like
+        // 'tools-paperclip' without going through the wholesale-reseed
+        // branch that would clobber user customizations.
+        .filter(w => !(REMOVED_BUILTIN_IDS[s.id]?.has(w.id) ?? false))
+        .filter(w => !(typeof w.source === 'string' && REMOVED_SOURCES.has(w.source)))
         .map(w => ({
           ...w,
           x: Number.isFinite(w.x) ? Math.max(0, Math.floor(w.x)) : 0,

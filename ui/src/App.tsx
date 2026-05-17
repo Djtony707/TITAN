@@ -42,33 +42,14 @@ function LoadingFallback() {
   );
 }
 
-/** Maps legacy routes to space IDs */
-function legacyToSpace(path: string): string {
-  const map: Record<string, string> = {
-    '/soma': 'soma',
-    '/command-post': 'command',
-    '/intelligence': 'intelligence',
-    '/infra': 'infra',
-    '/tools': 'tools',
-    '/settings': 'settings',
-    '/dashboard': 'home',
-    '/space': 'home',
-    '/': 'home',
-    '/watch': 'home',
-    '/projects': 'home',
-    '/issues': 'home',
-    '/goals': 'home',
-    '/approvals': 'home',
-    '/activity': 'home',
-  };
-  // Check exact match first
-  if (map[path]) return map[path];
-  // Check prefix match for nested routes
-  for (const [prefix, space] of Object.entries(map)) {
-    if (path.startsWith(prefix + '/')) return space;
-  }
-  return 'home';
-}
+// beta.22 — `legacyToSpace()` removed. It mapped old top-level routes
+// (/soma, /command-post, /intelligence, /infra, /tools, /settings, /dashboard,
+// /watch, /projects, /issues, /goals, /approvals, /activity) to canvas space
+// IDs, but was never called — the JSX <Route> entries below already do the
+// redirects directly. Codex flagged it as dead code that signalled
+// unfinished route consolidation. The proper consolidation lands in beta.23
+// (one canonical 6-section sidebar) and beta.24 (collapse the dead-end
+// redirects into real Command Post destinations).
 
 function AuthenticatedAppInner() {
   const { isOpen: voiceOpen, close: closeVoice } = useVoice();
