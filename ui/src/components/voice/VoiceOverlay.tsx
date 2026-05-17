@@ -420,8 +420,20 @@ export function VoiceOverlay({ onClose }: VoiceOverlayProps) {
     let onDone: (() => void) | null = null;
     let waitingForMore: (() => void) | null = null;
 
+    // v6.1.0-beta.23 — was Math.random in [0.3, 0.7]. Tony's mock-data
+    // audit (2026-05-17) flagged it as a fake audio level. The mic-side
+    // level (lines ~255–265) reads a real AnalyserNode; this branch
+    // runs during TTS *playback* where we don't have an analyser hooked
+    // to the speaker output. Rather than fake "real level", emit a
+    // deterministic sine pulse so the visualization animates but never
+    // claims to be a real measurement. Real playback-level metering can
+    // come later by routing the playback buffer through an AnalyserNode.
+    const pulseStartedAt = Date.now();
     const levelInterval = setInterval(() => {
-      if (!cancelled) setAudioLevel(0.3 + Math.random() * 0.4);
+      if (!cancelled) {
+        const t = (Date.now() - pulseStartedAt) / 600; // ~0.6s period
+        setAudioLevel(0.45 + Math.sin(t * Math.PI * 2) * 0.15);
+      }
     }, 100);
 
     const cleanup = () => {

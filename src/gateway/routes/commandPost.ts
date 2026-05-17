@@ -198,7 +198,18 @@ export function createCommandPostRouter(): Router {
   });
 
   router.get('/budgets/reservations', (_req, res) => {
-    res.json([]);
+    // v6.1.0-beta.23 — was `res.json([])`, which Tony's mock-data audit
+    // (2026-05-17) flagged as a quiet lie: the storage interface only
+    // exposes `saveBudgetReservation` / `getBudgetReservation(id)` —
+    // there's no `listBudgetReservations()` query, so the endpoint
+    // can't know whether there are zero reservations or just no way to
+    // ask. Returning [] told callers "definitely no reservations"
+    // which is wrong. 501 Not Implemented with a clear message is the
+    // honest answer until storage gains a list query.
+    res.status(501).json({
+      error: 'not_implemented',
+      message: 'Listing budget reservations is not yet supported by the storage layer. Reservations are persisted (saveBudgetReservation) and can be fetched by id (getBudgetReservation) but not enumerated. Track this in v6.2.',
+    });
   });
 
   router.post('/budgets', (req, res) => {

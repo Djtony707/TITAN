@@ -9,7 +9,8 @@ import { createServer as createHttpsServer } from 'https';
 import net from 'net';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir, hostname as osHostname, cpus, loadavg } from 'os';
+import { homedir, hostname as osHostname, cpus, loadavg, totalmem, freemem } from 'os';
+import { statfs } from 'fs/promises';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
@@ -2030,13 +2031,55 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
-  app.get('/api/stats', (_req, res) => {
+  app.get('/api/stats', async (_req, res) => {
     const usage = getUsageStats();
     const cfg = loadConfig();
     const activeModel = cfg.agent.model || '';
     const mem = process.memoryUsage();
     const activeAgents = listAgents().filter(a => a.status === 'running').length;
     const activeSessions = listSessions().length;
+
+    // v6.1.0-beta.23 — real host metrics. Previously /api/stats returned
+    // process memory only, so StatsWidget filled in CPU/Memory/Disk with
+    // Math.random() — Tony's mock-data audit flagged it as a top
+    // offender. Now we return real percentages so the UI can drop the
+    // fake values entirely.
+    //   - cpuPercent  : normalised 1-min load average × 100
+    //   - hostMem*    : os.totalmem / freemem (whole machine, NOT process)
+    //   - disk*       : statfs on TITAN's home dir (where state + models live)
+    const cpuPercent = Math.round(getCpuLoad() * 1000) / 10; // 1 decimal
+    const totalMem = totalmem();
+    const freeMem = freemem();
+    const usedMem = totalMem - freeMem;
+    const hostMemPercent = totalMem > 0
+      ? Math.round((usedMem / totalMem) * 1000) / 10
+      : 0;
+
+    let diskTotalBytes = 0;
+    let diskFreeBytes = 0;
+    let diskPercent = 0;
+    let diskError: string | null = null;
+    // statfs() targets the filesystem holding TITAN_HOME, not the OS
+    // home dir. On deployments that set TITAN_HOME away from the user's
+    // home (e.g. /opt/TITAN, or an external models volume), the user
+    // cares about how full TITAN's state filesystem is — not their
+    // login home — so we point statfs at TITAN_HOME directly. Codex
+    // P2 caught the wrong target on the first beta.23 review.
+    try {
+      const s = await statfs(TITAN_HOME);
+      diskTotalBytes = s.blocks * s.bsize;
+      diskFreeBytes = s.bavail * s.bsize;
+      const usedDisk = diskTotalBytes - diskFreeBytes;
+      diskPercent = diskTotalBytes > 0
+        ? Math.round((usedDisk / diskTotalBytes) * 1000) / 10
+        : 0;
+    } catch (err) {
+      // statfs unsupported on some filesystems / older Node — leave 0
+      // and surface the error string so the UI can show "unavailable"
+      // rather than 0%.
+      diskError = (err as Error).message;
+    }
+
     res.json({
       ...usage,
       version: TITAN_VERSION,
@@ -2050,6 +2093,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         rss: mem.rss,
         external: mem.external,
         arrayBuffers: mem.arrayBuffers,
+      },
+      host: {
+        cpuPercent,
+        cores: cpus().length || 1,
+        loadAvg1: loadavg()[0] ?? 0,
+        loadAvg5: loadavg()[1] ?? 0,
+        loadAvg15: loadavg()[2] ?? 0,
+        memTotalBytes: totalMem,
+        memFreeBytes: freeMem,
+        memUsedBytes: usedMem,
+        memPercent: hostMemPercent,
+        diskTotalBytes,
+        diskFreeBytes,
+        diskUsedBytes: diskTotalBytes - diskFreeBytes,
+        diskPercent,
+        diskError,
       },
       health: {
         ollamaHealthy: healthState.ollamaHealthy,

@@ -72,25 +72,57 @@ export function executeWidgetCode(compiledCode: string, globals: Record<string, 
    Text: #fafafa, #a1a1aa
    ═══════════════════════════════════════ */
 
+// v6.1.0-beta.23 — was a Math.random demo template that shipped fake
+// CPU/memory/disk/network/uptime/processes/threads to any user who asked
+// Soma to "build a system monitor." Tony's mock-data audit (2026-05-17)
+// caught it. Now the template fetches the real /api/stats every 2s and
+// renders only fields the gateway actually provides; missing fields
+// render as "—". The sparkline tracks real CPU samples instead of pure
+// Math.random.
 const SYSTEM_MONITOR_CODE = `function SystemMonitor({ runtime }) {
   const [stats, setStats] = React.useState({
-    cpu: 34, memory: 62, disk: 45, network: 78,
-    uptime: '3d 14h 22m', processes: 247, threads: 1843
+    cpu: null, memory: null, disk: null,
+    uptime: null, error: null, loaded: false
   });
-  const [history, setHistory] = React.useState(Array(20).fill(30));
+  const [history, setHistory] = React.useState(Array(20).fill(0));
 
   React.useEffect(() => {
-    const interval = setInterval(() => {
-      setStats(prev => ({
-        cpu: Math.min(100, Math.max(5, prev.cpu + (Math.random() - 0.5) * 20)),
-        memory: Math.min(100, Math.max(20, prev.memory + (Math.random() - 0.5) * 10)),
-        disk: prev.disk, network: Math.min(100, Math.max(10, prev.network + (Math.random() - 0.5) * 30)),
-        uptime: prev.uptime, processes: prev.processes + Math.floor(Math.random() * 3 - 1),
-        threads: prev.threads + Math.floor(Math.random() * 5 - 2)
-      }));
-      setHistory(prev => [...prev.slice(1), Math.floor(Math.random() * 60 + 20)]);
-    }, 2000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    async function load() {
+      try {
+        // Read the same auth token apiFetch uses (token mode). If the
+        // gateway is in open-access mode the key is absent and the
+        // header is omitted, which is what fetch defaults to anyway.
+        // Without this header, authenticated installs return HTTP 401
+        // on every poll and the widget shows "401" forever — Codex P2
+        // caught this on the first beta.23 review.
+        const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('titan-token') : null;
+        const headers = token ? { Authorization: 'Bearer ' + token } : undefined;
+        const r = await fetch('/api/stats', { headers });
+        if (!r.ok) {
+          if (!cancelled) setStats(s => ({ ...s, loaded: true, error: 'HTTP ' + r.status }));
+          return;
+        }
+        const data = await r.json();
+        if (cancelled) return;
+        const host = data.host || {};
+        const cpu = typeof host.cpuPercent === 'number' ? host.cpuPercent : null;
+        setStats({
+          cpu,
+          memory: typeof host.memPercent === 'number' ? host.memPercent : null,
+          disk: typeof host.diskPercent === 'number' ? host.diskPercent : null,
+          uptime: typeof data.uptime === 'number' ? Math.round(data.uptime) + 's' : null,
+          error: null,
+          loaded: true
+        });
+        if (cpu !== null) setHistory(prev => [...prev.slice(1), Math.round(cpu)]);
+      } catch (err) {
+        if (!cancelled) setStats(s => ({ ...s, loaded: true, error: String(err) }));
+      }
+    }
+    load();
+    const interval = setInterval(load, 2000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   const sparkline = history.map((v, i) => \`\${i * 5},\${100 - v}\`).join(' ');
@@ -113,28 +145,33 @@ const SYSTEM_MONITOR_CODE = `function SystemMonitor({ runtime }) {
         points: \`0,100 \${sparkline} 100,100\`
       })
     ),
-    React.createElement('div', { className: 'grid grid-cols-2 gap-2 flex-1' },
-      ['cpu', 'memory', 'disk', 'network'].map(key =>
-        React.createElement('div', { key, className: 'bg-[#18181b]/60 rounded-lg p-2 border border-[#27272a]/50' },
+    React.createElement('div', { className: 'grid grid-cols-3 gap-2 flex-1' },
+      ['cpu', 'memory', 'disk'].map(key => {
+        const v = stats[key];
+        const known = typeof v === 'number';
+        const pct = known ? Math.round(v) : 0;
+        return React.createElement('div', { key, className: 'bg-[#18181b]/60 rounded-lg p-2 border border-[#27272a]/50' },
           React.createElement('div', { className: 'flex justify-between text-[10px] mb-1' },
             React.createElement('span', { className: 'text-[#71717a] uppercase' }, key),
-            React.createElement('span', { className: 'text-[#fafafa] font-mono font-bold' }, Math.round(stats[key]) + '%')
+            React.createElement('span', { className: 'text-[#fafafa] font-mono font-bold' }, known ? pct + '%' : '—')
           ),
           React.createElement('div', { className: 'w-full bg-[#27272a] rounded-full h-1' },
             React.createElement('div', {
               className: 'h-1 rounded-full transition-all duration-1000',
               style: {
-                width: Math.round(stats[key]) + '%',
-                background: stats[key] > 80 ? '#ef4444' : stats[key] > 60 ? '#f59e0b' : '#6366f1'
+                width: known ? pct + '%' : '0%',
+                background: pct > 80 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#6366f1'
               }
             })
           )
-        )
-      )
+        );
+      })
     ),
     React.createElement('div', { className: 'flex justify-between text-[10px] text-[#52525b] mt-2 pt-2 border-t border-[#27272a]/40' },
-      React.createElement('span', null, 'Uptime: ' + stats.uptime),
-      React.createElement('span', null, stats.processes + ' procs / ' + stats.threads + ' threads')
+      React.createElement('span', null, 'Uptime: ' + (stats.uptime || '—')),
+      stats.error
+        ? React.createElement('span', { className: 'text-[#ef4444]' }, stats.error)
+        : React.createElement('span', null, stats.loaded ? 'live' : 'loading…')
     )
   );
 }
