@@ -18,6 +18,7 @@
  * event so the bridge hook in App re-attributes `<html>`.
  */
 import React from 'react';
+import { useLocation } from 'react-router';
 import { useThemeName, type ThemeName } from '@/hooks/useThemeVariables';
 
 interface Props {
@@ -33,6 +34,12 @@ const OPTIONS: { value: ThemeName; label: string }[] = [
 
 export function TopbarThemePicker({ className = '' }: Props) {
     const { theme, setTheme } = useThemeName();
+    const location = useLocation();
+    const avoidsCommandPostAgentsRail = location.pathname.startsWith('/command-post');
+    const rightOffset = avoidsCommandPostAgentsRail
+        ? 'calc(var(--titan-agents-rail-width, 16rem) + 0.75rem)'
+        : '0.75rem';
+
     return (
         <div
             role="tablist"
@@ -44,9 +51,12 @@ export function TopbarThemePicker({ className = '' }: Props) {
             // /mission/:id/canvas's "Tidy up / Chat view / Pause / Delete /
             // ?" cluster. Universal-empty position verified via Chrome MCP
             // bounding-box probe across all pages.
-            className={`fixed right-3 z-50 flex gap-0 rounded-full p-0.5 ${className}`}
+            // v6.1.0-beta.25 hotfix — /command-post mounts the live AGENTS
+            // rail on the right; keep the picker out of that 16rem lane.
+            className={`fixed z-50 flex gap-0 rounded-full p-0.5 ${className}`}
             style={{
                 top: 48,
+                right: rightOffset,
                 background: 'var(--theme-menu-bg)',
                 border: '1px solid var(--theme-menu-border)',
                 fontFamily: 'var(--theme-font-display)',

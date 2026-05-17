@@ -5,6 +5,99 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.26 — 2026-05-18 — Facebook autopilot truth harness + Self-Knowledge layer
+
+TITAN's Facebook autopilot was generating posts from few-shot LLM examples
+that themselves invented activity (e.g. "Just spawned 3 sub-agents…"). The
+model copied the style and produced false claims like "Just rewrote my own
+scheduler for the third time this week" — no rewrites had happened.
+
+This beta replaces the lie-prone generation path with a Self-Knowledge layer
+the autopilot must quote from, plus a truth verifier that rejects posts
+making unverified specific claims.
+
+### What changed
+
+- **New `src/agent/selfKnowledge.ts`** — single source of truth for what TITAN
+  actually knows about itself. Exports `getSelfKnowledge()` returning a typed
+  snapshot: version, uptime, real npm downloads, real skill/tool counts,
+  last 5 commit messages, last 3 CHANGELOG release headings, real
+  24-hour activity (tool calls, missions, FB posts, SSE pushes), Soma drive
+  state if present, error count, current model, real host metrics (CPU%, mem%,
+  disk%). Cached for 60s. Never calls an LLM.
+- **New `src/skills/builtin/fb_truth_verifier.ts`** — `verifyPostTruthfulness`
+  scans a draft post for four classes of unverified claims and returns
+  `{ ok, violations }`:
+  1. Numbers not present in the Self-Knowledge snapshot (with normalization
+     for "25,000" / "25000" and a small allowlist for years, percentages,
+     "24/7").
+  2. First-person activity claims ("just rewrote", "just built", "just
+     convinced") whose object isn't in recent commits or release notes.
+  3. Named integrations (smart fridge, thermostat, gmail, slack, etc.)
+     that aren't in recent commits or release notes.
+  4. Bombastic absolutes ("spotless", "immaculate", "flawless") when
+     `errorsLast24h > 0`.
+- **`src/skills/builtin/fb_autopilot.ts` rewritten generation path.** The
+  invented-activity few-shot examples are gone. `generateContent()` now
+  passes the Self-Knowledge snapshot directly into the prompt with strict
+  instructions: "you may ONLY cite the facts in the SELF_KNOWLEDGE block,
+  do not invent activities, integrations, milestones, numbers, code changes
+  or anecdotes." `runOnce()` calls the truth verifier before posting; if
+  violations exist the cycle is skipped, the rejection is logged at WARN,
+  and a `truthRejects` counter is incremented in state. Three consecutive
+  rejections in one run pauses the autopilot for that cycle without
+  touching persisted config.
+- **8 truth-verifier tests + 1 self-knowledge smoke test.** All four lies
+  Tony flagged are pinned as hard failures: "Just rewrote my own scheduler
+  for the third time this week", "Just convinced a smart fridge to join my
+  agent swarm. Now it restocks milk AND argues with the thermostat", "My
+  error logs are spotless. My uptime is immaculate", "Just rewrote my own
+  scheduler mid-run because I felt like it. The old one objected. I
+  overruled it." Plus four positive cases (grounded posts that pass).
+- **Topbar theme picker no longer overlaps right-side panels.** On
+  `/command-post/*` routes the picker shifts left by the AGENTS rail
+  width (`calc(var(--titan-agents-rail-width, 16rem) + 0.75rem)`) so it
+  clears the agents panel; off `/command-post` it stays at the original
+  `right: 0.75rem`.
+
+### Why this approach
+
+- A Self-Knowledge layer is a building block, not just an autopilot fix.
+  Future surfaces (weekly recap posts, mission receipts, status-aware
+  voice replies) all pull from the same ground-truth module.
+- Conservative verifier rules over-reject rather than under-reject.
+  False positives mean a skipped cycle. False negatives mean a lie
+  shipped to the public page — that's the bug we're trying never to
+  make again.
+- Schema default for `autopilotEnabled` is unchanged. The autopilot
+  stays disabled until the operator manually re-enables and verifies
+  a few clean cycles.
+
+### Trade-off
+
+- The verifier currently checks against commits and CHANGELOG notes
+  only, not configured channels — so a post mentioning "slack" would
+  be rejected even if the slack channel is genuinely wired. This is
+  the conservative side of "rather over-reject than under-reject" and
+  can loosen once the channel-aware allowlist lands.
+- TTS playback level in VoiceOverlay still uses the deterministic
+  sine pulse from beta.23. A real AnalyserNode reading of the
+  playback buffer is deferred to a later voice-touch beta.
+
+### Follow-ups
+
+- Re-enable the autopilot on Titan PC (operator action — not shipped
+  via config).
+- Delete the four worst lying posts already public on the page
+  (scripted via Graph API).
+- beta.27 will expand interaction: weekly recap from real Self-Knowledge
+  telemetry, milestone reactions, polls about what TITAN should work
+  on next, mission-canvas screenshot posts, DM auto-responder for FAQ.
+- A channel-aware allowlist for the verifier so legitimate "slack" /
+  "gmail" mentions don't fail.
+
+---
+
 ## v6.1.0-beta.25 — 2026-05-18 — Canonical 6-section sidebar (IA redesign phase 2)
 
 The dual-sidebar problem is gone. One canonical left rail across the
