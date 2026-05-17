@@ -63,14 +63,27 @@ function makeContract(name: string, riskLevel: 'safe' | 'moderate' | 'high'): To
     };
 }
 
+// beta.21 — vitest.config.ts sets TITAN_AUTOMODE_POLICY=yolo globally so
+// pre-classifier toolRunner tests can run without rewiring approval. The
+// classifier's own tests need to control policy via the mocked config,
+// so capture the global env override here and clear it for the duration
+// of this file. Restored in afterEach.
+const ORIGINAL_AUTOMODE_ENV = process.env.TITAN_AUTOMODE_POLICY;
+
 beforeEach(() => {
     clearToolContracts();
     setPolicy(undefined);
+    delete process.env.TITAN_AUTOMODE_POLICY;
     _resetYoloWarning();
 });
 
 afterEach(() => {
     setPolicy(undefined);
+    if (ORIGINAL_AUTOMODE_ENV === undefined) {
+        delete process.env.TITAN_AUTOMODE_POLICY;
+    } else {
+        process.env.TITAN_AUTOMODE_POLICY = ORIGINAL_AUTOMODE_ENV;
+    }
 });
 
 /* ──────────────────────────  Policy resolution  ────────────────────────── */

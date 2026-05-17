@@ -39,6 +39,25 @@ export function isWithinDir(child: string, parent: string): boolean {
     return child.startsWith(parentWithSep);
 }
 
+function getPathBlockReason(filePath: string): string | null {
+    const resolved = expandPath(filePath);
+    for (const pattern of BLOCKED_PATTERNS) {
+        if (resolved.includes(pattern)) {
+            return `Access denied: cannot access ${pattern} files`;
+        }
+    }
+    for (const blocked of BLOCKED_PATHS) {
+        if (isWithinDir(resolved, blocked)) {
+            return `Access denied: cannot access system directory ${blocked}`;
+        }
+    }
+    return null;
+}
+
+export function isPathBlocked(filePath: string): boolean {
+    return getPathBlockReason(filePath) !== null;
+}
+
 export function validatePath(filePath: string): string | null {
     const resolved = expandPath(filePath);
     const home = homedir();
@@ -47,19 +66,7 @@ export function validatePath(filePath: string): string | null {
     if (!isWithinDir(resolved, home) && !isWithinDir(resolved, '/tmp')) {
         return `Access denied: path must be within home directory or /tmp`;
     }
-    // Block sensitive paths even within home
-    for (const pattern of BLOCKED_PATTERNS) {
-        if (resolved.includes(pattern)) {
-            return `Access denied: cannot access ${pattern} files`;
-        }
-    }
-    // Block system directories
-    for (const blocked of BLOCKED_PATHS) {
-        if (isWithinDir(resolved, blocked)) {
-            return `Access denied: cannot access system directory ${blocked}`;
-        }
-    }
-    return null; // valid
+    return getPathBlockReason(resolved); // null means valid
 }
 
 /**
@@ -493,6 +500,7 @@ Errors:
                                 return;
                             }
                             const fullPath = join(currentPath, entry.name);
+                            if (isPathBlocked(fullPath)) continue;
                             const displayName = prefix ? `${prefix}/${entry.name}` : entry.name;
                             if (entry.isDirectory()) {
                                 lines.push(`📁 ${displayName}/`);
