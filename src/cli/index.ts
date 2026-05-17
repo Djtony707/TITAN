@@ -94,8 +94,9 @@ program
             console.error(chalk.gray(`   ${usable.details}\n`));
             console.error('   Run setup:');
             console.error(chalk.cyan('     titan onboard\n'));
-            console.error('   Or set an environment variable:');
-            console.error(chalk.cyan('     export ANTHROPIC_API_KEY="sk-ant-..."\n'));
+            console.error('   Or configure a provider/model:');
+            console.error(chalk.cyan('     ollama pull qwen2.5-coder:7b'));
+            console.error(chalk.cyan('     titan config --set agent.model=ollama/qwen2.5-coder:7b\n'));
             process.exit(1);
         }
 

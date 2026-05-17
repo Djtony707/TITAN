@@ -314,7 +314,7 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0">
         {children}
       </main>
     </div>

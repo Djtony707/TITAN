@@ -5,9 +5,9 @@
  *
  *   1. **Welcome card** — the "What's the mission?" prompt. Eyebrow /
  *      large title / helper / large textarea / primary CTA.
- *   2. **Templates gallery** — six always-on starter missions rendered
+ *   2. **Templates gallery** — six starter missions rendered
  *      as small leather-bound dossier cards with brass title plates.
- *      Click a card → 3-step walkthrough modal (Customize → Schedule
+ *      Click a card → 3-step walkthrough modal (Customize → Cadence
  *      → Launch).
  *   3. **Examples row** — quick canned goals for one-off requests.
  *   4. **Past missions** link in the chrome (top-right gutter leaves
@@ -84,7 +84,7 @@ export default function MissionStart() {
 
   return (
     <div
-      className="fixed inset-0 flex flex-col items-center overflow-y-auto"
+      className="min-h-full w-full flex flex-col items-center"
       style={{
         color: PAPER,
         fontFamily: FONT_DISPLAY,
@@ -101,7 +101,7 @@ export default function MissionStart() {
         style={{ boxShadow: `inset 0 0 240px 60px ${BG_VIGNETTE}` }}
       />
 
-      <div className="relative z-10 flex flex-col items-center gap-8 w-full max-w-5xl px-6 py-10 md:py-14">
+      <div className="relative z-10 flex flex-col items-center gap-8 w-full max-w-5xl px-6 pt-10 pb-28 md:py-14">
         {/* Top chrome — leaves 260px right gutter for TopbarThemePicker (right:12 + width:238). */}
         <div
           className="w-full flex items-center"
@@ -156,7 +156,7 @@ export default function MissionStart() {
               color: PAPER,
               fontFamily: FONT_DISPLAY,
               fontWeight: 600,
-              letterSpacing: '-0.02em',
+              letterSpacing: 0,
               textShadow: `0 2px 12px ${SHADOW}`,
             }}
           >
@@ -201,7 +201,7 @@ export default function MissionStart() {
               }}
             />
 
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div
                 className="text-[11px] tracking-wide"
                 style={{ color: INK_SOFT, fontFamily: FONT_MONO }}
@@ -209,7 +209,7 @@ export default function MissionStart() {
                 ⌘↵ to dispatch · voice coming soon
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex w-full items-center gap-2 sm:w-auto">
                 <button
                   type="button"
                   disabled
@@ -227,12 +227,12 @@ export default function MissionStart() {
                 <button
                   type="submit"
                   disabled={!goal.trim() || submitting}
-                  className="px-6 h-11 rounded-xl font-bold text-sm tracking-wide transition-transform"
+                  className="h-11 flex-1 rounded-xl px-5 text-sm font-bold tracking-wide transition-transform sm:flex-none"
                   style={{
                     background: goal.trim() && !submitting
                       ? `linear-gradient(180deg, ${METAL_BRIGHT} 0%, ${METAL} 60%, ${METAL_DARK} 100%)`
                       : `${METAL_DARK}66`,
-                    color: BOLT,
+                    color: goal.trim() && !submitting ? BOLT : INK_SOFT,
                     border: `1px solid ${METAL_DARK}`,
                     boxShadow: goal.trim() && !submitting
                       ? `0 6px 18px ${SHADOW}, inset 0 1px 0 ${METAL_BRIGHT}`
@@ -306,12 +306,12 @@ export default function MissionStart() {
               className="text-xl tracking-tight"
               style={{ color: PAPER, fontFamily: FONT_DISPLAY, fontWeight: 600 }}
             >
-              Always-on templates
+              Mission starters
               <span
                 className="ml-3 text-[10px] uppercase tracking-[0.3em]"
                 style={{ color: INK_SOFT, fontFamily: FONT_MONO }}
               >
-                recurring missions
+                saved cadence
               </span>
             </h2>
             <span
@@ -326,8 +326,8 @@ export default function MissionStart() {
             className="text-sm leading-relaxed max-w-2xl"
             style={{ color: INK_SOFT }}
           >
-            Pick a starter recipe, customize it, choose how often the team
-            should run it, and TITAN keeps the agents on schedule.
+            Pick a starter recipe, customize it, and launch the first run.
+            TITAN saves the cadence with the mission request.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mt-2">
@@ -571,7 +571,7 @@ function TemplateWalkthrough({
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm truncate" style={{ color: PAPER }}>{template.title}</div>
             <div className="text-[11px]" style={{ color: INK_SOFT, fontFamily: FONT_MONO }}>
-              Step {step} of 3 · {step === 1 ? 'Customize' : step === 2 ? 'Schedule' : 'Launch'}
+              Step {step} of 3 · {step === 1 ? 'Customize' : step === 2 ? 'Cadence' : 'Launch'}
             </div>
           </div>
           <button
@@ -609,7 +609,7 @@ function TemplateWalkthrough({
               <div className="text-sm" style={{ color: INK_SOFT }}>{template.blurb}</div>
               {template.fields.length === 0 && (
                 <div className="text-sm italic" style={{ color: INK_SOFT }}>
-                  This template runs as-is — no setup needed. Click <b style={{ color: PAPER }}>Next</b> to pick a schedule.
+                  This template runs as-is — no setup needed. Click <b style={{ color: PAPER }}>Next</b> to pick a cadence.
                 </div>
               )}
               {template.fields.map(f => (
@@ -647,7 +647,7 @@ function TemplateWalkthrough({
 
           {step === 2 && (
             <div className="flex flex-col gap-3">
-              <div className="text-sm" style={{ color: INK_SOFT }}>How often should the team run this?</div>
+              <div className="text-sm" style={{ color: INK_SOFT }}>Which cadence should TITAN remember?</div>
               {template.schedules.map(s => {
                 const active = s.id === schedule.id;
                 return (
@@ -673,9 +673,8 @@ function TemplateWalkthrough({
                 className="text-[11px] italic px-1 pt-1"
                 style={{ color: INK_SOFT }}
               >
-                The auto-fire daemon that re-runs missions on this cadence
-                lands in the next ship. Today the first run starts
-                immediately and the chosen schedule is remembered.
+                This starts the first run immediately and saves the cadence
+                selection for recurring mission support.
               </div>
             </div>
           )}

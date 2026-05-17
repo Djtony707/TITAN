@@ -164,7 +164,8 @@ export async function hasUsableProvider(): Promise<{ ok: boolean; details: strin
         'anyscale', 'octo', 'nous', 'minimax', 'nvidia',
     ];
     for (const name of cloudProviderNames) {
-        const p = providers[name] as { apiKey?: string } | undefined;
+        const p = providers[name] as { apiKey?: string; enabled?: boolean } | undefined;
+        if (p?.enabled === false) continue;
         if (p?.apiKey && p.apiKey.trim().length > 0) {
             return { ok: true, details: `${name} has an API key configured` };
         }
@@ -178,6 +179,10 @@ export async function hasUsableProvider(): Promise<{ ok: boolean; details: strin
         'PERPLEXITY_API_KEY', 'AZURE_OPENAI_API_KEY',
     ];
     for (const key of envKeys) {
+        if (key === 'ANTHROPIC_API_KEY') {
+            const anthropic = providers.anthropic as { enabled?: boolean } | undefined;
+            if (anthropic?.enabled === false) continue;
+        }
         if (process.env[key] && process.env[key]!.trim().length > 0) {
             return { ok: true, details: `${key} is set in environment` };
         }
@@ -233,10 +238,20 @@ function applyEnvOverrides(config: Record<string, unknown>): void {
     for (const [envKey, setter] of Object.entries(envMap)) {
         const val = process.env[envKey];
         if (val) {
+            if (envKey === 'ANTHROPIC_API_KEY' && isProviderDisabled(config, 'anthropic')) {
+                logger.debug(COMPONENT, 'Skipped env override: ANTHROPIC_API_KEY because providers.anthropic.enabled=false');
+                continue;
+            }
             setter(val);
             logger.debug(COMPONENT, `Applied env override: ${envKey}`);
         }
     }
+}
+
+function isProviderDisabled(config: Record<string, unknown>, providerName: string): boolean {
+    const providers = config.providers as Record<string, unknown> | undefined;
+    const provider = providers?.[providerName] as { enabled?: unknown } | undefined;
+    return provider?.enabled === false;
 }
 
 /**

@@ -16,6 +16,36 @@ import { setupSSEFlush } from '../../utils/sseFlush.js';
 
 const COMPONENT = 'SystemRouter';
 
+interface AutoresearchRun {
+  val_score?: number;
+  baseline?: number;
+  baselineScore?: number;
+  bestScore?: number;
+}
+
+function readAutoresearchRuns(type: string): AutoresearchRun[] {
+  const resultsFile = type === 'agent' ? 'agent_results.json' : 'results.json';
+  const resultsPath = join(TITAN_HOME, 'autoresearch', 'output', resultsFile);
+  if (!existsSync(resultsPath)) return [];
+  const data = JSON.parse(readFileSync(resultsPath, 'utf-8'));
+  return Array.isArray(data) ? data : [];
+}
+
+function summarizeAutoresearchPerformance(runs: AutoresearchRun[]) {
+  const scores = runs
+    .map((run) => Number(run.val_score ?? run.bestScore))
+    .filter((score) => Number.isFinite(score));
+  const baseline = runs
+    .map((run) => Number(run.baseline ?? run.baselineScore))
+    .find((score) => Number.isFinite(score)) ?? (scores[0] ?? 0);
+  const bestScore = scores.length > 0 ? Math.max(...scores) : 0;
+  const improvements = scores.map((score) => score - baseline);
+  const avgImprovement = improvements.length > 0
+    ? improvements.reduce((sum, value) => sum + value, 0) / improvements.length
+    : 0;
+  return { totalRuns: runs.length, bestScore, avgImprovement, baseline };
+}
+
 export function createSystemRouter(): Router {
   const router = Router();
 
@@ -203,16 +233,18 @@ export function createSystemRouter(): Router {
   router.get('/autoresearch/results', (req, res) => {
     try {
       const type = req.query.type as string || 'tool_router';
-      const resultsFile = type === 'agent' ? 'agent_results.json' : 'results.json';
-      const resultsPath = join(TITAN_HOME, 'autoresearch', 'output', resultsFile);
-      if (!existsSync(resultsPath)) {
-        res.json({ runs: [] });
-        return;
-      }
-      const data = JSON.parse(readFileSync(resultsPath, 'utf-8'));
-      res.json({ runs: Array.isArray(data) ? data : [] });
+      res.json({ runs: readAutoresearchRuns(type) });
     } catch {
       res.json({ runs: [] });
+    }
+  });
+
+  router.get('/autoresearch/performance', (req, res) => {
+    try {
+      const type = req.query.type as string || 'tool_router';
+      res.json(summarizeAutoresearchPerformance(readAutoresearchRuns(type)));
+    } catch {
+      res.json({ totalRuns: 0, bestScore: 0, avgImprovement: 0, baseline: 0 });
     }
   });
 

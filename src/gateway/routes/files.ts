@@ -10,6 +10,7 @@ import { join, dirname, resolve } from 'path';
 import fs from 'fs';
 import logger from '../../utils/logger.js';
 import { loadConfig } from '../../config/config.js';
+import { listEditedFiles, readEditedFileContent } from '../../agent/editedFiles.js';
 
 const COMPONENT = 'FilesRouter';
 
@@ -59,6 +60,19 @@ function validateFilePath(reqPath: string, rootParam?: string): { valid: boolean
 export function createFilesRouter(): Router {
   const router = Router();
   const UPLOADS_DIR = join(homedir(), '.titan', 'uploads');
+
+  router.get('/edited', (req, res) => {
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '200'), 10) || 200, 1), 1000);
+    res.json({ files: listEditedFiles(limit) });
+  });
+
+  router.get('/content', (req, res) => {
+    const filePath = req.query.path as string | undefined;
+    if (!filePath) { res.status(400).json({ error: 'path parameter required' }); return; }
+    const result = readEditedFileContent(filePath);
+    if ('error' in result) { res.status(404).json(result); return; }
+    res.json(result);
+  });
 
   router.get('/roots', (_req, res) => {
     res.json({ roots: getFileRoots() });

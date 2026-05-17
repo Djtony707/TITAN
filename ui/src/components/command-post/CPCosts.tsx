@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, Plus, Trash2 } from 'lucide-react';
-import { getCPBudgets, createCPBudget, deleteCPBudget, getCPReservations } from '@/api/client';
-import type { BudgetPolicy, BudgetReservation } from '@/api/types';
+import { getCPBudgets, createCPBudget, deleteCPBudget } from '@/api/client';
+import type { BudgetPolicy } from '@/api/types';
 import { PageHeader, StatusBadge, EmptyState, Button, SkeletonLoader } from '@/components/shared';
 import { Modal } from '@/components/shared';
 
@@ -22,7 +22,6 @@ function budgetStatus(b: BudgetPolicy): string {
 
 function CPCosts() {
   const [budgets, setBudgets] = useState<BudgetPolicy[]>([]);
-  const [reservations, setReservations] = useState<BudgetReservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -50,7 +49,6 @@ function CPCosts() {
 
   useEffect(() => {
     refresh();
-    getCPReservations().then(setReservations).catch(() => {});
   }, [refresh]);
 
   const handleCreate = async () => {
@@ -144,34 +142,6 @@ function CPCosts() {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {reservations.length > 0 && (
-        <div className="rounded-xl border border-border bg-bg-secondary overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <h3 className="text-sm font-medium text-text">Active Reservations</h3>
-          </div>
-          <div className="divide-y divide-border">
-            {reservations.map(r => (
-              <div key={r.id} className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  <span className="text-sm text-text">{r.agentId}</span>
-                  {r.goalId && <span className="text-xs text-text-muted ml-2">Goal: {r.goalId}</span>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    r.status === 'reserved' ? 'bg-warning/20 text-warning' :
-                    r.status === 'settled' ? 'bg-success/20 text-success' :
-                    'bg-bg-tertiary text-text-muted'
-                  }`}>{r.status}</span>
-                  <span className="text-sm font-mono text-text">
-                    ${r.status === 'settled' ? (r.actualUsd ?? 0).toFixed(4) : r.estimatedUsd.toFixed(4)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

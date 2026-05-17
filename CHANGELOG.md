@@ -5,6 +5,129 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.27 — 2026-05-17 — Onboarding truth pass, provider disable switch, fleet endpoint
+
+Onboarding wizard and config layer get a truth + ergonomics pass. The
+wizard stops shipping hardcoded skill/tool counts and instead reads
+them from the live registry. Providers gain a per-entry `enabled`
+switch that overrides matching env keys. Mission Start now lives
+inside the canonical shell, and Command Post routes only mount when
+Command Post governance is enabled.
+
+### What changed
+
+- **Onboarding wizard reads live counts.** `ui/src/components/onboarding/SetupWizard.tsx`
+  now fetches `/api/skills`, `/api/providers`, and `/api/channels` on
+  mount and renders the real `skills.length`, summed `skill.tools.length`,
+  `providers.length`, and `channels.length` in the final stat tiles.
+  Initial state is the em-dash `—`; fetch failures fall back to `—`.
+  The `AnimCounter` animated number component is removed (no longer
+  needed since values are runtime strings) and the version pill reads
+  from `/api/onboarding/status` instead of being baked in. Marketing
+  copy throughout the wizard is replaced with descriptive copy that
+  matches what the runtime actually does.
+- **Per-provider `enabled` switch.** `src/config/schema.ts` adds
+  `enabled: z.boolean().default(true)` to `ProviderConfigSchema`. The
+  config loader's `applyEnvOverrides` and `hasUsableProvider` check
+  this flag before applying `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
+  style env overrides or reporting the provider as usable. The
+  Anthropic provider returns an empty `apiKey` when disabled so the
+  failover walker skips it. Three new tests pin the behavior:
+  `tests/config-loader.test.ts` (two cases) and a new
+  `tests/anthropic-provider-disabled.test.ts`.
+- **`titan` CLI no-provider hint updated.** `src/cli/index.ts` no
+  longer suggests `export ANTHROPIC_API_KEY=...` when the provider
+  may be disabled; it suggests `ollama pull` + `titan config --set`
+  as the local-first path.
+- **Canonical shell defaults to Mission Start.** `ui/src/App.tsx`
+  routes `/` to `MissionStart` (was `CPDashboard`) and redirects
+  `/dashboard` to `/missions`. Command Post routes (`/missions/goals`,
+  `/missions/issues`, `/missions/approvals`, `/missions/activity`,
+  `/missions/work`, `/team/agents`, `/team/org-chart`, `/system/costs`,
+  `/command-post/*`) now mount through a new `CommandPostRoute`
+  wrapper that reads `commandPost.enabled` from `/api/config`. When
+  Command Post is off the route renders a centered explainer card
+  with links to Mission Start and Settings instead of an empty panel.
+- **Topbar theme picker is mobile-aware.** `TopbarThemePicker.tsx`
+  injects a scoped `@media (max-width: 640px)` stylesheet so the
+  picker tucks into the top-right corner on phones and lets the
+  desktop right-rail offset stay correct on `/command-post/*`.
+- **Mission Start adopts the canonical shell layout.** The page
+  swaps `fixed inset-0` for `min-h-full w-full` so it lives inside
+  `TitanShell`'s main column, gains a flex/wrap bottom action row,
+  and the dispatch button stretches on mobile. The "auto-fire daemon
+  lands in the next ship" footnote is replaced with truthful copy:
+  the first run starts now and the cadence is remembered with the
+  mission request. `missionTemplates.ts` blurbs and `whatItDoes`
+  copy stop claiming recurring auto-runs that the scheduler does not
+  yet provide.
+- **Mesh `/api/mesh/fleet` endpoint.** `src/gateway/routes/mesh.ts`
+  exposes the live `getFleetState()` machine router state as a
+  normalized list of nodes (id, name, address, status, capabilities,
+  lastSeen, load). Offline nodes return `load: undefined` rather
+  than a fabricated zero.
+- **Files `/api/files/edited` and `/api/files/content`.** Two new
+  read endpoints on `src/gateway/routes/files.ts` for recently edited
+  workspace files (delegates to `src/agent/editedFiles.ts`).
+- **System `/api/system/autoresearch/performance`.** Summarizes real
+  autoresearch run records from `~/.titan/autoresearch/output/`. When
+  there are no runs the response is `{ totalRuns: 0, bestScore: 0,
+  avgImprovement: 0, baseline: 0 }` instead of fake placeholders.
+- **DreamPanel loads dates first, then conditionally fetches latest.**
+  Cleaner async flow; no `setDream(null)` flicker when the run
+  history is empty.
+- **CPCosts drops the unused reservations strip.** The Active
+  Reservations section that always rendered as zero rows is removed;
+  the panel keeps the budget policy list. The reservations API
+  remains intact for the Spend Governor work to wire a real surface
+  in a later beta.
+- **TitanShell padding fix.** Main content column gains
+  `pt-16 pb-16 md:pt-0 md:pb-0` so the mobile top bar and bottom
+  rail do not clip the first/last row of the page underneath.
+
+### Why this approach
+
+- The onboarding wizard is the first thing a new operator sees. If
+  the headline stats are hardcoded they drift the first time the
+  registry changes — fetching live numbers makes the surface
+  self-correct. Em-dash placeholders honor the goal contract: never
+  show a number we can't justify.
+- A per-provider `enabled` flag is a small, composable primitive
+  that supports both "I don't want Anthropic touching this
+  workstation" and the future capability-token work. It is opt-in:
+  schema default stays `true`.
+- Mission Start as the canonical front door reflects the IA decision
+  from beta.25 — the workspace is for missions; Command Post is an
+  add-on for managed operations. Routing legacy `/command-post/*`
+  through a guard keeps deep links working without bombing into
+  unmounted panels.
+
+### Trade-off
+
+- The `/api/skills` / `/api/providers` / `/api/channels` fetches on
+  wizard mount cost a few extra round-trips before the final step
+  renders. On a cold runtime each call is sub-25 ms; the tiles
+  briefly read `—` before settling. Acceptable for a first-run
+  surface.
+- Mission Start removed `fixed inset-0`; the page now follows the
+  canonical shell scroll behavior. The page-level vignette and
+  background gradients are reapplied through the inner container.
+- Removing the reservations strip from CPCosts means there is no
+  visible surface for budget reservations until the Spend Governor
+  work lands; the underlying state is still tracked.
+
+### Follow-ups
+
+- Strategic bet pass: Receipts (action-id spine + `/api/receipts`),
+  Firewall (capability tokens per mission), Mission Contracts,
+  Control Tower, Skill Trust, Context Fabric, Spend Governor,
+  Communication Sandbox, Eval Harness, Deliverable QA.
+- Hard-delete the deprecated nav shells (`AppShell`, `IconRail`,
+  `MobileNav`, `TitanSidebar`, `TitanLayout`, `CPSidebar` shim) once
+  beta.26 has soaked.
+
+---
+
 ## v6.1.0-beta.26 — 2026-05-18 — Facebook autopilot truth harness + Self-Knowledge layer
 
 TITAN's Facebook autopilot was generating posts from few-shot LLM examples

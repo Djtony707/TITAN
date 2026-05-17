@@ -2,7 +2,7 @@
  * TITAN — Mission Templates (v6.1.0-alpha.18)
  *
  * Starter recipes the user can pick from MissionStart to bootstrap a
- * recurring, always-on agent workflow. Each template defines:
+ * mission run and remember a preferred cadence. Each template defines:
  *
  *   - identity (icon, title, short blurb)
  *   - the goal text (with {{placeholders}} the user fills in via the
@@ -77,21 +77,21 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
     id: 'research-digest',
     icon: '📰',
     title: 'Daily research digest',
-    blurb: 'Scout reads the web on your topic and writes a fresh briefing every morning.',
+    blurb: 'Scout researches your topic and writes a fresh briefing for the first run.',
     goalTemplate: 'Research the latest developments on "{{topic}}" and produce a clear HTML briefing (write_file with a .html extension) with 5 highlights, an inline SVG chart of the most important trend, and clickable source links throughout.',
     suggestedPlayId: 'research',
     fields: [
       { key: 'topic', label: 'Your topic', hint: 'What you want a fresh briefing on each morning', defaultValue: 'AI agents in business', placeholder: 'AI agents in business' },
     ],
     schedules: [DAILY_AM, TWICE_DAILY, WEEKLY],
-    whatItDoes: "Each morning at 7am, Scout searches the web for fresh developments on your topic, reads the top 5 sources end-to-end, and writes a one-page briefing. The briefing lands on your desk as a paper sheet, and the chat thread captures every URL Scout looked at so you can dig in further if anything catches your eye.",
+    whatItDoes: "Scout searches the web for fresh developments on your topic, reads the top 5 sources end-to-end, and writes a one-page briefing. The briefing lands on your desk as a paper sheet, and the chat thread captures every URL Scout looked at so you can dig in further if anything catches your eye.",
     accent: { from: '#6366f1', to: '#8b5cf6' },
   },
   {
     id: 'inbox-triage',
     icon: '📬',
     title: 'Inbox triage',
-    blurb: 'Sage sorts and summarizes incoming email every few hours so nothing rots.',
+    blurb: 'Sage sorts and summarizes incoming email so important threads stay visible.',
     goalTemplate: 'Read my inbox and produce a triaged summary: "needs reply within 24h", "informational", "newsletters", and "junk". Cap at 30 messages per run.',
     suggestedPlayId: 'inbox',
     fields: [],
@@ -102,22 +102,22 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
   {
     id: 'code-review',
     icon: '🔍',
-    title: 'Overnight code review',
-    blurb: 'Builder reviews your repo changes while you sleep. Wakes you to nothing-pings only.',
+    title: 'Code review',
+    blurb: 'Builder reviews your repo changes and reports only meaningful findings.',
     goalTemplate: 'Review the diff in {{repoPath}} since the last review. Flag bugs, regressions, and obvious improvements. Don\'t nitpick formatting.',
     suggestedPlayId: 'code-review',
     fields: [
       { key: 'repoPath', label: 'Repo path or URL', hint: 'Local path on the host, or a GitHub repo URL', defaultValue: '~/Desktop/MyProject', placeholder: '~/projects/repo' },
     ],
     schedules: [NIGHTLY, TWICE_DAILY],
-    whatItDoes: "Every night at 11pm, Builder pulls the latest changes from your repo and writes a concise review focused on real defects (logic bugs, regressions, security smells). Formatting nits are skipped. Findings land as a paper sheet; if there's nothing to report, Builder closes silently.",
+    whatItDoes: "Builder pulls the latest changes from your repo and writes a concise review focused on real defects (logic bugs, regressions, security smells). Formatting nits are skipped. Findings land as a paper sheet; if there's nothing to report, Builder closes silently.",
     accent: { from: '#22c55e', to: '#10b981' },
   },
   {
     id: 'lead-scout',
     icon: '🎯',
     title: 'Lead scout',
-    blurb: 'Scout watches freelance + opportunity boards and surfaces matches for your skills.',
+    blurb: 'Scout scans freelance + opportunity boards and surfaces matches for your skills.',
     goalTemplate: 'Scan Upwork, Indeed, and HackerNews "who is hiring" for new postings matching: {{skills}}. Filter to budget >= ${{minBudget}} and remote OK.',
     suggestedPlayId: 'lead-scout',
     fields: [
@@ -125,7 +125,7 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
       { key: 'minBudget', label: 'Minimum budget (USD)', hint: 'Skip postings paying less.', defaultValue: '500' },
     ],
     schedules: [FOUR_H, SIX_H, DAILY_AM],
-    whatItDoes: "Every few hours, Scout sweeps the boards you care about for postings that match your skill keywords and budget floor. New matches land as sticky notes; the running log of every posting seen sits as a paper sheet you can browse anytime.",
+    whatItDoes: "Scout sweeps the boards you care about for postings that match your skill keywords and budget floor. New matches land as sticky notes; the running log of every posting seen sits as a paper sheet you can browse anytime.",
     accent: { from: '#f59e0b', to: '#eab308' },
   },
   {
@@ -146,13 +146,13 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
     id: 'creative-prompts',
     icon: '🎨',
     title: 'Daily creative prompt',
-    blurb: 'Writer hands you a fresh creative writing or music prompt every morning with breakfast.',
+    blurb: 'Writer creates a fresh writing, sketching, or music prompt for the first run.',
     goalTemplate: 'Generate a fresh {{discipline}} prompt for me today. Make it specific enough to start in 5 minutes but open enough to take in any direction. Include a 1-line warm-up exercise.',
     fields: [
       { key: 'discipline', label: 'Discipline', hint: 'What kind of prompt you want.', defaultValue: 'songwriting', placeholder: 'short fiction · songwriting · sketching' },
     ],
     schedules: [DAILY_AM, WEEKLY],
-    whatItDoes: "Every morning, Writer hands you one fresh creative prompt tailored to the discipline you chose, with a quick warm-up exercise to get the engine started. The prompt lands as a sticky note on the desk so you can grab it on the way to your studio.",
+    whatItDoes: "Writer creates one fresh creative prompt tailored to the discipline you chose, with a quick warm-up exercise to get started. The prompt lands as a sticky note on the desk so you can grab it when you need it.",
     accent: { from: '#ec4899', to: '#8b5cf6' },
   },
 ];
