@@ -5,6 +5,71 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.24 — 2026-05-17 — PixelOfficeCrew canvas fix (theme audit kickoff)
+
+Tony screenshotted the Command Post dashboard and the middle "Pixel Office
+Crew" area was a black square. Root cause: 24 `ctx.fillStyle =
+'var(--color-foo)'` calls. Canvas 2D does not resolve CSS variables —
+every var() call silently fell back to default black, so the pixel
+characters drew black-on-black-on-faint-grid. Six configured agents
+(Scout/Builder/Writer/Analyst/Sage + TITAN Primary) were rendering as
+invisible pixels.
+
+### What changed
+
+- **`PixelOfficeCrew.tsx` theme resolver**. Added a `resolveTheme()`
+  helper that reads `:root` CSS variables via `getComputedStyle` and
+  returns a typed `ThemePalette` (bg, bgTertiary, border, borderLight,
+  textMuted, textSecondary, accent, accentLight, success, warning,
+  error). Each color falls back to the matching hex from
+  `ui/src/styles/globals.css` when the var is unset. Called once per
+  draw frame so the topbar theme picker (Office/Workshop/Observatory)
+  re-skins the canvas live.
+- **24 var() calls replaced** with the resolved palette throughout the
+  draw loop: clear, empty-state text, desks, monitors, screen lines,
+  stands, bodies, heads, eyes, antennas, arms, status particles, error
+  sparks, name labels, title, activity ticker.
+- **Top-level `COLORS` constant** that held var() strings replaced with
+  a `COLOR_FIELDS` map of `Record<PixelState, keyof ThemePalette>`;
+  the draw loop now looks up `theme[COLOR_FIELDS[state]]` to get a
+  real hex color per agent state.
+- **Hex+alpha overlay strings** (`color + '30'` for 19% alpha screen
+  glow) now produce valid `#RRGGBBAA` — previously the var() base
+  string was invalid before the alpha was appended, so the overlay
+  was also invisible.
+
+### Why this approach
+
+- Resolving once per frame keeps the topbar theme picker live: change
+  Office → Workshop and the canvas re-skins on the next 60fps tick.
+  Caching at mount time would have frozen the canvas to the boot-
+  time theme.
+- Hex fallbacks match `globals.css` so the canvas still renders
+  correctly if a downstream consumer ships TITAN without the theme
+  CSS loaded.
+- The new `COLOR_FIELDS` lookup makes adding states (e.g. `cooling`,
+  `migrating`) a one-line ThemePalette field + one-line
+  COLOR_FIELDS row.
+
+### Trade-off
+
+- This is the first slice of the broader theme-variable audit Tony
+  asked for. Other surfaces (Command Post shell, Mission Chat, admin
+  panels) still ship hardcoded Tailwind colors and don't re-skin on
+  theme change. The full audit lands in beta.25 alongside the
+  canonical 6-section sidebar.
+
+### Operating note
+
+This was the first beta shipped under the new rule: **Codex does all
+programming, Claude guides**. Claude planned, briefed Codex with a
+self-contained prompt, and operated git/npm; Codex wrote the diff.
+First Codex run blocked on the read-only sandbox; re-run with the
+companion `--write` flag completed the patch. Pattern logged in the
+bridge as `codex_programs_claude_guides` standing rule.
+
+---
+
 ## v6.1.0-beta.23 — 2026-05-17 — Mock-data purge
 
 Tony asked for zero mock data anywhere in TITAN runtime. A joint audit
