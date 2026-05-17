@@ -13,6 +13,7 @@ import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 import { SponsorFooter } from '@/components/SponsorFooter';
 
 import { DeskSurface } from '@/components/desk/DeskSurface';
+import { TitanShell } from '@/components/shell/TitanShell';
 // v6.1.0-beta.2 Phase 0a — bridges the existing DeskTheme context to a
 // `:root[data-theme=…]` attribute so CSS variables in
 // `./styles/theme-variables.css` re-skin the UI on theme change.
@@ -23,6 +24,45 @@ import { TopbarThemePicker } from '@/components/TopbarThemePicker';
 // ── Titan 3.0 Canvas ────────────────────────────────────────
 const TitanCanvas = lazy(() => import('@/titan2/canvas/TitanCanvas'));
 const CPLayout = lazy(() => import('@/components/command-post/CPLayout'));
+const CPDashboard = lazy(() => import('@/components/command-post/CPDashboard'));
+const CPIssues = lazy(() => import('@/components/command-post/CPIssues'));
+const CPApprovals = lazy(() => import('@/components/command-post/CPApprovals'));
+const CPActivity = lazy(() => import('@/components/command-post/CPActivity'));
+const CPGoals = lazy(() => import('@/components/command-post/CPGoals'));
+const CPRuns = lazy(() => import('@/components/command-post/CPRuns'));
+const CPAgents = lazy(() => import('@/components/command-post/CPAgents'));
+const CPOrg = lazy(() => import('@/components/command-post/CPOrg'));
+const CPFiles = lazy(() => import('@/components/command-post/CPFiles'));
+const CPVoice = lazy(() => import('@/components/command-post/CPVoice'));
+const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
+
+// ── Canonical shell section pages ────────────────────────────
+const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
+const MemoryGraphPanel = lazy(() => import('@/components/admin/MemoryGraphPanel'));
+const MemoryWikiPanel = lazy(() => import('@/components/admin/MemoryWikiPanel'));
+const AutoresearchPanel = lazy(() => import('@/components/admin/AutoresearchPanel'));
+const SelfImprovePanel = lazy(() => import('@/components/admin/SelfImprovePanel'));
+const DreamPanel = lazy(() => import('@/components/admin/DreamPanel'));
+const TrainingPanel = lazy(() => import('@/components/admin/TrainingPanel'));
+const ToolsView = lazy(() => import('@/components/tools/ToolsView'));
+const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
+const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
+const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
+const ChannelsPanel = lazy(() => import('@/components/admin/ChannelsPanel'));
+const MeshPanel = lazy(() => import('@/components/admin/MeshPanel'));
+const BrowserPanel = lazy(() => import('@/components/admin/BrowserPanel'));
+const RecipesPanel = lazy(() => import('@/components/admin/RecipesPanel'));
+const SettingsPanel = lazy(() => import('@/components/admin/SettingsPanel'));
+const SecurityPanel = lazy(() => import('@/components/admin/SecurityPanel'));
+const AuditPanel = lazy(() => import('@/components/admin/AuditPanel'));
+const BackupPanel = lazy(() => import('@/components/admin/BackupPanel'));
+const LogsPanel = lazy(() => import('@/components/admin/LogsPanel'));
+const HomelabPanel = lazy(() => import('@/components/admin/HomelabPanel'));
+const NvidiaPanel = lazy(() => import('@/components/admin/NvidiaPanel'));
+const VramPanel = lazy(() => import('@/components/admin/VramPanel'));
+const FleetPanel = lazy(() => import('@/components/admin/FleetPanel'));
+const CronPanel = lazy(() => import('@/components/admin/CronPanel'));
+const EvalPanel = lazy(() => import('@/components/admin/EvalPanel'));
 
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
@@ -81,42 +121,89 @@ function AuthenticatedAppInner() {
     <ToastProvider>
     <ConfigProvider>
       <RouteTracker />
-      <Suspense fallback={<LoadingFallback />}>
-        <Routes>
-          {/* Titan 3.0: Canvas is the only view */}
-          <Route path="/space/:spaceId" element={<TitanCanvas />} />
+      <TitanShell>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
+            {/* Canonical 6-section shell */}
+            <Route path="/" element={<CPDashboard />} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
-          {/* Legacy routes → redirect to spaces */}
-          <Route path="/" element={<Navigate to="/space/home" replace />} />
-          <Route path="/dashboard" element={<Navigate to="/space/home" replace />} />
-          <Route path="/space" element={<Navigate to="/space/home" replace />} />
-          <Route path="/soma" element={<Navigate to="/space/soma" replace />} />
-          <Route path="/intelligence" element={<Navigate to="/space/intelligence" replace />} />
-          <Route path="/infra" element={<Navigate to="/space/infra" replace />} />
-          <Route path="/tools" element={<Navigate to="/space/tools" replace />} />
-          <Route path="/settings" element={<Navigate to="/space/settings" replace />} />
-          <Route path="/watch" element={<Navigate to="/space/home" replace />} />
-          <Route path="/projects" element={<Navigate to="/space/home" replace />} />
-          <Route path="/issues" element={<Navigate to="/space/home" replace />} />
-          <Route path="/goals" element={<Navigate to="/space/home" replace />} />
-          <Route path="/approvals" element={<Navigate to="/space/home" replace />} />
-          <Route path="/activity" element={<Navigate to="/space/home" replace />} />
+            <Route path="/missions" element={<MissionStart />} />
+            <Route path="/missions/library" element={<MissionLibrary />} />
+            <Route path="/missions/goals" element={<CPGoals />} />
+            <Route path="/missions/issues" element={<CPIssues />} />
+            <Route path="/missions/approvals" element={<CPApprovals />} />
+            <Route path="/missions/activity" element={<CPActivity />} />
+            <Route path="/missions/work" element={<CPRuns />} />
 
-          {/* Command Post — routed page and canvas widget */}
-          <Route path="/command-post/*" element={<CPLayout />} />
+            <Route path="/team" element={<Navigate to="/team/agents" replace />} />
+            <Route path="/team/agents" element={<CPAgents />} />
+            <Route path="/team/org-chart" element={<CPOrg />} />
+            <Route path="/team/personas" element={<PersonasPanel />} />
 
-          {/* v6.1.0 Mission Chat — opt-in chat-style team control */}
-          <Route path="/mission" element={<MissionStart />} />
-          {/* v6.1.0-alpha.13 — sessions browser */}
-          <Route path="/mission/library" element={<MissionLibrary />} />
-          <Route path="/mission/:id" element={<MissionChat />} />
-          {/* v6.1.0-alpha.8 Mission Canvas — spatial team view (same data, different layout) */}
-          <Route path="/mission/:id/canvas" element={<MissionCanvas />} />
+            <Route path="/knowledge" element={<MemoryGraphPanel />} />
+            <Route path="/knowledge/memory-graph" element={<MemoryGraphPanel />} />
+            <Route path="/knowledge/wiki" element={<MemoryWikiPanel />} />
+            <Route path="/knowledge/autoresearch" element={<AutoresearchPanel />} />
+            <Route path="/knowledge/self-improve" element={<SelfImprovePanel />} />
+            <Route path="/knowledge/dreams" element={<DreamPanel />} />
+            <Route path="/knowledge/training" element={<TrainingPanel />} />
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/space/home" replace />} />
-        </Routes>
-      </Suspense>
+            <Route path="/tools" element={<ToolsView />} />
+            <Route path="/tools/skills" element={<SkillsPanel />} />
+            <Route path="/tools/mcp" element={<McpPanel />} />
+            <Route path="/tools/integrations" element={<IntegrationsPanel />} />
+            <Route path="/tools/channels" element={<ChannelsPanel />} />
+            <Route path="/tools/mesh" element={<MeshPanel />} />
+            <Route path="/tools/browser" element={<BrowserPanel />} />
+            <Route path="/tools/recipes" element={<RecipesPanel />} />
+            <Route path="/tools/files" element={<CPFiles />} />
+            <Route path="/tools/voice" element={<CPVoice />} />
+
+            <Route path="/system" element={<SettingsPanel />} />
+            <Route path="/system/settings" element={<SettingsPanel />} />
+            <Route path="/system/security" element={<SecurityPanel />} />
+            <Route path="/system/costs" element={<CPCosts />} />
+            <Route path="/system/audit" element={<AuditPanel />} />
+            <Route path="/system/backup-recovery" element={<BackupPanel />} />
+            <Route path="/system/logs" element={<LogsPanel />} />
+            <Route path="/system/homelab" element={<HomelabPanel />} />
+            <Route path="/system/gpu" element={<NvidiaPanel />} />
+            <Route path="/system/vram" element={<VramPanel />} />
+            <Route path="/system/fleet" element={<FleetPanel />} />
+            <Route path="/system/cron" element={<CronPanel />} />
+            <Route path="/system/quality-lab" element={<EvalPanel />} />
+
+            {/* Legacy routes → canonical sections */}
+            <Route path="/soma" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/intelligence" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/infra" element={<Navigate to="/system" replace />} />
+            <Route path="/settings" element={<Navigate to="/system/settings" replace />} />
+            <Route path="/watch" element={<Navigate to="/missions/activity" replace />} />
+            <Route path="/projects" element={<Navigate to="/missions/work" replace />} />
+            <Route path="/issues" element={<Navigate to="/missions/issues" replace />} />
+            <Route path="/goals" element={<Navigate to="/missions/goals" replace />} />
+            <Route path="/approvals" element={<Navigate to="/missions/approvals" replace />} />
+            <Route path="/activity" element={<Navigate to="/missions/activity" replace />} />
+
+            {/* Command Post keeps working inside the canonical shell */}
+            <Route path="/command-post/*" element={<CPLayout />} />
+
+            {/* Mission flow routes keep their legacy singular paths */}
+            <Route path="/mission" element={<MissionStart />} />
+            <Route path="/mission/library" element={<MissionLibrary />} />
+            <Route path="/mission/:id" element={<MissionChat />} />
+            <Route path="/mission/:id/canvas" element={<MissionCanvas />} />
+
+            {/* Canvas workspaces remain opt-in */}
+            <Route path="/space" element={<Navigate to="/space/home" replace />} />
+            <Route path="/space/:spaceId" element={<TitanCanvas />} />
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </TitanShell>
 
       <OpenAuthBanner />
       <FirstRunBanner />

@@ -5,6 +5,92 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.25 — 2026-05-18 — Canonical 6-section sidebar (IA redesign phase 2)
+
+The dual-sidebar problem is gone. One canonical left rail across the
+whole app, six top-level sections, every legacy URL still works through
+aliases.
+
+### What changed
+
+- **New `ui/src/components/shell/TitanShell.tsx`** (296 lines, Codex
+  authored). Six sections with submenus:
+  - **Home** — `/` (alias: `/command-post`, `/dashboard`)
+  - **Missions & Work** — Library / Goals / Issues / Approvals /
+    Activity / Work
+  - **Team** — Agents / Org Chart / Personas
+  - **Knowledge** — Memory Graph / Wiki / Autoresearch / Self-Improve /
+    Dreams / Training
+  - **Tools & Connections** — Skills / MCP / Integrations / Channels /
+    Mesh / Browser / Recipes / Files / Voice
+  - **System** — Settings / Security / Audit / Backup / Logs /
+    Homelab / GPU / VRAM / Fleet / Cron / Eval / Costs
+  - **Workspaces** (canvas) — demoted to the bottom rail (icon-only)
+  - Each link declares `aliases: string[]` so the legacy URL is
+    highlighted as active when visited (e.g. `/command-post/agents`
+    highlights `Team → Agents`).
+  - Theme-aware: uses `--theme-*` CSS variables with `--color-*` and
+    hex fallbacks, so the topbar Office/Workshop/Observatory picker
+    re-skins the rail live.
+  - Mobile: collapses to hamburger on `<768px`.
+- **`ui/src/App.tsx`** mounts `<TitanShell>` at the top level inside
+  `AuthenticatedAppInner`. Every authenticated route now renders inside
+  the canonical shell (no shell on `/login` or during onboarding).
+- **Inner CP rail collapsed.** `ui/src/components/command-post/CPLayout.tsx`
+  no longer renders `CPSidebar` — the Command Post pages now live
+  inside the canonical shell. `CommandPostHub.tsx` lost its inline
+  vertical rail; the existing tabs continue to work as content.
+- **`CPSidebar.tsx` shimmed** to a near-empty component so the legacy
+  import surface keeps compiling but renders nothing.
+- **Canonical routes added** in App.tsx for every submenu destination:
+  `/missions/*`, `/team/*`, `/knowledge/*`, `/tools/*`, `/system/*`,
+  plus legacy redirects: `/dashboard` → `/`, `/intelligence` →
+  `/knowledge`, `/infra` → `/system`, `/settings` → `/system/settings`,
+  `/watch` → `/missions/activity`, etc.
+- **PixelOfficeCrew + Stats widgets unchanged** — beta.24's theme fix
+  applies under the new shell automatically.
+
+### Why this approach
+
+- Six sections is the right grain. Five over-consolidates (Team
+  collapses into Missions); seven re-creates the original sprawl.
+  The strategic plan locked this at six.
+- Alias arrays beat 1:1 redirects for highlight state. A user who
+  visits `/command-post/agents` still sees `Team → Agents` highlighted
+  in the rail without losing the URL they bookmarked.
+- Soft-shim of `CPSidebar` (vs delete) keeps `CPLayout.tsx` compiling
+  during the one-beta soak. beta.26 hard-deletes it alongside the
+  other deprecated nav shells from beta.22.
+- Canvas (Workspaces) demoted to a single bottom-rail icon. Power
+  users keep their flow; new users land somewhere intelligible
+  (Home → operational overview).
+
+### Trade-off
+
+- The inner CP rail's section grouping (Overview / Operations /
+  Governance / System) doesn't carry over verbatim — submenu items
+  get redistributed across the new 6-section taxonomy. Users who
+  remember "Inbox is under Operations" now find it via Missions &
+  Work or via the legacy `/command-post/*` URLs (still work via
+  CPLayout routing).
+- Five deprecated nav shells (AppShell, IconRail, MobileNav,
+  TitanSidebar, TitanLayout from beta.22) still exist. They're
+  unmounted but the files survive one more beta. Hard-delete in
+  beta.26.
+
+### Follow-ups (beta.26)
+
+- Hard-delete `AppShell`, `IconRail`, `MobileNav`, `TitanSidebar`,
+  `TitanLayout`, and `CPSidebar` shim
+- Merge duplicate panels: `EvalPanel` + `EvalHarnessPanel` →
+  `Quality Lab`; `BackupPanel` + `CheckpointsPanel` +
+  `TimeTravelWidget` → `Recovery`; `CPFiles` + `FilesPanel` → one
+  Files; `PersonasPanel` + `PersonaProfilesPanel` → one Personas;
+  `AgentsPanel` + `CPAgents` → one Agents
+- Apply renames: `Canvas` → `Mission Desk`, `Eval` → `Quality Lab`
+
+---
+
 ## v6.1.0-beta.24 — 2026-05-17 — PixelOfficeCrew canvas fix (theme audit kickoff)
 
 Tony screenshotted the Command Post dashboard and the middle "Pixel Office
