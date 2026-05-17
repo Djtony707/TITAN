@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { listMissions, deleteMission, type MissionRoom } from '@/api/missions';
-// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 type StatusFilter = 'all' | 'live' | 'done' | 'failed';
 

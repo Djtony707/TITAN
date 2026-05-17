@@ -5,6 +5,21 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.28 — 2026-05-17
+
+Removed 5 @deprecated nav shells + CPSidebar shim + TitanProjects stub.
+Canonical TitanShell + 6-section sidebar is now the only shell.
+
+### Removed
+
+- `ui/src/components/shell/AppShell.tsx`
+- `ui/src/components/shell/IconRail.tsx`
+- `ui/src/components/shell/MobileNav.tsx`
+- `ui/src/components/layout/TitanLayout.tsx`
+- `ui/src/components/layout/TitanSidebar.tsx`
+- `ui/src/components/command-post/CPSidebar.tsx`
+- `ui/src/pages/TitanProjects.tsx`
+
 ## v6.1.0-beta.27 — 2026-05-17 — Onboarding truth pass, provider disable switch, fleet endpoint
 
 Onboarding wizard and config layer get a truth + ergonomics pass. The
