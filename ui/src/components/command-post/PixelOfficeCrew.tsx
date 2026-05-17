@@ -8,12 +8,26 @@ import type { RegisteredAgent, CPActivityEntry } from '@/api/types';
 
 type PixelState = 'idle' | 'active' | 'paused' | 'error' | 'stopped';
 
-const COLORS: Record<PixelState, string> = {
-  idle: 'var(--color-text-secondary)',
-  active: 'var(--color-success)',
-  paused: 'var(--color-warning)',
-  error: 'var(--color-error)',
-  stopped: 'var(--color-border-light)',
+type ThemePalette = {
+  bg: string;
+  bgTertiary: string;
+  border: string;
+  borderLight: string;
+  textMuted: string;
+  textSecondary: string;
+  accent: string;
+  accentLight: string;
+  success: string;
+  warning: string;
+  error: string;
+};
+
+const COLOR_FIELDS: Record<PixelState, keyof ThemePalette> = {
+  idle: 'textSecondary',
+  active: 'success',
+  paused: 'warning',
+  error: 'error',
+  stopped: 'borderLight',
 };
 
 const ROLE_ICONS: Record<string, string> = {
@@ -42,6 +56,48 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
     let animId: number;
     let frame = 0;
 
+    // v6.1.0-beta.24 — Canvas 2D `fillStyle` and `strokeStyle` need concrete
+    // color strings. Pre-beta.24 this file passed unresolved CSS variables
+    // into fillStyle/strokeStyle calls; every one silently fell back to
+    // black, which is why the pixel office crew rendered as a black square
+    // on a dark background (visible in Tony's screenshot 2026-05-17).
+    //
+    // Helper: resolve a CSS variable from :root once per frame, with a
+    // hard-coded fallback that matches the default zinc-indigo palette in
+    // ui/src/styles/globals.css. Re-reads each frame so theme picker
+    // changes (Office/Workshop/Observatory) take effect immediately.
+    const resolveTheme = (): ThemePalette => {
+      const root = document.documentElement;
+      const cs = getComputedStyle(root);
+      const v = (themeName: string | null, colorName: string, fallback: string) => {
+        const themeVal = themeName ? cs.getPropertyValue(themeName).trim() : '';
+        if (themeVal) return themeVal;
+        const colorVal = cs.getPropertyValue(colorName).trim();
+        return colorVal || fallback;
+      };
+
+      // Theme picker mapping:
+      // bg -> --theme-bg-base; bgTertiary -> --theme-bg-grain;
+      // border -> --theme-metal-dark; borderLight -> --theme-metal;
+      // textMuted -> --theme-ink-soft; textSecondary -> --theme-paper-fg;
+      // accent -> --theme-accent. The theme palette has no accent-light,
+      // success, warning, or error equivalents, so those intentionally fall
+      // through to the static --color-* tokens before using hex defaults.
+      return {
+        bg: v('--theme-bg-base', '--color-bg', '#09090b'),
+        bgTertiary: v('--theme-bg-grain', '--color-bg-tertiary', '#27272a'),
+        border: v('--theme-metal-dark', '--color-border', '#3f3f46'),
+        borderLight: v('--theme-metal', '--color-border-light', '#52525b'),
+        textMuted: v('--theme-ink-soft', '--color-text-muted', '#71717a'),
+        textSecondary: v('--theme-paper-fg', '--color-text-secondary', '#a1a1aa'),
+        accent: v('--theme-accent', '--color-accent', '#6366f1'),
+        accentLight: v(null, '--color-accent-light', '#a5b4fc'),
+        success: v(null, '--color-success', '#22c55e'),
+        warning: v(null, '--color-warning', '#f59e0b'),
+        error: v(null, '--color-error', '#ef4444'),
+      };
+    };
+
     const resize = () => {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -59,9 +115,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
       const h = canvas.clientHeight;
       const agentsList = agentsRef.current;
       const recentActivity = activityRef.current;
+      // Resolve theme colors once per frame so the topbar theme picker
+      // (Office / Workshop / Observatory) re-skins the canvas live.
+      const theme = resolveTheme();
 
       // Clear
-      ctx.fillStyle = 'var(--color-bg)';
+      ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, w, h);
 
       // Floor grid
@@ -72,12 +131,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
 
       if (agentsList.length === 0) {
         // Empty state
-        ctx.fillStyle = 'var(--color-bg-tertiary)';
+        ctx.fillStyle = theme.bgTertiary;
         ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('No agents registered', w / 2, h / 2 - 10);
         ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-        ctx.fillStyle = 'var(--color-border)';
+        ctx.fillStyle = theme.border;
         ctx.fillText('Spawn agents to see them here', w / 2, h / 2 + 10);
         ctx.textAlign = 'start';
         animId = requestAnimationFrame(draw);
@@ -94,7 +153,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const cx = startX + i * slotW;
         const cy = h * 0.55;
         const state = (agent.status === 'active' ? 'active' : agent.status) as PixelState;
-        const color = COLORS[state] || COLORS.idle;
+        const color = theme[COLOR_FIELDS[state] || COLOR_FIELDS.idle];
         const bobY = Math.sin(t * 0.8 + i * 1.5) * 1.5;
 
         // Is this agent doing something? Check recent activity
@@ -107,12 +166,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const deskH = 10;
         const deskX = cx - deskW / 2;
         const deskY = cy + 16;
-        ctx.fillStyle = 'var(--color-border)';
+        ctx.fillStyle = theme.border;
         ctx.fillRect(deskX, deskY, deskW, deskH);
-        ctx.fillStyle = 'var(--color-border-light)';
+        ctx.fillStyle = theme.borderLight;
         ctx.fillRect(deskX + 1, deskY + 1, deskW - 2, deskH - 2);
         // Legs
-        ctx.fillStyle = 'var(--color-border)';
+        ctx.fillStyle = theme.border;
         ctx.fillRect(deskX + 3, deskY + deskH, 3, 14);
         ctx.fillRect(deskX + deskW - 6, deskY + deskH, 3, 14);
 
@@ -121,9 +180,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const monH = 18;
         const monX = cx - monW / 2;
         const monY = deskY - monH;
-        ctx.fillStyle = 'var(--color-bg-tertiary)';
+        ctx.fillStyle = theme.bgTertiary;
         ctx.fillRect(monX, monY, monW, monH);
-        const screenColor = state === 'error' ? 'var(--color-error)' : state === 'active' ? 'var(--color-success)' : 'var(--color-accent)';
+        // Hex-color alpha overlay (e.g. '#ef4444' + '30' = '#ef444430') is
+        // valid #RRGGBBAA — required because the previous CSS-token + alpha
+        // string was rejected by canvas and silently fell to default black.
+        const screenColor = state === 'error' ? theme.error : state === 'active' ? theme.success : theme.accent;
         ctx.fillStyle = screenColor + '30';
         ctx.fillRect(monX + 2, monY + 2, monW - 4, monH - 4);
         // Screen lines when active
@@ -136,7 +198,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
           }
         }
         // Stand
-        ctx.fillStyle = 'var(--color-border)';
+        ctx.fillStyle = theme.border;
         ctx.fillRect(cx - 2, deskY - 1, 4, 3);
 
         // Chair
@@ -145,12 +207,12 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         ctx.fillRect(cx - 11, cy - 2 + bobY, 3, 20);
 
         // Body
-        ctx.fillStyle = 'var(--color-border)';
+        ctx.fillStyle = theme.border;
         ctx.fillRect(cx - 7, cy + bobY, 14, 12);
 
         // Head
         const headBob = state === 'active' && isWorking ? Math.sin(t * 1.5 + i) * 1.5 : 0;
-        ctx.fillStyle = 'var(--color-border-light)';
+        ctx.fillStyle = theme.borderLight;
         ctx.fillRect(cx - 6, cy - 10 + bobY + headBob, 12, 10);
 
         // Eyes
@@ -169,7 +231,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         }
 
         // Antenna
-        ctx.fillStyle = 'var(--color-border-light)';
+        ctx.fillStyle = theme.borderLight;
         ctx.fillRect(cx - 1, cy - 14 + bobY + headBob, 2, 4);
         ctx.fillStyle = color;
         ctx.beginPath();
@@ -188,11 +250,11 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         if (state === 'active' && isWorking) {
           const armL = Math.sin(t * 6 + i) * 2;
           const armR = Math.sin(t * 6 + i + Math.PI) * 2;
-          ctx.fillStyle = 'var(--color-border)';
+          ctx.fillStyle = theme.border;
           ctx.fillRect(cx - 11, cy + 3 + bobY + armL, 4, 3);
           ctx.fillRect(cx + 7, cy + 3 + bobY + armR, 4, 3);
         } else {
-          ctx.fillStyle = 'var(--color-border)';
+          ctx.fillStyle = theme.border;
           ctx.fillRect(cx - 10, cy + 5 + bobY, 3, 6);
           ctx.fillRect(cx + 7, cy + 5 + bobY, 3, 6);
         }
@@ -219,14 +281,14 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
             const sparkX = cx + Math.sin(t * 4 + p * 2) * 12;
             const sparkY = cy - 5 + Math.cos(t * 3 + p) * 8 + bobY;
             ctx.globalAlpha = 0.4 + Math.sin(t + p) * 0.3;
-            ctx.fillStyle = 'var(--color-error)';
+            ctx.fillStyle = theme.error;
             ctx.fillRect(sparkX - 1, sparkY - 1, 2, 2);
           }
           ctx.globalAlpha = 1;
         }
 
         // Name label
-        ctx.fillStyle = state === 'stopped' ? 'var(--color-border)' : 'var(--color-text-muted)';
+        ctx.fillStyle = state === 'stopped' ? theme.border : theme.textMuted;
         ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         // v4.8.4: fit the agent's name into the desk width by measuring,
@@ -253,7 +315,7 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
       }
 
       // Title
-      ctx.fillStyle = 'var(--color-bg-tertiary)';
+      ctx.fillStyle = theme.bgTertiary;
       ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('COMMAND POST', w / 2, h - 6);
@@ -264,9 +326,9 @@ export function PixelOfficeCrew({ agents, activity }: Props) {
         const latest = recentActivity[recentActivity.length - 1];
         const age = Date.now() - new Date(latest.timestamp).getTime();
         if (age < 60000) {
-          ctx.fillStyle = 'var(--color-accent)' + '40';
+          ctx.fillStyle = theme.accent + '40';
           ctx.fillRect(0, 0, w, 16);
-          ctx.fillStyle = 'var(--color-accent-light)';
+          ctx.fillStyle = theme.accentLight;
           ctx.font = '8px -apple-system, BlinkMacSystemFont, sans-serif';
           const tickerText = latest.message.length > 60 ? latest.message.slice(0, 57) + '...' : latest.message;
           ctx.textAlign = 'center';
