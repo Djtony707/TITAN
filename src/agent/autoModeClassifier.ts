@@ -108,6 +108,15 @@ export interface ClassificationResult {
  * Pure synchronous lookup — no IO, safe to call per-tool-call.
  */
 export function getAutoModePolicy(): AutoModePolicy {
+    // beta.21 — env override. Lets the test suite (and any embedder
+    // that wants a process-wide policy without touching config files)
+    // short-circuit the classifier without mutating loaded config.
+    // Production callers should configure via `config.security.autoMode.policy`
+    // — this env hook is opt-in and silent when unset.
+    const envPolicy = process.env.TITAN_AUTOMODE_POLICY;
+    if (envPolicy === 'paranoid' || envPolicy === 'permissive' || envPolicy === 'yolo' || envPolicy === 'standard') {
+        return envPolicy;
+    }
     try {
         const cfg = loadConfig();
         const sec = (cfg as Record<string, unknown>).security as Record<string, unknown> | undefined;

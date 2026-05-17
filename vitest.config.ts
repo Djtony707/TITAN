@@ -50,6 +50,17 @@ export default defineConfig({
         exclude: ['node_modules/**', 'dist/**', ...HEAVY_TESTS_EXCLUDED_IN_CI],
         testTimeout: 30000,
         hookTimeout: 25000,
+        // beta.21 — Auto-mode classifier (shipped in beta.16/17, hardened
+        // in beta.20) defaults unknown tools to 'gate', which trips the
+        // approval gate inside `executeTool`. Most pre-classifier tests
+        // register synthetic tools without contracts and expect them to
+        // run inline. Force 'yolo' across the whole test suite so the
+        // classifier short-circuits; production callers still use the
+        // config-driven default. Individual tests can override via
+        // `process.env.TITAN_AUTOMODE_POLICY = ...` in their own setup.
+        env: {
+            TITAN_AUTOMODE_POLICY: 'yolo',
+        },
         // Pool tuning — see header comment above. agent.test.ts loads
         // 200+ TITAN modules transitively and the per-test
         // `vi.resetModules() + await import()` pattern accumulates

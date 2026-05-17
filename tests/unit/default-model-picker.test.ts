@@ -14,6 +14,8 @@ const KEYS_TO_SCRUB = [
     'GOOGLE_API_KEY',
     'OPENROUTER_API_KEY',
     'GROQ_API_KEY',
+    'CI',
+    'TITAN_STUB_PROVIDER',
     'TITAN_HOME',
 ];
 

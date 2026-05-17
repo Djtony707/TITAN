@@ -12,7 +12,7 @@
  * `auto`. Belt-and-suspenders coverage for the precedence rule
  * defined in toolRunner.ts Step 1 / Step 2 comments.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 
 const { configHolder, approvalState } = vi.hoisted(() => ({
@@ -99,10 +99,20 @@ function safeContract(name: string): ToolContract {
 
 const TOOL_NAME = 'test-precedence-tool';
 
+// beta.21 — vitest.config.ts sets TITAN_AUTOMODE_POLICY=yolo across the
+// whole suite so pre-classifier toolRunner tests can run their
+// contract-less synthetic tools without tripping the approval gate.
+// This file needs to drive policy through the mocked config, so the
+// env override has to be cleared here. Capture + restore so we don't
+// leak the cleared state into whichever test file Vitest schedules
+// next in the same worker (Codex P2, 2026-05-16).
+const ORIGINAL_AUTOMODE_ENV = process.env.TITAN_AUTOMODE_POLICY;
+
 beforeEach(() => {
     clearToolContracts();
     approvalState.requireFor.clear();
     approvalState.createCalls = [];
+    delete process.env.TITAN_AUTOMODE_POLICY;
     setPolicy('standard');
 
     // (Re-)register the test tool — its execute() is never called in
@@ -115,6 +125,14 @@ beforeEach(() => {
         parameters: { type: 'object', properties: {} },
         execute: async () => 'should not be reached when gated',
     });
+});
+
+afterEach(() => {
+    if (ORIGINAL_AUTOMODE_ENV === undefined) {
+        delete process.env.TITAN_AUTOMODE_POLICY;
+    } else {
+        process.env.TITAN_AUTOMODE_POLICY = ORIGINAL_AUTOMODE_ENV;
+    }
 });
 
 /* ──────────────────────────  Tests  ────────────────────────── */

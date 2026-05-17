@@ -204,6 +204,7 @@ describe('drives', () => {
                   totalTasksCompleted: 0, totalCostUsd: 0, createdAt: '', role: 'general' as const },
             ];
             const drives = computeAllDrives(makeSnapshot({
+                now,
                 agents,
                 lastFacebookPostAt: now,    // posted right now → postSat = 1
             }));

@@ -5,6 +5,82 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.21 — 2026-05-16 — CI green: blocklist-during-recursion + classifier env override
+
+Three small fixes that together turn CI from 20 failing → 0 failing
+and keep the 7,649-test suite at 100% pass.
+
+### What changed
+
+- **`list_dir` blocklist during recursive walks** (G2). The recursive
+  list helper was probing children **before** consulting the path
+  blocklist, so `list_dir({recursive:true, path:'~'})` would
+  enumerate names inside `~/.ssh`, `~/.gnupg`, and other sensitive
+  directories even though the read itself was denied. Pulled the
+  blocklist check into a shared `getPathBlockReason()` helper and
+  ran it on every recursion frame, not just the entry point. Adds
+  regression tests covering both the top-level deny and the
+  in-flight deny during a deep walk.
+- **`tests/organism/drives.test.ts` floating-point drift.** The
+  social-drive satisfaction assertion read `Date.now()` inside the
+  snapshot builder, so the test occasionally observed
+  `0.9999999942…` instead of `1` depending on tick alignment.
+  Threaded the captured `now` through `makeSnapshot()` so the
+  reference time matches the data.
+- **`tests/unit/default-model-picker.test.ts` env hijack in CI.**
+  GitHub Actions sets `CI=true`, which the stub-provider env
+  picker reads to switch the default model from `ollama/*` to
+  `stub/echo`. Tests then asserted the Ollama path and failed.
+  Added `CI` and `TITAN_STUB_PROVIDER` to the existing
+  `KEYS_TO_SCRUB` list so the picker runs with a clean
+  environment.
+- **Auto-mode classifier env override** (test ergonomics). The
+  classifier shipped in beta.16/17 defaults unknown tools (no
+  registered contract) to `gate`, which trips the approval gate
+  inside `executeTool`. Pre-classifier tests register synthetic
+  tools without contracts and expect them to run inline.
+  `getAutoModePolicy()` now consults `TITAN_AUTOMODE_POLICY` first,
+  so the whole test suite can run under `yolo` via
+  `vitest.config.ts` `env` block. Production callers still read
+  `config.security.autoMode.policy`. The classifier's own tests
+  delete the env var in `beforeEach` so they can drive policy
+  through the mocked config.
+
+### Why this approach
+
+- The blocklist fix lives in a single helper so any future
+  recursion (`tree`, watch, search) gets the same guarantee for
+  free. Stamping it on every frame would invite the next regression
+  if someone added a new helper.
+- The drives + picker fixes were two-line changes that addressed
+  root causes; no shimming, no test-marker churn.
+- The classifier env hook is opt-in (silent when unset) so it
+  doesn't change production behaviour for anyone who doesn't set
+  the variable. The alternative — rewriting every pre-classifier
+  test to register tool contracts — would have been ~100 LOC of
+  test scaffolding with no production benefit.
+
+### Trade-off
+
+- Tests now run with classifier policy=`yolo`. This is correct
+  for the test fleet (no real side effects, no user to ask) but
+  means classifier wire-in coverage is provided by the dedicated
+  `auto-mode-classifier` + `auto-mode-precedence` suites rather
+  than by every tool-runner test. Those two suites assert the
+  full decision matrix.
+
+### Follow-ups
+
+- Eval Gate is still at 26% vs the 80% threshold. The stub
+  provider only matches ~10 prompt shapes; the 58-case eval
+  exercises many more. Deferred to a dedicated stub-provider
+  expansion pass.
+- `/opt/TITAN` on Titan PC is still at beta.18. Tony decision
+  pending on whether to deploy beta.21 to soak or wait for
+  v6.1.0 stable.
+
+---
+
 ## v6.1.0-beta.20 — 2026-05-16 — Worktree isolation for destructive tools (Phase D.5)
 
 Destructive tool calls can now run inside an isolated git worktree

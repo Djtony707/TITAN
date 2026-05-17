@@ -195,6 +195,64 @@ describe('Filesystem Skill', () => {
             try { rmSync(testDir, { recursive: true, force: true }); } catch {}
         }
     });
+
+    it('list_dir recursive should skip blocked files and directories', async () => {
+        const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
+        const { join } = await import('path');
+        const testDir = mkdtempSync('/tmp/titan-list-dir-blocked-');
+        mkdirSync(join(testDir, '.ssh'));
+        mkdirSync(join(testDir, 'nested'));
+        writeFileSync(join(testDir, 'visible.txt'), 'visible', 'utf-8');
+        writeFileSync(join(testDir, '.env'), 'SECRET=value', 'utf-8');
+        writeFileSync(join(testDir, '.ssh', 'id_rsa'), 'private-key', 'utf-8');
+        writeFileSync(join(testDir, 'nested', 'normal.txt'), 'normal', 'utf-8');
+        try {
+            const handler = fsSkillHandlers.get('list_dir');
+            const result = await handler.execute({ path: testDir, recursive: true });
+            expect(result).toContain('visible.txt');
+            expect(result).toContain('nested/normal.txt');
+            expect(result).not.toContain('.ssh');
+            expect(result).not.toContain('id_rsa');
+            expect(result).not.toContain('.env');
+        } finally {
+            try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+        }
+    });
+
+    it('list_dir non-recursive should skip blocked top-level entries', async () => {
+        const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('fs');
+        const { join } = await import('path');
+        const testDir = mkdtempSync('/tmp/titan-list-dir-blocked-shallow-');
+        mkdirSync(join(testDir, '.ssh'));
+        writeFileSync(join(testDir, 'visible.txt'), 'visible', 'utf-8');
+        writeFileSync(join(testDir, '.env'), 'SECRET=value', 'utf-8');
+        try {
+            const handler = fsSkillHandlers.get('list_dir');
+            const result = await handler.execute({ path: testDir, recursive: false });
+            expect(result).toContain('visible.txt');
+            expect(result).not.toContain('.ssh');
+            expect(result).not.toContain('.env');
+        } finally {
+            try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+        }
+    });
+
+    it('isPathBlocked should block real system directories without overblocking similar names', async () => {
+        const { mkdtempSync, mkdirSync, rmSync, symlinkSync } = await import('fs');
+        const { join } = await import('path');
+        const { isPathBlocked } = await import('../src/skills/builtin/filesystem.js');
+        const testDir = mkdtempSync('/tmp/titan-list-dir-blocked-path-');
+        const targetDir = join(testDir, 'target');
+        const symlinkPath = join(testDir, 'fake-var-log');
+        mkdirSync(targetDir);
+        try {
+            try { symlinkSync(targetDir, symlinkPath, 'dir'); } catch {}
+            expect(isPathBlocked('/var/log/titan-test.log')).toBe(true);
+            expect(isPathBlocked(symlinkPath)).toBe(false);
+        } finally {
+            try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+        }
+    });
 });
 
 // ─── Model Switch Skill Tests ─────────────────────────────────────
