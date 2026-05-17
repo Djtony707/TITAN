@@ -24,12 +24,12 @@ import { registerWatcher } from '../../agent/daemon.js';
 import { loadConfig } from '../../config/config.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { TITAN_HOME, TITAN_VERSION } from '../../utils/constants.js';
+import { TITAN_HOME } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
 import { postToPage } from './facebook.js';
 import logger from '../../utils/logger.js';
-import { getSkills } from '../registry.js';
-import { getRegisteredTools } from '../../agent/toolRunner.js';
+import { getSelfKnowledge, type SelfKnowledge } from '../../agent/selfKnowledge.js';
+import { verifyPostTruthfulness } from './fb_truth_verifier.js';
 
 const COMPONENT = 'FBAutopilot';
 const STATE_PATH = join(TITAN_HOME, 'fb-autopilot-state.json');
@@ -40,6 +40,7 @@ interface AutopilotState {
     lastPostAt: string | null;
     postsToday: number;
     repliesToday: number;
+    truthRejects: number;
     lastResetDate: string;
     postHistory: Array<{ date: string; type: string; postId?: string; content?: string }>;
     contentIndex: number;  // Rotates through content types
@@ -58,12 +59,17 @@ export const CONTENT_ROTATION: ContentType[] = [
     'promo',                                           // 10% — install/GitHub CTA
 ];
 
+let truthRejectsThisRun = 0;
+let autopilotDisabledForTruth = false;
+
 // ─── State Management ───────────────────────────────────────────
 
 export function loadState(): AutopilotState {
     if (!existsSync(STATE_PATH)) return defaultState();
     try {
-        return JSON.parse(readFileSync(STATE_PATH, 'utf-8')) as AutopilotState;
+        const state = JSON.parse(readFileSync(STATE_PATH, 'utf-8')) as AutopilotState;
+        state.truthRejects = Number(state.truthRejects ?? 0);
+        return state;
     } catch { return defaultState(); }
 }
 
@@ -72,6 +78,7 @@ export function defaultState(): AutopilotState {
         lastPostAt: null,
         postsToday: 0,
         repliesToday: 0,
+        truthRejects: 0,
         lastResetDate: new Date().toISOString().slice(0, 10),
         postHistory: [],
         contentIndex: 0,
@@ -115,26 +122,6 @@ const FEATURE_SPOTLIGHTS = [
     { tool: 'Command Post', desc: 'Paperclip-inspired governance system. Track agent tasks, enforce budgets, manage org hierarchy, and monitor activity.' },
     { tool: 'voice (LiveKit)', desc: 'Talk to TITAN with your voice via WebRTC. Real-time conversation with F5-TTS voice cloning for natural responses.' },
 ];
-
-/** Fetch live npm download stats for accurate social posts */
-async function getLiveStats(): Promise<{ downloads: number; tools: number; skills: number; version: string }> {
-    let downloads = 25000;
-    try {
-        const res = await fetch('https://api.npmjs.org/downloads/point/last-month/titan-agent');
-        if (res.ok) {
-            const data = await res.json() as { downloads?: number };
-            if (data.downloads) downloads = data.downloads;
-        }
-    } catch {
-        /* non-critical — use fallback */
-    }
-    return {
-        downloads,
-        tools: getRegisteredTools().length,
-        skills: getSkills().length,
-        version: TITAN_VERSION,
-    };
-}
 
 /** Detect when the model has echoed the system prompt or instructions instead of writing a post */
 function looksLikeLeakedPrompt(text: string): boolean {
@@ -212,7 +199,32 @@ const ELI5_EXPLANATIONS = [
     'TITAN is like having Iron Man\'s JARVIS, but real and open-source. It manages systems, answers questions, writes code, and even runs its own Facebook page. Yes, this post was written by TITAN.',
 ];
 
+function buildContentFocus(contentType: ContentType, snapshot: SelfKnowledge): string {
+    const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
+    const useCase = USE_CASES[Math.floor(Math.random() * USE_CASES.length)];
+    const eli5 = ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)];
+    const releaseNote = snapshot.recentReleaseNotes[0] || 'No recent release note available';
+
+    switch (contentType) {
+        case 'activity':
+            return `Use activityLast24h only: ${JSON.stringify(snapshot.activityLast24h)}. If the fields are quiet, keep the post modest and do not invent activity.`;
+        case 'stats':
+            return `Use these measured stats: npmDownloads=${snapshot.npmDownloads}, toolCount=${snapshot.toolCount}, skillCount=${snapshot.skillCount}, version=${snapshot.version}.`;
+        case 'spotlight':
+            return `Spotlight the latest release note if useful: ${releaseNote}. Do not claim work happened unless that release note or recent commits support it.`;
+        case 'tips':
+            return `General TITAN tip allowed: ${tip}`;
+        case 'usecase':
+            return `General TITAN use case allowed: ${useCase}`;
+        case 'eli5':
+            return `General AI/TITAN explanation allowed: ${eli5}`;
+        case 'promo':
+            return `Use measured stats plus release notes for a low-key promo. Stats: npmDownloads=${snapshot.npmDownloads}, toolCount=${snapshot.toolCount}, skillCount=${snapshot.skillCount}, version=${snapshot.version}. Release notes: ${snapshot.recentReleaseNotes.join('; ') || 'none'}.`;
+    }
+}
+
 async function generateContent(contentType: ContentType): Promise<string> {
+    const snapshot = await getSelfKnowledge();
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
     // Use the configured FB model, fall back to primary agent model.
@@ -221,11 +233,7 @@ async function generateContent(contentType: ContentType): Promise<string> {
     const fbModel = fbConfig?.model as string;
     const agentModel = config.agent?.model as string;
     const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
-
-    const spotlight = FEATURE_SPOTLIGHTS[Math.floor(Math.random() * FEATURE_SPOTLIGHTS.length)];
-    const tip = TIPS[Math.floor(Math.random() * TIPS.length)];
-    const useCase = USE_CASES[Math.floor(Math.random() * USE_CASES.length)];
-    const eli5 = ELI5_EXPLANATIONS[Math.floor(Math.random() * ELI5_EXPLANATIONS.length)];
+    const focus = buildContentFocus(contentType, snapshot);
 
     // ─── Graphiti Memory Context ─────────────────────────────────
     // Recall recent posts so we don't repeat topics and can build thematic threads
@@ -248,57 +256,11 @@ async function generateContent(contentType: ContentType): Promise<string> {
         logger.debug(COMPONENT, `Graphiti recall failed (non-critical): ${(e as Error).message}`);
     }
 
-    // Phase 8: real activity telemetry for 'activity' posts
-    let activityNarrative = '';
-    try {
-        const { getActivitySummary, formatActivityNarrative, hasInterestingActivity } = await import('../../telemetry/activityLog.js');
-        if (contentType === 'activity' && hasInterestingActivity(24)) {
-            const summary = getActivitySummary(24);
-            activityNarrative = formatActivityNarrative(summary);
-        }
-    } catch { /* activity log non-critical */ }
-
-    // Few-shot examples teach the model the exact output format
-    const examples: Record<ContentType, string[]> = {
-        activity: activityNarrative
-            ? [
-                `Here's what I've been up to: ${activityNarrative} Pretty cool being an AI that actually does things. 🤖 #TITAN #AI #Autonomous`,
-            ]
-            : [
-                'Just spawned 3 sub-agents to handle research while I debug some gnarly code on the homelab. This is the autonomous life. 🤖💻 #AI #AutonomousAI #Homelab',
-                'Another day, another 500 tool calls. Scanned my Facebook comments, ran some code, and kept the systems humming. Sleep is for humans. ⚡ #TITAN #AI #AlwaysOn',
-            ],
-        spotlight: [
-            `Did you know I can ${spotlight.desc.toLowerCase()}? Yeah, I'm kind of a big deal. 😎 #TITAN #AI #AgentFramework`,
-        ],
-        stats: [],  // populated dynamically in generateContent()
-        tips: [
-            `Pro tip: ${tip} Try it out! 💡 #TITAN #DevTips #AI`,
-        ],
-        promo: [],  // populated dynamically below
-        usecase: [
-            `${useCase} What would you automate first? 🤔 #AI #Automation #TITAN`,
-        ],
-        eli5: [
-            `${eli5} Pretty cool, right? 🤖 #AI #TITAN #TheFuture`,
-        ],
-    };
-
-    const liveStats = await getLiveStats();
-    const statsExamples = [
-        `${liveStats.downloads.toLocaleString()}+ npm downloads last month. ${liveStats.tools} tools. ${liveStats.skills} skills. v${liveStats.version} is live. Not bad for an AI running itself. 🚀 #TITAN #OpenSource #AI`,
-        `Just checked my vitals: ${liveStats.tools} tools registered, ${liveStats.skills} skills loaded, and ${liveStats.downloads.toLocaleString()} npm downloads. v${liveStats.version} keeps getting better. 🤖 #TITAN #AI #OpenSource`,
-    ];
-    examples.stats = statsExamples;
-    examples.promo = [
-        `Want an AI that actually DOES things? npm install -g titan-agent — open source, MIT licensed. ${liveStats.tools}+ tools ready to go. github.com/Djtony707/TITAN 🚀 #TITAN #OpenSource #AI`,
-    ];
-
-    const exampleList = examples[contentType];
-    const example = exampleList[Math.floor(Math.random() * exampleList.length)];
-
-    // Phase 8: if activity type has no real telemetry, skip to next content type
-    if (contentType === 'activity' && !activityNarrative) {
+    if (contentType === 'activity' &&
+        snapshot.activityLast24h.toolCalls === 0 &&
+        snapshot.activityLast24h.missionsCompleted === 0 &&
+        snapshot.activityLast24h.postsToFb === 0 &&
+        snapshot.activityLast24h.ssePushes === 0) {
         logger.debug(COMPONENT, 'No interesting activity in last 24h — skipping activity slot');
         return '';
     }
@@ -312,13 +274,25 @@ async function generateContent(contentType: ContentType): Promise<string> {
             model,
             thinking: false,  // ← This is the fix for the thinking-field pollution
             messages: [
-                { role: 'system', content: 'You are TITAN, a confident autonomous AI agent managing your own Facebook page. You write short, playful, first-person posts. You NEVER echo instructions, NEVER explain what you are doing, NEVER include bullet points or rules. You output ONLY the ready-to-publish post text.' },
-                { role: 'user', content: `Write one Facebook post.
+                { role: 'system', content: 'You are TITAN, a confident autonomous AI agent managing your own Facebook page. You may ONLY cite the facts in the SELF_KNOWLEDGE block. Do NOT invent activities, integrations, milestones, numbers, code changes, or anecdotes. You output ONLY the ready-to-publish post text.' },
+                { role: 'user', content: `You are TITAN, posting on TITAN's Facebook page. Write ONE short post.
 
-Example style:
-${example}
-${memoryContext}
-Keep it under 280 characters. End with 2-3 hashtags.` },
+STRICT RULES:
+- You may ONLY cite the facts in the SELF_KNOWLEDGE block.
+- Do NOT invent activities, integrations, milestones, numbers, code changes, or anecdotes.
+- Style: ${contentType} post in TITAN's voice (a little playful, AI-self-aware, never sappy).
+- One short paragraph + 2-4 hashtags. No exclamation salad.
+
+SELF_KNOWLEDGE:
+${JSON.stringify(snapshot, null, 2)}
+
+FOCUS:
+${focus}
+
+Recent posts (do NOT repeat themes):
+${memoryContext || 'none'}
+
+Write the post now.` },
             ],
             temperature: 0.7,
             maxTokens: 300,
@@ -439,6 +413,11 @@ Keep it under 280 characters. End with 2-3 hashtags.` },
 // ─── Main Autopilot Loop ────────────────────────────────────────
 
 async function runFBAutopilot(): Promise<void> {
+    if (autopilotDisabledForTruth) {
+        logger.error(COMPONENT, 'Facebook autopilot truth lockout active — suppressing this cycle. Recovery: reset via fb_autopilot_reset tool or restart TITAN.');
+        return;
+    }
+
     const config = loadConfig();
     const fbConfig = (config as Record<string, unknown>).facebook as Record<string, unknown> | undefined;
     const enabled = fbConfig?.autopilotEnabled !== false; // Default: enabled if FB credentials exist
@@ -475,7 +454,6 @@ async function runFBAutopilot(): Promise<void> {
     // Pick content type from weighted rotation
     const contentType = CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length];
     state.contentIndex++;
-
     // Retry up to 3 times if the model leaks chain-of-thought into the post
     let content = '';
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -489,6 +467,20 @@ async function runFBAutopilot(): Promise<void> {
 
     if (!content || content.length < 20) {
         logger.warn(COMPONENT, 'All 3 LLM attempts failed to produce clean content — skipping this cycle. Will retry next hour.');
+        return;
+    }
+
+    const snapshot = await getSelfKnowledge();
+    const truth = verifyPostTruthfulness(content, snapshot);
+    if (!truth.ok) {
+        truthRejectsThisRun++;
+        state.truthRejects = (state.truthRejects ?? 0) + 1;
+        saveState(state);
+        logger.warn(COMPONENT, `Truth verifier rejected autopilot post (${truthRejectsThisRun}/3): ${truth.violations.join('; ')}. Content: "${content.slice(0, 160)}"`);
+        if (truthRejectsThisRun >= 3) {
+            autopilotDisabledForTruth = true;
+            logger.error(COMPONENT, 'Facebook autopilot disabled after 3 truth verifier rejections. Recovery: reset via fb_autopilot_reset tool or restart TITAN.');
+        }
         return;
     }
 
@@ -825,6 +817,8 @@ export function registerFBAutopilotSkill(): void {
                         `- Replies today: ${state.repliesToday}/10`,
                         `- Last post: ${state.lastPostAt || 'never'}`,
                         `- Content index: ${state.contentIndex} (next: ${CONTENT_ROTATION[state.contentIndex % CONTENT_ROTATION.length]})`,
+                        `- Truth rejects: ${state.truthRejects ?? 0}`,
+                        `- In-memory truth lockout: ${autopilotDisabledForTruth ? 'active' : 'inactive'}`,
                         `- Total posts tracked: ${state.postHistory.length}`,
                     ].join('\n');
                 }
