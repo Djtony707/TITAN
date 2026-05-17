@@ -1,3 +1,7 @@
+/**
+ * @deprecated 2026-05-17 (v6.1.0-beta.22) — see AppShell.tsx header.
+ * Stale nav component, not mounted anywhere. Hard-delete in beta.24.
+ */
 import { NavLink } from 'react-router';
 import {
   Crosshair, Activity, Brain, Shield, Wrench, Server, Settings, Sparkles, Rocket,

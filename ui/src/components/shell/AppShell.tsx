@@ -1,3 +1,19 @@
+/**
+ * @deprecated 2026-05-17 (v6.1.0-beta.22)
+ *
+ * AppShell, IconRail, MobileNav, TitanSidebar, and TitanLayout are stale
+ * navigation shells that are NOT rendered from App.tsx. The live sidebars
+ * are SpacesSidebar (canvas, mounted inside TitanCanvas) and CPSidebar
+ * (Command Post, mounted inside CPLayout).
+ *
+ * They survived because nothing imports them at the top level, but their
+ * presence creates IA confusion — devs assume there's a global app shell
+ * with a unified sidebar. There isn't.
+ *
+ * Hard-deletion deferred to beta.24 (one beta soak). Do NOT add new
+ * imports. See `~/Desktop/TitanBot/TITAN-main/CHANGELOG.md` v6.1.0-beta.22
+ * for the IA-redesign plan that supersedes this shell.
+ */
 import { Outlet, useLocation } from 'react-router';
 import IconRail from './IconRail';
 import StatusBar from './StatusBar';

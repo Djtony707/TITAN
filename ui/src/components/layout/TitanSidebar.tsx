@@ -1,3 +1,9 @@
+/**
+ * @deprecated 2026-05-17 (v6.1.0-beta.22) — see AppShell.tsx header.
+ * Stale 14-item sidebar, not mounted anywhere. Hard-delete in beta.24.
+ * Many of its links (Projects, Issues, Goals, Approvals, Watch, Activity)
+ * pointed to /space/home redirects, which was a major IA confusion source.
+ */
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
