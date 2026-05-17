@@ -33,7 +33,6 @@ import {
   type MissionTemplate,
   type ScheduleOption,
 } from '@/data/missionTemplates';
-// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 const EXAMPLES = [
   "Plan my mom's 70th birthday party",

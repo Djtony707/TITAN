@@ -22,7 +22,6 @@ import {
 import { RichMessageBody } from '@/pages/mission/RichMessageBody';
 import { FileViewer } from '@/pages/mission/FileViewer';
 // DeskSurface now provided by App.tsx
-// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 
 export default function MissionChat() {
   const { id } = useParams<{ id: string }>();

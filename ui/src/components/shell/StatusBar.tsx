@@ -102,7 +102,6 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
         {status.version && (
           <span className="text-text-secondary">TITAN {status.version}</span>
         )}
-        {/* v6.1.0-alpha.22 — sponsor moved to AppShell global mount. */}
       </div>
     </div>
   );

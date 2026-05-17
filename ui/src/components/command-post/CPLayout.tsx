@@ -13,9 +13,6 @@ const CPGoals = lazy(() => import('@/components/command-post/CPGoals'));
 const CPRuns = lazy(() => import('@/components/command-post/CPRuns'));
 const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
 const CPOrg = lazy(() => import('@/components/command-post/CPOrg'));
-// beta.22 — CPFiles wired into routing. The component existed but had no
-// route, while CPSidebar advertised /command-post/files. Codex flagged the
-// dead link as a visible high-impact discovery problem.
 const CPFiles = lazy(() => import('@/components/command-post/CPFiles'));
 
 function CPLoading() {

@@ -60,7 +60,6 @@ import {
 } from '@/api/missions';
 import { FileViewer } from '@/pages/mission/FileViewer';
 import { AgentMenu, type AgentMenuAnchor } from '@/pages/mission/AgentMenu';
-// v6.1.0-alpha.22 — sponsor footer is now a global AppShell mount.
 import { getModels } from '@/api/client';
 import type { ModelInfo } from '@/api/types';
 

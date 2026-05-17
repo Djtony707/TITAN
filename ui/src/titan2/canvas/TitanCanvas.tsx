@@ -56,8 +56,7 @@ import { NavWidget } from '../system/NavWidget';
 import { ChatWidget, findFirstFreeSlot } from '../system/ChatWidget';
 import { FloatingChatDock } from '../system/FloatingChatDock';
 import { SomaAdvisoryToast } from '../system/SomaAdvisoryToast';
-// v6.0 step 2 — Spaces sidebar mounted inside TitanCanvas (the canvas
-// surface owns its own layout; AppShell doesn't wrap canvas routes).
+// v6.0 step 2 — Spaces sidebar mounted inside the canvas surface.
 import { SpacesSidebar } from '@/components/shell/SpacesSidebar';
 import { SpaceInstructionsEditor } from './SpaceInstructionsEditor';
 import { WidgetEditor } from './WidgetEditor';
