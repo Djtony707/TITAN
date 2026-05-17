@@ -1518,6 +1518,7 @@ export default function CommandPostHub() {
   if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-warning" size={32} /><p className="text-sm text-text-secondary mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-bg-tertiary rounded-lg hover:bg-border text-text-secondary transition-colors">Retry</button></div></div>;
 
   const d = dashboard ?? { agents: [], totalAgents: 0, activeAgents: 0, activeCheckouts: 0, budgetUtilization: 0, recentActivity: [], checkouts: [], budgets: [], goalTree: [], companies: [] } as CommandPostDashboard;
+  const flatTabs = TAB_GROUPS.flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })));
 
   const TabContent = () => {
     switch (tab) {
@@ -1542,36 +1543,23 @@ export default function CommandPostHub() {
 
   return (
     <div className="h-full flex overflow-hidden">
-      {/* Vertical tab sidebar */}
-      <div className="w-52 shrink-0 flex flex-col border-r border-border bg-bg-secondary/30">
-        {/* Sidebar header */}
-        <div className="px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 border border-accent/20">
-              <Building2 size={16} className="text-accent-light" />
-            </div>
-            <div>
+      <div className="flex-1 min-w-0 overflow-auto">
+        <div className="sticky top-0 z-20 border-b border-border bg-bg/95 backdrop-blur">
+          <div className="flex items-center gap-3 px-4 md:px-6 py-3">
+            <div className="min-w-0">
               <h1 className="text-sm font-bold text-text">Command Post</h1>
               <p className="text-[10px] text-text-muted">Agent governance</p>
             </div>
-          </div>
-        </div>
-
-        {/* Tab groups */}
-        <div className="flex-1 overflow-y-auto py-2 space-y-4">
-          {TAB_GROUPS.map(group => (
-            <div key={group.label}>
-              <div className="px-3 mb-1 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                {group.label}
-              </div>
-              <div className="px-2 space-y-0.5">
-                {group.tabs.map(t => {
+            <div className="flex-1 min-w-0 overflow-x-auto">
+              <div className="flex items-center gap-1">
+                {flatTabs.map(t => {
                   const isActive = tab === t.id;
                   return (
                     <button
                       key={t.id}
                       onClick={() => setTab(t.id)}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-150 ${
+                      title={`${t.group}: ${t.label}`}
+                      className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-150 ${
                         isActive
                           ? 'bg-accent/10 text-accent-light font-medium'
                           : 'text-text-secondary hover:text-text hover:bg-bg-tertiary/50'
@@ -1584,20 +1572,12 @@ export default function CommandPostHub() {
                 })}
               </div>
             </div>
-          ))}
+            <button onClick={refresh} className="shrink-0 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[11px] text-text-muted bg-bg-tertiary/50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors">
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
         </div>
-
-        {/* Sidebar footer */}
-        <div className="px-3 py-2 border-t border-border">
-          <button onClick={refresh} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-text-muted bg-bg-tertiary/50 border border-border rounded-lg hover:bg-bg-tertiary transition-colors">
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-6">
           <TabContent />
         </div>

@@ -1,6 +1,5 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router';
-import { CPSidebar } from './CPSidebar';
 
 // Eager-load lightweight landing views; lazy-load heavier tabs
 const CommandPostHub = lazy(() => import('@/components/admin/CommandPostHub'));
@@ -25,9 +24,8 @@ function CPLoading() {
 
 export function CPLayout() {
   return (
-    <div className="flex h-screen">
-      <CPSidebar />
-      <div className="flex-1 overflow-auto">
+    <div className="h-full overflow-hidden">
+      <div className="h-full overflow-auto">
         <Suspense fallback={<CPLoading />}>
           <Routes>
             {/* Default → full hub with tabbed interface */}
