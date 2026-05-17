@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router';
+import { lazy, Suspense, useState, useEffect, type ReactNode } from 'react';
+import { Routes, Route, Navigate, useLocation, Link } from 'react-router';
 import { trackEvent } from '@/api/telemetry';
 import { ConfigProvider } from '@/hooks/useConfig';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
@@ -125,20 +125,20 @@ function AuthenticatedAppInner() {
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             {/* Canonical 6-section shell */}
-            <Route path="/" element={<CPDashboard />} />
-            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/" element={<MissionStart />} />
+            <Route path="/dashboard" element={<Navigate to="/missions" replace />} />
 
             <Route path="/missions" element={<MissionStart />} />
             <Route path="/missions/library" element={<MissionLibrary />} />
-            <Route path="/missions/goals" element={<CPGoals />} />
-            <Route path="/missions/issues" element={<CPIssues />} />
-            <Route path="/missions/approvals" element={<CPApprovals />} />
-            <Route path="/missions/activity" element={<CPActivity />} />
-            <Route path="/missions/work" element={<CPRuns />} />
+            <Route path="/missions/goals" element={<CommandPostRoute title="Goals"><CPGoals /></CommandPostRoute>} />
+            <Route path="/missions/issues" element={<CommandPostRoute title="Issues"><CPIssues /></CommandPostRoute>} />
+            <Route path="/missions/approvals" element={<CommandPostRoute title="Approvals"><CPApprovals /></CommandPostRoute>} />
+            <Route path="/missions/activity" element={<CommandPostRoute title="Activity"><CPActivity /></CommandPostRoute>} />
+            <Route path="/missions/work" element={<CommandPostRoute title="Work"><CPRuns /></CommandPostRoute>} />
 
             <Route path="/team" element={<Navigate to="/team/agents" replace />} />
-            <Route path="/team/agents" element={<CPAgents />} />
-            <Route path="/team/org-chart" element={<CPOrg />} />
+            <Route path="/team/agents" element={<CommandPostRoute title="Agents"><CPAgents /></CommandPostRoute>} />
+            <Route path="/team/org-chart" element={<CommandPostRoute title="Org Chart"><CPOrg /></CommandPostRoute>} />
             <Route path="/team/personas" element={<PersonasPanel />} />
 
             <Route path="/knowledge" element={<MemoryGraphPanel />} />
@@ -163,7 +163,7 @@ function AuthenticatedAppInner() {
             <Route path="/system" element={<SettingsPanel />} />
             <Route path="/system/settings" element={<SettingsPanel />} />
             <Route path="/system/security" element={<SecurityPanel />} />
-            <Route path="/system/costs" element={<CPCosts />} />
+            <Route path="/system/costs" element={<CommandPostRoute title="Costs"><CPCosts /></CommandPostRoute>} />
             <Route path="/system/audit" element={<AuditPanel />} />
             <Route path="/system/backup-recovery" element={<BackupPanel />} />
             <Route path="/system/logs" element={<LogsPanel />} />
@@ -187,7 +187,7 @@ function AuthenticatedAppInner() {
             <Route path="/activity" element={<Navigate to="/missions/activity" replace />} />
 
             {/* Command Post keeps working inside the canonical shell */}
-            <Route path="/command-post/*" element={<CPLayout />} />
+            <Route path="/command-post/*" element={<CommandPostRoute title="Command Post"><CPLayout /></CommandPostRoute>} />
 
             {/* Mission flow routes keep their legacy singular paths */}
             <Route path="/mission" element={<MissionStart />} />
@@ -240,6 +240,60 @@ function AuthenticatedAppInner() {
     </ToastProvider>
     </DeskSurface>
   );
+}
+
+function CommandPostRoute({ children, title }: { children: ReactNode; title: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setEnabled(Boolean(cfg.commandPost?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (enabled === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!enabled) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            Command Post is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">{title} is not active yet</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            This view uses Command Post governance. Enable Command Post when you want managed agents,
+            approval queues, activity tracking, and budget controls.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              to="/missions"
+              className="rounded-md border border-border bg-bg-tertiary px-4 py-2 text-sm font-medium text-text hover:border-border-light"
+            >
+              Start a mission
+            </Link>
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function AuthenticatedApp() {

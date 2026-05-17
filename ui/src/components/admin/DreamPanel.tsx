@@ -70,7 +70,32 @@ export default function DreamPanel() {
     setGenerating(false);
   }, [loadList]);
 
-  useEffect(() => { loadList(); loadLatest(); }, [loadList, loadLatest]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await listDreamDates(60);
+        if (cancelled) return;
+        setDates(r.dates);
+        if (r.dates.length === 0) {
+          setDream(null);
+          setSelectedDate(null);
+          return;
+        }
+        const d = await getLatestDream();
+        if (cancelled) return;
+        setDream(d);
+        setSelectedDate(d?.date ?? null);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="space-y-4">

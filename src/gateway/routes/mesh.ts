@@ -16,6 +16,7 @@ import { loadConfig } from '../../config/config.js';
 import { TITAN_VERSION, TITAN_WORKSPACE, TITAN_HOME } from '../../utils/constants.js';
 import logger from '../../utils/logger.js';
 import { listEntities, getEntity, getGraphData, getEntityEpisodes } from '../../memory/graph.js';
+import { getFleetState } from '../../agent/machineRouter.js';
 
 const COMPONENT = 'MeshRouter';
 
@@ -28,6 +29,19 @@ function getCpuLoad(): number {
 
 export function createMeshRouter(broadcast: (data: Record<string, unknown>, userId?: string) => void): Router {
   const router = Router();
+
+  router.get('/fleet', (_req, res) => {
+    const nodes = getFleetState().map((node) => ({
+      id: node.id,
+      name: node.name,
+      address: node.address ?? 'local',
+      status: node.online ? 'online' : 'offline',
+      capabilities: node.capabilities,
+      lastSeen: node.lastSeenAt ?? new Date(0).toISOString(),
+      load: node.online ? 0 : undefined,
+    }));
+    res.json({ nodes });
+  });
 
   // ── Mesh Networking Endpoints ─────────────────────────────────
   router.get('/mesh/hello', async (_req, res) => {

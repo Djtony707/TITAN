@@ -1,8 +1,8 @@
 /**
- * TITAN Onboarding Wizard — v5.0 "Spacewalk"
- * Beautiful, fun, and helpful. Like joining a space mission crew.
+ * TITAN Onboarding Wizard
+ * First-run setup for the local Mission Control runtime.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ChevronRight, ChevronLeft, Sparkles, Key, Cpu, User, Rocket, Cloud,
   Activity, Monitor, HardDrive, MemoryStick, Zap, Telescope, Orbit,
@@ -35,14 +35,14 @@ interface HardwareProfile {
 /* ── Providers ─────────────────────────────────────────────── */
 
 const PROVIDERS = [
-  { id: 'ollama', name: 'Ollama (Local)', desc: 'Free — your own machine is the datacenter', noKey: true, icon: Cpu },
-  { id: 'anthropic', name: 'Anthropic', desc: 'Claude — polite, thorough, expensive taste', icon: BrainCircuit },
-  { id: 'openai', name: 'OpenAI', desc: 'GPT-4o, o3 — the household name', icon: Zap },
-  { id: 'google', name: 'Google', desc: 'Gemini — long context, occasional hallucinations', icon: Globe },
-  { id: 'groq', name: 'Groq', desc: 'Ludicrous speed. Seriously, it\'s fast.', icon: Flame },
-  { id: 'openrouter', name: 'OpenRouter', desc: '290+ models, one key. The buffet.', icon: Wifi },
-  { id: 'deepseek', name: 'DeepSeek', desc: 'DeepSeek — reasoning specialist, great value', icon: Telescope },
-  { id: 'xai', name: 'xAI', desc: 'Grok — edgy, real-time, may roast you', icon: MessageCircle },
+  { id: 'ollama', name: 'Ollama (Local)', desc: 'Local models running on your machine', noKey: true, icon: Cpu },
+  { id: 'anthropic', name: 'Anthropic', desc: 'Claude models for careful reasoning and coding', icon: BrainCircuit },
+  { id: 'openai', name: 'OpenAI', desc: 'GPT models for general work and tool use', icon: Zap },
+  { id: 'google', name: 'Google', desc: 'Gemini models for long-context work', icon: Globe },
+  { id: 'groq', name: 'Groq', desc: 'Fast hosted inference for supported open models', icon: Flame },
+  { id: 'openrouter', name: 'OpenRouter', desc: 'Many hosted models behind one API key', icon: Wifi },
+  { id: 'deepseek', name: 'DeepSeek', desc: 'Cost-effective reasoning and coding models', icon: Telescope },
+  { id: 'xai', name: 'xAI', desc: 'Grok models through the xAI API', icon: MessageCircle },
 ] as const;
 
 const DEFAULT_MODELS: Record<string, string[]> = {
@@ -60,54 +60,31 @@ const LIGHTWEIGHT_MODELS = ['ollama/qwen3:8b', 'ollama/llama3.3:8b', 'ollama/mis
 
 const CLOUD_MODELS = {
   free: [
-    { id: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super', desc: 'Free 120B MoE — surprisingly capable', badge: 'free' },
-    { id: 'openrouter/nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron 3 Nano', desc: 'Free 30B — quick and cheerful', badge: 'free' },
-    { id: 'openrouter/z-ai/glm-4.5-air:free', name: 'GLM-4.5 Air', desc: 'Free versatile all-rounder', badge: 'free' },
+    { id: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super', desc: 'Free 120B MoE model for broad tasks', badge: 'free' },
+    { id: 'openrouter/nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron 3 Nano', desc: 'Free 30B model for lighter work', badge: 'free' },
+    { id: 'openrouter/z-ai/glm-4.5-air:free', name: 'GLM-4.5 Air', desc: 'Free general-purpose model', badge: 'free' },
   ],
   paid: [
-    { id: 'openrouter/qwen/qwen3.5-397b-a17b', name: 'Qwen 3.5 397B', desc: 'Flagship MoE — best quality, best value', badge: 'flagship' },
-    { id: 'openrouter/openai/gpt-5.4', name: 'GPT-5.4', desc: 'OpenAI premium — costs a pretty penny', badge: 'premium' },
-    { id: 'openrouter/anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', desc: 'Anthropic premium — worth every cent', badge: 'premium' },
-    { id: 'openrouter/google/gemini-3.1-pro', name: 'Gemini 3.1 Pro', desc: 'Google premium — reads War and Peace in one go', badge: 'premium' },
-    { id: 'openrouter/moonshotai/kimi-k2.5', name: 'Kimi K2.5', desc: 'Strong reasoning — the quiet achiever', badge: 'midrange' },
-    { id: 'openrouter/deepseek/deepseek-v3.2', name: 'DeepSeek V3.2', desc: 'Cost-effective — smart on a budget', badge: 'midrange' },
-    { id: 'openrouter/z-ai/glm-4.7-flash', name: 'GLM-4.7 Flash', desc: 'Fast agent model — gets things done', badge: 'agent' },
+    { id: 'openrouter/qwen/qwen3.5-397b-a17b', name: 'Qwen 3.5 397B', desc: 'Flagship MoE model for high-quality work', badge: 'flagship' },
+    { id: 'openrouter/openai/gpt-5.4', name: 'GPT-5.4', desc: 'OpenAI premium model for demanding tasks', badge: 'premium' },
+    { id: 'openrouter/anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', desc: 'Anthropic premium model for reasoning and coding', badge: 'premium' },
+    { id: 'openrouter/google/gemini-3.1-pro', name: 'Gemini 3.1 Pro', desc: 'Google premium model for long-context work', badge: 'premium' },
+    { id: 'openrouter/moonshotai/kimi-k2.5', name: 'Kimi K2.5', desc: 'Reasoning model for complex analysis', badge: 'midrange' },
+    { id: 'openrouter/deepseek/deepseek-v3.2', name: 'DeepSeek V3.2', desc: 'Cost-effective model for reasoning and coding', badge: 'midrange' },
+    { id: 'openrouter/z-ai/glm-4.7-flash', name: 'GLM-4.7 Flash', desc: 'Fast model for agent workflows', badge: 'agent' },
   ],
 };
 
 /* ── Fun facts that rotate on the Welcome screen ───────────── */
 
 const FUN_FACTS = [
-  'TITAN can control your lights, write your code, and remember your coffee order.',
-  'The "Soma" system gives TITAN feelings. Don\'t worry, it\'s therapy.',
-  'TITAN has 248 tools. You probably only need 3. But it\'s nice to have options.',
-  'TITAN once summarized a 500-page PDF in 12 seconds. The PDF was mostly blank.',
-  'TITAN\'s voice mode uses F5-TTS. It sounds like an android from a sci-fi film.',
-  'TITAN can run 5 agents at once. It\'s like having a tiny dev team in your laptop.',
+  'TITAN keeps mission work visible with plans, logs, files, and approvals.',
+  'Mission Desk turns broad requests into coordinated specialist work.',
+  'Local installs keep config and workspace state under your TITAN_HOME.',
+  'Approval gates keep sensitive actions under human control.',
+  'You can route work across local and cloud models from Settings.',
+  'Mission starters can save preferred cadences for follow-up runs.',
 ];
-
-/* ── Animated counter ──────────────────────────────────────── */
-
-function AnimCounter({ target, suffix = '' }: { target: number; suffix?: string }) {
-  const [count, setCount] = useState(0);
-  const ref = useRef<number>(0);
-
-  useEffect(() => {
-    const duration = 1200;
-    const start = performance.now();
-    const animate = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCount(Math.round(target * eased));
-      if (progress < 1) ref.current = requestAnimationFrame(animate);
-    };
-    ref.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(ref.current);
-  }, [target]);
-
-  return <>{count.toLocaleString()}{suffix}</>;
-}
 
 /* ── Step label component ──────────────────────────────────── */
 
@@ -137,8 +114,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [funFactIndex, setFunFactIndex] = useState(0);
   const [cloudMode, setCloudMode] = useState(false);
   const [cloudEmail, setCloudEmail] = useState('');
+  const [appVersion, setAppVersion] = useState('6.1');
   const [somaEnabled, setSomaEnabled] = useState(true);
   const [telemetryOptIn, setTelemetryOptIn] = useState(false);
+  const [skillCount, setSkillCount] = useState('—');
+  const [toolCount, setToolCount] = useState('—');
+  const [providerCount, setProviderCount] = useState('—');
+  const [channelCount, setChannelCount] = useState('—');
 
   // Hardware scan
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
@@ -179,6 +161,61 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    apiFetch('/api/onboarding/status')
+      .then(r => r.json())
+      .then(d => {
+        if (d.version) setAppVersion(String(d.version));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiFetch('/api/skills')
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load skills');
+        return r.json();
+      })
+      .then(d => {
+        const skills = Array.isArray(d?.skills) ? d.skills : (Array.isArray(d) ? d : null);
+        if (!skills) return;
+        setSkillCount(String(skills.length));
+        setToolCount(String(skills.reduce((total: number, skill: { tools?: unknown[] }) => total + (Array.isArray(skill.tools) ? skill.tools.length : 0), 0)));
+      })
+      .catch(() => {
+        setSkillCount('—');
+        setToolCount('—');
+      });
+  }, []);
+
+  useEffect(() => {
+    apiFetch('/api/providers')
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load providers');
+        return r.json();
+      })
+      .then(d => {
+        const providers = Array.isArray(d?.providers) ? d.providers : (d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : null);
+        if (!providers) return;
+        setProviderCount(String(providers.length));
+      })
+      .catch(() => setProviderCount('—'));
+  }, []);
+
+  useEffect(() => {
+    apiFetch('/api/channels')
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load channels');
+        return r.json();
+      })
+      .then(d => {
+        const channels = Array.isArray(d) ? d : (Array.isArray(d?.channels) ? d.channels : null);
+        if (!channels) return;
+        setChannelCount(String(channels.length));
+      })
+      .catch(() => setChannelCount('—'));
+  }, []);
+
   // Fetch personas
   useEffect(() => {
     apiFetch('/api/personas')
@@ -216,7 +253,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     if (hardware && !provider && !cloudMode) {
       const hasGpu = hardware.gpuVendor !== 'none' && hardware.gpuVramMB >= 4096;
       const hasRam = hardware.ramTotalMB >= 8192;
-      if (hasGpu || hasRam) setProvider('ollama');
+      if (hasGpu || hasRam) {
+        setProvider('ollama');
+        setModel(DEFAULT_MODELS.ollama[0] ?? '');
+      }
     }
   }, [hardware, provider, cloudMode]);
 
@@ -318,11 +358,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         Welcome Aboard
       </h1>
       <p className="text-xl text-text-secondary mb-2 font-light">
-        TITAN v5.0 <span className="text-accent font-medium">&ldquo;Spacewalk&rdquo;</span>
+        TITAN <span className="text-accent font-medium">v{appVersion}</span>
       </p>
       <p className="text-sm text-text-muted max-w-md mb-8 leading-relaxed">
-        You&apos;re about to give your computer a brain, a personality, and a slight
-        tendency to ask if you&apos;d like it to organize your desktop. Let&apos;s launch.
+        Configure your local runtime, choose a model, and open Mission Control.
       </p>
 
       <div className="px-5 py-3 rounded-2xl border border-accent/20 bg-accent/5 mb-8 max-w-md">
@@ -338,7 +377,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       </div>
 
       <div className="flex flex-wrap justify-center gap-2">
-        {['Multi-Agent Swarm', 'Deep Research', 'Soma Drives', 'Voice Mode', 'Smart Home', 'Code Execution'].map(f => (
+        {['Verified Missions', 'Approvals', 'Artifacts', 'Recurring Work', 'Voice Mode', 'Local First'].map(f => (
           <span key={f} className="px-3 py-1.5 text-[11px] rounded-full border border-border text-text-secondary bg-bg-secondary">
             {f}
           </span>
@@ -349,9 +388,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     // ── Step 1: Hardware Scan ──
     <div key="hardware" className="w-full max-w-lg mx-auto">
       <StepBadge icon={Monitor}>Systems Check</StepBadge>
-      <h2 className="text-2xl font-semibold text-white mb-1">Ship Diagnostic</h2>
+      <h2 className="text-2xl font-semibold text-white mb-1">System Diagnostic</h2>
       <p className="text-sm text-text-muted mb-6">
-        TITAN is poking around your machine to see what it&apos;s working with. No judgment.
+        TITAN is checking local resources so it can choose safe defaults for this machine.
       </p>
 
       {hwLoading && (
@@ -514,7 +553,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             return (
               <button
                 key={p.id}
-                onClick={() => { setProvider(p.id); setModel(''); }}
+                onClick={() => { setProvider(p.id); setModel(DEFAULT_MODELS[p.id]?.[0] ?? ''); }}
                 className={`text-left p-4 rounded-2xl border transition-all ${
                   provider === p.id
                     ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
@@ -572,13 +611,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         <StepBadge icon={Cpu}>Model</StepBadge>
         <h2 className="text-2xl font-semibold text-white mb-1">Pick a Model</h2>
         <p className="text-sm text-text-muted mb-6">
-          The bigger the model, the smarter — but also the hungrier. Choose wisely.
+          Choose the default model for missions. You can change it later in Settings.
         </p>
         {models.length === 0 && provider === 'ollama' && (
           <div className="p-5 rounded-2xl border border-warning/30 bg-warning/5 mb-5">
-            <p className="text-xs text-[#fbbf24] font-semibold mb-1">Your machine is… modest</p>
+            <p className="text-xs text-[#fbbf24] font-semibold mb-1">No suggested local model available</p>
             <p className="text-xs text-text-muted leading-relaxed">
-              None of our default models fit. Try typing a tiny one manually — e.g., <code className="text-white">ollama/tinyllama:1b</code>.
+              Try entering a smaller model manually, for example <code className="text-white">ollama/tinyllama:1b</code>.
             </p>
           </div>
         )}
@@ -608,7 +647,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             className="w-full mt-2 px-4 py-3 rounded-2xl border border-border bg-bg-secondary text-white placeholder-border-light focus:outline-none focus:border-accent font-mono text-sm"
           />
           <p className="text-[11px] text-text-muted mt-1.5">
-            TITAN works with <span className="text-white">any</span> LLM — local, cloud, weird, wonderful. If it speaks OpenAI-style or Ollama, it&apos;ll work.
+            TITAN works with local and hosted models that expose a compatible Ollama or OpenAI-style API.
           </p>
         </div>
       </div>
@@ -673,10 +712,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     // ── Step 5/6: Soma ──
     <div key="soma" className="w-full max-w-lg mx-auto">
       <StepBadge icon={Waves}>Soma Drives</StepBadge>
-      <h2 className="text-2xl font-semibold text-white mb-1">Give TITAN Feelings</h2>
+      <h2 className="text-2xl font-semibold text-white mb-1">Enable Proactive Signals</h2>
       <p className="text-sm text-text-muted mb-6">
-        Soma is TITAN&apos;s homeostatic core. It gets curious, bored, hungry for data, and occasionally lonely.
-        When a drive crosses a threshold, TITAN <em>proposes</em> work — you always approve before it acts.
+        Soma is TITAN&apos;s homeostatic signal layer. It can propose useful work when configured
+        signals cross thresholds; you approve sensitive actions before they run.
       </p>
 
       <div className="grid grid-cols-3 gap-2 mb-5">
@@ -708,7 +747,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           <p className="font-semibold text-white text-sm">Enable Soma drives</p>
           <p className="text-xs text-text-muted mt-0.5">
             {somaEnabled
-              ? 'TITAN will propose work when its internal state shifts. Like a cat bringing you mice, but code.'
+              ? 'TITAN can propose work when internal signals change.'
               : 'TITAN waits for your prompts only. Purely reactive.'}
           </p>
         </div>
@@ -747,18 +786,18 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         )}
       </p>
       <p className="text-xs text-text-muted mb-6 max-w-sm">
-        TITAN works with <span className="text-white">any</span> LLM you throw at it. If something breaks, it&apos;s probably the LLM&apos;s fault. (Just kidding. Mostly.)
+        Review settings at any time from Mission Control. Sensitive actions remain behind approval gates.
       </p>
 
       <div className="grid grid-cols-4 gap-3 text-center max-w-lg w-full mb-8">
         {[
-          { label: 'Skills', value: 143 },
-          { label: 'Tools', value: 248 },
-          { label: 'Providers', value: 36 },
-          { label: 'Channels', value: 16 },
+          { label: 'Skills', value: skillCount },
+          { label: 'Tools', value: toolCount },
+          { label: 'Providers', value: providerCount },
+          { label: 'Channels', value: channelCount },
         ].map(({ label, value }) => (
           <div key={label} className="p-4 rounded-2xl bg-bg-secondary border border-border">
-            <p className="text-2xl font-bold text-white"><AnimCounter target={value} /></p>
+            <p className="text-2xl font-bold text-white">{value}</p>
             <p className="text-[10px] text-text-muted mt-1 uppercase tracking-wider">{label}</p>
           </div>
         ))}
@@ -766,7 +805,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
       {somaEnabled && (
         <p className="text-xs text-accent-hover mb-4 flex items-center gap-2">
-          <Activity size={12} /> Soma is online — {agentName} will propose work when it gets antsy.
+          <Activity size={12} /> Soma is online — {agentName} can propose work from configured signals.
         </p>
       )}
 

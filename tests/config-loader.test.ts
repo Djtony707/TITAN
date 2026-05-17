@@ -284,6 +284,19 @@ describe('loadConfig', () => {
         expect(config.providers.anthropic.apiKey).toBe('sk-ant-test123');
     });
 
+    it('should not apply ANTHROPIC_API_KEY when Anthropic is disabled in file config', () => {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-test123';
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({
+            providers: { anthropic: { enabled: false } },
+        });
+
+        const config = loadConfig();
+
+        expect(config.providers.anthropic.enabled).toBe(false);
+        expect(config.providers.anthropic.apiKey).toBeUndefined();
+    });
+
     it('should apply OPENAI_API_KEY env override', () => {
         process.env.OPENAI_API_KEY = 'sk-openai-test';
         mockExistsSync.mockReturnValue(false);
@@ -524,6 +537,21 @@ describe('environment variable overrides (edge cases)', () => {
         loadConfig();
         expect(logger.debug).toHaveBeenCalledWith('Config', 'Applied env override: ANTHROPIC_API_KEY');
         expect(logger.debug).toHaveBeenCalledWith('Config', 'Applied env override: OPENAI_API_KEY');
+    });
+
+    it('should log when skipping ANTHROPIC_API_KEY because Anthropic is disabled', () => {
+        process.env.ANTHROPIC_API_KEY = 'test-key';
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({
+            providers: { anthropic: { enabled: false } },
+        });
+
+        loadConfig();
+
+        expect(logger.debug).toHaveBeenCalledWith(
+            'Config',
+            'Skipped env override: ANTHROPIC_API_KEY because providers.anthropic.enabled=false',
+        );
     });
 
     it('should create nested objects for env overrides when they do not exist', () => {

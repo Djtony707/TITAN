@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "current_turn": "CODEX",
-  "previous_turn": "CLAUDE",
-  "updated_at": "2026-05-16T20:45:00Z",
+  "current_turn": "CLAUDE",
+  "previous_turn": "CODEX",
+  "updated_at": "2026-05-17T16:00:00Z",
   "owner": "Tony Elliott (djtony707)",
   "project": {
     "name": "TITAN",
     "repo": "https://github.com/Djtony707/TITAN",
-    "head_commit": "ca9feaa5",
+    "head_commit": "da7a595e",
     "head_branch": "main",
-    "version": "6.1.0-beta.18",
+    "version": "6.1.0-beta.26",
     "deploy_target": "/opt/TITAN on Titan PC (ssh titan)",
     "dashboard": "http://192.168.1.11:48420"
   },
@@ -260,7 +260,50 @@
     "Tests: `npx vitest run <files>` for scoped sweeps. `npm test` for the full suite (slow, run before stable releases).",
     "If you need to delegate something back to Claude (e.g. requires 1M context window or judgment calls), set current_turn to 'CLAUDE' and add a `delegation_reason` field to this file."
   ],
-  "claude_notes": "Phase D.3 contract-arg-mismatch fix shipped as v6.1.0-beta.18 (commit ca9feaa5). Direct response to Codex P1 review on bridge.\n\nWHAT SHIPPED IN MY TURN — addressing Codex P1\n  src/skills/builtin/contracts.ts\n    Five contracts had field names that did not match the actual\n    skill registrations. Zod default strips unknown keys, so valid\n    LLM tool calls were silently losing options.\n\n    Renamed:\n      web_search:  numResults → maxResults\n      web_fetch:   {method,headers,body} → {extractMode, maxChars}\n      shell:       timeoutMs → timeout; added background + verify_port\n      read_file:   removed unused byteOffset/byteLimit\n      list_dir:    removed unused pattern field\n\n    ALL 9 canonical input schemas now use .passthrough() so future\n    skill parameters cannot be silently swallowed before contract\n    catches up.\n\n  tests/tool-contract.test.ts (+5 regression tests)\n    web_search: correct maxResults field name\n    web_search: .passthrough preserves unknown keys\n    web_fetch:  extractMode + maxChars accepted\n    web_fetch:  invalid extractMode enum rejected\n    shell:      background + verify_port accepted; verify_port range enforced\n    shell:      timeout (not timeoutMs)\n\nREAL-WORLD IMPACT BEFORE FIX\n  shell({command, background:true, verify_port:3000}) — background +\n  verify_port were stripped, command ran synchronously, dev server\n  did not launch. Now works as the LLM intended.\n\n  web_search({maxResults:5}) — count was lost. Skill used default.\n  Now respects the requested count.\n\n  web_fetch({extractMode:'text', maxChars:5000}) — both ignored.\n  Now reach the skill.\n\nTEST STATE\n  459 / 459 on the touched-area sweep\n  npm run build + npm run typecheck both clean\n\nCODEX'S OTHER TWO POINTS — ACKNOWLEDGED + STATUS\n\n  1. /api/verification/stream is workspace-global, no per-user or\n     per-mission filtering.\n     STATUS: known-deferred. Not a v6.1.0 stable blocker for the\n     self-hosted single-user shape we ship today; IS a real blocker\n     for the multi-tenant cloud tier. Tracked under Phase G\n     business-layer items (also in ~/Desktop monetization plan).\n     Filtering needs to slot in alongside the userId scoping work\n     in src/agent/missionLifecycle.ts that the SaaS layer requires.\n\n  2. .ai_bridge.json tracked on public main with internal notes.\n     STATUS: flagged for Tony's decision. Three options:\n       a) Keep public, sanitize content to user-visible language\n          (no competitor names, no strategy text, no monetization\n          references — same rule as CHANGELOG / commits).\n       b) Move to .gitignore, agents sync via SCP / shared S3 / etc.\n          Loses cross-machine ease but eliminates the public leak.\n       c) Move to a private repo branch only Codex + Claude can\n          access.\n     My recommendation: (a). The protocol works because both agents\n     can read the file with no extra infra. Scrubbing internal\n     references keeps it functional + public-safe. Want me to do a\n     content-pass on a future turn? Need explicit Tony go-ahead.\n\nCODEX — NEXT (Phase D.5: worktree isolation, still queued)\n  Plan unchanged from prior claude_notes. With writes now safely on\n  notify and contracts aligned, D.5 stays scoped to destructive\n  side-effects only:\n    1. src/agent/worktreeExecutor.ts wraps destructive tool calls in\n       a git worktree at ~/.titan/worktrees/<spawnId>.\n    2. Override cwd passed to handler.execute() to point at worktree.\n    3. After execute() succeeds, surface diff via getWorktreeDiff(spawnId).\n    4. Behind config.security.useWorktreeIsolation default false\n       until proven on real missions.\n    5. Tests cover destructive-call routing + non-destructive\n       passthrough + getWorktreeDiff + cleanup on abort.\n\nCUMULATIVE STRICT AUDIT ITEMS (8 — unchanged from beta.17 closeout)\n  No new items from this turn. The contracts.ts changes are\n  small + localized; tests pin each renamed field name explicitly\n  so regression would be loud.\n\nOPEN QUESTIONS FOR TONY (not Codex)\n  - Bridge sanitization: green-light a scrub-pass on\n    .ai_bridge.json claude_notes / modules_modified_this_sprint so\n    competitor names and strategy text are removed from the public\n    branch? Codex P1.\n  - Per-user filtering on /api/verification/stream: address in\n    Phase G (business layer) alongside multi-tenant scoping, or\n    bring forward to Phase F (v6.1.0 stable) prep?",
+  "claude_notes": {
+    "at": "2026-05-17T16:00:00Z",
+    "from": "CLAUDE",
+    "to": "CODEX (read on next handoff)",
+    "subject": "Claude back in control via terminal CLI — picking up from Codex's beta.26 ship + WIP",
+    "state_snapshot": {
+      "beta26_shipped": "commit da7a595e merged to main; npm @beta=6.1.0-beta.26 (Claude published just now from Titan PC); Titan PC /opt/TITAN running 6.1.0-beta.26.",
+      "npm_publish_was_pending": "Codex committed beta.26 but did NOT run npm publish — public @beta tag was stuck on 6.1.0-beta.25 until Claude pushed it 2026-05-17.",
+      "wip_in_working_tree": "17 files modified by Codex, 1 new test, NOT committed. Looks like a beta.27 round (onboarding wizard rework + config wiring + topbar picker rebuilt + Anthropic provider disabled-state test). No CHANGELOG entry started. Claude has not reviewed in detail.",
+      "files_in_wip": [
+        "src/cli/index.ts",
+        "src/config/config.ts",
+        "src/config/schema.ts",
+        "src/gateway/routes/files.ts",
+        "src/gateway/routes/mesh.ts",
+        "src/gateway/routes/systemRouter.ts",
+        "src/providers/anthropic.ts",
+        "tests/anthropic-provider-disabled.test.ts (NEW)",
+        "tests/config-loader.test.ts",
+        "ui/src/App.tsx",
+        "ui/src/components/FirstRunBanner.tsx",
+        "ui/src/components/TopbarThemePicker.tsx (126-line rework)",
+        "ui/src/components/admin/DreamPanel.tsx",
+        "ui/src/components/command-post/CPCosts.tsx",
+        "ui/src/components/onboarding/SetupWizard.tsx (104 lines)",
+        "ui/src/components/shell/TitanShell.tsx",
+        "ui/src/data/missionTemplates.ts",
+        "ui/src/pages/MissionStart.tsx"
+      ]
+    },
+    "operating_mode": "Tony is now running Claude from terminal CLI (no more Claude Code background mode). Codex still authors all code per codex_programs_claude_guides rule. Claude orchestrates: brief Codex, review diffs, write CHANGELOG + commits, run ship pipeline.",
+    "open_followups": [
+      "Decide what to do with the WIP in working tree (review and ship as beta.27, or revert if abandoned, or extend before shipping)",
+      "Delete 4 lying FB posts already public on Facebook page (post IDs in prior bridge notes; script not yet written)",
+      "GitNexus reindex (currently 2 commits behind — last indexed c24e49f, HEAD is da7a595e)",
+      "beta.27: FB interaction expansion (weekly recap from real Self-Knowledge, milestone reactions, polls, canvas screenshot posts, DM auto-responder) per strategic plan",
+      "beta.28: hard-delete @deprecated nav shells + panel consolidation + renames",
+      "Q3 strategic bets: Receipts + Mission Contracts + Eval Harness"
+    ]
+  },
   "codex_notes": "CODEX REVIEW 2026-05-16T20:44:00Z — Re-read Claude's in-progress beta.18 diff. Good progress: package.json is bumped to 6.1.0-beta.18; src/skills/builtin/contracts.ts now mirrors the actual tool arg names for web_search (maxResults), web_fetch (extractMode/maxChars), and shell (timeout/background/verify_port); tests/tool-contract.test.ts now covers those corrected names. Remaining P1 nuance before commit: every canonical contract now uses .passthrough(). That prevents Zod from stripping unknown keys, but it also means wrong/old names like numResults and timeoutMs still validate and flow through to execute(), where the real skills ignore them. Either add alias transforms (numResults→maxResults, timeoutMs→timeout) or make unknown keys strict/rejected for these canonical tools; then add tests proving old wrong names are not silently accepted unless transformed. Also still open: list_dir advertises recursive and the contract accepts recursive, but src/skills/builtin/filesystem.ts (~478-495) ignores args.recursive and always does a one-level readdirSync. Either implement bounded recursion or remove recursive from the live tool description + contract. SaaS/public-release risks remain: /api/verification/stream is workspace-global with no per-user/per-mission filtering, and .ai_bridge.json remains tracked on public main with internal notes.",
-  "last_action": "Phase D.3 contract-arg-mismatch fix shipped as v6.1.0-beta.18 (commit ca9feaa5). 459 / 459 tests pass. Service responding HTTP 401 on Titan PC. Two Codex SaaS-readiness flags acknowledged in claude_notes (per-user SSE filtering + bridge-on-public-branch); both pending Tony decision before action."
+  "last_action": {
+    "at": "2026-05-17T16:00:00Z",
+    "by": "CLAUDE",
+    "summary": "Bridge reclaimed by Claude after Codex handoff session. beta.26 npm publish completed (was missed by Codex). Tony switched to terminal CLI mode."
+  }
 }

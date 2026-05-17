@@ -1,7 +1,7 @@
 /**
  * FirstRunBanner — persistent top banner shown when no AI provider is configured.
  *
- * Polls /api/doctor/quick on mount + every 60 seconds. If no provider is usable,
+ * Polls /api/config on mount + every 60 seconds. If no provider is usable,
  * renders a banner with an action button. Once a provider becomes usable, the
  * banner stays hidden for the rest of the session (no flicker on transient errors).
  *
@@ -31,9 +31,19 @@ export function FirstRunBanner() {
     let cancelled = false;
     const check = async () => {
       try {
-        const res = await apiFetch('/api/doctor/quick');
+        const res = await apiFetch('/api/config');
         if (!res.ok) return;
-        const data = (await res.json()) as DoctorQuickResponse;
+        const cfg = await res.json();
+        const providersConfigured = Object.values(cfg.providers ?? {})
+          .filter((provider) => Boolean((provider as { configured?: boolean })?.configured))
+          .length;
+        const model = String(cfg.agent?.model ?? cfg.model ?? '');
+        const data: DoctorQuickResponse = {
+          ready: providersConfigured > 0 || model.startsWith('ollama/'),
+          providersConfigured,
+          suggestion: 'Configure a model provider before starting missions.',
+          action: { type: 'open', target: '/system/settings', label: 'Open settings' },
+        };
         if (cancelled) return;
         setState(data);
         if (data.ready) setReadyOnce(true);

@@ -24,6 +24,8 @@ export const AuthProfileSchema = z.object({
 });
 
 export const ProviderConfigSchema = z.object({
+    /** Set false to block this provider even if its API key is present in config or env. */
+    enabled: z.boolean().default(true),
     apiKey: z.string().optional(),
     baseUrl: z.string().optional(),
     model: z.string().optional(),
