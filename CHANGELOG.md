@@ -5,6 +5,108 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.23 — 2026-05-17 — Mock-data purge
+
+Tony asked for zero mock data anywhere in TITAN runtime. A joint audit
+turned up seven offenders shipping fake or fabricated values to users
+— the worst was a CPU/Memory/Disk widget that ran `Math.random()`
+every 3 seconds. All fixed.
+
+### What changed
+
+- **`/api/stats` now returns real host metrics.** The gateway
+  endpoint previously returned only process memory; the UI made up
+  the rest. Added a `host` block with real `cpuPercent` (1-min load
+  ÷ cores × 100), `memPercent` (`os.totalmem` / `freemem`),
+  `diskPercent` (`fs.statfs(homedir)`), plus raw byte/load values
+  and `loadAvg1/5/15`. If `statfs` fails on the filesystem it
+  surfaces a `diskError` string so the UI can show "unavailable"
+  rather than 0%.
+- **Two `StatsWidget`s wired to `/api/stats`.** The canonical
+  `ui/src/titan2/system/StatsWidget.tsx` and the duplicate in
+  `ui/src/space-agent/SystemWidgets.tsx` both polled
+  `Math.random()` on a 3-second interval. Both now fetch
+  `/api/stats`, show "—" while loading, and surface an error line
+  when the request fails. No more invented numbers.
+- **`FilesWidget` fake-fallback removed.** On any `/api/files`
+  error or non-OK response, the widget used to inject three
+  hardcoded entries (`documents/`, `readme.md`, `config.yaml`)
+  labelled "mock data for prototype" in a code comment. Replaced
+  with a real error message and an empty state so the user knows
+  the listing failed instead of seeing fictional files.
+- **`TitanProjects` gutted.** This orphaned page mapped real
+  sessions into "projects" but fabricated `issueCount`,
+  `agentCount`, `progress` (all `Math.random()`), and assigned
+  `status` by `i % 3`. The progress bars and counts looked
+  authoritative. Page is now a single-line placeholder that
+  points users to Goals; the real Projects view returns when
+  there's a project domain in TITAN's data model (today there's
+  only sessions, goals, and missions).
+- **`SYSTEM_MONITOR_CODE` widget template rewired.** The demo
+  widget that Soma generates when the user asks for a "system
+  monitor" was a Math.random simulation with `uptime: '3d 14h
+  22m'`, `processes: 247`, `threads: 1843` hardcoded. The template
+  now fetches `/api/stats` every 2 seconds, renders cpu/memory/
+  disk with "—" for any field the gateway doesn't return, and
+  shows real uptime. Missing fields (network/processes/threads)
+  removed rather than faked.
+- **`VoiceOverlay` TTS-playback audio level.** The mic-side level
+  reads a real `AnalyserNode`; the playback-side fell back to
+  `0.3 + Math.random() * 0.4` because we don't have an analyser
+  hooked to the speaker buffer. Replaced with a deterministic
+  sine pulse (`0.45 + sin(t·2π)·0.15`, ~0.6s period) so the orb
+  still animates during TTS but never claims to be a real
+  measurement. Real playback-level metering can come later by
+  routing the playback buffer through an AnalyserNode.
+- **`/budgets/reservations` was `res.json([])`.** The Storage
+  interface only exposes `saveBudgetReservation` and
+  `getBudgetReservation(id)` — there's no list query, so the
+  endpoint couldn't actually know whether there were zero
+  reservations. Returning `[]` told callers "definitely none"
+  which was a lie. Now returns HTTP 501 with a clear
+  `not_implemented` message until storage gains an enumeration
+  method.
+
+### Why this approach
+
+- Honest "unknown" beats fake-but-confident. Every fix uses a
+  visible "—" or error string when real data is missing, so the
+  user can tell the difference between "system is idle" and "we
+  couldn't measure it."
+- One backend endpoint, two consumers. Both StatsWidgets read the
+  same `/api/stats` `host` block, so future additions (network
+  metrics, GPU%, etc.) propagate automatically.
+- The demo template (`SYSTEM_MONITOR_CODE`) becomes a useful
+  starting point for users who want a system monitor: it
+  immediately works against real data instead of teaching them
+  the wrong pattern (Math.random as "simulation").
+
+### Trade-off
+
+- Network %, process count, and thread count are gone from the
+  demo widget — they had no real source. Re-adding requires
+  extending `/api/stats` with `process.cpuUsage()`-style
+  measurements or a sidecar metrics collector. Not in scope this
+  beta.
+- The deterministic sine pulse in `VoiceOverlay` is animation,
+  not measurement. The next beta to touch voice should pipe the
+  TTS playback buffer through a Web Audio AnalyserNode for true
+  output-level metering.
+
+### Follow-ups
+
+- beta.24 — canonical 6-section sidebar (Home / Missions & Work /
+  Team / Knowledge / Tools & Connections / System) + theme-
+  variable audit so the topbar theme picker re-skins every shell
+  surface. The new sidebar replaces the four stale shells
+  marked `@deprecated` in beta.22.
+- beta.25 — panel consolidation
+  (Eval + EvalHarness → Quality Lab, Backup + Checkpoints +
+  TimeTravel → Recovery, etc.), renames, hard-delete of the
+  `@deprecated` nav shells, demote Workspaces (canvas) to opt-in.
+
+---
+
 ## v6.1.0-beta.22 — 2026-05-17 — Menu IA cleanup (Phase 1 of 3)
 
 First of three menu/IA betas. Stops the visible bleeding: dead launcher

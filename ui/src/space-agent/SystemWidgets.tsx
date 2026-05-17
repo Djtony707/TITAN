@@ -6,7 +6,7 @@ import {
   Send, X, Trash2, Loader2, Compass, Cpu, Gauge,
   CheckCircle, XCircle, Clock, LayoutGrid,
 } from 'lucide-react';
-import { getAgents, getSkills, getTools, getConfig, updateConfig, getFileRoots, listFiles } from '@/api/client';
+import { getAgents, getSkills, getTools, getConfig, updateConfig, getFileRoots, listFiles, apiFetch } from '@/api/client';
 import { useSSE } from '@/hooks/useSSE';
 import type { AgentInfo, SkillInfo, ToolInfo, TitanConfig, FileListing, FileEntry } from '@/api/types';
 import { trackEvent } from '@/api/telemetry';
@@ -440,19 +440,51 @@ function HealthRow({ label, status, checking }: { label: string; status: boolean
 
 /* ─── STATS WIDGET ─── Resource usage ─── */
 
-export function StatsWidget({ runtime }: { runtime: any }) {
-  const [stats, setStats] = useState({ cpu: 0, memory: 0, disk: 0 });
+export function StatsWidget({ runtime: _runtime }: { runtime: any }) {
+  // v6.1.0-beta.23 — wired to real /api/stats. Was Math.random for every
+  // bar (Tony mock-data audit 2026-05-17). Same data source as the
+  // canonical StatsWidget in ui/src/titan2/system/StatsWidget.tsx.
+  const [stats, setStats] = useState({
+    cpu: 0, memory: 0, disk: 0,
+    loaded: false, error: null as string | null, diskAvailable: true,
+  });
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setStats({
-        cpu: Math.floor(Math.random() * 60 + 10),
-        memory: Math.floor(Math.random() * 50 + 20),
-        disk: Math.floor(Math.random() * 40 + 30),
-      });
-    }, 3000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await apiFetch('/api/stats');
+        if (!r.ok) {
+          if (!cancelled) setStats(s => ({ ...s, loaded: true, error: `HTTP ${r.status}` }));
+          return;
+        }
+        const data = await r.json();
+        if (cancelled) return;
+        const host = data.host as
+          | { cpuPercent?: number; memPercent?: number; diskPercent?: number; diskError?: string | null }
+          | undefined;
+        if (!host) {
+          setStats(s => ({ ...s, loaded: true, error: 'no host metrics' }));
+          return;
+        }
+        setStats({
+          cpu: Math.round(host.cpuPercent ?? 0),
+          memory: Math.round(host.memPercent ?? 0),
+          disk: Math.round(host.diskPercent ?? 0),
+          loaded: true,
+          error: null,
+          diskAvailable: !host.diskError,
+        });
+      } catch (err) {
+        if (!cancelled) setStats(s => ({ ...s, loaded: true, error: (err as Error).message }));
+      }
+    }
+    load();
+    const interval = setInterval(load, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
+
+  const unknown = !stats.loaded || !!stats.error;
 
   return (
     <div className="h-full flex flex-col p-3">
@@ -462,9 +494,9 @@ export function StatsWidget({ runtime }: { runtime: any }) {
       </div>
       <div className="space-y-2 flex-1">
         {[
-          { label: 'CPU', value: stats.cpu, icon: Zap, color: '#6366f1' },
-          { label: 'Memory', value: stats.memory, icon: HardDrive, color: '#a855f7' },
-          { label: 'Disk', value: stats.disk, icon: Radio, color: '#22c55e' },
+          { label: 'CPU', value: stats.cpu, icon: Zap, color: '#6366f1', missing: unknown },
+          { label: 'Memory', value: stats.memory, icon: HardDrive, color: '#a855f7', missing: unknown },
+          { label: 'Disk', value: stats.disk, icon: Radio, color: '#22c55e', missing: unknown || !stats.diskAvailable },
         ].map(item => (
           <div key={item.label} className="bg-[#18181b]/40 rounded-lg p-2 border border-[#27272a]/30">
             <div className="flex items-center justify-between mb-1">
@@ -472,14 +504,22 @@ export function StatsWidget({ runtime }: { runtime: any }) {
                 <item.icon className="w-3 h-3" style={{ color: item.color }} />
                 <span className="text-[9px] text-[#a1a1aa]">{item.label}</span>
               </div>
-              <span className="text-[10px] text-[#fafafa] font-mono font-bold">{item.value}%</span>
+              <span className="text-[10px] text-[#fafafa] font-mono font-bold">
+                {item.missing ? '—' : `${item.value}%`}
+              </span>
             </div>
             <div className="w-full bg-[#27272a] rounded-full h-1">
-              <div className="h-1 rounded-full transition-all duration-1000" style={{ width: item.value + '%', background: item.color }} />
+              <div
+                className="h-1 rounded-full transition-all duration-1000"
+                style={{ width: item.missing ? '0%' : item.value + '%', background: item.color }}
+              />
             </div>
           </div>
         ))}
       </div>
+      {stats.error && (
+        <div className="mt-2 text-[10px] text-[#ef4444]/80">{stats.error}</div>
+      )}
     </div>
   );
 }
