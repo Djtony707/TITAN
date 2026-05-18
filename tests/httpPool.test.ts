@@ -13,9 +13,12 @@
  * (c) default options land inside the documented safe ranges
  * (d) caller-supplied options override defaults (clamped to bounds)
  */
+import { createRequire } from 'module';
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
-import { getGlobalDispatcher } from 'undici';
 import { installGlobalHttpPool, __resetHttpPoolForTests } from '../src/utils/httpPool.js';
+
+const require = createRequire(import.meta.url);
+const { getGlobalDispatcher } = require('undici/lib/global') as { getGlobalDispatcher(): unknown };
 
 describe('httpPool — Hunt Finding #29', () => {
     beforeEach(async () => {

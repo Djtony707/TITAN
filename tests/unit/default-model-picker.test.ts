@@ -19,22 +19,25 @@ const KEYS_TO_SCRUB = [
     'TITAN_HOME',
 ];
 
-const ORIGINAL: Record<string, string | undefined> = {};
+let originalEnv: NodeJS.ProcessEnv = {};
+
+function restoreEnv(snapshot: NodeJS.ProcessEnv) {
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, snapshot);
+}
 
 beforeEach(() => {
-    for (const k of KEYS_TO_SCRUB) {
-        ORIGINAL[k] = process.env[k];
-        delete process.env[k];
+    originalEnv = { ...process.env };
+    for (const k of Object.keys(process.env)) {
+        if (k.endsWith('_API_KEY')) delete process.env[k];
     }
+    for (const k of KEYS_TO_SCRUB) delete process.env[k];
     // Use a TITAN_HOME under /tmp so we don't read the real user's config.
     process.env.TITAN_HOME = `/tmp/titan-picker-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 });
 
 afterEach(() => {
-    for (const k of KEYS_TO_SCRUB) {
-        if (ORIGINAL[k] === undefined) delete process.env[k];
-        else process.env[k] = ORIGINAL[k];
-    }
+    restoreEnv(originalEnv);
 });
 
 describe('pickDefaultModel — provider preference order', () => {
