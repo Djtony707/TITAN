@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import {
   Brain,
@@ -160,12 +160,50 @@ const activeSubtleStyle = {
   color: 'var(--theme-ink, var(--color-text))',
 } satisfies CSSProperties;
 
+export const SHELL_SIDEBAR_COLLAPSED_KEY = 'titan:shell-sidebar-collapsed';
+
+export function isImmersiveCanvasPath(pathname: string): boolean {
+  return /^\/mission\/[^/]+\/canvas\/?$/.test(pathname);
+}
+
+export function readShellSidebarCollapsedPreference(
+  pathname: string,
+  getItem: (key: string) => string | null = (key) => {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(key);
+  },
+): boolean {
+  try {
+    const raw = getItem(SHELL_SIDEBAR_COLLAPSED_KEY);
+    if (raw !== null) return raw === '1';
+  } catch {
+    // Storage can be unavailable in hardened browser contexts. Fall
+    // through to the safe route default instead of breaking navigation.
+  }
+  return isImmersiveCanvasPath(pathname);
+}
+
+function writeShellSidebarCollapsedPreference(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SHELL_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {
+    // Ignore quota/privacy failures; the in-memory state still updates.
+  }
+}
+
 interface TitanShellSidebarProps {
   className?: string;
   onNavigate?: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-export function TitanShellSidebar({ className = '', onNavigate }: TitanShellSidebarProps) {
+export function TitanShellSidebar({
+  className = '',
+  onNavigate,
+  collapsed = false,
+  onToggleCollapsed,
+}: TitanShellSidebarProps) {
   const location = useLocation();
   const activeSection = useMemo(
     () => TITAN_SHELL_SECTIONS
@@ -174,6 +212,79 @@ export function TitanShellSidebar({ className = '', onNavigate }: TitanShellSide
       .sort((a, b) => b.score - a.score)[0]?.section,
     [location.pathname],
   );
+
+  if (collapsed) {
+    return (
+      <aside
+        className={`relative z-40 h-full w-14 shrink-0 flex-col border-r ${className}`}
+        style={shellStyle}
+        aria-label="Primary navigation — collapsed"
+      >
+        <div className="flex items-center justify-center border-b px-2 py-3" style={{ borderColor: shellStyle.borderColor }}>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-bold transition-colors hover:brightness-110"
+            style={{
+              background: 'var(--theme-metal, var(--color-accent))',
+              color: 'var(--theme-bolt, var(--color-bg))',
+              boxShadow: '0 1px 2px var(--theme-shadow, rgba(0, 0, 0, 0.3))',
+            }}
+            title="Expand navigation"
+            aria-label="Expand navigation"
+          >
+            T
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-1.5 py-3" aria-label="Sections">
+          <div className="space-y-1">
+            {TITAN_SHELL_SECTIONS.map((section) => {
+              const sectionActive = activeSection?.route === section.route;
+              const Icon = section.icon;
+              return (
+                <NavLink
+                  key={section.route}
+                  to={section.route}
+                  end={section.route === '/'}
+                  onClick={onNavigate}
+                  className="flex min-h-10 items-center justify-center rounded-md transition-colors"
+                  style={sectionActive ? activeStyle : mutedStyle}
+                  title={section.label}
+                  aria-label={section.label}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </NavLink>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="space-y-1 border-t p-1.5" style={{ borderColor: shellStyle.borderColor }}>
+          <NavLink
+            to="/space/home"
+            onClick={onNavigate}
+            className="flex min-h-10 items-center justify-center rounded-md transition-colors"
+            style={location.pathname.startsWith('/space') ? activeStyle : mutedStyle}
+            title="Workspaces"
+            aria-label="Workspaces"
+          >
+            <Hexagon className="h-4 w-4" aria-hidden="true" />
+          </NavLink>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="flex min-h-10 w-full items-center justify-center rounded-md transition-colors"
+            style={mutedStyle}
+            title="Expand navigation"
+            aria-label="Expand navigation"
+          >
+            ›
+          </button>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside
@@ -185,7 +296,7 @@ export function TitanShellSidebar({ className = '', onNavigate }: TitanShellSide
         <Link
           to="/"
           onClick={onNavigate}
-          className="flex items-center gap-2 min-w-0"
+          className="flex min-w-0 flex-1 items-center gap-2"
           aria-label="TITAN home"
         >
           <span
@@ -200,6 +311,18 @@ export function TitanShellSidebar({ className = '', onNavigate }: TitanShellSide
           </span>
           <span className="truncate text-sm font-semibold tracking-[0.16em]">TITAN</span>
         </Link>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-lg leading-none transition-colors"
+            style={mutedStyle}
+            title="Collapse navigation"
+            aria-label="Collapse navigation"
+          >
+            ‹
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="Sections">
@@ -264,6 +387,24 @@ export function TitanShellSidebar({ className = '', onNavigate }: TitanShellSide
 
 export function TitanShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() =>
+    readShellSidebarCollapsedPreference(
+      typeof window !== 'undefined' ? window.location.pathname : '/',
+    ),
+  );
+
+  useEffect(() => {
+    setDesktopCollapsed(readShellSidebarCollapsedPreference(location.pathname));
+  }, [location.pathname]);
+
+  const toggleDesktopSidebar = () => {
+    setDesktopCollapsed((prev) => {
+      const next = !prev;
+      writeShellSidebarCollapsedPreference(next);
+      return next;
+    });
+  };
 
   return (
     <div
@@ -287,7 +428,11 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
         <Menu className="h-4 w-4" aria-hidden="true" />
       </button>
 
-      <TitanShellSidebar className="hidden md:flex" />
+      <TitanShellSidebar
+        className="hidden md:flex"
+        collapsed={desktopCollapsed}
+        onToggleCollapsed={toggleDesktopSidebar}
+      />
 
       {mobileOpen && (
         <div className="fixed inset-0 z-[70] md:hidden">

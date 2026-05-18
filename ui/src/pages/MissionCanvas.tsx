@@ -565,8 +565,8 @@ export default function MissionCanvas() {
       <div className="pointer-events-none absolute inset-0" style={vignetteStyle} />
 
       {/* Top bar */}
-      <header className="relative z-30 flex items-center justify-between px-5 py-3.5">
-        <div className="flex items-center gap-3">
+      <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <button onClick={() => navigate('/mission')} className="hover:text-white text-sm" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }} title="New mission">←</button>
           <button
             onClick={() => navigate('/mission/library')}
@@ -585,13 +585,13 @@ export default function MissionCanvas() {
           >
             🌌 Canvas
           </button>
-          <div className="font-semibold tracking-tight" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>
+          <div className="min-w-0 font-semibold tracking-tight" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>
             <span style={{ background: 'linear-gradient(90deg, var(--theme-metal-bright, #f3d27a), var(--theme-metal, #d8a85a))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>TITAN</span>
             <span className="font-normal" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}> &nbsp;›&nbsp; </span>
             <span className="font-normal" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>Desk</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs" style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>
             <span className={`w-2 h-2 rounded-full ${blocked > 0 ? 'bg-error animate-pulse' : working > 0 ? 'bg-accent animate-pulse' : 'bg-success'}`} />
             <span style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>{statusBlurb(room.status, working, blocked)}</span>
@@ -748,7 +748,7 @@ export default function MissionCanvas() {
 
       {/* Bottom rail — slash quick steers + steer input. Same layout as before. */}
       <footer
-        className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-5 pt-3 flex flex-col gap-2"
+        className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-12 pt-3 md:pb-8 flex flex-col gap-2"
         style={{ background: 'linear-gradient(to top, var(--theme-leather-edge, rgba(29,19,10,0.95)), transparent)' }}
       >
         <div className="flex flex-wrap items-center gap-2 max-w-5xl mx-auto w-full">
