@@ -67,6 +67,16 @@ Make everything feel like physical objects on a desk: paper sheets, leather card
 - Other routes (Settings, Mission Chat, Library) optionally embed a `<DeskSurface>` wrapper
 - Future: merge Mission Chat into the desk as a "letter" item
 
+## Step 6.5 — Mission Canvas Collapsible Sidebar
+**Files:**
+- `ui/src/titan2/canvas/TitanCanvas.tsx`
+- Related Mission Canvas/sidebar CSS or components
+**Status:** PENDING
+- Add a persistent minimizable/collapsible sidebar control for Mission Canvas.
+- Preserve enough affordance when collapsed to reopen quickly without losing canvas context.
+- Persist the collapsed state per browser/session so the desk can stay focused during long missions.
+- Verify desktop and narrow/mobile layouts both keep canvas controls reachable.
+
 ## Step 7 — Build, Test, Ship
 **Status:** PENDING
 1. Build backend (`npm run build`)
