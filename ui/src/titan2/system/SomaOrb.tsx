@@ -25,6 +25,20 @@ const EMOTION_COLORS: Record<SomaEmotion, { primary: string; glow: string; pulse
   dreaming:  { primary: '#8b5cf6', glow: 'rgba(139,92,246,0.4)',  pulse: 'rgba(139,92,246,0.15)' },
 };
 
+const theme = {
+  bgBase: 'var(--theme-bg-base, var(--color-bg, #09090b))',
+  bgGrain: 'var(--theme-bg-grain, var(--color-bg-secondary, #18181b))',
+  surface: 'color-mix(in srgb, var(--theme-bg-grain, var(--color-bg-secondary, #18181b)) 90%, transparent)',
+  surfaceSoft: 'color-mix(in srgb, var(--theme-bg-grain, var(--color-bg-tertiary, #27272a)) 62%, transparent)',
+  overlay: 'color-mix(in srgb, var(--theme-bg-base, var(--color-bg, #09090b)) 56%, transparent)',
+  border: 'color-mix(in srgb, var(--theme-metal-dark, var(--color-border, #3f3f46)) 66%, transparent)',
+  metal: 'var(--theme-metal, var(--color-border-light, #52525b))',
+  ink: 'var(--theme-paper-fg, var(--color-text, #fafafa))',
+  inkSoft: 'color-mix(in srgb, var(--theme-paper-fg, var(--color-text-secondary, #a1a1aa)) 72%, transparent)',
+  accent: 'var(--theme-accent, var(--color-accent, #6366f1))',
+  warning: 'var(--color-warning, #f59e0b)',
+};
+
 /** Map real SOMA drive data to an emotion + activity label. */
 function deriveSomaState(
   totalPressure: number,
@@ -120,23 +134,35 @@ export function SomaOrb() {
   };
 
   const colors = EMOTION_COLORS[somaState.emotion];
+  const orbPrimary = somaState.activity === 'Dormant' ? theme.metal : theme.accent;
 
   return (
     <>
       {/* Expanded SOMA Panel */}
       {expanded && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setExpanded(false)}>
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+          style={{ background: theme.overlay }}
+          onClick={() => setExpanded(false)}
+        >
           <div
-            className="bg-[#1f1812]/95 border border-[#8b6b4a]/40 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden"
-            style={{ width: 'min(900px, 90vw)', height: 'min(600px, 80vh)' }}
+            className="border rounded-2xl shadow-2xl overflow-hidden"
+            style={{
+              width: 'min(900px, 90vw)',
+              height: 'min(600px, 80vh)',
+              background: theme.surface,
+              borderColor: theme.border,
+              color: theme.ink,
+              boxShadow: '0 24px 64px color-mix(in srgb, var(--theme-bg-base, var(--color-bg, #09090b)) 72%, transparent)',
+            }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[#8b6b4a]/30">
+            <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: theme.border }}>
               <div className="flex items-center gap-2">
-                <Brain className="w-4 h-4" style={{ color: colors.primary }} />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#c8b89a]">SOMA Consciousness</span>
+                <Brain className="w-4 h-4" style={{ color: orbPrimary }} />
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: theme.ink }}>SOMA Consciousness</span>
               </div>
-              <button onClick={() => setExpanded(false)} className="p-1 text-[#8b6b4a] hover:text-[#c8b89a]">
+              <button onClick={() => setExpanded(false)} className="p-1" style={{ color: theme.metal }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -159,26 +185,36 @@ export function SomaOrb() {
       >
         {/* Context menu */}
         {showMenu && (
-          <div className="absolute bottom-full left-0 mb-2 bg-[#2a2018]/95 backdrop-blur-xl border border-[#8b6b4a]/40 rounded-xl shadow-2xl shadow-black/60 overflow-hidden min-w-[160px] py-1">
+          <div
+            className="absolute bottom-full left-0 mb-2 backdrop-blur-xl border rounded-xl shadow-2xl overflow-hidden min-w-[160px] py-1"
+            style={{
+              background: theme.surface,
+              borderColor: theme.border,
+              boxShadow: '0 18px 40px color-mix(in srgb, var(--theme-bg-base, var(--color-bg, #09090b)) 70%, transparent)',
+            }}
+          >
             <button
               onClick={() => { setExpanded(true); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors"
+              style={{ color: theme.ink, background: 'transparent' }}
             >
-              <Brain className="w-3.5 h-3.5" style={{ color: colors.primary }} />
+              <Brain className="w-3.5 h-3.5" style={{ color: orbPrimary }} />
               Open SOMA
             </button>
             <button
               onClick={() => { setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors"
+              style={{ color: theme.ink, background: 'transparent' }}
             >
-              <Sparkles className="w-3.5 h-3.5 text-[#f59e0b]" />
+              <Sparkles className="w-3.5 h-3.5" style={{ color: theme.warning }} />
               Summarize Canvas
             </button>
             <button
               onClick={() => { setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] text-[#c8b89a] hover:bg-[#3d3028]/50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors"
+              style={{ color: theme.ink, background: 'transparent' }}
             >
-              <Zap className="w-3.5 h-3.5 text-[#6366f1]" />
+              <Zap className="w-3.5 h-3.5" style={{ color: theme.accent }} />
               Run Self-Check
             </button>
           </div>
@@ -207,16 +243,23 @@ export function SomaOrb() {
           <div
             className="relative w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 hover:scale-110"
             style={{
-              background: `radial-gradient(circle at 30% 30%, ${colors.primary}, ${colors.primary}88)`,
-              boxShadow: `0 0 ${20 + somaState.intensity * 30}px ${colors.glow}, inset 0 0 10px rgba(255,255,255,0.1)`,
+              background: `radial-gradient(circle at 30% 30%, ${orbPrimary}, ${theme.metal})`,
+              boxShadow: `0 0 ${20 + somaState.intensity * 30}px ${colors.glow}, inset 0 0 10px color-mix(in srgb, var(--theme-ink, var(--color-text, #fafafa)) 12%, transparent)`,
             }}
           >
-            <Brain className="w-5 h-5 text-white/90" />
+            <Brain className="w-5 h-5" style={{ color: theme.ink }} />
           </div>
 
         {/* Activity label */}
         <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
-          <span className="text-[9px] font-medium uppercase tracking-wider text-[#e8dcc8] bg-black/60 px-1.5 py-0.5 rounded border border-[#8b6b4a]/30">
+          <span
+            className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border"
+            style={{
+              color: theme.ink,
+              background: theme.surfaceSoft,
+              borderColor: theme.border,
+            }}
+          >
             {somaState.activity}
           </span>
         </div>
