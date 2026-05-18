@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.1.0-blueviolet" alt="v6.1.0"/></a>
+  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.1.1-blueviolet" alt="v6.1.1"/></a>
   <a href="#-36-llm-providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
   <a href="#-the-numbers"><img src="https://img.shields.io/badge/tools-248%2B-orange" alt="248+ Tools"/></a>
   <a href="#-build-anything-on-demand"><img src="https://img.shields.io/badge/widgets-109-pink" alt="109 Widgets"/></a>
@@ -46,7 +46,7 @@
 
 ## 🪵 NEW in v6.1 — Mission Chat + Desk view
 
-> Status: `v6.1.0` — stable npm `@latest` release. The previous public `@latest` was `6.1.0-beta.7`; beta hardening continued through `6.1.0-beta.30` before this stable promotion.
+> Status: `v6.1.1` — stable npm `@latest` patch release. It adds Day-0 eval isolation and safety hardening on top of the `6.1.0` stable promotion.
 > Install with `npm i -g titan-agent` (or `npm update -g titan-agent`).
 > The v6.0 "Presence" feature set below still applies — v6.1.0 layers
 > a beautiful new surface on top of it.
@@ -425,7 +425,7 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 | Thing                              | Count                            | Where to verify                                |
 | ---------------------------------- | -------------------------------- | ---------------------------------------------- |
-| **Version**                        | 6.1.0                            | `package.json` + `src/utils/constants.ts`      |
+| **Version**                        | 6.1.1                            | `package.json` + `src/utils/constants.ts`      |
 | **LLM providers**                  | 36 (4 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts`               |
 | **Channel adapters**               | 19                               | `src/channels/*.ts` (minus base)               |
 | **Built-in skill modules**         | 91 files                         | `src/skills/builtin/`                          |
