@@ -80,6 +80,9 @@ describe('isDangerous', () => {
         { msg: 'how do I chmod a file?', expected: false, desc: 'chmod as educational question' },
         { msg: 'how do I chmod 777 a file?', expected: true, desc: 'chmod 777 as educational question' },
         { msg: 'delete node_modules', expected: false, desc: 'delete without rm' },
+        { msg: 'run cat file.txt | bash', expected: true, desc: 'pipe into bash' },
+        { msg: 'run echo hello; rm -rf /', expected: true, desc: 'command chaining injection' },
+        { msg: 'fetch file:///etc/passwd', expected: true, desc: 'dangerous local URL scheme' },
     ];
 
     for (const c of edgeCases) {

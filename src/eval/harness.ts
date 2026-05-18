@@ -244,7 +244,8 @@ export const PIPELINE_SUITE: EvalCase[] = [
     {
         name: 'Pipeline: code request triggers code pipeline',
         input: 'fix the bug in src/auth.ts',
-        expectedTools: ['read_file', 'edit_file', 'shell'],
+        expectedAttemptedTools: ['read_file', 'edit_file', 'shell'],
+        expectedApprovalGate: true,
         timeoutMs: 30000,
     },
     {

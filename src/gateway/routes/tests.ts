@@ -318,6 +318,7 @@ export function createTestsRouter(): Router {
       ];
       const imperativeRe = /\b(?:add|open|show|pin|create|launch|put|give\s+me|i\s+want|let'?s\s+see|i\s+need)\b/i;
       const widgetNounRe = /\b(?:widget|panel|dashboard|hub|gallery|kitchen|scheduler)\b/i;
+      const evalRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const agentCall = async (input: string, testName?: string) => {
         const hasExplicitIntent = imperativeRe.test(input) && widgetNounRe.test(input);
         const shortcut = hasExplicitIntent ? systemWidgetShortcuts.find(s => s.pattern.test(input)) : null;
@@ -327,9 +328,12 @@ export function createTestsRouter(): Router {
             toolsUsed: [],
           };
         }
-        // Use a unique userId per test case so each test gets a fresh session
-        // with its own token budget. Prevents budget bleed across tests.
-        const userId = testName ? `eval-${testName.replace(/\s+/g, '-').toLowerCase()}` : 'eval-harness';
+        // Use a unique userId per eval run AND test case so repeated local/CI
+        // evals cannot inherit old sessions, token budgets, or pending approvals.
+        // Stable per-test names alone were not enough: rerunning the same suite
+        // reused old approval state and produced false negatives.
+        const testSlug = testName ? testName.replace(/\s+/g, '-').toLowerCase() : 'harness';
+        const userId = `eval-${evalRunId}-${testSlug}`;
         const result = await processMessage(input, 'eval', userId, {});
         const content = result.content || '';
         const toolsUsed = (result.toolsUsed as string[]) ?? [];
