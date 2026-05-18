@@ -24,6 +24,7 @@ set -euo pipefail
 # ── Defaults ─────────────────────────────────────────────────────────
 THRESHOLD=80
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:48420}"
+AUTH_TOKEN="${GATEWAY_AUTH_TOKEN:-${TITAN_AUTH_TOKEN:-}}"
 SUITES_FILTER=""
 RESULTS_DIR="${RESULTS_DIR:-$(mktemp -d)}"
 BOOT_PID=""
@@ -75,18 +76,23 @@ trap cleanup EXIT INT TERM
 is_healthy() {
   # 2 second timeout — health checks should be near-instant. -k for
   # self-signed HTTPS (Titan PC's gateway uses cert.pem/key.pem).
-  curl -sk --max-time 2 "$GATEWAY_URL/api/health" \
-    | grep -q '"status":"ok"' 2>/dev/null
+  if [ -n "$AUTH_TOKEN" ]; then
+    curl -sk --max-time 2 -H "Authorization: Bearer $AUTH_TOKEN" "$GATEWAY_URL/api/health" \
+      | grep -q '"status":"ok"' 2>/dev/null
+  else
+    curl -sk --max-time 2 "$GATEWAY_URL/api/health" \
+      | grep -q '"status":"ok"' 2>/dev/null
+  fi
 }
 
 boot_gateway() {
-  log "Booting gateway in background (logs → $BOOT_LOG)..."
   BOOT_LOG="$(mktemp)"
-  if [ ! -f dist/gateway/server.js ]; then
-    log "dist/gateway/server.js missing — running npm run build first"
+  log "Booting gateway in background (logs → $BOOT_LOG)..."
+  if [ ! -f dist/cli/index.js ]; then
+    log "dist/cli/index.js missing — running npm run build first"
     npm run build > "$BOOT_LOG" 2>&1 || die "build failed"
   fi
-  node dist/gateway/server.js > "$BOOT_LOG" 2>&1 &
+  node dist/cli/index.js gateway --skip-usable-check > "$BOOT_LOG" 2>&1 &
   BOOT_PID=$!
   for i in $(seq 1 60); do
     if is_healthy; then
@@ -133,11 +139,20 @@ for suite in "${SUITES[@]}"; do
   log ""
   log "── Running suite: $suite ──"
   out_file="$RESULTS_DIR/${suite}.json"
-  http_code=$(curl -sk -o "$out_file" -w '%{http_code}' \
-    --max-time 600 \
-    -X POST "$GATEWAY_URL/api/eval/run" \
-    -H 'Content-Type: application/json' \
-    -d "{\"suite\":\"$suite\"}")
+  if [ -n "$AUTH_TOKEN" ]; then
+    http_code=$(curl -sk -o "$out_file" -w '%{http_code}' \
+      --max-time 600 \
+      -X POST "$GATEWAY_URL/api/eval/run" \
+      -H "Authorization: Bearer $AUTH_TOKEN" \
+      -H 'Content-Type: application/json' \
+      -d "{\"suite\":\"$suite\"}")
+  else
+    http_code=$(curl -sk -o "$out_file" -w '%{http_code}' \
+      --max-time 600 \
+      -X POST "$GATEWAY_URL/api/eval/run" \
+      -H 'Content-Type: application/json' \
+      -d "{\"suite\":\"$suite\"}")
+  fi
 
   if [ "$http_code" != "200" ]; then
     log "  HTTP $http_code on $suite — flagging as failure"

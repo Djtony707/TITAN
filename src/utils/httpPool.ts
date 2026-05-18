@@ -25,13 +25,28 @@
  * Tunable via config.gateway.httpPool.{connections,keepAliveTimeoutMs}
  * for operators who need to go higher or lower than the defaults.
  */
-import { Agent, setGlobalDispatcher, getGlobalDispatcher } from 'undici';
+import { createRequire } from 'module';
 import logger from './logger.js';
+
+interface UndiciAgentLike {
+    close(): Promise<void>;
+    dispatch: unknown;
+    destroyed: boolean;
+}
+
+type UndiciAgentCtor = new (opts?: Record<string, unknown>) => UndiciAgentLike;
+
+const require = createRequire(import.meta.url);
+const Agent = require('undici/lib/dispatcher/agent') as UndiciAgentCtor;
+const { setGlobalDispatcher, getGlobalDispatcher } = require('undici/lib/global') as {
+    setGlobalDispatcher(agent: UndiciAgentLike): void;
+    getGlobalDispatcher(): unknown;
+};
 
 const COMPONENT = 'HttpPool';
 
 let installed = false;
-let currentAgent: Agent | null = null;
+let currentAgent: UndiciAgentLike | null = null;
 
 export interface HttpPoolOptions {
     /** Max in-flight + idle connections per origin. Default 16. */
