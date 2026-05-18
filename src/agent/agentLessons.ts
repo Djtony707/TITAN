@@ -187,11 +187,13 @@ export function renderAgentLessonsForPrompt(agentId: string, topic?: string): st
     try {
         const raw = readFileSync(path, 'utf-8');
         const lines = raw.split(/\r?\n/);
-        // Parse structured entries: kind + topic + text.
-        const entries: Array<{ kind: string; topic: string; text: string; ts: string }> = [];
-        for (const l of lines) {
+        // Parse structured entries: kind + topic + text. Preserve source order so
+        // lessons written within the same millisecond still render newest-first.
+        const entries: Array<{ kind: string; topic: string; text: string; ts: string; index: number }> = [];
+        for (let index = 0; index < lines.length; index++) {
+            const l = lines[index];
             const m = l.match(/^- \[([^\]]+)\]\s+\*\*(fail|win)\*\*(?:\s+topic="([^"]+)")?(?:[^—]*)—\s+(.+)$/);
-            if (m) entries.push({ ts: m[1], kind: m[2], topic: m[3] || '', text: m[4] });
+            if (m) entries.push({ ts: m[1], kind: m[2], topic: m[3] || '', text: m[4], index });
         }
         if (entries.length === 0) return '';
 
@@ -202,7 +204,7 @@ export function renderAgentLessonsForPrompt(agentId: string, topic?: string): st
             score: (wantsTopic && e.topic.toLowerCase() === wantsTopic ? 1 : 0)
                  + (wantsTopic && e.topic.toLowerCase().includes(wantsTopic) ? 0.5 : 0),
         }));
-        scored.sort((a, b) => b.score - a.score || b.e.ts.localeCompare(a.e.ts));
+        scored.sort((a, b) => b.score - a.score || b.e.ts.localeCompare(a.e.ts) || b.e.index - a.e.index);
 
         const top = scored.slice(0, PROMPT_RENDER_CAP).map(s => s.e);
         if (top.length === 0) return '';
