@@ -6,6 +6,7 @@ import { join } from 'path';
 import type { TitanConfig } from '../../src/config/schema.js';
 import { TitanConfigSchema } from '../../src/config/schema.js';
 import { createTelephonyRouter } from '../../src/gateway/routes/telephony.js';
+import { approveApproval } from '../../src/agent/commandPost.js';
 import { readReceipts } from '../../src/receipts/store.js';
 
 let titanHome: string | undefined;
@@ -21,13 +22,13 @@ afterEach(() => {
   titanHome = undefined;
 });
 
-async function request(app: express.Express, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
+async function request(app: express.Express, method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<{ status: number; body: any }> {
   const server = app.listen(0);
   try {
     const port = (server.address() as { port: number }).port;
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: body ? { 'Content-Type': 'application/json', ...extraHeaders } : extraHeaders,
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await response.text();
@@ -43,8 +44,17 @@ async function get(app: express.Express, path: string): Promise<{ status: number
   return request(app, 'GET', path);
 }
 
-async function post(app: express.Express, path: string, body: unknown): Promise<{ status: number; body: any }> {
-  return request(app, 'POST', path, body);
+async function post(app: express.Express, path: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<{ status: number; body: any }> {
+  return request(app, 'POST', path, body, extraHeaders);
+}
+
+async function dograhWebhook(app: express.Express, path: string, body: unknown): Promise<{ status: number; body: any }> {
+  return post(app, path, body, { authorization: 'Bearer dg_test_secret' });
+}
+
+async function approvePhoneDesk(approvalActionId: string): Promise<void> {
+  const approved = await approveApproval(approvalActionId, 'test-admin', 'approved in test');
+  expect(approved?.status).toBe('approved');
 }
 
 describe('telephony Dograh routes', () => {
@@ -67,7 +77,7 @@ describe('telephony Dograh routes', () => {
       },
     });
     const app = buildApp(config, {
-      health: vi.fn().mockResolvedValue({ ok: true, baseUrl: 'https://voice.example.com', configured: true, workflowCount: { total: 2, active: 2 } }),
+      health: vi.fn().mockResolvedValue({ ok: true, baseUrl: 'https://voice.example.com', configured: true, workflowCount: { total: 2, active: 2 }, apiKey: 'dg_test_secret', nested: { authorization: 'Bearer dg_test_secret' } }),
     });
 
     const { status, body } = await get(app, '/api/telephony/dograh/status');
@@ -175,6 +185,7 @@ describe('telephony Dograh routes', () => {
       purpose: 'approved follow-up',
     });
     expect(pending.status).toBe(202);
+    await approvePhoneDesk(pending.body.approvalActionId);
 
     const { status, body } = await post(app, '/api/telephony/dograh/call', {
       toNumber: '+15551234567',
@@ -212,6 +223,7 @@ describe('telephony Dograh routes', () => {
     const initiateOutboundCall = vi.fn().mockResolvedValue({ ok: true, workflowRunId: 42, status: 200, toNumberRedacted: '+1555••••67' });
     const app = buildApp(config, { initiateOutboundCall });
     const pending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'approved follow-up' });
+    await approvePhoneDesk(pending.body.approvalActionId);
 
     const mismatch = await post(app, '/api/telephony/dograh/call', {
       toNumber: '+15559876567',
@@ -236,6 +248,7 @@ describe('telephony Dograh routes', () => {
     const initiateOutboundCall = vi.fn().mockResolvedValue({ ok: true, workflowRunId: 42, status: 200, toNumberRedacted: '+1555••••67' });
     const app = buildApp(config, { initiateOutboundCall });
     const pending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'approved follow-up' });
+    await approvePhoneDesk(pending.body.approvalActionId);
 
     const approvedBody = { toNumber: '+15551234567', purpose: 'approved follow-up', approved: true, approvalActionId: pending.body.approvalActionId };
     expect((await post(app, '/api/telephony/dograh/call', approvedBody)).status).toBe(200);
@@ -262,7 +275,12 @@ describe('telephony Dograh routes', () => {
     const initiateOutboundCall = vi.fn().mockReturnValueOnce(firstCall);
     const app = buildApp(config, { initiateOutboundCall });
     const firstPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'campaign follow-up', mode: 'campaign' });
+    await new Promise((resolve) => setTimeout(resolve, 2));
     const secondPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15557654321', purpose: 'campaign follow-up', mode: 'campaign' });
+    expect(firstPending.status).toBe(202);
+    expect(secondPending.status).toBe(202);
+    await approvePhoneDesk(firstPending.body.approvalActionId);
+    await approvePhoneDesk(secondPending.body.approvalActionId);
 
     const firstApproved = post(app, '/api/telephony/dograh/call', {
       toNumber: '+15551234567',
@@ -302,13 +320,145 @@ describe('telephony Dograh routes', () => {
     const app = buildApp(config, { initiateOutboundCall });
     const firstPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'campaign follow-up', mode: 'campaign' });
     expect(firstPending.status).toBe(202);
+    expect((await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'campaign follow-up', mode: 'campaign', approved: true, approvalActionId: firstPending.body.approvalActionId })).status).toBe(403);
+    await approvePhoneDesk(firstPending.body.approvalActionId);
     expect((await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'campaign follow-up', mode: 'campaign', approved: true, approvalActionId: firstPending.body.approvalActionId })).status).toBe(200);
 
     const secondPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15557654321', purpose: 'campaign follow-up', mode: 'campaign' });
+    await approvePhoneDesk(secondPending.body.approvalActionId);
     const blocked = await post(app, '/api/telephony/dograh/call', { toNumber: '+15557654321', purpose: 'campaign follow-up', mode: 'campaign', approved: true, approvalActionId: secondPending.body.approvalActionId });
 
     expect(blocked.status).toBe(429);
     expect(blocked.body.error).toBe('telephony_rate_limited');
     expect(initiateOutboundCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts inbound admin calls only from configured admin numbers', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        adminNumbers: ['+15551234567'],
+        publicNumbers: ['+15557654321'],
+        dograh: { apiKey: 'dg_test_secret', defaultInboundWorkflowId: 'inbound-admin' },
+      },
+    });
+    const app = buildApp(config, {});
+
+    const spoofed = await post(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+1 (555) 123-4567',
+      toNumber: '+15551234567',
+      transcript: 'what is titan status?',
+      callId: 'call-admin-spoof',
+    });
+    expect(spoofed.status).toBe(401);
+
+    const accepted = await dograhWebhook(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+1 (555) 123-4567',
+      toNumber: '+15551234567',
+      transcript: 'what is titan status?',
+      callId: 'call-admin-1',
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.mode).toBe('admin');
+    expect(accepted.body.authorized).toBe(true);
+    expect(JSON.stringify(accepted.body)).not.toContain('+15551234567');
+
+    const rejected = await dograhWebhook(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+15559876543',
+      toNumber: '+15551234567',
+      transcript: 'run shell',
+      callId: 'call-admin-2',
+    });
+    expect(rejected.status).toBe(403);
+    expect(rejected.body.error).toBe('telephony_admin_caller_not_allowed');
+    const receipts = readReceipts({ limit: 20 });
+    expect(receipts.some((receipt) => receipt.summary.includes('admin call accepted'))).toBe(true);
+    expect(receipts.some((receipt) => receipt.summary.includes('admin caller rejected'))).toBe(true);
+  });
+
+  it('accepts receptionist calls without granting admin privileges', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        adminNumbers: ['+15551234567'],
+        publicNumbers: ['+15557654321'],
+        dograh: { apiKey: 'dg_test_secret', defaultInboundWorkflowId: 'inbound-public' },
+      },
+    });
+    const app = buildApp(config, {});
+
+    const inbound = await dograhWebhook(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+15559876543',
+      toNumber: '+15557654321',
+      transcript: 'I need a callback about pricing',
+      workflowRunId: 77,
+    });
+
+    expect(inbound.status).toBe(200);
+    expect(inbound.body.mode).toBe('receptionist');
+    expect(inbound.body.authorized).toBe(false);
+    expect(inbound.body.nextAction).toBe('record_message');
+  });
+
+  it('records opt-outs from inbound calls and blocks future outbound campaign calls', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        adminNumbers: ['+15551234567'],
+        publicNumbers: ['+15557654321'],
+        allowCampaigns: true,
+        maxCallsPerHour: 5,
+        recordingDisclosure: 'This call may be recorded.',
+        optOutKeywords: ['STOP'],
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123', defaultInboundWorkflowId: 'inbound-public' },
+      },
+    });
+    const initiateOutboundCall = vi.fn();
+    const app = buildApp(config, { initiateOutboundCall });
+
+    const inbound = await dograhWebhook(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+15559876543',
+      toNumber: '+15557654321',
+      transcript: 'please STOP calling me',
+      callId: 'opt-out-call',
+    });
+    expect(inbound.status).toBe(200);
+    expect(inbound.body.optOutRecorded).toBe(true);
+
+    const blocked = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15559876543',
+      purpose: 'campaign follow-up',
+      mode: 'campaign',
+    });
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('telephony_policy_blocked');
+    expect(blocked.body.message).toMatch(/opted out/i);
+    expect(initiateOutboundCall).not.toHaveBeenCalled();
+
+    const optOuts = await get(app, '/api/telephony/dograh/opt-outs');
+    expect(optOuts.status).toBe(200);
+    expect(optOuts.body.count).toBe(1);
+    expect(JSON.stringify(optOuts.body)).not.toContain('+15559876543');
+  });
+
+  it('lists recent Dograh call receipts without exposing raw phone numbers', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: { enabled: true, dograh: { apiKey: 'dg_test_secret', defaultInboundWorkflowId: 'inbound-public' }, publicNumbers: ['+15557654321'] },
+    });
+    const app = buildApp(config, {});
+    await dograhWebhook(app, '/api/telephony/dograh/inbound', {
+      fromNumber: '+15559876543',
+      toNumber: '+15557654321',
+      transcript: 'hello there from +15559876543 with apiKey=dg_test_secret',
+      callId: 'receipt-call',
+    });
+
+    const calls = await get(app, '/api/telephony/dograh/calls');
+
+    expect(calls.status).toBe(200);
+    expect(calls.body.calls.length).toBeGreaterThan(0);
+    expect(calls.body.calls[0].source).toBe('dograh');
+    expect(JSON.stringify(calls.body)).not.toContain('+15559876543');
+    expect(JSON.stringify(calls.body)).not.toContain('dg_test_secret');
   });
 });

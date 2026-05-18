@@ -1266,6 +1266,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (req.path === '/login') { next(); return; }
     if (req.path === '/messenger/webhook') { next(); return; }
     if (req.path.startsWith('/twilio/')) { next(); return; }
+    if (req.path === '/telephony/dograh/inbound') { next(); return; }
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (isValidToken(token, cfg)) { next(); return; }

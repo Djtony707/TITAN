@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.1.1-blueviolet" alt="v6.1.1"/></a>
+  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.2.0-blueviolet" alt="v6.2.0"/></a>
   <a href="#-36-llm-providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
   <a href="#-the-numbers"><img src="https://img.shields.io/badge/tools-248%2B-orange" alt="248+ Tools"/></a>
   <a href="#-build-anything-on-demand"><img src="https://img.shields.io/badge/widgets-109-pink" alt="109 Widgets"/></a>
@@ -46,10 +46,30 @@
 
 ## 🪵 NEW in v6.1 — Mission Chat + Desk view
 
-> Status: `v6.1.1` — stable npm `@latest` patch release. It adds Day-0 eval isolation and safety hardening on top of the `6.1.0` stable promotion.
+> Status: `v6.2.0` — stable npm `@latest` release with TITAN Phone Desk: optional Dograh sidecar integration for Twilio/Telnyx voice workflows, approval-gated outbound calls, inbound admin/receptionist webhooks, opt-out enforcement, receipts, and a dashboard panel.
 > Install with `npm i -g titan-agent` (or `npm update -g titan-agent`).
 > The v6.0 "Presence" feature set below still applies — v6.1.0 layers
 > a beautiful new surface on top of it.
+
+## 📞 NEW in v6.2 — TITAN Phone Desk with Dograh
+
+TITAN can now connect to a self-hosted or hosted Dograh sidecar for Twilio/Telnyx-powered phone workflows without storing carrier credentials directly in TITAN. The integration is optional and disabled by default.
+
+What is verified in v6.2.0:
+
+- `GET /api/telephony/dograh/status` checks Dograh reachability and redacts the API key.
+- `GET /api/telephony/dograh/workflows` lists active Dograh workflows.
+- `POST /api/telephony/dograh/call` creates an approval request first, then starts an outbound Dograh call only when a matching approval action is supplied.
+- The `phone_call` tool is approval-request-only; it never dials directly from an LLM tool call.
+- `POST /api/telephony/dograh/inbound` handles inbound Dograh webhooks for admin-control and receptionist lines.
+- Admin control is restricted to configured E.164 `telephony.adminNumbers`.
+- Public/receptionist numbers do not receive admin privileges.
+- Campaign/cold-call mode is locked unless `allowCampaigns`, recording disclosure, opt-out keywords, and hourly rate limits are configured.
+- Inbound opt-out phrases are recorded and block future campaign calls to that number.
+- Phone numbers and Dograh API keys are redacted from responses, receipts, and UI lists.
+- `/tools/phone-desk` provides status, workflow, call-receipt, opt-out, and approval-request UI.
+
+Dograh is BSD-2-Clause. TITAN integrates with it as an external sidecar/API so the npm package stays lightweight and Dograh can own the Twilio/Telnyx credentials.
 
 Every TITAN canvas page now carries a **🪵 Mission Chat** launcher in
 the header (with a small **NEW** badge). Click it and you walk into a
@@ -425,7 +445,7 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 | Thing                              | Count                            | Where to verify                                |
 | ---------------------------------- | -------------------------------- | ---------------------------------------------- |
-| **Version**                        | 6.1.1                            | `package.json` + `src/utils/constants.ts`      |
+| **Version**                        | 6.2.0                            | `package.json` + `src/utils/constants.ts`      |
 | **LLM providers**                  | 36 (4 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts`               |
 | **Channel adapters**               | 19                               | `src/channels/*.ts` (minus base)               |
 | **Built-in skill modules**         | 91 files                         | `src/skills/builtin/`                          |

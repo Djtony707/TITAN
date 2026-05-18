@@ -18,6 +18,7 @@ export interface OutboundCallPolicyResult {
   toNumber?: string;
   toNumberRedacted?: string;
   toNumberHash?: string;
+  toNumberOptOutHash?: string;
   workflowId?: string;
   purpose?: string;
   mode?: OutboundCallMode;
@@ -51,6 +52,10 @@ export function redactPhoneNumber(value: string | undefined | null): string {
 export function hashPhoneForApproval(config: TelephonyConfig, normalizedPhoneNumber: string): string {
   const key = config.dograh.apiKey || 'titan-telephony-approval';
   return createHmac('sha256', key).update(normalizedPhoneNumber).digest('hex');
+}
+
+export function hashPhoneForOptOut(normalizedPhoneNumber: string): string {
+  return createHmac('sha256', 'titan-telephony-opt-out-v1').update(normalizedPhoneNumber).digest('hex');
 }
 
 function normalizeMode(value: unknown): OutboundCallMode {
@@ -91,6 +96,7 @@ export function validateOutboundCallRequest(
       reason: 'Campaign outbound calls are disabled. Enable telephony.allowCampaigns and compliance controls first.',
       toNumberRedacted: redactPhoneNumber(toNumber),
       toNumberHash: hashPhoneForApproval(config, toNumber),
+      toNumberOptOutHash: hashPhoneForOptOut(toNumber),
       mode,
     };
   }
@@ -131,6 +137,7 @@ export function validateOutboundCallRequest(
       reason: 'Dograh outbound workflow ID is not configured.',
       toNumberRedacted: redactPhoneNumber(toNumber),
       toNumberHash: hashPhoneForApproval(config, toNumber),
+      toNumberOptOutHash: hashPhoneForOptOut(toNumber),
       mode,
     };
   }
@@ -141,6 +148,7 @@ export function validateOutboundCallRequest(
     toNumber,
     toNumberRedacted: redactPhoneNumber(toNumber),
     toNumberHash: hashPhoneForApproval(config, toNumber),
+    toNumberOptOutHash: hashPhoneForOptOut(toNumber),
     workflowId,
     purpose,
     mode,

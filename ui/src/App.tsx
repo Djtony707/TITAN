@@ -63,6 +63,7 @@ const VramPanel = lazy(() => import('@/components/admin/VramPanel'));
 const FleetPanel = lazy(() => import('@/components/admin/FleetPanel'));
 const CronPanel = lazy(() => import('@/components/admin/CronPanel'));
 const EvalPanel = lazy(() => import('@/components/admin/EvalPanel'));
+const PhoneDeskPanel = lazy(() => import('@/components/admin/PhoneDeskPanel'));
 
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
@@ -159,6 +160,7 @@ function AuthenticatedAppInner() {
             <Route path="/tools/recipes" element={<RecipesPanel />} />
             <Route path="/tools/files" element={<CPFiles />} />
             <Route path="/tools/voice" element={<CPVoice />} />
+            <Route path="/tools/phone-desk" element={<PhoneDeskPanel />} />
 
             <Route path="/system" element={<SettingsPanel />} />
             <Route path="/system/settings" element={<SettingsPanel />} />
