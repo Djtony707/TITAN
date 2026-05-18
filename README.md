@@ -26,12 +26,12 @@
 </p>
 
 <p align="center">
-  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.0.0--beta.1-blueviolet" alt="v6.0.0-beta.1"/></a>
+  <a href="#-the-numbers"><img src="https://img.shields.io/badge/version-6.1.0-blueviolet" alt="v6.1.0"/></a>
   <a href="#-36-llm-providers"><img src="https://img.shields.io/badge/providers-36-purple" alt="36 Providers"/></a>
   <a href="#-the-numbers"><img src="https://img.shields.io/badge/tools-248%2B-orange" alt="248+ Tools"/></a>
   <a href="#-build-anything-on-demand"><img src="https://img.shields.io/badge/widgets-109-pink" alt="109 Widgets"/></a>
   <a href="#-mission-control"><img src="https://img.shields.io/badge/admin%20panels-43-teal" alt="43 Admin Panels"/></a>
-  <a href="#-testing"><img src="https://img.shields.io/badge/tests-7%2C056-brightgreen" alt="7,056 Tests"/></a>
+  <a href="#-testing"><img src="https://img.shields.io/badge/tests-7%2C690%20passing-brightgreen" alt="7,690 Passing Tests"/></a>
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 
 ## 🪵 NEW in v6.1 — Mission Chat + Desk view
 
-> Status: `v6.1.0-beta.7` — live on npm at `@latest` and `@beta`. Alpha series concluded with `6.1.0-alpha.57`; the schema promoted to beta once features stabilized.
+> Status: `v6.1.0` — stable npm `@latest` release. The previous public `@latest` was `6.1.0-beta.7`; beta hardening continued through `6.1.0-beta.30` before this stable promotion.
 > Install with `npm i -g titan-agent` (or `npm update -g titan-agent`).
 > The v6.0 "Presence" feature set below still applies — v6.1.0 layers
 > a beautiful new surface on top of it.
@@ -102,7 +102,7 @@ where everything the team produces lands as a physical, draggable object.
   - **⏸ Pause / Resume** — skip them on the next round
   - **🏃 Marathon mode** — mission-wide 72h autonomous toggle
     *(the long-running daemon that consumes this flag is on the v6.1.0
-    roadmap — see [HANDOFF-2026-05-13.md](./HANDOFF-2026-05-13.md))*
+    roadmap; the UI flag is present, enforcement daemon work remains staged)*
 
 - 📜 **Always-on templates** on the Mission Start screen — six starter
   recipes for recurring autonomous work: 📰 Daily research digest ·
@@ -397,7 +397,7 @@ You wake up to a slightly smarter agent. Like compound interest, but for AI.
 
 <a id="-testing"></a>
 
-## 🧪 Testing — 287 Files, 7,056 Cases
+## 🧪 Testing — 335 Files, 7,692 Cases
 
 TITAN ships with **five layered testing stages** that catch regressions at different levels:
 
@@ -406,7 +406,7 @@ TITAN ships with **five layered testing stages** that catch regressions at diffe
 | **Unit**               | Pure functions: regex (`isDangerous`), pipeline classifier, gate extraction, token budget, secret scanner, **durable journal**, **stateless reducer**. Zero LLM calls. | `npm test -- tests/unit/`           | seconds  |
 | **Mock trajectory**    | Tape-replay through `MockOllamaProvider`. Asserts the agent calls the right tools in the right order using recorded responses.                 | `npm test -- tests/eval/trajectory` | < 1 s    |
 | **Cross-model parity** | Same scenario replayed across multiple provider tapes. Catches behavioural divergence when one provider drifts.                                | `npm run test:parity`               | < 1 s    |
-| **Full deterministic** | The whole vitest run: gateway, mission-control, skills, safety, all integration mocks. **7,056 tests, ~3:50 wall.**                            | `npm test`                          | ~4 min   |
+| **Full deterministic** | The whole vitest run: gateway, mission-control, skills, safety, all integration mocks. **7,690 passing / 7,692 total, ~2:00 wall on Titan PC.** | `npm test` | ~2–4 min |
 | **Live eval (gated)**  | **11 suites** of behavioural tests against the running agent. 80% pass rate per suite is the merge gate.                                       | `npm run test:eval`                 | 5–15 min |
 
 ---
@@ -425,7 +425,7 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 
 | Thing                              | Count                            | Where to verify                                |
 | ---------------------------------- | -------------------------------- | ---------------------------------------------- |
-| **Version**                        | 6.0.0-beta.1                     | `package.json` + `src/utils/constants.ts`      |
+| **Version**                        | 6.1.0                            | `package.json` + `src/utils/constants.ts`      |
 | **LLM providers**                  | 36 (4 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts`               |
 | **Channel adapters**               | 19                               | `src/channels/*.ts` (minus base)               |
 | **Built-in skill modules**         | 88 files                         | `src/skills/builtin/`                          |
@@ -435,8 +435,8 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 | **Admin panels (Mission Control)** | 43                               | `ui/src/components/admin/*Panel.tsx`           |
 | **Spaces presets**                 | 5 (default, coder, dj, founder, homelab) | `src/storage/starterSpaces.ts`         |
 | **Soma drives**                    | 5 (purpose, curiosity, hunger, safety, social) | `src/organism/`                  |
-| **Test files**                     | 287                              | `tests/` (vitest)                              |
-| **Test cases**                     | 7,056                            | `npm test`                                     |
+| **Test files**                     | 335                              | `tests/` (vitest)                              |
+| **Test cases**                     | 7,690 passing / 7,692 total      | `npm test`                                     |
 | **Live-eval suites**               | 11                               | `src/eval/harness.ts`                          |
 | **Gateway port (default)**         | 48420                            | `src/utils/constants.ts`                       |
 | **Node**                           | ≥ 22, pure ESM                   | `package.json`                                 |
@@ -474,7 +474,7 @@ src/
 └── vram/         # GPU VRAM orchestrator
 ui/               # React 19 SPA (Vite + Tailwind 4 + Yjs CRDT canvas)
                   # + SpacesSidebar + TitanMascot with 8 moods
-tests/            # 287 vitest test files, 7,056 cases
+tests/            # 335 vitest test files, 7,692 cases (7,690 passing, 2 skipped)
 autoresearch/     # LoRA fine-tuning pipeline (prepare → train → deploy)
 scripts/          # F5-TTS sidecars, benchmarks, evals
 ```
@@ -483,9 +483,7 @@ scripts/          # F5-TTS sidecars, benchmarks, evals
 
 ## 📚 Further Reading
 
-- **[CHANGELOG.md](./CHANGELOG.md)** — what shipped, when
-- **[CLAUDE.md](./CLAUDE.md)** — project guide (used by Claude Code)
-- **[AGENTS.md](./AGENTS.md)** — TITAN's runtime view of its own project context
+- **[GitHub repository](https://github.com/Djtony707/TITAN)** — source, changelog, issues, and contributor docs
 - **[Picrew/awesome-agent-harness](https://github.com/Picrew/awesome-agent-harness)** — the 7-pattern playbook the v6.0 Command Post upgrades came from
 - **HumanLayer 12-Factor Agents** — §6 (Launch/Pause/Resume), §8 (Own Your Control Flow), §12 (Stateless Reducer)
 - **Anthropic** — "Effective harnesses for long-running agents," "Building a multi-agent research system"

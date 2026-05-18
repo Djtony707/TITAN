@@ -1,5 +1,12 @@
 # Changelog
 
+## v6.1.0 — 2026-05-18 — Stable latest release
+
+- Promotes the validated v6.1 Mission Chat / Desk line to a stable npm release.
+- Includes the beta.30 receipts foundation, deterministic eval hardening, Mission Canvas shell/sidebar containment fixes, and same-millisecond lesson ordering stabilization.
+- Verified on Titan PC before release: typecheck, package build, UI build, eval gate 55/57 (96%), and full vitest suite 7,690 passing / 7,692 total.
+- README status/version/test-count language updated to match the release state.
+
 All notable changes to TITAN are documented in this file.
 Format follows [Semantic Versioning](https://semver.org/).
 
