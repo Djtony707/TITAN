@@ -369,7 +369,7 @@ curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/install.sh | b
 **Or npm:**
 
 ```bash
-npm install -g titan-agent@next     # v6.0 beta channel
+npm install -g titan-agent          # stable latest release
 titan onboard                       # Interactive setup wizard
 titan gateway                       # Launches Mission Control at http://localhost:48420
 ```
@@ -387,7 +387,7 @@ Requirements: **Node ≥ 22** (pure ESM, no CJS). For GPU features (LoRA fine-tu
 
 ### Upgrading from v5.x
 
-Just run `npm install -g titan-agent@next`. The migration runner kicks in on first boot, takes an automatic backup first (`~/.titan/backups/`), then applies the schema migrations. If anything goes sideways, `titan backup restore <id>` puts you back.
+Just run `npm install -g titan-agent`. The migration runner kicks in on first boot, takes an automatic backup first (`~/.titan/backups/`), then applies the schema migrations. If anything goes sideways, `titan backup restore <id>` puts you back.
 
 ---
 
