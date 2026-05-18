@@ -43,7 +43,7 @@
  * loading / error early-returns happen AFTER all hooks. (The alpha.12
  * React error #310 fix is preserved.)
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   getMission,
@@ -166,6 +166,56 @@ export default function MissionCanvas() {
   const [steerInput, setSteerInput] = useState('');
   const [sending, setSending] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const canvasRootRef = useRef<HTMLDivElement | null>(null);
+  const [canvasSize, setCanvasSize] = useState(() => ({
+    width: typeof window === 'undefined' ? 1400 : window.innerWidth,
+    height: typeof window === 'undefined' ? 800 : window.innerHeight,
+  }));
+
+  useLayoutEffect(() => {
+    const root = canvasRootRef.current;
+    if (!root) return;
+    const update = () => {
+      const rect = root.getBoundingClientRect();
+      setCanvasSize((prev) => {
+        const width = Math.max(320, Math.round(rect.width));
+        const height = Math.max(320, Math.round(rect.height));
+        return prev.width === width && prev.height === height ? prev : { width, height };
+      });
+    };
+    update();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    resizeObserver?.observe(root);
+    window.addEventListener('resize', update);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [loading, room?.id]);
+
+  const getCanvasRect = useCallback((): Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> => {
+    const rect = canvasRootRef.current?.getBoundingClientRect();
+    if (rect) return rect;
+    return {
+      left: 0,
+      top: 0,
+      width: typeof window === 'undefined' ? 1400 : window.innerWidth,
+      height: typeof window === 'undefined' ? 800 : window.innerHeight,
+    };
+  }, []);
+
+  const toCanvasPoint = useCallback((clientX: number, clientY: number) => {
+    const rect = getCanvasRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }, [getCanvasRect]);
+
+  const toClampedAgentMenuAnchor = useCallback((clientX: number, clientY: number): AgentMenuAnchor => {
+    const point = toCanvasPoint(clientX, clientY);
+    return {
+      x: Math.max(8, Math.min(point.x, canvasSize.width - 328)),
+      y: Math.max(8, Math.min(point.y, canvasSize.height - 368)),
+    };
+  }, [canvasSize, toCanvasPoint]);
 
   // Desk layout — pose per item id. Persisted to localStorage.
   const [layout, setLayout] = useState<DeskLayout>({});
@@ -426,11 +476,12 @@ export default function MissionCanvas() {
 
   /** Compute initial pose for an item that has no saved layout yet. */
   const initialPose = useCallback((item: DeskItem, allItems: DeskItem[]): ItemPose => {
-    // Canvas-area approximation; we use viewport-relative pixels. Recomputed
-    // on every render so resize doesn't lose intent, but only used when the
-    // saved layout is missing this item.
-    const vw = typeof window === 'undefined' ? 1400 : window.innerWidth;
-    const vh = typeof window === 'undefined' ? 800 : window.innerHeight;
+    // Canvas-area approximation; use the measured shell-contained canvas pane
+    // instead of the full viewport so the desktop sidebar never eats
+    // right-edge items. The measurement is refreshed before paint via
+    // useLayoutEffect and ResizeObserver.
+    const vw = canvasSize.width;
+    const vh = canvasSize.height;
     const cx = vw / 2;
     const cy = vh / 2;
     if (item.kind === 'goal') return { x: cx - 220, y: 90, z: 5, rotation: -1.2 };
@@ -496,7 +547,7 @@ export default function MissionCanvas() {
       };
     }
     return { x: 100, y: 100, z: 1, rotation: 0 };
-  }, []);
+  }, [canvasSize]);
 
   /** Look up an item's pose; fall back to initial layout. */
   const poseOf = useCallback((item: DeskItem): ItemPose => {
@@ -538,18 +589,21 @@ export default function MissionCanvas() {
     const existing = layout[itemId];
     const rotation = existing?.rotation ?? ((Math.random() * 6) - 3);
     // Offset (-80,-20) matches the cabinet ghost preview offset so the
-    // dropped pose visually lines up with where the ghost was.
-    setPose(itemId, { x: x - 80, y: y - 20, z: maxZ + 1, rotation });
-  }, [furniture, persistFurniture, items, layout, initialPose, setPose]);
+    // dropped pose visually lines up with where the ghost was. Convert the
+    // viewport pointer location to canvas-local coordinates first because the
+    // desk is contained inside TitanShell's main pane.
+    const point = toCanvasPoint(x, y);
+    setPose(itemId, { x: point.x - 80, y: point.y - 20, z: maxZ + 1, rotation });
+  }, [furniture, persistFurniture, items, layout, initialPose, setPose, toCanvasPoint]);
 
   // ── Early-return guards (after all hooks) ─────────────────────
 
   if (loading) {
-    return <div className="fixed inset-0 flex items-center justify-center text-sm" style={{ background: 'var(--theme-bg-base, #3a2a1c)', color: 'var(--theme-paper-fg, #f3e9d0)' }}>Setting the desk…</div>;
+    return <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'var(--theme-bg-base, #3a2a1c)', color: 'var(--theme-paper-fg, #f3e9d0)' }}>Setting the desk…</div>;
   }
   if (error || !room) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center flex-col gap-3" style={{ background: 'var(--theme-bg-base, #3a2a1c)' }}>
+      <div className="absolute inset-0 flex items-center justify-center flex-col gap-3" style={{ background: 'var(--theme-bg-base, #3a2a1c)' }}>
         <div className="text-[#ffb4a2] text-sm">{error ?? 'Mission not found.'}</div>
         <button onClick={() => navigate('/mission')} className="text-sm hover:underline" style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}>← Start a new mission</button>
       </div>
@@ -559,13 +613,13 @@ export default function MissionCanvas() {
   const { working, blocked } = countTeam(room);
 
   return (
-    <div className="fixed inset-0 overflow-hidden font-sans" style={{ ...deskStyle, color: 'var(--theme-paper-fg, #f3e9d0)', fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)' }}>
+    <div ref={canvasRootRef} className="absolute inset-0 overflow-hidden font-sans" style={{ ...deskStyle, color: 'var(--theme-paper-fg, #f3e9d0)', fontFamily: 'var(--theme-font-display, ui-sans-serif, system-ui)' }}>
       {/* warm window-light glow + vignette */}
       <div className="pointer-events-none absolute inset-0" style={glowStyle} />
       <div className="pointer-events-none absolute inset-0" style={vignetteStyle} />
 
       {/* Top bar */}
-      <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+      <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-3.5">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <button onClick={() => navigate('/mission')} className="hover:text-white text-sm" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }} title="New mission">←</button>
           <button
@@ -591,7 +645,7 @@ export default function MissionCanvas() {
             <span className="font-normal" style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>Desk</span>
           </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs" style={{ background: 'var(--theme-leather, rgba(42,29,17,0.7))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>
             <span className={`w-2 h-2 rounded-full ${blocked > 0 ? 'bg-error animate-pulse' : working > 0 ? 'bg-accent animate-pulse' : 'bg-success'}`} />
             <span style={{ color: 'var(--theme-metal-bright, #e7d6a8)' }}>{statusBlurb(room.status, working, blocked)}</span>
@@ -677,7 +731,7 @@ export default function MissionCanvas() {
               onGrab={() => bringToFront(item.id)}
               onPose={(p) => setPose(item.id, p)}
               onClick={isAgent
-                ? (x, y) => setAgentMenu({ agentId: item.ref!, anchor: { x, y } })
+                ? (x, y) => setAgentMenu({ agentId: item.ref!, anchor: toClampedAgentMenuAnchor(x, y) })
                 : undefined}
               onDrop={isFilable ? (target) => handleDrop(item.id, target) : undefined}
             >
@@ -748,10 +802,10 @@ export default function MissionCanvas() {
 
       {/* Bottom rail — slash quick steers + steer input. Same layout as before. */}
       <footer
-        className="absolute left-0 right-0 bottom-0 z-30 px-5 pb-12 pt-3 md:pb-8 flex flex-col gap-2"
+        className="absolute left-0 right-0 bottom-0 z-30 px-3 pb-12 pt-3 sm:px-5 md:pb-8 flex flex-col gap-2"
         style={{ background: 'linear-gradient(to top, var(--theme-leather-edge, rgba(29,19,10,0.95)), transparent)' }}
       >
-        <div className="flex flex-wrap items-center gap-2 max-w-5xl mx-auto w-full">
+        <div className="flex max-h-24 flex-wrap items-center gap-2 overflow-y-auto pr-1 max-w-5xl mx-auto w-full sm:max-h-none sm:overflow-visible sm:pr-0">
           <span className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>quick steer</span>
           {SLASH_COMMANDS.map(s => (
             <button
@@ -767,14 +821,14 @@ export default function MissionCanvas() {
         <div className="flex items-center gap-3 max-w-5xl mx-auto w-full">
           <form
             onSubmit={(e) => { e.preventDefault(); sendSteer(steerInput); }}
-            className="flex-1 h-11 flex items-center gap-2.5 px-3.5 rounded-full"
+            className="min-w-0 flex-1 h-11 flex items-center gap-2.5 px-3.5 rounded-full"
             style={{ background: 'var(--theme-leather, rgba(42,29,17,0.8))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
           >
             <input
               value={steerInput}
               onChange={(e) => setSteerInput(e.target.value)}
               placeholder='Tell the team — "Add a one-line risk note at the top"'
-              className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#d9c08c]/50"
+              className="min-w-0 flex-1 bg-transparent outline-none text-sm placeholder:text-[#d9c08c]/50"
               style={{ color: 'var(--theme-paper-fg, #f3e9d0)' }}
             />
             <span className="px-2 py-1 text-[10px] uppercase tracking-widest rounded" style={{ color: 'var(--theme-ink-soft, #d9c08c)', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}>↵</span>
@@ -799,7 +853,7 @@ export default function MissionCanvas() {
       {/* Help panel */}
       {helpOpen && (
         <div
-          className="fixed top-16 right-5 w-80 rounded-xl p-4 backdrop-blur-xl shadow-2xl z-40"
+          className="absolute left-4 right-4 top-20 z-40 rounded-xl p-4 backdrop-blur-xl shadow-2xl sm:left-auto sm:right-5 sm:w-80"
           style={{ background: 'var(--theme-leather, rgba(42,29,17,0.95))', border: '1px solid var(--theme-metal-dark, rgba(138,106,58,0.6))' }}
         >
           <button onClick={() => setHelpOpen(false)} className="absolute top-3 right-3 hover:text-white text-sm" style={{ color: 'var(--theme-ink-soft, #d9c08c)' }}>✕</button>
@@ -854,28 +908,38 @@ function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: Draggabl
   const [drag, setDrag] = useState<{ dx: number; dy: number; x: number; y: number } | null>(null);
   const visual = drag ? { x: drag.x, y: drag.y } : { x: pose.x, y: pose.y };
 
-  // Mousedown — start drag (or capture a click, depending on movement).
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
+  // Pointer drag supports mouse, pen, and touch. This keeps the desk usable
+  // on tablets without changing the existing click/drop semantics.
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag]')) return;
     e.preventDefault();
     onGrab();
+    const dragNode = e.currentTarget;
     const startX = e.clientX;
     const startY = e.clientY;
+    const pointerId = e.pointerId;
     const origX = pose.x;
     const origY = pose.y;
     setDrag({ dx: 0, dy: 0, x: origX, y: origY });
 
-    const onMove = (mv: MouseEvent) => {
+    try { dragNode.setPointerCapture(pointerId); } catch { /* Some browsers reject capture after DOM changes. */ }
+
+    const onMove = (mv: PointerEvent) => {
+      if (mv.pointerId !== pointerId) return;
       const dx = mv.clientX - startX;
       const dy = mv.clientY - startY;
       setDrag({ dx, dy, x: origX + dx, y: origY + dy });
     };
-    const onUp = (mv: MouseEvent) => {
+    const onUp = (mv: PointerEvent) => {
+      if (mv.pointerId !== pointerId) return;
       const dx = mv.clientX - startX;
       const dy = mv.clientY - startY;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try { dragNode.releasePointerCapture(pointerId); } catch { /* Already released/cancelled. */ }
       const finalX = origX + dx;
       const finalY = origY + dy;
       setDrag(null);
@@ -887,14 +951,14 @@ function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: Draggabl
         return;
       }
       // Drop zone hit test: pick the topmost element under the cursor
-      // at mouseup, then walk up looking for data-drop-target. Skip the
+      // at pointerup, then walk up looking for data-drop-target. Skip the
       // dragged element itself so a card can't "drop on itself".
       if (onDrop) {
         const stack = document.elementsFromPoint(mv.clientX, mv.clientY) as HTMLElement[];
         for (const el of stack) {
           const dropTarget = el.closest('[data-drop-target]') as HTMLElement | null;
           if (!dropTarget) continue;
-          if (dropTarget.contains(e.currentTarget as Node)) continue; // own descendant
+          if (dropTarget.contains(dragNode)) continue; // own descendant
           const t = dropTarget.getAttribute('data-drop-target');
           if (t) {
             const consumed = onDrop(t);
@@ -905,14 +969,15 @@ function Draggable({ pose, onGrab, onPose, onClick, onDrop, children }: Draggabl
       }
       onPose({ ...pose, x: finalX, y: finalY });
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [pose, onGrab, onPose, onClick, onDrop]);
 
   return (
     <div
-      onMouseDown={onMouseDown}
-      className="absolute select-none pointer-events-auto cursor-grab active:cursor-grabbing"
+      onPointerDown={onPointerDown}
+      className="absolute select-none pointer-events-auto cursor-grab touch-none active:cursor-grabbing"
       style={{
         left: visual.x,
         top: visual.y,
