@@ -331,9 +331,12 @@ export function createTestsRouter(): Router {
         // with its own token budget. Prevents budget bleed across tests.
         const userId = testName ? `eval-${testName.replace(/\s+/g, '-').toLowerCase()}` : 'eval-harness';
         const result = await processMessage(input, 'eval', userId, {});
+        const content = result.content || '';
+        const toolsUsed = (result.toolsUsed as string[]) ?? [];
         return {
-          content: result.content || '',
-          toolsUsed: (result.toolsUsed as string[]) ?? [],
+          content,
+          toolsUsed,
+          attemptedTools: result.attemptedTools ?? [],
         };
       };
 

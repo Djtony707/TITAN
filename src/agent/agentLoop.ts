@@ -47,6 +47,7 @@ import { buildSmartContext } from './contextManager.js';
 import { isKilled } from '../safety/killSwitch.js';
 import { estimateTokens } from '../utils/tokens.js';
 import { DEFAULT_MAX_TOKENS } from '../utils/constants.js';
+import { isDangerousCommand } from '../utils/safety.js';
 import { getCachedResponse, setCachedResponse } from './responseCache.js';
 import { shouldReflect, reflect, resetProgress, recordProgress, setProgressSession } from './reflection.js';
 import { recordToolResult, classifyTaskType, recordToolPreference, getErrorResolution, recordErrorResolution } from '../memory/learning.js';
@@ -300,18 +301,23 @@ export function extractToolCallFromUserMessage(
     // Shell: "run X", "run: X", "execute X", "please run X", "can you run X"
     // X starts with a known shell command.
     if (availableNames.has('shell')) {
+        if (isDangerousCommand(msg)) return null;
         const shellMatch = msg.match(
             /(?:please\s+)?(?:can you\s+)?(?:run|execute)[\s:]+[`'"]?((?:ls|cat|grep|find|echo|pwd|uname|node|npm|git|which|ps|df|free|uptime|whoami|date|hostname|ip|head|tail|wc|sort|uniq|awk|sed|curl|wget|ping|du|stat|file|env|printenv|history)\s[^\n`'"]*?)[`'"]?(?:\s+and|\s+then|\.|\?|\s*$)/i,
         );
         if (shellMatch && shellMatch[1]) {
-            return mkCall('shell', { command: shellMatch[1].trim() });
+            const command = shellMatch[1].trim();
+            if (isDangerousCommand(command)) return null;
+            return mkCall('shell', { command });
         }
         // Bare "run: ls /path" without other clauses
         const bareMatch = msg.match(
             /^(?:please\s+)?(?:run|execute)[\s:]+[`'"]?((?:ls|cat|grep|find|echo|pwd|uname|node|npm|git|which|ps|df|free|uptime|whoami|date|hostname)\s[^\n`'"]+?)[`'"]?\s*$/i,
         );
         if (bareMatch && bareMatch[1]) {
-            return mkCall('shell', { command: bareMatch[1].trim() });
+            const command = bareMatch[1].trim();
+            if (isDangerousCommand(command)) return null;
+            return mkCall('shell', { command });
         }
     }
 
@@ -436,6 +442,8 @@ export interface LoopContext {
 export interface LoopResult {
     content: string;
     toolsUsed: string[];
+    /** Tool names requested by the model before execution/approval gates. */
+    attemptedTools: string[];
     orderedToolSequence: string[];
     modelUsed: string;
     /** v5.0: OTEL trace context for observability */
@@ -729,6 +737,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     const result: LoopResult = {
         content: '',
         toolsUsed: [],
+        attemptedTools: [],
         orderedToolSequence: [],
         modelUsed: ctx.activeModel,
         promptTokens: 0,
@@ -1680,6 +1689,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // this is where the loop will break and surface a confirm prompt.
             // Reference: docs/HARNESS-PATTERNS.md, 12-factor §8.
             for (const tc of pendingToolCalls) {
+                result.attemptedTools.push(tc.function.name);
                 const kind = getToolKind(tc.function.name);
                 if (kind !== 'sync') {
                     logger.info(COMPONENT, `[ToolIntent] ${tc.function.name} kind=${kind}${isDestructive(tc.function.name) ? ' — destructive (audit only in v5.8.0)' : ''}`);

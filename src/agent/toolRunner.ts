@@ -1119,26 +1119,23 @@ export async function executeTools(toolCalls: ToolCall[], channel?: string): Pro
         return { id: tc.id, name: tc.function.name, args };
     });
 
-    const executor = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    const executor = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
         // Build a synthetic ToolCall for executeTool
         const syntheticTc: ToolCall = {
             id: '',
             type: 'function',
             function: { name, arguments: JSON.stringify(args) },
         };
-        const result = await executeTool(syntheticTc, channel);
-        return result.content;
+        return executeTool(syntheticTc, channel);
     };
 
-    const parallelResults = await executeToolsParallel(parallelCalls, executor);
+    const parallelResults = await executeToolsParallel<ToolResult>(parallelCalls, executor);
 
     // Map back to ToolResult format with full metadata, then apply output cap.
     const mapped: ToolResult[] = parallelResults.map(pr => ({
+        ...pr.content,
         toolCallId: pr.toolCallId,
         name: pr.name,
-        content: pr.content,
-        success: !pr.content.startsWith('Error:'),
-        durationMs: 0,
     }));
     return applyOutputCaps(mapped);
 }
