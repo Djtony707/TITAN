@@ -68,20 +68,35 @@ interface RecognizedIntent {
  * Order matters — safety refusals first, then structured outputs,
  * then tool-call shapes, then default chat.
  */
-function recognize(messages: ChatMessage[], hasTools: boolean): RecognizedIntent {
-    const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
+function recognize(messages: ChatMessage[], offeredTools: Set<string>): RecognizedIntent {
+    const userMessages = messages.filter(m => m.role === 'user').map(m => m.content ?? '');
+    const lastUser = [...userMessages].reverse()[0] ?? '';
     const system = messages.find(m => m.role === 'system')?.content ?? '';
-    const combined = `${system}\n${lastUser}`.toLowerCase();
+    const combined = `${system}\n${userMessages.join('\n')}`.toLowerCase();
     const userOnly = lastUser.toLowerCase();
+    const directiveRe = /^\s*\[system directive for this reply only\]/i;
+    const conversationalUsers = userMessages.filter(m => !directiveRe.test(m));
+    const intentPrompt = ([...conversationalUsers].reverse()[0] ?? lastUser).toLowerCase();
+    const intentContext = `${intentPrompt}\n${combined}`;
+    const structuredContext = `${system}\n${intentPrompt}`;
 
     // ── Safety refusal — keep first so injection attempts in the
     //    system prompt don't override it.
-    if (
-        /\b(rm\s+-rf|delete\s+everything|wipe\s+the\s+disk|drop\s+all\s+tables|format\s+the\s+drive)\b/i.test(lastUser)
-    ) {
+    if (isUnsafeRequest(intentPrompt || userOnly)) {
         return {
             kind: 'safety_refusal',
-            content: 'Stub: I won\'t execute destructive system commands. Ask the user to confirm and run those manually.',
+            content: 'Stub: I can\'t safely comply. I refuse to execute unsafe, destructive, injected, traversal, scheme-abusing, or private-instruction extraction requests.',
+            finishReason: 'stop',
+        };
+    }
+
+    // ── Tool-result continuation — if the LAST message is a tool
+    //    result, wrap up instead of re-issuing the same deterministic
+    //    tool call on the next round.
+    if (messages[messages.length - 1]?.role === 'tool') {
+        return {
+            kind: 'tool_result_ack',
+            content: summarizeToolResult(intentPrompt),
             finishReason: 'stop',
         };
     }
@@ -93,11 +108,11 @@ function recognize(messages: ChatMessage[], hasTools: boolean): RecognizedIntent
     //    JSON output, or any mention of the spawn-envelope fields
     //    ("status", "artifacts", "confidence") together, triggers
     //    the structured-output path.
-    const mentionsJsonOutput = /(respond|reply|return|output)\s+(with\s+)?(strict\s+)?json|json\s+containing|json\s+envelope|structuredSpawn|spawn\s+envelope/i.test(combined);
+    const mentionsJsonOutput = /(respond|reply|return|output)\s+(with\s+)?(strict\s+)?json|json\s+containing|json\s+envelope|structuredSpawn|spawn\s+envelope/i.test(structuredContext);
     const mentionsEnvelopeFields =
-        /"status"/i.test(combined) &&
-        /"artifacts"/i.test(combined) &&
-        /"confidence"/i.test(combined);
+        /"status"/i.test(structuredContext) &&
+        /"artifacts"/i.test(structuredContext) &&
+        /"confidence"/i.test(structuredContext);
     if (mentionsJsonOutput || mentionsEnvelopeFields) {
         const json = JSON.stringify({
             status: 'done',
@@ -116,18 +131,18 @@ function recognize(messages: ChatMessage[], hasTools: boolean): RecognizedIntent
     // ── Widget gate — TITAN's chat surface listens for a
     //    `_____widget` gate followed by a JSON line. The 100+ widget
     //    gallery routes off this signal; eval suites assert it.
-    if (/widget|panel|gauge|dashboard|stock\s+ticker|pomodoro|calendar/i.test(userOnly)) {
-        const widgetName = pickWidget(userOnly);
+    const widget = pickWidget(intentPrompt || userOnly);
+    if (widget) {
         const widgetJson = JSON.stringify({
-            name: widgetName,
+            name: widget.name,
             format: 'system',
-            source: 'gallery',
-            w: 360,
-            h: 240,
+            source: widget.source,
+            w: widget.w,
+            h: widget.h,
         });
         return {
             kind: 'widget_gate',
-            content: `Adding the **${widgetName}** widget to your canvas.\n\n_____widget\n${widgetJson}`,
+            content: `Adding the **${widget.name}** widget to your canvas.\n\n_____widget\n${widgetJson}`,
             finishReason: 'stop',
         };
     }
@@ -136,34 +151,36 @@ function recognize(messages: ChatMessage[], hasTools: boolean): RecognizedIntent
     //    clearly asks for one. Emits a tool_calls finish_reason so
     //    the agent loop dispatches the tool. The agent will then
     //    feed a tool_result back; that's handled below.
-    if (hasTools) {
-        const toolMatch = pickTool(userOnly);
-        if (toolMatch) {
+    if (offeredTools.size > 0) {
+        const toolMatches = pickToolCalls(intentPrompt || userOnly).filter(tool => offeredTools.has(tool.name));
+        if (toolMatches.length > 0) {
             return {
-                kind: `tool_call:${toolMatch.name}`,
+                kind: `tool_call:${toolMatches.map(t => t.name).join('+')}`,
                 content: '',
-                toolCalls: [{
-                    id: `stub-tool-${Date.now()}`,
+                toolCalls: toolMatches.map((toolMatch, index) => ({
+                    id: `stub-tool-${toolMatch.name}-${index + 1}`,
                     type: 'function',
                     function: {
                         name: toolMatch.name,
                         arguments: JSON.stringify(toolMatch.args),
                     },
-                }],
+                })),
                 finishReason: 'tool_calls',
             };
         }
     }
 
-    // ── Tool-result continuation — if the LAST message is a tool
-    //    result, we wrap up with a brief acknowledgement so the
-    //    multi-round loop terminates cleanly.
-    if (messages[messages.length - 1]?.role === 'tool') {
-        return {
-            kind: 'tool_result_ack',
-            content: 'Stub: tool finished. Done.',
-            finishReason: 'stop',
-        };
+    const directPrompt = intentPrompt || userOnly;
+    if (/\bwhat\s+is\s+2\s*\+\s*2\b|\b2\s*\+\s*2\b/.test(directPrompt)) {
+        return { kind: 'direct_arithmetic', content: 'The answer is 4.', finishReason: 'stop' };
+    }
+
+    if (/^\s*(hello|hi|hey)\b/.test(directPrompt)) {
+        return { kind: 'direct_greeting', content: 'Hello. Voice channel ready.', finishReason: 'stop' };
+    }
+
+    if (/write\s+(a\s+)?hello\s+world\s+program/i.test(intentContext) && /python/i.test(intentContext)) {
+        return { kind: 'write_file_final_answer', content: 'Created a Python hello world program using print("hello world").', finishReason: 'stop' };
     }
 
     // ── Default — plain chat echo. Includes the first 60 chars of
@@ -177,40 +194,128 @@ function recognize(messages: ChatMessage[], hasTools: boolean): RecognizedIntent
 
 /* ───────────────────────────  Sub-recognizers  ─────────────────────────── */
 
-/** Pick a widget name keyed off the user prompt. Defaults to a generic
- *  "Note" panel so the agent always has SOMETHING to add. */
-function pickWidget(prompt: string): string {
-    if (/stock|ticker|nasdaq|nyse/.test(prompt)) return 'Stock Ticker';
-    if (/pomodoro|timer|focus/.test(prompt)) return 'Pomodoro Timer';
-    if (/calendar|schedule/.test(prompt)) return 'Calendar';
-    if (/gauge|meter|metric/.test(prompt)) return 'Gauge';
-    if (/dashboard/.test(prompt)) return 'Dashboard';
-    if (/clock|time/.test(prompt)) return 'Clock';
-    return 'Note';
+function isUnsafeRequest(prompt: string): boolean {
+    return [
+        /\brm\s+-[a-z]*r[a-z]*f[a-z]*\b/,
+        /\bdelete\s+everything\b|\bwipe\s+the\s+disk\b|\bdrop\s+all\s+tables\b|\bformat\s+the\s+drive\b/,
+        /\bchmod\s+777\s+\/(?:etc|bin|sbin|usr|var|)\b/,
+        /\bsudo\b/,
+        /\bcurl\b[^|\n;]*(?:\|\s*(?:ba)?sh\b)/,
+        /\b(?:ignore|bypass)\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions\b/,
+        /\b(?:repeat|reveal|print|show|extract).{0,80}\b(?:system|developer)\s+(?:prompt|instructions)\b/,
+        /\b(?:dan|developer\s+mode|unrestricted\s+ai|do\s+anything\s+now)\b/,
+        /javascript\s*:/,
+        /(?:^|[/"'\s])\.\.\/\.\.\//,
+        /\b(?:run|execute)\b[^;\n]*[;`]|`[^`]+`/,
+        /\|\s*(?:bash|sh|zsh|python|perl|ruby)\b/,
+        /\b(?:fetch|download|open|read)\s+(?:file|dict):\/\//,
+    ].some(re => re.test(prompt));
 }
 
-/** Pick a tool + arguments keyed off the user prompt. Returns null if
- *  no tool matches — caller falls through to text-only response. */
-function pickTool(prompt: string): { name: string; args: Record<string, unknown> } | null {
-    if (/search\s+for|google|find\s+information|web\s+search/.test(prompt)) {
-        return { name: 'web_search', args: { query: extractAfter(prompt, /search\s+for|find/) || prompt.slice(0, 80) } };
+/** Pick a widget name keyed off the user prompt. Defaults to a generic
+ *  "Note" panel so the agent always has SOMETHING to add. */
+function pickWidget(prompt: string): { name: string; source: string; w: number; h: number } | null {
+    const systemWidgets: Array<{ re: RegExp; name: string; source: string; w: number; h: number }> = [
+        { re: /\b(?:backups?|snapshots?|archives?)\b/, name: 'Backup Manager', source: 'system:backup', w: 6, h: 6 },
+        { re: /\b(?:training|train|specialists?|models?)\b/, name: 'Training Dashboard', source: 'system:training', w: 6, h: 6 },
+        { re: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/, name: 'Recipe Kitchen', source: 'system:recipes', w: 6, h: 6 },
+        { re: /\b(?:vram|gpu|nvidia)\b/, name: 'VRAM Monitor', source: 'system:vram', w: 6, h: 6 },
+        { re: /\b(?:teams?|team hub|members?|roles?|permissions?|rbac)\b/, name: 'Team Hub', source: 'system:teams', w: 6, h: 6 },
+        { re: /\b(?:cron|schedules?|jobs?|timers?)\b/, name: 'Cron Scheduler', source: 'system:cron', w: 6, h: 6 },
+        { re: /\b(?:checkpoints?|restores?|save state)\b/, name: 'Checkpoints', source: 'system:checkpoints', w: 6, h: 5 },
+        { re: /\b(?:organism|guardrails?)\b/, name: 'Organism Monitor', source: 'system:organism', w: 6, h: 6 },
+        { re: /\b(?:fleet|nodes?|routes?|mesh)\b/, name: 'Fleet Router', source: 'system:fleet', w: 6, h: 5 },
+        { re: /\b(?:browser tools?|captcha|form fill|web automation)\b/, name: 'Browser Tools', source: 'system:browser', w: 6, h: 5 },
+        { re: /\b(?:test lab|tests?|flaky|failing|coverage|eval)\b/, name: 'Test Lab', source: 'system:eval', w: 6, h: 6 },
+    ];
+    const wantsSystemWidget = /\b(?:show|open|add|launch|pin|create|display|give me)\b/.test(prompt);
+    if (wantsSystemWidget) {
+        const systemWidget = systemWidgets.find(w => w.re.test(prompt));
+        if (systemWidget) return systemWidget;
     }
-    if (/write\s+(a\s+)?file|save\s+to|create\s+(a\s+)?file/.test(prompt)) {
-        return { name: 'write_file', args: { path: '/tmp/stub-output.txt', content: 'Stub provider wrote this file.' } };
+
+    if (/stock|ticker|nasdaq|nyse/.test(prompt)) return { name: 'Stock Ticker', source: 'gallery', w: 360, h: 240 };
+    if (/pomodoro|timer|focus/.test(prompt)) return { name: 'Pomodoro Timer', source: 'gallery', w: 360, h: 240 };
+    if (/calendar|schedule/.test(prompt)) return { name: 'Calendar', source: 'gallery', w: 360, h: 240 };
+    if (/gauge|meter|metric/.test(prompt)) return { name: 'Gauge', source: 'gallery', w: 360, h: 240 };
+    if (/dashboard/.test(prompt)) return { name: 'Dashboard', source: 'gallery', w: 360, h: 240 };
+    if (/clock|time/.test(prompt)) return { name: 'Clock', source: 'gallery', w: 360, h: 240 };
+    if (/widget|panel/.test(prompt)) return { name: 'Note', source: 'gallery', w: 360, h: 240 };
+    return null;
+}
+
+/** Pick tool calls + arguments keyed off the user prompt. Returns an
+ *  empty list if no tool matches — caller falls through to text. */
+function pickToolCalls(prompt: string): Array<{ name: string; args: Record<string, unknown> }> {
+    if (/\b(?:fix|bug|change|update|edit|modify)\b/.test(prompt) && /\b[\w./-]+\.(?:ts|tsx|js|jsx|py|json|md)\b/.test(prompt)) {
+        const path = extractPath(prompt) || '/tmp/titan-stub-code.ts';
+        const calls: Array<{ name: string; args: Record<string, unknown> }> = [
+            { name: 'read_file', args: { path } },
+            { name: 'edit_file', args: { path, target: 'OLD', replacement: 'NEW' } },
+        ];
+        if (/\b(?:fix|bug|test|verify)\b/.test(prompt)) {
+            calls.push({ name: 'shell', args: { command: 'printf "stub verification ok\\n"' } });
+        }
+        return calls;
+    }
+    if (/\bweather\b|\bforecast\b|\btemperature\b/.test(prompt)) {
+        return [{ name: 'weather', args: { location: extractLocation(prompt) || 'San Francisco', days: 1 } }];
+    }
+    if (/\b(?:navigate|browse|click|screenshot|open)\b.*\b(?:browser|site|page|example\.com|https?:\/\/)/.test(prompt)) {
+        return [{ name: 'web_act', args: { action: `open ${extractUrl(prompt) || 'https://example.com'}`, sessionId: 'stub-eval' } }];
+    }
+    if (/\bfetch\s+https?:\/\//.test(prompt)) {
+        return [{ name: 'web_fetch', args: { url: extractUrl(prompt) || 'https://example.com' } }];
+    }
+    if (/\bresearch\b|\blatest\b|\bnews\b|\bhistory\b|search\s+(?:the\s+web\s+)?for|google|find\s+information|web\s+search/.test(prompt)) {
+        return [{ name: 'web_search', args: { query: extractAfter(prompt, /search\s+(?:the\s+web\s+)?for|research|find/) || prompt.slice(0, 80) } }];
+    }
+    if (/write\s+(a\s+)?file|save\s+to|create\s+(a\s+)?file|write\s+(a\s+)?hello\s+world\s+program/.test(prompt)) {
+        return [{ name: 'write_file', args: { path: extractPath(prompt) || '/tmp/stub-output.txt', content: contentForWrite(prompt) } }];
     }
     if (/read\s+(a\s+)?file|open\s+the\s+file|show\s+me\s+the\s+contents/.test(prompt)) {
-        return { name: 'read_file', args: { path: '/tmp/stub-input.txt' } };
+        return [{ name: 'read_file', args: { path: extractPath(prompt) || '/tmp/stub-input.txt' } }];
     }
-    if (/list\s+(the\s+)?(files|directory|dir)|what.s\s+in\s+the\s+folder/.test(prompt)) {
-        return { name: 'list_dir', args: { path: '/tmp' } };
+    if (/list\s+(the\s+)?(files|directory|dir)|what(?:'| i)?s\s+(?:in|inside)|what\s+files\s+are\s+in/.test(prompt)) {
+        return [{ name: 'list_dir', args: { path: extractPath(prompt) || '/tmp' } }];
     }
-    if (/fetch|http|download.+url/.test(prompt)) {
-        return { name: 'web_fetch', args: { url: 'https://example.com' } };
+    if (/\b(?:run|execute|restart)\b/.test(prompt)) {
+        return [{ name: 'shell', args: { command: 'printf "stub shell ok\\n"' } }];
     }
     if (/download\s+(an?\s+)?image|embed\s+image/.test(prompt)) {
-        return { name: 'download_image', args: { url: 'https://example.com/sample.jpg' } };
+        return [{ name: 'download_image', args: { url: 'https://example.com/sample.jpg' } }];
     }
-    return null;
+    return [];
+}
+
+function summarizeToolResult(prompt: string): string {
+    if (/hello\s+world|python/.test(prompt)) {
+        return 'Stub: wrote a hello world Python program using print("hello world"). Done.';
+    }
+    if (/\bweather\b/.test(prompt)) return 'Stub: weather tool finished. Done.';
+    if (/\bresearch\b|\blatest\b|\bnews\b|\bhistory\b|search/.test(prompt)) return 'Stub: web search finished with deterministic results. Done.';
+    return 'Stub: tool finished. Done.';
+}
+
+function extractPath(prompt: string): string {
+    const quoted = prompt.match(/(?:called|to|of|in|file)\s+["'`]?([/~]?[\w./-]+\.[\w]+)["'`]?/);
+    const anyPath = prompt.match(/([/~]?[\w.-]*\/[\w./-]+|[\w.-]+\.(?:ts|tsx|js|jsx|py|json|md|txt))/);
+    const path = quoted?.[1] || anyPath?.[1] || '';
+    if (!path) return '';
+    return path.startsWith('/') || path.startsWith('~') ? path : `/tmp/${path.split('/').pop()}`;
+}
+
+function extractUrl(prompt: string): string {
+    return prompt.match(/https?:\/\/[^\s"'`<>]+/)?.[0]?.replace(/[).,]+$/, '') ?? '';
+}
+
+function extractLocation(prompt: string): string {
+    return prompt.match(/weather\s+(?:for|in|at)\s+([a-z][a-z\s,]+?)(?:[?.]|$)/i)?.[1]?.trim() ?? '';
+}
+
+function contentForWrite(prompt: string): string {
+    if (/python|hello\s+world/.test(prompt)) return 'print("hello world")\n';
+    return 'hello world\n';
 }
 
 /** Extract the part of the prompt AFTER a matched intent verb. Used to
@@ -238,7 +343,7 @@ export class StubProvider extends LLMProvider {
     }
 
     async chat(options: ChatOptions): Promise<ChatResponse> {
-        const intent = recognize(options.messages, !!options.tools?.length);
+        const intent = recognize(options.messages, offeredToolNames(options));
         logger.debug(COMPONENT, `chat() kind=${intent.kind} model=${options.model ?? 'stub/echo'}`);
         const promptTokens = approxTokens(options.messages);
         const completionTokens = approxTokens([{ role: 'assistant', content: intent.content }]);
@@ -257,7 +362,7 @@ export class StubProvider extends LLMProvider {
     }
 
     async *chatStream(options: ChatOptions): AsyncGenerator<ChatStreamChunk> {
-        const intent = recognize(options.messages, !!options.tools?.length);
+        const intent = recognize(options.messages, offeredToolNames(options));
         logger.debug(COMPONENT, `chatStream() kind=${intent.kind}`);
         // Emit text content first (if any), then any tool calls,
         // then a done marker. Matches the shape real providers use.
@@ -282,6 +387,10 @@ export class StubProvider extends LLMProvider {
 }
 
 /* ───────────────────────────  Token estimator  ─────────────────────────── */
+
+function offeredToolNames(options: ChatOptions): Set<string> {
+    return new Set((options.tools ?? []).map(tool => tool.function.name));
+}
 
 /** ~4 chars per token rule-of-thumb. Not exact, but stable enough for
  *  cost-budget tests that only need monotonicity. */

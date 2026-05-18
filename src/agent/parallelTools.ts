@@ -14,13 +14,13 @@ interface ToolCall {
     args: Record<string, unknown>;
 }
 
-interface ToolResult {
+interface ToolResult<T = string> {
     toolCallId: string;
     name: string;
-    content: string;
+    content: T;
 }
 
-type ToolExecutor = (name: string, args: Record<string, unknown>) => Promise<string>;
+type ToolExecutor<T = string> = (name: string, args: Record<string, unknown>) => Promise<T>;
 
 /** Max concurrent tool executions (TITAN pattern) */
 const MAX_TOOL_CONCURRENCY = 10;
@@ -109,10 +109,10 @@ function canRunParallel(tools: ToolCall[]): boolean {
 }
 
 /** Execute tools — partitioned into concurrent/sequential batches (TITAN pattern) */
-export async function executeToolsParallel(
+export async function executeToolsParallel<T = string>(
     toolCalls: ToolCall[],
-    executor: ToolExecutor,
-): Promise<ToolResult[]> {
+    executor: ToolExecutor<T>,
+): Promise<ToolResult<T>[]> {
     if (toolCalls.length === 0) return [];
 
     if (toolCalls.length === 1) {
@@ -140,7 +140,7 @@ export async function executeToolsParallel(
     }
 
     // Mixed batches — run each batch in order
-    const allResults: ToolResult[] = [];
+    const allResults: ToolResult<T>[] = [];
     for (const batch of batches) {
         if (batch.concurrent && batch.calls.length > 1) {
             const calls = batch.calls.slice(0, MAX_TOOL_CONCURRENCY);

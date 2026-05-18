@@ -9,13 +9,13 @@
  */
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, resolve, dirname, relative, basename } from 'path';
-import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import logger from '../utils/logger.js';
+import { TITAN_HOME } from '../utils/constants.js';
 
 const COMPONENT = 'ShadowGit';
-const CHECKPOINTS_BASE = join(homedir(), '.titan', 'file-checkpoints');
+const CHECKPOINTS_BASE = join(TITAN_HOME, 'file-checkpoints');
 const MAX_DIR_ENTRIES = 50000;
 const METADATA_FILE = 'titan-shadow-meta.json';
 

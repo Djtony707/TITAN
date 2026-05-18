@@ -13,6 +13,10 @@ export interface EvalCase {
     name: string;
     input: string;
     expectedTools?: string[];
+    /** Tool names selected by the model before execution/approval gates. */
+    expectedAttemptedTools?: string[];
+    /** Require an approval-pending response for routing-only attempted-tool assertions. */
+    expectedApprovalGate?: boolean;
     /** Exact ordered tool sequence (e.g. ['read_file', 'edit_file', 'shell']) */
     expectedToolSequence?: string[];
     expectedGate?: '_____react' | '_____widget' | '_____tool';
@@ -30,6 +34,7 @@ export interface EvalResult {
     errors: string[];
     durationMs: number;
     toolsUsed: string[];
+    attemptedTools: string[];
     content: string;
 }
 
@@ -44,23 +49,39 @@ export interface EvalSuiteResult {
 
 export async function runEval(
     testCase: EvalCase,
-    agentCall: (input: string, testName?: string) => Promise<{ content: string; toolsUsed: string[] }>,
+    agentCall: (input: string, testName?: string) => Promise<{ content: string; toolsUsed: string[]; attemptedTools?: string[] }>,
 ): Promise<EvalResult> {
     const start = Date.now();
     const errors: string[] = [];
     let content = '';
     let toolsUsed: string[] = [];
+    let attemptedTools: string[] = [];
 
     try {
         const response = await agentCall(testCase.input, testCase.name);
         content = response.content;
         toolsUsed = response.toolsUsed;
+        attemptedTools = response.attemptedTools ?? [];
 
         if (testCase.expectedTools) {
             for (const tool of testCase.expectedTools) {
                 if (!toolsUsed.includes(tool)) {
                     errors.push(`Missing expected tool: ${tool}`);
                 }
+            }
+        }
+
+        if (testCase.expectedAttemptedTools) {
+            for (const tool of testCase.expectedAttemptedTools) {
+                if (!attemptedTools.includes(tool)) {
+                    errors.push(`Missing expected attempted tool: ${tool}`);
+                }
+            }
+        }
+
+        if (testCase.expectedApprovalGate) {
+            if (!/Awaiting approval|requires human confirmation|Approve with/i.test(content)) {
+                errors.push('Missing expected approval gate for attempted tool');
             }
         }
 
@@ -116,13 +137,13 @@ export async function runEval(
         logger.warn(COMPONENT, `❌ FAIL: ${testCase.name} — ${errors.join('; ')}`);
     }
 
-    return { name: testCase.name, passed, errors, durationMs, toolsUsed, content };
+    return { name: testCase.name, passed, errors, durationMs, toolsUsed, attemptedTools, content };
 }
 
 export async function runEvalSuite(
     suiteName: string,
     cases: EvalCase[],
-    agentCall: (input: string, testName?: string) => Promise<{ content: string; toolsUsed: string[] }>,
+    agentCall: (input: string, testName?: string) => Promise<{ content: string; toolsUsed: string[]; attemptedTools?: string[] }>,
 ): Promise<EvalSuiteResult> {
     logger.info(COMPONENT, `Running eval suite: ${suiteName} (${cases.length} cases)`);
     const start = Date.now();
@@ -185,7 +206,8 @@ export const TOOL_ROUTING_SUITE: EvalCase[] = [
     {
         name: 'Weather request uses weather tool',
         input: 'what is the weather in Tokyo?',
-        expectedTools: ['weather'],
+        expectedAttemptedTools: ['weather'],
+        expectedApprovalGate: true,
     },
     // File read test removed — model behavior for file reads is too variable
     // (sometimes uses shell, sometimes read_file, sometimes token-budget hits).
@@ -234,13 +256,15 @@ export const PIPELINE_SUITE: EvalCase[] = [
     {
         name: 'Pipeline: sysadmin request triggers shell',
         input: 'restart the nginx service',
-        expectedTools: ['shell'],
+        expectedAttemptedTools: ['shell'],
+        expectedApprovalGate: true,
         timeoutMs: 15000,
     },
     {
         name: 'Pipeline: browser request triggers web_act',
         input: 'navigate to example.com and take a screenshot',
-        expectedTools: ['web_act'],
+        expectedAttemptedTools: ['web_act'],
+        expectedApprovalGate: true,
         timeoutMs: 30000,
     },
 ];
@@ -364,7 +388,8 @@ export const TOOL_ROUTING_V2_SUITE: EvalCase[] = [
     {
         name: 'Routing: weather uses weather tool',
         input: 'what is the weather in London?',
-        expectedTools: ['weather'],
+        expectedAttemptedTools: ['weather'],
+        expectedApprovalGate: true,
     },
     {
         name: 'Routing: web search for current info',
@@ -389,7 +414,8 @@ export const TOOL_ROUTING_V2_SUITE: EvalCase[] = [
     {
         name: 'Routing: run command uses shell',
         input: 'run npm test',
-        expectedTools: ['shell'],
+        expectedAttemptedTools: ['shell'],
+        expectedApprovalGate: true,
     },
 ];
 
@@ -452,7 +478,7 @@ export const CONTENT_SUITE: EvalCase[] = [
     },
 ];
 
-/** Widget coverage — all 12 system widgets */
+/** Widget coverage — current system widgets exposed by the shortcut surface */
 export const WIDGET_V2_SUITE: EvalCase[] = [
     {
         name: 'Widget: backup',
@@ -522,13 +548,6 @@ export const WIDGET_V2_SUITE: EvalCase[] = [
         input: 'show browser tools',
         expectedGate: '_____widget',
         expectedContent: 'system:browser',
-        forbiddenTools: ['shell'],
-    },
-    {
-        name: 'Widget: paperclip',
-        input: 'show paperclip',
-        expectedGate: '_____widget',
-        expectedContent: 'system:paperclip',
         forbiddenTools: ['shell'],
     },
     {

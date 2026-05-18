@@ -98,6 +98,7 @@ function safeContract(name: string): ToolContract {
 }
 
 const TOOL_NAME = 'test-precedence-tool';
+const OTHER_TOOL_NAME = 'test-precedence-other-tool';
 
 // beta.21 — vitest.config.ts sets TITAN_AUTOMODE_POLICY=yolo across the
 // whole suite so pre-classifier toolRunner tests can run their
@@ -119,11 +120,18 @@ beforeEach(() => {
     // these tests because we assert on the gate response, but it has
     // to be registered so the runner can find it.
     try { unregisterTool(TOOL_NAME); } catch { /* not registered yet */ }
+    try { unregisterTool(OTHER_TOOL_NAME); } catch { /* not registered yet */ }
     registerTool({
         name: TOOL_NAME,
         description: 'tool used to test classifier/approval precedence',
         parameters: { type: 'object', properties: {} },
         execute: async () => 'should not be reached when gated',
+    });
+    registerTool({
+        name: OTHER_TOOL_NAME,
+        description: 'second tool used to test multi-tool approval metadata',
+        parameters: { type: 'object', properties: {} },
+        execute: async () => 'other tool ran',
     });
 });
 
@@ -220,5 +228,33 @@ describe('Auto-mode + approval-gate precedence (Codex P1 #1)', () => {
         }]);
 
         expect(results[0].approvalPending).toBe(true);
+    });
+
+    it('preserves approval metadata in multi-tool batches', async () => {
+        registerToolContract(safeContract(TOOL_NAME));
+        registerToolContract(safeContract(OTHER_TOOL_NAME));
+        approvalState.requireFor.add(TOOL_NAME);
+
+        const results = await executeTools([
+            {
+                id: 'tc-multi-gated',
+                type: 'function',
+                function: { name: TOOL_NAME, arguments: '{}' },
+            },
+            {
+                id: 'tc-multi-safe',
+                type: 'function',
+                function: { name: OTHER_TOOL_NAME, arguments: '{}' },
+            },
+        ]);
+
+        expect(results).toHaveLength(2);
+        expect(results[0].toolCallId).toBe('tc-multi-gated');
+        expect(results[0].approvalPending).toBe(true);
+        expect(results[0].approvalRequestId).toBe(`req-${TOOL_NAME}`);
+        expect(results[0].content).toMatch(/Awaiting approval/);
+        expect(results[1].toolCallId).toBe('tc-multi-safe');
+        expect(results[1].approvalPending).toBeFalsy();
+        expect(results[1].content).toBe('other tool ran');
     });
 });

@@ -485,6 +485,8 @@ export interface AgentResponse {
     content: string;
     sessionId: string;
     toolsUsed: string[];
+    /** Tool names selected by the model before execution/approval gates. */
+    attemptedTools?: string[];
     tokenUsage: { prompt: number; completion: number; total: number };
     model: string;
     durationMs: number;
@@ -1387,7 +1389,9 @@ export async function processMessage(
     // _____react gate. Pre-routing "Do NOT call tools" would suppress gallery
     // search + gate creation and make the model emit prose instead.
     const isWidgetRequest = /\b(?:create|add|make|build|spawn|generate)\b.{0,40}\b(?:widget|panel|dashboard)\b/i.test(message);
-    if (channel !== 'deliberation' && !isWidgetRequest && /\b(?:weather|forecast|temperature)\b/i.test(message)) {
+    // Stub-mode evals must exercise deterministic tool routing, not live wttr.in pre-routing.
+    const stubProviderActive = process.env.TITAN_STUB_PROVIDER === '1';
+    if (!stubProviderActive && channel !== 'deliberation' && !isWidgetRequest && /\b(?:weather|forecast|temperature)\b/i.test(message)) {
         // Split on "and"/"also"/","/"&" FIRST to separate multiple locations
         const segments = message.split(/\b(?:and|also|&)\b|,/i).filter(s => /\b(?:weather|forecast|temperature|\d{5})\b/i.test(s) || /[A-Z][a-z]+/.test(s));
         const locations: string[] = [];
@@ -1718,6 +1722,7 @@ export async function processMessage(
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     const toolsUsed: string[] = [];
+    const attemptedTools: string[] = [];
     const orderedToolSequence: string[] = []; // Preserves execution order with repeats
     let finalContent = '';
     let modelUsed = config.agent.model;
@@ -1917,6 +1922,7 @@ export async function processMessage(
     // Unpack results
     finalContent = loopResult.content;
     toolsUsed.push(...loopResult.toolsUsed);
+    attemptedTools.push(...loopResult.attemptedTools);
     orderedToolSequence.push(...loopResult.orderedToolSequence);
     modelUsed = loopResult.modelUsed;
     totalPromptTokens += loopResult.promptTokens;
@@ -1976,6 +1982,7 @@ export async function processMessage(
 
             if (retryResult.content) finalContent = retryResult.content;
             toolsUsed.push(...retryResult.toolsUsed);
+            attemptedTools.push(...retryResult.attemptedTools);
             orderedToolSequence.push(...retryResult.orderedToolSequence);
             totalPromptTokens += retryResult.promptTokens;
             totalCompletionTokens += retryResult.completionTokens;
@@ -2175,6 +2182,7 @@ export async function processMessage(
         content: finalContent,
         sessionId: session.id,
         toolsUsed: [...new Set(toolsUsed)],
+        attemptedTools: [...new Set(attemptedTools)],
         tokenUsage: {
             prompt: totalPromptTokens,
             completion: totalCompletionTokens,

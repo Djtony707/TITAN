@@ -6,15 +6,15 @@
 
 import { mkdirSync, existsSync, copyFileSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { dirname, join, relative } from 'path';
-import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { randomUUID } from 'crypto';
 import { loadConfig } from '../config/config.js';
+import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 import type { CheckpointEntry } from './types.js';
 
 const COMPONENT = 'Checkpoint';
-const CHECKPOINTS_DIR = `${homedir()}/.titan/checkpoints`;
+const CHECKPOINTS_DIR = join(TITAN_HOME, 'checkpoints');
 
 function hashContent(content: string): string {
     return createHash('sha256').update(content).digest('hex').slice(0, 16);
