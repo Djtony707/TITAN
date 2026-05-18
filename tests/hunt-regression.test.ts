@@ -1533,14 +1533,14 @@ describe('Hunt Finding #28 — invariants block dangerous shell commands', () =>
 //
 // The published tarball did not contain `scripts/`, so postinstall.cjs
 // could not be found and every fresh `npm install titan-agent` failed
-// with MODULE_NOT_FOUND. The fix added scripts/ (and other required
-// directories) to package.json#files. Without `scripts/` in that
-// allowlist, npm publish silently drops the directory.
+// with MODULE_NOT_FOUND. The fix added the postinstall script (and other
+// required runtime assets) to package.json#files. The public package should
+// include only the specific script entrypoint it needs, not every dev script.
 describe('Hunt Finding #30 — broken npm install', () => {
-    it('package.json#files includes the directories required for first-run', () => {
+    it('package.json#files includes the runtime entries required for first-run', () => {
         const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as { files?: string[] };
         const files = pkg.files ?? [];
-        const required = ['dist/', 'ui/dist/', 'scripts/', 'README.md', 'LICENSE'];
+        const required = ['dist/', 'ui/dist/', 'scripts/postinstall.cjs', 'README.md', 'LICENSE'];
         for (const entry of required) {
             expect(files, `package.json#files must include "${entry}"`).toContain(entry);
         }
