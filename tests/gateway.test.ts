@@ -72,6 +72,13 @@ describe('Gateway Integration', () => {
         expect(Array.isArray(await res.json())).toBe(true);
     });
 
+    it('GET /api/receipts rejects invalid kind filters', async () => {
+        const res = await fetch(`${BASE}/api/receipts?kind=tool_call&kind=not_a_receipt_kind`);
+        expect(res.status).toBe(400);
+        const body = await res.json() as any;
+        expect(body.error).toMatch(/invalid receipt kind/i);
+    });
+
     it('GET /api/config → has agent, gateway, security keys', async () => {
         const res = await fetch(`${BASE}/api/config`);
         expect(res.status).toBe(200);

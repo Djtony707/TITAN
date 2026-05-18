@@ -5,6 +5,47 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.30 — 2026-05-17 — Receipts foundation
+
+Foundation for the agent-receipts spine. Tool calls now mint a
+20-character `action_id` and write compact receipts with kind,
+status, channel, duration, and redacted failure context. Receipts
+persist to `${TITAN_HOME}/receipts.jsonl` with bounded payloads and
+50 MB rotation, and `GET /api/receipts` exposes filtered reads.
+
+### What changed
+
+- **`src/receipts/types.ts`.** Added the receipt type surface,
+  supported receipt kinds, filtered query shape, and validation helper
+  for API query parameters.
+- **`src/receipts/mint.ts`.** Added monotonic 20-character action ID
+  generation for receipt correlation.
+- **`src/receipts/store.ts`.** Added JSONL receipt persistence,
+  bounded summaries/meta payloads, newest-first filtered reads, file
+  rotation, and subscriber fan-out. Receipt writes remain best-effort
+  so audit persistence cannot break the tool path.
+- **`src/agent/toolRunner.ts`.** Wrapped tool execution with receipt
+  emission for successful, returned-failure, and thrown-error paths.
+  Summaries record the tool name and argument keys instead of argument
+  values to reduce sensitive-data exposure.
+- **`src/gateway/server.ts`.** Added `GET /api/receipts` with `since`,
+  repeated `kind`, `mission`, `agent`, and bounded `limit` filters.
+  Invalid kind filters return `400` instead of silently querying.
+- **Tests.** Added receipt store coverage and a gateway assertion for
+  invalid receipt kind filtering.
+
+### Why this slice
+
+Receipts are the proof spine for later Firewall, Mission Contracts,
+Control Tower, Spend Governor, and Eval Harness work. This release
+lands the safe backend foundation first without claiming the UI drawer
+or cross-system proof bundles yet.
+
+### Test count
+
+75 targeted tests covering receipts, gateway, version, and Mission
+Control smoke paths pass locally, alongside TypeScript typecheck.
+
 ## v6.1.0-beta.29 — 2026-05-17 — Soma theme polish
 
 Soma now follows the active TITAN theme instead of carrying a fixed

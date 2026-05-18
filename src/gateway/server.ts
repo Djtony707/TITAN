@@ -78,6 +78,7 @@ import { initCommandPost, shutdownCommandPost, isCommandPostEnabled, reportHeart
 import { initWakeupSystem } from '../agent/agentWakeup.js';
 import { initHeartbeatScheduler } from '../agent/heartbeatScheduler.js';
 import { auditLog } from '../agent/auditLog.js';
+import { isReceiptKind, type ReceiptKind } from '../receipts/types.js';
 import { startTunnel, stopTunnel, getTunnelStatus } from '../utils/tunnel.js';
 import { createPaperclipRouter, createPaperclipUIRouter } from './routes/paperclip.js';
 import { createTracesRouter } from './routes/traces.js';
@@ -2450,6 +2451,43 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       logger.error(COMPONENT, `verification SSE: ${(err as Error).message}`);
       try { sseWrite(`event: error\ndata: ${JSON.stringify({ message: 'verification stream unavailable' })}\n\n`); res.end(); }
       catch { /* ok */ }
+    }
+  });
+
+  app.get('/api/receipts', async (req, res) => {
+    try {
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      const kindParam = req.query.kind;
+      let kind: ReceiptKind | ReceiptKind[] | undefined;
+      if (kindParam !== undefined) {
+        const rawKindParams = Array.isArray(kindParam) ? kindParam : [kindParam];
+        const kinds: ReceiptKind[] = [];
+        for (const rawKindParam of rawKindParams) {
+          if (typeof rawKindParam !== 'string') {
+            res.status(400).json({ error: 'Invalid receipt kind' });
+            return;
+          }
+          for (const rawKind of rawKindParam.split(',')) {
+            const candidate = rawKind.trim();
+            if (!candidate) continue;
+            if (!isReceiptKind(candidate)) {
+              res.status(400).json({ error: 'Invalid receipt kind' });
+              return;
+            }
+            kinds.push(candidate);
+          }
+        }
+        const uniqueKinds = Array.from(new Set(kinds));
+        kind = uniqueKinds.length === 0 ? undefined : (uniqueKinds.length === 1 ? uniqueKinds[0] : uniqueKinds);
+      }
+      const mission = typeof req.query.mission === 'string' ? req.query.mission : undefined;
+      const agent = typeof req.query.agent === 'string' ? req.query.agent : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string, 10) || 100, 1), 1000) : 100;
+      const { readReceipts } = await import('../receipts/store.js');
+      const receipts = readReceipts({ since, kind, mission, agent, limit });
+      res.json({ count: receipts.length, receipts });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'receipts error' });
     }
   });
 
@@ -5275,4 +5313,3 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     startHeartbeatAnalytics(() => listSessions().length);
   });
 }
-
