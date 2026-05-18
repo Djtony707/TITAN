@@ -6,6 +6,11 @@ import {
   summarizeDograhConfig,
   type DograhFetch,
 } from '../src/telephony/dograhClient.js';
+import {
+  normalizePhoneNumber,
+  redactPhoneNumber,
+  validateOutboundCallRequest,
+} from '../src/telephony/phonePolicy.js';
 
 describe('Dograh telephony config schema', () => {
   it('defaults Dograh telephony integration to disabled and call-safe', () => {
@@ -39,6 +44,91 @@ describe('Dograh telephony config schema', () => {
     expect(config.telephony.dograh.defaultOutboundWorkflowId).toBe('wf-out');
     expect(config.telephony.adminNumbers).toEqual(['+15551234567']);
     expect(config.telephony.maxCallsPerHour).toBe(3);
+  });
+});
+
+describe('Dograh phone policy', () => {
+  it('normalizes E.164 phone numbers and rejects unsafe numbers', () => {
+    expect(normalizePhoneNumber(' +1 (555) 123-4567 ')).toBe('+15551234567');
+    expect(normalizePhoneNumber('555-1234')).toBeNull();
+    expect(normalizePhoneNumber('+1234567890123456')).toBeNull();
+  });
+
+  it('redacts phone numbers for receipts and errors', () => {
+    expect(redactPhoneNumber('+15551234567')).toBe('+1555••••67');
+    expect(redactPhoneNumber('+442071838750')).toBe('+4420••••50');
+  });
+
+  it('blocks outbound calls when telephony is disabled or Dograh is not configured', () => {
+    const disabled = TitanConfigSchema.parse({}).telephony;
+    expect(validateOutboundCallRequest(disabled, { toNumber: '+15551234567', purpose: 'test' }).ok).toBe(false);
+
+    const noKey = TitanConfigSchema.parse({ telephony: { enabled: true } }).telephony;
+    const result = validateOutboundCallRequest(noKey, { toNumber: '+15551234567', purpose: 'test' });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/api key/i);
+  });
+
+  it('requires explicit approval by default and blocks campaign mode unless enabled', () => {
+    const config = TitanConfigSchema.parse({
+      telephony: { enabled: true, dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' } },
+    }).telephony;
+
+    const regular = validateOutboundCallRequest(config, { toNumber: '+15551234567', purpose: 'callback' });
+    expect(regular.ok).toBe(true);
+    expect(regular.requiresApproval).toBe(true);
+    expect(regular.workflowId).toBe('123');
+
+    const campaign = validateOutboundCallRequest(config, { toNumber: '+15551234567', purpose: 'cold call', mode: 'campaign' });
+    expect(campaign.ok).toBe(false);
+    expect(campaign.reason).toMatch(/campaign/i);
+  });
+
+  it('blocks campaign mode until disclosure, opt-out, and rate-limit controls are configured', () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        allowCampaigns: true,
+        maxCallsPerHour: 0,
+        recordingDisclosure: '',
+        optOutKeywords: [],
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+      },
+    }).telephony;
+
+    const campaign = validateOutboundCallRequest(config, { toNumber: '+15551234567', purpose: 'outreach', mode: 'campaign' });
+
+    expect(campaign.ok).toBe(false);
+    expect(campaign.reason).toMatch(/recording disclosure/i);
+  });
+
+  it('allows campaign mode only with compliance controls and keeps approval mandatory', () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        allowCampaigns: true,
+        maxCallsPerHour: 2,
+        recordingDisclosure: 'This call may be recorded.',
+        optOutKeywords: ['STOP'],
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+      },
+    }).telephony;
+
+    const campaign = validateOutboundCallRequest(config, { toNumber: '+15551234567', purpose: 'consented outreach', mode: 'campaign' });
+
+    expect(campaign.ok).toBe(true);
+    expect(campaign.requiresApproval).toBe(true);
+  });
+
+  it('does not leak phone numbers or API keys in validation errors', () => {
+    const config = TitanConfigSchema.parse({
+      telephony: { enabled: true, dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' } },
+    }).telephony;
+
+    const result = validateOutboundCallRequest(config, { toNumber: 'not-a-phone', purpose: 'call +15551234567 with dg_test_secret' });
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('+15551234567');
+    expect(JSON.stringify(result)).not.toContain('dg_test_secret');
   });
 });
 
@@ -130,6 +220,43 @@ describe('Dograh client', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8000/api/v1/workflow/summary?status=active',
       expect.any(Object),
+    );
+  });
+
+  it('initiates outbound calls only through the Dograh telephony endpoint with redacted responses', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ workflow_run_id: 42, phone_number: '+15551234567', provider_sid: 'CA123' }),
+    });
+    const client = createDograhClient({
+      baseUrl: 'https://voice.example.com',
+      apiKey: 'dg_test_secret',
+      fetchImpl: fetchMock as DograhFetch,
+    });
+
+    const result = await client.initiateOutboundCall({
+      workflowId: '123',
+      phoneNumber: '+15551234567',
+      telephonyConfigurationId: 7,
+      fromPhoneNumberId: 8,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.workflowRunId).toBe(42);
+    expect(JSON.stringify(result)).not.toContain('+15551234567');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://voice.example.com/api/v1/telephony/initiate-call',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-API-Key': 'dg_test_secret', 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          workflow_id: 123,
+          phone_number: '+15551234567',
+          telephony_configuration_id: 7,
+          from_phone_number_id: 8,
+        }),
+      }),
     );
   });
 

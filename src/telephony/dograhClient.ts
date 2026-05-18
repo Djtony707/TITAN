@@ -34,6 +34,21 @@ export interface DograhHealthResult {
   error?: string;
 }
 
+export interface DograhOutboundCallRequest {
+  workflowId: string;
+  phoneNumber: string;
+  telephonyConfigurationId?: number;
+  fromPhoneNumberId?: number;
+}
+
+export interface DograhOutboundCallResult {
+  ok: boolean;
+  status?: number;
+  workflowRunId?: number;
+  toNumberRedacted: string;
+  error?: string;
+}
+
 type TelephonyConfig = TitanConfig['telephony'];
 
 const DEFAULT_DOGRAH_BASE_URL = 'http://localhost:8000';
@@ -82,6 +97,23 @@ function safeWorkflowCount(value: unknown): DograhWorkflowCount {
   return count;
 }
 
+function numericWorkflowId(workflowId: string): string | number {
+  const n = Number(workflowId);
+  return Number.isInteger(n) && String(n) === workflowId ? n : workflowId;
+}
+
+function redactPhoneForDograh(value: string): string {
+  if (value.length <= 8) return `${value.slice(0, 2)}••${value.slice(-2)}`;
+  return `${value.slice(0, 5)}••••${value.slice(-2)}`;
+}
+
+function safeWorkflowRunId(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const id = record.workflow_run_id ?? record.workflowRunId ?? record.run_id;
+  return typeof id === 'number' && Number.isFinite(id) ? id : undefined;
+}
+
 export function summarizeDograhConfig(config: TelephonyConfig) {
   return {
     enabled: config.enabled,
@@ -109,18 +141,21 @@ export function createDograhClient(options: DograhClientOptions = {}) {
   const fetchImpl = options.fetchImpl ?? (globalThis.fetch as unknown as DograhFetch);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  async function request(path: string): Promise<unknown> {
+  async function request(path: string, init: RequestInit = {}): Promise<unknown> {
     if (!fetchImpl) throw new Error('fetch is unavailable in this runtime');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     timeout.unref?.();
     try {
       const response = await fetchImpl(`${apiBase}${path}`, {
-        method: 'GET',
+        method: init.method ?? 'GET',
         headers: {
           Accept: 'application/json',
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
           ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          ...(init.headers ?? {}),
         },
+        body: init.body,
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -160,6 +195,35 @@ export function createDograhClient(options: DograhClientOptions = {}) {
       const body = await request(`/workflow/summary?status=${query}`);
       if (!Array.isArray(body)) return [];
       return body.map(safeWorkflowSummary).filter((item): item is DograhWorkflowSummary => Boolean(item));
+    },
+
+    async initiateOutboundCall(call: DograhOutboundCallRequest): Promise<DograhOutboundCallResult> {
+      const toNumberRedacted = redactPhoneForDograh(call.phoneNumber);
+      try {
+        const body = await request('/telephony/initiate-call', {
+          method: 'POST',
+          body: JSON.stringify({
+            workflow_id: numericWorkflowId(call.workflowId),
+            phone_number: call.phoneNumber,
+            telephony_configuration_id: call.telephonyConfigurationId ?? null,
+            from_phone_number_id: call.fromPhoneNumberId ?? null,
+          }),
+        });
+        return {
+          ok: true,
+          status: 200,
+          workflowRunId: safeWorkflowRunId(body),
+          toNumberRedacted,
+        };
+      } catch (error) {
+        const err = error as Error & { status?: number };
+        return {
+          ok: false,
+          status: err.status,
+          toNumberRedacted,
+          error: redactSecret(err.message, apiKey).split(call.phoneNumber).join(toNumberRedacted),
+        };
+      }
     },
   };
 }

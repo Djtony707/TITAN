@@ -290,6 +290,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerA2AProtocolSkill } = await import('./builtin/a2a_protocol.js');
     const { registerEvalsSkill } = await import('./builtin/evals.js');
     const { registerApprovalGatesSkill } = await import('./builtin/approval_gates.js');
+    const { registerPhoneCallSkill } = await import('./builtin/phone_call.js');
     const { registerVRAMSkills } = await import('./builtin/vram.js');
     const { registerSecurityScanSkill } = await import('./builtin/security_scan.js');
     const { registerChangelogGenSkill } = await import('./builtin/changelog_gen.js');
@@ -391,6 +392,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['evals', registerEvalsSkill],
         ['a2a_protocol', registerA2AProtocolSkill],
         ['approval_gates', registerApprovalGatesSkill],
+        ['phone_call', registerPhoneCallSkill],
         ['vram', registerVRAMSkills],
         ['security_scan', registerSecurityScanSkill],
         ['changelog_gen', registerChangelogGenSkill],
