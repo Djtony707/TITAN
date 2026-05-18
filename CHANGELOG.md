@@ -1,5 +1,13 @@
 # Changelog
 
+## v6.1.1 — 2026-05-18 — Day-0 eval and safety hardening
+
+- Fixes eval-run isolation so repeated local/CI evals cannot inherit old session state, token budgets, or pending approvals from prior runs.
+- Broadens agent-level dangerous-command detection to refuse command-injection vectors before tool routing, including pipe-to-shell, command chaining, traversal, and dangerous local URL schemes.
+- Aligns the code-pipeline eval with approval-gate reality: the gate now proves attempted read/edit/shell routing plus human approval instead of falsely requiring gated tools to execute.
+- Adds regression coverage for pipe-to-shell, command chaining, and dangerous local URL safety checks.
+- Verified locally: typecheck, build, eval gate 57/57 (100%), full vitest suite 7,693 passing / 7,695 total, UI build, GitNexus detect-changes, and Codex adversarial review.
+
 ## v6.1.0 — 2026-05-18 — Stable latest release
 
 - Promotes the validated v6.1 Mission Chat / Desk line to a stable npm release.
