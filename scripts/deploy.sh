@@ -11,9 +11,9 @@
 #   --deps        Also sync node_modules/ to remote (slow)
 #   --no-restart  Deploy files without restarting the service
 #   --dry-run     Show what would be deployed without doing anything
-#   --publish     After successful deploy, run `npm publish --tag latest`
-#                 from Titan PC (uses the stored auth token there, so no
-#                 2FA OTP prompt on the Mac). v4.1.0 pattern.
+#   --publish     After successful deploy, publish from Titan PC's release
+#                 staging clone (`~/titan-publish`), not from `/opt/TITAN`.
+#                 Uses the stored npm auth token there. v6.1 release pattern.
 #
 # Examples:
 #   ./scripts/deploy.sh                # Standard deploy
@@ -303,9 +303,12 @@ echo ""
 if $PUBLISH && ! $DRY_RUN; then
   step "8. Publishing to npm from Titan PC"
   LOCAL_VERSION=$(node -p "require('./package.json').version")
+  LOCAL_HEAD=$(git rev-parse HEAD)
   info "Publishing titan-agent@$LOCAL_VERSION to npm (using stored token on Titan PC)"
+  info "Verifying Titan PC staging clone ~/titan-publish matches local HEAD before publish"
+  ssh "$REMOTE" "cd ~/titan-publish && test -z \"\$(git status --short)\" && test \"\$(git rev-parse HEAD)\" = '$LOCAL_HEAD' && test \"\$(node -p 'require(\\\"./package.json\\\").version')\" = '$LOCAL_VERSION'"
   # Run in a login shell so Titan PC's nvm/node resolves npm correctly
-  ssh "$REMOTE" "cd $REMOTE_PATH && npm publish --tag latest" 2>&1 | tail -10
+  ssh "$REMOTE" "cd ~/titan-publish && npm publish --tag latest" 2>&1 | tail -10
   PUBLISH_STATUS=$?
   if [ $PUBLISH_STATUS -eq 0 ]; then
     ok "Published titan-agent@$LOCAL_VERSION to npm"
@@ -315,7 +318,7 @@ if $PUBLISH && ! $DRY_RUN; then
   else
     echo ""
     echo "  ⚠ npm publish returned status $PUBLISH_STATUS"
-    echo "  Run manually on Titan PC: ssh "${TITAN_HOST}" 'cd $REMOTE_PATH && npm publish --tag latest'"
+    echo "  Run manually on Titan PC: ssh \"${TITAN_HOST}\" 'cd ~/titan-publish && npm publish --tag latest'"
     echo ""
   fi
 fi
