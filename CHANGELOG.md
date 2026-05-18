@@ -5,6 +5,40 @@ Format follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v6.1.0-beta.29 — 2026-05-17 — Soma theme polish
+
+Soma now follows the active TITAN theme instead of carrying a fixed
+zinc/indigo shell. The orb, widget wrapper, and full Soma view use
+the shared theme variables for surfaces, borders, text, accents, and
+loading/off states while preserving semantic drive and status colors.
+
+### What changed
+
+- **`ui/src/titan2/system/SomaOrb.tsx`.** Replaced hardcoded panel,
+  menu, label, and orb-shell colors with theme-variable fallbacks.
+  The live emotion glow remains semantic, but the surrounding chrome
+  now tracks the selected workspace theme.
+- **`ui/src/titan2/system/SomaWidget.tsx`.** The loading, disabled,
+  enabled, and toggle-strip states now inherit the global theme for
+  backgrounds, text, borders, and accent treatment.
+- **`ui/src/views/SomaView.tsx`.** Added shared theme style helpers
+  for the dashboard surface, cards, inspector, subtitles, and empty
+  states so the Soma page no longer renders as a separate dark island
+  inside themed shells.
+
+### Why this slice
+
+This keeps the color-polish work isolated from the larger Receipts
+foundation. Soma is a visible Mission Control surface, and making it
+respect the active theme improves polish without changing runtime
+agent behavior.
+
+### Test count
+
+65 targeted tests covering version and Mission Control smoke paths
+pass locally, alongside TypeScript typecheck. UI build passes in the
+split-review sweep.
+
 ## v6.1.0-beta.28 — 2026-05-17
 
 Removed 5 @deprecated nav shells + CPSidebar shim + TitanProjects stub.
