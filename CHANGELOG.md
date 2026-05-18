@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.2.0 — 2026-05-18 — TITAN Phone Desk / Dograh telephony
+
+- Adds optional Dograh sidecar integration for Twilio/Telnyx voice workflows while keeping provider credentials inside Dograh instead of TITAN.
+- Adds safe Dograh status/workflow routes, approval-gated outbound call routing, inbound admin/receptionist webhook handling, opt-out recording, call receipt listing, and opt-out listing.
+- Adds `phone_call` as an approval-request-only tool; LLM tool calls cannot directly dial.
+- Enforces admin caller allowlists, campaign compliance controls, campaign rate limits, approval replay protection, full-number approval binding via keyed hash, and opt-out blocking for campaign calls.
+- Adds the `/tools/phone-desk` UI with Dograh health, workflow list, approval-request form, call receipts, and opt-out visibility.
+- Keeps Dograh optional and disabled by default; no real phone calls are placed unless the user configures Dograh and consumes a matching approval.
+
 ## v6.1.1 — 2026-05-18 — Day-0 eval and safety hardening
 
 - Fixes eval-run isolation so repeated local/CI evals cannot inherit old session state, token budgets, or pending approvals from prior runs.

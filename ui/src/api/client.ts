@@ -1286,6 +1286,58 @@ export async function stopPaperclip(): Promise<{ success: boolean; error?: strin
 }
 
 // ---- Test Health ----
+export interface DograhStatusResponse {
+  ok: boolean;
+  provider?: string;
+  config?: Record<string, any>;
+  dograh?: Record<string, any>;
+}
+
+export interface DograhWorkflowSummary { id: string; name: string }
+export interface DograhCallReceipt {
+  actionId: string;
+  ts: string;
+  kind: string;
+  status: string;
+  summary: string;
+  source?: string;
+  mode?: string;
+  direction?: string;
+  toNumberRedacted?: string;
+  fromNumberRedacted?: string;
+  workflowId?: string;
+  workflowRunId?: unknown;
+  callId?: string;
+}
+export interface DograhOptOut {
+  phoneRedacted: string;
+  reason: string;
+  source: string;
+  recordedAt: string;
+  callId?: string;
+}
+
+export async function getDograhStatus(): Promise<DograhStatusResponse> {
+  return request('/api/telephony/dograh/status');
+}
+
+export async function getDograhWorkflows(status = 'active'): Promise<{ workflows: DograhWorkflowSummary[]; count: number }> {
+  return request(`/api/telephony/dograh/workflows?status=${encodeURIComponent(status)}`);
+}
+
+export async function getDograhCalls(limit = 50): Promise<{ calls: DograhCallReceipt[]; count: number }> {
+  return request(`/api/telephony/dograh/calls?limit=${limit}`);
+}
+
+export async function getDograhOptOuts(): Promise<{ optOuts: DograhOptOut[]; count: number }> {
+  return request('/api/telephony/dograh/opt-outs');
+}
+
+export async function requestDograhOutboundCall(opts: { toNumber: string; purpose: string; mode?: 'test' | 'callback' | 'campaign'; workflowId?: string }): Promise<Record<string, any>> {
+  return request('/api/telephony/dograh/call', { method: 'POST', body: JSON.stringify(opts) });
+}
+
+// ---- Test Health ----
 
 export async function getTestHealthSummary(): Promise<{ total: number; passing: number; failing: number; flaky: number; coverage?: number }> {
   return request('/api/test-health/summary');

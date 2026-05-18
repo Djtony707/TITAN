@@ -1,7 +1,8 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { loadConfig as loadTitanConfig } from '../../config/config.js';
 import type { TitanConfig } from '../../config/schema.js';
 import { readReceipts, writeReceipt } from '../../receipts/store.js';
+import { createApproval, listApprovals } from '../../agent/commandPost.js';
 import {
   createDograhClientFromConfig,
   summarizeDograhConfig,
@@ -9,7 +10,8 @@ import {
   type DograhOutboundCallResult,
   type DograhWorkflowSummary,
 } from '../../telephony/dograhClient.js';
-import { validateOutboundCallRequest } from '../../telephony/phonePolicy.js';
+import { hashPhoneForApproval, normalizePhoneNumber, redactPhoneNumber, validateOutboundCallRequest } from '../../telephony/phonePolicy.js';
+import { isTelephonyOptedOut, listTelephonyOptOuts, recordTelephonyOptOut } from '../../telephony/optOutStore.js';
 
 interface DograhRouteClient {
   health: () => Promise<unknown>;
@@ -56,29 +58,31 @@ function verifyPriorApproval(approvalActionId: string | undefined, policy: Retur
   | { ok: true }
   | { ok: false; status: number; error: string; message: string } {
   if (!approvalActionId) {
-    return { ok: false, status: 403, error: 'telephony_approval_required', message: 'A matching pending approvalActionId is required before placing this outbound call.' };
+    return { ok: false, status: 403, error: 'telephony_approval_required', message: 'A matching approved Command Post approval is required before placing this outbound call.' };
   }
-  const receipts = readReceipts({ limit: 1000 });
-  const approval = receipts.find((receipt) => receipt.action_id === approvalActionId && receipt.kind === 'approval_request');
-  if (!approval) {
-    return { ok: false, status: 403, error: 'telephony_approval_required', message: 'No matching pending approval request was found for this outbound call.' };
+  const approval = listApprovals().find((item) => item.id === approvalActionId && item.type === 'custom');
+  if (!approval || approval.payload?.category !== 'telephony_outbound_call') {
+    return { ok: false, status: 403, error: 'telephony_approval_required', message: 'No matching Command Post approval was found for this outbound call.' };
   }
-  if (approval.status !== 'pending') {
-    return { ok: false, status: 409, error: 'telephony_approval_not_pending', message: 'The supplied approval request is not pending.' };
+  if (approval.status !== 'approved') {
+    return { ok: false, status: 403, error: 'telephony_approval_not_approved', message: 'The supplied outbound call approval has not been approved yet.' };
   }
-  const consumed = receipts.some((receipt) => receipt.kind === 'approval_decision' && receipt.parent_action_id === approvalActionId && receipt.status === 'ok');
+  const consumed = readReceipts({ kind: 'approval_decision', limit: 1000 }).some((receipt) => receipt.parent_action_id === approvalActionId && receipt.status === 'ok');
   if (consumed) {
     return { ok: false, status: 409, error: 'telephony_approval_already_used', message: 'The supplied approval request was already used.' };
   }
+  const payload = approval.payload ?? {};
   const expected: Record<string, string | undefined> = {
     mode: policy.mode,
     workflowId: policy.workflowId,
     toNumberRedacted: policy.toNumberRedacted,
     toNumberHash: policy.toNumberHash,
+    toNumberOptOutHash: policy.toNumberOptOutHash,
     purpose: policy.purpose,
   };
   for (const [key, value] of Object.entries(expected)) {
-    if (value !== undefined && metaString(approval.meta, key) !== value) {
+    const actual = payload[key];
+    if (value !== undefined && actual !== value) {
       return { ok: false, status: 409, error: 'telephony_approval_mismatch', message: 'The supplied approval request does not match this outbound call.' };
     }
   }
@@ -116,6 +120,84 @@ function releaseCampaignReservation(id: string | undefined): void {
   if (id) campaignReservations.delete(id);
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return undefined;
+}
+
+function numberListContains(numbers: string[], candidate: string | null): boolean {
+  if (!candidate) return false;
+  return numbers.some((number) => normalizePhoneNumber(number) === candidate);
+}
+
+function hasOptOutIntent(transcript: string | undefined, keywords: string[]): string | undefined {
+  if (!transcript) return undefined;
+  const lower = transcript.toLowerCase();
+  return keywords.find((keyword) => {
+    const normalized = keyword.trim().toLowerCase();
+    return normalized.length > 0 && new RegExp(`\\b${normalized.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(lower);
+  });
+}
+
+function sanitizeTelephonyText(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value
+      .replace(/\+?\d[\d\s().-]{7,}\d/g, '[REDACTED_PHONE]')
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+      .replace(/\b(?:api[_-]?key|authorization|token|secret)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+      .replace(/dg_[A-Za-z0-9._~+/=-]+/g, '[REDACTED_DOGRAH_KEY]')
+      .slice(0, 500);
+  }
+  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeTelephonyText);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>).slice(0, 50)) {
+      if (/api[_-]?key|authorization|token|secret|password/i.test(key)) {
+        out[key] = '[REDACTED]';
+      } else {
+        out[key] = sanitizeTelephonyText(nested);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+function verifyDograhWebhook(req: Request, config: TitanConfig): { ok: true } | { ok: false; status: number; error: string; message: string } {
+  const expected = config.telephony.dograh.apiKey?.trim();
+  if (!expected) {
+    return { ok: false, status: 403, error: 'dograh_webhook_secret_missing', message: 'Dograh inbound webhooks require telephony.dograh.apiKey.' };
+  }
+  const auth = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const headerToken = typeof req.headers['x-titan-telephony-token'] === 'string' ? req.headers['x-titan-telephony-token'].trim() : '';
+  if (bearer !== expected && headerToken !== expected) {
+    return { ok: false, status: 401, error: 'dograh_webhook_unauthorized', message: 'Dograh inbound webhook authentication failed.' };
+  }
+  return { ok: true };
+}
+
+function telephonyReceiptMeta(receipt: ReturnType<typeof readReceipts>[number]): Record<string, unknown> {
+  return {
+    actionId: receipt.action_id,
+    ts: receipt.ts,
+    kind: receipt.kind,
+    status: receipt.status,
+    summary: receipt.summary,
+    source: typeof receipt.meta?.source === 'string' ? receipt.meta.source : undefined,
+    mode: typeof receipt.meta?.mode === 'string' ? receipt.meta.mode : undefined,
+    direction: typeof receipt.meta?.direction === 'string' ? receipt.meta.direction : undefined,
+    toNumberRedacted: typeof receipt.meta?.toNumberRedacted === 'string' ? receipt.meta.toNumberRedacted : undefined,
+    fromNumberRedacted: typeof receipt.meta?.fromNumberRedacted === 'string' ? receipt.meta.fromNumberRedacted : undefined,
+    workflowId: typeof receipt.meta?.workflowId === 'string' ? receipt.meta.workflowId : undefined,
+    workflowRunId: receipt.meta?.workflowRunId,
+    callId: typeof receipt.meta?.callId === 'string' ? receipt.meta.callId : undefined,
+  };
+}
+
 export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
   const router = Router();
   const loadConfig = deps.loadConfig ?? loadTitanConfig;
@@ -131,7 +213,7 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
         ok: Boolean((health as { ok?: boolean }).ok),
         provider: telephony.provider,
         config: summarizeDograhConfig(telephony),
-        dograh: health,
+        dograh: sanitizeTelephonyText(health),
       });
     } catch (error) {
       res.status(500).json({
@@ -156,6 +238,138 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
         error: 'dograh_workflows_unavailable',
         message: (error as Error).message,
       });
+    }
+  });
+
+  router.get('/dograh/calls', (req, res) => {
+    const limit = Number(req.query.limit ?? 100);
+    const calls = readReceipts({ limit: Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), 500) : 100 })
+      .filter((receipt) => receipt.meta?.source === 'dograh' || String(receipt.summary).toLowerCase().includes('dograh'))
+      .map(telephonyReceiptMeta);
+    res.json({ calls, count: calls.length });
+  });
+
+  router.get('/dograh/opt-outs', (_req, res) => {
+    const optOuts = listTelephonyOptOuts().map((entry) => ({
+      phoneRedacted: entry.phoneRedacted,
+      reason: entry.reason,
+      source: entry.source,
+      recordedAt: entry.recordedAt,
+      callId: entry.callId,
+    }));
+    res.json({ optOuts, count: optOuts.length });
+  });
+
+  router.post('/dograh/inbound', (req, res) => {
+    try {
+      const config = loadConfig();
+      if (!config.telephony.enabled) {
+        res.status(403).json({ ok: false, error: 'telephony_disabled', message: 'Telephony is disabled.' });
+        return;
+      }
+
+      const webhookAuth = verifyDograhWebhook(req, config);
+      if ('status' in webhookAuth) {
+        writeReceipt({
+          kind: 'error',
+          status: 'fail',
+          summary: 'Dograh inbound webhook rejected: authentication failed',
+          meta: { source: 'dograh', direction: 'inbound', error: webhookAuth.error },
+        });
+        res.status(webhookAuth.status).json({ ok: false, error: webhookAuth.error, message: webhookAuth.message });
+        return;
+      }
+
+      const fromNumber = normalizePhoneNumber(firstString(req.body?.fromNumber, req.body?.from, req.body?.callerNumber, req.body?.caller));
+      const toNumber = normalizePhoneNumber(firstString(req.body?.toNumber, req.body?.to, req.body?.calledNumber, req.body?.called));
+      const fromNumberRedacted = redactPhoneNumber(fromNumber);
+      const toNumberRedacted = redactPhoneNumber(toNumber);
+      const transcript = safeString(firstString(req.body?.transcript, req.body?.message, req.body?.text), 500);
+      const callId = safeString(firstString(req.body?.callId, req.body?.call_id, req.body?.providerCallId, req.body?.provider_sid), 120);
+      const workflowRunId = firstString(req.body?.workflowRunId, req.body?.workflow_run_id, req.body?.runId);
+
+      if (!fromNumber || !toNumber) {
+        writeReceipt({
+          kind: 'error',
+          status: 'fail',
+          summary: 'Dograh inbound call blocked: invalid phone metadata',
+          meta: { source: 'dograh', direction: 'inbound', fromNumberRedacted, toNumberRedacted, callId },
+        });
+        res.status(400).json({ ok: false, error: 'telephony_invalid_inbound_call', message: 'Inbound call requires valid E.164 caller and called numbers.' });
+        return;
+      }
+
+      const isAdminLine = numberListContains(config.telephony.adminNumbers, toNumber);
+      const isPublicLine = numberListContains(config.telephony.publicNumbers, toNumber) || !isAdminLine;
+      const isAdminCaller = numberListContains(config.telephony.adminNumbers, fromNumber);
+      const mode = isAdminLine ? 'admin' : 'receptionist';
+      const optOutKeyword = hasOptOutIntent(transcript, config.telephony.optOutKeywords);
+      let optOutRecorded = false;
+      if (optOutKeyword && !isAdminLine) {
+        recordTelephonyOptOut({
+          phoneNumber: fromNumber,
+          phoneHash: hashPhoneForApproval(config.telephony, fromNumber),
+          reason: `Inbound caller said opt-out keyword: ${optOutKeyword}`,
+          callId,
+        });
+        optOutRecorded = true;
+      }
+
+      if (isAdminLine && !isAdminCaller) {
+        writeReceipt({
+          kind: 'approval_decision',
+          status: 'fail',
+          summary: `Dograh admin caller rejected: ${fromNumberRedacted}`,
+          meta: { source: 'dograh', direction: 'inbound', mode, fromNumberRedacted, toNumberRedacted, callId, workflowRunId },
+        });
+        res.status(403).json({
+          ok: false,
+          error: 'telephony_admin_caller_not_allowed',
+          message: 'Caller is not authorized for the TITAN admin phone line.',
+          mode,
+          authorized: false,
+          fromNumberRedacted,
+          toNumberRedacted,
+        });
+        return;
+      }
+
+      writeReceipt({
+        kind: 'tool_call',
+        status: 'ok',
+        summary: isAdminLine
+          ? `Dograh admin call accepted: ${fromNumberRedacted}`
+          : `Dograh receptionist call received: ${fromNumberRedacted}`,
+        meta: {
+          source: 'dograh',
+          direction: 'inbound',
+          mode,
+          fromNumberRedacted,
+          toNumberRedacted,
+          callId,
+          workflowRunId,
+          optOutRecorded,
+          transcriptSummary: transcript ? String(sanitizeTelephonyText(transcript)).slice(0, 120) : undefined,
+        },
+      });
+
+      res.json({
+        ok: true,
+        mode: isAdminLine ? 'admin' : 'receptionist',
+        authorized: isAdminLine && isAdminCaller,
+        nextAction: isPublicLine && !isAdminLine ? 'record_message' : 'admin_control',
+        fromNumberRedacted,
+        toNumberRedacted,
+        optOutRecorded,
+      });
+    } catch (error) {
+      writeReceipt({
+        kind: 'error',
+        status: 'fail',
+        summary: 'Dograh inbound call route failed',
+        meta: { source: 'dograh', direction: 'inbound', error: (error as Error).message.slice(0, 200) },
+      });
+      res.status(500).json({ ok: false, error: 'dograh_inbound_route_failed', message: (error as Error).message });
     }
   });
 
@@ -184,7 +398,37 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
       const approvalNote = safeString(req.body?.approvalNote, 200);
       const responseCall = outboundResponseBody(policy);
 
+      if (policy.mode === 'campaign' && isTelephonyOptedOut(policy.toNumberHash, policy.toNumberOptOutHash)) {
+        writeReceipt({
+          kind: 'error',
+          status: 'fail',
+          summary: `Dograh campaign call blocked by opt-out: ${policy.toNumberRedacted}`,
+          meta: { source: 'dograh', mode: policy.mode, toNumberRedacted: policy.toNumberRedacted, toNumberHash: policy.toNumberHash },
+        });
+        res.status(403).json({
+          ok: false,
+          error: 'telephony_policy_blocked',
+          message: 'Destination number has opted out of campaign calls.',
+          call: responseCall,
+        });
+        return;
+      }
+
       if (policy.requiresApproval && !approved) {
+        const approval = createApproval({
+          type: 'custom',
+          requestedBy: `phone-desk:${policy.mode}:${policy.toNumberHash?.slice(0, 12) ?? 'unknown'}`,
+          payload: {
+            category: 'telephony_outbound_call',
+            mode: policy.mode,
+            workflowId: policy.workflowId,
+            toNumberRedacted: policy.toNumberRedacted,
+            toNumberHash: policy.toNumberHash,
+            toNumberOptOutHash: policy.toNumberOptOutHash,
+            purpose: policy.purpose,
+            source: 'dograh',
+          },
+        });
         const receipt = writeReceipt({
           kind: 'approval_request',
           status: 'pending',
@@ -194,13 +438,15 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
             workflowId: policy.workflowId,
             toNumberRedacted: policy.toNumberRedacted,
             toNumberHash: policy.toNumberHash,
+            toNumberOptOutHash: policy.toNumberOptOutHash,
             purpose: policy.purpose,
           },
         });
         res.status(202).json({
           ok: false,
           status: 'pending_approval',
-          approvalActionId: receipt.action_id,
+          approvalActionId: approval.id,
+          receiptActionId: receipt.action_id,
           call: responseCall,
         });
         return;
@@ -208,7 +454,7 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
 
       if (policy.requiresApproval) {
         const approval = verifyPriorApproval(approvalActionId, policy);
-        if (!approval.ok) {
+        if ('status' in approval) {
           res.status(approval.status).json({
             ok: false,
             error: approval.error,

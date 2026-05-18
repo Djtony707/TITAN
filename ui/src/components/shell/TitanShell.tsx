@@ -79,6 +79,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
       { label: 'Recipes', route: '/tools/recipes' },
       { label: 'Files', route: '/tools/files', aliases: ['/command-post/files'] },
       { label: 'Voice', route: '/tools/voice' },
+      { label: 'Phone Desk', route: '/tools/phone-desk' },
     ],
   },
   {
