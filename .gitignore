@@ -118,6 +118,7 @@ benchmarks/swe-bench-results/
 ai_poem.txt
 pingpong.py
 .gitnexus
+.ai_bridge.json
 
 # Codex/agent-bus session notes — local-only, never committed
 AGENTS.md

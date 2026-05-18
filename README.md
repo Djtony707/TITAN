@@ -163,7 +163,7 @@ TITAN is like having a super-smart intern who never sleeps, never asks for a rai
 **"Talk to me in my mom's voice"**
 → Done. F5-TTS clones voices from a short reference clip. Creepy? A little. Useful? Absolutely.
 
-No coding required. TITAN ships with **88 built-in skill modules** registering roughly **250 tools**. If it needs something new, it can author its own skills on the fly.
+No coding required. TITAN ships with **91 built-in skill modules** registering roughly **250 tools**. If it needs something new, it can author its own skills on the fly.
 
 ---
 
@@ -428,7 +428,7 @@ Start in supervised mode. Review what it does. Don't give it access to systems y
 | **Version**                        | 6.1.0                            | `package.json` + `src/utils/constants.ts`      |
 | **LLM providers**                  | 36 (4 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts`               |
 | **Channel adapters**               | 19                               | `src/channels/*.ts` (minus base)               |
-| **Built-in skill modules**         | 88 files                         | `src/skills/builtin/`                          |
+| **Built-in skill modules**         | 91 files                         | `src/skills/builtin/`                          |
 | **Skills loaded at runtime**       | ~143                             | `GET /api/skills`                              |
 | **Tools**                          | ~248–260                         | `GET /api/skills`                              |
 | **Widget templates**               | 109 JSON files in 28 categories  | `assets/widget-templates/`                     |
@@ -468,7 +468,7 @@ src/
 ├── providers/    # 36-provider router with fallback + retry
 ├── safety/       # killSwitch, fabricationGuard, oscillation detector
 ├── security/     # secretGuard (PII), preExecScan, sandbox bind
-├── skills/       # 88 builtin skill files registering ~248+ tools
+├── skills/       # 91 builtin skill files registering ~248+ tools
 ├── storage/      # spaces.json, somaProfile, personalGallery, patterns, backup (v6 new)
 ├── voice/        # LiveKit WebRTC bridge to F5-TTS sidecar
 └── vram/         # GPU VRAM orchestrator
