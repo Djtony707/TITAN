@@ -32,6 +32,8 @@ import { scanAndRedactPII, fullExfilScan } from '../security/exfilScan.js';
 import { scanCommand, scanURL } from '../security/preExecScan.js';
 import { runPreToolShellHooks, runPostToolShellHooks } from '../hooks/shellHooks.js';
 import { createCheckpoint } from '../checkpoint/manager.js';
+import { mintActionId } from '../receipts/mint.js';
+import { writeReceipt } from '../receipts/store.js';
 
 /** Compute a lightweight unified diff between old and new file content */
 function computeUnifiedDiff(filePath: string, oldContent: string, newContent: string): string {
@@ -230,7 +232,91 @@ export function getToolDefinitions(): ToolDefinition[] {
 }
 
 /** Execute a single tool call */
+function safeReceiptText(text: string, maxChars: number): string {
+    return scanAndRedactPII(redactSecrets(text)).replace(/\s+/g, ' ').trim().slice(0, maxChars);
+}
+
+function summarizeToolArguments(rawArgs: string | undefined): { summary: string; argKeys?: string[] } {
+    if (!rawArgs?.trim()) return { summary: 'args=none' };
+    try {
+        const parsed = JSON.parse(rawArgs) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const allKeys = Object.keys(parsed).sort();
+            const visibleKeys = allKeys
+                .slice(0, 8)
+                .map((key) => safeReceiptText(key, 32))
+                .filter(Boolean);
+            if (visibleKeys.length === 0) return { summary: 'args=empty', argKeys: [] };
+            const suffix = allKeys.length > visibleKeys.length ? ` +${allKeys.length - visibleKeys.length}` : '';
+            return { summary: `args=${visibleKeys.join(',')}${suffix}`, argKeys: visibleKeys };
+        }
+        return { summary: `args=${Array.isArray(parsed) ? 'array' : typeof parsed}` };
+    } catch {
+        return { summary: 'args=invalid-json' };
+    }
+}
+
+function writeToolCallReceipt(params: {
+    actionId: string;
+    toolName: string;
+    status: 'ok' | 'fail';
+    channel?: string;
+    durationMs: number;
+    argSummary: string;
+    argKeys?: string[];
+    error?: string;
+}): void {
+    try {
+        const safeError = params.error ? safeReceiptText(params.error, 200) : undefined;
+        writeReceipt({
+            action_id: params.actionId,
+            kind: 'tool_call',
+            summary: safeReceiptText(`${params.toolName} ${params.argSummary}`, 200),
+            status: params.status,
+            channel: params.channel,
+            duration_ms: params.durationMs,
+            meta: params.status === 'fail'
+                ? { ...(params.argKeys ? { arg_keys: params.argKeys } : {}), ...(safeError ? { error: safeError } : {}) }
+                : (params.argKeys ? { arg_keys: params.argKeys } : undefined),
+        });
+    } catch {
+        /* receipt writes are best-effort and must not affect tool behavior */
+    }
+}
+
 export async function executeTool(toolCall: ToolCall, channel?: string): Promise<ToolResult> {
+    const _aid = mintActionId();
+    const _t0 = Date.now();
+    const argInfo = summarizeToolArguments(toolCall.function.arguments);
+    try {
+        const result = await executeToolInner(toolCall, channel);
+        writeToolCallReceipt({
+            actionId: _aid,
+            toolName: toolCall.function.name,
+            status: result.success ? 'ok' : 'fail',
+            channel,
+            durationMs: Date.now() - _t0,
+            argSummary: argInfo.summary,
+            argKeys: argInfo.argKeys,
+            error: result.success ? undefined : result.content,
+        });
+        return result;
+    } catch (err) {
+        writeToolCallReceipt({
+            actionId: _aid,
+            toolName: toolCall.function.name,
+            status: 'fail',
+            channel,
+            durationMs: Date.now() - _t0,
+            argSummary: argInfo.summary,
+            argKeys: argInfo.argKeys,
+            error: (err as Error).message,
+        });
+        throw err;
+    }
+}
+
+async function executeToolInner(toolCall: ToolCall, channel?: string): Promise<ToolResult> {
     const config = loadConfig();
     const startTime = Date.now();
     const handler = toolRegistry.get(toolCall.function.name);
