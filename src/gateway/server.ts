@@ -97,6 +97,7 @@ import { createMeshRouter } from './routes/mesh.js';
 import { createTestsRouter } from './routes/tests.js';
 import { createSystemRouter } from './routes/systemRouter.js';
 import { createVoiceRouter } from './routes/voiceRouter.js';
+import { createTelephonyRouter } from './routes/telephony.js';
 
 import { createSocialRouter } from './routes/socialRouter.js';
 import { createWatchRouter } from './routes/watchRouter.js';
@@ -2146,6 +2147,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     onUserMessage: (id, content) => missionHandleUserMessage(id, content),
     onStatusChange: (id, status) => missionHandleStatusChange(id, status),
   }));
+  app.use('/api/telephony', createTelephonyRouter());
   // v6.1.0-alpha.25 — on every server boot, re-attach the per-mission
   // event / approval / goal-lifecycle bridges for any mission still
   // in a non-terminal state. Without this, missions whose goal driver

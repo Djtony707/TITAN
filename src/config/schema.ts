@@ -582,6 +582,28 @@ export const SelfModConfigSchema = z.object({
     pollIntervalMs: z.number().min(60_000).max(3_600_000).default(300_000).describe('How often to poll GitHub for merge/close status on open PRs. 5 min default.'),
 });
 
+export const TelephonyConfigSchema = z.object({
+    /** Optional production telephony sidecar. Dograh owns Twilio/Telnyx credentials; TITAN stores only Dograh connection policy. */
+    enabled: z.boolean().default(false),
+    provider: z.enum(['dograh']).default('dograh'),
+    dograh: z.object({
+        baseUrl: z.string().default('http://localhost:8000'),
+        apiKey: z.string().optional(),
+        defaultOutboundWorkflowId: z.string().optional(),
+        defaultInboundWorkflowId: z.string().optional(),
+    }).default({}),
+    /** E.164 numbers allowed to control TITAN over the admin line. */
+    adminNumbers: z.array(z.string()).default([]),
+    /** Public/receptionist numbers mapped in Dograh. These never receive admin privileges. */
+    publicNumbers: z.array(z.string()).default([]),
+    /** Outbound calls are approval-gated by default; campaign/cold-call mode is separately disabled. */
+    requireApprovalForOutbound: z.boolean().default(true),
+    allowCampaigns: z.boolean().default(false),
+    maxCallsPerHour: z.number().int().min(0).max(10_000).default(10),
+    recordingDisclosure: z.string().default(''),
+    optOutKeywords: z.array(z.string()).default(['STOP', 'UNSUBSCRIBE', 'REMOVE']),
+}).default({});
+
 export const TitanConfigSchema = z.object({
     /** Whether the user has completed the web onboarding wizard */
     onboarded: z.boolean().default(false),
@@ -601,6 +623,7 @@ export const TitanConfigSchema = z.object({
     organism: OrganismConfigSchema.default({}),
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
+    telephony: TelephonyConfigSchema,
     providers: z.object({
         /** v5.4.1: Per-model output-token caps override. Keys are provider/model IDs.
          *  Values override the built-in static table + family heuristics. */
