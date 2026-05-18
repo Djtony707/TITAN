@@ -7,15 +7,24 @@
 
 /**
  * Detect dangerous shell commands in a user message.
- * Matches: rm -rf variants, sudo, chmod 777.
+ * Matches: destructive shell patterns, privileged commands, and obvious
+ * command-injection vectors. This is intentionally broader than the shell
+ * hook scanner because agent-level routing must refuse before tool selection.
  */
 export function isDangerous(message: string): boolean {
     if (!message || typeof message !== 'string') return false;
-    return (
-        /\brm\s+-[a-zA-Z]*[rfRF]/.test(message) ||
-        /\bsudo\b/.test(message) ||
-        /\bchmod\s+777\b/.test(message)
-    );
+    const dangerousPatterns = [
+        /\brm\s+-[a-zA-Z]*[rfRF]/,
+        /\bsudo\b/,
+        /\bchmod\s+777\b/,
+        /\bcurl\b[^|\n;]*(?:\|\s*(?:ba)?sh\b)/,
+        /\bwget\b[^|\n;]*(?:\|\s*(?:ba)?sh\b)/,
+        /\|\s*(?:bash|sh|zsh|python|perl|ruby)\b/,
+        /\b(?:run|execute)\b[^;\n]*[;`]|`[^`]+`/,
+        /(?:^|[/"'\s])\.\.\/\.\.\//,
+        /\b(?:fetch|download|open|read)\s+(?:file|dict|gopher):\/\//,
+    ];
+    return dangerousPatterns.some(re => re.test(message));
 }
 
 /**
