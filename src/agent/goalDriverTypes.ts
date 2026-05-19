@@ -173,6 +173,17 @@ export interface DriverState {
     blockedReason?: DriverBlockedReason;
     subtaskStates: Record<string, DriverSubtaskState>;
     currentSubtaskId?: string;
+    /**
+     * v6.3.0 — burst-dispatch tracking. When tickDelegating fires 2+
+     * subtasks in parallel via Promise.all, their ids land here so a
+     * later tick / observer can distinguish "single in flight" from
+     * "burst in flight" without re-deriving from subState.pendingSpawn.
+     * Cleared when the burst returns.
+     */
+    parallelBatch?: {
+        ids: string[];
+        startedAt: string;
+    };
     history: DriverHistoryEvent[];
     /** v6.0.3 — fingerprint trail used by the same-block-twice auto-cancel guard. */
     blockHistory?: DriverBlockEvent[];

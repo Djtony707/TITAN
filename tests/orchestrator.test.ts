@@ -47,11 +47,29 @@ describe('Orchestrator', () => {
             expect(mockChat).not.toHaveBeenCalled();
         });
 
-        it('rejects messages without multi-step indicators', async () => {
-            const result = await analyzeForDelegation('Tell me about the weather in San Francisco today please');
+        // v6.3.0 — the prior regex-allowlist gate was removed. Any
+        // ≥10-word message that isn't obviously trivial now goes to the
+        // LLM classifier (which then decides delegation). The cheap
+        // pre-filter only catches greetings, lookup-style questions, and
+        // status acks. See `isObviouslyTrivial` in orchestrator.ts.
+        it('cheap pre-filter skips trivial short questions (lookup-style) without LLM', async () => {
+            const result = await analyzeForDelegation('what is the current version?');
             expect(result.shouldDelegate).toBe(false);
-            expect(result.reason).toContain('No multi-step');
             expect(mockChat).not.toHaveBeenCalled();
+        });
+
+        it('long substantive messages PROCEED to the LLM classifier (v6.3.0 — no more regex gate)', async () => {
+            mockChat.mockResolvedValue({
+                content: JSON.stringify({
+                    shouldDelegate: false,
+                    reason: 'single-step weather lookup',
+                    tasks: [],
+                }),
+            });
+            const result = await analyzeForDelegation('Tell me about the weather in San Francisco today please');
+            // Classifier decides — we let the LLM judge intent rather than the regex.
+            expect(mockChat).toHaveBeenCalledTimes(1);
+            expect(result.shouldDelegate).toBe(false);
         });
 
         it('detects multi-step patterns and calls LLM', async () => {
