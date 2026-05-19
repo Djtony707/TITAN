@@ -1172,7 +1172,9 @@ function coalesceKey(opts: {
     const title = typeof opts.payload.title === 'string' ? opts.payload.title : '';
     // Prefer goalId/model when available, otherwise fall back to title. Title-less
     // concerns (e.g. repeating self_repair) get coalesced by (type, requestedBy, kind).
-    const identity = goalId || model || title;
+    const identity = typeof opts.payload.approvalIdentity === 'string'
+        ? opts.payload.approvalIdentity
+        : goalId || model || title;
     return `${opts.type}|${opts.requestedBy}|${kind}|${identity}`;
 }
 
@@ -1189,7 +1191,8 @@ export function createApproval(opts: {
     let autoApproveDeferred = false;
     try {
         const auto = (config as unknown as { autoApprove?: { enabled?: boolean; rules?: unknown[] } })?.autoApprove;
-        if (auto?.enabled) {
+        const neverAutoApprove = opts.payload?.neverAutoApprove === true || opts.payload?.category === 'telephony_outbound_call';
+        if (auto?.enabled && !neverAutoApprove) {
             const rules = (auto.rules as ApprovalRule[]) || [];
             if (shouldAutoApprove({ type: opts.type, payload: opts.payload }, { enabled: true, rules })) {
                 // v5.5.9 fix: previously this short-circuited to status:'approved'

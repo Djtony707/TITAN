@@ -1,5 +1,24 @@
 # Changelog
 
+## v6.2.2 — 2026-05-18 — Mission Control update button actually restarts the gateway
+
+- Fixes the in-app "Update to vX.Y.Z" button so it reliably reloads the running gateway into whatever files are on disk. Pre-fix it hard-coded `sudo systemctl restart titan-gateway` (wrong service name; real unit is `titan`) and required passwordless sudo, so the detached restart script hung on a password prompt no TTY could answer and the service stayed dead.
+- Extracts `/api/update` into its own router at `src/gateway/routes/update.ts` and replaces the broken inline handler in `src/gateway/server.ts`. The new router classifies the install as `dev-git` (`.git` at cwd), `systemd` (`/run/systemd/system` or `.systemd-service` marker), or `npm-global`, and runs the appropriate update path.
+- For systemd installs the button now SIGTERMs the gateway and lets `Restart=always` revive it on the on-disk files — no sudo, no `systemctl`, no fragile `/tmp` shell scripts. For dev-git checkouts it still runs `git pull && npm run build` first. For global npm installs it still runs `npm update -g titan-agent`.
+- Response shape changes from `{ok, message, restarting, output}` to `{ok, mode, willRestart, expectedDownMs, message, output?, error?}` so the UI knows whether to wait and how long. Older clients that only check `ok` keep working.
+- Mission Control's `useUpdateCheck` hook adds a `waitForReload(previousVersion)` poll that confirms a fresh process answered with a different version before declaring success. StatusBar and TitanCanvas now auto-reload the SPA on real success and surface a real error when the gateway doesn't come back within 30s, instead of showing a fake "Update completed, refresh in 10–15 seconds" toast over a dead service.
+- Adds `TITAN_SERVICE_NAME` env override (default `titan`) used only in operator-facing messages — restart itself is signal-driven, not service-name dependent.
+- Adds `tests/gateway/updateRoute.test.ts` (14 tests) covering mode detection precedence, the systemd no-shell path, dev-git build-then-restart, npm-global EACCES surfacing, and the `restart=false` no-op path. Removes dead `spawn` / `getUpdateInfo` imports from `server.ts`.
+
+## v6.2.1 — 2026-05-18 — Dograh outbound-call safety hotfix
+
+- Makes Dograh outbound calls fail closed by requiring a consumable Command Post approval for every outbound mode, regardless of legacy `requireApprovalForOutbound` config.
+- Adds a structured HMAC approval identity over target hash, mode, purpose, and workflow so approvals for the same redacted number/mode do not incorrectly coalesce across different call intents.
+- Blocks broad Command Post auto-approval from approving telephony outbound-call approvals, even if a spoofed payload kind matches a generic auto-approval rule.
+- Consumes durable telephony approvals only after pre-dial gates pass and immediately before the Dograh call side effect; replay attempts are rejected before dialing.
+- Releases campaign call reservations on post-reservation failures, including durable approval-consumption failure, so failed attempts cannot leak in-flight capacity.
+- Adds regression coverage for approval identity/coalescing, fail-closed approval config, replay blocking, durable consumption persistence, campaign reservation release, and `phone_call` approval payloads.
+
 ## v6.2.0 — 2026-05-18 — TITAN Phone Desk / Dograh telephony
 
 - Adds optional Dograh sidecar integration for Twilio/Telnyx voice workflows while keeping provider credentials inside Dograh instead of TITAN.

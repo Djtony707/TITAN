@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { TitanConfig } from '../../src/config/schema.js';
 import { TitanConfigSchema } from '../../src/config/schema.js';
 import { createTelephonyRouter } from '../../src/gateway/routes/telephony.js';
-import { approveApproval } from '../../src/agent/commandPost.js';
+import { approveApproval, listApprovals } from '../../src/agent/commandPost.js';
 import { readReceipts } from '../../src/receipts/store.js';
 
 let titanHome: string | undefined;
@@ -58,12 +58,13 @@ async function approvePhoneDesk(approvalActionId: string): Promise<void> {
 }
 
 describe('telephony Dograh routes', () => {
-  function buildApp(config: TitanConfig, client: any) {
+  function buildApp(config: TitanConfig, client: any, extraDeps: Partial<Parameters<typeof createTelephonyRouter>[0]> = {}) {
     const app = express();
     app.use(express.json());
     app.use('/api/telephony', createTelephonyRouter({
       loadConfig: () => config,
       createClient: () => client,
+      ...extraDeps,
     }));
     return app;
   }
@@ -169,6 +170,99 @@ describe('telephony Dograh routes', () => {
     expect(initiateOutboundCall).not.toHaveBeenCalled();
   });
 
+  it('still requires approval when telephony.requireApprovalForOutbound is false', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+        requireApprovalForOutbound: false,
+      },
+    });
+    const initiateOutboundCall = vi.fn().mockResolvedValue({ ok: true, workflowRunId: 42, status: 200, toNumberRedacted: '+1555••••67' });
+    const app = buildApp(config, { initiateOutboundCall });
+
+    const { status, body } = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'manual follow-up',
+    });
+
+    expect(status).toBe(202);
+    expect(body.status).toBe('pending_approval');
+    expect(body.approvalActionId).toEqual(expect.any(String));
+    expect(initiateOutboundCall).not.toHaveBeenCalled();
+  });
+
+  it('keeps separate pending approvals for same number when workflow or purpose differ', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+      },
+    });
+    const initiateOutboundCall = vi.fn();
+    const app = buildApp(config, { initiateOutboundCall });
+
+    const first = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'first follow-up',
+    });
+    const second = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'second follow-up',
+      workflowId: '456',
+    });
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect(first.body.approvalActionId).not.toBe(second.body.approvalActionId);
+    const firstApproval = listApprovals().find((item) => item.id === first.body.approvalActionId);
+    const secondApproval = listApprovals().find((item) => item.id === second.body.approvalActionId);
+    expect(firstApproval?.payload?.toNumberRedacted).toBe('+1555••••67');
+    expect(secondApproval?.payload?.toNumberRedacted).toBe('+1555••••67');
+    expect(firstApproval?.payload?.mode).toBe(secondApproval?.payload?.mode);
+    expect(firstApproval?.payload?.approvalIdentity).toEqual(expect.any(String));
+    expect(secondApproval?.payload?.approvalIdentity).toEqual(expect.any(String));
+    expect(firstApproval?.payload?.approvalIdentity).not.toBe(secondApproval?.payload?.approvalIdentity);
+    expect(initiateOutboundCall).not.toHaveBeenCalled();
+  });
+
+  it('keeps separate pending approvals for same redacted number and mode when only purpose differs', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+      },
+    });
+    const initiateOutboundCall = vi.fn();
+    const app = buildApp(config, { initiateOutboundCall });
+
+    const first = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'first follow-up',
+      mode: 'callback',
+    });
+    const second = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'second follow-up',
+      mode: 'callback',
+    });
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect(first.body.approvalActionId).not.toBe(second.body.approvalActionId);
+    const firstApproval = listApprovals().find((item) => item.id === first.body.approvalActionId);
+    const secondApproval = listApprovals().find((item) => item.id === second.body.approvalActionId);
+    expect(firstApproval?.payload?.toNumberRedacted).toBe('+1555••••67');
+    expect(secondApproval?.payload?.toNumberRedacted).toBe('+1555••••67');
+    expect(firstApproval?.payload?.mode).toBe('callback');
+    expect(secondApproval?.payload?.mode).toBe('callback');
+    expect(firstApproval?.payload?.workflowId).toBe(secondApproval?.payload?.workflowId);
+    expect(firstApproval?.payload?.approvalIdentity).toEqual(expect.any(String));
+    expect(secondApproval?.payload?.approvalIdentity).toEqual(expect.any(String));
+    expect(firstApproval?.payload?.approvalIdentity).not.toBe(secondApproval?.payload?.approvalIdentity);
+    expect(initiateOutboundCall).not.toHaveBeenCalled();
+  });
+
   it('initiates a Dograh call only after consuming a matching prior approval request', async () => {
     const config = TitanConfigSchema.parse({
       telephony: {
@@ -209,7 +303,20 @@ describe('telephony Dograh routes', () => {
     });
     const receipts = readReceipts({ limit: 10 });
     expect(receipts.some((receipt) => receipt.kind === 'approval_decision' && receipt.status === 'ok' && receipt.parent_action_id === pending.body.approvalActionId)).toBe(true);
+    const consumedPath = join(titanHome!, 'telephony-consumed-approvals.json');
+    expect(existsSync(consumedPath)).toBe(true);
+    expect(JSON.parse(readFileSync(consumedPath, 'utf8'))).toContain(pending.body.approvalActionId);
     expect(receipts.some((receipt) => receipt.kind === 'tool_call' && receipt.summary.includes('Dograh outbound call started'))).toBe(true);
+
+    const replay = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'approved follow-up',
+      approved: true,
+      approvalActionId: pending.body.approvalActionId,
+    });
+    expect(replay.status).toBe(409);
+    expect(replay.body.error).toBe('telephony_approval_already_used');
+    expect(initiateOutboundCall).toHaveBeenCalledTimes(1);
   });
 
   it('rejects approval reuse for a different full number with the same redacted shape', async () => {
@@ -305,6 +412,54 @@ describe('telephony Dograh routes', () => {
     expect((await firstApproved).status).toBe(200);
   });
 
+  it('releases a campaign reservation when durable approval consumption fails', async () => {
+    const config = TitanConfigSchema.parse({
+      telephony: {
+        enabled: true,
+        dograh: { apiKey: 'dg_test_secret', defaultOutboundWorkflowId: '123' },
+        allowCampaigns: true,
+        maxCallsPerHour: 1,
+        recordingDisclosure: 'This call may be recorded.',
+        optOutKeywords: ['STOP'],
+      },
+    });
+    const initiateOutboundCall = vi.fn().mockResolvedValue({ ok: true, workflowRunId: 42, status: 200, toNumberRedacted: '+1555••••67' });
+    const consumeApproval = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const app = buildApp(config, { initiateOutboundCall }, { consumeApproval });
+
+    const firstPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15551234567', purpose: 'campaign follow-up', mode: 'campaign' });
+    const secondPending = await post(app, '/api/telephony/dograh/call', { toNumber: '+15557654321', purpose: 'campaign follow-up', mode: 'campaign' });
+    expect(firstPending.status).toBe(202);
+    expect(secondPending.status).toBe(202);
+    await approvePhoneDesk(firstPending.body.approvalActionId);
+    await approvePhoneDesk(secondPending.body.approvalActionId);
+
+    const failed = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15551234567',
+      purpose: 'campaign follow-up',
+      mode: 'campaign',
+      approved: true,
+      approvalActionId: firstPending.body.approvalActionId,
+    });
+    expect(failed.status).toBe(409);
+    expect(failed.body.error).toBe('telephony_approval_already_used');
+    expect(initiateOutboundCall).not.toHaveBeenCalled();
+
+    const started = await post(app, '/api/telephony/dograh/call', {
+      toNumber: '+15557654321',
+      purpose: 'campaign follow-up',
+      mode: 'campaign',
+      approved: true,
+      approvalActionId: secondPending.body.approvalActionId,
+    });
+    expect(started.status).toBe(200);
+    expect(started.body.status).toBe('started');
+    expect(consumeApproval).toHaveBeenCalledTimes(2);
+    expect(initiateOutboundCall).toHaveBeenCalledTimes(1);
+  });
+
   it('enforces campaign call rate limits from receipts', async () => {
     const config = TitanConfigSchema.parse({
       telephony: {
@@ -330,6 +485,9 @@ describe('telephony Dograh routes', () => {
 
     expect(blocked.status).toBe(429);
     expect(blocked.body.error).toBe('telephony_rate_limited');
+    const consumedPath = join(titanHome!, 'telephony-consumed-approvals.json');
+    const consumed = existsSync(consumedPath) ? JSON.parse(readFileSync(consumedPath, 'utf8')) : [];
+    expect(consumed).not.toContain(secondPending.body.approvalActionId);
     expect(initiateOutboundCall).toHaveBeenCalledTimes(1);
   });
 

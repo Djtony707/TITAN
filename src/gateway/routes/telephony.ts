@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
+import { dirname, join } from 'path';
 import { Router, type Request } from 'express';
 import { loadConfig as loadTitanConfig } from '../../config/config.js';
 import type { TitanConfig } from '../../config/schema.js';
@@ -10,7 +13,12 @@ import {
   type DograhOutboundCallResult,
   type DograhWorkflowSummary,
 } from '../../telephony/dograhClient.js';
-import { hashPhoneForApproval, normalizePhoneNumber, redactPhoneNumber, validateOutboundCallRequest } from '../../telephony/phonePolicy.js';
+import {
+  hashPhoneForApproval,
+  normalizePhoneNumber,
+  redactPhoneNumber,
+  validateOutboundCallRequest,
+} from '../../telephony/phonePolicy.js';
 import { isTelephonyOptedOut, listTelephonyOptOuts, recordTelephonyOptOut } from '../../telephony/optOutStore.js';
 
 interface DograhRouteClient {
@@ -22,6 +30,7 @@ interface DograhRouteClient {
 export interface TelephonyRouterDeps {
   loadConfig?: () => TitanConfig;
   createClient?: (config: TitanConfig['telephony']) => DograhRouteClient;
+  consumeApproval?: (approvalActionId: string) => boolean;
 }
 
 function safeString(value: unknown, max = 160): string | undefined {
@@ -54,6 +63,43 @@ function metaString(meta: Record<string, unknown> | undefined, key: string): str
   return typeof value === 'string' ? value : undefined;
 }
 
+function telephonyStateHome(): string {
+  const envHome = process.env.TITAN_HOME?.trim();
+  if (envHome) {
+    if (envHome === '~') return homedir();
+    if (envHome.startsWith('~/')) return join(homedir(), envHome.slice(2));
+    return envHome;
+  }
+  return join(homedir(), '.titan');
+}
+
+function consumedApprovalsPath(): string {
+  return join(telephonyStateHome(), 'telephony-consumed-approvals.json');
+}
+
+function readConsumedApprovalIds(): Set<string> {
+  const path = consumedApprovalsPath();
+  if (!existsSync(path)) return new Set();
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  if (!Array.isArray(parsed)) return new Set();
+  return new Set(parsed.filter((value): value is string => typeof value === 'string'));
+}
+
+function isTelephonyApprovalConsumed(approvalActionId: string): boolean {
+  if (readConsumedApprovalIds().has(approvalActionId)) return true;
+  return readReceipts({ kind: 'approval_decision', limit: 1000 }).some((receipt) => receipt.parent_action_id === approvalActionId && receipt.status === 'ok');
+}
+
+function consumeTelephonyApproval(approvalActionId: string): boolean {
+  const path = consumedApprovalsPath();
+  const consumed = readConsumedApprovalIds();
+  if (consumed.has(approvalActionId)) return false;
+  consumed.add(approvalActionId);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify([...consumed].sort(), null, 2), 'utf8');
+  return true;
+}
+
 function verifyPriorApproval(approvalActionId: string | undefined, policy: ReturnType<typeof validateOutboundCallRequest>):
   | { ok: true }
   | { ok: false; status: number; error: string; message: string } {
@@ -67,7 +113,7 @@ function verifyPriorApproval(approvalActionId: string | undefined, policy: Retur
   if (approval.status !== 'approved') {
     return { ok: false, status: 403, error: 'telephony_approval_not_approved', message: 'The supplied outbound call approval has not been approved yet.' };
   }
-  const consumed = readReceipts({ kind: 'approval_decision', limit: 1000 }).some((receipt) => receipt.parent_action_id === approvalActionId && receipt.status === 'ok');
+  const consumed = isTelephonyApprovalConsumed(approvalActionId);
   if (consumed) {
     return { ok: false, status: 409, error: 'telephony_approval_already_used', message: 'The supplied approval request was already used.' };
   }
@@ -78,6 +124,7 @@ function verifyPriorApproval(approvalActionId: string | undefined, policy: Retur
     toNumberRedacted: policy.toNumberRedacted,
     toNumberHash: policy.toNumberHash,
     toNumberOptOutHash: policy.toNumberOptOutHash,
+    approvalIdentity: policy.approvalIdentity,
     purpose: policy.purpose,
   };
   for (const [key, value] of Object.entries(expected)) {
@@ -202,6 +249,7 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
   const router = Router();
   const loadConfig = deps.loadConfig ?? loadTitanConfig;
   const createClient = deps.createClient ?? createDograhClientFromConfig;
+  const consumeApproval = deps.consumeApproval ?? consumeTelephonyApproval;
 
   router.get('/dograh/status', async (_req, res) => {
     try {
@@ -417,9 +465,13 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
       if (policy.requiresApproval && !approved) {
         const approval = createApproval({
           type: 'custom',
-          requestedBy: `phone-desk:${policy.mode}:${policy.toNumberHash?.slice(0, 12) ?? 'unknown'}`,
+          requestedBy: `phone-desk:${policy.mode}:${policy.approvalIdentity?.slice(0, 16) ?? policy.toNumberHash?.slice(0, 12) ?? 'unknown'}`,
           payload: {
             category: 'telephony_outbound_call',
+            kind: 'telephony_outbound_call',
+            title: policy.approvalIdentity ?? `${policy.mode}:${policy.workflowId}:${policy.toNumberHash}:${policy.purpose}`,
+            approvalIdentity: policy.approvalIdentity,
+            neverAutoApprove: true,
             mode: policy.mode,
             workflowId: policy.workflowId,
             toNumberRedacted: policy.toNumberRedacted,
@@ -485,25 +537,35 @@ export function createTelephonyRouter(deps: TelephonyRouterDeps = {}): Router {
         campaignReservationId = reserveCampaignCall();
       }
 
-      if (approved) {
-        writeReceipt({
-          kind: 'approval_decision',
-          status: 'ok',
-          parent_action_id: approvalActionId,
-          summary: `Dograh outbound call approved: ${policy.toNumberRedacted}`,
-          meta: {
-            mode: policy.mode,
-            workflowId: policy.workflowId,
-            toNumberRedacted: policy.toNumberRedacted,
-            toNumberHash: policy.toNumberHash,
-            note: approvalNote,
-          },
-        });
-      }
-
-      const client = createClient(config.telephony);
       let result: DograhOutboundCallResult;
       try {
+        const client = createClient(config.telephony);
+        if (policy.requiresApproval) {
+          const consumed = !!approvalActionId && consumeApproval(approvalActionId);
+          if (!consumed) {
+            res.status(409).json({
+              ok: false,
+              error: 'telephony_approval_already_used',
+              message: 'The supplied approval request was already used.',
+              call: responseCall,
+            });
+            return;
+          }
+          writeReceipt({
+            kind: 'approval_decision',
+            status: 'ok',
+            parent_action_id: approvalActionId,
+            summary: `Dograh outbound call approved: ${policy.toNumberRedacted}`,
+            meta: {
+              mode: policy.mode,
+              workflowId: policy.workflowId,
+              toNumberRedacted: policy.toNumberRedacted,
+              toNumberHash: policy.toNumberHash,
+              note: approvalNote,
+            },
+          });
+        }
+
         result = await client.initiateOutboundCall({
           workflowId: policy.workflowId!,
           phoneNumber: policy.toNumber!,

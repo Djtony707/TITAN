@@ -60,6 +60,7 @@ import {
     getStaleAgents, enforceBudgetForAgent, getBudgetPolicyForAgent,
     requestGoalProposalApproval, approveApproval, rejectApproval, getApproval,
     registerAgent, updateAgentIdentity, getAgentMemoryNamespace, getAgentVoice,
+    createApproval,
 } from '../src/agent/commandPost.js';
 
 const defaultConfig = {
@@ -78,6 +79,104 @@ describe('Command Post', () => {
 
     afterEach(() => {
         shutdownCommandPost();
+    });
+
+    // ── Telephony Approval Safety ─────────────────────────────
+    describe('Telephony Approval Safety', () => {
+        it('never auto-approves telephony outbound call approvals even when broad auto-approval is enabled', () => {
+            shutdownCommandPost();
+            initCommandPost({
+                ...defaultConfig,
+                autoApprove: { enabled: true, rules: [{ intent: 'read_file', action: 'auto', pathPrefixes: ['/opt/TITAN'] }] },
+            } as any);
+
+            const approval = createApproval({
+                type: 'custom',
+                requestedBy: 'phone-desk:test',
+                payload: {
+                    category: 'telephony_outbound_call',
+                    kind: 'read_file',
+                    path: '/opt/TITAN/a.md',
+                    mode: 'test',
+                    workflowId: '123',
+                    purpose: 'safety test',
+                    toNumberRedacted: '+1555••••67',
+                    toNumberHash: 'hash',
+                },
+            });
+
+            expect(approval.status).toBe('pending');
+        });
+
+        it('does not coalesce telephony approvals with the same redacted number and mode when purpose differs', () => {
+            const first = createApproval({
+                type: 'custom',
+                requestedBy: 'phone-desk:admin',
+                payload: {
+                    category: 'telephony_outbound_call',
+                    kind: 'telephony_outbound_call',
+                    mode: 'admin',
+                    workflowId: '123',
+                    purpose: 'first follow-up',
+                    toNumberRedacted: '+1555••••67',
+                    toNumberHash: 'same-target-hash',
+                    approvalIdentity: 'telephony:first-purpose',
+                },
+            });
+            const second = createApproval({
+                type: 'custom',
+                requestedBy: 'phone-desk:admin',
+                payload: {
+                    category: 'telephony_outbound_call',
+                    kind: 'telephony_outbound_call',
+                    mode: 'admin',
+                    workflowId: '123',
+                    purpose: 'second follow-up',
+                    toNumberRedacted: '+1555••••67',
+                    toNumberHash: 'same-target-hash',
+                    approvalIdentity: 'telephony:second-purpose',
+                },
+            });
+
+            expect(first.id).not.toBe(second.id);
+            expect(first.payload.purpose).toBe('first follow-up');
+            expect(second.payload.purpose).toBe('second follow-up');
+        });
+
+        it('does not coalesce telephony approvals with the same redacted number and mode when workflow differs', () => {
+            const first = createApproval({
+                type: 'custom',
+                requestedBy: 'phone-desk:admin',
+                payload: {
+                    category: 'telephony_outbound_call',
+                    kind: 'telephony_outbound_call',
+                    mode: 'admin',
+                    workflowId: '123',
+                    purpose: 'same follow-up',
+                    toNumberRedacted: '+1555••••67',
+                    toNumberHash: 'same-target-hash',
+                    approvalIdentity: 'telephony:first-workflow',
+                },
+            });
+            const second = createApproval({
+                type: 'custom',
+                requestedBy: 'phone-desk:admin',
+                payload: {
+                    category: 'telephony_outbound_call',
+                    kind: 'telephony_outbound_call',
+                    mode: 'admin',
+                    workflowId: '456',
+                    purpose: 'same follow-up',
+                    toNumberRedacted: '+1555••••67',
+                    toNumberHash: 'same-target-hash',
+                    approvalIdentity: 'telephony:second-workflow',
+                },
+            });
+
+            expect(first.id).not.toBe(second.id);
+            expect(first.payload.workflowId).toBe('123');
+            expect(second.payload.workflowId).toBe('456');
+        });
     });
 
     // ── Task Checkout ────────────────────────────────────────

@@ -14,7 +14,7 @@ function formatUptime(seconds: number): string {
 
 export default function StatusBar() {
   const status = useSystemStatus();
-  const { info: updateInfo, triggerUpdate } = useUpdateCheck();
+  const { info: updateInfo, triggerUpdate, waitForReload } = useUpdateCheck();
   const [updating, setUpdating] = useState(false);
   const [updateResult, setUpdateResult] = useState<{ ok: boolean; message?: string } | null>(null);
 
@@ -25,15 +25,30 @@ export default function StatusBar() {
 Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`)) {
       return;
     }
+    const previousVersion = updateInfo.current;
     setUpdating(true);
     setUpdateResult(null);
     const result = await triggerUpdate(true);
     setUpdateResult({ ok: result.ok, message: result.message || result.error });
+    if (!result.ok) {
+      setUpdating(false);
+      return;
+    }
+    // Truthful UX: only declare success after a fresh process actually answers
+    // /api/update with a different version. If it never does, surface that
+    // instead of the old optimistic "refresh in 10-15s" guess.
+    const newVersion = await waitForReload(previousVersion);
     setUpdating(false);
-    if (result.ok) {
-      setTimeout(() => {
-        alert('Update initiated. The gateway will restart shortly. Please refresh the page in 10-15 seconds.');
-      }, 500);
+    if (newVersion) {
+      setUpdateResult({ ok: true, message: `Now on ${newVersion}` });
+      // Auto-reload so the SPA re-fetches bundle + config against the new process.
+      setTimeout(() => window.location.reload(), 600);
+    } else {
+      setUpdateResult({
+        ok: false,
+        message:
+          'Update sent, but the gateway did not come back within 30s. Check service status manually.',
+      });
     }
   };
 
