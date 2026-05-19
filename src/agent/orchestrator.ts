@@ -32,30 +32,47 @@ export interface OrchestratorResult {
     durationMs: number;
 }
 
+/**
+ * Cheap pre-filter: skip the LLM classifier for messages that are obviously
+ * not multi-step (greetings, single questions, status checks, etc.). This
+ * keeps the per-message LLM cost off for trivial inputs while letting the
+ * classifier judge anything substantive.
+ *
+ * v6.3.0: replaces the prior regex-allowlist gate, which only fired on
+ * messages containing literal "and/then/parallel/simultaneously" phrasing
+ * and missed most real multi-step missions (e.g. "build me a dashboard
+ * with charts and a backend" matched none of the prior patterns).
+ */
+function isObviouslyTrivial(message: string): boolean {
+    const trimmed = message.trim();
+    // Greetings / one-word replies
+    if (/^(hi|hello|hey|yo|sup|ok|okay|thanks|thx|ty|yes|no|nope|sure)[!?.,]?$/i.test(trimmed)) return true;
+    // Single question that ends with ? and has no conjunction — likely a lookup, not a mission
+    if (trimmed.length < 80 && /\?$/.test(trimmed) && !/(?:\band\b|\bthen\b|,)/i.test(trimmed)) return true;
+    // Status / acknowledgement check
+    if (/^(status|ok\??|done\??|ready\??|check|ping)$/i.test(trimmed)) return true;
+    return false;
+}
+
 /** Analyze whether a message would benefit from sub-agent delegation */
 export async function analyzeForDelegation(message: string): Promise<DelegationPlan> {
     const config = loadConfig();
     const fastModel = config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
 
-    // Quick heuristic check first — skip LLM call for simple messages
+    // Cheap heuristic — keep the LLM classifier off for the messages that
+    // can't possibly be multi-step missions.
     const wordCount = message.split(/\s+/).length;
     if (wordCount < 10) {
         return { shouldDelegate: false, reason: 'Message too short for delegation', tasks: [] };
     }
-
-    // Check for multi-step indicators
-    const multiStepIndicators = [
-        /research.*(?:and|then).*write/i,
-        /find.*(?:and|then).*(?:create|build|make)/i,
-        /analyze.*(?:and|then).*(?:report|summarize)/i,
-        /(?:first|1\.).*(?:then|2\.).*(?:finally|3\.)/i,
-        /multiple|several|parallel|simultaneously/i,
-    ];
-
-    const hasMultiStep = multiStepIndicators.some(p => p.test(message));
-    if (!hasMultiStep) {
-        return { shouldDelegate: false, reason: 'No multi-step pattern detected', tasks: [] };
+    if (isObviouslyTrivial(message)) {
+        return { shouldDelegate: false, reason: 'Message is obviously not multi-step', tasks: [] };
     }
+
+    // Anything that passes the cheap gate goes to the LLM classifier. We trust
+    // it (with the prompt below) to recognize multi-step intent — including
+    // shapes the old regex allowlist missed ("build a dashboard with charts
+    // and a backend", "audit these 4 files", "compare X vs Y vs Z").
 
     try {
         const response = await chat({

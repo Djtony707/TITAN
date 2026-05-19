@@ -47,6 +47,91 @@ export interface Plan {
 const activePlans: Map<string, Plan> = new Map();
 const PLANS_DIR = join(TITAN_HOME, 'plans');
 
+/**
+ * Decompose a goal string into tasks with **dependency-aware** structure.
+ *
+ * v6.3.0 — fixes the prior behavior that forced every task to depend on
+ * the previous one (`dependsOn: [previousId]`), which made downstream
+ * parallel dispatch impossible. Now we split on the connector AND remember
+ * which connector was used: ordering connectors ("then", "after",
+ * "finally", numbered steps) imply a real dependency; coordinating
+ * connectors ("and", ",", ";") imply independence and produce empty
+ * `dependsOn` so the goal driver / agent_team can fan them out.
+ *
+ * The Research → Execute → Verify fallback for single-step goals stays
+ * serial — those steps genuinely are chain-dependent (you have to research
+ * before you can execute before you can verify).
+ *
+ * Exported for tests in tests/planner.test.ts.
+ */
+export interface DecomposedTask {
+    title: string;
+    description: string;
+    dependsOn: string[];
+}
+
+export function decomposeGoalIntoTasks(goal: string): DecomposedTask[] {
+    // Strategy: walk the goal text left→right, find the EARLIEST connector,
+    // classify it as ordering ("then", "finally", "after that"...) or
+    // coordinating ("and", ",", ";"), emit the text before it as a segment,
+    // and recurse on the rest. The "follows ordering" flag we attach to
+    // segment N tells us whether segment N depends on segment N-1.
+    const orderingRegex = /\b(?:then|after\s+that|afterwards|finally|next|followed\s+by)\b/i;
+    const coordRegex = /(?:,|;|\sand\s)/i;
+
+    // Strip leading "first," / "1." — those mark the first item, not a
+    // dependency. The first segment never has a predecessor anyway.
+    let buf = goal.trim().replace(/^\s*(?:first[,:\s]+|1[.):]\s*)/i, '');
+
+    const segments: Array<{ text: string; followsOrdering: boolean }> = [];
+    let nextFollowsOrdering = false; // the first segment never follows anything
+
+    while (buf.length > 0) {
+        const orderingMatch = orderingRegex.exec(buf);
+        const coordMatch = coordRegex.exec(buf);
+        const orderingIdx = orderingMatch ? orderingMatch.index : Infinity;
+        const coordIdx = coordMatch ? coordMatch.index : Infinity;
+
+        if (orderingIdx === Infinity && coordIdx === Infinity) {
+            const text = buf.trim();
+            if (text) segments.push({ text, followsOrdering: nextFollowsOrdering });
+            break;
+        }
+
+        const useOrdering = orderingIdx < coordIdx;
+        const connectorIdx = useOrdering ? orderingIdx : coordIdx;
+        const connectorLen = useOrdering ? orderingMatch![0].length : coordMatch![0].length;
+
+        const before = buf.slice(0, connectorIdx).trim();
+        if (before) {
+            segments.push({ text: before, followsOrdering: nextFollowsOrdering });
+        }
+        // The connector we just consumed sets the flag for the NEXT segment.
+        nextFollowsOrdering = useOrdering;
+        // Trim "2.", "third," ordinals on the remainder — those are visual numbering, not connectors.
+        buf = buf.slice(connectorIdx + connectorLen).trim()
+            .replace(/^(?:[2-9]\d?[.):]\s*|second[,:\s]+|third[,:\s]+|fourth[,:\s]+|fifth[,:\s]+)/i, '');
+    }
+
+    const filtered = segments.filter(s => s.text.length > 0);
+
+    if (filtered.length > 1) {
+        return filtered.map((seg, i) => ({
+            title: seg.text.slice(0, 80),
+            description: seg.text,
+            dependsOn: i > 0 && seg.followsOrdering ? [`task-${i}`] : [],
+        }));
+    }
+
+    // Single-segment fallback: classic Research → Execute → Verify chain.
+    // These ARE genuinely sequential.
+    return [
+        { title: `Research: ${goal.slice(0, 60)}`, description: `Gather information needed for: ${goal}`, dependsOn: [] },
+        { title: `Execute: ${goal.slice(0, 60)}`, description: `Carry out the main work: ${goal}`, dependsOn: ['task-1'] },
+        { title: `Verify: ${goal.slice(0, 60)}`, description: `Confirm completion and quality of: ${goal}`, dependsOn: ['task-2'] },
+    ];
+}
+
 /** Create a plan from a decomposed goal */
 export function createPlan(goal: string, tasks: Array<{
     title: string;
@@ -350,23 +435,7 @@ export function registerPlannerTool(): void {
             const goal = String(args.goal || '');
             if (!goal) return 'Error: No goal provided. Please specify a goal to plan.';
 
-            // Decompose the goal into logical sub-tasks
-            const steps = goal.split(/[,;]|\band\b|\bthen\b/i)
-                .map(s => s.trim())
-                .filter(s => s.length > 0);
-
-            const tasks = steps.length > 1
-                ? steps.map((step, i) => ({
-                    title: step.slice(0, 80),
-                    description: step,
-                    dependsOn: i > 0 ? [`task-${i}`] : [],
-                }))
-                : [
-                    { title: `Research: ${goal.slice(0, 60)}`, description: `Gather information needed for: ${goal}`, dependsOn: [] as string[] },
-                    { title: `Execute: ${goal.slice(0, 60)}`, description: `Carry out the main work: ${goal}`, dependsOn: ['task-1'] },
-                    { title: `Verify: ${goal.slice(0, 60)}`, description: `Confirm completion and quality of: ${goal}`, dependsOn: ['task-2'] },
-                ];
-
+            const tasks = decomposeGoalIntoTasks(goal);
             const plan = createPlan(goal, tasks);
             return getPlanStatus(plan.id);
         },

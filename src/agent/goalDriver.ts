@@ -307,7 +307,218 @@ async function tickPlanning(goal: Goal, state: DriverState): Promise<void> {
     appendHistory(state, 'delegating', `Planned: ${Object.keys(state.subtaskStates).length} subtasks classified`);
 }
 
+/**
+ * v6.3.0 — max number of subtasks dispatched in parallel by tryBurstDispatch.
+ * Capped to keep LLM provider rate limits + Soma drives sane. The mirrors
+ * `agent_team`'s own 6-agent cap with a slight haircut for goal-driver
+ * overhead.
+ */
+const MAX_BURST_PARALLEL = 4;
+
+/**
+ * v6.3.0 — burst dispatch. If 2+ subtasks are ready in this tick, fire
+ * them via Promise.all and process the results in-place. Returns
+ * 'handled' when a burst ran (caller returns immediately), 'fallthrough'
+ * when only 0 or 1 subtasks were ready (caller continues with the
+ * existing single-subtask path).
+ *
+ * Design notes:
+ *   - Each subtask's attempts/spec/state-mutation mirrors the single
+ *     path, so on the next tick the single-subtask path can recover any
+ *     subtask whose burst result wasn't a clean 'done'.
+ *   - We only mark subtasks 'done' in storage on a happy-path result.
+ *     Anything else (failed/needs_info/blocked) keeps the subtask in
+ *     'pending', and the next tick re-enters via single-subtask flow
+ *     with all the accreted edge-case guards (commit_override, dedupe,
+ *     generic_question, etc.) still applying.
+ *   - We do NOT transition phase to 'verifying' from a burst even if
+ *     all succeeded — that's the existing single-path's job on the
+ *     subsequent tick when pickNextReadySubtask returns null. Burst's
+ *     only commitment is "spend less wall-clock when work is parallel".
+ */
+async function tryBurstDispatch(goal: Goal, state: DriverState): Promise<'handled' | 'fallthrough'> {
+    const ready = await pickAllReadySubtasks(goal, state, MAX_BURST_PARALLEL);
+    if (ready.length < 2) return 'fallthrough';
+
+    // Validate each subtask: attempt cap + fallback strategy. If any
+    // would fail validation, drop it from the burst (single-path will
+    // handle the per-subtask failure deterministically next tick).
+    type Validated = {
+        subtask: Subtask;
+        subState: DriverSubtaskState;
+        strategy: ReturnType<typeof nextFallback>;
+    };
+    const validated: Validated[] = [];
+    for (const sub of ready) {
+        const subState = state.subtaskStates[sub.id];
+        if (!subState) continue;
+        const cap = subState.maxAttempts ?? 5;
+        if (subState.attempts + 1 > cap) continue; // single-path will fast-fail it
+        const strategy = nextFallback(subState.kind, subState.attempts, subState.lastError, cap);
+        if (!strategy) continue; // exhausted; single-path will resolve
+        validated.push({ subtask: sub, subState, strategy });
+    }
+
+    if (validated.length < 2) return 'fallthrough';
+
+    // Mark the batch + per-subtask state BEFORE dispatch. If anything
+    // throws in Promise.all, the state still reflects the attempt.
+    const batchStartedAt = new Date().toISOString();
+    state.parallelBatch = {
+        ids: validated.map(v => v.subtask.id),
+        startedAt: batchStartedAt,
+    };
+    for (const v of validated) {
+        v.subState.attempts += 1;
+        v.subState.specialist = v.strategy!.specialist;
+        v.subState.pendingSpawn = {
+            attemptedAt: batchStartedAt,
+            specialist: v.strategy!.specialist,
+        };
+        try {
+            emitAgentEvent({
+                type: 'agent_spawn',
+                agentId: v.strategy!.specialist,
+                agentName: v.strategy!.specialist,
+                timestamp: Date.now(),
+                data: {
+                    goalId: goal.id,
+                    subtaskId: v.subtask.id,
+                    subtaskTitle: v.subtask.title,
+                    subtaskKind: v.subState.kind,
+                    attempt: v.subState.attempts,
+                    burst: true,
+                    burstSize: validated.length,
+                },
+            });
+        } catch { /* event bus failure should never block a spawn */ }
+    }
+    appendHistory(
+        state,
+        'observing',
+        `Burst dispatch: ${validated.length} subtasks in parallel (${validated.map(v => v.subtask.title.slice(0, 32)).join(' | ')})`,
+    );
+    state.phase = 'observing';
+
+    // Fire them all. Promise.allSettled so one rejection doesn't lose
+    // the others' results.
+    const burstStartMs = Date.now();
+    const settled = await Promise.allSettled(
+        validated.map(v => structuredSpawn({
+            specialistId: v.strategy!.specialist,
+            task: `${v.subtask.title}\n\n${v.subtask.description}${v.strategy!.promptAdjustment ?? ''}`,
+            modelOverride: v.strategy!.modelOverride,
+            toolAllowlist: routeForKind(v.subState.kind).toolAllowlist,
+            maxRounds: v.strategy!.maxRounds,
+            goalId: goal.id,
+        })),
+    );
+    const burstDurationMs = Date.now() - burstStartMs;
+
+    // Process each result. Record telemetry, store artifacts, and ONLY
+    // mark a subtask 'done' on the happy path. Everything else (failed,
+    // needs_info, blocked, thrown) is left pending so the next tick
+    // re-enters single-path with the full edge-case guard stack.
+    let happyCount = 0;
+    for (let i = 0; i < validated.length; i++) {
+        const v = validated[i];
+        const outcome = settled[i];
+        v.subState.pendingSpawn = undefined;
+        if (outcome.status === 'rejected') {
+            v.subState.lastError = (outcome.reason as Error)?.message ?? String(outcome.reason);
+            appendHistory(state, 'iterating', `Burst spawn threw for ${v.subtask.id}: ${v.subState.lastError.slice(0, 100)}`);
+            continue;
+        }
+        const result = outcome.value;
+        recordSpend(state, {
+            elapsedMs: burstDurationMs / validated.length, // amortized; the wall-clock saving is the point
+            tokens: result.tokensUsed ?? 0,
+            costUsd: result.costUsd ?? 0,
+        });
+        v.subState.artifacts = [...new Set([
+            ...v.subState.artifacts,
+            ...result.artifacts.map(a => a.ref),
+        ])];
+        try {
+            emitAgentEvent({
+                type: 'agent_done',
+                agentId: v.strategy!.specialist,
+                agentName: v.strategy!.specialist,
+                timestamp: Date.now(),
+                data: {
+                    goalId: goal.id,
+                    subtaskId: v.subtask.id,
+                    subtaskTitle: v.subtask.title,
+                    status: result.status,
+                    reasoning: result.reasoning,
+                    artifactCount: result.artifacts.length,
+                    artifacts: result.artifacts.map(a => ({ ref: a.ref, type: a.type })),
+                    toolsUsed: result.toolsUsed ?? [],
+                    tokensUsed: result.tokensUsed ?? 0,
+                    costUsd: result.costUsd ?? 0,
+                    durationMs: burstDurationMs,
+                    model: v.strategy!.modelOverride ?? v.strategy!.specialist,
+                    burst: true,
+                },
+            });
+        } catch { /* event bus failure never affects driver state */ }
+
+        if (result.status === 'done') {
+            v.subState.consecutiveNeedsInfoCount = 0;
+            // Stash spawn result so the eventual single-path verify reads it.
+            (v.subState as DriverSubtaskState & { lastSpawnResult?: unknown }).lastSpawnResult = result;
+            // Mark the subtask 'done' in goals storage. Subsequent ticks
+            // see this and skip it via pickAllReadySubtasks's status check.
+            try {
+                const { completeSubtask } = await import('./goals.js');
+                completeSubtask(goal.id, v.subtask.id, result.reasoning || 'completed via burst');
+            } catch (err) {
+                // If completion fails to persist, treat as non-happy so single-path can retry.
+                v.subState.lastError = `Burst completion persist failed: ${(err as Error).message}`;
+                continue;
+            }
+            happyCount++;
+        } else if (result.status === 'failed') {
+            v.subState.lastError = result.reasoning || 'failed';
+            v.subState.consecutiveNeedsInfoCount = 0; // mirrors single-path reset semantics
+        } else {
+            // needs_info / blocked / anything else — leave pending so
+            // single-path picks it up next tick with the full guard stack.
+            v.subState.lastError = result.reasoning || `Burst returned ${result.status}; deferring to single-path retry.`;
+        }
+    }
+
+    state.parallelBatch = undefined;
+    appendHistory(
+        state,
+        'delegating',
+        `Burst complete: ${happyCount}/${validated.length} succeeded in ${burstDurationMs}ms (parallel)`,
+    );
+    state.phase = 'delegating';
+    return 'handled';
+}
+
 async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
+    // v6.3.0 — burst dispatch path. When the planner emits multiple
+    // genuinely-independent subtasks (no dependsOn between them), fire
+    // them in parallel via Promise.all instead of one-per-tick.
+    //
+    // Safety design:
+    //   - If only 1 subtask is ready, fall straight through to the proven
+    //     single-subtask path below. Zero risk to the existing state
+    //     machine.
+    //   - In burst mode we ONLY handle the all-success happy path. Any
+    //     non-success result (failed / needs_info / blocked) means we
+    //     persist the subState delta and let the next tick re-enter via
+    //     the single-subtask path, which has all the accreted edge-case
+    //     guards (commit_override, dedupe, generic_question, etc.). So
+    //     the burst is purely a "fast path when everything goes right"
+    //     overlay; weird cases still get the full state-machine treatment.
+    if (!state.parallelBatch) {
+        const burst = await tryBurstDispatch(goal, state);
+        if (burst === 'handled') return;
+    }
+
     // Find the next ready subtask (dependencies satisfied, not already done/failed)
     const next = await pickNextReadySubtask(goal, state);
     if (!next) {
@@ -1236,40 +1447,49 @@ async function tickCancelled(goal: Goal, state: DriverState): Promise<void> {
 // ── Helpers ──────────────────────────────────────────────────────
 
 async function pickNextReadySubtask(goal: Goal, state: DriverState): Promise<Subtask | null> {
-    // v4.10.0-local (post-deploy, Fix C): synchronous deadlock recovery.
-    // If a pending subtask has exhausted its attempts with a failed
-    // verification, await failSubtask to persist the failure *before*
-    // continuing. The previous async mutation was ephemeral — the next
-    // tick's getGoal() call saw stale data and re-entered the deadlock
-    // branch in tickDelegating. This version is durable.
-    const cap = (id: string) => state.subtaskStates[id]?.maxAttempts ?? 5;
+    const ready = await pickAllReadySubtasks(goal, state, 1);
+    return ready[0] ?? null;
+}
+
+/**
+ * Return up to `cap` ready subtasks (status=pending, deps satisfied, not
+ * exhausted-and-failed). Burst dispatch in tickDelegating uses this to
+ * find genuinely-independent subtasks that can run concurrently.
+ *
+ * Synchronous deadlock recovery (originally v4.10.0-local Fix C) is
+ * preserved: if a subtask has exhausted attempts with a failed
+ * verification, we await failSubtask to persist before continuing. This
+ * matters for both single-pick and burst paths.
+ *
+ * Exported for tests.
+ */
+export async function pickAllReadySubtasks(goal: Goal, state: DriverState, cap: number): Promise<Subtask[]> {
+    if (cap < 1) return [];
+    const attemptCap = (id: string) => state.subtaskStates[id]?.maxAttempts ?? 5;
+    const ready: Subtask[] = [];
     for (const sub of goal.subtasks || []) {
+        if (ready.length >= cap) break;
         if (sub.status !== 'pending') continue;
         const subState = state.subtaskStates[sub.id];
         if (!subState) continue;
-        const exhaustedAttempts = subState.attempts >= cap(sub.id)
+        const exhaustedAttempts = subState.attempts >= attemptCap(sub.id)
             || subState.attempts >= state.budgetCaps.maxRetries;
         if (subState.verificationResult?.passed === false && exhaustedAttempts) {
             try {
                 const { failSubtask } = await import('./goals.js');
                 failSubtask(goal.id, sub.id, subState.lastError || 'max retries exceeded (deadlock recovery)');
-                // failSubtask mutates the cached goalsCache in place, so our
-                // `goal` reference (passed by the caller, loaded from the
-                // same cache) now reflects status: 'failed'. Belt-and-braces:
-                // also update our local object in case the cache was bypassed.
                 sub.status = 'failed';
             } catch { /* ok — driver will re-try next tick */ }
             continue;
         }
-        // Respect dependsOn: skip subtasks whose prerequisites are not completed
         const depsSatisfied = (sub.dependsOn ?? []).every(depId => {
             const dep = goal.subtasks?.find(s => s.id === depId);
             return dep?.status === 'done';
         });
         if (!depsSatisfied) continue;
-        return sub;
+        ready.push(sub);
     }
-    return null;
+    return ready;
 }
 
 /**
