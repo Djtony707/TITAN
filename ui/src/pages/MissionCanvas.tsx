@@ -100,20 +100,14 @@ interface DeskItem {
  * v6.1.0-alpha.31 — a live activity sticky on the desk. One per recent
  * tool call across the team. The agent's color tints the note so the
  * user can see at a glance which helper produced each sticky.
+ *
+ * v6.3.1 — repeated activity from the same agent now rolls up into a
+ * single sticky with a "× N" count badge instead of N separate stickies.
+ * Aliased to the pure helper's type so the rollup logic is unit-testable.
  */
-interface ActivitySticky {
-  /** Stable id derived from agentId + activity timestamp so React
-   *  reuses the same DOM node across re-renders and the sticky's
-   *  position survives. */
-  id: string;
-  agentId: string;
-  agentName: string;
-  agentColor: string;
-  icon: string;
-  activity: string;
-  detail?: string;
-  at: string;
-}
+import type { RolledUpActivitySticky } from './mission/rollupActivityStickies';
+import { rollupActivityStickies, ACTIVITY_STICKY_CAP } from './mission/rollupActivityStickies';
+type ActivitySticky = RolledUpActivitySticky;
 
 /**
  * Storage state for filing cabinet + wastebasket. Items inside one of
@@ -342,26 +336,24 @@ export default function MissionCanvas() {
    */
   const activityStickies = useMemo<ActivitySticky[]>(() => {
     if (!room) return [];
-    const out: ActivitySticky[] = [];
-    for (const m of room.team) {
-      const log = m.activityLog ?? [];
-      for (const e of log) {
-        out.push({
-          id: `${m.agentId}:${e.at}:${e.icon}`,
-          agentId: m.agentId,
-          agentName: m.name,
-          agentColor: m.color,
-          icon: e.icon,
-          activity: e.activity,
-          detail: e.detail,
-          at: e.at,
-        });
-      }
-    }
-    // Sort newest first, take top 12.
-    out.sort((a, b) => (a.at < b.at ? 1 : -1));
-    return out.slice(0, 12);
+    // v6.3.1 — rollup happens in the pure helper so the grouping logic
+    // is testable in isolation (tests/ui/rollupActivityStickies.test.ts).
+    // Cap is ACTIVITY_STICKY_CAP (12) ROLLED-UP groups, so the visible
+    // sticky count is the same as before but each one can represent
+    // many underlying actions.
+    return rollupActivityStickies(
+      room.team.map(m => ({
+        agentId: m.agentId,
+        name: m.name,
+        color: m.color,
+        activityLog: m.activityLog,
+      })),
+    );
   }, [room]);
+  // Suppress unused-import warnings when the cap constant is referenced
+  // only inside the helper. Keeping the named import here makes the cap
+  // discoverable from the call site.
+  void ACTIVITY_STICKY_CAP;
 
   /** Flatten unique fact sources — the yellow sticky notes. */
   const factSources = useMemo<FactSource[]>(() => {
@@ -1602,10 +1594,21 @@ function ActivityStickyNote({ sticky }: { sticky: ActivitySticky }) {
   // paperFromColor but slightly lighter so the stickies don't compete
   // visually with the agent cards themselves.
   const bg = activityPaperFromColor(sticky.agentColor);
+  const isRolledUp = sticky.count > 1;
+  // Tooltip lists the most-recent details when rolled up so hovering
+  // gives the user the full breakdown without expanding the sticky.
+  const tooltip = isRolledUp
+    ? `${sticky.agentName} · ${sticky.activity} × ${sticky.count}\n` +
+      `latest: ${sticky.recentDetails[0] ?? '(no detail)'}\n` +
+      (sticky.recentDetails.length > 1
+        ? `prior: ${sticky.recentDetails.slice(1).join(' · ')}\n`
+        : '') +
+      `most recent at ${new Date(sticky.at).toLocaleTimeString()}`
+    : `${sticky.agentName} ${sticky.activity}${sticky.detail ? ': ' + sticky.detail : ''} · ${new Date(sticky.at).toLocaleTimeString()}`;
   return (
     <div
       className="w-[170px] p-2.5 relative"
-      title={`${sticky.agentName} ${sticky.activity}${sticky.detail ? ': ' + sticky.detail : ''} · ${new Date(sticky.at).toLocaleTimeString()}`}
+      title={tooltip}
       style={{
         background: bg,
         boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 6px 10px var(--theme-shadow, rgba(0,0,0,0.32))',
@@ -1620,6 +1623,23 @@ function ActivityStickyNote({ sticky }: { sticky: ActivitySticky }) {
           background: 'linear-gradient(180deg, var(--theme-sticky-tape, rgba(255,255,255,0.7)), rgba(255,255,255,0.25))',
         }}
       />
+      {/* v6.3.1 — rollup count badge. Only renders when this sticky
+       *  represents 2+ underlying log entries. Top-right so it doesn't
+       *  fight the tape or the agent label. */}
+      {isRolledUp && (
+        <div
+          className="absolute -top-2 -right-2 min-w-[22px] h-[22px] px-1.5 rounded-full flex items-center justify-center text-[11px] font-semibold pointer-events-none"
+          style={{
+            background: 'var(--theme-metal-dark, #5a4818)',
+            color: 'var(--theme-sticky-yellow, #fff8c8)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+            fontFamily: 'system-ui',
+          }}
+          aria-label={`${sticky.count} repeated activities`}
+        >
+          ×{sticky.count}
+        </div>
+      )}
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-base leading-none">{sticky.icon}</span>
         <span
@@ -1632,6 +1652,7 @@ function ActivityStickyNote({ sticky }: { sticky: ActivitySticky }) {
       <div className="text-[12px] leading-snug">{sticky.activity}</div>
       {sticky.detail && (
         <div className="text-[11px] mt-1 leading-snug break-words line-clamp-3" style={{ color: 'var(--theme-ink-soft, #5a4818)' }}>
+          {isRolledUp ? <span style={{ color: 'var(--theme-ink-soft, #5a4818)', opacity: 0.7 }}>latest: </span> : null}
           {sticky.detail}
         </div>
       )}
