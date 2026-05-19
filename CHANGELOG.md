@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.3.4 — 2026-05-19 — Canvas chrome actually respects the canvas (existing users too)
+
+v6.3.2 made `/space/<id>` an immersive canvas path and defaulted both the global TitanShell rail and the SpacesSidebar to collapsed there. But the defaults only applied to **first-visit users** — long-time users who'd ever pinned a rail open on a non-canvas page had `'0'` (expanded) stored under a single global key, and that override leaked into canvas pages. Combined with `chatOpen=true` being hardcoded in TitanCanvas, the canvas still rendered with both rails expanded AND the chat panel open over everything. Three root-cause fixes:
+
+- **`TitanCanvas.tsx:416` hardcoded `useState(true)` for `chatOpen`.** Flipped to `false`. The dock now starts in its (v6.3.2-default) edge-peek state instead of forcing the chat panel open on every page load. ⌘J and clicking the mascot still open it, and the `titan:chat:toggle` window event keeps working for the shortcut + the EmptyCanvas "Open chat" button.
+- **Shell sidebar preference split into two storage keys.** Pre-v6.3.4 the single `titan:shell-sidebar-collapsed` key controlled the rail everywhere. Now: on **canvas routes** (`/space/<id>`, `/mission/<id>/canvas`, `/os/*`) the rail starts collapsed and only respects the new `titan:shell-sidebar-canvas-pin` key (`'1'` = user pinned it open in-canvas). On **non-canvas routes** the rail still respects the old `titan:shell-sidebar-collapsed` key. The toggle action writes to the route-appropriate key, so a pin made in one mode never leaks into the other.
+- **SpacesSidebar mirrors the same split.** Added `titan-sidebar-canvas-pin` for canvas routes; the existing `titan-sidebar-collapsed` global key now only applies off-canvas. Same scope-isolation semantics.
+- **Net effect for existing users:** anyone whose only stored value was the old global key with `'0'` (expanded) sees both rails collapse on their next visit to a canvas page — the canvas reclaims ~33% of horizontal width without losing pin-open ability (just click the toggle in-canvas to write a canvas-scoped pin). Anyone with `'1'` (collapsed) on the global key sees no behavior change on canvas (it was already collapsed) but the off-canvas pages still respect their preference.
+- **Tests rewritten** to cover the new model. `tests/ui/titan-shell-sidebar.test.ts` and `tests/ui/spaces-sidebar-default.test.ts` now use map-style `getItem` so they can pin canvas-pin vs global-pref interactions: 32 tests covering canvas defaults, global pref isolation, canvas-pin honoring, scope isolation between canvas and non-canvas, and write-helper routing.
+
 ## v6.3.3 — 2026-05-19 — Star on GitHub button next to the Sponsor pill
 
 - Adds a `StarOnGitHubFooter` component next to the existing `SponsorFooter` in the bottom-center pill that's fixed on every authenticated page. Click opens `https://github.com/Djtony707/TITAN` in a new tab where the user clicks the actual GitHub Star button (GitHub doesn't allow programmatic starring on a user's behalf without OAuth + an explicit `public_repo` scope grant, so this matches every other "Star us" button in OSS).
