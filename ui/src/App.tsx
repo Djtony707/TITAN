@@ -11,6 +11,7 @@ import { OpenAuthBanner } from '@/components/OpenAuthBanner';
 import { apiFetch } from '@/api/client';
 import { VoiceProvider, useVoice } from '@/context/VoiceContext';
 import { SponsorFooter } from '@/components/SponsorFooter';
+import { StarOnGitHubFooter } from '@/components/StarOnGitHubFooter';
 
 import { DeskSurface } from '@/components/desk/DeskSurface';
 import { TitanShell } from '@/components/shell/TitanShell';
@@ -234,8 +235,14 @@ function AuthenticatedAppInner() {
         className="fixed bottom-1.5 left-0 right-0 flex justify-center pointer-events-none"
         style={{ zIndex: 2147483647 }}
       >
-        <div className="pointer-events-auto px-3 py-1 rounded-full bg-black/55 backdrop-blur-md shadow-lg">
+        {/* v6.3.3 — Sponsor + Star share a single bottom-center pill so
+            users see both support options on every page without doubling
+            up the floating chrome. Thin vertical separator distinguishes
+            them; both open in new tabs so the user never loses context. */}
+        <div className="pointer-events-auto px-3 py-1 rounded-full bg-black/55 backdrop-blur-md shadow-lg inline-flex items-center gap-3">
           <SponsorFooter />
+          <span aria-hidden className="h-3 w-px bg-white/20" />
+          <StarOnGitHubFooter />
         </div>
       </div>
     </ConfigProvider>
