@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.2.1 — 2026-05-18 — Dograh outbound-call safety hotfix
+
+- Makes Dograh outbound calls fail closed by requiring a consumable Command Post approval for every outbound mode, regardless of legacy `requireApprovalForOutbound` config.
+- Adds a structured HMAC approval identity over target hash, mode, purpose, and workflow so approvals for the same redacted number/mode do not incorrectly coalesce across different call intents.
+- Blocks broad Command Post auto-approval from approving telephony outbound-call approvals, even if a spoofed payload kind matches a generic auto-approval rule.
+- Consumes durable telephony approvals only after pre-dial gates pass and immediately before the Dograh call side effect; replay attempts are rejected before dialing.
+- Releases campaign call reservations on post-reservation failures, including durable approval-consumption failure, so failed attempts cannot leak in-flight capacity.
+- Adds regression coverage for approval identity/coalescing, fail-closed approval config, replay blocking, durable consumption persistence, campaign reservation release, and `phone_call` approval payloads.
+
 ## v6.2.0 — 2026-05-18 — TITAN Phone Desk / Dograh telephony
 
 - Adds optional Dograh sidecar integration for Twilio/Telnyx voice workflows while keeping provider credentials inside Dograh instead of TITAN.

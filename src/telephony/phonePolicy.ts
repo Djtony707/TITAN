@@ -19,6 +19,7 @@ export interface OutboundCallPolicyResult {
   toNumberRedacted?: string;
   toNumberHash?: string;
   toNumberOptOutHash?: string;
+  approvalIdentity?: string;
   workflowId?: string;
   purpose?: string;
   mode?: OutboundCallMode;
@@ -56,6 +57,22 @@ export function hashPhoneForApproval(config: TelephonyConfig, normalizedPhoneNum
 
 export function hashPhoneForOptOut(normalizedPhoneNumber: string): string {
   return createHmac('sha256', 'titan-telephony-opt-out-v1').update(normalizedPhoneNumber).digest('hex');
+}
+
+export function buildTelephonyApprovalIdentity(fields: {
+  mode: OutboundCallMode;
+  workflowId: string;
+  purpose: string;
+  toNumberHash: string;
+}): string {
+  return createHmac('sha256', 'titan-telephony-approval-identity-v1')
+    .update(JSON.stringify({
+      mode: fields.mode,
+      workflowId: fields.workflowId,
+      purpose: fields.purpose,
+      toNumberHash: fields.toNumberHash,
+    }))
+    .digest('hex');
 }
 
 function normalizeMode(value: unknown): OutboundCallMode {
@@ -143,16 +160,23 @@ export function validateOutboundCallRequest(
   }
 
   const purpose = safePurpose(input.purpose) || 'Outbound Dograh call';
+  const toNumberHash = hashPhoneForApproval(config, toNumber);
+  const toNumberOptOutHash = hashPhoneForOptOut(toNumber);
+  const approvalIdentity = buildTelephonyApprovalIdentity({ mode, workflowId, purpose, toNumberHash });
   return {
     ok: true,
     toNumber,
     toNumberRedacted: redactPhoneNumber(toNumber),
-    toNumberHash: hashPhoneForApproval(config, toNumber),
-    toNumberOptOutHash: hashPhoneForOptOut(toNumber),
+    toNumberHash,
+    toNumberOptOutHash,
+    approvalIdentity,
     workflowId,
     purpose,
     mode,
-    requiresApproval: config.requireApprovalForOutbound || mode === 'campaign',
+    // Dograh outbound calls always require a consumable Command Post approval.
+    // The config flag is retained for backward-compatible config parsing but
+    // must not create an unapproved dialing path.
+    requiresApproval: true,
     telephonyConfigurationId: optionalPositiveInt(input.telephonyConfigurationId),
     fromPhoneNumberId: optionalPositiveInt(input.fromPhoneNumberId),
   };

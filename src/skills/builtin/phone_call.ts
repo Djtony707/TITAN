@@ -1,3 +1,4 @@
+import { createApproval } from '../../agent/commandPost.js';
 import { loadConfig } from '../../config/config.js';
 import { writeReceipt } from '../../receipts/store.js';
 import { validateOutboundCallRequest } from '../../telephony/phonePolicy.js';
@@ -38,15 +39,35 @@ export function registerPhoneCallSkill(): void {
           return `Phone call blocked: ${policy.reason ?? 'policy failure'}${policy.toNumberRedacted ? ` (${policy.toNumberRedacted})` : ''}`;
         }
 
+        const approval = createApproval({
+          type: 'custom',
+          requestedBy: `phone-call-tool:${policy.mode}:${policy.approvalIdentity?.slice(0, 16) ?? policy.toNumberHash?.slice(0, 12) ?? 'unknown'}`,
+          payload: {
+            category: 'telephony_outbound_call',
+            kind: 'telephony_outbound_call',
+            title: policy.approvalIdentity ?? `${policy.mode}:${policy.workflowId}:${policy.toNumberHash}:${policy.purpose}`,
+            approvalIdentity: policy.approvalIdentity,
+            neverAutoApprove: true,
+            mode: policy.mode,
+            workflowId: policy.workflowId,
+            toNumberRedacted: policy.toNumberRedacted,
+            toNumberHash: policy.toNumberHash,
+            toNumberOptOutHash: policy.toNumberOptOutHash,
+            purpose: policy.purpose,
+            source: 'dograh',
+          },
+        });
         const receipt = writeReceipt({
           kind: 'approval_request',
           status: 'pending',
           summary: `Phone call approval required: ${policy.toNumberRedacted}`,
           meta: {
+            approvalActionId: approval.id,
             mode: policy.mode,
             workflowId: policy.workflowId,
             toNumberRedacted: policy.toNumberRedacted,
             toNumberHash: policy.toNumberHash,
+            toNumberOptOutHash: policy.toNumberOptOutHash,
             purpose: policy.purpose,
           },
         });
@@ -55,7 +76,8 @@ export function registerPhoneCallSkill(): void {
           `Phone call approval required for ${policy.toNumberRedacted}.`,
           `Purpose: ${policy.purpose}`,
           `Mode: ${policy.mode}`,
-          `Approval action: ${receipt.action_id}`,
+          `Approval action: ${approval.id}`,
+          `Receipt action: ${receipt.action_id}`,
           'No call was started. Use Phone Desk approval to place the Dograh call.',
         ].join('\n');
       },
