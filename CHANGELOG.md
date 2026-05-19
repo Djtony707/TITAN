@@ -1,5 +1,12 @@
 # Changelog
 
+## v6.3.3 — 2026-05-19 — Star on GitHub button next to the Sponsor pill
+
+- Adds a `StarOnGitHubFooter` component next to the existing `SponsorFooter` in the bottom-center pill that's fixed on every authenticated page. Click opens `https://github.com/Djtony707/TITAN` in a new tab where the user clicks the actual GitHub Star button (GitHub doesn't allow programmatic starring on a user's behalf without OAuth + an explicit `public_repo` scope grant, so this matches every other "Star us" button in OSS).
+- Live star count fetched on mount via GitHub's unauthenticated `/repos` API and cached in localStorage for 15 min (rate limit is 60/hr/IP for unauth callers; cache + graceful fallback to "★ Star on GitHub" without a number keeps the page from ever burning the limit or showing broken state). Numbers ≥1000 render as "1.2k".
+- Both items now share a single pill with a thin vertical separator so the chrome doesn't double up. Tooltip on the star link is honest: "Open TITAN on GitHub — click the Star button there to support the project (takes ~2 seconds if you're signed in)."
+- Pure logic extracted to `ui/src/components/githubStarCount.ts` so the cache + fetch + fallback paths are testable without React or jsdom. 14 new tests in `tests/ui/github-star-count.test.ts` covering cache hit/miss/TTL/expiry, malformed cache, API non-OK, API missing field, network throw, and refetch-after-TTL.
+
 ## v6.3.2 — 2026-05-19 — Space canvases stop triple-stacking chrome
 
 The Space canvas (`/space/<id>`) previously rendered three competing UI shells over the user's workspace: the global `<TitanShell>` sidebar (~17rem), the canvas's own `<SpacesSidebar>` (~13rem), and the `<FloatingChatDock>` mascot sitting fully visible. On a fresh visit that ate ~33% of horizontal width before the canvas got a single pixel. Three coordinated defaults now give the canvas the screen back.
