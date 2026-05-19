@@ -12,7 +12,6 @@ import { fileURLToPath } from 'url';
 import { homedir, hostname as osHostname, cpus, loadavg, totalmem, freemem } from 'os';
 import { statfs } from 'fs/promises';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
 import type { ProviderConfig } from '../config/schema.js';
@@ -50,7 +49,6 @@ import logger, { initFileLogger } from '../utils/logger.js';
 import { TITAN_VERSION, TITAN_NAME, TITAN_LOGS_DIR, TITAN_HOME } from '../utils/constants.js';
 import { getRestartStats as getRestartStatsSync } from '../utils/restartTracker.js';
 import { collectSystemProfile, recordStartupAnalytics, startHeartbeatAnalytics } from '../analytics/collector.js';
-import { getUpdateInfo } from '../utils/updater.js';
 import { getMissionControlHTML } from './dashboard.js';
 import { serializePrometheus, getMetricsSummary, titanRequestsTotal, titanRequestDuration, titanErrorsTotal, titanActiveSessions, titanToolCallsTotal, titanTokensTotal, titanModelRequestsTotal, recordEvalSuiteResult, recordEvalTimeout, recordEvalError } from './metrics.js';
 import { createHardwareRouter } from './routes/hardwareRouter.js';
@@ -98,6 +96,7 @@ import { createTestsRouter } from './routes/tests.js';
 import { createSystemRouter } from './routes/systemRouter.js';
 import { createVoiceRouter } from './routes/voiceRouter.js';
 import { createTelephonyRouter } from './routes/telephony.js';
+import { createUpdateRouter } from './routes/update.js';
 
 import { createSocialRouter } from './routes/socialRouter.js';
 import { createWatchRouter } from './routes/watchRouter.js';
@@ -3072,86 +3071,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
   });
 
-  // Update System endpoints
-  app.get('/api/update', async (_req, res) => {
-    const info = await getUpdateInfo();
-    res.json(info);
-  });
-
-  app.post('/api/update', (req, res) => {
-    const isLocalDev = fs.existsSync(join(process.cwd(), '.git'));
-    const isSystemd = fs.existsSync('/run/systemd/system') ||
-                      fs.existsSync(join(process.cwd(), '.systemd-service'));
-    const restart = req.body?.restart === true;
-
-    let command: string;
-    let postCommand: string | null = null;
-
-    if (isLocalDev) {
-      // Development checkout — pull source + build
-      command = 'git pull && npm run build';
-      if (restart) {
-        // Write restart script + exit
-        postCommand = 'restart';  // handled below
-      }
-    } else if (isSystemd) {
-      // Production systemd deployment — pull from git repo + restart service
-      command = 'git pull && npm run build';
-      if (restart) {
-        postCommand = 'systemctl';
-      }
-    } else {
-      // Global npm install — works only when user has write access to prefix
-      command = 'npm update -g titan-agent';
-    }
-
-    logger.info(COMPONENT, `Triggering update: ${command} (isDev=${isLocalDev}, isSystemd=${isSystemd}, restart=${restart})`);
-
-    exec(command, { timeout: 180_000 }, (error, stdout, _stderr) => {
-      if (error) {
-        logger.error(COMPONENT, `Update failed: ${error.message}`);
-        if (!res.headersSent) res.json({ ok: false, error: error.message });
-        return;
-      }
-
-      logger.info(COMPONENT, `Update completed successfully.\\n${stdout}`);
-      if (!res.headersSent) {
-        res.json({ ok: true, message: 'Update completed', restarting: restart, output: stdout.slice(-500) });
-      }
-
-      if (restart) {
-        logger.info(COMPONENT, 'Scheduling restart in 2 seconds...');
-        const cwd = process.cwd();
-
-        if (postCommand === 'systemctl') {
-          // Production: use systemctl to restart (requires user passwordless sudo rights)
-          const scriptPath = '/tmp/titan-restart.sh';
-          fs.writeFileSync(scriptPath, [
-            '#!/bin/bash',
-            'sleep 2',
-            `cd "${cwd}"`,
-            'sudo systemctl restart titan-gateway',
-          ].join('\n'), { mode: 0o755 });
-          spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
-        } else {
-          // Dev or global: spawn node directly
-          const scriptPath = '/tmp/titan-restart.sh';
-          fs.writeFileSync(scriptPath, [
-            '#!/bin/bash',
-            'sleep 2',
-            `cd "${cwd}"`,
-            'nohup node dist/cli/index.js gateway >> /tmp/titan-gateway.log 2>&1 &',
-          ].join('\n'), { mode: 0o755 });
-          spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
-        }
-
-        setTimeout(() => {
-          logger.info(COMPONENT, 'Exiting for restart...');
-          process.exit(0);
-        }, 1000);
-      }
-    });
-  });
+  // Update System endpoints — see src/gateway/routes/update.ts for the why
+  // (the old inline handler hard-coded `sudo systemctl restart titan-gateway`
+  // with the wrong service name and required passwordless sudo, so the
+  // in-app update button never actually restarted the service).
+  app.use('/api', createUpdateRouter());
 
   // Config endpoints
   app.get('/api/config', (_req, res) => {
