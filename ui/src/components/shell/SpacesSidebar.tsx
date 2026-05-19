@@ -18,13 +18,21 @@ import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import {
   SPACES_SIDEBAR_COLLAPSED_KEY,
+  SPACES_SIDEBAR_CANVAS_PIN_KEY,
   readSpacesSidebarCollapsedPreference,
+  writeSpacesSidebarCollapsedPreference,
 } from './spacesSidebarPreference';
 
 // v6.3.2 — re-export so existing call sites keep working through the
 // component file. Pure logic now lives in spacesSidebarPreference.ts
 // so unit tests can exercise it without rendering React.
-export { SPACES_SIDEBAR_COLLAPSED_KEY, readSpacesSidebarCollapsedPreference };
+// v6.3.4 — added the canvas-pin key + write helper.
+export {
+  SPACES_SIDEBAR_COLLAPSED_KEY,
+  SPACES_SIDEBAR_CANVAS_PIN_KEY,
+  readSpacesSidebarCollapsedPreference,
+  writeSpacesSidebarCollapsedPreference,
+};
 
 interface PersistedSpace {
   id: string;
@@ -91,11 +99,24 @@ export function SpacesSidebar() {
       typeof window !== 'undefined' ? window.location.pathname : '/',
     ),
   );
+  // v6.3.4 — re-derive on every route change so navigating from a
+  // non-canvas page (where the rail might be pinned open) to a canvas
+  // route correctly collapses the rail per the canvas default. Mirrors
+  // TitanShell's pattern.
+  useEffect(() => {
+    setCollapsed(readSpacesSidebarCollapsedPreference(location.pathname));
+  }, [location.pathname]);
   const toggleCollapsed = useCallback(() => {
     setCollapsed(prev => {
       const next = !prev;
-      try { localStorage.setItem(SPACES_SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); }
-      catch { /* ignore quota */ }
+      // v6.3.4 — route the write through the canvas-aware helper so a
+      // toggle on a /space/* page writes the canvas-pin key (scoped)
+      // and a toggle elsewhere writes the global key. Prevents pin-open
+      // state from leaking between canvas and non-canvas pages.
+      writeSpacesSidebarCollapsedPreference(
+        next,
+        typeof window !== 'undefined' ? window.location.pathname : '/',
+      );
       return next;
     });
   }, []);

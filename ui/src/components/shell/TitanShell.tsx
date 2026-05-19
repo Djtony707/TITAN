@@ -162,6 +162,15 @@ const activeSubtleStyle = {
 } satisfies CSSProperties;
 
 export const SHELL_SIDEBAR_COLLAPSED_KEY = 'titan:shell-sidebar-collapsed';
+/**
+ * v6.3.4 — canvas-scoped pin. Only honored when the current route is an
+ * immersive canvas path. Decouples "user wants the rail visible on home"
+ * (the global key) from "user wants the rail visible while working in a
+ * canvas" (this new key) — pre-v6.3.4 they collided, and any user who
+ * ever pinned the rail open on a non-canvas page had it forced open on
+ * canvas pages too.
+ */
+export const SHELL_SIDEBAR_CANVAS_PIN_KEY = 'titan:shell-sidebar-canvas-pin';
 
 /**
  * Routes where the canvas IS the workspace and the global shell sidebar
@@ -183,6 +192,25 @@ function isCanvasOSPath(pathname: string): boolean {
   return /^\/os(?:\/|$)/.test(pathname);
 }
 
+/**
+ * Resolves the shell sidebar's collapsed-state on mount and on every
+ * route change.
+ *
+ * v6.3.4 split the preference into two keys to fix the "I pinned this
+ * open on /missions once and now canvas pages always show it" complaint:
+ *
+ *   - On a NON-canvas route → respect the global `SHELL_SIDEBAR_COLLAPSED_KEY`
+ *     (collapsed = '1', expanded = '0'). Default expanded.
+ *   - On a CANVAS route → start collapsed, but honor a separate
+ *     `SHELL_SIDEBAR_CANVAS_PIN_KEY` ('1' = user pinned it open while
+ *     in a canvas, '0' or missing = collapse). Canvas pin is scoped to
+ *     canvas routes; it does NOT leak to non-canvas pages.
+ *
+ * Existing users whose only stored value was the global key with '0'
+ * (expanded) no longer have that pref leak into canvas pages — they'll
+ * see the new collapsed default the next time they open a canvas, and
+ * can pin the rail open in-canvas if they prefer that.
+ */
 export function readShellSidebarCollapsedPreference(
   pathname: string,
   getItem: (key: string) => string | null = (key) => {
@@ -191,18 +219,36 @@ export function readShellSidebarCollapsedPreference(
   },
 ): boolean {
   try {
+    if (isImmersiveCanvasPath(pathname)) {
+      // Canvas route — the rail is collapsed unless the user has set the
+      // canvas-pin key to '1'.
+      const canvasPin = getItem(SHELL_SIDEBAR_CANVAS_PIN_KEY);
+      return canvasPin === '1' ? false : true;
+    }
+    // Non-canvas route — global pref, default expanded.
     const raw = getItem(SHELL_SIDEBAR_COLLAPSED_KEY);
     if (raw !== null) return raw === '1';
   } catch {
     // Storage can be unavailable in hardened browser contexts. Fall
     // through to the safe route default instead of breaking navigation.
   }
-  return isImmersiveCanvasPath(pathname);
+  return false;
 }
 
-function writeShellSidebarCollapsedPreference(collapsed: boolean): void {
+/**
+ * Persist the toggle. Writes to the canvas-pin key on canvas routes
+ * and the global key elsewhere, so toggling on a canvas page can't
+ * leak into the non-canvas experience and vice versa.
+ */
+function writeShellSidebarCollapsedPreference(collapsed: boolean, pathname: string): void {
   try {
-    localStorage.setItem(SHELL_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+    if (isImmersiveCanvasPath(pathname)) {
+      // On canvas: '1' on the canvas-pin key means "user pinned OPEN";
+      // collapsing returns to the canvas default by clearing the pin.
+      localStorage.setItem(SHELL_SIDEBAR_CANVAS_PIN_KEY, collapsed ? '0' : '1');
+    } else {
+      localStorage.setItem(SHELL_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+    }
   } catch {
     // Ignore quota/privacy failures; the in-memory state still updates.
   }
@@ -419,7 +465,9 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
   const toggleDesktopSidebar = () => {
     setDesktopCollapsed((prev) => {
       const next = !prev;
-      writeShellSidebarCollapsedPreference(next);
+      // v6.3.4 — pass the active route so the write goes to the canvas-pin
+      // key on canvas routes (scoped pin) and the global key elsewhere.
+      writeShellSidebarCollapsedPreference(next, location.pathname);
       return next;
     });
   };

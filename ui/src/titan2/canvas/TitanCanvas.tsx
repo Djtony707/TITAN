@@ -409,11 +409,15 @@ export default function TitanCanvas() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
   const [space, setSpace] = useState<Space | null>(null);
-  // Retained purely for FloatingChatDock's `defaultExpanded` on first
-  // mount. Runtime toggles now go through the `titan:chat:toggle`
+  // v6.3.4 — was hardcoded `true`, which made the chat panel open on
+  // EVERY page load regardless of the user's edge-peek preference and
+  // covered ~30% of canvas width on /space/home. Flipped to false so
+  // the dock starts in its (already-default since v6.3.2) edge-peek
+  // state. Power users still get ⌘J or mascot-click to open the panel.
+  // Runtime toggles continue to go through the `titan:chat:toggle`
   // window event so both the ⌘J shortcut and EmptyCanvas's "Open chat"
   // button drive the same dock instance.
-  const [chatOpen] = useState(true);
+  const [chatOpen] = useState(false);
   // Per-space agent instructions editor (Space Agent parity).
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   // Inline widget editor (Space Agent parity). `editingWidgetId` stays
