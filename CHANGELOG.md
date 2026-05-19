@@ -1,5 +1,13 @@
 # Changelog
 
+## v6.3.1 — 2026-05-19 — Mission Chat Desk activity-sticky rollup
+
+- Mission Chat's Desk previously emitted one sticky note per `activityLog` entry per team member, so a single specialist reading four pages produced four nearly-identical "read a page" stickies that competed visually with the primary draft and crowded the desk after ~20 minutes of work.
+- Activity stickies now roll up by **(agentId, activity verb)**. Same agent doing the same kind of work (e.g. Writer reading 4 pages, Scout searching 3 times) collapses into one sticky with a `× N` count badge in the top-right. Different agents stay separate (color/identity matters). Different verbs by the same agent stay separate.
+- The rolled-up sticky shows the most-recent detail string with a small "latest: " prefix, and the title tooltip lists up to 3 of the most-recent details so hovering gives a full breakdown without expanding.
+- Group sort is newest-first by the group's max timestamp. The 12-sticky cap (`ACTIVITY_STICKY_CAP`) now caps **rolled-up groups**, so the visible sticky count is unchanged but each one can represent many underlying actions — net density goes up dramatically without adding visual weight.
+- Extracted the grouping logic to `ui/src/pages/mission/rollupActivityStickies.ts` (pure function, no React) so it's unit-testable. Adds `tests/ui/rollupActivityStickies.test.ts` (12 tests) covering same-agent rollup, cross-agent separation, cross-verb separation, sort-by-most-recent, cap enforcement, missing detail handling, detail-dedupe, and stable id across rollup growth.
+
 ## v6.3.0 — 2026-05-19 — Mission Chat actually runs specialists in parallel
 
 This is the release that makes "TITAN spawns a team of agents that work in parallel" actually true end-to-end, not just an aspirational claim. Four coordinated changes across the orchestrator, system prompt, planner, and goal driver.
