@@ -16,6 +16,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
+import {
+  SPACES_SIDEBAR_COLLAPSED_KEY,
+  readSpacesSidebarCollapsedPreference,
+} from './spacesSidebarPreference';
+
+// v6.3.2 — re-export so existing call sites keep working through the
+// component file. Pure logic now lives in spacesSidebarPreference.ts
+// so unit tests can exercise it without rendering React.
+export { SPACES_SIDEBAR_COLLAPSED_KEY, readSpacesSidebarCollapsedPreference };
 
 interface PersistedSpace {
   id: string;
@@ -69,16 +78,23 @@ export function SpacesSidebar() {
   const [error, setError] = useState<string | null>(null);
 
   // v6.1.0-alpha.28 — collapsible sidebar. Tony reported the sidebar
-  // covering an admin button he wanted to reach. Now it can be slid
-  // out of the way with a single click; state persists across reloads.
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('titan-sidebar-collapsed') === '1'; }
-    catch { return false; }
-  });
+  // covering an admin button he wanted to reach. State persists across
+  // reloads.
+  //
+  // v6.3.2 — default to COLLAPSED on first visit to a Space page. The
+  // global TitanShell sidebar already auto-collapses on /space/* (see
+  // isImmersiveCanvasPath); doing the same here means a fresh Space
+  // page opens with both rails as 14px strips and the canvas getting
+  // ~95% of width. User can pin either rail open and that sticks.
+  const [collapsed, setCollapsed] = useState<boolean>(() =>
+    readSpacesSidebarCollapsedPreference(
+      typeof window !== 'undefined' ? window.location.pathname : '/',
+    ),
+  );
   const toggleCollapsed = useCallback(() => {
     setCollapsed(prev => {
       const next = !prev;
-      try { localStorage.setItem('titan-sidebar-collapsed', next ? '1' : '0'); }
+      try { localStorage.setItem(SPACES_SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); }
       catch { /* ignore quota */ }
       return next;
     });
