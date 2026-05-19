@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.3.2 — 2026-05-19 — Space canvases stop triple-stacking chrome
+
+The Space canvas (`/space/<id>`) previously rendered three competing UI shells over the user's workspace: the global `<TitanShell>` sidebar (~17rem), the canvas's own `<SpacesSidebar>` (~13rem), and the `<FloatingChatDock>` mascot sitting fully visible. On a fresh visit that ate ~33% of horizontal width before the canvas got a single pixel. Three coordinated defaults now give the canvas the screen back.
+
+- **Global shell auto-collapses on `/space/*`.** Extended `isImmersiveCanvasPath` in `src/components/shell/TitanShell.tsx` to match `/space/<id>` in addition to `/mission/<id>/canvas` and `/os/*`. The v6.1.0-alpha.20 mission-canvas auto-collapse logic now applies to Spaces too — the rail defaults to a 14px strip. User can still pin it open and that preference persists in localStorage as before.
+- **SpacesSidebar defaults to collapsed on `/space/<id>`.** Extracted the collapsed-preference logic to a pure helper at `ui/src/components/shell/spacesSidebarPreference.ts` (testable without React). First-visit default is now `collapsed=true` on Space routes, `false` elsewhere. Existing users who pinned the sidebar open (v6.1.0-alpha.28+ wrote `0` to localStorage) keep their preference intact across the upgrade — the storage key is unchanged.
+- **FloatingChatDock defaults to right-edge peek.** Extracted `loadHiddenEdge` / `saveHiddenEdge` to a pure helper at `ui/src/titan2/system/chatDockEdge.ts`. New three-state model on `EDGE_STORAGE_KEY`: edge values still mean "peek from that edge"; the new sentinel `'visible'` means "user actively pulled the dock out, keep it visible"; missing key means "first visit → default to right-edge peek." The mascot stays ~20px visible (`PEEK_VISIBLE`) so users can drag it back out anytime. Active "keep visible" preference is preserved across sessions because we now write `'visible'` instead of removing the key on un-hide.
+- **Net effect:** A fresh `/space/home` opens with two 14px rails and a tiny mascot peeking from the bottom-right — the canvas gets ~95% of horizontal width. Any user who explicitly pinned a chrome open on a prior version keeps their layout.
+- **Tests:** 13 new across 3 files. `tests/ui/titan-shell-sidebar.test.ts` extends with `/space/*` and `/os/*` coverage. `tests/ui/spaces-sidebar-default.test.ts` (6 new) pins the new defaulting + storage-key stability. `tests/ui/floating-chat-dock-edge.test.ts` (6 new) pins the three-state model + default-to-right with an injected memory store.
+
 ## v6.3.1 — 2026-05-19 — Mission Chat Desk activity-sticky rollup
 
 - Mission Chat's Desk previously emitted one sticky note per `activityLog` entry per team member, so a single specialist reading four pages produced four nearly-identical "read a page" stickies that competed visually with the primary draft and crowded the desk after ~20 minutes of work.

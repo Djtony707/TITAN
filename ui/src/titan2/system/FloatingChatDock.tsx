@@ -36,7 +36,17 @@ import type { Space } from '../types';
 
 const DOCK_STORAGE_KEY = 'titan2:chat-dock:pos';
 const SIZE_STORAGE_KEY = 'titan2:chat-dock:size';
-const EDGE_STORAGE_KEY = 'titan2:chat-dock:hidden-edge';
+// v6.3.2 — edge-peek persistence moved to a pure helper module so unit
+// tests can exercise it without rendering the React surface. Re-exported
+// from this file for backward compat with any external importers.
+import {
+    EDGE_STORAGE_KEY,
+    loadHiddenEdge,
+    saveHiddenEdge,
+    type HiddenEdge,
+} from './chatDockEdge';
+export { EDGE_STORAGE_KEY, loadHiddenEdge, saveHiddenEdge };
+export type { HiddenEdge };
 const HINT_STORAGE_KEY = 'titan2:chat-dock:hint-shown';
 const DRAG_DEADZONE = 4; // px — below this, treat release as a click
 // v6.0.4 — Bumped 88 → 116. The previous size was a holdover from the
@@ -76,7 +86,7 @@ const STARTUP_HINT_VISIBLE_MS = 3500;
 
 type DockPos = { x: number; y: number };
 type DockSize = { w: number; h: number };
-type HiddenEdge = 'left' | 'right' | 'top' | 'bottom' | null;
+// HiddenEdge type moved to chatDockEdge.ts (re-exported at the top of this file).
 
 interface BubbleState {
     text: string;
@@ -134,20 +144,7 @@ function saveDockPos(pos: DockPos) {
     } catch { /* empty */ }
 }
 
-function loadHiddenEdge(): HiddenEdge {
-    try {
-        const raw = localStorage.getItem(EDGE_STORAGE_KEY);
-        if (raw === 'left' || raw === 'right' || raw === 'top' || raw === 'bottom') return raw;
-    } catch { /* empty */ }
-    return null;
-}
-
-function saveHiddenEdge(edge: HiddenEdge) {
-    try {
-        if (edge) localStorage.setItem(EDGE_STORAGE_KEY, edge);
-        else localStorage.removeItem(EDGE_STORAGE_KEY);
-    } catch { /* empty */ }
-}
+// loadHiddenEdge / saveHiddenEdge moved to chatDockEdge.ts (re-exported above).
 
 // Memory fallback for when localStorage is full (QuotaExceededError)
 let hintShownMemoryFallback = false;

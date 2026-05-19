@@ -163,8 +163,24 @@ const activeSubtleStyle = {
 
 export const SHELL_SIDEBAR_COLLAPSED_KEY = 'titan:shell-sidebar-collapsed';
 
+/**
+ * Routes where the canvas IS the workspace and the global shell sidebar
+ * should default to collapsed (14px rail) to give the canvas its real
+ * estate back. The user can still pin the rail open; that preference
+ * persists in localStorage and overrides this default.
+ *
+ * v6.3.2 — added `/space/*` so Spaces no longer get triple-stacked
+ * chrome (global shell + canvas sidebar + chat dock). v6.1.0-alpha.20
+ * shipped this for `/mission/.../canvas` only.
+ */
 export function isImmersiveCanvasPath(pathname: string): boolean {
-  return /^\/mission\/[^/]+\/canvas\/?$/.test(pathname);
+  return /^\/mission\/[^/]+\/canvas\/?$/.test(pathname)
+    || /^\/space\/[^/]+\/?$/.test(pathname)
+    || /^\/os(?:\/|$)/.test(pathname);
+}
+
+function isCanvasOSPath(pathname: string): boolean {
+  return /^\/os(?:\/|$)/.test(pathname);
 }
 
 export function readShellSidebarCollapsedPreference(
@@ -389,6 +405,7 @@ export function TitanShellSidebar({
 export function TitanShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const canvasOSPath = isCanvasOSPath(location.pathname);
   const [desktopCollapsed, setDesktopCollapsed] = useState(() =>
     readShellSidebarCollapsedPreference(
       typeof window !== 'undefined' ? window.location.pathname : '/',
@@ -406,6 +423,20 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
       return next;
     });
   };
+
+  if (canvasOSPath) {
+    return (
+      <div
+        className="h-screen min-h-0 w-full overflow-hidden"
+        style={{
+          background: 'var(--theme-bg-base, var(--color-bg))',
+          color: 'var(--theme-paper-fg, var(--color-text))',
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div

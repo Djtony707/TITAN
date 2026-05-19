@@ -10,7 +10,32 @@ describe('TitanShell desktop sidebar preferences', () => {
     expect(isImmersiveCanvasPath('/mission/pg5x64ac/canvas/')).toBe(true);
     expect(isImmersiveCanvasPath('/mission/pg5x64ac')).toBe(false);
     expect(isImmersiveCanvasPath('/missions')).toBe(false);
-    expect(isImmersiveCanvasPath('/space/home')).toBe(false);
+  });
+
+  // v6.3.2 — extended to Space pages. Previously /space/home stacked three
+  // chromes (global shell + canvas sidebar + chat dock) eating ~33% of width.
+  it('treats Space pages as immersive canvas paths', () => {
+    expect(isImmersiveCanvasPath('/space/home')).toBe(true);
+    expect(isImmersiveCanvasPath('/space/work-stuff')).toBe(true);
+    expect(isImmersiveCanvasPath('/space/abc123/')).toBe(true);
+    // /space (no id) and deeper /space/xxx/sub paths should NOT match —
+    // the route is exactly one segment under /space/.
+    expect(isImmersiveCanvasPath('/space')).toBe(false);
+    expect(isImmersiveCanvasPath('/space/home/edit')).toBe(false);
+    // /spaces (plural — different route, listing) shouldn't match either.
+    expect(isImmersiveCanvasPath('/spaces')).toBe(false);
+  });
+
+  it('defaults shell sidebar collapsed on Space pages when no preference exists', () => {
+    expect(readShellSidebarCollapsedPreference('/space/home', () => null)).toBe(true);
+    expect(readShellSidebarCollapsedPreference('/spaces', () => null)).toBe(false);
+  });
+
+  it('treats Canvas OS routes as immersive boot surfaces', () => {
+    expect(isImmersiveCanvasPath('/os')).toBe(true);
+    expect(isImmersiveCanvasPath('/os/home')).toBe(true);
+    expect(isImmersiveCanvasPath('/os/home/agents')).toBe(true);
+    expect(readShellSidebarCollapsedPreference('/os/home', () => null)).toBe(true);
   });
 
   it('defaults the shell sidebar collapsed on mission canvas when no preference exists', () => {
