@@ -440,7 +440,7 @@ export default function TitanCanvas() {
    * reach both edges and be dropped anywhere in between.
    */
   const gridWrapRef = useRef<HTMLDivElement>(null);
-  const { info: updateInfo, triggerUpdate } = useUpdateCheck();
+  const { info: updateInfo, triggerUpdate, waitForReload } = useUpdateCheck();
   const [updating, setUpdating] = useState(false);
 
   // Load space
@@ -945,13 +945,21 @@ export default function TitanCanvas() {
               if (!confirm(`Update TITAN from ${updateInfo.current} → ${updateInfo.latest}?
 
 Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`)) return;
+              const previousVersion = updateInfo.current;
               setUpdating(true);
               const result = await triggerUpdate(true);
-              setUpdating(false);
-              if (result.ok) {
-                alert('Update initiated. The gateway will restart shortly. Please refresh the page in 10-15 seconds.');
-              } else {
+              if (!result.ok) {
+                setUpdating(false);
                 alert(`Update failed: ${result.error || 'Unknown error'}`);
+                return;
+              }
+              // Truthful: wait for the new process to answer before claiming success.
+              const newVersion = await waitForReload(previousVersion);
+              setUpdating(false);
+              if (newVersion) {
+                window.location.reload();
+              } else {
+                alert('Update sent, but the gateway did not come back within 30s. Check service status manually.');
               }
             }}
           >
