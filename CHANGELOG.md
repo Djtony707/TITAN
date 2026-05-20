@@ -1,5 +1,11 @@
 # Changelog
 
+## v6.3.5 — 2026-05-20 — README refresh + ws security patch
+
+- **README rewritten** with verified counts and a real "What's new in 6.3.x" section. Cut from 519 lines to 256. Builder voice, no marketing fluff. Every claim in the numbers table traces to a code path. The Kimi-era "109 widget templates" claim that wasn't actually true is gone.
+- **Security: `ws` bumped 8.20.0 → 8.20.1** via a UI-side npm override. Patches an uninitialized-memory-disclosure issue when `websocket.close()` is called with a TypedArray reason (was returning unfaked memory bytes to the remote peer). Transitive bump only — applied via `ui/package.json overrides.ws` so existing dependents pick up the safe version without adding a new direct dep.
+- Closes the long-open Dependabot PR #85 cleanly on `main` rather than merging from the stale base where unrelated tests had flaked.
+
 ## v6.3.4 — 2026-05-19 — Canvas chrome actually respects the canvas (existing users too)
 
 v6.3.2 made `/space/<id>` an immersive canvas path and defaulted both the global TitanShell rail and the SpacesSidebar to collapsed there. But the defaults only applied to **first-visit users** — long-time users who'd ever pinned a rail open on a non-canvas page had `'0'` (expanded) stored under a single global key, and that override leaked into canvas pages. Combined with `chatOpen=true` being hardcoded in TitanCanvas, the canvas still rendered with both rails expanded AND the chat panel open over everything. Three root-cause fixes:

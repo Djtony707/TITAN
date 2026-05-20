@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "6.3.4",
+  "version": "6.3.5",
   "description": "TITAN — TypeScript AI agent framework with multi-agent orchestration, provider routing, approval gates, receipts, evals, gateway APIs, and a React Mission Control dashboard. Open-source, MIT licensed.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {

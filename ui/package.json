@@ -39,5 +39,8 @@
   "optionalDependencies": {
     "@livekit/components-react": "^2.9.9",
     "livekit-client": "^2.13.3"
+  },
+  "overrides": {
+    "ws": "8.20.1"
   }
 }
