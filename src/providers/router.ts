@@ -32,6 +32,11 @@ import { shouldBackOff } from './rateLimitTracker.js';
 import { getDefaultModelId } from './defaultModel.js';
 
 const COMPONENT = 'Router';
+const INTERNAL_ONLY_PROVIDERS = new Set(['stub']);
+
+function isPublicRouterProvider(name: string): boolean {
+    return !INTERNAL_ONLY_PROVIDERS.has(name);
+}
 
 /** Build failover order from all registered providers, sorted by capability priority */
 function getFailoverOrder(excludeProvider: string): string[] {
@@ -55,7 +60,7 @@ function getFailoverOrder(excludeProvider: string): string[] {
     };
     initProviders();
     return Array.from(providers.keys())
-        .filter(name => name !== excludeProvider)
+        .filter(name => name !== excludeProvider && isPublicRouterProvider(name))
         .sort((a, b) => (priority[b] ?? 25) - (priority[a] ?? 25));
 }
 
@@ -172,7 +177,7 @@ export function getProvider(name: string): LLMProvider | undefined {
 /** Get all registered providers */
 export function getAllProviders(): Map<string, LLMProvider> {
     initProviders();
-    return providers;
+    return new Map(Array.from(providers.entries()).filter(([name]) => isPublicRouterProvider(name)));
 }
 
 /** Resolve a model alias (e.g. "fast" → "openai/gpt-4o-mini") */
@@ -1463,7 +1468,7 @@ export async function* chatStream(options: ChatOptions): AsyncGenerator<ChatStre
 /** Health check all providers */
 export async function healthCheckAll(): Promise<Record<string, boolean>> {
     initProviders();
-    const entries = Array.from(providers.entries());
+    const entries = Array.from(providers.entries()).filter(([name]) => isPublicRouterProvider(name));
     const settled = await Promise.allSettled(
         entries.map(([, provider]) => provider.healthCheck())
     );

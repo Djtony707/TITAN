@@ -414,12 +414,12 @@ describe('shouldUseStubProvider — env flag matrix', () => {
         expect(shouldUseStubProvider()).toBe(true);
     });
 
-    it('returns true in CI with no provider key', () => {
+    it('does not auto-enable in CI with no provider key', () => {
         process.env.CI = 'true';
-        expect(shouldUseStubProvider()).toBe(true);
+        expect(shouldUseStubProvider()).toBe(false);
     });
 
-    it('returns false in CI when a real provider key is present', () => {
+    it('stays explicit-only in CI when a real provider key is present', () => {
         process.env.CI = 'true';
         process.env.ANTHROPIC_API_KEY = 'sk-ant-fake';
         expect(shouldUseStubProvider()).toBe(false);

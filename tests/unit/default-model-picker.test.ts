@@ -45,7 +45,7 @@ describe('pickDefaultModel — provider preference order', () => {
         const pick = pickDefaultModel();
         expect(pick.provider).toBe('ollama');
         expect(pick.model).toContain('ollama/');
-        expect(pick.reason).toMatch(/no cloud API keys/i);
+        expect(pick.reason).toMatch(/no direct provider API keys/i);
     });
 
     it('picks Anthropic when ANTHROPIC_API_KEY is set', () => {

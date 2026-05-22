@@ -431,13 +431,34 @@ function simplifySchema(schema: Record<string, unknown> | undefined): Record<str
     return clean;
 }
 
+function normalizeOllamaBaseUrl(value: string): string {
+    let raw = value.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(raw)) {
+        raw = `http://${raw}`;
+    }
+
+    try {
+        const url = new URL(raw);
+        if (url.hostname === '0.0.0.0') {
+            url.hostname = 'localhost';
+        }
+        return url.toString().replace(/\/+$/, '');
+    } catch {
+        return raw;
+    }
+}
+
 export class OllamaProvider extends LLMProvider {
     readonly name = 'ollama';
     readonly displayName = 'Ollama (Local)';
 
     private get baseUrl(): string {
         const config = loadConfig();
-        return config.providers.ollama.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+        const raw = config.providers.ollama.baseUrl
+            || process.env.OLLAMA_BASE_URL
+            || process.env.OLLAMA_HOST
+            || 'http://localhost:11434';
+        return normalizeOllamaBaseUrl(raw);
     }
 
     async chat(options: ChatOptions): Promise<ChatResponse> {

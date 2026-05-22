@@ -16,8 +16,8 @@
  *   5. `OPENROUTER_API_KEY` → claude-sonnet via openrouter
  *   6. (anything else with `*_API_KEY` set among the 32 OpenAI-compat
  *       providers TITAN ships) → use that
- *   7. Local Ollama → `qwen3.5:cloud` (the standing fast default —
- *       routes through `ollama serve` on localhost:11434).
+ *   7. Ollama → `qwen3.5:cloud` (the standing fast default —
+ *       routes through the configured Ollama host, usually Titan PC).
  *
  * The picker is pure (no network, no async). It only inspects
  * `process.env` + the user config blob. It's safe to call from the Zod
@@ -96,12 +96,12 @@ const PROVIDERS: ProviderCandidate[] = [
     },
 ];
 
-// ── Ollama-cloud fallback (works without any cloud key) ──────────
+// ── Ollama-cloud fallback (works without any direct provider key) ──────────
 //
 // These are the same defaults we shipped through v5.x. Kept here as the
-// last-resort floor so a user with NO cloud credentials still gets a
-// working agent out of the box (assuming `ollama serve` is up — which
-// the `titan onboard` wizard helps with).
+// last-resort floor so a user with NO direct provider credentials still gets
+// a working agent out of the box through their Ollama surface. On Tony's
+// setup this is Titan PC Ollama, including Ollama cloud models.
 
 const OLLAMA_FALLBACK = {
     model: 'ollama/qwen3.5:cloud',
@@ -169,12 +169,10 @@ export function pickDefaultModel(): DefaultModelPick {
         };
     }
 
-    // 1b. beta.11 — CI stub fallback. When TITAN_STUB_PROVIDER=1 OR
-    // when we're in CI without any real provider key, route everything
-    // to the deterministic stub so Eval Gate runs can score. Slotted
-    // BEFORE the cloud-key checks so an accidental leftover key on a
-    // CI runner doesn't suddenly start spending real money. The
-    // explicit user-config branch above still beats the stub.
+    // 1b. beta.11 — explicit CI/eval stub fallback. Only
+    // TITAN_STUB_PROVIDER=1 routes to the deterministic stub. A plain
+    // CI=true environment still defaults to Ollama so provider failures
+    // are visible instead of being masked by stub/echo.
     if (shouldUseStubProvider()) {
         return {
             model: 'stub/echo',
@@ -184,7 +182,7 @@ export function pickDefaultModel(): DefaultModelPick {
                 cheap: 'stub/echo',
                 reasoning: 'stub/json',
             },
-            reason: 'CI / TITAN_STUB_PROVIDER set — using deterministic stub provider (no LLM calls)',
+            reason: 'TITAN_STUB_PROVIDER=1 — using deterministic stub provider (no LLM calls)',
             provider: 'stub',
         };
     }
@@ -222,12 +220,12 @@ export function pickDefaultModel(): DefaultModelPick {
         };
     }
 
-    // 4. Final fallback — local Ollama. Works on a clean laptop with
-    //    `ollama serve` running and the default models pulled.
+    // 4. Final fallback — Ollama. Works against the configured Ollama host,
+    //    including Titan PC's Ollama cloud models.
     return {
         model: OLLAMA_FALLBACK.model,
         aliases: OLLAMA_FALLBACK.aliases,
-        reason: 'no cloud API keys detected — defaulting to local Ollama (set ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY to switch providers)',
+        reason: 'no direct provider API keys detected — defaulting to Ollama (configure providers.ollama.baseUrl, OLLAMA_BASE_URL, or OLLAMA_HOST for a remote Ollama host)',
         provider: 'ollama',
     };
 }
