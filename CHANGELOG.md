@@ -1,5 +1,17 @@
 # Changelog
 
+## v6.4.2 — 2026-05-22 — Dependabot bumps (qs, uuid) + Dreams contrast nudge
+
+Quick follow-up to the v6.4.1 audit. GitHub flagged 4 moderate-severity transitive deps on the v6.4.1 push; bumped them via `package.json` overrides:
+
+- `qs` `^6.15.2` (was `6.15.1` — DoS via `TypeError` on null/undefined in comma-format arrays with `encodeValuesOnly`)
+- `uuid` `^11.1.1` (forces the older `uuid@10.0.0` from `@langchain/core` to upgrade — fixes the v3/v5/v6 buffer-bounds CVE)
+- `protobufjs` `^7.5.8` override was already in place; lockfile still showed a `protobufjs@6.8.8` transitive path — re-resolved on this install
+
+While verifying v6.4.1 deployed, the Dreams sidebar empty state still looked dim against the Office wood-brown surface even after the previous fix swapped hardcoded `#52525b` to theme tokens. Bumped the "HISTORY" label to `text-text` and the "No dreams yet…" empty state to `text-text-secondary` for a stronger read.
+
+Files: `package.json` (overrides + version), `ui/src/components/admin/DreamPanel.tsx`, `pnpm-lock.yaml` (regenerated), plus the standard 4 version-string spots.
+
 ## v6.4.1 — 2026-05-22 — Full-dashboard audit pass: fix workspace-pill collision on 10 admin panels
 
 Walked every route in the dashboard (38 unique pages) in a real browser and fixed the visible breakage that turned up. Most of it traced to the same root cause: admin panels that skipped the `<PageHeader>` component rendered their content at y=0, where the `position: fixed` Office/Workshop/Observatory workspace pill (top: 48) overlapped page titles, action buttons, and form inputs.

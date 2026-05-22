@@ -129,11 +129,11 @@ export default function DreamPanel() {
       <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4">
         {/* Date list */}
         <div className="space-y-1">
-          <div className="text-xs uppercase tracking-wide text-text-secondary mb-2 flex items-center gap-1">
+          <div className="text-xs uppercase tracking-wide text-text mb-2 flex items-center gap-1">
             <Calendar className="w-3 h-3" /> History
           </div>
           {dates.length === 0 && (
-            <div className="text-xs text-text-muted p-2">No dreams yet. Run "Generate now" or wait for the nightly cron.</div>
+            <div className="text-xs text-text-secondary p-2">No dreams yet. Run "Generate now" or wait for the nightly cron.</div>
           )}
           <div className="space-y-1 max-h-[60vh] overflow-y-auto">
             {dates.map(d => (
