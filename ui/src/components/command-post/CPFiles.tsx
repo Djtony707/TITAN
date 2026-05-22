@@ -14,6 +14,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FileText, RefreshCw, X, Search, FlaskConical, Folder } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 async function getJSON(url: string): Promise<unknown> {
   const r = await apiFetch(url);
@@ -285,6 +286,11 @@ export default function CPFiles() {
   const [subTab, setSubTab] = useState<'files' | 'research'>('files');
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="Files & Research"
+        subtitle="Files edited by agents and research notes captured during missions"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'Files'}]}
+      />
       <div className="flex items-center gap-2">
         <button
           onClick={() => setSubTab('files')}

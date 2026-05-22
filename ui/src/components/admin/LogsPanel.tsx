@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { getLogs } from '@/api/client';
 import type { LogEntry } from '@/api/types';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const levelColors: Record<string, string> = {
   debug: 'bg-text-muted/20 text-text-secondary',
@@ -56,7 +57,11 @@ function LogsPanel() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-text">Logs</h2>
+      <PageHeader
+        title="Logs"
+        subtitle="Recent gateway and skill activity"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'System'}, {label:'Logs'}]}
+      />
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">

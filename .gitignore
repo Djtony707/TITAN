@@ -126,3 +126,6 @@ AGENTS.md
 
 # Internal-only draft notes (CHANGELOG-DRAFT, v6.0 planning, etc.) — never published
 docs/internal/
+
+# Local-only knowledge graph (understand-anything plugin output) — never committed
+.understand-anything/

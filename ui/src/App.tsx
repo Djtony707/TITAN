@@ -45,7 +45,7 @@ const AutoresearchPanel = lazy(() => import('@/components/admin/AutoresearchPane
 const SelfImprovePanel = lazy(() => import('@/components/admin/SelfImprovePanel'));
 const DreamPanel = lazy(() => import('@/components/admin/DreamPanel'));
 const TrainingPanel = lazy(() => import('@/components/admin/TrainingPanel'));
-const ToolsView = lazy(() => import('@/components/tools/ToolsView'));
+const EvalHarnessPanel = lazy(() => import('@/components/admin/EvalHarnessPanel'));
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -151,8 +151,10 @@ function AuthenticatedAppInner() {
             <Route path="/knowledge/dreams" element={<DreamPanel />} />
             <Route path="/knowledge/training" element={<TrainingPanel />} />
 
-            <Route path="/tools" element={<ToolsView />} />
+            {/* v6.4.1 — kill ToolsView (double PageHeader render). Sidebar already exposes each tool sub-route directly. */}
+            <Route path="/tools" element={<Navigate to="/tools/skills" replace />} />
             <Route path="/tools/skills" element={<SkillsPanel />} />
+            <Route path="/tools/evals" element={<EvalHarnessPanel />} />
             <Route path="/tools/mcp" element={<McpPanel />} />
             <Route path="/tools/integrations" element={<IntegrationsPanel />} />
             <Route path="/tools/channels" element={<ChannelsPanel />} />

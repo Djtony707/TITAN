@@ -473,7 +473,11 @@ function SettingsPanel() {
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <h2 className="text-base md:text-lg font-semibold text-text">Settings</h2>
+      <PageHeader
+        title="Settings"
+        subtitle="Provider, model, voice, theme, and channel configuration"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'System'}, {label:'Settings'}]}
+      />
 
       {/* v6.1.0-alpha.49 — desk theme picker */}
       <div className="rounded-lg border border-border bg-bg-secondary/50 px-3 py-2.5">

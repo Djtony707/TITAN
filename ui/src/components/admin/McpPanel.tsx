@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plug, Plus, Trash2, Power, TestTube, RefreshCw, Server, Globe } from 'lucide-react';
 import { getMcpClients, addMcpClient, removeMcpClient, toggleMcpClient, testMcpClient, getMcpPresets } from '@/api/client';
 import type { McpServerInfo, McpPreset } from '@/api/types';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 function McpPanel() {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
@@ -97,23 +98,21 @@ function McpPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Plug className="w-6 h-6 text-[var(--accent)]" />
-          <div>
-            <h1 className="text-xl font-bold text-[var(--text)]">MCP Connections</h1>
-            <p className="text-sm text-[var(--text-muted)]">Connect to external tools via Model Context Protocol</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={refresh} className="px-3 py-1.5 text-sm rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-            <RefreshCw size={14} />
-          </button>
-          <button onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors">
-            <Plus size={14} /> Add Server
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="MCP Connections"
+        subtitle="Connect to external tools via Model Context Protocol"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'MCP'}]}
+        actions={
+          <>
+            <button onClick={refresh} className="px-3 py-1.5 text-sm rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+              <RefreshCw size={14} />
+            </button>
+            <button onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors">
+              <Plus size={14} /> Add Server
+            </button>
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ClipboardList, RefreshCw, Filter } from 'lucide-react';
 import { getAuditLog, getAuditStats } from '@/api/client';
 import type { AuditEntry, AuditStats } from '@/api/types';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 function AuditPanel() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -65,18 +66,16 @@ function AuditPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ClipboardList className="w-6 h-6 text-[var(--accent)]" />
-          <div>
-            <h1 className="text-xl font-bold text-[var(--text)]">Audit Log</h1>
-            <p className="text-sm text-[var(--text-muted)]">Every autonomous action logged for accountability</p>
-          </div>
-        </div>
-        <button onClick={refresh} className="p-2 rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-          <RefreshCw size={14} />
-        </button>
-      </div>
+      <PageHeader
+        title="Audit Log"
+        subtitle="Every autonomous action logged for accountability"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'System'}, {label:'Audit'}]}
+        actions={
+          <button onClick={refresh} className="p-2 rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+            <RefreshCw size={14} />
+          </button>
+        }
+      />
 
       {/* Stats */}
       {stats && (
