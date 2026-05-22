@@ -1,5 +1,21 @@
 # Changelog
 
+## v6.3.6 — 2026-05-21 — Provider/router CI unblock + Ollama URL hardening
+
+CI on `main` had been failing since the 6.2.1-era Dependabot run because three test files silently passed through the deterministic `stub/echo` provider when `CI=true`, instead of exercising the real failover paths they were trying to test. Codex caught it, root-cause-fixed it, and the fix landed in this release.
+
+- **Stub provider is now explicit-only.** `TITAN_STUB_PROVIDER=1` is required to activate it; plain `CI=true` no longer auto-routes failures through `stub/echo`. The stub is also kept out of the public failover chain + the provider-count surfaces so tests that assert real router behavior fail honestly instead of getting rescued.
+  - `src/providers/stub.ts`, `src/providers/router.ts`.
+  - Fixes: `tests/mesh-routing.test.ts` (router promises were resolving via `stub/echo` instead of rejecting), `tests/providers-extended.test.ts` (all-failover paths were resolving through stub), `tests/new-providers.test.ts` (provider count included `stub`, returning 38 instead of 37).
+- **First-class Ollama URL handling.** `OLLAMA_HOST` is now honored alongside the existing `OLLAMA_BASE_URL`. Both env vars + the `titan.json` config path are normalized at the config and provider boundaries so `0.0.0.0:11434` (a common server-bind value that's invalid for client use) gets rewritten to `http://localhost:11434`. Makes Titan PC Ollama with cloud models the actual practical default.
+  - `src/providers/ollama.ts`, `src/config/config.ts`.
+  - Live-verified against Titan PC Ollama (`http://192.168.1.11:11434`) — cloud models including `qwen3-coder-next:cloud`, `gemma4:31b-cloud`, `kimi-k2.6:cloud`, `deepseek-v4-pro:cloud`, `minimax-m2.7:cloud` confirmed reachable.
+- **Default-model picker language tweaked.** When no API key is configured, the floor is now "Ollama" rather than "local-only Ollama" — Tony's intended path is Titan PC Ollama with cloud models, not strictly on-box inference.
+  - `src/providers/defaultModel.ts`.
+- New tests: `tests/stub-provider.test.ts`, `tests/config-loader.test.ts`, `tests/unit/default-model-picker.test.ts`. Full local suite: 345 files / 7833+ tests pass / 0 failing.
+
+Other working-tree changes (Hermes-style learning curator + a UI desktop-canvas polish pass) are deliberately held out of this release pending dedicated visual + product review. See `~/Desktop/TitanBot/handoffs/titan-handoff-2026-05-21.md` for the Codex addendum.
+
 ## v6.3.5 — 2026-05-20 — README refresh + ws security patch
 
 - **README rewritten** with verified counts and a real "What's new in 6.3.x" section. Cut from 519 lines to 256. Builder voice, no marketing fluff. Every claim in the numbers table traces to a code path. The Kimi-era "109 widget templates" claim that wasn't actually true is gone.

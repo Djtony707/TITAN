@@ -64,6 +64,7 @@ const ENV_KEYS = [
     'ANTHROPIC_API_KEY',
     'OPENAI_API_KEY',
     'GOOGLE_API_KEY',
+    'OLLAMA_HOST',
     'OLLAMA_BASE_URL',
     'DISCORD_TOKEN',
     'TELEGRAM_TOKEN',
@@ -312,6 +313,28 @@ describe('loadConfig', () => {
     });
 
     it('should apply OLLAMA_BASE_URL env override', () => {
+        process.env.OLLAMA_BASE_URL = 'http://localhost:11434';
+        mockExistsSync.mockReturnValue(false);
+        const config = loadConfig();
+        expect(config.providers.ollama.baseUrl).toBe('http://localhost:11434');
+    });
+
+    it('should apply OLLAMA_HOST env override', () => {
+        process.env.OLLAMA_HOST = 'http://192.168.1.11:11434';
+        mockExistsSync.mockReturnValue(false);
+        const config = loadConfig();
+        expect(config.providers.ollama.baseUrl).toBe('http://192.168.1.11:11434');
+    });
+
+    it('should normalize OLLAMA_HOST bind address for client use', () => {
+        process.env.OLLAMA_HOST = '0.0.0.0:11434';
+        mockExistsSync.mockReturnValue(false);
+        const config = loadConfig();
+        expect(config.providers.ollama.baseUrl).toBe('http://localhost:11434');
+    });
+
+    it('should prefer OLLAMA_BASE_URL over OLLAMA_HOST when both are set', () => {
+        process.env.OLLAMA_HOST = 'http://192.168.1.11:11434';
         process.env.OLLAMA_BASE_URL = 'http://localhost:11434';
         mockExistsSync.mockReturnValue(false);
         const config = loadConfig();

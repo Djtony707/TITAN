@@ -189,9 +189,10 @@ export async function hasUsableProvider(): Promise<{ ok: boolean; details: strin
     }
 
     // 3. Check Ollama reachability (last resort — slow)
-    const ollamaUrl = (providers.ollama as { baseUrl?: string } | undefined)?.baseUrl
+    const ollamaUrl = normalizeOllamaBaseUrl((providers.ollama as { baseUrl?: string } | undefined)?.baseUrl
         || process.env.OLLAMA_BASE_URL
-        || 'http://localhost:11434';
+        || process.env.OLLAMA_HOST
+        || 'http://localhost:11434');
     try {
         const res = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
@@ -219,7 +220,8 @@ function applyEnvOverrides(config: Record<string, unknown>): void {
         ANTHROPIC_API_KEY: (val) => setNested(config, 'providers.anthropic.apiKey', val),
         OPENAI_API_KEY: (val) => setNested(config, 'providers.openai.apiKey', val),
         GOOGLE_API_KEY: (val) => setNested(config, 'providers.google.apiKey', val),
-        OLLAMA_BASE_URL: (val) => setNested(config, 'providers.ollama.baseUrl', val),
+        OLLAMA_HOST: (val) => setNested(config, 'providers.ollama.baseUrl', normalizeOllamaBaseUrl(val)),
+        OLLAMA_BASE_URL: (val) => setNested(config, 'providers.ollama.baseUrl', normalizeOllamaBaseUrl(val)),
         DISCORD_TOKEN: (val) => setNested(config, 'channels.discord.token', val),
         TELEGRAM_TOKEN: (val) => setNested(config, 'channels.telegram.token', val),
         SLACK_TOKEN: (val) => setNested(config, 'channels.slack.token', val),
@@ -252,6 +254,23 @@ function isProviderDisabled(config: Record<string, unknown>, providerName: strin
     const providers = config.providers as Record<string, unknown> | undefined;
     const provider = providers?.[providerName] as { enabled?: unknown } | undefined;
     return provider?.enabled === false;
+}
+
+function normalizeOllamaBaseUrl(value: string): string {
+    let raw = value.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(raw)) {
+        raw = `http://${raw}`;
+    }
+
+    try {
+        const url = new URL(raw);
+        if (url.hostname === '0.0.0.0') {
+            url.hostname = 'localhost';
+        }
+        return url.toString().replace(/\/+$/, '');
+    } catch {
+        return raw;
+    }
 }
 
 /**

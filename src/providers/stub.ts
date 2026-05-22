@@ -403,31 +403,17 @@ function approxTokens(messages: ChatMessage[]): number {
 /* ───────────────────────────  CI detection  ─────────────────────────── */
 
 /**
- * Returns true when the runtime should fall back to the stub provider
- * because no real provider credentials are available. The default
- * model picker (`defaultModel.ts`) calls this to choose `stub/echo`
- * as the floor model in CI / offline environments.
+ * Returns true when the runtime should use the deterministic stub
+ * provider. This is explicit-only so CI and runtime failures cannot be
+ * hidden by `stub/echo` when the real Ollama surface is available.
  *
- * Trigger conditions (any one is enough):
- *   - Explicit opt-in:    `TITAN_STUB_PROVIDER=1`
- *   - Standard CI signal: `CI=true`  AND  no Anthropic/OpenAI/Google key
+ * Trigger condition:
+ *   - Explicit opt-in: `TITAN_STUB_PROVIDER=1`
  *
- * NOTE: we DELIBERATELY do NOT trigger on `VITEST=true`. Existing
- * unit tests (default-model-picker.test.ts in particular) pin the
- * "no keys → ollama" behavior; flipping that under VITEST would
- * break those tests. Tests that want the stub should set
- * `TITAN_STUB_PROVIDER=1` in their setup explicitly.
+ * NOTE: we deliberately do not trigger on `CI=true` or `VITEST=true`.
+ * Eval Gate and offline tests that want the stub must set
+ * `TITAN_STUB_PROVIDER=1` explicitly.
  */
 export function shouldUseStubProvider(): boolean {
-    if (process.env.TITAN_STUB_PROVIDER === '1') return true;
-    if (process.env.CI === 'true') {
-        const hasRealKey = !!(
-            process.env.ANTHROPIC_API_KEY ||
-            process.env.OPENAI_API_KEY ||
-            process.env.GOOGLE_API_KEY ||
-            process.env.OPENROUTER_API_KEY
-        );
-        return !hasRealKey;
-    }
-    return false;
+    return process.env.TITAN_STUB_PROVIDER === '1';
 }
