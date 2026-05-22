@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  protobufjs: ^7.5.8
+  qs: ^6.15.2
+  uuid: ^11.1.1
+
 importers:
 
   .:
@@ -41,6 +46,9 @@ importers:
       ora:
         specifier: ^9.4.0
         version: 9.4.0
+      posthog-node:
+        specifier: ^5.34.2
+        version: 5.35.1
       turndown:
         specifier: ^7.2.2
         version: 7.2.4
@@ -48,8 +56,8 @@ importers:
         specifier: ^8.2.0
         version: 8.2.0
       uuid:
-        specifier: ^14.0.0
-        version: 14.0.0
+        specifier: ^11.1.1
+        version: 11.1.1
       ws:
         specifier: ^8.20.1
         version: 8.20.1(bufferutil@4.1.0)
@@ -975,30 +983,35 @@ packages:
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-arm64-musl@0.1.80':
     resolution: {integrity: sha512-1XbCOz/ymhj24lFaIXtWnwv/6eFHXDrjP0jYkc6iHQ9q8oXKzUX1Lc6bu+wuGiLhGh2GS/2JlfORC5ZcXimRcg==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@napi-rs/canvas-linux-riscv64-gnu@0.1.80':
     resolution: {integrity: sha512-XTzR125w5ZMs0lJcxRlS1K3P5RaZ9RmUsPtd1uGt+EfDyYMu4c6SEROYsxyatbbu/2+lPe7MPHOO/0a0x7L/gw==}
     engines: {node: '>= 10'}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-x64-gnu@0.1.80':
     resolution: {integrity: sha512-BeXAmhKg1kX3UCrJsYbdQd3hIMDH/K6HnP/pG2LuITaXhXBiNdh//TVVVVCBbJzVQaV5gK/4ZOCMrQW9mvuTqA==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-x64-musl@0.1.80':
     resolution: {integrity: sha512-x0XvZWdHbkgdgucJsRxprX/4o4sEed7qo9rCQA9ugiS9qE2QvP0RIiEugtZhfLH3cyI+jIRFJHV4Fuz+1BHHMg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@napi-rs/canvas-win32-x64-msvc@0.1.80':
     resolution: {integrity: sha512-Z8jPsM6df5V8B1HrCHB05+bDiCxjE9QA//3YrkKIdVDEwn5RKaqOxCJDRJkl48cJbylcrJbW4HxZbTte8juuPg==}
@@ -1015,36 +1028,42 @@ packages:
     engines: {node: '>=20.0.0'}
     cpu: [arm64, x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/linux-armv7l@3.18.1':
     resolution: {integrity: sha512-BrJL2cGo0pN5xd5nw+CzTn2rFMpz9MJyZZPUY81ptGkF2uIuXT2hdCVh56i9ImQrTwBfq1YcZL/l/Qe/1+HR/Q==}
     engines: {node: '>=20.0.0'}
     cpu: [arm, x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/linux-x64-cuda-ext@3.18.1':
     resolution: {integrity: sha512-VqyKhAVHPCpFzh0f1koCBgpThL+04QOXwv0oDQ8s8YcpfMMOXQlBhTB0plgTh0HrPExoObfTS4ohkrbyGgmztQ==}
     engines: {node: '>=20.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/linux-x64-cuda@3.18.1':
     resolution: {integrity: sha512-qOaYP4uwsUoBHQ/7xSOvyJIuXapS57Al+Sudgi00f96ldNZLKe1vuSGptAi5LTM2lIj66PKm6h8PlRWctwsZ2g==}
     engines: {node: '>=20.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/linux-x64-vulkan@3.18.1':
     resolution: {integrity: sha512-SIaNTK5pUPhwJD0gmiQfHa8OrRctVMmnqu+slJrz2Mzgg/XrwFndJlS9hvc+jSjTXCouwf7sYeQaaJWvQgBh/A==}
     engines: {node: '>=20.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/linux-x64@3.18.1':
     resolution: {integrity: sha512-tRmWcsyvAcqJHQHXHsaOkx6muGbcirA9nRdNgH6n7bjGUw4VuoBD3dChyNF3/Ktt7ohB9kz+XhhyZjbDHpXyMA==}
     engines: {node: '>=20.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@node-llama-cpp/mac-arm64-metal@3.18.1':
     resolution: {integrity: sha512-cyZTdsUMlvuRlGmkkoBbN3v/DT6NuruEqoQYd9CqIrPyLa1xLNBTSKIZ9SgRnw23iCOj4URfITvRP+2pu63LuQ==}
@@ -1116,14 +1135,17 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  '@posthog/core@1.29.9':
+    resolution: {integrity: sha512-DjvuIyBZ2Z/gBhtZlITlM2D8PlnMsHSQ1D78dbUYoVsgGguvanpJTobZObjLlFkybyvfZFYkpoJkFNI/2Pw4IQ==}
+
+  '@posthog/types@1.376.0':
+    resolution: {integrity: sha512-gbFfxCuZDs/D4QZMwdE+smD1jsuqgGpS6yKGHZZ19foxMy8RYHsU1E47iG1b88n/uN02fAabLibVwuxLtq8juw==}
+
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
 
   '@protobufjs/base64@1.1.2':
     resolution: {integrity: sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==}
-
-  '@protobufjs/codegen@2.0.4':
-    resolution: {integrity: sha512-YyFaikqM5sH0ziFZCN3xDC7zeGaB/d0IUb9CATugHWbd1FRFwWwt4ld4OYMPWu5a3Xe01mGAULCdqhMlPl29Jg==}
 
   '@protobufjs/codegen@2.0.5':
     resolution: {integrity: sha512-zgXFLzW3Ap33e6d0Wlj4MGIm6Ce8O89n/apUaGNB/jx+hw+ruWEp7EwGUshdLKVRCxZW12fp9r40E1mQrf/34g==}
@@ -1137,9 +1159,6 @@ packages:
   '@protobufjs/float@1.0.2':
     resolution: {integrity: sha512-Ddb+kVXlXst9d+R9PfTIxh1EdNkgoRe5tOX6t01f1lYWOvJnSPDBlG241QLzcyPdoNTsblLUdujGSE4RzrTZGQ==}
 
-  '@protobufjs/inquire@1.1.0':
-    resolution: {integrity: sha512-kdSefcPdruJiFMVSbn801t4vFK7KB/5gd2fYvrxhuJYg8ILrmn9SKSX2tZdV6V+ksulWqS7aXjBcRXl3wHoD9Q==}
-
   '@protobufjs/inquire@1.1.1':
     resolution: {integrity: sha512-mnzgDV26ueAvk7rsbt9L7bE0SuAoqyuys/sMMrmVcN5x9VsxpcG3rqAUSgDyLp0UZlmNfIbQ4fHfCtreVBk8Ew==}
 
@@ -1148,9 +1167,6 @@ packages:
 
   '@protobufjs/pool@1.1.0':
     resolution: {integrity: sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw==}
-
-  '@protobufjs/utf8@1.1.0':
-    resolution: {integrity: sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==}
 
   '@protobufjs/utf8@1.1.1':
     resolution: {integrity: sha512-oOAWABowe8EAbMyWKM0tYDKi8Yaox52D+HWZhAIJqQXbqe0xI/GV7FhLWqlEKreMkfDjshR5FKgi3mnle0h6Eg==}
@@ -1172,24 +1188,28 @@ packages:
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@reflink/reflink-linux-arm64-musl@0.1.19':
     resolution: {integrity: sha512-37iO/Dp6m5DDaC2sf3zPtx/hl9FV3Xze4xoYidrxxS9bgP3S8ALroxRK6xBG/1TtfXKTvolvp+IjrUU6ujIGmA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@reflink/reflink-linux-x64-gnu@0.1.19':
     resolution: {integrity: sha512-jbI8jvuYCaA3MVUdu8vLoLAFqC+iNMpiSuLbxlAgg7x3K5bsS8nOpTRnkLF7vISJ+rVR8W+7ThXlXlUQ93ulkw==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@reflink/reflink-linux-x64-musl@0.1.19':
     resolution: {integrity: sha512-e9FBWDe+lv7QKAwtKOt6A2W/fyy/aEEfr0g6j/hWzvQcrzHCsz07BNQYlNOjTfeytrtLU7k449H1PI95jA4OjQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@reflink/reflink-win32-arm64-msvc@0.1.19':
     resolution: {integrity: sha512-09PxnVIQcd+UOn4WAW73WU6PXL7DwGS6wPlkMhMg2zlHHG65F3vHepOw06HFCq+N42qkaNAc8AKIabWvtk6cIQ==}
@@ -1241,66 +1261,79 @@ packages:
     resolution: {integrity: sha512-2QxQrM+KQ7DAW4o22j+XZ6RKdxjLD7BOWTP0Bv0tmjdyhXSsr2Ul1oJDQqh9Zf5qOwTuTc7Ek83mOFaKnodPjg==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.60.2':
     resolution: {integrity: sha512-TbziEu2DVsTEOPif2mKWkMeDMLoYjx95oESa9fkQQK7r/Orta0gnkcDpzwufEcAO2BLBsD7mZkXGFqEdMRRwfw==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.60.2':
     resolution: {integrity: sha512-bO/rVDiDUuM2YfuCUwZ1t1cP+/yqjqz+Xf2VtkdppefuOFS2OSeAfgafaHNkFn0t02hEyXngZkxtGqXcXwO8Rg==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.60.2':
     resolution: {integrity: sha512-hr26p7e93Rl0Za+JwW7EAnwAvKkehh12BU1Llm9Ykiibg4uIr2rbpxG9WCf56GuvidlTG9KiiQT/TXT1yAWxTA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.60.2':
     resolution: {integrity: sha512-pOjB/uSIyDt+ow3k/RcLvUAOGpysT2phDn7TTUB3n75SlIgZzM6NKAqlErPhoFU+npgY3/n+2HYIQVbF70P9/A==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.60.2':
     resolution: {integrity: sha512-2/w+q8jszv9Ww1c+6uJT3OwqhdmGP2/4T17cu8WuwyUuuaCDDJ2ojdyYwZzCxx0GcsZBhzi3HmH+J5pZNXnd+Q==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.60.2':
     resolution: {integrity: sha512-11+aL5vKheYgczxtPVVRhdptAM2H7fcDR5Gw4/bTcteuZBlH4oP9f5s9zYO9aGZvoGeBpqXI/9TZZihZ609wKw==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.60.2':
     resolution: {integrity: sha512-i16fokAGK46IVZuV8LIIwMdtqhin9hfYkCh8pf8iC3QU3LpwL+1FSFGej+O7l3E/AoknL6Dclh2oTdnRMpTzFQ==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.60.2':
     resolution: {integrity: sha512-49FkKS6RGQoriDSK/6E2GkAsAuU5kETFCh7pG4yD/ylj9rKhTmO3elsnmBvRD4PgJPds5W2PkhC82aVwmUcJ7A==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.60.2':
     resolution: {integrity: sha512-mjYNkHPfGpUR00DuM1ZZIgs64Hpf4bWcz9Z41+4Q+pgDx73UwWdAYyf6EG/lRFldmdHHzgrYyge5akFUW0D3mQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.60.2':
     resolution: {integrity: sha512-ALyvJz965BQk8E9Al/JDKKDLH2kfKFLTGMlgkAbbYtZuJt9LU8DW3ZoDMCtQpXAltZxwBHevXz5u+gf0yA0YoA==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.60.2':
     resolution: {integrity: sha512-UQjrkIdWrKI626Du8lCQ6MJp/6V1LAo2bOK9OTu4mSn8GGXIkPXk/Vsp4bLHCd9Z9Iz2OTEaokUE90VweJgIYQ==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.60.2':
     resolution: {integrity: sha512-bTsRGj6VlSdn/XD4CGyzMnzaBs9bsRxy79eTqTCBsA8TMIEky7qg48aPkvJvFe1HyzQ5oMZdg7AnVlWQSKLTnw==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.60.2':
     resolution: {integrity: sha512-6d4Z3534xitaA1FcMWP7mQPq5zGwBmGbhphh2DwaA1aNIXUu3KTOfwrWpbwI4/Gr0uANo7NTtaykFyO2hPuFLg==}
@@ -1408,17 +1441,11 @@ packages:
   '@types/jsdom@28.0.2':
     resolution: {integrity: sha512-zZYItekplnGirFhVDrcB0+103TMakXfKfIp7uECxaFzFG3Ws5kYQSwVb1d4pQfJMMjQda6pfuZxueAv9CMiJbw==}
 
-  '@types/long@4.0.2':
-    resolution: {integrity: sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==}
-
   '@types/mime@1.3.5':
     resolution: {integrity: sha512-/pyBZWSLD2n0dcHE3hq8s8ZvcETHtEuF+3E7XVt0Ig2nvsVQXdghHVcEkIWjy9A0wKfTn97a/PSDYohKIlnP/w==}
 
   '@types/node-fetch@2.6.13':
     resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
-
-  '@types/node@10.17.60':
-    resolution: {integrity: sha512-F0KIgDJfy2nA3zMLmWGKxcH2ZVEtCZXHHdOQs2gSaQ27+lNeEfGxzkIw90aXswATX7AZ33tahPbzy6KAfUreVw==}
 
   '@types/node@18.19.130':
     resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
@@ -1609,7 +1636,10 @@ packages:
 
   '@whiskeysockets/baileys@6.17.16':
     resolution: {integrity: sha512-cZoUaKpO4fsDUNiCtyZfbjkW0Bjl/IudzHLCvpqfqtq5TACQzNynYsYdKPJz1I8Cu/SSEvmewk0RorIs0zDWyw==}
-    deprecated: The new official package name for the Baileys package is "baileys". Please use that package name going forward. This version may stop receiving updates in the future.
+    deprecated: |-
+      This version is affected by a zero-day vulnerability that allows spoofing of messages, please update to
+        the latest versions (6.7.22^ or 7.0.0-rc12^)! For more information, check out the public advisory at
+        https://github.com/WhiskeySockets/Baileys/security/advisories/GHSA-qvv5-jq5g-4cgg
     peerDependencies:
       jimp: ^0.16.1
       link-preview-js: ^3.0.0
@@ -1631,10 +1661,6 @@ packages:
     peerDependencies:
       eslint: ^9.31.0
       typescript: '>=4'
-
-  '@whiskeysockets/libsignal-node@https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
-    resolution: {tarball: https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67}
-    version: 2.0.1
 
   '@zone-eu/mailsplit@5.4.9':
     resolution: {integrity: sha512-Qq7k6FzA5SmGf5HFPcr17gE7M+O1gttlmWn7tlGUlhGsbbjUaBL/4cEWIwExeCzqu5+kyZJ91mcBZbQ9zEwwYA==}
@@ -2776,6 +2802,10 @@ packages:
   libqp@2.1.1:
     resolution: {integrity: sha512-0Wd+GPz1O134cP62YU2GTOPNA7Qgl09XwCqM5zpBv87ERCXdfDtyKXvV7c9U22yWJh44QZqBocFnXN11K96qow==}
 
+  libsignal@https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7:
+    resolution: {tarball: https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7}
+    version: 6.0.0
+
   lifecycle-utils@2.1.0:
     resolution: {integrity: sha512-AnrXnE2/OF9PHCyFg0RSqsnQTzV991XaZA/buhFDoc58xU7rhSCDgCz/09Lqpsn4MpoPHt7TRAXV1kWZypFVsA==}
 
@@ -2820,24 +2850,28 @@ packages:
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.32.0:
     resolution: {integrity: sha512-UpQkoenr4UJEzgVIYpI80lDFvRmPVg6oqboNHfoH4CQIfNA+HOrZ7Mo7KZP02dC6LjghPQJeBsvXhJod/wnIBg==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.32.0:
     resolution: {integrity: sha512-V7Qr52IhZmdKPVr+Vtw8o+WLsQJYCTd8loIfpDaMRWGUZfBOYEJeyJIkqGIDMZPwPx24pUMfwSxxI8phr/MbOA==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.32.0:
     resolution: {integrity: sha512-bYcLp+Vb0awsiXg/80uCRezCYHNg1/l3mt0gzHnWV9XP1W5sKa5/TCdGWaR/zBM2PeF/HbsQv/j2URNOiVuxWg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution: {integrity: sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw==}
@@ -2893,9 +2927,6 @@ packages:
   loglevel@1.9.2:
     resolution: {integrity: sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==}
     engines: {node: '>= 0.6.0'}
-
-  long@4.0.0:
-    resolution: {integrity: sha512-XsP+KhQif4bjX1kbuSiySJFNAehNxgLb6hPRGJ9QsUr8ajHkuXGdrHmFUTUUXhDwVX2R5bY4JNZEwbUiMhV+MA==}
 
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
@@ -3357,6 +3388,15 @@ packages:
     resolution: {integrity: sha512-pMMHxBOZKFU6HgAZ4eyGnwXF/EvPGGqUr0MnZ5+99485wwW41kW91A4LOGxSHhgugZmSChL5AlElNdwlNgcnLQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  posthog-node@5.35.1:
+    resolution: {integrity: sha512-F9S3pEIYfGEVjLYIFHKaqfTIhn5IpS02Dkp7C/f1rqr4Z67Iqbt4jbKO8raWsT0veEI3rUp+DKuXLW1hN07FQA==}
+    engines: {node: ^20.20.0 || >=22.22.0}
+    peerDependencies:
+      rxjs: ^7.0.0
+    peerDependenciesMeta:
+      rxjs:
+        optional: true
+
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -3387,14 +3427,6 @@ packages:
   proper-lockfile@4.1.2:
     resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
 
-  protobufjs@6.8.8:
-    resolution: {integrity: sha512-AAmHtD5pXgZfi7GMpllpO3q1Xw1OYldr+dMUlAnffGTAhqkg72WdmSY71uKBF/JuyiKs8psYbtKrhi0ASCD8qw==}
-    hasBin: true
-
-  protobufjs@7.5.5:
-    resolution: {integrity: sha512-3wY1AxV+VBNW8Yypfd1yQY9pXnqTAN+KwQxL8iYm3/BjKYMNg4i0owhEe26PWDOMaIrzeeF98Lqd5NGz4omiIg==}
-    engines: {node: '>=12.0.0'}
-
   protobufjs@7.5.8:
     resolution: {integrity: sha512-dvpCIeLPbXZS/Ete7yLaO7RenOdken2NHKykBXbsaGxZT0UTltcarBciw+A78SRQs9iMAAVpsYA+l8b1hTePIA==}
     engines: {node: '>=12.0.0'}
@@ -3421,8 +3453,8 @@ packages:
   qoa-format@1.0.1:
     resolution: {integrity: sha512-dMB0Z6XQjdpz/Cw4Rf6RiBpQvUSPCfYlQMWvmuWlWkAT7nDQD29cVZ1SwDUB6DYJSitHENwbt90lqfI+7bvMcw==}
 
-  qs@6.15.1:
-    resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
+  qs@6.15.2:
+    resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
     engines: {node: '>=0.6'}
 
   queue-microtask@1.2.3:
@@ -3915,17 +3947,8 @@ packages:
     resolution: {integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==}
     engines: {node: '>= 0.4.0'}
 
-  uuid@10.0.0:
-    resolution: {integrity: sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
-    hasBin: true
-
   uuid@11.1.1:
     resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
-    hasBin: true
-
-  uuid@14.0.0:
-    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
 
   validate-npm-package-name@7.0.2:
@@ -4843,7 +4866,7 @@ snapshots:
       mustache: 4.2.0
       p-queue: 6.6.2
       p-retry: 4.6.2
-      uuid: 10.0.0
+      uuid: 11.1.1
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
     transitivePeerDependencies:
@@ -5029,13 +5052,16 @@ snapshots:
     dependencies:
       playwright: 1.60.0
 
+  '@posthog/core@1.29.9':
+    dependencies:
+      '@posthog/types': 1.376.0
+
+  '@posthog/types@1.376.0': {}
+
   '@protobufjs/aspromise@1.1.2':
     optional: true
 
   '@protobufjs/base64@1.1.2':
-    optional: true
-
-  '@protobufjs/codegen@2.0.4':
     optional: true
 
   '@protobufjs/codegen@2.0.5':
@@ -5047,13 +5073,10 @@ snapshots:
   '@protobufjs/fetch@1.1.0':
     dependencies:
       '@protobufjs/aspromise': 1.1.2
-      '@protobufjs/inquire': 1.1.0
+      '@protobufjs/inquire': 1.1.1
     optional: true
 
   '@protobufjs/float@1.0.2':
-    optional: true
-
-  '@protobufjs/inquire@1.1.0':
     optional: true
 
   '@protobufjs/inquire@1.1.1':
@@ -5063,9 +5086,6 @@ snapshots:
     optional: true
 
   '@protobufjs/pool@1.1.0':
-    optional: true
-
-  '@protobufjs/utf8@1.1.0':
     optional: true
 
   '@protobufjs/utf8@1.1.1':
@@ -5284,18 +5304,12 @@ snapshots:
       parse5: 8.0.1
       undici-types: 7.25.0
 
-  '@types/long@4.0.2':
-    optional: true
-
   '@types/mime@1.3.5': {}
 
   '@types/node-fetch@2.6.13':
     dependencies:
       '@types/node': 25.7.0
       form-data: 4.0.5
-    optional: true
-
-  '@types/node@10.17.60':
     optional: true
 
   '@types/node@18.19.130':
@@ -5338,7 +5352,7 @@ snapshots:
 
   '@types/uuid@11.0.0':
     dependencies:
-      uuid: 14.0.0
+      uuid: 11.1.1
 
   '@types/ws@8.18.1':
     dependencies:
@@ -5572,12 +5586,12 @@ snapshots:
       axios: 1.15.2
       cache-manager: 5.7.6
       libphonenumber-js: 1.12.42
-      libsignal: '@whiskeysockets/libsignal-node@https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67'
+      libsignal: https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7
       lodash: 4.18.1
       music-metadata: 7.14.0
       pino: 9.14.0
-      protobufjs: 7.5.5
-      uuid: 10.0.0
+      protobufjs: 7.5.8
+      uuid: 11.1.1
       ws: 8.20.1(bufferutil@4.1.0)
     transitivePeerDependencies:
       - bufferutil
@@ -5597,12 +5611,6 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
-
-  '@whiskeysockets/libsignal-node@https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67':
-    dependencies:
-      curve25519-js: 0.0.4
-      protobufjs: 6.8.8
     optional: true
 
   '@zone-eu/mailsplit@5.4.9':
@@ -5772,7 +5780,7 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.4.24
       on-finished: 2.4.1
-      qs: 6.15.1
+      qs: 6.15.2
       raw-body: 2.5.3
       type-is: 1.6.18
       unpipe: 1.0.0
@@ -5787,7 +5795,7 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.2
       on-finished: 2.4.1
-      qs: 6.15.1
+      qs: 6.15.2
       raw-body: 3.0.2
       type-is: 2.0.1
     transitivePeerDependencies:
@@ -6349,7 +6357,7 @@ snapshots:
       parseurl: 1.3.3
       path-to-regexp: 0.1.13
       proxy-addr: 2.0.7
-      qs: 6.15.1
+      qs: 6.15.2
       range-parser: 1.2.1
       safe-buffer: 5.2.1
       send: 0.19.2
@@ -6384,7 +6392,7 @@ snapshots:
       once: 1.4.0
       parseurl: 1.3.3
       proxy-addr: 2.0.7
-      qs: 6.15.1
+      qs: 6.15.2
       range-parser: 1.2.1
       router: 2.2.0
       send: 1.2.1
@@ -6961,7 +6969,7 @@ snapshots:
       console-table-printer: 2.15.0
       p-queue: 6.6.2
       semver: 7.8.0
-      uuid: 10.0.0
+      uuid: 11.1.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       openai: 4.104.0(ws@8.20.1(bufferutil@4.1.0))(zod@3.25.76)
@@ -6995,6 +7003,12 @@ snapshots:
     optional: true
 
   libqp@2.1.1:
+    optional: true
+
+  libsignal@https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7:
+    dependencies:
+      curve25519-js: 0.0.4
+      protobufjs: 7.5.8
     optional: true
 
   lifecycle-utils@2.1.0:
@@ -7096,9 +7110,6 @@ snapshots:
       yoctocolors: 2.1.2
 
   loglevel@1.9.2:
-    optional: true
-
-  long@4.0.0:
     optional: true
 
   long@5.3.2:
@@ -7629,6 +7640,10 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+  posthog-node@5.35.1:
+    dependencies:
+      '@posthog/core': 1.29.9
+
   prelude-ls@1.2.1: {}
 
   pretty-bytes@6.1.1:
@@ -7658,39 +7673,6 @@ snapshots:
       graceful-fs: 4.2.11
       retry: 0.12.0
       signal-exit: 3.0.7
-    optional: true
-
-  protobufjs@6.8.8:
-    dependencies:
-      '@protobufjs/aspromise': 1.1.2
-      '@protobufjs/base64': 1.1.2
-      '@protobufjs/codegen': 2.0.5
-      '@protobufjs/eventemitter': 1.1.0
-      '@protobufjs/fetch': 1.1.0
-      '@protobufjs/float': 1.0.2
-      '@protobufjs/inquire': 1.1.1
-      '@protobufjs/path': 1.1.2
-      '@protobufjs/pool': 1.1.0
-      '@protobufjs/utf8': 1.1.1
-      '@types/long': 4.0.2
-      '@types/node': 10.17.60
-      long: 4.0.0
-    optional: true
-
-  protobufjs@7.5.5:
-    dependencies:
-      '@protobufjs/aspromise': 1.1.2
-      '@protobufjs/base64': 1.1.2
-      '@protobufjs/codegen': 2.0.4
-      '@protobufjs/eventemitter': 1.1.0
-      '@protobufjs/fetch': 1.1.0
-      '@protobufjs/float': 1.0.2
-      '@protobufjs/inquire': 1.1.0
-      '@protobufjs/path': 1.1.2
-      '@protobufjs/pool': 1.1.0
-      '@protobufjs/utf8': 1.1.0
-      '@types/node': 25.7.0
-      long: 5.3.2
     optional: true
 
   protobufjs@7.5.8:
@@ -7735,7 +7717,7 @@ snapshots:
       '@thi.ng/bitstream': 2.4.46
     optional: true
 
-  qs@6.15.1:
+  qs@6.15.2:
     dependencies:
       side-channel: 1.1.0
 
@@ -8307,13 +8289,7 @@ snapshots:
 
   utils-merge@1.0.1: {}
 
-  uuid@10.0.0:
-    optional: true
-
-  uuid@11.1.1:
-    optional: true
-
-  uuid@14.0.0: {}
+  uuid@11.1.1: {}
 
   validate-npm-package-name@7.0.2:
     optional: true
