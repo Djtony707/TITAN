@@ -9,6 +9,7 @@ import {
 } from '@/api/client';
 import type { MeshPeer } from '@/api/types';
 import { DataTable, type Column } from '@/components/shared/DataTable';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 function MeshPanel() {
   const [peers, setPeers] = useState<MeshPeer[]>([]);
@@ -113,16 +114,19 @@ function MeshPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text">Mesh Network</h2>
-        <button
-          onClick={fetchAll}
-          className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text"
-          title="Refresh"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
-      </div>
+      <PageHeader
+        title="Mesh Network"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'Mesh'}]}
+        actions={
+          <button
+            onClick={fetchAll}
+            className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        }
+      />
 
       {error && (
         <div className="rounded-lg border border-error/50 bg-bg-secondary px-4 py-2 text-sm text-error">

@@ -4,6 +4,7 @@ import {
   ChevronDown, ChevronRight, Settings2, Pause, RefreshCw,
 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 interface AutoresearchRun {
   timestamp: string;
@@ -290,33 +291,28 @@ export default function AutoresearchPanel() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-text flex items-center gap-2">
-            <FlaskConical className="h-5 w-5 text-purple" />
-            Autoresearch
-          </h1>
-          <p className="text-xs text-text-muted mt-0.5">
-            Autonomous hyper-parameter search and LoRA fine-tuning
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPaused(!paused)}
-            className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
-          >
-            {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-            {paused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            onClick={fetchData}
-            className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
-          >
-            <RefreshCw className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Autoresearch"
+        subtitle="Autonomous hyper-parameter search and LoRA fine-tuning"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Knowledge'}, {label:'Autoresearch'}]}
+        actions={
+          <>
+            <button
+              onClick={() => setPaused(!paused)}
+              className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
+            >
+              {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1 rounded-lg border border-bg-tertiary px-2.5 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </>
+        }
+      />
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

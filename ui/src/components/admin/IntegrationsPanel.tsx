@@ -10,6 +10,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { getConfig, updateConfig, apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 interface ProviderStatus {
   configured: boolean;
@@ -248,16 +249,11 @@ function IntegrationsPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
-          <Plug className="h-4 w-4 text-accent-hover" />
-        </div>
-        <div>
-          <h1 className="text-lg font-semibold text-text">Integrations</h1>
-          <p className="text-xs text-text-muted">Configure LLM providers and external service connections</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Integrations"
+        subtitle="Configure LLM providers and external service connections"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Tools'}, {label:'Integrations'}]}
+      />
 
       {/* Toast */}
       {toast && (

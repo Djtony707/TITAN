@@ -22,6 +22,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { getConfig, updateConfig, apiFetch } from '@/api/client';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 interface ImprovementSession {
   id: string;
@@ -274,8 +275,13 @@ function SelfImprovePanel() {
   }, [autoRefresh, loadData]);
 
   // SSE connection for live training progress
+  // v6.4.1 — pass the auth token via query string. EventSource cannot set
+  // an Authorization header, so without this we get 401 when auth.token is
+  // configured (Tony's Titan PC).
   useEffect(() => {
-    const es = new EventSource('/api/training/stream');
+    const token = localStorage.getItem('titan-token') || localStorage.getItem('titan_token') || '';
+    const url = `/api/training/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const es = new EventSource(url);
     eventSourceRef.current = es;
 
     es.onopen = () => setSseConnected(true);
@@ -440,38 +446,33 @@ function SelfImprovePanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple/10">
-            <Brain className="h-4 w-4 text-purple-light" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-text">Self-Improvement</h1>
-            <p className="text-xs text-text-muted">Autonomous optimization of prompts, tool selection, and response quality</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
-              autoRefresh
-                ? 'border-success/30 text-success bg-success/5'
-                : 'border-border text-text-muted hover:bg-bg-tertiary'
-            }`}
-          >
-            <Activity className={`h-3.5 w-3.5 ${autoRefresh ? 'animate-pulse' : ''}`} />
-            {autoRefresh ? 'Live' : 'Paused'}
-          </button>
-          <button
-            onClick={loadData}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-tertiary"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Self-Improvement"
+        subtitle="Autonomous optimization of prompts, tool selection, and response quality"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'Knowledge'}, {label:'Self-Improve'}]}
+        actions={
+          <>
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                autoRefresh
+                  ? 'border-success/30 text-success bg-success/5'
+                  : 'border-border text-text-muted hover:bg-bg-tertiary'
+              }`}
+            >
+              <Activity className={`h-3.5 w-3.5 ${autoRefresh ? 'animate-pulse' : ''}`} />
+              {autoRefresh ? 'Live' : 'Paused'}
+            </button>
+            <button
+              onClick={loadData}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-tertiary"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
       {/* Toast */}
       {toast && (

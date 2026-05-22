@@ -1,5 +1,34 @@
 # Changelog
 
+## v6.4.1 — 2026-05-22 — Full-dashboard audit pass: fix workspace-pill collision on 10 admin panels
+
+Walked every route in the dashboard (38 unique pages) in a real browser and fixed the visible breakage that turned up. Most of it traced to the same root cause: admin panels that skipped the `<PageHeader>` component rendered their content at y=0, where the `position: fixed` Office/Workshop/Observatory workspace pill (top: 48) overlapped page titles, action buttons, and form inputs.
+
+**Panels fixed (added PageHeader / replaced inline `<h1>` / `<h2>` titles):**
+
+- `McpPanel` — `/tools/mcp`
+- `IntegrationsPanel` — `/tools/integrations`
+- `MeshPanel` — `/tools/mesh`
+- `NvidiaPanel` — `/system/gpu`
+- `AuditPanel` — `/system/audit`
+- `LogsPanel` — `/system/logs`
+- `SelfImprovePanel` — `/knowledge/self-improve`
+- `AutoresearchPanel` — `/knowledge/autoresearch`
+- `SettingsPanel` — `/system/settings` (the main render path was using `<h2>Settings</h2>`; PageHeader was only on the error-fallback branch)
+- `CPFiles` — `/tools/files`
+
+All ten now render the standard `titan-window-titlebar` chrome (breadcrumbs row + red/yellow/green dots + title + actions slot), matching the panels that already worked (Skills, Channels, Security, Backups, VRAM, Fleet, Cron, Test Lab, etc.). Action buttons (Refresh, Add Server, Save, etc.) moved into the `actions` prop so they share a row with the title instead of stacking under the workspace pill.
+
+**Other fixes:**
+
+- **`/tools` index** — was rendering `ToolsView`, which wrapped the lazy-loaded child panel that already had its own PageHeader → double-header collision. The sidebar exposes every tool sub-route directly, so `/tools` now redirects to `/tools/skills`. The previously-hidden `EvalHarnessPanel` (597 lines, only reachable through the `/tools` tab bar) gets a new direct route: `/tools/evals`.
+- **`/knowledge/self-improve` SSE DISCONNECTED badge** — `new EventSource('/api/training/stream')` couldn't authenticate when `gateway.auth.token` is configured because `EventSource` can't send an `Authorization` header. Now appends `?token=…` like `useWatchStream` does, matching the gateway's `req.query.token` fallback in `src/gateway/server.ts:1270`.
+- **`/knowledge/dreams` left-rail contrast** — "History" label and the "No dreams yet…" empty-state text were hard-coded to `text-[#52525b]` (zinc dark), invisible against the Office theme's warm-brown surface. Swapped to `text-text-secondary` / `text-text-muted` so they re-skin per theme.
+
+**Verification path:** chrome MCP walked all 38 routes pre- and post-fix; zero JavaScript console errors throughout. Typecheck clean. Existing core + mission-control + gateway-extended test suites pass (121 tests).
+
+Files: `ui/src/components/admin/{McpPanel,IntegrationsPanel,MeshPanel,NvidiaPanel,AuditPanel,LogsPanel,SelfImprovePanel,AutoresearchPanel,SettingsPanel,DreamPanel}.tsx`, `ui/src/components/command-post/CPFiles.tsx`, `ui/src/App.tsx`.
+
 ## v6.4.0 — 2026-05-22 — Learning Curator + Desktop-Workspace UI polish
 
 Two coordinated tracks landed in one minor release: a new background-review system that turns repeated tool sequences into durable lessons, and a comprehensive UI polish pass that makes every page feel like a desktop workspace instead of a web app.

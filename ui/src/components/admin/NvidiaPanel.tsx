@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { PageHeader } from '@/components/shared/PageHeader';
 import {
   Save,
   CheckCircle,
@@ -274,35 +275,30 @@ function NvidiaPanel() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-nvidia/15">
-            <Cpu className="h-5 w-5 text-nvidia" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-text">NVIDIA</h1>
-            <p className="text-xs text-text-muted">GPU-accelerated AI services — NIM, cuOpt, Nemotron-ASR, OpenShell</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={checkHealth}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Check Health
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-nvidia px-4 py-1.5 text-xs font-medium text-black transition-colors hover:bg-nvidia/80 disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="NVIDIA"
+        subtitle="GPU-accelerated AI services — NIM, cuOpt, Nemotron-ASR, OpenShell"
+        breadcrumbs={[{label:'Admin', href:'/overview'}, {label:'System'}, {label:'GPU'}]}
+        actions={
+          <>
+            <button
+              onClick={checkHealth}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Check Health
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 rounded-lg bg-nvidia px-4 py-1.5 text-xs font-medium text-black transition-colors hover:bg-nvidia/80 disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </>
+        }
+      />
 
       {/* Toast */}
       {toast && (
