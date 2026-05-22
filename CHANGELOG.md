@@ -1,5 +1,9 @@
 # Changelog
 
+## v6.4.3 — 2026-05-22 — Metadata: unblock npm publish (overrides ↔ direct dep)
+
+v6.4.2's `overrides.uuid: ^11.1.1` collided with the direct `uuid: ^14.0.0` dep — `npm publish` rejected the tarball with `EOVERRIDE`. Moved the `uuid` override into the `pnpm.overrides` block only (where it still pins transitive `uuid` to `^11.1.1` for `@whiskeysockets/baileys` without conflicting with the top-level uuid dep). Code identical to v6.4.2; this is a metadata-only ship to unblock npm.
+
 ## v6.4.2 — 2026-05-22 — Dependabot bumps (qs, uuid) + Dreams contrast nudge
 
 Quick follow-up to the v6.4.1 audit. GitHub flagged 4 moderate-severity transitive deps on the v6.4.1 push; bumped them via `package.json` overrides:
