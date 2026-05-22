@@ -3,7 +3,7 @@
  * Tests P1 from Hermes integration.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -37,7 +37,18 @@ vi.mock('../src/providers/router.js', () => ({
 }));
 
 import { logTrajectory, getRecentTrajectories, getSequenceSignature, countMatchingTrajectories, type TaskTrajectory } from '../src/agent/trajectoryLogger.js';
-import { shouldGenerateSkill, generateSkillContent, saveGeneratedSkill, findMatchingSkills, getSkillGuidance, processTrajectoryForSkills } from '../src/agent/autoSkillGen.js';
+import { shouldGenerateSkill, generateSkillContent, saveGeneratedSkill, findMatchingSkills, getSkillGuidance, processTrajectoryForSkills, resolveSkillGenerationModel } from '../src/agent/autoSkillGen.js';
+import {
+    applyLearningPatternTransitions,
+    ingestTrajectoryLearningSignal,
+    loadLearningCuratorState,
+    runLearningReview,
+    saveLearningCuratorState,
+    shouldRunLearningReview,
+} from '../src/agent/learningCurator.js';
+import { readLessonsMarkdown } from '../src/agent/agentLessons.js';
+import { loadConfig } from '../src/config/config.js';
+import { chat } from '../src/providers/router.js';
 
 function makeTrajectory(overrides: Partial<TaskTrajectory> = {}): TaskTrajectory {
     return {
@@ -197,6 +208,8 @@ describe('AutoSkillGen', () => {
             expect(content).toContain('name: auto-coding-');
             expect(content).toContain('version: 1.0.0');
             expect(content).toContain('author: TITAN AutoSkill');
+            expect(content).toContain('taskType: coding');
+            expect(content).toContain('toolSequence: ["read_file", "write_file"]');
             expect(content).toContain('read_file');
             expect(content).toContain('write_file');
         });
@@ -205,6 +218,28 @@ describe('AutoSkillGen', () => {
             const content = await generateSkillContent(makeTrajectory());
             expect(content).toContain('successful runs');
             expect(content).toContain('Average rounds');
+        });
+
+        it('resolves the skill generation model from configured aliases without provider lock-in', () => {
+            vi.mocked(loadConfig).mockReturnValueOnce({
+                agent: {
+                    model: 'openai/gpt-4o',
+                    modelAliases: { reasoning: 'google/gemini-2.5-pro' },
+                },
+            } as ReturnType<typeof loadConfig>);
+
+            expect(resolveSkillGenerationModel()).toBe('google/gemini-2.5-pro');
+        });
+
+        it('falls back to the configured active model when no tier alias is set', () => {
+            vi.mocked(loadConfig).mockReturnValueOnce({
+                agent: {
+                    model: 'openrouter/anthropic/claude-sonnet-4',
+                    modelAliases: {},
+                },
+            } as ReturnType<typeof loadConfig>);
+
+            expect(resolveSkillGenerationModel()).toBe('openrouter/anthropic/claude-sonnet-4');
         });
     });
 
@@ -233,6 +268,37 @@ describe('AutoSkillGen', () => {
             const skills = findMatchingSkills('cook a meal', 'cooking');
             expect(skills.length).toBe(0);
         });
+
+        it('recalls LLM-generated skills from structured frontmatter even without legacy bold tool markers', async () => {
+            vi.mocked(chat).mockResolvedValueOnce({
+                content: `---
+name: auto-coding-test
+description: Rich LLM skill for coding tasks
+version: 1.0.0
+author: TITAN AutoSkill
+category: auto-generated
+taskType: coding
+toolSequence: ["read_file", "write_file"]
+successCount: 3
+avgRounds: 2
+generatedAt: 2026-05-21T00:00:00.000Z
+---
+
+# Rich Skill
+
+Use the saved read/write flow for this coding task.
+Validate with the focused test before broad verification.
+This paragraph is intentionally long enough to pass the LLM-enhanced content length gate without requiring legacy bold tool markers in the skill body.`,
+            } as Awaited<ReturnType<typeof chat>>);
+
+            await saveGeneratedSkill(makeTrajectory());
+            const skills = findMatchingSkills('write some code', 'coding');
+
+            expect(skills.length).toBe(1);
+            expect(skills[0].toolSequence).toEqual(['read_file', 'write_file']);
+            expect(skills[0].successCount).toBe(3);
+            expect(skills[0].avgRounds).toBe(2);
+        });
     });
 
     describe('getSkillGuidance', () => {
@@ -248,6 +314,29 @@ describe('AutoSkillGen', () => {
         it('returns null when no matching skill exists', () => {
             const guidance = getSkillGuidance('cook a meal');
             expect(guidance).toBeNull();
+        });
+
+        it('returns continuous learning guidance even before an auto-skill exists', () => {
+            saveLearningCuratorState({
+                lastRunAt: '2026-05-21T00:00:00.000Z',
+                lastRunSummary: null,
+                runCount: 0,
+                paused: false,
+                patterns: {},
+            });
+            ingestTrajectoryLearningSignal(makeTrajectory({
+                timestamp: '2026-05-21T00:01:00.000Z',
+            }));
+            ingestTrajectoryLearningSignal(makeTrajectory({
+                id: crypto.randomUUID(),
+                timestamp: '2026-05-21T00:02:00.000Z',
+            }));
+
+            const guidance = getSkillGuidance('write some code');
+
+            expect(guidance).not.toBeNull();
+            expect(guidance).toContain('Continuous learning');
+            expect(guidance).toContain('read_file → write_file');
         });
     });
 
@@ -272,5 +361,243 @@ describe('AutoSkillGen', () => {
             const skills = findMatchingSkills('code', 'coding');
             expect(skills.length).toBe(0);
         });
+    });
+});
+
+describe('LearningCurator', () => {
+    it('defers the first automatic review and seeds state like Hermes curator', () => {
+        const shouldRun = shouldRunLearningReview(new Date('2026-05-21T00:00:00.000Z'));
+        const state = loadLearningCuratorState();
+
+        expect(shouldRun).toBe(false);
+        expect(state.lastRunAt).toBe('2026-05-21T00:00:00.000Z');
+        expect(state.lastRunSummary).toContain('deferred');
+    });
+
+    it('records a durable win lesson from repeated successful trajectories', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-19T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        for (let i = 0; i < 3; i++) {
+            logTrajectory(makeTrajectory({ timestamp: `2026-05-20T00:0${i}:00.000Z` }));
+        }
+
+        const result = runLearningReview(
+            makeTrajectory({ timestamp: '2026-05-21T00:00:00.000Z' }),
+            new Date('2026-05-21T00:00:00.000Z'),
+        );
+        const lessons = readLessonsMarkdown('default');
+        const state = loadLearningCuratorState();
+
+        expect(result.shouldRun).toBe(true);
+        expect(result.lessonsRecorded).toBeGreaterThanOrEqual(1);
+        expect(result.reportPath).toMatch(/REPORT\.md$/);
+        expect(existsSync(result.reportPath || '')).toBe(true);
+        expect(state.lastReportPath).toBe(result.reportPath);
+        expect(state.lastRunDurationMs).toEqual(expect.any(Number));
+        expect(lessons).toContain('For coding tasks');
+        expect(lessons).toContain('read_file → write_file');
+    });
+
+    it('writes a readable curator report for each review pass', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-19T00:00:00.000Z',
+            lastRunDurationMs: null,
+            lastRunSummary: null,
+            lastReportPath: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        for (let i = 0; i < 3; i++) {
+            logTrajectory(makeTrajectory({ timestamp: `2026-05-20T00:0${i}:00.000Z` }));
+        }
+
+        const result = runLearningReview(
+            makeTrajectory({ timestamp: '2026-05-21T00:00:00.000Z' }),
+            new Date('2026-05-21T00:00:00.000Z'),
+        );
+        const report = readFileSync(result.reportPath || '', 'utf-8');
+
+        expect(report).toContain('TITAN Learning Curator Report');
+        expect(report).toContain('Recent trajectories checked: 3');
+        expect(report).toContain('Pattern Transitions');
+        expect(report).toContain('Lessons');
+    });
+
+    it('records a failure lesson when the same tool sequence fails repeatedly', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-19T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        for (let i = 0; i < 2; i++) {
+            logTrajectory(makeTrajectory({
+                success: false,
+                timestamp: `2026-05-20T00:0${i}:00.000Z`,
+                toolDetails: [
+                    { name: 'read_file', args: { path: '/tmp/test.ts' }, success: true, resultSnippet: 'file contents' },
+                    { name: 'write_file', args: { path: '/tmp/test.ts' }, success: false, resultSnippet: 'permission denied' },
+                ],
+            }));
+        }
+        logTrajectory(makeTrajectory({ timestamp: '2026-05-20T00:03:00.000Z' }));
+
+        const result = runLearningReview(
+            makeTrajectory({ success: false, timestamp: '2026-05-21T00:00:00.000Z' }),
+            new Date('2026-05-21T00:00:00.000Z'),
+        );
+        const lessons = readLessonsMarkdown('default');
+
+        expect(result.shouldRun).toBe(true);
+        expect(lessons).toContain('repeated failures');
+        expect(lessons).toContain('write_file');
+    });
+
+    it('updates continuous per-pattern learning state without waiting for the review interval', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-21T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        const pattern = ingestTrajectoryLearningSignal(makeTrajectory({
+            timestamp: '2026-05-21T00:05:00.000Z',
+        }));
+        const state = loadLearningCuratorState();
+
+        expect(pattern.successes).toBe(1);
+        expect(pattern.failures).toBe(0);
+        expect(pattern.state).toBe('active');
+        expect(Object.values(state.patterns)[0].signature).toBe('read_file → write_file');
+    });
+
+    it('does not turn transient setup failures into durable failure lessons', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-19T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        for (let i = 0; i < 2; i++) {
+            logTrajectory(makeTrajectory({
+                success: false,
+                timestamp: `2026-05-20T00:0${i}:00.000Z`,
+                toolDetails: [
+                    { name: 'shell', args: { cmd: 'pnpm test' }, success: false, resultSnippet: 'pnpm: command not found' },
+                ],
+                toolSequence: ['shell'],
+            }));
+        }
+
+        const result = runLearningReview(
+            makeTrajectory({
+                success: false,
+                timestamp: '2026-05-21T00:00:00.000Z',
+                toolSequence: ['shell'],
+                toolDetails: [
+                    { name: 'shell', args: { cmd: 'pnpm test' }, success: false, resultSnippet: 'pnpm: command not found' },
+                ],
+            }),
+            new Date('2026-05-21T00:00:00.000Z'),
+            2,
+        );
+        const lessons = readLessonsMarkdown('default');
+
+        expect(result.shouldRun).toBe(true);
+        expect(result.lessonsRecorded).toBe(0);
+        expect(lessons).not.toContain('command not found');
+        expect(lessons).not.toContain('repeated failures');
+    });
+
+    it('moves a repeated durable failure pattern into watch state', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-21T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {},
+        });
+
+        const failed = makeTrajectory({
+            success: false,
+            timestamp: '2026-05-21T00:05:00.000Z',
+            toolDetails: [
+                { name: 'read_file', args: { path: '/tmp/test.ts' }, success: true, resultSnippet: 'file contents' },
+                { name: 'write_file', args: { path: '/tmp/test.ts' }, success: false, resultSnippet: 'permission denied' },
+            ],
+        });
+
+        ingestTrajectoryLearningSignal(failed);
+        const pattern = ingestTrajectoryLearningSignal({
+            ...failed,
+            id: crypto.randomUUID(),
+            timestamp: '2026-05-21T00:06:00.000Z',
+        });
+
+        expect(pattern.failures).toBe(2);
+        expect(pattern.transientFailures).toBe(0);
+        expect(pattern.state).toBe('watch');
+        expect(pattern.commonFailureTool).toBe('write_file');
+    });
+
+    it('ages inactive learning patterns through stale and archived lifecycle states', () => {
+        saveLearningCuratorState({
+            lastRunAt: '2026-05-21T00:00:00.000Z',
+            lastRunSummary: null,
+            runCount: 0,
+            paused: false,
+            patterns: {
+                stale: {
+                    taskType: 'coding',
+                    signature: 'read_file → write_file',
+                    toolSequence: ['read_file', 'write_file'],
+                    successes: 3,
+                    failures: 0,
+                    transientFailures: 0,
+                    state: 'active',
+                    firstSeenAt: '2026-04-01T00:00:00.000Z',
+                    lastSeenAt: '2026-04-20T00:00:00.000Z',
+                    lastSuccessAt: '2026-04-20T00:00:00.000Z',
+                    lastFailureAt: null,
+                    commonFailureTool: null,
+                },
+                archive: {
+                    taskType: 'coding',
+                    signature: 'shell',
+                    toolSequence: ['shell'],
+                    successes: 1,
+                    failures: 0,
+                    transientFailures: 0,
+                    state: 'active',
+                    firstSeenAt: '2026-01-01T00:00:00.000Z',
+                    lastSeenAt: '2026-01-15T00:00:00.000Z',
+                    lastSuccessAt: '2026-01-15T00:00:00.000Z',
+                    lastFailureAt: null,
+                    commonFailureTool: null,
+                },
+            },
+        });
+
+        const counts = applyLearningPatternTransitions(new Date('2026-05-21T00:00:00.000Z'));
+        const state = loadLearningCuratorState();
+
+        expect(counts.markedStale).toBe(1);
+        expect(counts.archived).toBe(1);
+        expect(state.patterns.stale.state).toBe('stale');
+        expect(state.patterns.archive.state).toBe('archived');
     });
 });

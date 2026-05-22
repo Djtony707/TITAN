@@ -64,6 +64,7 @@ const PANEL_MAX_WIDTH = 960;
 const PANEL_MAX_HEIGHT = 900;
 const PANEL_DEFAULT_WIDTH = 420;
 const PANEL_DEFAULT_HEIGHT = 560;
+const COMPACT_VIEWPORT_MAX = 640;
 
 /* ── Edge hiding constants ── */
 const EDGE_SNAP_THRESHOLD = 8; // px from edge to trigger snap (was 18)
@@ -129,12 +130,18 @@ function loadDockPos(): DockPos {
             }
         }
     } catch { /* empty */ }
-    // Default: bottom-right with a reasonable gutter
+    return defaultDockPos();
+}
+
+function defaultDockPos(): DockPos {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const compact = vw <= COMPACT_VIEWPORT_MAX;
     return {
-        x: vw - MASCOT_SIZE - 32,
-        y: vh - MASCOT_HEIGHT - 32,
+        // Hidden-edge mode translates from the element's real edge. Starting
+        // exactly on the viewport edge keeps the 20px peek consistent.
+        x: vw - MASCOT_SIZE,
+        y: compact ? Math.max(220, vh - MASCOT_HEIGHT - 96) : vh - MASCOT_HEIGHT - 32,
     };
 }
 
@@ -169,6 +176,30 @@ function clampPos(pos: DockPos): DockPos {
         x: Math.max(0, Math.min(pos.x, vw - MASCOT_SIZE)),
         y: Math.max(0, Math.min(pos.y, vh - MASCOT_HEIGHT)),
     };
+}
+
+function isCompactViewport(): boolean {
+    return typeof window !== 'undefined' && window.innerWidth <= COMPACT_VIEWPORT_MAX;
+}
+
+function alignPosToHiddenEdge(pos: DockPos, edge: HiddenEdge): DockPos {
+    if (!edge) return pos;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const clampedY = Math.max(0, Math.min(pos.y, vh - MASCOT_HEIGHT));
+    const clampedX = Math.max(0, Math.min(pos.x, vw - MASCOT_SIZE));
+    switch (edge) {
+        case 'left':
+            return { x: 0, y: clampedY };
+        case 'right':
+            return { x: vw - MASCOT_SIZE, y: clampedY };
+        case 'bottom':
+            return { x: clampedX, y: vh - MASCOT_HEIGHT };
+        case 'top':
+            return { x: clampedX, y: 0 };
+        default:
+            return pos;
+    }
 }
 
 /** Detect if a position is close enough to a screen edge to snap.
@@ -332,7 +363,7 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
             clearTimeout(visibilityTimer);
             visibilityTimer = window.setTimeout(() => {
                 setPos(p => {
-                    const clamped = clampPos(p);
+                    const clamped = hiddenEdge ? alignPosToHiddenEdge(clampPos(p), hiddenEdge) : clampPos(p);
                     const edge = detectEdge(clamped);
                     setHiddenEdge(edge);
                     return clamped;
@@ -359,7 +390,7 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
             clearTimeout(visibilityTimer);
             clearInterval(interval);
         };
-    }, []);
+    }, [hiddenEdge]);
 
     // ── Cleanup all bubble timers on unmount ───────────────────
     useEffect(() => {
@@ -373,6 +404,10 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
     // ── Startup hint bubble ────────────────────────────────────
     useEffect(() => {
         if (hasHintBeenShown()) return;
+        if (isCompactViewport() || hiddenEdge) {
+            markHintShown();
+            return;
+        }
         let delayTimer: number;
         let hideTimer: number;
         delayTimer = window.setTimeout(() => {
@@ -387,7 +422,7 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
             clearTimeout(delayTimer);
             clearTimeout(hideTimer);
         };
-    }, []);
+    }, [hiddenEdge]);
 
     // ── Bubble helpers ─────────────────────────────────────────
     const clearBubbleTimers = useCallback(() => {
@@ -571,7 +606,7 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
                     cursor: dragging ? 'grabbing' : (hiddenEdge ? 'pointer' : 'grab'),
                     touchAction: 'none',
                     userSelect: 'none',
-                    animation: reducedMotion ? undefined : 'titan-dock-in 220ms ease-out both',
+                    animation: reducedMotion || hiddenEdge ? undefined : 'titan-dock-in 220ms ease-out both',
                     transform: edgeTransform,
                     transition: dragging ? 'none' : `${EDGE_TRANSITION}, ${EDGE_ROTATION_TRANSITION}`,
                 }}

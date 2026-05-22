@@ -50,6 +50,7 @@ vi.mock('../src/utils/constants.js', () => ({
     TITAN_FULL_NAME: 'The Intelligent Task Automation Network',
     TITAN_VERSION: '2026.5.2',
     TITAN_HOME: '/tmp/titan-test',
+    TITAN_SKILLS_DIR: '/tmp/titan-test/workspace/skills',
     TITAN_MD_FILENAME: 'TITAN.md',
     AGENTS_MD: '/tmp/titan-test/AGENTS.md',
     SOUL_MD: '/tmp/titan-test/SOUL.md',

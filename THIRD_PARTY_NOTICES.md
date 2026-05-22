@@ -100,9 +100,12 @@ Licensed by NVIDIA Corporation under the NVIDIA Open Model License.
 
 | Project | License | URL | Influence |
 |---------|---------|-----|-----------|
+| Hermes Agent | MIT | https://github.com/NousResearch/hermes-agent | Learning curator and background review patterns adapted in `src/agent/learningCurator.ts` |
 | OpenClaw | MIT | https://github.com/openclaw/openclaw | Architecture, CLI design, workspace patterns |
 | Graphiti | Apache-2.0 | https://github.com/getzep/graphiti | Temporal knowledge graph concepts |
 | Skyvern | AGPL-3.0 | https://github.com/Skyvern-AI/skyvern | Browser automation patterns (separate service, not bundled) |
+
+Hermes Agent copyright (c) 2025 Nous Research. MIT License.
 
 ## Persona Definitions
 

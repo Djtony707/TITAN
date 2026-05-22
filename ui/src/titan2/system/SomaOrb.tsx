@@ -75,7 +75,7 @@ export function SomaOrb() {
   // User can still drag it anywhere; we just don't START it overtop
   // sidebar chrome. Tony's screenshot showed the orb covering the
   // first sidebar rows on /space/home.
-  const [position, setPosition] = useState({ x: 280, y: 80 });
+  const [position, setPosition] = useState(() => defaultSomaOrbPosition());
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const orbRef = useRef<HTMLDivElement>(null);
@@ -267,4 +267,13 @@ export function SomaOrb() {
       </div>
     </>
   );
+}
+
+function defaultSomaOrbPosition(): { x: number; y: number } {
+  if (typeof window === 'undefined') return { x: 280, y: 80 };
+  const mobile = window.innerWidth < 640;
+  return {
+    x: mobile ? Math.max(16, window.innerWidth - 96) : 280,
+    y: mobile ? 220 : 80,
+  };
 }

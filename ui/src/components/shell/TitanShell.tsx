@@ -372,7 +372,7 @@ export function TitanShellSidebar({
           >
             T
           </span>
-          <span className="truncate text-sm font-semibold tracking-[0.16em]">TITAN</span>
+          <span className="truncate text-sm font-semibold">TITAN</span>
         </Link>
         {onToggleCollapsed && (
           <button
@@ -539,8 +539,10 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0">
-        {children}
+      <main className="titan-desktop-workspace relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0">
+        <div className="titan-desktop-pane min-h-full">
+          {children}
+        </div>
       </main>
     </div>
   );

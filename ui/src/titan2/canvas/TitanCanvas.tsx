@@ -12,6 +12,19 @@ import { useUpdateCheck } from '@/hooks/useUpdateCheck';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp';
 import { trackEvent } from '@/api/telemetry';
+import {
+  BarChart3,
+  Bot,
+  Command,
+  GalleryVerticalEnd,
+  HeartPulse,
+  Link as LinkIcon,
+  MessageSquare,
+  Navigation,
+  PanelTop,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
@@ -170,6 +183,14 @@ const GRID_ROW_HEIGHT = 60;
 const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 };
 const MARGIN: [number, number] = [12, 12];
 const RESIZE_HANDLES: ResizeHandleAxis[] = ['se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's'];
+const CANVAS_QUICK_ACTIONS = [
+  { source: 'system:nav', name: 'Nav', w: 3, h: 4, label: 'Navigation', icon: Navigation },
+  { source: 'system:agents', name: 'Agents', w: 3, h: 4, label: 'Agents', icon: Bot },
+  { source: 'system:health', name: 'Health', w: 3, h: 3, label: 'Health', icon: HeartPulse },
+  { source: 'system:stats', name: 'Stats', w: 3, h: 4, label: 'Stats', icon: BarChart3 },
+  { source: 'system:quick-links', name: 'Quick Links', w: 3, h: 4, label: 'Links', icon: LinkIcon },
+  { source: 'system:chat', name: 'Chat', w: 4, h: 5, label: 'Chat', icon: MessageSquare },
+] as const;
 
 // ── Memoized Widget Item ──────────────────────────────────────
 //
@@ -400,6 +421,33 @@ function FloatingWidget({ children, position }: { children: React.ReactNode; pos
     <div className={`fixed ${posClass} z-50`}>
       {children}
     </div>
+  );
+}
+
+function CanvasIconButton({
+  label,
+  onClick,
+  children,
+  variant = 'default',
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  variant?: 'default' | 'primary' | 'danger';
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`titan-canvas-icon-button titan-canvas-icon-button--${variant}`}
+      title={label}
+      aria-label={label}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -801,17 +849,23 @@ export default function TitanCanvas() {
         }
       `}</style>
       {/* Background texture — warm grid over the desk */}
-      <div className="fixed inset-0 opacity-[0.04] pointer-events-none" style={{
+      <div className="fixed inset-0 opacity-[0.06] pointer-events-none" style={{
         backgroundImage: `radial-gradient(circle at 1px 1px, var(--theme-metal-dark, rgba(120,90,50,0.4)) 1px, transparent 0)`,
         backgroundSize: '24px 24px',
       }} />
 
       {/* Space header */}
-      <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-4 z-40 border-b backdrop-blur-sm" style={{ borderColor: "var(--color-desk-border)", background: "var(--color-desk-header-bg)" }}>
+      <div className="titan-canvas-titlebar absolute top-0 left-0 right-0 z-40">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="text-xs font-bold uppercase tracking-widest" style={{ color: space.color || 'var(--color-desk-accent)' }}>
-            {space.name}
-          </span>
+          <div className="titan-canvas-space-icon" style={{ color: space.color || 'var(--color-desk-accent)' }}>
+            <PanelTop className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="titan-canvas-title truncate">{space.name}</h1>
+            <div className="titan-canvas-subtitle">
+              {validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''} on desktop canvas
+            </div>
+          </div>
           {/*
             v6.1.0-alpha.22 — Mission Chat launcher pinned at the top
             of every canvas page. Custom inline-SVG mark + a small
@@ -822,44 +876,9 @@ export default function TitanCanvas() {
             slightly larger, gradient border, gold "NEW" pill — so the
             eye picks it out as a different category of action.
           */}
-          <button
-            onClick={() => navigate('/mission')}
-            className="group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full transition-all"
-            title="Open Mission Chat — a chat-style team-control surface with a real desk view"
-            style={{
-              background: 'linear-gradient(120deg, rgba(176,138,58,0.18) 0%, rgba(99,102,241,0.16) 100%)',
-              border: '1px solid var(--theme-metal, rgba(176,138,58,0.45))',
-              boxShadow: '0 0 0 0 rgba(176,138,58,0.4)',
-            }}
-          >
-            {/* Inline SVG logo — a stylized desk with a paper sheet
-                and a sticky note, in 16×16. */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: 'var(--theme-metal-bright, #f5d27a)', flexShrink: 0 }}>
-              {/* desk surface */}
-              <path d="M3 17h18" strokeLinecap="round" />
-              <path d="M5 17V9a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8" />
-              {/* paper sheet */}
-              <rect x="8" y="9" width="6" height="6" rx="0.5" fill="var(--theme-paper, rgba(247,245,238,0.85))" stroke="var(--theme-ink, rgba(40,30,15,0.6))" strokeWidth="0.8" />
-              {/* sticky note (offset, rotated visual via overlap) */}
-              <rect x="13" y="10.5" width="4" height="4" rx="0.3" fill="var(--theme-sticky-yellow, rgba(255,242,168,0.95))" stroke="var(--theme-metal-dark, rgba(120,90,30,0.5))" strokeWidth="0.7" />
-              {/* desk legs */}
-              <path d="M7 17v3M17 17v3" strokeLinecap="round" />
-            </svg>
-            <span className="text-[11px] font-semibold tracking-tight group-hover:text-white" style={{ color: 'var(--theme-metal-bright, #f5d27a)' }}>
-              Mission Chat
-            </span>
-            <span
-              className="text-[8px] font-bold uppercase tracking-widest text-bg-deep px-1.5 py-[1px] rounded-full"
-              style={{
-                background: 'linear-gradient(180deg, var(--theme-metal-bright, #ffd86e) 0%, var(--theme-metal-dark, #b07a1a) 100%)',
-                boxShadow: '0 1px 2px var(--theme-shadow, rgba(0,0,0,0.4))',
-                animation: 'missionPulse 2.4s ease-in-out infinite',
-              }}
-            >
-              NEW
-            </span>
-            <style>{`@keyframes missionPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.06); } }`}</style>
-          </button>
+          <CanvasIconButton label="Open Mission Chat" onClick={() => navigate('/mission')} variant="primary">
+            <Sparkles className="w-4 h-4" />
+          </CanvasIconButton>
           {/*
             Instructions row. Clicking opens the SpaceInstructionsEditor.
             Shows the current instructions preview when set, or a "+ Add
@@ -868,64 +887,30 @@ export default function TitanCanvas() {
           */}
           <button
             onClick={() => setInstructionsOpen(true)}
-            className="flex items-center gap-1.5 text-[10px] text-[#52525b] hover:text-[#a5b4fc] truncate max-w-md transition-colors"
+            className="titan-canvas-instructions truncate"
             title="Edit agent instructions for this space"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="m18 2 4 4-14 14H4v-4L18 2z" />
-            </svg>
             {space.agentInstructions
               ? <span className="truncate">{space.agentInstructions}</span>
               : <span className="italic">add agent instructions</span>}
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Widget count + quick-add + clear */}
-          <span className="text-[10px]" style={{ color: "var(--color-desk-text-muted)" }}>{validWidgets.length} panel{validWidgets.length !== 1 ? 's' : ''}</span>
-          <button
-            onClick={() => handleAddSystemWidget('system:nav', 'Nav', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Navigation"
-          >
-            Nav
-          </button>
-          <button
-            onClick={() => handleAddSystemWidget('system:agents', 'Agents', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Agents"
-          >
-            Agents
-          </button>
-          <button
-            onClick={() => handleAddSystemWidget('system:health', 'Health', 3, 3)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Health"
-          >
-            Health
-          </button>
-          <button
-            onClick={() => handleAddSystemWidget('system:stats', 'Stats', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Stats"
-          >
-            Stats
-          </button>
-          <button
-            onClick={() => handleAddSystemWidget('system:quick-links', 'Quick Links', 3, 4)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Quick Links"
-          >
-            Links
-          </button>
-          <button
-            onClick={() => handleAddSystemWidget('system:chat', 'Chat', 4, 5)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-            title="Add Chat"
-          >
-            Chat
-          </button>
+        <div className="titan-canvas-toolbar">
+          {CANVAS_QUICK_ACTIONS.map(action => {
+            const Icon = action.icon;
+            return (
+              <CanvasIconButton
+                key={action.source}
+                label={`Add ${action.label}`}
+                onClick={() => handleAddSystemWidget(action.source, action.name, action.w, action.h)}
+              >
+                <Icon className="w-4 h-4" />
+              </CanvasIconButton>
+            );
+          })}
           {validWidgets.length > 0 && (
-            <button
+            <CanvasIconButton
+              label="Clear canvas"
               onClick={async () => {
                 trackEvent('canvas_clear_all', { panelCount: validWidgets.length });
                 if (space) {
@@ -933,15 +918,15 @@ export default function TitanCanvas() {
                   setSpace({ ...space, widgets: [] });
                 }
               }}
-              className="text-[10px] px-2 py-1 rounded-md bg-[#ef4444]/5 border border-[#ef4444]/10 text-[#ef4444]/70 hover:bg-[#ef4444]/10 transition-colors"
+              variant="danger"
             >
-              Clear
-            </button>
+              <Trash2 className="w-4 h-4" />
+            </CanvasIconButton>
           )}
           {/* Version chip */}
           <button
             disabled={updating}
-            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${updateInfo?.isNewer ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20 cursor-pointer' : 'border text-[#6b5a45]'}`}
+            className={`titan-canvas-version-chip ${updateInfo?.isNewer ? 'titan-canvas-version-chip--update' : ''}`}
             style={!updateInfo?.isNewer ? { background: 'var(--theme-paper, rgba(253,246,227,0.7))', borderColor: 'var(--color-desk-border)' } : undefined}
             title={updateInfo?.isNewer ? `Update available: ${updateInfo.current} → ${updateInfo.latest}` : `TITAN ${updateInfo?.current || ''}`}
             onClick={async () => {
@@ -969,28 +954,15 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           >
             {updating ? '…' : updateInfo?.isNewer ? `↑ ${updateInfo.latest}` : `v${updateInfo?.current || ''}`}
           </button>
-          <button
-            onClick={() => setGalleryOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors flex items-center gap-1.5" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-accent)" }}
-            title="Widget gallery"
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l1.9 5.8L20 10l-5 3.6 1.5 6L12 16l-4.5 3.6L9 13.6 4 10l6.1-1.2L12 3z" />
-            </svg>
-            Gallery
-          </button>
-          <button
-            onClick={() => setCmdOpen(true)}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-          >
-            ⌘K
-          </button>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle'))}
-            className="text-[10px] px-2 py-1 rounded-md transition-colors" style={{ background: "var(--theme-paper, rgba(253,246,227,0.7))", border: "1px solid var(--color-desk-border)", color: "var(--color-desk-text-secondary)" }}
-          >
-            ⌘J
-          </button>
+          <CanvasIconButton label="Open widget gallery" onClick={() => setGalleryOpen(true)} variant="primary">
+            <GalleryVerticalEnd className="w-4 h-4" />
+          </CanvasIconButton>
+          <CanvasIconButton label="Open command palette" onClick={() => setCmdOpen(true)}>
+            <Command className="w-4 h-4" />
+          </CanvasIconButton>
+          <CanvasIconButton label="Open chat dock" onClick={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle'))}>
+            <MessageSquare className="w-4 h-4" />
+          </CanvasIconButton>
         </div>
       </div>
 
@@ -1004,7 +976,7 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           fixed TopbarThemePicker (top:48 + h:33 → bottom edge ≈ 81px) so
           neither the empty-state card nor placed widgets underflow the
           picker. */}
-      <div ref={gridWrapRef} className="relative pt-24 min-h-[5000px]">
+      <div ref={gridWrapRef} className="relative pt-28 min-h-[5000px]">
         {validWidgets.length === 0 ? (
           <EmptyCanvas space={space} onAddWidget={handleAddSystemWidget} onOpenChat={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }))} />
         ) : (
@@ -1061,19 +1033,6 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
             </ResponsiveGridLayout>
           </Suspense>
         )}
-      </div>
-
-      {/* Floating Nav — v6.1.0-beta.7 — moved from bottom-LEFT to
-          bottom-RIGHT (offset above the mascot at right:4 bottom:4).
-          The bottom-LEFT corner overlapped the SpacesSidebar's
-          Admin/Logout footer; bottom-RIGHT clears it. The NavWidget
-          is partially redundant with the SpacesSidebar but kept for
-          users who collapse the sidebar. */}
-      <div className="fixed right-4 bottom-32 z-50">
-        <NavWidget
-          currentSpaceId={space.id}
-          onSpaceSelect={(id) => navigate(`/space/${id}`)}
-        />
       </div>
 
       {/*
@@ -1237,12 +1196,8 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
   ];
 
   return (
-    <div className="h-full flex items-start justify-center pt-10 pb-32 px-6">
-      <div className="text-center w-full max-w-3xl rounded-2xl px-8 py-10 border" style={{
-        background: 'var(--color-desk-widget-bg)',
-        borderColor: 'var(--color-desk-border)',
-        boxShadow: '0 4px 16px var(--theme-shadow)',
-      }}>
+    <div className="h-full flex items-start justify-center pt-8 pb-32 px-4 sm:px-6">
+      <div className="titan-canvas-empty-panel text-center w-full max-w-4xl px-5 sm:px-8 py-8 sm:py-10">
         {/*
           Scoped chip styles — keeps the brass-rim + hover-lift logic
           out of inline `style` attributes (CSS pseudo-states like :hover
@@ -1298,7 +1253,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
           }
         `}</style>
 
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5" style={{
+        <div className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-5" style={{
           background: 'color-mix(in srgb, var(--theme-metal) 16%, transparent)',
           border: '1px solid color-mix(in srgb, var(--theme-metal) 35%, transparent)',
         }}>
@@ -1323,7 +1278,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
         <div className="flex justify-center mb-8">
           <button
             onClick={onOpenChat}
-            className="titan-empty-hero inline-flex items-center gap-2 px-6 py-3 rounded-xl text-base font-semibold"
+            className="titan-empty-hero inline-flex items-center gap-2 px-6 py-3 rounded-lg text-base font-semibold"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z" />
@@ -1350,7 +1305,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
                   <button
                     key={ex.source}
                     onClick={() => onAddWidget(ex.source, ex.label, ex.w, ex.h)}
-                    className="titan-empty-chip px-3 py-1.5 rounded-lg text-[11px] text-center"
+                    className="titan-empty-chip px-3 py-1.5 rounded-md text-[11px] text-center"
                     title={`Add ${ex.label}`}
                   >
                     + {ex.label}

@@ -1,5 +1,55 @@
 # Changelog
 
+## v6.4.0 — 2026-05-22 — Learning Curator + Desktop-Workspace UI polish
+
+Two coordinated tracks landed in one minor release: a new background-review system that turns repeated tool sequences into durable lessons, and a comprehensive UI polish pass that makes every page feel like a desktop workspace instead of a web app.
+
+### Learning Curator — TITAN now learns from itself, visibly
+
+Background review pass that runs every 24h, looks at the last 200 trajectories of a given task type, and writes durable lessons into TITAN's existing agent-lesson system. Patterns have a lifecycle (`active` → `watch` after 2+ durable failures → `stale` after 30 days idle → `archived` after 90 days; `stale` patterns auto-reactivate if they reappear). Three lesson kinds: **win** for proven sequences (3+ successes), **fail** for repeated structural failures (with the most-common failing tool called out by name), **recovery** when a different sequence successfully unstuck a previously-failing pattern.
+
+Transient failures (network errors, rate limits, missing API keys, ECONNRESET, ETIMEDOUT, "command not found", etc.) are excluded from the durable-failure count — only structural failures count toward "watch" promotion. Smart.
+
+Reports land at `~/.titan/logs/learning-curator/<stamp>/REPORT.md` (+ run.json) so you can inspect what TITAN learned. Curator state at `~/.titan/learning-curator-state.json` is JSON, human-readable, atomic writes.
+
+Wired into the agent loop at two points:
+- **Post-task:** `processTrajectoryForLearningReview(trajectory)` runs alongside the existing `processTrajectoryForSkills` at every task completion. Errors swallowed inside the curator so it can't poison the agent loop.
+- **Pre-task:** `renderLearningPatternGuidance(taskType)` injects a curator-derived hint block into the system prompt's existing "Continuous Learning" section, labelled `**Curator**:`. Watch-state patterns surface first (negative learning before positive).
+
+Config knobs (in `learningCurator` section of `titan.json`): `enabled` (default true), `intervalHours` (default 24), `minTrajectories` (default 3), `staleAfterDays` (default 30), `archiveAfterDays` (default 90). Set `enabled: false` to skip entirely; the curator pays zero cost when disabled.
+
+Files: new `src/agent/learningCurator.ts` (471 lines), edits to `src/agent/autoSkillGen.ts` (frontmatter helpers + `TITAN_SKILLS_DIR` constant + `resolveSkillGenerationModel` extraction), `src/agent/trajectoryLogger.ts` (path normalization to `TITAN_HOME`), `src/agent/agent.ts` (2 wire-up edits), `src/config/schema.ts` (new `learningCurator` Zod block).
+
+Attribution: pattern adapted from the MIT-licensed `NousResearch/hermes-agent` background-review system. Implementation is native to TITAN (writes into existing trajectory + lesson systems; does not introduce a parallel skill store). See `THIRD_PARTY_NOTICES.md`.
+
+Tests: +331 lines added to `tests/trajectory-logger.test.ts` covering pattern lifecycle transitions, lesson derivation across win/fail/recovery, interval gating, durable-vs-transient classification, report file generation, and the `TITAN_HOME` path override.
+
+### Desktop-Workspace UI polish
+
+Six coordinated visible shifts toward a coherent "desktop workspace" feel instead of a collection of web pages:
+
+- **Dot-grid + radial-gradient background** (`titan-desktop-workspace`) applies to every authenticated page via the `TitanShell` main wrapper. Subtle 28px grid with a metal-tinted radial highlight from top-left, layered over the theme base.
+- **Paper-card content pane** (`titan-desktop-pane`) layers translucent paper over the desktop base for the actual page content. Reads as "a document on a desk" not "a div on a screen."
+- **Frosted-glass window chrome** (`titan-window-titlebar`) on `PageHeader` — rounded border, gradient fill, box-shadow, backdrop-blur. Looks like a macOS window titlebar.
+- **Canvas quick-action toolbar** in `TitanCanvas.tsx` — 6 Lucide-icon buttons (Nav / Agents / Health / Stats / Quick Links / Chat) via a new `CanvasIconButton` component with default/primary/danger variants. Replaces the previous free-form widget discovery flow with discoverable shortcuts.
+- **Responsive sponsor pill** — hidden on phone-width screens (`hidden sm:flex`) so it doesn't cover mobile lists or bottom drawers. Desktop and tablet behavior unchanged.
+- **Empty-state polish** (`titan-empty-state`) — dashed border + paper tint for placeholder views, so "this is empty" looks intentional instead of broken.
+
+Plus a few small wins:
+- TITAN wordmark in the global shell sidebar lost its `tracking-[0.16em]` letter-spacing — tighter, less stretched.
+- ReactQueryDevtools is now opt-in even in dev mode (gated on `localStorage.getItem('titan:query-devtools') === '1'`). Removes a visible dev tool from default dev builds.
+- New shared components: `CanvasBackdrop`, `EmptyState` polish, `PageHeader` reworked, `MemoryGraphPanel` polished with the new building blocks, small `SomaOrb` + `FloatingChatDock` tweaks.
+
+Files: `ui/src/styles/globals.css` (+332 lines of new design tokens + classes), `ui/src/titan2/canvas/TitanCanvas.tsx` (net −239 line refactor + quick-action toolbar), `ui/src/components/shared/{CanvasBackdrop,EmptyState,PageHeader}.tsx`, `ui/src/components/shell/TitanShell.tsx`, `ui/src/components/admin/MemoryGraphPanel.tsx`, `ui/src/titan2/canvas/WidgetGallery.tsx`, `ui/src/titan2/system/{FloatingChatDock,SomaOrb}.tsx`, `ui/src/App.tsx`, `ui/src/main.tsx`.
+
+### Small server-side change
+
+`src/gateway/server.ts` — when Command Post is disabled in `titan.json`, `GET /api/command-post/approvals` now returns `[]` with an `X-TITAN-Command-Post: disabled` response header instead of a 503. Lets the UI poll approvals without erroring on installs that don't enable CP.
+
+### Verification
+
+Full local suite: 345 files / 7848+ tests pass / 2 documented skipped / 0 failing. Typecheck clean. Production build + UI build both clean. Live-verified against Titan PC Ollama at `http://192.168.1.11:11434` — cloud models including `qwen3-coder-next:cloud`, `gemma4:31b-cloud`, `kimi-k2.6:cloud` confirmed reachable through the v6.3.6 URL normalization.
+
 ## v6.3.6 — 2026-05-21 — Provider/router CI unblock + Ollama URL hardening
 
 CI on `main` had been failing since the 6.2.1-era Dependabot run because three test files silently passed through the deterministic `stub/echo` provider when `CI=true`, instead of exercising the real failover paths they were trying to test. Codex caught it, root-cause-fixed it, and the fix landed in this release.

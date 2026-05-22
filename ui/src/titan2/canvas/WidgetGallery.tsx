@@ -149,22 +149,19 @@ export function WidgetGallery({ open, onClose }: Props) {
     const catList = ['All', ...categories.map(c => c.category)];
 
     return (
-        <div
-            className="fixed inset-0 z-[2147483150] flex items-center justify-center p-4 titan-menu-overlay"
-            onClick={onClose}
-        >
+        <div className="fixed inset-0 z-[2147483150] flex items-center justify-center p-3 sm:p-4 titan-menu-overlay" onClick={onClose}>
             <div
-                className="w-full max-w-4xl titan-modal-surface flex flex-col"
-                style={{ height: 'min(720px, 90vh)', borderRadius: 12 }}
+                className="w-full max-w-5xl titan-widget-gallery-window flex flex-col"
+                style={{ height: 'min(760px, 92vh)' }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div
-                    className="flex items-center justify-between px-5 py-3"
-                    style={{ borderBottom: '1px solid var(--theme-menu-border)' }}
-                >
+                <div className="titan-widget-gallery-titlebar">
                     <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4" style={{ color: 'var(--theme-accent)' }} />
+                        <span className="titan-window-dot" />
+                        <span className="titan-window-dot titan-window-dot--dim" />
+                        <span className="titan-window-dot titan-window-dot--dim" />
+                        <Sparkles className="w-4 h-4 ml-1" style={{ color: 'var(--theme-accent)' }} />
                         <h3
                             className="font-semibold text-sm"
                             style={{ color: 'var(--theme-ink)', fontFamily: 'var(--theme-font-display)' }}
@@ -186,16 +183,12 @@ export function WidgetGallery({ open, onClose }: Props) {
                 </div>
 
                 {/* Category filter */}
-                <div className="flex items-center gap-1.5 px-5 py-2 border-b border-[#27272a] text-[11px] overflow-x-auto">
+                <div className="titan-widget-gallery-category-row">
                     {catList.map(cat => (
                         <button
                             key={cat}
                             onClick={() => setActive(cat)}
-                            className={`px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap ${
-                                active === cat
-                                    ? 'border-[#6366f1] bg-[#6366f1]/15 text-white'
-                                    : 'border-[#27272a] bg-transparent text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white'
-                            }`}
+                            className={`titan-widget-gallery-category ${active === cat ? 'titan-widget-gallery-category--active' : ''}`}
                         >
                             {displayCategory(cat)}
                             {cat !== 'All' && (
@@ -207,14 +200,14 @@ export function WidgetGallery({ open, onClose }: Props) {
                     ))}
                 </div>
 
-                <div className="px-5 py-2 border-b border-[#27272a]">
-                    <label className="flex items-center gap-2 rounded-lg border border-[#27272a] bg-[#18181b]/60 px-3 py-2">
-                        <Search className="w-3.5 h-3.5 text-[#71717a]" />
+                <div className="px-4 sm:px-5 py-2 border-b" style={{ borderColor: 'var(--theme-menu-border)' }}>
+                    <label className="titan-widget-gallery-search">
+                        <Search className="w-3.5 h-3.5" />
                         <input
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             placeholder="Search templates..."
-                            className="flex-1 bg-transparent text-xs text-white placeholder:text-[#71717a] outline-none"
+                            className="flex-1 bg-transparent text-xs outline-none"
                         />
                     </label>
                 </div>
@@ -222,24 +215,24 @@ export function WidgetGallery({ open, onClose }: Props) {
                 {/* Template grid */}
                 <div className="flex-1 overflow-auto p-4">
                     {loading && (
-                        <div className="flex items-center justify-center h-full text-[#a1a1aa] text-sm">
+                        <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--theme-ink-soft)' }}>
                             Loading templates…
                         </div>
                     )}
                     {error && (
-                        <div className="flex items-center justify-center h-full text-[#f87171] text-sm">
+                        <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--color-error)' }}>
                             Error: {error}
                         </div>
                     )}
                     {!loading && !error && (
                         <>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 {filtered.map(t => (
                                     <button
                                         key={t.id}
                                         onClick={() => runTemplate(t)}
                                         disabled={addingId !== null}
-                                        className="text-left p-3 rounded-lg border border-[#27272a] bg-[#18181b]/60 hover:border-[#6366f1]/50 hover:bg-[#18181b] transition-colors group"
+                                        className="titan-widget-gallery-card group"
                                     >
                                         <div className="flex items-center justify-between gap-2 mb-1">
                                             <div className="flex items-center gap-2 min-w-0">
@@ -247,17 +240,17 @@ export function WidgetGallery({ open, onClose }: Props) {
                                                     className="w-1.5 h-1.5 rounded-full shrink-0"
                                                     style={{ background: CATEGORY_PALETTE[t.category] ?? '#9ca3af' }}
                                                 />
-                                                <span className="text-[12px] font-medium text-white truncate">{t.name}</span>
+                                                <span className="text-[12px] font-medium truncate" style={{ color: 'var(--theme-ink)' }}>{t.name}</span>
                                             </div>
-                                            <Send className="w-3 h-3 text-[#52525b] group-hover:text-[#a5b4fc] transition-colors shrink-0" />
+                                            <Send className="w-3 h-3 transition-colors shrink-0" />
                                         </div>
-                                        <div className="text-[11px] text-[#a1a1aa] leading-relaxed line-clamp-2">
+                                        <div className="text-[11px] leading-relaxed line-clamp-2" style={{ color: 'var(--theme-ink-soft)' }}>
                                             {addingId === t.id ? 'Adding to canvas...' : t.description}
                                         </div>
                                         {t.tags && t.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-1 mt-1.5">
                                                 {t.tags.slice(0, 3).map(tag => (
-                                                    <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-[#27272a] text-[#71717a]">
+                                                    <span key={tag} className="titan-widget-gallery-tag">
                                                         {tag}
                                                     </span>
                                                 ))}
@@ -267,20 +260,20 @@ export function WidgetGallery({ open, onClose }: Props) {
                                 ))}
                             </div>
                             {filtered.length === 0 && (
-                                <div className="flex items-center justify-center h-40 text-[#a1a1aa] text-sm">
+                                <div className="flex items-center justify-center h-40 text-sm" style={{ color: 'var(--theme-ink-soft)' }}>
                                     No templates in this category.
                                 </div>
                             )}
                         </>
                     )}
-                    <div className="mt-4 p-3 rounded-lg border border-dashed border-[#27272a] bg-[#0a0a0e] flex items-start gap-2">
-                        <LayoutGrid className="w-3.5 h-3.5 text-[#71717a] mt-0.5 shrink-0" />
-                        <div className="text-[11px] text-[#a1a1aa] leading-relaxed">
+                    <div className="titan-widget-gallery-note">
+                        <LayoutGrid className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <div className="text-[11px] leading-relaxed">
                             Don&rsquo;t see what you want? Open the chat (click the mascot) and describe
                             your widget in plain English. TITAN can build anything that runs inside a
-                            sandboxed iframe with access to <span className="font-mono text-[#d4d4d8]">titan.fetch</span>,{' '}
-                            <span className="font-mono text-[#d4d4d8]">titan.api.call</span>, and{' '}
-                            <span className="font-mono text-[#d4d4d8]">titan.state</span>.
+                            sandboxed iframe with access to <span className="font-mono">titan.fetch</span>,{' '}
+                            <span className="font-mono">titan.api.call</span>, and{' '}
+                            <span className="font-mono">titan.state</span>.
                         </div>
                     </div>
                 </div>
