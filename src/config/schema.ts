@@ -1427,6 +1427,29 @@ export const TitanConfigSchema = z.object({
     }).default({}),
 
     /**
+     * Learning Curator (v6.4.0+) — background review pass that turns
+     * repeated successful tool sequences into durable "win" lessons and
+     * repeated structural failures into "watch" warnings. Lessons are
+     * surfaced in the agent's system prompt at task start; reports land
+     * at ~/.titan/logs/learning-curator/<stamp>/.
+     *
+     * Defaults are conservative: 24h between review runs, requires 3
+     * trajectories of a given task type before extracting lessons,
+     * promotes patterns to "stale" after 30 days idle and archives them
+     * after 90. Set `enabled: false` to skip the curator entirely.
+     *
+     * Implementation lives in src/agent/learningCurator.ts (MIT-licensed
+     * port of the NousResearch/hermes-agent background-review pattern).
+     */
+    learningCurator: z.object({
+        enabled: z.boolean().default(true),
+        intervalHours: z.number().min(1).max(720).default(24),
+        minTrajectories: z.number().min(2).max(50).default(3),
+        staleAfterDays: z.number().min(1).max(365).default(30),
+        archiveAfterDays: z.number().min(1).max(730).default(90),
+    }).default({}),
+
+    /**
      * Persona Profiles (v5.5.24+ — Dad Mode plumbing) — TITAN can run as
      * different personas based on time-of-day, channel, or caller. The
      * active persona controls which tools are exposed to the LLM, what

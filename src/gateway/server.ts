@@ -1273,8 +1273,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // ── Command Post availability guard ──────────────────────────
-  app.use('/api/command-post', (_req, res, next) => {
+  app.use('/api/command-post', (req, res, next) => {
     if (isCommandPostEnabled()) { next(); return; }
+    if (req.method === 'GET' && req.path === '/approvals') {
+      res.setHeader('X-TITAN-Command-Post', 'disabled');
+      res.json([]);
+      return;
+    }
     res.status(503).json({ error: 'Command Post is disabled', hint: 'Enable it in titan.json: commandPost.enabled = true' });
   });
 

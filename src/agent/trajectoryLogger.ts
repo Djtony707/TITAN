@@ -9,11 +9,11 @@
  */
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import logger from '../utils/logger.js';
+import { TITAN_HOME } from '../utils/constants.js';
 
 const COMPONENT = 'TrajectoryLogger';
-const TRAJECTORIES_DIR = join(homedir(), '.titan', 'trajectories');
+const TRAJECTORIES_DIR = join(TITAN_HOME, 'trajectories');
 const TASK_TRAJECTORIES_FILE = join(TRAJECTORIES_DIR, 'task-trajectories.jsonl');
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 

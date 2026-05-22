@@ -16,14 +16,15 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, breadcrumbs, actions }: PageHeaderProps) {
   return (
-    <div className="mb-4 md:mb-6">
+    <header className="titan-window-titlebar mb-4 md:mb-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
       {breadcrumbs && breadcrumbs.length > 0 && (
-        <nav className="mb-2 flex items-center gap-1 text-[10px] md:text-xs text-text-muted overflow-x-auto scrollbar-thin pb-1">
+        <nav className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] text-text-muted scrollbar-thin md:text-xs" aria-label="Breadcrumb">
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1 flex-shrink-0">
               {i > 0 && <ChevronRight size={12} className="opacity-50 flex-shrink-0" />}
               {crumb.href ? (
-                <Link to={crumb.href} className="hover:text-text transition-colors whitespace-nowrap">{crumb.label}</Link>
+                <Link to={crumb.href} className="whitespace-nowrap transition-colors hover:text-text">{crumb.label}</Link>
               ) : (
                 <span className={i === breadcrumbs.length - 1 ? 'text-text-secondary whitespace-nowrap' : ''}>{crumb.label}</span>
               )}
@@ -31,13 +32,19 @@ export function PageHeader({ title, subtitle, breadcrumbs, actions }: PageHeader
           ))}
         </nav>
       )}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-lg md:text-xl font-semibold text-text">{title}</h1>
-          {subtitle && <p className="mt-0.5 text-[11px] md:text-sm text-text-muted">{subtitle}</p>}
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-1 hidden h-3.5 w-11 shrink-0 items-center gap-1.5 md:flex" aria-hidden="true">
+            <span className="h-2.5 w-2.5 rounded-full bg-error/80" />
+            <span className="h-2.5 w-2.5 rounded-full bg-warning/80" />
+            <span className="h-2.5 w-2.5 rounded-full bg-success/80" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold text-text md:text-xl">{title}</h1>
+            {subtitle && <p className="mt-1 max-w-3xl text-[11px] leading-5 text-text-muted md:text-sm">{subtitle}</p>}
+          </div>
         </div>
-        {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
       </div>
-    </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
+    </header>
   );
 }

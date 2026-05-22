@@ -36,6 +36,12 @@ import { queueWakeup } from './agentWakeup.js';
 import { createIssue, requestHireApproval } from './commandPost.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { logTrajectory } from './trajectoryLogger.js';
+// v6.4.0 — learning curator wire-up. Imports two surfaces:
+//   processTrajectoryForLearningReview() runs the 24h-gated review after
+//     each task to derive durable lessons from repeated trajectories.
+//   renderLearningPatternGuidance() surfaces those lessons as a system-
+//     prompt hint at the start of similar future tasks.
+import { processTrajectoryForLearningReview, renderLearningPatternGuidance } from './learningCurator.js';
 import { processTrajectoryForSkills, getSkillGuidance } from './autoSkillGen.js';
 import { getAgent } from './multiAgent.js';
 import { isDangerous } from '../utils/safety.js';
@@ -764,6 +770,14 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     // Auto-skill guidance — proven tool sequences from trajectory analysis
     const skillGuidance = userMessage ? getSkillGuidance(userMessage) : null;
 
+    // v6.4.0 — Learning curator guidance. Same shape as auto-skill but
+    // pulls from the lifecycle-aware pattern store (active/watch/stale/
+    // archived) so "watch" patterns (repeated durable failures) get
+    // surfaced as negative learning, not just positive wins.
+    const learningGuidance = userMessage
+        ? renderLearningPatternGuidance(classifyTaskType(userMessage))
+        : null;
+
     // Teaching context — adaptive skill level, corrections, tool suggestions
     const teachingContext = getTeachingContext();
 
@@ -828,8 +842,8 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
 
     // Continuous learning + hint stack — compact form. Only included in
     // 'full' mode; specialists get a focused task instead.
-    const learningBlock = (mode === 'full' && (learningContext || strategyHint || hindsightHint || preferenceHint || wisdomHint || skillGuidance))
-        ? `## Continuous Learning${learningContext ? '\n' + learningContext : ''}${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}${skillGuidance ? `\n**Auto-skill**: ${skillGuidance}` : ''}`
+    const learningBlock = (mode === 'full' && (learningContext || strategyHint || hindsightHint || preferenceHint || wisdomHint || skillGuidance || learningGuidance))
+        ? `## Continuous Learning${learningContext ? '\n' + learningContext : ''}${strategyHint ? `\n**Strategy hint**: ${strategyHint}` : ''}${hindsightHint ? `\n**Cross-session memory**: ${hindsightHint}` : ''}${preferenceHint ? `\n**Learned preferences**: ${preferenceHint}` : ''}${wisdomHint ? `\n**Soul wisdom**: ${wisdomHint}` : ''}${skillGuidance ? `\n**Auto-skill**: ${skillGuidance}` : ''}${learningGuidance ? `\n**Curator**: ${learningGuidance}` : ''}`
         : '';
 
     const frustrationBlock = (userMessage && detectFrustration(userMessage))
@@ -2150,6 +2164,12 @@ export async function processMessage(
     };
     logTrajectory(trajectory);
     processTrajectoryForSkills(trajectory);
+    // v6.4.0 — feed the same trajectory into the learning curator so it
+    // can update its per-pattern lifecycle state and (every 24h) write
+    // durable lessons to ~/.titan/logs/learning-curator/. Errors are
+    // swallowed inside processTrajectoryForLearningReview so a curator
+    // failure can't poison the agent loop.
+    processTrajectoryForLearningReview(trajectory);
 
     // Finalize trace
     trace.setModel(modelUsed);

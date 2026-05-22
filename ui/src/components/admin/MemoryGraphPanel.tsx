@@ -91,10 +91,19 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasFinitePosition(node: GraphNode): node is GraphNode & { x: number; y: number } {
+  return isFiniteNumber(node.x) && isFiniteNumber(node.y);
+}
+
 // Scale-adaptive force-directed layout with type clustering
 function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number) {
   const n = nodes.length;
   if (n === 0) return;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
 
   const cx = width / 2, cy = height / 2;
 
@@ -121,7 +130,7 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
   // Initialize positions near cluster centers with jitter (only for new nodes)
   for (let i = 0; i < n; i++) {
     const node = nodes[i];
-    if (node.x !== undefined) continue;
+    if (hasFinitePosition(node)) continue;
     const center = clusterCenters.get(node.type?.toLowerCase() ?? 'unknown') ?? { x: cx, y: cy };
     const jitter = Math.min(width, height) * 0.12;
     node.x = center.x + (Math.random() - 0.5) * jitter;
@@ -160,12 +169,14 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
       // Approximate: only repel against a random subset + connected neighbors
       for (let i = 0; i < n; i++) {
         const a = nodes[i];
+        if (!hasFinitePosition(a)) continue;
         const neighbors = adjacency.get(a.id) ?? new Set();
         for (let j = i + 1; j < n; j++) {
           // Skip ~80% of distant pairs for large graphs
           if (!neighbors.has(nodes[j].id) && Math.random() > 0.2) continue;
           const b = nodes[j];
-          let dx = a.x! - b.x!, dy = a.y! - b.y!;
+          if (!hasFinitePosition(b)) continue;
+          const dx = a.x - b.x, dy = a.y - b.y;
           const distSq = dx * dx + dy * dy;
           const dist = Math.sqrt(distSq) || 1;
           const force = repulsion / (distSq + 100);
@@ -179,7 +190,8 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
       for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
           const a = nodes[i], b = nodes[j];
-          let dx = a.x! - b.x!, dy = a.y! - b.y!;
+          if (!hasFinitePosition(a) || !hasFinitePosition(b)) continue;
+          const dx = a.x - b.x, dy = a.y - b.y;
           const distSq = dx * dx + dy * dy;
           const dist = Math.sqrt(distSq) || 1;
           const force = repulsion / (distSq + 100);
@@ -194,8 +206,8 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
     // Attraction along edges (Hooke's law)
     for (const e of edges) {
       const a = nodeMap.get(e.from), b = nodeMap.get(e.to);
-      if (!a || !b) continue;
-      const dx = b.x! - a.x!, dy = b.y! - a.y!;
+      if (!a || !b || !hasFinitePosition(a) || !hasFinitePosition(b)) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
       const force = dist * attraction;
       const fx = (dx / dist) * force, fy = (dy / dist) * force;
@@ -206,28 +218,35 @@ function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
     // Cluster gravity — pull nodes toward their type's center
     const clusterStrength = clusterGravity * (1 - progress * 0.5); // Fade over time
     for (const node of nodes) {
+      if (!hasFinitePosition(node)) continue;
       const center = clusterCenters.get(node.type?.toLowerCase() ?? 'unknown');
       if (center) {
-        node.vx! += (center.x - node.x!) * clusterStrength;
-        node.vy! += (center.y - node.y!) * clusterStrength;
+        node.vx! += (center.x - node.x) * clusterStrength;
+        node.vy! += (center.y - node.y) * clusterStrength;
       }
     }
 
     // Mild center gravity to keep graph centered
     for (const node of nodes) {
-      node.vx! += (cx - node.x!) * centerGravity;
-      node.vy! += (cy - node.y!) * centerGravity;
+      if (!hasFinitePosition(node)) continue;
+      node.vx! += (cx - node.x) * centerGravity;
+      node.vy! += (cy - node.y) * centerGravity;
     }
 
     // Apply velocity with damping
     const margin = 40;
     for (const node of nodes) {
+      if (!hasFinitePosition(node)) continue;
       node.vx! *= damping;
       node.vy! *= damping;
-      node.x! += node.vx!;
-      node.y! += node.vy!;
-      node.x = Math.max(margin, Math.min(width - margin, node.x!));
-      node.y = Math.max(margin, Math.min(height - margin, node.y!));
+      node.x += node.vx!;
+      node.y += node.vy!;
+      if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+        node.x = cx;
+        node.y = cy;
+      }
+      node.x = Math.max(margin, Math.min(Math.max(margin, width - margin), node.x));
+      node.y = Math.max(margin, Math.min(Math.max(margin, height - margin), node.y));
     }
   }
 }
@@ -300,7 +319,7 @@ function MemoryGraphPanel() {
         // Restore saved positions before layout so graph stays stable
         for (const node of d.nodes) {
           const saved = positionsRef.current.get(node.id);
-          if (saved) {
+          if (saved && isFiniteNumber(saved.x) && isFiniteNumber(saved.y)) {
             node.x = saved.x;
             node.y = saved.y;
           }
@@ -308,7 +327,7 @@ function MemoryGraphPanel() {
         layoutNodes(d.nodes, d.edges ?? [], w, h);
         // Save new positions
         for (const node of d.nodes) {
-          if (node.x !== undefined && node.y !== undefined) {
+          if (hasFinitePosition(node)) {
             positionsRef.current.set(node.id, { x: node.x, y: node.y });
           }
         }
@@ -404,13 +423,15 @@ function MemoryGraphPanel() {
 
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) return;
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
     const W = rect.width, H = rect.height;
     const { nodes, edges } = filtered;
-    const nodeMap = new Map(nodes.map((nd) => [nd.id, nd]));
+    const drawableNodes = nodes.filter(hasFinitePosition);
+    const nodeMap = new Map(drawableNodes.map((nd) => [nd.id, nd]));
 
     const draw = () => {
       timeRef.current++;
@@ -543,14 +564,16 @@ function MemoryGraphPanel() {
       }
 
       // --- NODES ---
-      for (const n of nodes) {
+      for (const n of drawableNodes) {
         const color = getColor(n.type);
         const [cr, cg, cb] = hexToRgb(color);
         const baseRadius = Math.max(8, Math.min(24, (n.size || 12)));
         const breathe = Math.sin(t * 0.025 + n.id.charCodeAt(0) * 0.5) * 1;
         const radius = (baseRadius + breathe) * pan.zoom;
-        const tx = n.x! * pan.zoom + pan.x;
-        const ty = n.y! * pan.zoom + pan.y;
+        if (!Number.isFinite(radius) || radius <= 0) continue;
+        const tx = n.x * pan.zoom + pan.x;
+        const ty = n.y * pan.zoom + pan.y;
+        if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
 
         // Skip off-screen
         if (tx < -radius * 3 || ty < -radius * 3 || tx > W + radius * 3 || ty > H + radius * 3) continue;
@@ -672,8 +695,10 @@ function MemoryGraphPanel() {
       const mx = clientX - rect.left, my = clientY - rect.top;
       for (const n of [...filtered.nodes].reverse()) {
         const radius = Math.max(8, Math.min(24, (n.size || 12))) * pan.zoom;
-        const tx = n.x! * pan.zoom + pan.x;
-        const ty = n.y! * pan.zoom + pan.y;
+        if (!hasFinitePosition(n) || !Number.isFinite(radius) || radius <= 0) continue;
+        const tx = n.x * pan.zoom + pan.x;
+        const ty = n.y * pan.zoom + pan.y;
+        if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
         const dx = mx - tx, dy = my - ty;
         if (dx * dx + dy * dy <= (radius + 6) * (radius + 6)) return n;
       }

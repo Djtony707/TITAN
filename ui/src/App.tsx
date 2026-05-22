@@ -227,12 +227,12 @@ function AuthenticatedAppInner() {
         still pass through; the link itself re-enables pointer events.
 
         Tony's brief: "Put it center on the bottom of the screen so
-        nothing can be in front of it." All the previous in-page /
-        in-sidebar placements were removed — this is now the single
-        source of truth for the sponsor link in TITAN.
+        nothing can be in front of it." On phone-width screens the pill is
+        hidden so it does not cover lists, drawers, or bottom action chrome.
+        This remains the single desktop/tablet placement for support links.
       */}
       <div
-        className="fixed bottom-1.5 left-0 right-0 flex justify-center pointer-events-none"
+        className="fixed bottom-1.5 left-0 right-0 hidden justify-center pointer-events-none sm:flex"
         style={{ zIndex: 2147483647 }}
       >
         {/* v6.3.3 — Sponsor + Star share a single bottom-center pill so

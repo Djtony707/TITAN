@@ -2,22 +2,23 @@
  * TITAN — Auto-Skill Generation from Trajectories
  *
  * When a task type + tool sequence succeeds 3+ times, auto-generates a SKILL.md
- * at ~/.titan/workspace/skills/auto-{taskType}-{hash}/SKILL.md.
+ * under TITAN_HOME/workspace/skills/auto-{taskType}-{hash}/SKILL.md.
  *
  * On future tasks, matching skills are surfaced as guidance in the system prompt.
  * Inspired by Hermes skill_manager_tool.py.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
-import { join, basename } from 'path';
-import { homedir } from 'os';
+import { join } from 'path';
 import { createHash } from 'crypto';
 import { getRecentTrajectories, getSequenceSignature, countMatchingTrajectories, type TaskTrajectory } from './trajectoryLogger.js';
 import { classifyTaskType } from '../memory/learning.js';
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
+import { TITAN_SKILLS_DIR } from '../utils/constants.js';
+import { processTrajectoryForLearningReview, renderLearningPatternGuidance } from './learningCurator.js';
 
 const COMPONENT = 'AutoSkillGen';
-const SKILLS_DIR = join(homedir(), '.titan', 'workspace', 'skills');
+const SKILLS_DIR = TITAN_SKILLS_DIR;
 const MIN_SUCCESSES = 3; // Minimum successful runs before generating a skill
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -46,6 +47,32 @@ function skillDirName(taskType: string, toolSequence: string[]): string {
 
 function skillPath(taskType: string, toolSequence: string[]): string {
     return join(SKILLS_DIR, skillDirName(taskType, toolSequence), 'SKILL.md');
+}
+
+function frontmatterArray(values: string[]): string {
+    return `[${values.map(v => JSON.stringify(v)).join(', ')}]`;
+}
+
+function parseFrontmatterArray(value: string | undefined): string[] {
+    if (!value) return [];
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return [];
+    return trimmed
+        .slice(1, -1)
+        .split(',')
+        .map(v => v.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
+}
+
+function parseFrontmatterScalar(fm: string, key: string): string {
+    const match = fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
+    return match?.[1]?.trim() ?? '';
+}
+
+function parseFrontmatterNumber(fm: string, key: string): number {
+    const raw = parseFrontmatterScalar(fm, key);
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // ── Core Functions ────────────────────────────────────────────────
@@ -78,11 +105,7 @@ export function shouldGenerateSkill(trajectory: TaskTrajectory): boolean {
 export async function generateSkillContent(trajectory: TaskTrajectory): Promise<string> {
     // Try LLM-enhanced generation first
     try {
-        const config = loadConfig();
-        const aliases = (config.agent as Record<string, unknown>).modelAliases as Record<string, string> | undefined;
-        const fastModel = aliases?.fast || 'ollama/qwen3.5:cloud';
-
-        const llmContent = await generateSkillWithLLM(trajectory, fastModel);
+        const llmContent = await generateSkillWithLLM(trajectory, resolveSkillGenerationModel());
         if (llmContent && llmContent.length > 200) {
             logger.info(COMPONENT, `LLM-enhanced skill generated (${llmContent.length} chars) for ${trajectory.taskType}`);
             return llmContent;
@@ -93,6 +116,19 @@ export async function generateSkillContent(trajectory: TaskTrajectory): Promise<
 
     // Fallback: template-based generation (original behavior)
     return generateSkillTemplate(trajectory);
+}
+
+export function resolveSkillGenerationModel(): string {
+    const config = loadConfig();
+    const agent = config.agent as {
+        model?: string;
+        modelAliases?: Record<string, string>;
+    };
+
+    return agent.modelAliases?.fast
+        || agent.modelAliases?.reasoning
+        || agent.model
+        || 'fast';
 }
 
 /**
@@ -151,6 +187,11 @@ description: <one-line description>
 version: 1.0.0
 author: TITAN AutoSkill
 category: auto-generated
+taskType: ${trajectory.taskType}
+toolSequence: ${frontmatterArray(trajectory.toolSequence)}
+successCount: ${matchingTrajectories.length}
+avgRounds: ${avgRounds}
+generatedAt: <ISO timestamp>
 ---
 
 Keep it concise — under 60 lines total. No filler.`;
@@ -196,6 +237,11 @@ description: Auto-generated skill for ${trajectory.taskType} tasks using ${traje
 version: 1.0.0
 author: TITAN AutoSkill
 category: auto-generated
+taskType: ${trajectory.taskType}
+toolSequence: ${frontmatterArray(trajectory.toolSequence)}
+successCount: ${matchingTrajectories.length}
+avgRounds: ${avgRounds}
+generatedAt: ${new Date().toISOString()}
 ---
 
 # ${trajectory.taskType} Task Pattern
@@ -269,17 +315,23 @@ export function findMatchingSkills(message: string, taskType: string): Generated
                 if (!fmMatch) continue;
 
                 const fm = fmMatch[1];
-                const descMatch = fm.match(/description:\s*(.+)/);
-                const description = descMatch?.[1] || '';
+                const description = parseFrontmatterScalar(fm, 'description');
+                const skillTaskType = parseFrontmatterScalar(fm, 'taskType') || taskType;
 
                 // Check if this skill matches the task type
-                if (!dir.includes(taskType) && !description.toLowerCase().includes(taskType)) continue;
+                if (
+                    skillTaskType !== taskType
+                    && !dir.includes(taskType)
+                    && !description.toLowerCase().includes(taskType)
+                ) continue;
 
-                // Parse tool sequence from the skill content
+                // Prefer structured frontmatter. Fall back to legacy template parsing
+                // for skills generated before toolSequence was persisted.
                 const toolMatches = content.match(/\*\*(\w+)\*\*/g);
-                const toolSequence = toolMatches
+                const legacyToolSequence = toolMatches
                     ? toolMatches.map(m => m.replace(/\*\*/g, '')).filter(t => !['Success', 'Average', 'Generated', 'When'].includes(t))
                     : [];
+                const toolSequence = parseFrontmatterArray(parseFrontmatterScalar(fm, 'toolSequence'));
 
                 const successMatch = content.match(/(\d+) successful runs/);
                 const roundsMatch = content.match(/Average rounds.*?(\d+)/);
@@ -287,12 +339,12 @@ export function findMatchingSkills(message: string, taskType: string): Generated
                 results.push({
                     name: dir,
                     description,
-                    taskType,
-                    toolSequence,
+                    taskType: skillTaskType,
+                    toolSequence: toolSequence.length > 0 ? toolSequence : legacyToolSequence,
                     triggerPatterns: [taskType],
-                    successCount: successMatch ? parseInt(successMatch[1]) : 0,
-                    avgRounds: roundsMatch ? parseInt(roundsMatch[1]) : 0,
-                    generatedAt: '',
+                    successCount: parseFrontmatterNumber(fm, 'successCount') || (successMatch ? parseInt(successMatch[1]) : 0),
+                    avgRounds: parseFrontmatterNumber(fm, 'avgRounds') || (roundsMatch ? parseInt(roundsMatch[1]) : 0),
+                    generatedAt: parseFrontmatterScalar(fm, 'generatedAt'),
                 });
             } catch { /* skip malformed skill files */ }
         }
@@ -308,11 +360,13 @@ export function findMatchingSkills(message: string, taskType: string): Generated
 export function getSkillGuidance(message: string): string | null {
     const taskType = classifyTaskType(message);
     const skills = findMatchingSkills(message, taskType);
+    const learningPatternGuidance = renderLearningPatternGuidance(taskType);
 
-    if (skills.length === 0) return null;
+    if (skills.length === 0) return learningPatternGuidance;
 
     const best = skills.sort((a, b) => b.successCount - a.successCount)[0];
-    return `For similar ${best.taskType} tasks, a proven approach: ${best.toolSequence.join(' → ')} (${best.successCount} successful runs, ~${best.avgRounds} rounds). Auto-generated from past trajectories.`;
+    const skillGuidance = `For similar ${best.taskType} tasks, a proven approach: ${best.toolSequence.join(' → ')} (${best.successCount} successful runs, ~${best.avgRounds} rounds). Auto-generated from past trajectories.`;
+    return learningPatternGuidance ? `${skillGuidance}\n\n${learningPatternGuidance}` : skillGuidance;
 }
 
 /**
@@ -321,6 +375,8 @@ export function getSkillGuidance(message: string): string | null {
  * Runs async (LLM call for rich skill generation) but fire-and-forget — never blocks the agent response.
  */
 export function processTrajectoryForSkills(trajectory: TaskTrajectory): void {
+    processTrajectoryForLearningReview(trajectory);
+
     if (shouldGenerateSkill(trajectory)) {
         // Fire-and-forget: don't block the agent response on skill generation
         saveGeneratedSkill(trajectory).catch(err => {

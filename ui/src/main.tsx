@@ -12,6 +12,15 @@ import './styles/globals.css';
 import './styles/theme-variables.css';
 import { DeskThemeProvider } from '@/components/desk/DeskTheme';
 
+function shouldShowQueryDevtools(): boolean {
+  try {
+    const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+    return Boolean(env?.DEV) && localStorage.getItem('titan:query-devtools') === '1';
+  } catch {
+    return false;
+  }
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) { return { error }; }
@@ -37,7 +46,7 @@ createRoot(document.getElementById('root')!).render(
           <BrowserRouter>
             <App />
           </BrowserRouter>
-          <ReactQueryDevtools initialIsOpen={false} />
+          {shouldShowQueryDevtools() && <ReactQueryDevtools initialIsOpen={false} />}
         </QueryClientProvider>
       </DeskThemeProvider>
     </ErrorBoundary>
