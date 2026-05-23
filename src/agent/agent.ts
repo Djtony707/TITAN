@@ -1159,6 +1159,13 @@ export async function processMessage(
          *  tool outputs back to the originating Soma drive for the
          *  self-modification pipeline. */
         goalContext?: { goalId: string; goalTitle: string; proposedBy: string };
+        /** v6.4.4: explicit tool allowlist. When provided, the agent
+         *  loop bypasses the persona / brain / toolSearch / dangerous
+         *  filter chain and binds EXACTLY these tool names. Used by
+         *  cron jobs that need fb_post, ha_control, etc. and don't
+         *  want the filter chain stripping them — fixes the fb-* cron
+         *  hallucination where tools=[] reached the model. */
+        allowedTools?: string[];
     },
     streamCallbacks?: StreamCallbacks,
     signal?: AbortSignal,
@@ -1766,6 +1773,32 @@ export async function processMessage(
     modelUsed = activeModel;
 
     let activeTools = tools;
+    // v6.4.4: declare allToolsBackup + toolSearchEnabled here so they're
+    // accessible in BOTH the explicitAllowList short-circuit branch and the
+    // filter-chain branch. allToolsBackup is used downstream by runAgentLoop
+    // for tool_search expansion fallback; toolSearchEnabled gates expansion.
+    let allToolsBackup: typeof activeTools = activeTools;
+    let toolSearchEnabled = true;
+
+    // v6.4.4: explicit cron/override allowlist short-circuit. When the
+    // caller (typically a cron job) hands us an explicit list of tool
+    // names, bypass the persona / small-model / brain / toolSearch /
+    // dangerous filter chain entirely. The caller knows what tools the
+    // task needs — we should not be second-guessing it. This fixes the
+    // fb-* cron hallucination bug where activeTools reached the agent
+    // loop as 0 despite the prompt explicitly saying "Call fb_post".
+    const explicitAllowList = overrides?.allowedTools;
+    if (explicitAllowList && explicitAllowList.length > 0) {
+        const allow = new Set(explicitAllowList);
+        const before = activeTools.length;
+        activeTools = tools.filter(t => allow.has(t.function.name));
+        allToolsBackup = activeTools;
+        logger.info(COMPONENT, `[AllowedTools] override bound ${activeTools.length}/${explicitAllowList.length} requested tools (filter chain bypassed): [${activeTools.map(t => t.function.name).join(', ')}] from pool of ${before}`);
+        const missing = explicitAllowList.filter(name => !activeTools.some(t => t.function.name === name));
+        if (missing.length > 0) {
+            logger.warn(COMPONENT, `[AllowedTools] caller asked for tools that aren't registered: [${missing.join(', ')}]`);
+        }
+    } else {
 
     // v5.5.24: Persona-level tool filter. earlyPersona was already
     // resolved when we built enrichedSystemPrompt above; reuse that
@@ -1807,8 +1840,10 @@ export async function processMessage(
         enabled?: boolean;
         coreTools?: string[];
     } | undefined;
-    const toolSearchEnabled = toolSearchConfig?.enabled ?? true;
-    const allToolsBackup = activeTools;
+    // v6.4.4: now assignments, not declarations — variables are hoisted above
+    // the explicitAllowList short-circuit so both branches can reach them.
+    toolSearchEnabled = toolSearchConfig?.enabled ?? true;
+    allToolsBackup = activeTools;
 
     // Always ensure pipeline tools are in the active set, even when toolSearch is disabled
     if (pipelineEnsureTools.length > 0 && !(toolSearchEnabled && !isSmallModel && activeTools.length > 12)) {
@@ -1856,6 +1891,8 @@ export async function processMessage(
         activeTools = [];
         logger.info(COMPONENT, '[Safety] Stripped all tools — dangerous command detected');
     }
+
+    } // v6.4.4: end of !explicitAllowList branch (persona/brain/toolSearch/dangerous filters)
 
     // ── Stall detector: configure for autonomy mode + start heartbeat ──
     setAutonomousMode(isAutonomous);

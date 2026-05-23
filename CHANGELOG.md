@@ -1,5 +1,51 @@
 # Changelog
 
+## v6.4.4 — 2026-05-22 — Cron tools fix: honor `allowedTools` end-to-end so fb-* crons actually post
+
+Live observation during the v6.4.1 audit caught all five Facebook crons (`fb-morning`, `fb-midday`, `fb-afternoon`, `fb-evening`, `fb-night`) firing on schedule and producing zero posts. The trace from `/system/logs`:
+
+```
+3:00:36 [Ollama] Chat request: model=deepseek-v4-pro:cloud, tools=[], think=true, messages=3
+3:00:53 [Ollama] Response: tool_calls=undefined, content_length=828
+3:00:53 WARN [AgentLoop] [NoTools] Model returned text (len=828): Picking Mastra for a TypeScript-first hot take. Posting now.
+            INFO <tool_calls>
+            INFO <tool_call name="fb_post">
+            INFO {"content": "Mastra vs TITAN: TypeScript-first..."}
+3:00:53 WARN [Agent] [HallucinationGuard] Cloud model claimed action but toolsUsed is empty — sanitizing response
+3:00:53 [Cron] Cron job fb-fb-afternoon-1778568544 completed
+            INFO [tool-mode] used tools: (none)
+```
+
+The model was being asked "Call `fb_post` ONCE with `skipReview: true`" but the agent loop sent `tools=[]` to Ollama — so the model hallucinated the tool-call syntax inside its text body. HallucinationGuard correctly rejected it (good), but no real post went out.
+
+### Three stacked bugs
+
+1. **`executePrompt` silently dropped `allowedTools`** in `src/skills/builtin/cron.ts`. The TypeScript cast `as Parameters<typeof processMessage>[3]` let the field pass through, but `processMessage`'s `overrides` type had no `allowedTools` member, so it was dropped before reaching the filter chain. The comment said it all: *"allowedTools is plumbed but not yet honored end-to-end — logged here so a future hardening pass can enforce it."* This is that pass.
+
+2. **`allowedTools` is stored as a comma-separated string** in `~/.titan/titan-data.json` for legacy cron entries (`"allowedTools": "fb_post,fb_read_feed"` instead of `["fb_post", "fb_read_feed"]`). The truthy check `allowedTools && allowedTools.length > 0` passed (strings have `.length`), but downstream filters expected array semantics.
+
+3. **`fb-afternoon` misclassified as `content` pipeline instead of `social`.** The content rule's `\bwrite.*comparison\b` regex matches the literal "Write an afternoon COMPARISON" in the cron prompt, and content was checked before social in the rule order. Content's pipeline includes `fb_post` in `ensureTools`, so this wasn't the proximate cause of `tools=0` — but it routed the prompt through "Phase 1 — RESEARCH: Call web_search 2-3 times…" instructions that pushed the model away from just posting.
+
+### Fix
+
+**`src/skills/builtin/cron.ts`** — accept `string | string[]` for `allowedTools`, split the comma-separated string into an array, then pass through to `processMessage`.
+
+**`src/agent/agent.ts`** — added `allowedTools?: string[]` to `processMessage`'s `overrides` type. When present, the agent loop short-circuits the entire filter chain (persona → small-model → brain → toolSearch → dangerous) and binds *exactly* the requested tools by name. Logs `[AllowedTools] override bound N/M requested tools (filter chain bypassed)` so the trace is obvious. If the caller asks for a tool that isn't registered, logs `[AllowedTools] caller asked for tools that aren't registered: [...]` so failures are loud.
+
+**`src/agent/pipeline.ts`** — swapped social/content rule order so any prompt mentioning Facebook explicitly takes the social pipeline regardless of incidental "write…comparison" wording.
+
+### Why this approach
+
+The cron caller (or any other code path that wants explicit tool control) knows what tools the task needs. The filter chain exists to protect against overloading the model with 248 tool definitions and to enforce safety against arbitrary user input — neither of which apply when an internal subsystem hands us an explicit allowlist. Short-circuiting is the right call. Tradeoff: callers using `allowedTools` lose `dangerous` safety stripping; mitigated by the rule that `allowedTools` is a server-internal API (no user-supplied request body reaches it).
+
+### Files
+
+`src/skills/builtin/cron.ts`, `src/agent/agent.ts`, `src/agent/pipeline.ts`, plus the standard 5 version-string spots.
+
+### Verification
+
+`npm run typecheck` clean. Full vitest suite passes. After deploy to `/opt/TITAN`, a manual cron trigger of any fb-* job (or just waiting for the next scheduled fire) will show `[AllowedTools] override bound 2/2 requested tools (filter chain bypassed): [fb_post, fb_read_feed]` followed by `[Ollama] Chat request: ... tools=[fb_post,fb_read_feed]` instead of `tools=[]`. Whether the actual FB post succeeds also depends on the Facebook page token being valid — see `~/Desktop/TitanBot/fb-token-rotation-playbook.md` if that needs rotation.
+
 ## v6.4.3 — 2026-05-22 — Metadata: unblock npm publish (overrides ↔ direct dep)
 
 v6.4.2's `overrides.uuid: ^11.1.1` collided with the direct `uuid: ^14.0.0` dep — `npm publish` rejected the tarball with `EOVERRIDE`. Moved the `uuid` override into the `pnpm.overrides` block only (where it still pins transitive `uuid` to `^11.1.1` for `@whiskeysockets/baileys` without conflicting with the top-level uuid dep). Code identical to v6.4.2; this is a metadata-only ship to unblock npm.
