@@ -56,18 +56,30 @@ function executeCommand(command: string, timeout: number = 60000): Promise<strin
  * and ALL jobs (including tool-mode ones with English prompts) were
  * shoved through bash, which mangled FB posts among other things.
  */
-async function executePrompt(prompt: string, allowedTools?: string[]): Promise<string> {
+async function executePrompt(prompt: string, allowedTools?: string[] | string): Promise<string> {
     try {
         const { processMessage } = await import('../../agent/agent.js');
         // sessionId 'cron-<rand>' so the agent loop doesn't try to recall
         // chat history. userId 'cron' identifies the surface in logs.
         const sessionId = `cron-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        const result = await processMessage(prompt, sessionId, 'cron', {
-            channel: 'cron',
-            // allowedTools is plumbed but not yet honored end-to-end —
-            // logged here so a future hardening pass can enforce it.
-            ...(allowedTools && allowedTools.length > 0 ? { allowedTools } : {}),
-        } as Parameters<typeof processMessage>[3]);
+        // v6.4.4: normalize allowedTools. Legacy DB entries (anything created
+        // before this ship) store this as a comma-separated string like
+        // "fb_post,fb_read_feed" instead of an array. Accept both shapes so we
+        // don't need a DB migration.
+        const normalized: string[] | undefined = Array.isArray(allowedTools)
+            ? allowedTools
+            : (typeof allowedTools === 'string' && allowedTools.length > 0
+                ? allowedTools.split(',').map(s => s.trim()).filter(Boolean)
+                : undefined);
+        // v6.4.4: allowedTools is now honored end-to-end. processMessage's
+        // overrides type accepts it; when present, the agent loop short-
+        // circuits the persona / brain / toolSearch / dangerous filter
+        // chain and binds EXACTLY these tools. This is what cron jobs
+        // like fb-* need to make the model actually call fb_post instead
+        // of hallucinating <tool_call name="fb_post"> in the response text.
+        // (channel='cron' is already passed as the 3rd positional arg above.)
+        const result = await processMessage(prompt, sessionId, 'cron',
+            normalized && normalized.length > 0 ? { allowedTools: normalized } : undefined);
         const summary = (result.content || '').slice(0, 500);
         const tools = (result.toolsUsed || []).join(', ');
         return `[tool-mode] used tools: ${tools || '(none)'}\n${summary}`;

@@ -258,18 +258,23 @@ const CLASSIFICATION_RULES: Array<{
         test: (_msg, channel) => channel === 'voice',
     },
 
-    // Content creation — multi-step research + write + publish (checked BEFORE social to prevent overlap)
-    {
-        type: 'content',
-        test: (msg) => /\b(research.*and.*(write|post|publish|create)|write.*article|blog.*post|create.*content|draft.*report|write.*comparison)\b/i.test(msg)
-                    && msg.split(/\s+/).length > 10,
-    },
-
-    // Social media — Facebook posting, replies, feed management
+    // Social media — Facebook posting, replies, feed management.
+    // v6.4.4: MOVED ABOVE content because the content rule's
+    // `\bwrite.*comparison\b` was matching the fb-afternoon cron prompt
+    // ("Write an afternoon COMPARISON / HOT TAKE for the TITAN AI Facebook
+    // page") and routing it to the wrong pipeline. Social is more specific
+    // for any prompt that mentions Facebook explicitly, so it wins now.
     {
         type: 'social',
         test: (msg) => /\b(fb_|facebook|post to .*(page|facebook|fb)|share on|comment.*repl|reply.*comment|read.*feed|check.*feed|autopilot.*status|post.*about|hype|comparison.*post)\b/i.test(msg)
                     && msg.split(/\s+/).length >= 3,
+    },
+
+    // Content creation — multi-step research + write + publish
+    {
+        type: 'content',
+        test: (msg) => /\b(research.*and.*(write|post|publish|create)|write.*article|blog.*post|create.*content|draft.*report|write.*comparison)\b/i.test(msg)
+                    && msg.split(/\s+/).length > 10,
     },
 
     // Home automation — smart home, IoT
