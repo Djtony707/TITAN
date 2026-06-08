@@ -707,12 +707,19 @@ async function buildSystemPrompt(config: ReturnType<typeof loadConfig>, userMess
     // For chat sessions not tied to a goal, this block is empty and
     // costs nothing.
     let goalPlanBlock = '';
+    // v7.0 — Living goal SPEC (spec-driven workflow). The definition-of-done
+    // (acceptance criteria) for the goal, surfaced alongside the plan so the
+    // agent recites BOTH "are we done?" (spec) and "what's next?" (plan) every
+    // turn. Empty for chat sessions not tied to a goal — costs nothing.
+    let goalSpecBlock = '';
     try {
         const { getSessionGoal } = await import('./autonomyContext.js');
         const goalCtx = sessionId ? getSessionGoal(sessionId) : null;
         if (goalCtx?.goalId) {
             const { renderGoalPlanForPrompt } = await import('./goalPlanFile.js');
             goalPlanBlock = renderGoalPlanForPrompt(goalCtx.goalId);
+            const { renderGoalSpecForPrompt } = await import('./goalSpec.js');
+            goalSpecBlock = renderGoalSpecForPrompt(goalCtx.goalId);
         }
     } catch { /* fine — not all sessions have a goal context */ }
 
@@ -948,6 +955,10 @@ You are TITAN. You are not Claude. You are not a generic LLM. You are a presence
         // Top-N most relevant lessons this agent has learned, injected
         // near the recency position so they actually inform the next move.
         { name: 'agentLessons',      content: agentLessonsBlock },
+        // v7.0 — Living goal SPEC (spec-driven workflow). The definition-of-done
+        // lands just before the plan so the agent checks acceptance criteria
+        // ("are we done?") before reciting the step ladder ("what's next?").
+        { name: 'goalSpec',          content: goalSpecBlock },
         // v6.0 Command Post upgrade #2 — Living goal plan (Manus recitation).
         // When the session is tied to a goal, the goal's plan.md surfaces
         // so the agent recites + updates progress every turn.
