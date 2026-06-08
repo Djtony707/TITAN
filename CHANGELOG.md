@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.5.1 — 2026-06-08 — Security & CI: dependency bumps + lockfile sync
+
+A dependency-hardening patch on top of v6.5.0.
+
+- **axios → 1.17.0** — clears the Proxy-Authorization credential leak, cookie ReDoS, prototype-pollution MITM, and proxy-bypass advisories (was resolving < 1.16.0).
+- **react-router → 7.17.0** (Mission Control dashboard) — clears the DoS (reflected input / unbounded path expansion), turbo-stream arbitrary construction, and RSC-redirect XSS advisories.
+- **package-lock.json regenerated** to sync with the `package.json` overrides (qs 6.15.2), fixing the `npm ci` mismatch that was failing CI.
+
+No runtime or API changes. Full test suite green (7,837 tests).
+
 ## v6.5.0 — 2026-06-08 — Hardening: security, end-to-end cancellation, channel & provider reliability
 
 A broad reliability and security pass.
