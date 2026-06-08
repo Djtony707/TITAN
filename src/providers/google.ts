@@ -3,6 +3,8 @@
  */
 import {
     LLMProvider,
+    withTimeoutSignal,
+    STREAM_FETCH_TIMEOUT_MS,
     type ChatOptions,
     type ChatMessage,
     type ChatResponse,
@@ -281,13 +283,16 @@ export class GoogleProvider extends LLMProvider {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
                 body: JSON.stringify(body),
+                signal: withTimeoutSignal(options.signal, STREAM_FETCH_TIMEOUT_MS),
             });
 
             if (!response.ok || !response.body) {
                 const errorText = await response.text();
                 dumpRequestBody(`stream-http-${response.status}`, body, { errorText, model });
-                yield { type: 'error', error: `Google API error (${response.status}): ${errorText}` };
-                return;
+                // v6.5 — THROW (not yield) so the router routes HTTP errors through
+                // retry / fallback chain / circuit breaker, like non-streaming chat().
+                const { createProviderError } = await import('./errorTaxonomy.js');
+                throw createProviderError('Google API', response, errorText, { provider: 'google', model });
             }
 
             const reader = response.body.getReader();

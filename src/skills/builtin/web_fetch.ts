@@ -63,8 +63,10 @@ function htmlToMarkdown(html: string): string {
     return md.trim();
 }
 
-/** Block requests to loopback, private, and link-local addresses (SSRF protection) */
-function isInternalUrl(urlStr: string): boolean {
+/** Block requests to loopback, private, and link-local addresses (SSRF protection).
+ *  Exported so the more-powerful web_browser tools (real Chromium) reuse the
+ *  exact same guard instead of being an unguarded SSRF hole one file over. */
+export function isInternalUrl(urlStr: string): boolean {
     let hostname: string;
     try {
         hostname = new URL(urlStr).hostname;

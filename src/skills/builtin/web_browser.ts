@@ -28,8 +28,14 @@ import { z } from 'zod';
 import logger from '../../utils/logger.js';
 import { TITAN_VERSION } from '../../utils/constants.js';
 import { getPage, releasePage, closeBrowser as closePoolBrowser } from '../../browsing/browserPool.js';
+import { isInternalUrl } from './web_fetch.js';
 
 const COMPONENT = 'WebBrowser';
+
+// v6.5 SSRF guard — web_browser drives a real Chromium with JS exec + persistent
+// cookies, so an unguarded internal URL is strictly worse than web_fetch (which
+// already blocks these). Reuse web_fetch's isInternalUrl() at every URL entry.
+const SSRF_BLOCKED = 'Error: Browsing internal/private/link-local network addresses is not permitted.';
 
 // ─── Types ────────────────────────────────────────────────────────
 interface BrowseResult {
@@ -85,6 +91,7 @@ async function fetchSimple(url: string): Promise<BrowseResult | null> {
 
 /** Full browser render with Playwright (uses shared browser pool) */
 async function fetchWithBrowser(url: string, screenshot: boolean): Promise<BrowseResult> {
+    if (isInternalUrl(url)) throw new Error(SSRF_BLOCKED);
     const page = await getPage();
     try {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
@@ -161,6 +168,7 @@ export function initWebBrowserTool(): void {
         },
         execute: async (args) => {
             const { url, screenshot, extractLinks } = BrowseSchema.parse(args);
+            if (isInternalUrl(url)) return SSRF_BLOCKED;
             logger.info(COMPONENT, `Browsing: ${url}`);
 
             // Try fast path first
@@ -265,6 +273,7 @@ export function initWebBrowserTool(): void {
         },
         execute: async (args: Record<string, unknown>) => {
             const { url, actions, returnType = 'smart_dom' } = args as { url: string; actions: Record<string, unknown>[]; returnType?: string };
+            if (url !== 'current' && isInternalUrl(url)) return SSRF_BLOCKED;
             const page = await getPage();
 
             try {
@@ -382,6 +391,7 @@ export function initWebBrowserTool(): void {
         },
         execute: async (args: Record<string, unknown>) => {
             const { url, fullPage = false, quality = 70 } = args as { url?: string; fullPage?: boolean; quality?: number };
+            if (url && isInternalUrl(url)) return SSRF_BLOCKED;
             const page = await getPage();
             try {
                 if (url && page.url() !== url) {

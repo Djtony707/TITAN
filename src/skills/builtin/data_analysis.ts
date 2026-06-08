@@ -519,7 +519,10 @@ export function registerDataAnalysisSkill(): void {
 
                     // Apply filter
                     if (filter) {
-                        const [column, expression] = filter.split(/\s*(>|<|>=|<=|==|!=|contains)\s*/);
+                        // v6.5 — two-char operators MUST precede their single-char
+                        // prefixes in the alternation, else '>=' parses as '>' + '= 30',
+                        // Number('= 30') is NaN, and the filter silently matches 0 rows.
+                        const [column, expression] = filter.split(/\s*(>=|<=|==|!=|>|<|contains)\s*/);
                         const cleanColumn = column.trim();
                         const op = expression || '';
                         const value = filter.substring(filter.indexOf(op) + op.length).trim();

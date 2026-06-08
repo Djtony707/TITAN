@@ -3,6 +3,8 @@
  */
 import {
     LLMProvider,
+    withTimeoutSignal,
+    STREAM_FETCH_TIMEOUT_MS,
     type ChatOptions,
     type ChatResponse,
     type ChatStreamChunk,
@@ -196,12 +198,17 @@ export class OpenAIProvider extends LLMProvider {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
                 body: JSON.stringify(body),
+                signal: withTimeoutSignal(options.signal, STREAM_FETCH_TIMEOUT_MS),
             });
 
             if (!response.ok || !response.body) {
                 const errorText = await response.text();
-                yield { type: 'error', error: `OpenAI API error (${response.status}): ${errorText}` };
-                return;
+                // v6.5 — THROW (not yield) so the router routes HTTP errors through
+                // retry / fallback chain / circuit breaker, exactly like the
+                // non-streaming chat() path. A yielded error chunk dead-ends the
+                // SSE path with no failover.
+                const { createProviderError } = await import('./errorTaxonomy.js');
+                throw createProviderError('OpenAI API', response, errorText, { provider: 'openai', model });
             }
 
             const toolCalls = new Map<number, { id: string; name: string; args: string }>();

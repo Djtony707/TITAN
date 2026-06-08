@@ -48,6 +48,12 @@ export interface ChatOptions {
     maxTokens?: number;
     temperature?: number;
     stream?: boolean;
+    /** v6.5 — abort signal for end-to-end cancellation. Wired from the user's
+     *  Stop button and OpenAI-compat client disconnects, through the router, to
+     *  each provider's fetch(), so in-flight generation is actually cancelled
+     *  (not just ignored between rounds). Each provider combines it with a
+     *  streaming idle timeout so a stalled stream can't hang forever. */
+    signal?: AbortSignal;
     thinking?: boolean;
     thinkingLevel?: 'off' | 'low' | 'medium' | 'high';
     /** Force the model to call a tool on this turn (tool_choice: required/any).
@@ -93,6 +99,21 @@ export function isClaudeCodeAllowed(options: ChatOptions): boolean {
     const po = options.providerOptions;
     if (po && typeof po === 'object' && po.allowClaudeCode === true) return true;
     return options.allowClaudeCode === true;
+}
+
+/** v6.5 — generous total-time backstop for a streaming fetch so a stalled
+ *  upstream socket can't hang a request forever. Long legitimate generations
+ *  finish well under this; it only catches truly-stuck connections. The real
+ *  per-request cancellation comes from the caller's AbortSignal (Stop button /
+ *  client disconnect), combined in via withTimeoutSignal below. */
+export const STREAM_FETCH_TIMEOUT_MS = 600_000;
+
+/** v6.5 — combine an optional caller AbortSignal with a fresh timeout so a
+ *  streaming fetch both honors user/disconnect cancellation AND can't hang
+ *  forever on a stalled upstream. Node >= 22 provides AbortSignal.any/timeout. */
+export function withTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
 /** Response from a chat completion */

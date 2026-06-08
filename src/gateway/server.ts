@@ -40,6 +40,7 @@ import { MattermostChannel } from '../channels/mattermost.js';
 import { LarkChannel } from '../channels/lark.js';
 import { EmailInboundChannel } from '../channels/email_inbound.js';
 import { LineChannel } from '../channels/line.js';
+import { kill as killSwitchFire, resume as killSwitchResume, getState as getKillSwitchState } from '../safety/killSwitch.js';
 import { ZulipChannel } from '../channels/zulip.js';
 import { MessengerChannel } from '../channels/messenger.js';
 import { initAgents, routeMessage, listAgents } from '../agent/multiAgent.js';
@@ -1100,6 +1101,29 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   // OpenAI API compatibility layer (/v1/models, /v1/chat/completions, /v1/embeddings)
+  // v6.5 P5 — auth gate. The /api auth middleware (below) is path-scoped to
+  // /api, so without this guard /v1 was reachable with ZERO authentication even
+  // when auth.mode='token'/'password' was configured — anyone who could reach
+  // the port could burn the operator's provider keys via /v1/chat/completions
+  // and enumerate coverage via /v1/models. Mirror the /api token check here.
+  // When auth is unconfigured (mode 'none', or 'token' with no token set) /v1
+  // stays open, preserving the local-dev experience.
+  app.use('/v1', (req, res, next) => {
+    const cfg = loadConfig();
+    const auth = cfg.gateway.auth;
+    if (!auth || auth.mode === 'none') { next(); return; }
+    if (auth.mode === 'token' && !auth.token) { next(); return; }
+    const header = req.headers.authorization;
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
+    if (isValidToken(token, cfg)) { next(); return; }
+    res.status(401).json({
+      error: {
+        message: 'Unauthorized. /v1 requires the TITAN gateway token as the Bearer credential when auth is enabled.',
+        type: 'invalid_request_error',
+        code: 'unauthorized',
+      },
+    });
+  });
   app.use('/v1', createOpenAICompatRouter());
 
   // ── Paperclip sidecar management & proxy ───────────────────
@@ -1266,6 +1290,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (req.path === '/messenger/webhook') { next(); return; }
     if (req.path.startsWith('/twilio/')) { next(); return; }
     if (req.path === '/telephony/dograh/inbound') { next(); return; }
+    // v6.5 — LINE & Lark inbound webhooks come from external platforms without
+    // TITAN's token; they authenticate via their own platform signature/challenge.
+    if (req.path === '/channels/line/webhook') { next(); return; }
+    if (req.path === '/channels/lark/webhook') { next(); return; }
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (isValidToken(token, cfg)) { next(); return; }
@@ -4115,6 +4143,55 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
   }
+
+  // ── LINE & Lark inbound webhooks (v6.5) ──────────────────────
+  // The adapters build a correct handleWebhookEvent() that emits 'message'
+  // (wired to handleInboundMessage above), but no route ever called it — so
+  // inbound was 100% dead while connect() reported success. These close the gap.
+  const lineAdapter = channels.get('line') as LineChannel | undefined;
+  if (lineAdapter) {
+    app.post('/api/channels/line/webhook', express.json(), (req, res) => {
+      try { lineAdapter.handleWebhookEvent(req.body || {}); }
+      catch (e) { logger.error(COMPONENT, `LINE webhook error: ${(e as Error).message}`); }
+      res.status(200).end();
+    });
+    logger.info(COMPONENT, 'LINE webhook: POST /api/channels/line/webhook');
+  }
+  const larkAdapter = channels.get('lark') as LarkChannel | undefined;
+  if (larkAdapter) {
+    app.post('/api/channels/lark/webhook', express.json(), (req, res) => {
+      try {
+        const result = larkAdapter.handleWebhookEvent(req.body || {});
+        if (result?.challenge) { res.json({ challenge: result.challenge }); return; }
+      } catch (e) { logger.error(COMPONENT, `Lark webhook error: ${(e as Error).message}`); }
+      res.status(200).end();
+    });
+    logger.info(COMPONENT, 'Lark webhook: POST /api/channels/lark/webhook');
+  }
+
+  // ── Kill-switch control plane (v6.5) ─────────────────────────
+  // killSwitch.ts documents POST /api/safety/kill + /api/safety/resume but the
+  // routes never existed, so an auto-fired kill switch (fix_oscillation /
+  // safety_pressure) could ONLY be cleared by hand-editing kill-switch.json on
+  // the box — a one-way trap in production. These add the missing control plane
+  // (auth-gated by the /api middleware above).
+  app.get('/api/safety/kill-switch', (_req, res) => {
+    res.json(getKillSwitchState());
+  });
+  app.post('/api/safety/kill', express.json(), async (req, res) => {
+    const reason = (req.body?.reason as string) || 'Manual kill via API';
+    try {
+      await killSwitchFire('manual', reason, { firedBy: (req.body?.firedBy as string) || 'api' });
+      res.json({ ok: true, state: getKillSwitchState() });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  app.post('/api/safety/resume', express.json(), (req, res) => {
+    const note = (req.body?.resolutionNote as string) || (req.body?.reason as string) || 'Resumed via API';
+    const state = killSwitchResume(note, (req.body?.resumedBy as string) || 'api');
+    res.json({ ok: true, state });
+  });
 
   // ── Twilio Voice (real phone calls) ──────────────────────────
   // v4.4.0 — Tony dials the TITAN Twilio number on his phone, talks,

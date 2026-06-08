@@ -50,6 +50,12 @@ export const ChannelConfigSchema = z.object({
     enabled: z.boolean().default(false),
     token: z.string().optional(),
     apiKey: z.string().optional(),
+    // v6.5 — Slack Socket Mode needs a distinct app-level token (xapp-…) and an
+    // optional signing secret. Previously both were aliased to apiKey, so Bolt
+    // always rejected start() and Slack never connected. Optional + ignored by
+    // the other adapters.
+    appToken: z.string().optional(),
+    signingSecret: z.string().optional(),
     allowFrom: z.array(z.string()).default([]),
     dmPolicy: z.enum(['pairing', 'open', 'closed']).default('pairing'),
 });

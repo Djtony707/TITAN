@@ -1105,11 +1105,62 @@ function applyOutputCaps(results: ToolResult[]): ToolResult[] {
     });
 }
 
+/**
+ * v6.5 — would this tool trip the approval gate? Mirrors the gate decision made
+ * inside executeTool (classifier 'gate' OR the user's explicit approval list)
+ * with no side effects. Used by executeTools to decide whether a multi-tool
+ * batch must run sequentially so a gated call cannot be bypassed by its siblings.
+ */
+async function toolWouldGate(name: string): Promise<boolean> {
+    try {
+        if (classifyToolCall(name).decision === 'gate') return true;
+    } catch { /* classifier unavailable — fall through */ }
+    try {
+        const { requiresApproval } = await import('../skills/builtin/approval_gates.js');
+        return requiresApproval(name);
+    } catch { /* approval module unavailable — fail-open probe */ }
+    return false;
+}
+
 export async function executeTools(toolCalls: ToolCall[], channel?: string): Promise<ToolResult[]> {
     // Single tool — fast path
     if (toolCalls.length <= 1) {
         const results = await Promise.all(toolCalls.map(tc => executeTool(tc, channel)));
         return applyOutputCaps(results);
+    }
+
+    // v6.5 — approval-gate sibling protection. The per-tool approval gate (in
+    // executeTool) only defers the GATED call. Without this, ungated siblings in
+    // the same assistant turn execute in parallel BEFORE the agent loop notices
+    // the pending approval — so a model (or prompt injection) could co-schedule a
+    // destructive gated tool (e.g. shell `rm -rf`) alongside benign calls and have
+    // the benign ones run unreviewed. When the batch contains any potentially
+    // gated tool, run SEQUENTIALLY and stop at the first call that actually pends
+    // approval, holding the remaining siblings unexecuted. Stays correct across
+    // the approve→resume cycle: an already-approved tool simply executes (not
+    // pending) and the loop continues to its siblings.
+    const maybeGated = (await Promise.all(
+        toolCalls.map(tc => toolWouldGate(tc.function.name)),
+    )).some(Boolean);
+    if (maybeGated) {
+        const gatedResults: ToolResult[] = [];
+        let paused = false;
+        for (const tc of toolCalls) {
+            if (paused) {
+                gatedResults.push({
+                    toolCallId: tc.id,
+                    name: tc.function.name,
+                    content: 'Deferred: held until the human resolves the pending approval for a tool requested in the same turn. Re-issue this call after approval.',
+                    success: false,
+                    durationMs: 0,
+                });
+                continue;
+            }
+            const r = await executeTool(tc, channel);
+            gatedResults.push(r);
+            if (r.approvalPending) paused = true;
+        }
+        return applyOutputCaps(gatedResults);
     }
 
     // Multiple tools — use parallelTools engine with write-conflict detection

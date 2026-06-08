@@ -3,6 +3,8 @@
  */
 import {
     LLMProvider,
+    withTimeoutSignal,
+    STREAM_FETCH_TIMEOUT_MS,
     type ChatOptions,
     type ChatResponse,
     type ChatStreamChunk,
@@ -884,7 +886,7 @@ export class OllamaProvider extends LLMProvider {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(streamTimeoutMs),
+                signal: withTimeoutSignal(options.signal, streamTimeoutMs),
             });
 
             if (!response.ok || !response.body) {
@@ -897,16 +899,18 @@ export class OllamaProvider extends LLMProvider {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body),
-                        signal: AbortSignal.timeout(streamTimeoutMs),
+                        signal: withTimeoutSignal(options.signal, streamTimeoutMs),
                     });
                     if (!response.ok || !response.body) {
                         const retryText = await response.text();
-                        yield { type: 'error', error: `Ollama error (${response.status}): ${retryText}` };
-                        return;
+                        // v6.5 — THROW so the router can retry/failover (see chat()).
+                        const { createProviderError } = await import('./errorTaxonomy.js');
+                        throw createProviderError('Ollama', response, retryText, { provider: 'ollama', model });
                     }
                 } else {
-                    yield { type: 'error', error: `Ollama error (${response.status}): ${errorText}` };
-                    return;
+                    // v6.5 — THROW so the router can retry/failover (see chat()).
+                    const { createProviderError } = await import('./errorTaxonomy.js');
+                    throw createProviderError('Ollama', response, errorText, { provider: 'ollama', model });
                 }
             }
 

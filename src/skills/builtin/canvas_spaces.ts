@@ -20,7 +20,7 @@
  * file via the gateway's `/api/spaces` endpoints.
  *
  * Reference:
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *     (v6.0 step 3: 5 Space-lifecycle tools)
  *   - docs/PIPELINES.md (Pipeline 1 — chat message — explains how the
  *     active Space's intent flows into the system prompt)

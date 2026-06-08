@@ -24,7 +24,7 @@
  *   - Shinn et al. "Reflexion: Language agents with verbal reinforcement
  *     learning" (NeurIPS 2023) — https://arxiv.org/abs/2303.11366
  *   - Picrew/awesome-agent-harness pattern #6
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, unlinkSync } from 'fs';
 import { join } from 'path';

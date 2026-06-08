@@ -77,10 +77,14 @@ export function registerCalendarSkill(): void {
                     switch (action) {
                         case 'list':
                             return await handleCalendarList(apiKey, calendarId, args);
+                        // v6.5 — create/delete need Google OAuth, not an API key (an
+                        // API key only authorizes public reads → 401/403), so these
+                        // never worked. Disabled honestly until OAuth is wired (tracked
+                        // follow-up) instead of returning an opaque API error.
+                        // handleCalendarCreate/Delete are kept for when OAuth lands.
                         case 'create':
-                            return await handleCalendarCreate(apiKey, calendarId, args);
                         case 'delete':
-                            return await handleCalendarDelete(apiKey, calendarId, args);
+                            return `Error: calendar '${action}' requires Google OAuth, which TITAN does not yet support (an API key only authorizes public read access). This is a tracked follow-up. The 'list' action works for public/shared calendars.`;
                         default:
                             return `Unknown action: ${action}`;
                     }

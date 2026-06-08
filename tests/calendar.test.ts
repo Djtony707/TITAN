@@ -186,7 +186,10 @@ describe('Calendar Skill', () => {
             });
         });
 
-        describe('create action', () => {
+        // v6.5 — create/delete disabled pending Google OAuth (API key only does
+        // public reads). Granular tests below cover handler logic retained for the
+        // eventual re-enable; they are skipped while the dispatch short-circuits.
+        describe.skip('create action — disabled v6.5 pending Google OAuth (handler logic retained)', () => {
             it('should create an event', async () => {
                 mockFetch.mockResolvedValueOnce({
                     ok: true,
@@ -260,7 +263,7 @@ describe('Calendar Skill', () => {
             });
         });
 
-        describe('delete action', () => {
+        describe.skip('delete action — disabled v6.5 pending Google OAuth (handler logic retained)', () => {
             it('should delete an event', async () => {
                 mockFetch.mockResolvedValueOnce({
                     ok: true,
@@ -307,6 +310,22 @@ describe('Calendar Skill', () => {
                     eventId: 'bad-delete',
                 });
                 expect(result).toContain('Error');
+            });
+        });
+
+        // v6.5 — assert the honest-disable is actually in place (not faking writes).
+        describe('create/delete disabled pending OAuth (v6.5)', () => {
+            it('create returns an honest OAuth error instead of faking a write', async () => {
+                const result = await calendarHandler.execute({
+                    action: 'create', title: 'X', startTime: '2026-03-20T09:00:00Z', endTime: '2026-03-20T10:00:00Z',
+                });
+                expect(result).toContain('OAuth');
+                expect(result).not.toContain('Created event');
+            });
+            it('delete returns an honest OAuth error instead of faking a delete', async () => {
+                const result = await calendarHandler.execute({ action: 'delete', eventId: 'e1' });
+                expect(result).toContain('OAuth');
+                expect(result).not.toContain('Deleted event');
             });
         });
 

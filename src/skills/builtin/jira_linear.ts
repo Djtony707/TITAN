@@ -44,17 +44,23 @@ export function registerJiraLinearSkill(): void {
                 try {
                     if (action === 'list') {
                         const query = args.query as string || '';
+                        // v6.5 — use GraphQL variables; never string-interpolate
+                        // user/LLM-controlled input into the query document. Was a
+                        // GraphQL-injection risk and broke on any quote in the query.
                         const gql = query
-                            ? `{ issueSearch(query: "${query}", first: 10) { nodes { id identifier title state { name } assignee { name } priority createdAt } } }`
+                            ? `query($q: String!) { issueSearch(query: $q, first: 10) { nodes { id identifier title state { name } assignee { name } priority createdAt } } }`
                             : `{ issues(first: 20, orderBy: updatedAt) { nodes { id identifier title state { name } assignee { name } priority updatedAt } } }`;
-                        const data = await apiCall(graphqlUrl, token, 'POST', { query: gql }) as any;
+                        const variables = query ? { q: query } : undefined;
+                        const data = await apiCall(graphqlUrl, token, 'POST', { query: gql, variables }) as any;
                         const issues = data?.data?.issues?.nodes || data?.data?.issueSearch?.nodes || [];
                         if (issues.length === 0) return 'No issues found.';
                         return issues.map((i: any) => `${i.identifier} [${i.state?.name || '?'}] ${i.title} (${i.assignee?.name || 'unassigned'})`).join('\n');
                     }
                     if (action === 'create') {
-                        const gql = `mutation { issueCreate(input: { title: "${args.title || 'Untitled'}", description: "${args.description || ''}" }) { success issue { id identifier title url } } }`;
-                        const data = await apiCall(graphqlUrl, token, 'POST', { query: gql }) as any;
+                        // v6.5 — GraphQL variables (was injection via title/description)
+                        const gql = `mutation($title: String!, $description: String) { issueCreate(input: { title: $title, description: $description }) { success issue { id identifier title url } } }`;
+                        const variables = { title: (args.title as string) || 'Untitled', description: (args.description as string) || '' };
+                        const data = await apiCall(graphqlUrl, token, 'POST', { query: gql, variables }) as any;
                         const issue = data?.data?.issueCreate?.issue;
                         return issue ? `Created: ${issue.identifier} — ${issue.title} (${issue.url})` : 'Failed to create issue';
                     }

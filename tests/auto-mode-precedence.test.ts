@@ -253,8 +253,13 @@ describe('Auto-mode + approval-gate precedence (Codex P1 #1)', () => {
         expect(results[0].approvalPending).toBe(true);
         expect(results[0].approvalRequestId).toBe(`req-${TOOL_NAME}`);
         expect(results[0].content).toMatch(/Awaiting approval/);
+        // v6.5 security fix — the safe sibling must NOT execute while a gated tool in
+        // the same batch awaits approval. Previously it ran ('other tool ran'), which
+        // let a co-scheduled dangerous tool's siblings bypass the human-in-the-loop
+        // gate. It is now HELD and re-proposed after the human responds.
         expect(results[1].toolCallId).toBe('tc-multi-safe');
         expect(results[1].approvalPending).toBeFalsy();
-        expect(results[1].content).toBe('other tool ran');
+        expect(results[1].content).not.toBe('other tool ran');
+        expect(results[1].content).toMatch(/held|Deferred/i);
     });
 });
