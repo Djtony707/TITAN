@@ -1,5 +1,12 @@
 # Changelog
 
+## v6.5.3 — 2026-06-08 — README refresh
+
+- Updated the README to the v6.5.x line (security/cancellation hardening highlights, 110K+ downloads). The previous README still described v6.3.x.
+- Switched the version and downloads badges to dynamic npm shields so they stay current automatically.
+
+Docs only — no code changes.
+
 ## v6.5.2 — 2026-06-08 — Dependency hygiene: clear remaining advisories
 
 - **Removed a vestigial root `pnpm-lock.yaml`.** The project builds with npm (`package-lock.json`); nothing used the pnpm lockfile, but Dependabot was scanning it — it was the source of ~14 stale alerts (including the remaining high-severity axios advisories already patched in the npm lockfile).
