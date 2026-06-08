@@ -1,5 +1,13 @@
 # Changelog
 
+## v6.5.2 — 2026-06-08 — Dependency hygiene: clear remaining advisories
+
+- **Removed a vestigial root `pnpm-lock.yaml`.** The project builds with npm (`package-lock.json`); nothing used the pnpm lockfile, but Dependabot was scanning it — it was the source of ~14 stale alerts (including the remaining high-severity axios advisories already patched in the npm lockfile).
+- **`hono` → 4.12.24** (overrides): clears the cookie `sameSite` sanitization, IP-restriction static-deny bypass, JWT-middleware, and `app.mount()` prefix advisories.
+- **Transitive `uuid` under `@langchain/core` forced to ≥ 11.1.1** (v3/v5/v6 buffer bounds-check advisory) via a scoped override — the direct `uuid` (14.x) is untouched.
+
+No runtime or API changes.
+
 ## v6.5.1 — 2026-06-08 — Security & CI: dependency bumps + lockfile sync
 
 A dependency-hardening patch on top of v6.5.0.
