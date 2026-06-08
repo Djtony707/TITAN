@@ -20,7 +20,7 @@
  * unwanted widgets.
  *
  * Reference:
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *     (v6.0 step 11)
  *   - src/storage/patterns.ts — input signals
  *   - src/storage/somaProfile.ts — drive baselines

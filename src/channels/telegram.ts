@@ -77,7 +77,10 @@ export class TelegramChannel extends ChannelAdapter {
     async send(message: OutboundMessage): Promise<void> {
         if (!this.bot || !this.connected) return;
         try {
-            const chatId = message.userId || message.groupId;
+            // v6.5 — prefer the group chat so a group reply posts in the group,
+            // not the triggering user's private DM. For a DM, groupId is unset and
+            // userId (== the private chat id) is the correct target.
+            const chatId = message.groupId || message.userId;
             if (chatId) {
                 await (this.bot as unknown as { api: { sendMessage(chatId: string, content: string, opts: Record<string, string>): Promise<void> } }).api.sendMessage(chatId, message.content, { parse_mode: 'Markdown' });
             }

@@ -159,14 +159,14 @@ describe('TelegramChannel — extended', () => {
         );
     });
 
-    it('should prefer userId over groupId when sending', async () => {
+    it('should prefer groupId over userId when sending (v6.5 — group replies post in the group, not the sender DM)', async () => {
         currentConfig = makeConfig({ telegram: { enabled: true, token: 'test-token-123' } });
 
         const channel = new TelegramChannel();
         await channel.connect();
 
         await channel.send({ channel: 'telegram', content: 'text', userId: 'u1', groupId: 'g1' });
-        expect(mockBotInstance.api.sendMessage).toHaveBeenCalledWith('u1', 'text', expect.any(Object));
+        expect(mockBotInstance.api.sendMessage).toHaveBeenCalledWith('g1', 'text', expect.any(Object));
     });
 
     it('should not send when no chatId provided', async () => {
@@ -237,7 +237,7 @@ describe('SlackChannel — extended', () => {
     });
 
     it('should emit message with resolved display_name from Slack user info', async () => {
-        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test' } });
+        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test', appToken: 'xapp-test' } });
 
         const channel = new SlackChannel();
         await channel.connect();
@@ -261,7 +261,7 @@ describe('SlackChannel — extended', () => {
     });
 
     it('should skip messages with subtype', async () => {
-        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test' } });
+        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test', appToken: 'xapp-test' } });
 
         const channel = new SlackChannel();
         await channel.connect();
@@ -277,7 +277,7 @@ describe('SlackChannel — extended', () => {
     });
 
     it('should handle empty text field', async () => {
-        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test' } });
+        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test', appToken: 'xapp-test' } });
 
         const channel = new SlackChannel();
         await channel.connect();
@@ -295,7 +295,7 @@ describe('SlackChannel — extended', () => {
 
     it('should fall back gracefully when users.info fails', async () => {
         mockApp.client.users.info.mockRejectedValueOnce(new Error('user not found'));
-        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test' } });
+        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test', appToken: 'xapp-test' } });
 
         const channel = new SlackChannel();
         await channel.connect();
@@ -312,7 +312,7 @@ describe('SlackChannel — extended', () => {
     });
 
     it('should disconnect properly and clear state', async () => {
-        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test' } });
+        currentConfig = makeConfig({ slack: { enabled: true, token: 'xoxb-test', apiKey: 'xapp-test', appToken: 'xapp-test' } });
 
         const channel = new SlackChannel();
         await channel.connect();
@@ -393,6 +393,7 @@ describe('DiscordChannel — extended', () => {
             author: { id: 'user-001', username: 'TestUser', bot: false },
             content: 'Hello Discord',
             guild: { id: 'guild-001' },
+            channelId: 'channel-001',
             createdAt: new Date('2026-01-01'),
         });
 
@@ -400,7 +401,8 @@ describe('DiscordChannel — extended', () => {
         expect(messages[0].channel).toBe('discord');
         expect(messages[0].userId).toBe('user-001');
         expect(messages[0].userName).toBe('TestUser');
-        expect(messages[0].groupId).toBe('guild-001');
+        // v6.5 — groupId is now the CHANNEL id (the correct reply target), not the guild id
+        expect(messages[0].groupId).toBe('channel-001');
     });
 
     it('should ignore bot messages', async () => {

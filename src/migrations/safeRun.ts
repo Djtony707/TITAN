@@ -28,7 +28,7 @@
  * (`titan migrate`) and the gateway-boot migration hook both use it.
  *
  * Reference:
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *     (U3 + U5 sections)
  */
 import { runMigrations, rollbackMigration, planMigrations, type Migration, type MigrationRunResult } from './runner.js';

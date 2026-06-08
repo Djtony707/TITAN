@@ -20,7 +20,7 @@
  *   - homelab    — Infrastructure operator (vram, fleet, monitoring)
  *
  * Reference:
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *     (v6.0 step 9 — Starter Space seeds)
  */
 

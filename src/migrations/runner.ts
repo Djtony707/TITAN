@@ -24,7 +24,7 @@
  * deterministic execution order — that's load-bearing.
  *
  * Reference:
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *     (U1–U6 in detail)
  *   - docs/MIGRATIONS.md (lands as U6)
  */

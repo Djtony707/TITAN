@@ -12,7 +12,7 @@
  */
 
 const GATEWAY = process.argv.find(a => a.startsWith('--gateway='))?.split('=')[1] || 'http://127.0.0.1:48420';
-const PASSWORD = process.argv.find(a => a.startsWith('--password='))?.split('=')[1] || 'titan2026';
+const PASSWORD = process.argv.find(a => a.startsWith('--password='))?.split('=')[1] || process.env.TITAN_PASSWORD || 'changeme';
 const SUITE = process.argv.find(a => a.startsWith('--suite='))?.split('=')[1] || 'all';
 const SKIP_ENDURANCE = process.argv.includes('--skip-endurance');
 const TIMEOUT_MS = 90_000;

@@ -277,52 +277,32 @@ describe('Browser Skill', () => {
         expect(result).toContain('Test Page');
     });
 
-    it('evaluate should return error when script is missing', async () => {
-        const result = await browserHandler.execute({ action: 'evaluate' });
-        expect(result).toContain('Error');
-        expect(result).toContain('script is required');
-    });
-
-    it('evaluate should return note about CDP requirement', async () => {
+    // v6.5 — the lightweight 'browser' tool's interactive actions were non-functional
+    // stubs that echoed args back as if queued; they're now honestly disabled and
+    // redirect to the real Playwright-backed tools (browser_auto_nav / browser_screenshot).
+    it('evaluate is disabled and redirects to browser_auto_nav', async () => {
         const result = await browserHandler.execute({ action: 'evaluate', script: 'document.title' });
-        expect(result).toContain('CDP');
-        expect(result).toContain('document.title');
+        expect(result).toContain('not supported');
+        expect(result).toContain('browser_auto_nav');
+        expect(result).not.toContain('queued');
     });
 
-    it('screenshot should return error when url is missing', async () => {
-        const result = await browserHandler.execute({ action: 'screenshot' });
-        expect(result).toContain('Error');
-        expect(result).toContain('url is required');
-    });
-
-    it('screenshot should return CDP requirement message', async () => {
+    it('screenshot is disabled and redirects to browser_screenshot', async () => {
         const result = await browserHandler.execute({ action: 'screenshot', url: 'https://example.com' });
-        expect(result).toContain('CDP');
+        expect(result).toContain('not supported');
+        expect(result).toContain('browser_screenshot');
     });
 
-    it('click should return error when selector is missing', async () => {
-        const result = await browserHandler.execute({ action: 'click' });
-        expect(result).toContain('Error');
-        expect(result).toContain('selector is required');
-    });
-
-    it('click should return CDP requirement message', async () => {
+    it('click is disabled and redirects to browser_auto_nav', async () => {
         const result = await browserHandler.execute({ action: 'click', selector: '#btn' });
-        expect(result).toContain('CDP');
-        expect(result).toContain('#btn');
+        expect(result).toContain('not supported');
+        expect(result).toContain('browser_auto_nav');
     });
 
-    it('type should return error when selector or text is missing', async () => {
-        const result = await browserHandler.execute({ action: 'type', selector: '#input' });
-        expect(result).toContain('Error');
-        expect(result).toContain('selector and text are required');
-    });
-
-    it('type should return CDP requirement message', async () => {
+    it('type is disabled and redirects to browser_auto_nav', async () => {
         const result = await browserHandler.execute({ action: 'type', selector: '#input', text: 'hello' });
-        expect(result).toContain('CDP');
-        expect(result).toContain('#input');
-        expect(result).toContain('hello');
+        expect(result).toContain('not supported');
+        expect(result).toContain('browser_auto_nav');
     });
 
     it('should handle unknown action', async () => {

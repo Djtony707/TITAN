@@ -169,7 +169,7 @@ describe('Finding #32 — filesystem.ts validatePath path-boundary check', () =>
 
     it('rejects a sibling of home directory with prefix name', async () => {
         const { validatePath } = await import('../src/skills/builtin/filesystem.js');
-        // If home is /Users/michaelelliott, /Users/michaelelliottttt would
+        // If home is /Users/localuser, /Users/localuserttt would
         // pass the naive startsWith check. Fixed code must reject it.
         const { homedir } = await import('os');
         const sibling = homedir() + 'extra/file';

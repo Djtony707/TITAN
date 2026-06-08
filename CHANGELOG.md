@@ -1,5 +1,33 @@
 # Changelog
 
+## v6.5.0 — 2026-06-08 — Hardening: security, end-to-end cancellation, channel & provider reliability
+
+A broad reliability and security pass.
+
+### Security
+- **`/v1` OpenAI-compatible endpoint is now authenticated** when `auth` is configured. Previously it was reachable without a token even when auth was enabled. Send the gateway token as the `Authorization: Bearer` credential. `/v1` stays open when auth is unconfigured (local dev convenience).
+- **Approval gates can no longer be bypassed by sibling tools.** When a tool-call batch contains a gated tool, the batch now runs sequentially and holds for human approval before any sibling executes (previously siblings could run before the pause was noticed).
+- **`web_browser` now blocks internal/private/link-local addresses (SSRF)**, matching `web_fetch`.
+- **Linear issue create/search use GraphQL variables** instead of string interpolation (fixes breakage on quotes and an injection vector).
+
+### Cancellation & resilience
+- **End-to-end request cancellation.** Stop and client disconnects now abort in-flight provider generation instead of letting it run to completion. OpenAI-compat requests cancel upstream work when the client disconnects.
+- **Streaming requests no longer hang forever** on a stalled upstream connection.
+- **Streaming provider errors (429/500/503) now flow through retry, the fallback chain, and the circuit breaker**, like non-streaming requests, instead of dead-ending the stream.
+- **Chain-of-thought no longer leaks** into responses on failover paths.
+
+### Channels
+- **Discord & Telegram** group/guild messages now reply in the channel instead of DMing the sender.
+- **Slack Socket Mode now connects** — added distinct `appToken` and `signingSecret` channel config fields (previously both were aliased to one value, so connection always failed).
+- **LINE & Lark inbound webhooks are now wired:** `POST /api/channels/line/webhook` and `POST /api/channels/lark/webhook`.
+
+### Other fixes
+- Unknown model ids sent to `/v1` now return a clear `404` with the available-model list instead of silently mis-routing.
+- Parallel specialist delegation no longer runs each task twice when Command Post is enabled.
+- `csv_query` `>=` and `<=` filters now match correctly.
+- Calendar create/delete and the lightweight `browser` tool's interactive actions now return a clear "not available" message instead of silently doing nothing.
+- New kill-switch control routes: `POST /api/safety/kill`, `POST /api/safety/resume`, `GET /api/safety/kill-switch`.
+
 ## v6.4.4 — 2026-05-22 — Cron tools fix: honor `allowedTools` end-to-end so fb-* crons actually post
 
 Live observation during the v6.4.1 audit caught all five Facebook crons (`fb-morning`, `fb-midday`, `fb-afternoon`, `fb-evening`, `fb-night`) firing on schedule and producing zero posts. The trace from `/system/logs`:
@@ -7112,7 +7140,7 @@ This is the V2 doc's lock-criterion winner: *"would Replit pay $100K/yr for this
 
 Then:
 ```bash
-TOKEN=$(curl -X POST http://localhost:48420/api/login -d '{"password":"titan2026"}' | jq -r .token)
+TOKEN=$(curl -X POST http://localhost:48420/api/login -d '{"password":"<your-password>"}' | jq -r .token)
 
 # Roll out the new persona to 10% of traffic
 curl -X POST http://localhost:48420/api/persona-cohorts \

@@ -81,27 +81,17 @@ export function registerBrowserSkill(): void {
                             });
                         });
                     }
-                    case 'evaluate': {
-                        const script = args.script as string;
-                        if (!script) return 'Error: script is required';
-                        return `Note: Full CDP browser evaluation requires a running browser session. Script queued: ${script.slice(0, 200)}`;
-                    }
-                    case 'screenshot': {
-                        const url = args.url as string;
-                        if (!url) return 'Error: url is required';
-                        return `Screenshot capture requires CDP connection to a running Chromium instance. Target: ${url}`;
-                    }
-                    case 'click': {
-                        const selector = args.selector as string;
-                        if (!selector) return 'Error: selector is required';
-                        return `Click action requires CDP connection. Selector: ${selector}`;
-                    }
-                    case 'type': {
-                        const selector = args.selector as string;
-                        const text = args.text as string;
-                        if (!selector || !text) return 'Error: selector and text are required';
-                        return `Type action requires CDP connection. Selector: ${selector}, Text: ${text}`;
-                    }
+                    // v6.5 — these were non-functional stubs that echoed the args
+                    // back as if the action were queued, misleading the model into
+                    // believing the click/type/evaluate/screenshot actually happened.
+                    // This lightweight 'browser' tool has no CDP/browser session, so
+                    // redirect to the real Playwright-backed tools instead of faking.
+                    case 'evaluate':
+                    case 'click':
+                    case 'type':
+                        return `Error: the '${action}' action is not supported by the lightweight 'browser' tool (it has no live browser session). Use 'browser_auto_nav' — real Playwright that supports click/fill/evaluate action sequences.`;
+                    case 'screenshot':
+                        return `Error: the 'screenshot' action is not supported by the lightweight 'browser' tool. Use 'browser_screenshot' — real Playwright screenshots.`;
                     default:
                         return `Unknown browser action: ${action}`;
                 }

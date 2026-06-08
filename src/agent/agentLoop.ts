@@ -1057,6 +1057,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             const chatOptions = {
                 model: activeModel,
                 messages: smartMessages,
+                // v6.5 — forward the request AbortSignal so Stop / client
+                // disconnect cancels in-flight generation at the provider fetch.
+                signal: ctx.signal,
                 tools: ctx.activeTools.length > 0 ? ctx.activeTools : undefined,
                 maxTokens: isVoice ? Math.min(ctx.config.agent.maxTokens, 300) : ctx.config.agent.maxTokens,
                 temperature: ctx.config.agent.temperature,
@@ -2301,6 +2304,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 thinking: ctx.voiceFastPath ? false : thinkingMode !== 'off',
                 thinkingLevel: thinkingMode as 'off' | 'low' | 'medium' | 'high',
                 providerOptions: ctx.providerOptions,
+                signal: ctx.signal,
             };
 
             let response: ChatResponse;

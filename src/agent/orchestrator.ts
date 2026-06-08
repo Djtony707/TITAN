@@ -8,7 +8,6 @@ import { loadConfig } from '../config/config.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES, type SubAgentResult, type ModelTier } from './subAgent.js';
 import logger from '../utils/logger.js';
 import { createIssue, updateIssue } from './commandPost.js';
-import { queueWakeup } from './agentWakeup.js';
 import { claimNextTask, completeQueuedTask, failQueuedTask, getQueueStatus, type QueuedTask } from './taskQueue.js';
 import { decomposeHierarchically, executeHierarchicalPlan, summarizePlan, flattenPlan, type HierarchicalPlanResult } from './hierarchicalPlanner.js';
 
@@ -197,23 +196,18 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
                         });
                         logger.info(COMPONENT, `[CP] Created issue ${issue.id} for ${agentName}: ${t.task.slice(0, 60)}`);
                         updateIssue(issue.id, { status: 'in_progress' });
-
-                        // Queue wakeup for async execution
-                        queueWakeup({
-                            agentName,
-                            task: t.task,
-                            issueId: issue.id,
-                            issueIdentifier: issue.id,
-                            agentId: agentName,
-                            parentSessionId: null,
-                            templateName: t.template,
-                        });
+                        // v6.5 — the Command Post issue is for TRACKING ONLY. The
+                        // previous code ALSO queueWakeup()'d the same task here, which
+                        // executed it a SECOND time asynchronously (double LLM cost +
+                        // duplicated side effects) on top of the synchronous
+                        // spawnSubAgent below whose result is what we actually use.
+                        // Removed the duplicate async dispatch; tracking stays via the issue.
                     } catch (e) {
-                        logger.warn(COMPONENT, `[CP] Issue creation failed: ${(e as Error).message} — falling back to direct spawn`);
+                        logger.warn(COMPONENT, `[CP] Issue creation failed: ${(e as Error).message}`);
                     }
                 }
 
-                // Execute (sync for now — wakeup handles async)
+                // Execute synchronously — the single source of the result used for synthesis
                 const result = await spawnSubAgent({
                     name: agentName,
                     task: t.task,
@@ -259,12 +253,17 @@ export async function executeDelegationPlan(plan: DelegationPlan): Promise<Orche
         results.push(result);
     }
 
-    // Synthesize results
-    const synthesis = results.map((r, i) => {
-        const task = plan.tasks[i];
+    // Synthesize results. v6.5 — iterate plan.tasks by original index and pull
+    // the matching result from taskResults (keyed by the true task index). The
+    // old code zipped the REORDERED `results` array (independents first, then
+    // dependents) against plan.tasks by array position, mislabelling every
+    // result whenever the plan mixed independent + dependent tasks.
+    const synthesis = plan.tasks.map((task, i) => {
+        const r = taskResults.get(i);
+        if (!r) return '';
         const status = r.success ? '✅' : '❌';
         return `${status} **${task?.template || 'task'}**: ${r.content.slice(0, 500)}`;
-    }).join('\n\n');
+    }).filter(Boolean).join('\n\n');
 
     const durationMs = Date.now() - startTime;
     logger.info(COMPONENT, `Delegation complete: ${results.filter(r => r.success).length}/${results.length} succeeded (${durationMs}ms)`);

@@ -20,14 +20,23 @@ export class SlackChannel extends ChannelAdapter {
         if (!channelConfig.token) { logger.warn(COMPONENT, 'Slack token not configured'); return; }
 
         try {
+            // v6.5 — Socket Mode needs a distinct app-level token (xapp-…). The old
+            // code fed both signingSecret and appToken the single apiKey, so Bolt's
+            // start() always threw and Slack never connected. Require an explicit
+            // appToken and skip honestly (don't pretend) if it's missing.
+            const appToken = channelConfig.appToken;
+            if (!appToken) {
+                logger.warn(COMPONENT, 'Slack Socket Mode requires an app-level token (xapp-…). Set channels.slack.appToken (and token = your xoxb- bot token). Not connecting.');
+                return;
+            }
             // Dynamic import to only load Bolt when used
             // @ts-expect-error optional peer dependency — install with: npm install @slack/bolt
             const { App } = await import('@slack/bolt');
             const app = new App({
                 token: channelConfig.token,
-                signingSecret: channelConfig.apiKey || '',
+                signingSecret: channelConfig.signingSecret || undefined,
                 socketMode: true,
-                appToken: channelConfig.apiKey || '',
+                appToken,
             });
 
             app.message(async ({ message }: { message: { subtype?: string; user?: string; ts: string; text?: string; channel?: string } }) => {

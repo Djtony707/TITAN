@@ -69,6 +69,16 @@ function getFailoverOrder(excludeProvider: string): string[] {
 // reasoning into the response. This runs on EVERY chat() response so
 // no consumer (FB posts, Messenger, comments, web chat) ever sees it.
 
+/** v6.5 — apply the chain-of-thought strip to a response object's content so
+ *  the recovery paths (fallback chain / mesh / priority failover) strip too,
+ *  not just the primary success path. Leak-prone local models (qwen/deepseek/
+ *  glm) otherwise dump <think> blocks to users precisely when a failover fires —
+ *  exactly when a leak-prone local model is most likely to be the responder. */
+function stripThinkingFromResult<T extends { content?: string }>(result: T): T {
+    if (result?.content) result.content = stripThinkingFromResponse(result.content);
+    return result;
+}
+
 function stripThinkingFromResponse(text: string): string {
     let cleaned = text;
 
@@ -681,7 +691,7 @@ async function tryFallbackChain(
                 reason: originalError.message,
                 timestamp: Date.now(),
             };
-            return result;
+            return stripThinkingFromResult(result);
         } catch (chainErr) {
             // Record failure for circuit breaker
             try {
@@ -1149,7 +1159,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                         const message = Array.isArray(options.messages)
                             ? options.messages.map(m => m.content).join('\n')
                             : (options as unknown as Record<string, unknown>).message as string || '';
-                        return await meshChat(peer, modelId, message);
+                        return stripThinkingFromResult(await meshChat(peer, modelId, message));
                     } catch (meshErr) {
                         logger.warn(COMPONENT, `Mesh routing failed: ${(meshErr as Error).message}`);
                     }
@@ -1194,7 +1204,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
                             const { trackModelUsage } = await import('../analytics/featureTracker.js');
                             trackModelUsage(fbModelName, fallbackName, true);
                         })().catch(() => {});
-                        return result;
+                        return stripThinkingFromResult(result);
                     } catch (fallbackErr) {
                         recordFailure(fallbackName); // Record failure for the fallback provider too
                         // G4: Record fallback attempt for structured error chain

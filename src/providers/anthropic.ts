@@ -3,6 +3,8 @@
  */
 import {
     LLMProvider,
+    withTimeoutSignal,
+    STREAM_FETCH_TIMEOUT_MS,
     type ChatOptions,
     type ChatResponse,
     type ChatStreamChunk,
@@ -212,12 +214,15 @@ export class AnthropicProvider extends LLMProvider {
                     'anthropic-beta': 'prompt-caching-2024-07-31',
                 },
                 body: JSON.stringify(body),
+                signal: withTimeoutSignal(options.signal, STREAM_FETCH_TIMEOUT_MS),
             });
 
             if (!response.ok || !response.body) {
                 const errorText = await response.text();
-                yield { type: 'error', error: `Anthropic API error (${response.status}): ${errorText}` };
-                return;
+                // v6.5 — THROW (not yield) so the router routes HTTP errors through
+                // retry / fallback chain / circuit breaker, like non-streaming chat().
+                const { createProviderError } = await import('./errorTaxonomy.js');
+                throw createProviderError('Anthropic API', response, errorText, { provider: 'anthropic', model });
             }
 
             const reader = response.body.getReader();

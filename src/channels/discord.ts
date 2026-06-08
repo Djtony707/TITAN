@@ -43,7 +43,7 @@ export class DiscordChannel extends ChannelAdapter {
                 ],
             });
 
-            client.on(Events.MessageCreate, (message: { id: string; author: { id: string; username: string; bot: boolean } | null; content: string; guild?: { id: string }; createdAt: Date }) => {
+            client.on(Events.MessageCreate, (message: { id: string; author: { id: string; username: string; bot: boolean } | null; content: string; guild?: { id: string }; channelId: string; createdAt: Date }) => {
                 if (!message.author || message.author.bot) return;
 
                 const inbound: InboundMessage = {
@@ -52,7 +52,11 @@ export class DiscordChannel extends ChannelAdapter {
                     userId: message.author.id,
                     userName: message.author.username,
                     content: message.content,
-                    groupId: message.guild?.id,
+                    // v6.5 — for a guild message the reply target is the CHANNEL the
+                    // message came from (was the GUILD id, which channels.fetch can't
+                    // resolve — so guild replies silently failed / DM'd the sender).
+                    // DMs (no guild) leave groupId unset so send() replies via DM.
+                    groupId: message.guild ? message.channelId : undefined,
                     timestamp: message.createdAt,
                     raw: message,
                 };
@@ -89,15 +93,17 @@ export class DiscordChannel extends ChannelAdapter {
 
         try {
             const client = this.client as unknown as { users: { fetch(id: string): Promise<{ createDM(): Promise<{ send(content: string): Promise<void> }> }> }; channels: { fetch(id: string): Promise<{ isTextBased(): boolean; send(content: string): Promise<void> } | null> } };
-            if (message.userId) {
-                const user = await client.users.fetch(message.userId);
-                const dm = await user.createDM();
-                await dm.send(message.content);
-            } else if (message.groupId) {
+            // v6.5 — prefer the group/channel target so guild replies post in the
+            // channel; only DM the user when there's no group context (a true DM).
+            if (message.groupId) {
                 const channel = await client.channels.fetch(message.groupId);
                 if (channel?.isTextBased()) {
                     await channel.send(message.content);
                 }
+            } else if (message.userId) {
+                const user = await client.users.fetch(message.userId);
+                const dm = await user.createDM();
+                await dm.send(message.content);
             }
         } catch (error) {
             logger.error(COMPONENT, `Send failed: ${(error as Error).message}`);

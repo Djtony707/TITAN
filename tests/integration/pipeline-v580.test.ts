@@ -16,7 +16,7 @@
  *
  * Reference:
  *   - docs/PIPELINES.md (lands as H5)
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md
  *   - awesome-agent-harness top-10 pattern #5 (verification first-class)
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

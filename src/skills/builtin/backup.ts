@@ -26,7 +26,7 @@
  *
  * Reference:
  *   - src/storage/backup.ts (the primitives)
- *   - ~/.claude/projects/-Users-michaelelliott/memory/titan-v6-living-canvas.md (U1–U6)
+ *   - ~/.claude/projects/-Users-localuser/memory/titan-v6-living-canvas.md (U1–U6)
  */
 import { registerSkill } from '../registry.js';
 import {
