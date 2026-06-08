@@ -181,12 +181,12 @@
     "@types/ws": "^8.5.12",
     "@typescript-eslint/eslint-plugin": "^8.59.3",
     "@typescript-eslint/parser": "^8.12.0",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^8.57.1",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.8"
   },
   "tsup": {
     "entry": [
