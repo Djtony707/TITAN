@@ -15,19 +15,19 @@
 
 <p align="center">
   <strong>The local-first AI agent framework with a team of specialists, a real-time canvas, and a soul.</strong>
-  <br><small>Your hardware. Your models. Your control. Built in TypeScript, MIT-licensed, ~40K npm installs.</small>
+  <br><small>Your hardware. Your models. Your control. Built in TypeScript, MIT-licensed, 110K+ downloads.</small>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/npm/v/titan-agent?color=blue&label=npm" alt="npm version"/></a>
-  <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/badge/installs-40K%2B-blue" alt="npm installs"/></a>
+  <a href="https://www.npmjs.com/package/titan-agent"><img src="https://img.shields.io/npm/dt/titan-agent?color=blue&label=downloads" alt="npm downloads"/></a>
   <a href="https://github.com/Djtony707/TITAN/stargazers"><img src="https://img.shields.io/github/stars/Djtony707/TITAN?style=social" alt="GitHub Stars"/></a>
   <a href="https://github.com/Djtony707/TITAN/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
   <a href="https://github.com/sponsors/Djtony707"><img src="https://img.shields.io/badge/sponsor-♥-ec4899" alt="Sponsor"/></a>
 </p>
 
 <p align="center">
-  <a href="#whats-new"><img src="https://img.shields.io/badge/version-6.3.5-blueviolet" alt="v6.3.5"/></a>
+  <a href="#whats-new"><img src="https://img.shields.io/npm/v/titan-agent?color=blueviolet&label=version" alt="npm version"/></a>
   <img src="https://img.shields.io/badge/providers-37-purple" alt="37 LLM Providers"/>
   <img src="https://img.shields.io/badge/channels-19-orange" alt="19 Channels"/>
   <img src="https://img.shields.io/badge/skills-91-teal" alt="91 builtin skills"/>
@@ -44,18 +44,13 @@
 
 <a id="whats-new"></a>
 
-## What's new in v6.3.x
+## What's new in v6.5.x
 
-A focused run of canvas + agent UX improvements (6 patch releases in 24 hours):
+A security & reliability hardening run.
 
-- **6.3.0 — Mission Chat actually runs specialists in parallel.** Goal driver detects when 2+ subtasks are deps-satisfied and fires them via `Promise.all` (cap 4 concurrent). Planner emits non-linear `dependsOn` for genuinely independent steps. Orchestrator's regex gate dropped — the LLM classifier sees most multi-step missions now, not just the ones that contain literal "parallel".
-- **6.3.1 — Desk activity-sticky rollup.** Repeated activity from the same agent collapses into one sticky with a `× N` count badge instead of N near-identical notes. Tooltip shows up to 3 most-recent details.
-- **6.3.2 — Space canvases stop triple-stacking chrome.** `/space/<id>` is now an immersive canvas path — the global shell sidebar, canvas sidebar, and chat dock all default to collapsed/edge-peeked. Reclaims ~33% of horizontal width.
-- **6.3.3 — Star on GitHub button.** Sits next to the existing Sponsor link in the bottom-center pill. Live star count cached 15 min, falls back gracefully when GitHub's rate-limited.
-- **6.3.4 — Canvas chrome enforces collapse for existing users too.** Sidebar prefs split into route-scoped keys so a "pinned open" preference on `/missions` doesn't leak into `/space/<id>` and crowd the canvas.
-- **6.3.5 — README refresh + `ws@8.20.1` security patch.**
-
-Before this run: **6.2.2** fixed the in-app Update button (had been calling the wrong systemd service name with sudo permissions that didn't exist). The fix uses SIGTERM-to-self + `Restart=always`, no sudo required.
+- **6.5.0 — Hardening sprint.** End-to-end request cancellation — Stop and client-disconnect now abort in-flight provider generation instead of running to completion. The `/v1` OpenAI-compatible endpoint is authenticated when auth is configured. Approval gates can no longer be bypassed by sibling tools in a batch. SSRF guards on the browser tools. Streaming provider errors (429/500/503) flow through retry, the fallback chain, and the circuit breaker. Discord/Telegram group replies post in-channel, Slack Socket Mode connects, and LINE/Lark inbound webhooks are wired.
+- **6.5.1 — Security dependencies + CI.** axios → 1.17.0 and react-router → 7.17.0 (clears proxy-auth credential leak, ReDoS, prototype-pollution MITM, and XSS/DoS advisories); regenerated the lockfile to fix `npm ci`.
+- **6.5.2 — Dependency hygiene.** Removed a vestigial pnpm lockfile and bumped `hono` + a transitive `uuid` — open Dependabot alerts dropped 38 → 4.
 
 See [CHANGELOG.md](CHANGELOG.md) for everything.
 
@@ -139,15 +134,15 @@ The LLM picks which specialists to spawn based on the goal. You can also call th
 
 | Thing | Count | Verify with |
 |---|---|---|
-| **Version** | 6.3.5 | `package.json`, `src/utils/constants.ts` |
-| **Lifetime npm installs** | 40K+ | `npm view titan-agent` + npm stats |
+| **Version** | 6.5.x | `package.json`, `src/utils/constants.ts` |
+| **Downloads** | 110K+ | `npm view titan-agent` + npm stats |
 | **LLM providers** | 37 (5 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts` |
 | **Channel adapters** | 19 | `src/channels/*.ts` (minus base) |
 | **Built-in skill files** | 91 | `src/skills/builtin/` |
 | **Skills loaded at runtime** | ~143 | `GET /api/skills` |
 | **Tools registered** | ~250 | `GET /api/skills` |
 | **Test files** | 345 | `tests/` (vitest) |
-| **Test cases** | 7,830+ passing, 2 documented skips, 0 failing | `npm test` |
+| **Test cases** | 7,837+ passing, documented skips, 0 failing | `npm test` |
 | **Live-eval suites** | 11 | `src/eval/harness.ts` |
 | **Mission Control admin panels** | 43 | `ui/src/components/admin/` |
 | **Soma drives** | 5 (purpose, curiosity, hunger, safety, social) | `src/organism/` |
