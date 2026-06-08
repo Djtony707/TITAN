@@ -68,7 +68,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            role="status"
+            // v7.0 a11y — errors/warnings announce assertively (interrupt), while
+            // success/info announce politely. aria-atomic so the whole message is read.
+            role={t.type === 'error' || t.type === 'warning' ? 'alert' : 'status'}
+            aria-atomic="true"
             className="titan-toast-surface pointer-events-auto flex items-center gap-2.5 px-4 py-3"
             style={{ borderLeft: `3px solid ${accentByType[t.type]}` }}
           >

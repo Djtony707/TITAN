@@ -41,7 +41,10 @@
     --theme-paper-line:    #d8d3c2;
 
     --theme-ink:           #1a1f2e;
-    --theme-ink-soft:      #6a5a44;
+    /* v7.0 a11y — muted text reads against the dark wood surfaces the app
+       actually uses (was #6a5a44 = dark-on-dark, ~1.6:1; now a light tan that
+       hits WCAG AA on the brown panels). */
+    --theme-ink-soft:      #c8b28c;
 
     --theme-metal:         #c4a35a;          /* brass */
     --theme-metal-bright:  #f3d27a;
@@ -88,7 +91,9 @@
     --theme-paper-line:    #b8c4d4;
 
     --theme-ink:           #0c1420;
-    --theme-ink-soft:      #4a5870;
+    /* v7.0 a11y — muted text reads on the dark steel surfaces (was #4a5870 =
+       too dark on the blueprint background; now a light steel that meets AA). */
+    --theme-ink-soft:      #aab8cc;
 
     --theme-metal:         #8a9aa8;          /* brushed steel */
     --theme-metal-bright:  #c8d4e0;
