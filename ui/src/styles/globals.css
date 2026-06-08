@@ -536,3 +536,36 @@ body {
   0%   { transform: scaleY(1);    opacity: 0.85; }
   100% { transform: scaleY(1.18); opacity: 1; }
 }
+
+/* ─────────────  v7.0 — accessibility base  ───────────── */
+/* Visible keyboard-focus baseline for interactive elements that don't define
+   their own focus-visible treatment. Uses :where() (zero specificity) so any
+   component that sets its own ring (Button, Input) easily overrides this. */
+:where(a, button, input, select, textarea, [tabindex], [role='button'], summary):focus-visible {
+  outline: 2px solid var(--theme-accent, var(--color-accent, #c45a30));
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Skip-to-content link — visually hidden until focused, then slides into view. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 200;
+  margin: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 0.5rem;
+  background: var(--theme-menu-active-bg, var(--color-accent, #c45a30));
+  color: var(--theme-menu-active-fg, #ffffff);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 6px 18px var(--theme-shadow, rgba(0, 0, 0, 0.35));
+  transform: translateY(-160%);
+  transition: transform 0.15s ease;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+}

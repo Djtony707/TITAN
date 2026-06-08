@@ -494,6 +494,9 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
         color: 'var(--theme-paper-fg, var(--color-text))',
       }}
     >
+      {/* v7.0 a11y — skip link: the first focusable element, jumps past the nav
+          straight to main content for keyboard / screen-reader users (WCAG 2.4.1). */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <button
         type="button"
         className="fixed left-3 top-3 z-[60] flex h-9 w-9 items-center justify-center rounded-md border md:hidden"
@@ -539,7 +542,7 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="titan-desktop-workspace relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0">
+      <main id="main-content" tabIndex={-1} className="titan-desktop-workspace relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0 outline-none">
         <div className="titan-desktop-pane min-h-full">
           {children}
         </div>
