@@ -81,6 +81,13 @@ export const SECTION_CAP_DEFAULTS: Readonly<Record<string, number>> = Object.fre
     // trimmed first if the steps list alone is big.
     goalPlan:        4096,
 
+    // v7.0 — Living goal SPEC (spec-driven / context engineering). The
+    // definition-of-done (problem + requirements + checkable acceptance
+    // criteria) for the goal this session is tied to. Lands just before
+    // goalPlan so the agent sees "are we done?" before "what's next?".
+    // 4 KB matches the renderer's PROMPT_RENDER_CAP.
+    goalSpec:        4096,
+
     // v6.0.5 — User-authored / agent-authored SKILL.md library. The
     // renderer caps itself at SKILL_PROMPT_CAP (6 KB) and skips body
     // injection past that, so this cap mostly matters as a defence-in-
