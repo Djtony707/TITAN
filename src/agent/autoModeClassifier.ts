@@ -129,6 +129,23 @@ export function getAutoModePolicy(): AutoModePolicy {
     return 'standard';
 }
 
+/**
+ * Inherently high-impact operations that stay gated even without a declared
+ * contract — arbitrary command execution, destructive deletes, deploys, and
+ * irreversible external sends/payments. Everything else uncontracted runs with
+ * a notify (see classifyToolCall). Curated conservatively; a tool that should
+ * gate but is missing here can still be added to the user approval list.
+ */
+const NAME_GATED_EXACT = new Set<string>([
+    'shell', 'run_shell', 'bash', 'run_command', 'execute_command', 'exec',
+    'delete_file', 'bulk_delete_labels', 'phone_call', 'make_call',
+]);
+const NAME_GATED_PATTERN = /(^|_)(delete|destroy|wipe|purge|deploy|publish|transfer|payment|purchase|wire|send_email|email_send)(_|$)/i;
+
+export function nameLooksHighImpact(toolName: string): boolean {
+    return NAME_GATED_EXACT.has(toolName) || NAME_GATED_PATTERN.test(toolName);
+}
+
 /* ──────────────────────────  Classifier  ────────────────────────── */
 
 /**
@@ -166,14 +183,28 @@ export function classifyToolCall(toolName: string): ClassificationResult {
         };
     }
 
-    // Unknown tool (no registered contract) → conservative 'gate'.
-    // The long-tail 239 skills without contracts hit this branch
-    // until their contracts ship. Override via config if the prompt
-    // pings become annoying.
+    // Unknown tool (no registered contract). The long-tail of ~239 skills has
+    // no contract, so gating ALL of them walled benign actions (search, read,
+    // widget-building, …) behind approval on every call — which broke the
+    // "ask TITAN to build a weather widget" flow and made the agent feel broken.
+    //
+    // v7.0 fix: uncontracted tools run with a 'notify' (visible, logged) by
+    // default, EXCEPT a curated set of inherently high-impact operations that
+    // stay gated by name. Dangerous shell commands + URLs are independently
+    // caught by preExecScan (toolRunner), and external-send tools (email/slack/
+    // x/publisher) self-gate via the approval_gates skill — so 'notify' here is
+    // safe for the benign majority. Strict users can still set policy='paranoid'.
     if (!contract) {
+        if (nameLooksHighImpact(toolName)) {
+            return {
+                decision: 'gate',
+                reason: `no contract + high-impact name "${toolName}" — gating`,
+                policy,
+            };
+        }
         return {
-            decision: 'gate',
-            reason: `no contract registered for "${toolName}" — gating by default`,
+            decision: 'notify',
+            reason: `no contract for "${toolName}" — notify (benign long-tail)`,
             policy,
         };
     }
