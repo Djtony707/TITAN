@@ -650,6 +650,20 @@ function getErrorStatus(error: unknown): number | undefined {
     return classifyProviderError(error).httpStatus;
 }
 
+/**
+ * v7.0 — additional test-only exports (same `__internal_` convention as above).
+ * These let the recovery PRIMITIVES — backoff math, Retry-After parsing,
+ * retryable classification, and success recording — be asserted directly in
+ * unit tests instead of via hollow `expect(true).toBe(true)` placeholders.
+ * NOT for production callers.
+ */
+export const __internal_recordSuccess = recordSuccess;
+export const __internal_calculateBackoffDelay = calculateBackoffDelay;
+export const __internal_parseRetryAfter = parseRetryAfter;
+export const __internal_isRetryableError = isRetryableError;
+export const __internal_getErrorStatus = getErrorStatus;
+export const __internal_RETRY_CONFIG = RETRY_CONFIG;
+
 /** Try the fallback chain for a chat request. Returns null if chain is empty or exhausted. */
 async function tryFallbackChain(
     options: ChatOptions,
