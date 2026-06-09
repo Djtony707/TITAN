@@ -21,7 +21,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useDeskTheme } from '@/components/desk/DeskTheme';
 import type { DeskTheme } from '@/components/desk/DeskSurface';
 
-export type ThemeName = 'office' | 'workshop' | 'observatory' | 'studio';
+export type ThemeName = 'office' | 'workshop' | 'observatory' | 'studio' | 'night';
 
 /**
  * Phase 0b — the user-facing 3-theme override. When the user picks
@@ -35,7 +35,7 @@ const OVERRIDE_STORAGE_KEY = 'titan-theme-name';
 function readOverride(): ThemeName | null {
     try {
         const raw = localStorage.getItem(OVERRIDE_STORAGE_KEY);
-        if (raw === 'office' || raw === 'workshop' || raw === 'observatory' || raw === 'studio') return raw;
+        if (raw === 'office' || raw === 'workshop' || raw === 'observatory' || raw === 'studio' || raw === 'night') return raw;
     } catch { /* SSR or quota — fall through */ }
     return null;
 }
