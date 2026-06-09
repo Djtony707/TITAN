@@ -73,7 +73,6 @@ const PhoneDeskPanel = lazy(() => import('@/components/admin/PhoneDeskPanel'));
 
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
-const TitanHome = lazy(() => import('@/views/TitanHome'));
 const AboutYouMemory = lazy(() => import('@/views/AboutYouMemory'));
 const MissionChat = lazy(() => import('@/pages/MissionChat'));
 const MissionCanvas = lazy(() => import('@/pages/MissionCanvas'));
@@ -121,9 +120,10 @@ function AuthenticatedAppInner() {
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             {/* Canonical 6-section shell */}
-            {/* v7.0 redo — the new front door: desk + mascot + one input.
+            {/* v7.0 redo — home IS the canvas: a customizable desk where the
+                "Ask TITAN" hero is itself a widget and the mascot roams free.
                 The old mission/chat surface lives on at /missions. */}
-            <Route path="/" element={<TitanHome />} />
+            <Route path="/" element={<TitanCanvas />} />
             <Route path="/memory" element={<AboutYouMemory />} />
             <Route path="/dashboard" element={<Navigate to="/missions" replace />} />
 
