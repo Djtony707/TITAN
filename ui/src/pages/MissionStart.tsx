@@ -205,24 +205,10 @@ export default function MissionStart() {
                 className="text-[11px] tracking-wide"
                 style={{ color: INK_SOFT, fontFamily: FONT_MONO }}
               >
-                ⌘↵ to dispatch · voice coming soon
+                ⌘↵ to dispatch
               </div>
 
               <div className="flex w-full items-center gap-2 sm:w-auto">
-                <button
-                  type="button"
-                  disabled
-                  title="Voice is coming next release"
-                  className="w-11 h-11 rounded-full flex items-center justify-center cursor-not-allowed"
-                  style={{
-                    background: `${BG_BASE}66`,
-                    border: `1px solid ${METAL}33`,
-                    color: INK_SOFT,
-                    opacity: 0.55,
-                  }}
-                >
-                  🎤
-                </button>
                 <button
                   type="submit"
                   disabled={!goal.trim() || submitting}

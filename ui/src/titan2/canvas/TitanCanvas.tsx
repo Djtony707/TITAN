@@ -1332,7 +1332,7 @@ function EmptyCanvas({ space, onAddWidget, onOpenChat }: {
           color: 'var(--theme-ink-soft)',
           fontFamily: 'var(--theme-font-display)',
         }}>
-          This space is empty. Ask the agent to materialize something for you, or place a system panel below.
+          This desk is empty. Ask the AI to build something — try &quot;make me a weather widget for Kelseyville&quot; or &quot;add a clock&quot; — or place a system panel below.
         </p>
 
         {/* Hero — Ask Agent. Bigger, lamp-glow, accent-coloured. */}

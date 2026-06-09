@@ -3,6 +3,7 @@ import { Clock, ToggleLeft, ToggleRight, Trash2, RefreshCw } from 'lucide-react'
 import { getCronJobs, toggleCronJob, deleteCronJob } from '@/api/client';
 import type { CronJob } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { useToast } from '@/components/shared/Toast';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
@@ -54,6 +55,13 @@ export default function CronPanel() {
         </button>
       </div>
       <div className="space-y-2">
+        {!loading && jobs.length === 0 && (
+          <EmptyState
+            icon={<Clock className="w-8 h-8" />}
+            title="No scheduled jobs yet"
+            description={'Cron jobs run tasks for you on a schedule — like "summarize my inbox every morning at 8". Ask TITAN in chat: "every weekday at 8am, check the news and brief me".'}
+          />
+        )}
         {jobs.map(j => (
           <div key={j.id} className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0f] border border-[#27272a]">
             <div className="flex items-center gap-3">

@@ -282,6 +282,27 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   };
 
+  // "Skip setup" — complete onboarding with safe defaults (the backend treats an
+  // empty body as just `onboarded: true`); everything is changeable in Settings.
+  const handleSkipSetup = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/onboarding/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error('Setup failed');
+      trackEvent('onboarding_skipped', {});
+      onComplete();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleComplete = async () => {
     setSaving(true);
     setError('');
@@ -360,9 +381,20 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       <p className="text-xl text-text-secondary mb-2 font-light">
         TITAN <span className="text-accent font-medium">v{appVersion}</span>
       </p>
-      <p className="text-sm text-text-muted max-w-md mb-8 leading-relaxed">
-        Configure your local runtime, choose a model, and open Mission Control.
+      <p className="text-sm text-text-secondary max-w-md mb-2 leading-relaxed">
+        TITAN is your personal AI agent — it chats, runs tasks and missions for you,
+        builds widgets on your canvas, and keeps you in control of anything sensitive.
       </p>
+      <p className="text-xs text-text-muted max-w-md mb-6 leading-relaxed">
+        This quick setup picks a model and a few preferences. You can change everything later in Settings.
+      </p>
+      <button
+        onClick={() => { void handleSkipSetup(); }}
+        disabled={saving}
+        className="text-xs text-text-muted hover:text-accent underline underline-offset-2 mb-8 disabled:opacity-50"
+      >
+        Skip setup — use defaults, I&apos;ll configure later
+      </button>
 
       <div className="px-5 py-3 rounded-2xl border border-accent/20 bg-accent/5 mb-8 max-w-md">
         <p className="text-xs text-accent-hover font-medium mb-1 flex items-center gap-1.5">
@@ -711,11 +743,14 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
     // ── Step 5/6: Soma ──
     <div key="soma" className="w-full max-w-lg mx-auto">
-      <StepBadge icon={Waves}>Soma Drives</StepBadge>
-      <h2 className="text-2xl font-semibold text-white mb-1">Enable Proactive Signals</h2>
-      <p className="text-sm text-text-muted mb-6">
-        Soma is TITAN&apos;s homeostatic signal layer. It can propose useful work when configured
-        signals cross thresholds; you approve sensitive actions before they run.
+      <StepBadge icon={Waves}>Proactive Mode</StepBadge>
+      <h2 className="text-2xl font-semibold text-white mb-1">Should TITAN suggest work on its own?</h2>
+      <p className="text-sm text-text-muted mb-2">
+        With this on, TITAN notices when something could be useful — and proposes it.
+        You still approve anything sensitive before it runs. Off = TITAN only acts when you ask.
+      </p>
+      <p className="text-xs text-text-muted mb-6 opacity-75">
+        Under the hood this is &quot;Soma&quot; — six simple drives that nudge TITAN, like the ones below.
       </p>
 
       <div className="grid grid-cols-3 gap-2 mb-5">
