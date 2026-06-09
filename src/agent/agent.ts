@@ -2239,6 +2239,29 @@ export async function processMessage(
         });
     } catch { /* substrate not available — skip */ }
 
+    // v7.0 observability — record a per-run trace span (best-effort, never breaks the turn).
+    try {
+        const { recordSpan } = await import('../telemetry/traceStore.js');
+        let costUsd = 0;
+        try {
+            const { calculateActualCost } = await import('./costEstimator.js');
+            costUsd = calculateActualCost(modelUsed, { prompt: totalPromptTokens, completion: totalCompletionTokens });
+        } catch { /* cost optional */ }
+        recordSpan({
+            sessionId: session.id,
+            startedAt: new Date(startTime).toISOString(),
+            durationMs,
+            model: modelUsed,
+            input: (message || '').slice(0, 500),
+            output: (finalContent || '').slice(0, 1000),
+            toolsUsed: [...new Set(toolsUsed)],
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens,
+            costUsd,
+            ok: !budgetExhausted && !!finalContent,
+        });
+    } catch { /* tracing optional */ }
+
     return {
         content: finalContent,
         sessionId: session.id,
