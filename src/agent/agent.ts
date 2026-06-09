@@ -47,6 +47,7 @@ import { getAgent } from './multiAgent.js';
 import { isDangerous } from '../utils/safety.js';
 import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
+import { detectSystemWidget, buildSystemWidgetGate } from './systemWidgets.js';
 import { startTrace } from './tracer.js';
 import { initSoulState, updateSoulState, emitHeartbeat, getInnerMonologue, consolidateWisdom, clearSoulState, getWisdomHints } from './soul.js';
 import logger from '../utils/logger.js';
@@ -1614,37 +1615,15 @@ export async function processMessage(
         systemPrompt += '\n\nWhen editing code: 1) read the relevant files first, 2) make the actual changes using write_file or edit_file, 3) run tests to verify, 4) report what you changed. Do NOT stop after reading — actually save your changes.';
         taskEnforcementActive = true;
     }
-    // v5.0.2: Forgotten features surface — detect requests for system widgets FIRST
-    // so they take precedence over the generic widget regex below.
-    // v6.0 — Bucket C (paperclip) removed from the system-widget list.
-    const systemWidgetPatterns = [
-        { pattern: /\b(?:backups?|snapshots?|archives?)\b/i, widget: 'system:backup', name: 'Backup Manager' },
-        { pattern: /\b(?:training|train|specialists?|models?)\b/i, widget: 'system:training', name: 'Training Dashboard' },
-        { pattern: /\b(?:recipes?|playbooks?|workflows?|jarvis)\b/i, widget: 'system:recipes', name: 'Recipe Kitchen' },
-        { pattern: /\b(?:vram|gpu|nvidia)\b/i, widget: 'system:vram', name: 'VRAM Monitor' },
-        { pattern: /\b(?:teams?|members?|roles?|permissions?|rbac)\b/i, widget: 'system:teams', name: 'Team Hub' },
-        { pattern: /\b(?:cron|schedules?|jobs?|timers?)\b/i, widget: 'system:cron', name: 'Cron Scheduler' },
-        { pattern: /\b(?:checkpoints?|restores?|save state)\b/i, widget: 'system:checkpoints', name: 'Checkpoints' },
-        { pattern: /\b(?:organism|guardrails?)\b/i, widget: 'system:organism', name: 'Organism Monitor' },
-        { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, widget: 'system:fleet', name: 'Fleet Router' },
-        { pattern: /\b(?:captcha|form fill|web automation)\b/i, widget: 'system:browser', name: 'Browser Tools' },
-        // v6.0 step 1 — paperclip Bucket C / killed
-        { pattern: /\b(?:tests?|flaky|failing|coverage|eval)\b/i, widget: 'system:eval', name: 'Test Lab' },
-    ];
-    // v6.0 widget-hijack tightening (paired with gateway/server.ts):
-    // The previous gate matched on a single noun like "tools" or "monitor"
-    // which appears in normal English ("the fb_post tool", "control monitor").
-    // That + an inner pattern hit was enough to inject "you MUST emit a
-    // system widget" guidance into the system prompt, hijacking unrelated
-    // agent work. v6.0 requires an IMPERATIVE verb + widget noun together.
-    const imperativeRe = /\b(?:add|open|show|pin|create|launch|put|give\s+me|i\s+want|let'?s\s+see|i\s+need)\b/i;
-    const widgetNounRe = /\b(?:widget|panel|dashboard|hub|gallery|kitchen|scheduler)\b/i;
-    const hasWidgetIntent = imperativeRe.test(message) && widgetNounRe.test(message);
-    const matchedWidget = hasWidgetIntent
-        ? systemWidgetPatterns.find(p => p.pattern.test(message))
-        : null;
+    // v5.0.2 / v7.0: detect system-widget shortcuts via the shared, model-agnostic
+    // detector (src/agent/systemWidgets.ts). It fires for "show the training
+    // dashboard" AND short commands like "show backup" / "show recipes" (the old
+    // inline check demanded a generic widget-noun, so those never matched). When
+    // matched we instruct the model to emit the gate — and post-loop we GUARANTEE
+    // the gate even if the model ignores this (see the deterministic emit below).
+    const matchedWidget = detectSystemWidget(message);
     if (matchedWidget && !taskEnforcementActive) {
-        systemPrompt += `\n\nThe user is asking about ${matchedWidget.name}. You MUST call gallery_search for "${matchedWidget.widget}" FIRST to find the widget template, then call gallery_get to fetch it, and emit it through the _____widget gate as JSON with format "system":\n\n_____widget\n{ "name": "${matchedWidget.name}", "format": "system", "source": "${matchedWidget.widget}", "w": 6, "h": 6 }\n\nDo NOT just describe it — actually create the widget on the canvas.`;
+        systemPrompt += `\n\nThe user is asking about ${matchedWidget.name}. You MUST call gallery_search for "${matchedWidget.source}" FIRST to find the widget template, then call gallery_get to fetch it, and emit it through the _____widget gate as JSON with format "system":\n\n${buildSystemWidgetGate(matchedWidget)}\n\nDo NOT just describe it — actually create the widget on the canvas.`;
         taskEnforcementActive = true;
     }
     // Widget / canvas gallery enforcement — user wants a widget built on the canvas
@@ -2115,6 +2094,20 @@ export async function processMessage(
     if (isCloudHallucination) {
         logger.warn(COMPONENT, `[HallucinationGuard] Cloud model claimed action but toolsUsed is empty — sanitizing response`);
         finalContent = "I wasn't able to finish that task — the connection to my brain hiccupped. Try asking again, or I can switch to my offline mode if you prefer.";
+    }
+
+    // v7.0 model-agnostic guarantee: if the user's message was a system-widget
+    // shortcut ("show backup") but no _____widget gate made it into the reply —
+    // the model called a tool (e.g. backup_list) or answered in prose instead of
+    // emitting the gate — emit it deterministically so the widget renders no
+    // matter which model is driving. This is the canonical fix for the widget
+    // gate NOT depending on per-model formatting adherence.
+    {
+        const sw = detectSystemWidget(message);
+        if (sw && !finalContent.includes('_____widget')) {
+            finalContent = finalContent ? `${finalContent}\n\n${buildSystemWidgetGate(sw)}` : buildSystemWidgetGate(sw);
+            logger.info(COMPONENT, `[SystemWidgetShortcut] Deterministically emitted _____widget gate for ${sw.source}`);
+        }
     }
 
     // Save assistant response to session
