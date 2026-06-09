@@ -77,7 +77,7 @@ function WorkflowBuilderPanel() {
       const res = await apiFetch('/api/mission/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) }).then(r => r.json());
       setPrompt('');
       loadMissions();
-      const id = res.goalId || res.id;
+      const id = res.goal?.id || res.goalId || res.id;
       if (id) setSelected(id);
     } finally { setCreating(false); }
   };
