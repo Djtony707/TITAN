@@ -4119,6 +4119,37 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Facebook Messenger Webhook ─────────────────────────────
   const messengerAdapter = channels.get('messenger') as MessengerChannel | undefined;
   if (messengerAdapter) {
+    // These webhook routes are EXEMPT from the gateway auth middleware (Facebook
+    // can't send a TITAN token), so the X-Hub-Signature-256 HMAC is the only gate
+    // between an unauthenticated POST and an LLM call + outbound Graph message.
+    // Capture the RAW body so the HMAC is computed over the exact bytes Facebook
+    // signed (re-serializing req.body would change whitespace/key order).
+    const messengerJson = express.json({
+      verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
+    });
+
+    // Mirrors the Twilio voice-webhook pattern: skip-with-warn when no app secret
+    // is configured (dev), enforce + reject when it is.
+    const checkMessengerSignature = (req: express.Request): boolean => {
+      const raw = (req as express.Request & { rawBody?: Buffer }).rawBody
+        ?? Buffer.from(JSON.stringify(req.body ?? {}));
+      const result = messengerAdapter.verifySignature(raw, req.get('x-hub-signature-256') || undefined);
+      if (result.reason === 'no-secret') {
+        logger.warn(COMPONENT, 'Messenger FB_APP_SECRET not configured — webhook signature check SKIPPED (set FB_APP_SECRET to lock down)');
+      }
+      return result.ok;
+    };
+
+    const handleMessengerPost = (req: express.Request, res: express.Response) => {
+      if (!checkMessengerSignature(req)) {
+        logger.warn(COMPONENT, 'Messenger webhook: invalid/missing X-Hub-Signature-256 — rejected (403)');
+        res.status(403).send('forbidden');
+        return;
+      }
+      messengerAdapter.handleWebhook(req.body);
+      res.sendStatus(200); // Must respond 200 quickly or Facebook retries
+    };
+
     // Verification (GET) — Facebook sends this when you set up the webhook
     app.get('/api/messenger/webhook', (req, res) => {
       const result = messengerAdapter.handleVerify(req.query as Record<string, string>);
@@ -4126,22 +4157,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
 
     // Incoming messages (POST) — Facebook sends DMs here
-    app.post('/api/messenger/webhook', express.json(), (req, res) => {
-      messengerAdapter.handleWebhook(req.body);
-      res.sendStatus(200); // Must respond 200 quickly or Facebook retries
-    });
+    app.post('/api/messenger/webhook', messengerJson, handleMessengerPost);
 
     // Also register at /messenger/webhook (without /api prefix) for backwards compatibility
     app.get('/messenger/webhook', (req, res) => {
       const result = messengerAdapter.handleVerify(req.query as Record<string, string>);
       res.status(result.status).send(result.body);
     });
-    app.post('/messenger/webhook', express.json(), (req, res) => {
-      messengerAdapter.handleWebhook(req.body);
-      res.sendStatus(200);
-    });
+    app.post('/messenger/webhook', messengerJson, handleMessengerPost);
 
-    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()})`);
+    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()}, signature enforcement: ${messengerAdapter.hasAppSecret() ? 'ON' : 'OFF — set FB_APP_SECRET'})`);
   }
 
   // ── LINE & Lark inbound webhooks (v6.5) ──────────────────────

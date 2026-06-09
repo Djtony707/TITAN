@@ -8,6 +8,10 @@
  *   FB_PAGE_ACCESS_TOKEN  — Page Access Token (same as facebook.ts)
  *   FB_PAGE_ID            — Facebook Page ID
  *   FB_VERIFY_TOKEN       — Webhook verification token (you pick this, any string)
+ *   FB_APP_SECRET         — Facebook App Secret (RECOMMENDED). When set, every
+ *                           inbound webhook POST is verified against its
+ *                           X-Hub-Signature-256 HMAC before processing, so a
+ *                           forged POST to the public webhook URL is rejected.
  *
  * Setup:
  *   1. In Facebook App → Messenger → Webhooks → set callback URL to:
@@ -15,6 +19,7 @@
  *   2. Set verify token to match FB_VERIFY_TOKEN
  *   3. Subscribe to: messages, messaging_postbacks
  */
+import { createHmac, timingSafeEqual } from 'crypto';
 import { ChannelAdapter, type InboundMessage, type OutboundMessage, type ChannelStatus } from './base.js';
 import { loadConfig } from '../config/config.js';
 import { chat } from '../providers/router.js';
@@ -264,6 +269,9 @@ export class MessengerChannel extends ChannelAdapter {
     private pageToken = '';
     private pageId = '';
     private verifyToken = '';
+    /** Facebook App Secret — when set, inbound webhooks must carry a valid
+     *  X-Hub-Signature-256 HMAC or they are rejected. Empty = unverified (dev). */
+    private appSecret = '';
 
     /** Per-sender conversation history (last N messages) for context */
     private conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
@@ -291,6 +299,12 @@ export class MessengerChannel extends ChannelAdapter {
         this.pageToken = process.env.FB_PAGE_ACCESS_TOKEN || '';
         this.pageId = process.env.FB_PAGE_ID || '';
         this.verifyToken = process.env.FB_VERIFY_TOKEN || 'titan-messenger-verify';
+        // Set before the credential early-return so signature verification is
+        // configured whenever the adapter connects.
+        this.appSecret = process.env.FB_APP_SECRET || (channelConfig?.appSecret as string) || '';
+        if (!this.appSecret) {
+            logger.warn(COMPONENT, 'FB_APP_SECRET not set — inbound webhook signatures will NOT be verified. Set FB_APP_SECRET to reject forged webhook POSTs.');
+        }
 
         if (!this.pageToken || !this.pageId) {
             logger.info(COMPONENT, 'Messenger not configured — set FB_PAGE_ACCESS_TOKEN and FB_PAGE_ID');
@@ -411,6 +425,41 @@ export class MessengerChannel extends ChannelAdapter {
 
         logger.warn(COMPONENT, 'Webhook verification failed');
         return { status: 403, body: 'Forbidden' };
+    }
+
+    /** True when an App Secret is configured (signature enforcement is ON). */
+    hasAppSecret(): boolean { return !!this.appSecret; }
+
+    /**
+     * Verify a Facebook webhook POST's `X-Hub-Signature-256` header.
+     *
+     * Facebook signs every webhook delivery: the header is
+     * `X-Hub-Signature-256: sha256=<hex>` where the HMAC-SHA256 is computed over
+     * the RAW request body keyed by the App Secret. Verifying it is the only
+     * thing that stops an unauthenticated party who knows the public webhook URL
+     * from POSTing a forged `{object:'page', entry:[...]}` body (which would
+     * otherwise trigger LLM calls + outbound Graph API messages).
+     *
+     * Mirrors the Twilio voice-webhook pattern: when NO app secret is configured
+     * we skip verification (ok, reason='no-secret') so dev setups still work and
+     * the caller logs a warning; when a secret IS configured, a missing or
+     * mismatched signature is rejected. Comparison is constant-time.
+     *
+     * @param rawBody The exact bytes Facebook signed (NOT a re-serialized object).
+     */
+    verifySignature(rawBody: Buffer | string, signatureHeader: string | undefined): { ok: boolean; reason: string } {
+        if (!this.appSecret) return { ok: true, reason: 'no-secret' };
+        if (!signatureHeader) return { ok: false, reason: 'missing-signature' };
+        const m = /^sha256=([0-9a-fA-F]+)$/.exec(signatureHeader.trim());
+        if (!m) return { ok: false, reason: 'malformed-signature' };
+        const provided = Buffer.from(m[1], 'hex');
+        const expected = createHmac('sha256', this.appSecret).update(rawBody).digest();
+        // timingSafeEqual throws on length mismatch — guard so a wrong-length
+        // signature is a clean rejection, not an exception.
+        if (provided.length !== expected.length) return { ok: false, reason: 'length-mismatch' };
+        return timingSafeEqual(provided, expected)
+            ? { ok: true, reason: 'verified' }
+            : { ok: false, reason: 'signature-mismatch' };
     }
 
     /** Handle incoming webhook event (POST from Facebook) */
