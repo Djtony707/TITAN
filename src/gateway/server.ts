@@ -2066,6 +2066,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── v7.0 observability — run trace store ──────────────────────────
+  app.get('/api/traces', async (req, res) => {
+    const { listSpans } = await import('../telemetry/traceStore.js');
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+    const sessionId = req.query.sessionId as string | undefined;
+    res.json({ spans: listSpans({ limit, sessionId }) });
+  });
+  app.get('/api/traces/summary', async (_req, res) => {
+    const { listSpans, summarizeTraces } = await import('../telemetry/traceStore.js');
+    res.json(summarizeTraces(listSpans()));
+  });
+  app.get('/api/traces/export', async (_req, res) => {
+    const { listSpans, toOTel } = await import('../telemetry/traceStore.js');
+    res.json(toOTel(listSpans({ limit: 1000 })));
+  });
+
   app.get('/api/stats', async (_req, res) => {
     const usage = getUsageStats();
     const cfg = loadConfig();
