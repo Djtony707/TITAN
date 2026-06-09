@@ -17,6 +17,7 @@
  * model-agnostic, and it touches no LLM and never the `claude` CLI.
  */
 import { emit as busEmit, type ToolCallEvent, type ToolResultEvent } from '../substrate/traceBus.js';
+import { currentSession } from './sessionContext.js';
 
 /** How long a given actionId stays deduped after first emit. */
 export const DEDUPE_TTL_MS = 30_000;
@@ -56,9 +57,13 @@ type ToolResultInput = Omit<ToolResultEvent, 'timestamp' | 'sessionId' | 'agentI
     Partial<Pick<ToolResultEvent, 'sessionId' | 'agentId'>>;
 
 function resolveIds<T extends { sessionId?: string; agentId?: string }>(input: T): { sessionId: string; agentId: string } {
+    // Prefer the async-context session (set around tool execution by the agent
+    // loop) so tool events attribute to the session that triggered them; fall
+    // back to the ambient env, then 'unknown'.
+    const ctx = currentSession();
     return {
-        sessionId: input.sessionId || ambientSessionId() || 'unknown',
-        agentId: input.agentId || 'main',
+        sessionId: input.sessionId || ctx?.sessionId || ambientSessionId() || 'unknown',
+        agentId: input.agentId || ctx?.agentId || 'main',
     };
 }
 

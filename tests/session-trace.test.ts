@@ -3,6 +3,7 @@ import {
     shouldEmit, resetDedupe, emitToolCall, emitToolResult, DEDUPE_TTL_MS,
 } from '../src/watch/sessionTrace.js';
 import { on, type ToolResultEvent } from '../src/substrate/traceBus.js';
+import { runWithSession } from '../src/watch/sessionContext.js';
 
 describe('sessionTrace — TTL dedupe primitive', () => {
     beforeEach(() => resetDedupe());
@@ -37,6 +38,19 @@ describe('sessionTrace — tool emitters', () => {
     it('always emits when no actionId is present (never silently drop)', () => {
         expect(emitToolCall({ tool: 'shell', argsPreview: 'ls' }, 1000)).toBe(true);
         expect(emitToolCall({ tool: 'shell', argsPreview: 'ls' }, 1000)).toBe(true);
+    });
+
+    it('attributes to the async runWithSession context when input has no sessionId', () => {
+        const got: ToolResultEvent[] = [];
+        const off = on('tool:result', (p) => got.push(p));
+        try {
+            runWithSession({ sessionId: 'ctx-session', agentId: 'ctx-agent' }, () => {
+                emitToolResult({ tool: 'edit_file', success: true, durationMs: 5, actionId: 'aid-ctx' }, 1700000000001);
+            });
+        } finally { off(); }
+        expect(got).toHaveLength(1);
+        expect(got[0].sessionId).toBe('ctx-session');  // resolved from async context, not 'unknown'
+        expect(got[0].agentId).toBe('ctx-agent');
     });
 
     it('stamps sessionId/agentId/timestamp and forwards spine fields on the bus', () => {
