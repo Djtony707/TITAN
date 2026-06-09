@@ -15,6 +15,7 @@
  */
 import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
+import { runWithSession } from '../watch/sessionContext.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
 import { hasActionDirectives, compileActions } from './actionCompiler.js';
@@ -1710,7 +1711,9 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             let toolResults: ToolResult[] = [];
             try {
                 const toolExecStart = Date.now();
-                toolResults = await executeTools(pendingToolCalls, ctx.channel);
+                // Bind the session context so spine tool events (tool:call/
+                // tool:result) attribute to THIS session, not the ambient fallback.
+                toolResults = await runWithSession({ sessionId: ctx.sessionId, agentId: ctx.agentId }, () => executeTools(pendingToolCalls, ctx.channel));
                 fireSpan(traceCtx, 'tool_execution', Date.now() - toolExecStart, { round: String(round), tools: pendingToolCalls.map(t => t.function.name).join(',') });
             } catch (err) {
                 logger.error(COMPONENT, `Tool execution error: ${(err as Error).message}`);
