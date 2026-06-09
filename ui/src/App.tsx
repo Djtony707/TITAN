@@ -50,6 +50,7 @@ const EvalHarnessPanel = lazy(() => import('@/components/admin/EvalHarnessPanel'
 const TracesPanel = lazy(() => import('@/components/admin/TracesPanel'));
 const WorkflowBuilderPanel = lazy(() => import('@/components/admin/WorkflowBuilderPanel'));
 const LiveStudio = lazy(() => import('@/views/LiveStudio'));
+import { RovingMascot } from '@/titan2/system/RovingMascot';
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -127,6 +128,7 @@ function AuthenticatedAppInner() {
     <ToastProvider>
     <ConfigProvider>
       <RouteTracker />
+      <RovingMascot />
       <TitanShell>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>

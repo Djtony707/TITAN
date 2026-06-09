@@ -24,6 +24,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Save, History, RotateCcw, Pencil, Sparkles } from 'lucide-react';
 import { SpaceEngine } from './SpaceEngine';
 import { apiFetch } from '@/api/client';
+import { signalWidgetWork, signalWidgetWorkDone } from '../system/RovingMascot';
 import type { WidgetDef, WidgetFormat, WidgetVersion } from '../types';
 
 const WIDGET_HISTORY_MAX = 12;
@@ -123,6 +124,7 @@ export function WidgetEditor({ widget, spaceId, open, onClose, onSaved }: Props)
         setAiBusy(true);
         setAiNote(null);
         setError(null);
+        signalWidgetWork('Editing your widget…'); // mascot roves while the AI works
         try {
             const res = await apiFetch('/api/widget/assist', {
                 method: 'POST',
@@ -140,6 +142,7 @@ export function WidgetEditor({ widget, spaceId, open, onClose, onSaved }: Props)
             setError((e as Error).message);
         } finally {
             setAiBusy(false);
+            signalWidgetWorkDone();
         }
     }, [aiPrompt, aiBusy, draftSource, draftFormat, draftName]);
 
