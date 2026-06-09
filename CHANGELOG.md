@@ -14,6 +14,10 @@
 
 ### Features
 - 8 ECC software-craft skills (MIT, attributed). `config_audit` (config security self-audit). Spec-driven workflow (acceptance criteria recited every turn). Named memory taxonomy (`memory_map`).
+- **New agent skills:** `codebase_explore` (walks a repo into a structured map — entrypoints, key files, language mix, top dirs) and `delegate_agent` (orchestrates external coding agents — codex/aider/goose/gemini/opencode; never the `claude` CLI).
+- **Visual workflow builder** — a dependency-free SVG DAG view of any goal/subtask mission: nodes coloured by status, edges from `dependsOn`, layered by longest-dependency-depth, the live current subtask highlighted; click a node for detail, or author a new workflow from a plain-English prompt. Mission decomposition now requests + threads real dependency edges (mapped to backward-only, always-acyclic `dependsOn`), so the DAG reflects true ordering instead of a flat list.
+- **New Mission Control panels:** Memory Taxonomy (9 memory types + the drive-backed *emotional* differentiator), Security self-audit (severity-grouped config findings), Evals dashboard, and **Observability/tracing** — per-run spans (latency, tokens, cost, tools) with a live summary and OTel export.
+- **Observability backend:** file-backed per-run trace store (`$TITAN_HOME/traces`) with `/api/traces`, `/api/traces/summary`, and OTel `/api/traces/export`.
 
 ### Reliability + security
 - **FIX:** the agent loop-breaker could itself infinite-loop (the round counter froze) — now terminal + bounded.
