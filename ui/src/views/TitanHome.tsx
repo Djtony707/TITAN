@@ -129,7 +129,11 @@ export default function TitanHome() {
         <div className="relative flex flex-col items-center min-h-full px-4 pt-10 pb-8" data-testid="titan-home">
             {/* The companion — center stage, alive, state-driven. */}
             <div className="flex flex-col items-center">
+                {/* TitanMascot's internals are absolutely positioned — it must
+                    sit inside a relative box of its own size or the bubble and
+                    body escape to the page edges. */}
                 <TitanMascot
+                    className="relative"
                     state={mascotState}
                     size={132}
                     quip={busy ? narration : greeting}
