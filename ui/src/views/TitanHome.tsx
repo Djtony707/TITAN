@@ -52,9 +52,27 @@ export default function TitanHome() {
     const [mascotState, setMascotState] = useState<MascotState>('idle');
     const [greeting, setGreeting] = useState<string | null>(null);
     const [deskNote, setDeskNote] = useState<string | null>(null);
+    const [celebrating, setCelebrating] = useState(false);
+    const [needsSetup, setNeedsSetup] = useState(false);
+    const [streak, setStreak] = useState(0);
     const abortRef = useRef<AbortController | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const sessionId = useRef(homeSessionId());
+
+    // Streak — consecutive days you've shown up. Lives on the mascot's base.
+    useEffect(() => {
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            const raw = JSON.parse(localStorage.getItem('titan-streak') || '{}') as { last?: string; count?: number };
+            let count = raw.count || 0;
+            if (raw.last !== today) {
+                const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+                count = raw.last === yesterday ? count + 1 : 1;
+                localStorage.setItem('titan-streak', JSON.stringify({ last: today, count }));
+            }
+            setStreak(count);
+        } catch { /* private mode */ }
+    }, []);
 
     // Welcome-back beat: greet by time of day, and reference work that finished
     // while you were away (recent completed missions) — memory as relationship.
@@ -62,6 +80,16 @@ export default function TitanHome() {
         const hour = new Date().getHours();
         const hello = hour < 5 ? 'Burning the midnight oil?' : hour < 12 ? 'Morning.' : hour < 18 ? 'Afternoon.' : 'Evening.';
         setGreeting(`${hello} What are we building?`);
+        // First-run: instead of a blocking wizard, the mascot nudges setup.
+        apiFetch('/api/health', { headers: { 'Content-Type': 'application/json' } })
+            .then(r => r.json())
+            .then(d => {
+                if (d?.onboarded === false) {
+                    setNeedsSetup(true);
+                    setGreeting('Hi, I’m TITAN. Before we build, I need a brain — two-minute setup below.');
+                }
+            })
+            .catch(() => { /* assume onboarded */ });
         apiFetch('/api/missions/recent?hours=48', { headers: { 'Content-Type': 'application/json' } })
             .then(r => r.json())
             .then(d => {
@@ -119,6 +147,10 @@ export default function TitanHome() {
             setNarration(null);
             setMascotState('idle');
             setExchanges(prev => prev.map((x, i) => i === prev.length - 1 ? { ...x, pending: false } : x));
+            // Juicy completion — the mascot celebrates, sized small (a beat of
+            // excitement), so finishing feels like something HAPPENED.
+            setCelebrating(true);
+            setTimeout(() => setCelebrating(false), 3200);
             inputRef.current?.focus();
         });
     }, [input, busy]);
@@ -135,11 +167,31 @@ export default function TitanHome() {
                 <TitanMascot
                     className="relative"
                     state={mascotState}
+                    mood={celebrating ? 'excited' : 'neutral'}
+                    somaPoll={!celebrating}
                     size={132}
-                    quip={busy ? narration : greeting}
+                    quip={celebrating ? 'Done ✨' : busy ? narration : greeting}
                     bubblePhase="visible"
                     onClick={() => inputRef.current?.focus()}
                 />
+                {streak > 1 && (
+                    <div
+                        className="mt-1 text-[11px] tabular-nums"
+                        style={{ color: 'var(--theme-accent)', fontFamily: 'var(--theme-font-mono, monospace)' }}
+                        title={`You've shown up ${streak} days in a row`}
+                    >
+                        🔥 day {streak}
+                    </div>
+                )}
+                {needsSetup && (
+                    <button
+                        onClick={() => { window.location.href = '/setup'; }}
+                        className="mt-3 px-4 py-2 rounded-xl text-sm font-medium shadow-md"
+                        style={{ background: 'var(--theme-metal)', color: 'var(--theme-bolt, #201406)' }}
+                    >
+                        Set up TITAN (2 min)
+                    </button>
+                )}
             </div>
 
             {/* The one input. */}
