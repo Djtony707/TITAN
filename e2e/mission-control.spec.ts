@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Mission Control Dashboard', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the dashboard
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     // Wait for the app to load
     await page.waitForLoadState('networkidle');
   });
@@ -159,14 +159,14 @@ test.describe('Mission Control Dashboard', () => {
 
 test.describe('Mission Control API Integration', () => {
   test('health endpoint should respond to API calls', async ({ request }) => {
-    const response = await request.get('http://127.0.0.1:48420/api/health');
+    const response = await request.get('/api/health');
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.status).toBe('ok');
   });
 
   test('config endpoint should return configuration', async ({ request }) => {
-    const response = await request.get('http://127.0.0.1:48420/api/config');
+    const response = await request.get('/api/config');
     expect(response.status()).toBe(200);
     const body = await response.json();
     // Should have nested config structure

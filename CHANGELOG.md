@@ -1,5 +1,26 @@
 # Changelog
 
+## v7.0.0 — 2026-06-08 — Model-Agnostic + Accessible
+
+### Model-agnostic harness (works well with ANY capable LLM, not tuned to one)
+- The generic `openai_compat` provider (DeepSeek / Qwen / GLM / Kimi / MiniMax / xAI / Groq / …) now honors `forceToolUse` (per-model `tool_choice`, via the shared capability registry), JSON `format` (`response_format` + a 2 KB anti-truncation floor), and **guards the DeepSeek-reasoner HTTP-400 case** — instead of a blind passthrough.
+- **Adaptive max_tokens**: parse a deployment's real ceiling out of a 400 and retry, so a static `maxOutput` never hard-fails a model on a constrained deployment.
+- Per-model capability registry extended (qwen3.6, deepseek-v4, glm-5.1, kimi-k2.6, minimax, nemotron-3) and shared between the Ollama and openai-compat paths.
+- **Deterministic system-widget gates** — "show backup" reliably renders the widget regardless of which model is driving (no longer depends on per-model formatting adherence).
+
+### Accessibility (WCAG 2.1 AA) — "Accessible by Design"
+- a11y primitives: Input/Modal/Toast/Button focus + ARIA, skip-link + `<main>` landmark, global focus-visible baseline.
+- New **"Studio" theme** (clean neutral graphite) + a **WCAG contrast-audit harness** that programmatically proves every theme meets AA.
+
+### Features
+- 8 ECC software-craft skills (MIT, attributed). `config_audit` (config security self-audit). Spec-driven workflow (acceptance criteria recited every turn). Named memory taxonomy (`memory_map`).
+
+### Reliability + security
+- **FIX:** the agent loop-breaker could itself infinite-loop (the round counter froze) — now terminal + bounded.
+- **SECURITY:** the Facebook Messenger webhook now verifies `X-Hub-Signature-256` HMAC — forged POSTs to the public webhook URL are rejected (403).
+- Replaced 29 hollow placeholder tests with real assertions; added real coverage for goalDriver Bug #3, `agent_messaging`, and 6 channel adapters.
+- Behavioral eval-gate: **93% (GO)**.
+
 ## v6.5.3 — 2026-06-08 — README refresh
 
 - Updated the README to the v6.5.x line (security/cancellation hardening highlights, 110K+ downloads). The previous README still described v6.3.x.

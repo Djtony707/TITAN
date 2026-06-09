@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Chat Interface - Messaging', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -123,7 +123,7 @@ test.describe('Chat Interface - Messaging', () => {
 
 test.describe('Chat Interface - Sessions', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Open session sidebar
@@ -202,7 +202,7 @@ test.describe('Chat Interface - Sessions', () => {
 
 test.describe('Chat Interface - Quick Actions', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -237,7 +237,7 @@ test.describe('Chat Interface - Quick Actions', () => {
 test.describe('Chat Interface - Mobile Responsive', () => {
   test('should display chat interface on mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // TITAN branding should be visible
@@ -253,7 +253,7 @@ test.describe('Chat Interface - Mobile Responsive', () => {
 
   test('should handle mobile sidebar drawer', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Open sidebar on mobile
@@ -274,7 +274,7 @@ test.describe('Chat Interface - Mobile Responsive', () => {
 
   test('should send message on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const chatInput = page.locator('textarea').first();
@@ -286,7 +286,7 @@ test.describe('Chat Interface - Mobile Responsive', () => {
 
   test('should display agent watcher on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Agent watcher toggle
@@ -306,7 +306,7 @@ test.describe('Chat Interface - Mobile Responsive', () => {
 
 test.describe('Chat Interface - Error Handling', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 

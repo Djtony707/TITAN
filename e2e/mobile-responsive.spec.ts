@@ -14,7 +14,7 @@ const MOBILE_VIEWPORTS = {
 
 test.describe('Mobile Responsive - Viewports', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -78,7 +78,7 @@ test.describe('Mobile Responsive - Viewports', () => {
 test.describe('Mobile Responsive - Chat Interface', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORTS.iphone);
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -145,7 +145,7 @@ test.describe('Mobile Responsive - Chat Interface', () => {
 test.describe('Mobile Responsive - Session Sidebar', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORTS.iphone);
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -222,7 +222,7 @@ test.describe('Mobile Responsive - Session Sidebar', () => {
 test.describe('Mobile Responsive - Agent Watcher', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORTS.iphone);
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -271,7 +271,7 @@ test.describe('Mobile Responsive - Agent Watcher', () => {
 test.describe('Mobile Responsive - Layout & Typography', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORTS.iphone);
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -343,7 +343,7 @@ test.describe('Mobile Responsive - Performance', () => {
 
   test('should load dashboard quickly on mobile', async ({ page }) => {
     const startTime = Date.now();
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
     const loadTime = Date.now() - startTime;
 
@@ -352,7 +352,7 @@ test.describe('Mobile Responsive - Performance', () => {
   });
 
   test('should have smooth animations on mobile', async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     const toggleButton = page.locator('button[aria-label="Toggle sessions"]');
@@ -369,7 +369,7 @@ test.describe('Mobile Responsive - Performance', () => {
 test.describe('Mobile Responsive - Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORTS.iphone);
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
