@@ -33,6 +33,7 @@ import { scanCommand, scanURL } from '../security/preExecScan.js';
 import { runPreToolShellHooks, runPostToolShellHooks } from '../hooks/shellHooks.js';
 import { createCheckpoint } from '../checkpoint/manager.js';
 import { mintActionId } from '../receipts/mint.js';
+import { emitToolCall, emitToolResult } from '../watch/sessionTrace.js';
 import { writeReceipt } from '../receipts/store.js';
 
 /** Compute a lightweight unified diff between old and new file content */
@@ -288,6 +289,10 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     const _aid = mintActionId();
     const _t0 = Date.now();
     const argInfo = summarizeToolArguments(toolCall.function.arguments);
+    // Live-agents event spine: this is the universal fallback PRODUCER for the
+    // tool:call/tool:result topics (deduped by actionId against any richer
+    // agentLoop emit). Additive + never throws to the caller.
+    emitToolCall({ tool: toolCall.function.name, argsPreview: argInfo.summary, actionId: _aid });
     try {
         const result = await executeToolInner(toolCall, channel);
         writeToolCallReceipt({
@@ -300,6 +305,13 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             argKeys: argInfo.argKeys,
             error: result.success ? undefined : result.content,
         });
+        emitToolResult({
+            tool: toolCall.function.name,
+            success: result.success,
+            durationMs: Date.now() - _t0,
+            actionId: _aid,
+            resultPreview: typeof result.content === 'string' ? result.content.slice(0, 300) : undefined,
+        });
         return result;
     } catch (err) {
         writeToolCallReceipt({
@@ -311,6 +323,13 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             argSummary: argInfo.summary,
             argKeys: argInfo.argKeys,
             error: (err as Error).message,
+        });
+        emitToolResult({
+            tool: toolCall.function.name,
+            success: false,
+            durationMs: Date.now() - _t0,
+            actionId: _aid,
+            resultPreview: (err as Error).message?.slice(0, 300),
         });
         throw err;
     }
