@@ -36,7 +36,7 @@ interface ShellSection extends ShellLink {
  * Complexity is earned, not dumped.
  */
 export const TITAN_SHELL_SECTIONS: ShellSection[] = [
-  { label: 'Chat', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home', '/missions'] },
+  { label: 'Home', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home'] },
   { label: 'Desk', route: '/space/home', icon: Target, aliases: ['/space', '/canvas'] },
   { label: 'Studio', route: '/studio', icon: Brain, aliases: ['/missions/studio', '/live-studio', '/missions/activity', '/watch'] },
   { label: 'Memory', route: '/knowledge/memory-graph', icon: Users, aliases: ['/knowledge', '/intelligence'] },
@@ -47,6 +47,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
     aliases: ['/system', '/infra', '/settings', '/tools', '/team', '/soma', '/mission'],
     submenu: [
       // Missions & work
+      { label: 'Mission Chat (classic)', route: '/missions', aliases: ['/mission'] },
       { label: 'Mission Library', route: '/missions/library', aliases: ['/mission/library'] },
       { label: 'Workflow Builder', route: '/missions/workflow-builder', aliases: ['/workflow-builder'] },
       { label: 'Goals', route: '/missions/goals', aliases: ['/goals', '/command-post/goals'] },
