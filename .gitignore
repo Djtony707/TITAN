@@ -132,3 +132,6 @@ docs/internal/
 
 # v7.0 — local strategy/plan docs (competitor names — never ship)
 docs/*-plan.md
+
+# local verification harness (not product code)
+.titan-verify-workflow.mjs
