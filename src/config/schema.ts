@@ -66,6 +66,9 @@ export const ChannelConfigSchema = z.object({
  * F5-TTS (default: Andrew). Falls back to text cleanly if TTS/upload fails.
  */
 export const MessengerChannelConfigSchema = ChannelConfigSchema.extend({
+    /** Facebook App Secret. When set (or via FB_APP_SECRET env), inbound webhook
+     *  POSTs are HMAC-verified against X-Hub-Signature-256 before processing. */
+    appSecret: z.string().optional(),
     voiceReplies: z.object({
         enabled: z.boolean().default(true),
         voice: z.string().default('andrew'),
