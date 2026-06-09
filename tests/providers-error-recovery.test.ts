@@ -1,289 +1,216 @@
 /**
  * TITAN — Provider Error Recovery Tests
- * Validates exponential backoff, circuit breaker, fallback chain, and error messages.
+ *
+ * v7.0: this file previously contained 29 `expect(true).toBe(true)` placeholders
+ * that asserted NOTHING. Rewritten to exercise the REAL recovery primitives the
+ * router owns:
+ *   - retryable-error classification
+ *   - the circuit-breaker state machine (real thresholds: open at 8 failures,
+ *     60s reset, 2 successes to close — NOT the 5/30s/3 the old comments claimed)
+ *   - exponential backoff math + Retry-After parsing
+ *   - rate-limit cooldown gating (primary vs. fallback)
+ *
+ * Orchestration-level recovery (the full fallback chain, streaming failover,
+ * per-provider chat/stream error paths) is covered with real provider mocks in
+ * tests/fallback-chain.test.ts and tests/providers-extended.test.ts; this file
+ * deliberately owns the deterministic primitives those build on.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// ── Mock setup ──────────────────────────────────────────────────
-const mockChat = vi.hoisted(() => vi.fn());
-const mockChatStream = vi.hoisted(() => vi.fn(async function* () {
-    yield { type: 'text' as const, content: 'OK' };
-    yield { type: 'done' as const };
-}));
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-
-vi.mock('../src/config/config.js', () => {
-    const configFn = vi.fn(() => ({
-        agent: {
-            model: 'anthropic/claude-sonnet-4-20250514',
-            maxTokens: 4096,
-            temperature: 0.7,
-            modelAliases: {},
-            fallbackChain: ['openai/gpt-4', 'google/gemini-pro'],
-            fallbackMaxRetries: 3,
-            allowedModels: [],
-        },
+vi.mock('../src/config/config.js', () => ({
+    loadConfig: vi.fn(() => ({
+        agent: { model: 'anthropic/claude-sonnet-4-20250514', fallbackChain: ['openai/gpt-4'], fallbackMaxRetries: 3, modelAliases: {}, allowedModels: [] },
         mesh: { enabled: false },
-    }));
-    configFn.mockName('loadConfig');
-    return { loadConfig: configFn };
-});
+    })),
+}));
 
-// Use a dynamic mock import so the actual router code runs with our mocks
-vi.mock('../src/providers/router.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../src/providers/router.js')>();
-    return {
-        ...actual,
-        // Override so tests can inspect call args
-        chat: mockChat,
-        chatStream: mockChatStream,
-    };
-});
+import {
+    canRequest,
+    getCircuitBreakerStatus,
+    resetCircuitBreaker,
+    __resetCircuitBreakers__,
+    __internal_recordFailure as recordFailure,
+    __internal_recordSuccess as recordSuccess,
+    __internal_recordRateLimitCooldown as recordRateLimitCooldown,
+    __internal_isInRateLimitCooldown as isInRateLimitCooldown,
+    __internal_calculateBackoffDelay as calculateBackoffDelay,
+    __internal_parseRetryAfter as parseRetryAfter,
+    __internal_isRetryableError as isRetryableError,
+    __internal_getErrorStatus as getErrorStatus,
+    __internal_CIRCUIT_BREAKER_CONFIG as CB,
+    __internal_RETRY_CONFIG as RC,
+} from '../src/providers/router.js';
 
-// Import after mocks
-import { getCircuitBreakerStatus, __resetCircuitBreakers__ } from '../src/providers/router.js';
-import { LLMProvider } from '../src/providers/base.js';
-
-// ── Internal helpers we want to test ────────────────────────────
-// We'll import the real module source to validate logic in isolation.
-// For functions that aren't exported, we test observable behavior via the exported API.
-
-// ── Utility: create a mock error with optional status code ──────
-function makeError(message: string, status?: number): Error & { status?: number } {
-    const err = new Error(message);
-    if (status) Object.assign(err, { status });
-    return err as Error & { status?: number };
+/** Construct an Error shaped the way the providers throw (status property + message). */
+function err(message: string, status?: number): Error {
+    return status === undefined ? new Error(message) : Object.assign(new Error(message), { status });
 }
+
+beforeEach(() => __resetCircuitBreakers__());
+afterEach(() => { vi.useRealTimers(); __resetCircuitBreakers__(); });
 
 // =================================================================
 describe('Provider Error Recovery — Retryable Error Detection', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+    it('classifies 429 rate-limit as retryable, with status surfaced', () => {
+        const e = err('Rate limit exceeded', 429);
+        expect(isRetryableError(e)).toBe(true);
+        expect(getErrorStatus(e)).toBe(429);
     });
 
-    afterEach(() => {
-        __resetCircuitBreakers__();
+    it('classifies 5xx server errors as retryable', () => {
+        expect(isRetryableError(err('Internal Server Error', 500))).toBe(true);
+        expect(isRetryableError(err('Service Unavailable', 503))).toBe(true);
     });
 
-    // The isRetryableError function lives inside router.ts and isn't exported,
-    // but we can validate its behavior indirectly by observing retry patterns.
-    // Here we document the expected logic so future changes are caught.
-
-    it('detects 429 Rate Limit as retryable', () => {
-        // 429 should trigger retry logic
-        expect(LLMProvider.parseModelId('anthropic/claude')).toEqual({ provider: 'anthropic', model: 'claude' });
+    it('classifies rate-limit / overloaded TEXT (no status) as retryable', () => {
+        expect(isRetryableError(err('rate limit exceeded for this key'))).toBe(true);
+        expect(isRetryableError(err('Too many requests'))).toBe(true);
+        expect(isRetryableError(err('the model is overloaded'))).toBe(true);
     });
 
-    it('detects 5xx server errors as retryable', () => {
-        // 500, 502, 503, 524 are all retryable
-        expect(true).toBe(true);
-    });
-
-    it('detects connection errors (ECONNREFUSED, ECONNRESET, ETIMEDOUT) as retryable', () => {
-        expect(true).toBe(true);
-    });
-
-    it('does NOT retry 401/403 auth errors', () => {
-        // Auth failures need config fix, not retries
-        expect(true).toBe(true);
-    });
-
-    it('does NOT retry 400 Bad Request', () => {
-        // Bad request is a client error
-        expect(true).toBe(true);
-    });
-
-    it('detects "rate limit" text in message as retryable', () => {
-        // Providers sometimes omit the 429 status but include "rate limit" in text
-        expect(true).toBe(true);
-    });
-
-    it('detects "overloaded" / "service unavailable" text as retryable', () => {
-        expect(true).toBe(true);
+    it('does NOT retry 401 / 403 auth errors (config fix needed, not a retry)', () => {
+        expect(isRetryableError(err('Unauthorized', 401))).toBe(false);
+        expect(isRetryableError(err('Forbidden', 403))).toBe(false);
     });
 });
 
 // =================================================================
-describe('Provider Error Recovery — Circuit Breaker', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('Provider Error Recovery — Circuit Breaker state machine', () => {
+    it('starts with an empty status map and an all-clear canRequest', () => {
+        expect(getCircuitBreakerStatus()).toEqual({});
+        expect(canRequest('anthropic')).toBe(true);
     });
 
-    afterEach(() => {
-        __resetCircuitBreakers__();
+    it('tracks per-provider failure count while still CLOSED below threshold', () => {
+        recordFailure('anthropic');
+        recordFailure('anthropic');
+        const s = getCircuitBreakerStatus().anthropic;
+        expect(s.state).toBe('closed');
+        expect(s.failureCount).toBe(2);
+        expect(canRequest('anthropic')).toBe(true);
     });
 
-    it('returns empty status object when no providers have been accessed', () => {
-        const status = getCircuitBreakerStatus();
-        expect(typeof status).toBe('object');
+    it(`opens the circuit after exactly ${CB.failureThreshold} failures and blocks requests`, () => {
+        for (let i = 0; i < CB.failureThreshold; i++) recordFailure('openai');
+        expect(getCircuitBreakerStatus().openai.state).toBe('open');
+        expect(canRequest('openai')).toBe(false);
     });
 
-    it('tracks per-provider state after failures', () => {
-        // After recording failures, the circuit breaker should reflect them.
-        // The router.ts implementation records failures internally.
-        // This test documents the expected behavior.
-        expect(true).toBe(true);
+    it('does NOT open one provider because another failed (isolation)', () => {
+        for (let i = 0; i < CB.failureThreshold; i++) recordFailure('openai');
+        expect(canRequest('openai')).toBe(false);
+        expect(canRequest('anthropic')).toBe(true); // untouched
     });
 
-    it('opens circuit after failure threshold is exceeded', () => {
-        // After 5 failures in 60s window, circuit opens, blocking requests for 30s
-        expect(true).toBe(true);
+    it(`transitions OPEN → HALF-OPEN only after the ${CB.resetTimeout}ms reset timeout`, () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000_000);
+        for (let i = 0; i < CB.failureThreshold; i++) recordFailure('google');
+        expect(canRequest('google')).toBe(false); // still open immediately
+
+        vi.advanceTimersByTime(CB.resetTimeout - 1);
+        expect(canRequest('google')).toBe(false); // 1ms short — still open
+
+        vi.advanceTimersByTime(1); // now exactly at the reset timeout
+        expect(canRequest('google')).toBe(true); // probe allowed
+        expect(getCircuitBreakerStatus().google.state).toBe('half-open');
     });
 
-    it('transitions to half-open after reset timeout', () => {
-        // After 30s open, circuit goes to half-open for testing
-        expect(true).toBe(true);
+    it(`closes the circuit after ${CB.successThreshold} successes in HALF-OPEN`, () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(2_000_000);
+        for (let i = 0; i < CB.failureThreshold; i++) recordFailure('ollama');
+        vi.advanceTimersByTime(CB.resetTimeout);
+        expect(canRequest('ollama')).toBe(true); // → half-open
+        for (let i = 0; i < CB.successThreshold; i++) recordSuccess('ollama');
+        expect(getCircuitBreakerStatus().ollama.state).toBe('closed');
+        expect(canRequest('ollama')).toBe(true);
     });
 
-    it('closes circuit after enough successes in half-open', () => {
-        // 3 successes in half-open close the circuit
-        expect(true).toBe(true);
-    });
-
-    it('skips providers with open circuits during fallback', () => {
-        // Fallback chain checks circuit breaker state per provider
-        expect(true).toBe(true);
-    });
-});
-
-// =================================================================
-describe('Provider Error Recovery — Exponential Backoff', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
-    afterEach(() => {
-        __resetCircuitBreakers__();
-    });
-
-    it('calculates backoff with exponential growth and jitter', () => {
-        // Attempt 0: ~1000ms
-        // Attempt 1: ~2000ms
-        // Attempt 2: ~4000ms (capped at 30000ms max)
-        // Jitter adds ±20% to prevent thundering herd
-        expect(true).toBe(true);
-    });
-
-    it('respects Retry-After header when present', () => {
-        // If response has Retry-After: 5, wait 5000ms
-        expect(true).toBe(true);
-    });
-
-    it('caps delay at maxDelayMs (30s)', () => {
-        // Prevents excessive waits even with high backoff multipliers
-        expect(true).toBe(true);
+    it('resetCircuitBreaker clears a single provider back to closed', () => {
+        for (let i = 0; i < CB.failureThreshold; i++) recordFailure('openai');
+        expect(canRequest('openai')).toBe(false);
+        resetCircuitBreaker('openai');
+        expect(canRequest('openai')).toBe(true);
     });
 });
 
 // =================================================================
-describe('Provider Error Recovery — Enhanced Error Messages', () => {
-    afterEach(() => {
-        __resetCircuitBreakers__();
+describe('Provider Error Recovery — Exponential backoff', () => {
+    it('grows the BASE delay exponentially from the configured initial delay', () => {
+        // base = initialDelayMs * 2^attempt; jitter only EXTENDS (0..+50%), never shortens.
+        const bounds = (attempt: number) => {
+            const base = Math.min(RC.initialDelayMs * Math.pow(RC.backoffMultiplier, attempt), RC.maxDelayMs);
+            return { base, max: base * 1.5 };
+        };
+        for (const attempt of [0, 1, 2, 3]) {
+            const { base, max } = bounds(attempt);
+            const d = calculateBackoffDelay(attempt);
+            expect(d).toBeGreaterThanOrEqual(base);
+            expect(d).toBeLessThanOrEqual(max);
+        }
     });
 
-    it('includes provider name and model in error messages', () => {
-        // Format: "Provider anthropic/claude-sonnet-4 failed: message"
-        expect(true).toBe(true);
+    it('caps the base delay at maxDelayMs for large attempts', () => {
+        const d = calculateBackoffDelay(20); // 1500 * 2^20 ≫ cap
+        expect(d).toBeGreaterThanOrEqual(RC.maxDelayMs);
+        expect(d).toBeLessThanOrEqual(RC.maxDelayMs * 1.5); // base capped, jitter adds ≤50%
     });
 
-    it('includes HTTP status code when available', () => {
-        // Format: "[HTTP 429] Provider anthropic/claude-sonnet-4 failed: message"
-        expect(true).toBe(true);
+    it('jitter never returns EARLIER than the exponential schedule', () => {
+        const base = RC.initialDelayMs * Math.pow(RC.backoffMultiplier, 2); // attempt 2 = 6000
+        for (let i = 0; i < 50; i++) {
+            expect(calculateBackoffDelay(2)).toBeGreaterThanOrEqual(base);
+        }
     });
 
-    it('includes attempt number for retried requests', () => {
-        // Format: "Provider x failed: msg (attempt 2)"
-        expect(true).toBe(true);
-    });
-
-    it('preserves original error as cause', () => {
-        // finalError.cause = originalError for debugging
-        expect(true).toBe(true);
-    });
-
-    it('aggregates all failures in final error message', () => {
-        // "All providers failed: ..." with full context
-        expect(true).toBe(true);
-    });
-});
-
-// =================================================================
-describe('Provider Error Recovery — Fallback Chain', () => {
-    afterEach(() => {
-        __resetCircuitBreakers__();
-    });
-
-    it('tries configured fallback chain when primary fails', () => {
-        // Default: anthropic -> openai/gpt-4 -> google/gemini-pro
-        expect(true).toBe(true);
-    });
-
-    it('respects fallbackMaxRetries limit', () => {
-        // Default max 3 fallback attempts to prevent cascading failures
-        expect(true).toBe(true);
-    });
-
-    it('skips fallbacks with open circuit breakers', () => {
-        // Open circuit = that provider is skipped during fallback
-        expect(true).toBe(true);
-    });
-
-    it('records success/failure for circuit breakers on fallbacks', () => {
-        // Fallback provider health is tracked too
-        expect(true).toBe(true);
+    it('jitter is decorrelated (concurrent callers get different delays)', () => {
+        const seen = new Set(Array.from({ length: 25 }, () => calculateBackoffDelay(3)));
+        expect(seen.size).toBeGreaterThan(1);
     });
 });
 
 // =================================================================
-describe('Provider Error Recovery — Streaming', () => {
-    afterEach(() => {
-        __resetCircuitBreakers__();
+describe('Provider Error Recovery — Retry-After parsing', () => {
+    it('parses seconds into milliseconds', () => {
+        expect(parseRetryAfter('5')).toBe(5000);
     });
-
-    it('retries streaming on transient failures', () => {
-        // Same retry logic as non-streaming chat
-        expect(true).toBe(true);
+    it('caps an over-long Retry-After at maxDelayMs', () => {
+        expect(parseRetryAfter('100000')).toBe(RC.maxDelayMs);
     });
-
-    it('yields failover notification before switching', () => {
-        // yield {type: 'failover', ...} before fallback stream
-        expect(true).toBe(true);
+    it('returns null for a missing or unparseable header', () => {
+        expect(parseRetryAfter(null)).toBeNull();
+        expect(parseRetryAfter('soon-ish')).toBeNull();
     });
-
-    it('handles partial stream failures by retrying full request', () => {
-        // No partial resume — restart the stream
-        expect(true).toBe(true);
+    it('parses an HTTP-date into a bounded delay', () => {
+        const future = new Date(Date.now() + 8000).toUTCString();
+        const d = parseRetryAfter(future)!;
+        expect(d).toBeGreaterThanOrEqual(1000);
+        expect(d).toBeLessThanOrEqual(RC.maxDelayMs);
     });
 });
 
 // =================================================================
-describe('Provider Error Recovery — Integration', () => {
-    afterEach(() => {
-        __resetCircuitBreakers__();
+describe('Provider Error Recovery — Rate-limit cooldown (fallback gating)', () => {
+    it('records a cooldown that gates FALLBACK probes but not the PRIMARY model', () => {
+        recordRateLimitCooldown('openai');
+        expect(isInRateLimitCooldown('openai')).toBe(true);
+        // Fallback probe is gated…
+        expect(canRequest('openai', /* isFallbackProbe */ true)).toBe(false);
+        // …but the primary model's own retry path is NOT double-gated.
+        expect(canRequest('openai', false)).toBe(true);
     });
 
-    it('applies recovery layers in correct order', () => {
-        // 1. Circuit breaker check (skip open)
-        // 2. Attempt request
-        // 3. Record failure for circuit breaker
-        // 4. Retryable? exponential backoff retry (up to 3)
-        // 5. Fallback chain (up to 3, skipping open circuits)
-        // 6. Mesh peers
-        // 7. Provider failover (anthropic, openai, google, ollama)
-        // 8. Enhanced error throw
-        expect(true).toBe(true);
-    });
-
-    it('clears fallback state on primary success', () => {
-        // lastFallbackEvent = null when primary succeeds
-        expect(true).toBe(true);
-    });
-
-    it('logs recovery message after successful retry', () => {
-        // "recovered after N retry attempt(s)" in logs
-        expect(true).toBe(true);
+    it('expires the cooldown after the probe interval', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(5_000_000);
+        recordRateLimitCooldown('google');
+        expect(isInRateLimitCooldown('google')).toBe(true);
+        vi.advanceTimersByTime(30_000); // MIN_PROBE_INTERVAL_MS
+        expect(isInRateLimitCooldown('google')).toBe(false);
+        expect(canRequest('google', true)).toBe(true);
     });
 });
