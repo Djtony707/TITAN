@@ -1452,6 +1452,29 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json(summarizeMemoryTaxonomy(cfg, { hindsightConnected }));
   });
 
+  // v7.0 redo (move 9) — "What I know about you": one plain-language aggregate
+  // of everything TITAN remembers about its user. Honest sources only: the
+  // configured identity (soul), Soma's learned observations, and stored facts.
+  // Registered BEFORE /api/memory/:key (route order matters — see taxonomy).
+  app.get('/api/memory/about-me', async (req, res) => {
+    try {
+      const userId = getUserIdFromReq(req as Parameters<typeof getUserIdFromReq>[0]);
+      const cfg = loadConfig();
+      const { readSomaProfile } = await import('../storage/somaProfile.js');
+      const profile = readSomaProfile(userId);
+      const { searchMemories } = await import('../memory/memory.js');
+      const facts = (await searchMemories()).slice(0, 100);
+      res.json({
+        identity: (cfg as { soul?: string }).soul || null,
+        observations: profile.learnedAboutUser ?? [],
+        workingHours: profile.workingHours ?? null,
+        facts,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'about_me_failed', message: (err as Error).message });
+    }
+  });
+
   app.get('/api/memory/:key', async (req, res) => {
     try {
       const { recallFact } = await import('../memory/memory.js');

@@ -62,12 +62,20 @@ export default function BodyStateIndicator() {
     const drives = state.drives || [];
     const byId = new Map(drives.map(d => [d.id, d]));
 
+    // De-jargon (v7.0 redo): the user never reads "Soma" — they read a feeling.
+    const MOOD_WORD: Record<string, string> = {
+        purpose: 'feeling driven', hunger: 'hungry for data', curiosity: 'feeling curious',
+        safety: 'feeling cautious', social: 'feeling chatty',
+    };
+    const dominant = (state.dominantDrives && state.dominantDrives[0]) || null;
+    const moodWord = (dominant && MOOD_WORD[dominant]) || 'feeling content';
+
     return (
         <button
             onClick={() => navigate('/soma')}
             className="soma-body-indicator"
-            aria-label="Open Soma organism view"
-            title="TITAN-Soma: click for full view"
+            aria-label="How TITAN is feeling"
+            title="How TITAN's feeling — click to peek inside"
         >
             {DRIVE_ORDER.map(meta => {
                 const d = byId.get(meta.id);
@@ -84,15 +92,17 @@ export default function BodyStateIndicator() {
                             opacity: fillAlpha,
                             animationDuration: pulseDuration,
                         }}
-                        title={
-                            d
-                                ? `${meta.label}: ${Math.round(satisfaction * 100)}% (setpoint ${Math.round(d.setpoint * 100)}%) — ${d.description}`
-                                : meta.label
-                        }
+                        title={d ? `${meta.label}: ${Math.round(satisfaction * 100)}%` : meta.label}
                         aria-label={`${meta.label} ${Math.round(satisfaction * 100)}%`}
                     />
                 );
             })}
+            <span
+                className="hidden md:inline text-[10px] ml-1.5"
+                style={{ color: 'var(--theme-ink-soft, var(--color-text-muted))' }}
+            >
+                {moodWord}
+            </span>
         </button>
     );
 }

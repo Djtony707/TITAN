@@ -39,7 +39,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
   { label: 'Home', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home'] },
   { label: 'Desk', route: '/space/home', icon: Target, aliases: ['/space', '/canvas'] },
   { label: 'Studio', route: '/studio', icon: Brain, aliases: ['/missions/studio', '/live-studio', '/missions/activity', '/watch'] },
-  { label: 'Memory', route: '/knowledge/memory-graph', icon: Users, aliases: ['/knowledge', '/intelligence'] },
+  { label: 'Memory', route: '/memory', icon: Users, aliases: ['/knowledge', '/intelligence'] },
   {
     label: 'Workshop',
     route: '/system/settings',
@@ -59,6 +59,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
       { label: 'Org Chart', route: '/team/org-chart', aliases: ['/command-post/org'] },
       { label: 'Personas', route: '/team/personas' },
       // Knowledge internals
+      { label: 'Memory Graph', route: '/knowledge/memory-graph' },
       { label: 'Memory Taxonomy', route: '/knowledge/memory-taxonomy' },
       { label: 'Wiki', route: '/knowledge/wiki' },
       { label: 'Autoresearch', route: '/knowledge/autoresearch' },

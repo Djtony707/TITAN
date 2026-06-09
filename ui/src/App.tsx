@@ -74,6 +74,7 @@ const PhoneDeskPanel = lazy(() => import('@/components/admin/PhoneDeskPanel'));
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
 const TitanHome = lazy(() => import('@/views/TitanHome'));
+const AboutYouMemory = lazy(() => import('@/views/AboutYouMemory'));
 const MissionChat = lazy(() => import('@/pages/MissionChat'));
 const MissionCanvas = lazy(() => import('@/pages/MissionCanvas'));
 const MissionLibrary = lazy(() => import('@/pages/MissionLibrary'));
@@ -101,27 +102,13 @@ function LoadingFallback() {
 
 function AuthenticatedAppInner() {
   const { isOpen: voiceOpen, close: closeVoice } = useVoice();
-  const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
-  useEffect(() => {
-    apiFetch('/api/onboarding/status')
-      .then(r => r.json())
-      .then(d => setOnboarded(d.onboarded !== false))
-      .catch(() => setOnboarded(true));
-  }, []);
-
-  if (onboarded === null) {
-    return (
-      <DeskSurface noMotes>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-sm font-serif" style={{ color: '#c4b49a' }}>Loading...</div>
-        </div>
-      </DeskSurface>
-    );
-  }
-
-  if (!onboarded) {
-    return <SetupWizard onComplete={() => setOnboarded(true)} />;
+  // v7.0 redo — first run no longer blocks the whole app behind the 7-step
+  // wizard. New users land on the home desk immediately (the mascot nudges
+  // setup when no model is configured); the wizard lives at /setup, opened by
+  // choice. Killing the gate also removes a blocking fetch from every startup.
+  if (typeof window !== 'undefined' && window.location.pathname === '/setup') {
+    return <SetupWizard onComplete={() => { window.location.href = '/'; }} />;
   }
 
   return (
@@ -137,6 +124,7 @@ function AuthenticatedAppInner() {
             {/* v7.0 redo — the new front door: desk + mascot + one input.
                 The old mission/chat surface lives on at /missions. */}
             <Route path="/" element={<TitanHome />} />
+            <Route path="/memory" element={<AboutYouMemory />} />
             <Route path="/dashboard" element={<Navigate to="/missions" replace />} />
 
             <Route path="/missions" element={<MissionStart />} />
