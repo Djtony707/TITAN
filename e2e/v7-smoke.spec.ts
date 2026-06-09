@@ -74,6 +74,7 @@ test.describe('v7.0 — UI mounts + new panels reachable', () => {
     ['/system/security', 'Security'],
     ['/knowledge/memory-taxonomy', 'Memory Taxonomy'],
     ['/tools/observability', 'Observability'],
+    ['/missions/workflow-builder', 'Workflow Builder'],
   ] as const) {
     test(`panel renders: ${label}`, async ({ page }) => {
       await page.goto(route);

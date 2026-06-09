@@ -34,6 +34,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
     aliases: ['/mission'],
     submenu: [
       { label: 'Library', route: '/missions/library', aliases: ['/mission/library'] },
+      { label: 'Workflow Builder', route: '/missions/workflow-builder', aliases: ['/workflow-builder'] },
       { label: 'Goals', route: '/missions/goals', aliases: ['/goals', '/command-post/goals'] },
       { label: 'Issues', route: '/missions/issues', aliases: ['/issues', '/command-post/issues'] },
       { label: 'Approvals', route: '/missions/approvals', aliases: ['/approvals', '/command-post/approvals'] },
