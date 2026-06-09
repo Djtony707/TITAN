@@ -48,6 +48,7 @@ vi.mock('uuid', () => ({
 import {
     OpenAICompatProvider,
     PROVIDER_PRESETS,
+    parseMaxTokenLimit,
     type OpenAICompatConfig,
 } from '../src/providers/openai_compat.js';
 
@@ -133,6 +134,32 @@ describe('OpenAICompatProvider', () => {
             const body = await bodyFor({ model: 'test-provider/qwen3.6-35b-a3b', format: 'json', maxTokens: 100 });
             expect(body.response_format).toEqual({ type: 'json_object' });
             expect(body.max_tokens).toBeGreaterThanOrEqual(2048);
+        });
+
+        it('adapts max_tokens down + retries once when the deployment caps the model (400)', async () => {
+            const provider = makeProvider();
+            const err400 = makeJsonResponse({ error: { message: 'litellm.BadRequestError: max_tokens=32768 cannot be greater than max_model_len=max_total_tokens=12288' } }, 400);
+            const ok = makeJsonResponse({ id: 'c1', choices: [{ message: { content: 'done' }, finish_reason: 'stop' }] });
+            mockFetchWithRetry.mockResolvedValueOnce(err400).mockResolvedValueOnce(ok);
+            const res = await provider.chat({ model: 'test-provider/qwen3.6-35b-a3b', messages: [{ role: 'user', content: 'hi' }], maxTokens: 32768 });
+            expect(res.content).toBe('done');
+            expect(mockFetchWithRetry).toHaveBeenCalledTimes(2);
+            const retryBody = JSON.parse(mockFetchWithRetry.mock.calls[1][1].body);
+            expect(retryBody.max_tokens).toBeLessThanOrEqual(4096);
+            expect(retryBody.max_tokens).toBeGreaterThanOrEqual(512);
+        });
+    });
+
+    // ── Adaptive max_tokens parser (model-agnostic) ────────────────────
+    describe('parseMaxTokenLimit', () => {
+        it('extracts the real ceiling from a vLLM/LiteLLM 400', () => {
+            expect(parseMaxTokenLimit('max_tokens=32768 cannot be greater than max_model_len=max_total_tokens=12288')).toBe(12288);
+        });
+        it('extracts an OpenAI-style context-length 400', () => {
+            expect(parseMaxTokenLimit('maximum context length is 8192 tokens')).toBe(8192);
+        });
+        it('returns null for unrelated errors', () => {
+            expect(parseMaxTokenLimit('rate limit exceeded')).toBeNull();
         });
     });
 
