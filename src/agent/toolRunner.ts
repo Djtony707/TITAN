@@ -285,6 +285,12 @@ function writeToolCallReceipt(params: {
     }
 }
 
+/** Recover the target path from a computeUnifiedDiff header for the live view. */
+export function filePathFromDiff(diff: string): string | undefined {
+    const m = diff.match(/^--- (.+)$/m) || diff.match(/No changes to (.+?)\s*$/m);
+    return m ? m[1].trim() : undefined;
+}
+
 export async function executeTool(toolCall: ToolCall, channel?: string): Promise<ToolResult> {
     const _aid = mintActionId();
     const _t0 = Date.now();
@@ -311,6 +317,9 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
             durationMs: Date.now() - _t0,
             actionId: _aid,
             resultPreview: typeof result.content === 'string' ? result.content.slice(0, 300) : undefined,
+            // Live Studio diff stream — present for file-modifying tools.
+            diff: result.diff,
+            filePath: result.diff ? filePathFromDiff(result.diff) : undefined,
         });
         return result;
     } catch (err) {
