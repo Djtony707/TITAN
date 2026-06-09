@@ -1156,6 +1156,15 @@ async function tickVerifying(goal: Goal, state: DriverState): Promise<void> {
     }
 }
 
+/**
+ * v7.0 — test-only export so the Bug #3 regression (whole-goal verify →
+ * reporting vs. failed) can be asserted directly instead of via a hollow
+ * `expect(true).toBe(true)` placeholder. The whole-goal-verify branch reads
+ * only its goal/state args (no store, no dynamic import), so it is purely
+ * unit-testable. NOT for production callers.
+ */
+export const __internal_tickVerifying = tickVerifying;
+
 async function tickReporting(goal: Goal, state: DriverState): Promise<void> {
     const durationMs = Date.now() - new Date(state.startedAt).getTime();
     const specialistsUsed = [...new Set(
