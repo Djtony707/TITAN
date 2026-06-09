@@ -8,11 +8,17 @@
  */
 
 import { existsSync, readdirSync, readFileSync, type Dirent } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'FrontmatterSkills';
+
+// Package root, resolved relative to THIS module (works for both `tsx src/` in
+// dev and a global npm install) — not process.cwd(), which is the user's shell
+// dir. dist/skills/ and src/skills/ are both two levels under the package root.
+const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export interface FrontmatterSkill {
   name: string;
@@ -34,6 +40,10 @@ export interface FrontmatterSkill {
 
 const SKILL_DIRS = [
   join(process.cwd(), 'src', 'skills', 'frontmatter'),
+  // Bundled skill library shipped in the npm package (includes the
+  // ECC-attributed software-craft skills) — package-relative so it resolves
+  // for installed users, not just an in-repo run.
+  join(PKG_ROOT, 'assets', 'agent-skills'),
   join(TITAN_HOME, 'skills'),
 ];
 

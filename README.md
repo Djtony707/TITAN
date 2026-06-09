@@ -88,7 +88,7 @@ A session-scoped **event spine** now emits `tool:call` / `tool:result` events (w
 - **Workflow Builder** — a dependency-free SVG **goal/subtask DAG** of any mission: nodes coloured by status, edges from `dependsOn`, layered by longest-dependency-depth, the live current subtask highlighted. Click a node for detail, or author a new workflow from a plain-English prompt. Mission decomposition now threads real dependency edges (backward-only, always-acyclic), so the DAG reflects true ordering.
 - **2 new agent skills:** `codebase_explore` (walks a repo into a structured map — entrypoints, key files, language mix, top dirs) and `delegate_agent` (orchestrates external coding agents — codex / aider / goose / gemini / opencode; **never** the `claude` CLI).
 - **8 ECC software-craft skills** (MIT, attributed), `config_audit` (config security self-audit), a spec-driven workflow (acceptance criteria recited every turn), and a named memory taxonomy (`memory_map`).
-- **SECURITY:** the Facebook Messenger webhook now verifies the `X-Hub-Signature-256` HMAC — forged POSTs are rejected (403).
+- **SECURITY:** the Facebook Messenger webhook verifies the `X-Hub-Signature-256` HMAC (constant-time) when `FB_APP_SECRET` is set — forged POSTs are then rejected with 403. (Set the secret to enable enforcement; without it, verification is skipped.)
 - **FIX:** the agent loop-breaker could itself infinite-loop (the round counter froze) — now terminal and bounded.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.0.0 entry and everything before it.
