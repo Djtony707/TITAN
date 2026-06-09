@@ -49,6 +49,15 @@ export interface ToolCallEvent {
     tool: string;
     argsPreview: string;
     timestamp: string;
+    /** Stable id linking this call → its result → diff → checkpoint → verdict.
+     *  (Live-agents event spine — all optional, additive, back-compatible.) */
+    actionId?: string;
+    /** Spawning agent, when this runs inside a sub-agent/roster role. */
+    parentAgentId?: string;
+    /** Synthesized roster role id, when applicable. */
+    roleId?: string;
+    /** Tool-loop round index within the turn. */
+    round?: number;
 }
 
 /** Emitted when a tool returns (success or failure). */
@@ -59,6 +68,23 @@ export interface ToolResultEvent {
     success: boolean;
     durationMs: number;
     timestamp: string;
+    /** Stable id shared with the originating ToolCallEvent (see above). */
+    actionId?: string;
+    parentAgentId?: string;
+    roleId?: string;
+    round?: number;
+    /** Truncated result text for the live timeline. */
+    resultPreview?: string;
+    /** Unified diff for file-modifying tools (Live Studio diff stream). */
+    diff?: string;
+    /** Absolute/relative path the tool wrote, when applicable. */
+    filePath?: string;
+    /** shadowGit checkpoint id captured before the write (one-click revert). */
+    checkpointId?: string;
+    /** Grounded run verdict, when the evolution oracle has scored it. */
+    verdict?: { score: number; grounded: boolean };
+    /** Coarse task classification for routing/evolution aggregation. */
+    taskType?: string;
 }
 
 /** Emitted every driveTick (default 60s) with the full drive snapshot. */
