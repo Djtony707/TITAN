@@ -25,6 +25,17 @@
 - Replaced 29 hollow placeholder tests with real assertions; added real coverage for goalDriver Bug #3, `agent_messaging`, and 6 channel adapters.
 - Behavioral eval-gate: **93% (GO)**.
 
+### Live Studio + the session-scoped event spine
+- **Event spine (the keystone):** the previously-silent `tool:call` / `tool:result` topics now have a producer. `sessionTrace` stamps a stable `actionId` (+ session/agent/ts) and emits on the existing trace bus with a TTL dedupe, so the universal `executeTool` emit and the richer agent-loop emits collapse to one event. Wired at a single site in `executeTool` (before dispatch + on both success and throw paths), it lights up **every** tool path — chat, sub-agent, cron, mesh — for the existing `/watch` subscribers, additively and without ever throwing to the caller.
+- **Additive spine fields:** `ToolCallEvent` / `ToolResultEvent` gain optional `actionId`, `parentAgentId`, `roleId`, `round`, `resultPreview`, `diff`, `filePath`, `checkpointId`, `verdict`, and `taskType` — zero blast radius on existing consumers.
+- **Live diff stream:** `tool:result` now forwards the `.diff` already computed for `write_file` / `edit_file` / `apply_patch` plus a `filePath` recovered from the diff header, on every tool path (not just the main loop) — the data feed behind the Studio diff pane.
+- **Live Studio backend:** an always-on per-session ring (`studioBuffer`, bounded 2000/session + 50-session LRU) captures the spine topics, and a session-scoped `StudioRouter` SSE endpoint (`/api/studio/stream?sessionId=`) **replays what a late-joining client missed, then streams live**, forwarding the raw spine fields; adds `/api/studio/snapshot` + `/api/studio/sessions`. Pure read-side — `/api/message` is untouched.
+- **Live Studio UI:** a split-pane "watch-it-work" view (`/studio`, `/studio/:id`, URL-addressable for shareable/replayable sessions) — a step timeline on the left, the latest file diff with +/- coloring and a changed-files checkpoint rail on the right, plus a live session picker. Routed under Missions.
+
+### End-to-end
+- **Whole-UI route sweep:** a new e2e walks every major Mission Control route like a user clicking through the app, failing only on an uncaught page error or an empty `#root` — **40/40 screens render green**, covering the new v7.0 panels (Live Studio, Workflow Builder, Memory Taxonomy, Observability, Security audit) and every pre-existing screen.
+- Full verification: suite **8099 pass / 9 skip / 0 fail**, typecheck 0, lint 0 errors, build + build:ui clean; live API sweep 18/19 (the one non-200 is a by-design "disabled" 503); chat works end-to-end.
+
 ## v6.5.3 — 2026-06-08 — README refresh
 
 - Updated the README to the v6.5.x line (security/cancellation hardening highlights, 110K+ downloads). The previous README still described v6.3.x.
