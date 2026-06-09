@@ -71,6 +71,22 @@
 }
 
 :root {
+  /* ── Bare surface tokens (the desk-convergence seam) ──────
+     ~60 admin panels reference bare var(--bg-secondary)/--text/--border etc.
+     These were never defined (Tailwind @theme only emits --color-*), so panels
+     rendered transparent-over-body. Define them here as the dark default, then
+     each :root[data-theme=…] in theme-variables.css remaps them to that theme's
+     AA-verified --theme-* surfaces — so the WHOLE UI converges to the desk with
+     no per-component edits. */
+  --bg:             var(--color-bg);
+  --bg-secondary:   var(--color-bg-secondary);
+  --bg-tertiary:    var(--color-bg-tertiary);
+  --border:         var(--color-border);
+  --border-light:   var(--color-border-light);
+  --text:           var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted:     var(--color-text-muted);
+
   /* ── Gradients ──────────────────────────────────────── */
   --gradient-accent: linear-gradient(135deg, var(--color-accent), var(--color-accent2));
   --gradient-accent-subtle: linear-gradient(135deg, var(--color-accent) 0%, var(--color-purple) 100%);

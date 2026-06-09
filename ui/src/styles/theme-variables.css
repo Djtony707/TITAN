@@ -231,6 +231,73 @@
     --theme-menu-overlay:   rgba(0, 0, 0, 0.65);
 }
 
+/* ─────────────  NIGHT — dark walnut desk (warm dark · brass · cream)  ─────────────
+   v7.0 "dark-wood night mode": deep walnut surface, dark-parchment panels, warm
+   cream ink, brass accents — the physical desk after dark. Follows the dark-canvas
+   convention (light ink on dark surfaces) so every pairing stays AA. Serif display
+   like Office for the tactile, paper-on-wood feel. */
+:root[data-theme='night'] {
+    --theme-bg-base:       #221610;
+    --theme-bg-grain:      #18100b;
+    --theme-bg-vignette:   rgba(0, 0, 0, 0.62);
+
+    --theme-paper:         #2c1e15;          /* dark parchment panel */
+    --theme-paper-fg:      #f1e3cc;          /* warm cream (light, per convention) */
+    --theme-paper-line:    rgba(201, 155, 62, 0.20);
+
+    --theme-ink:           #f3e9d6;          /* warm cream — primary text */
+    --theme-ink-soft:      #c9b491;          /* muted tan */
+
+    --theme-metal:         #c4a35a;          /* brass */
+    --theme-metal-bright:  #f3d27a;
+    --theme-metal-dark:    #8a6a3a;
+    --theme-bolt:          #140d08;
+
+    --theme-leather:       #3a2818;
+    --theme-leather-edge:  #1e140c;
+    --theme-leather-stitch:#c99b3e;
+    --theme-leather-tag:   #4a3220;
+
+    --theme-accent:        #e0a24a;          /* warm amber lamp glow */
+    --theme-shadow:        rgba(0, 0, 0, 0.6);
+
+    --theme-sticky-yellow: #d8c074;
+    --theme-sticky-pink:   #cf9a86;
+    --theme-sticky-tape:   rgba(201, 155, 62, 0.35);
+
+    --theme-gauge-face:    #2c1e15;
+    --theme-gauge-ring:    #c4a35a;
+    --theme-gauge-needle:  #f3d27a;
+
+    --theme-font-display: 'Iowan Old Style', 'Charter', 'Georgia', serif;
+    --theme-font-mono:    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+    --theme-menu-bg:        rgba(34, 22, 16, 0.97);
+    --theme-menu-bg-solid:  #2c1e15;
+    --theme-menu-border:    #8a6a3a;
+    --theme-menu-hover:     rgba(243, 210, 122, 0.10);
+    --theme-menu-active-bg: #c4a35a;
+    --theme-menu-active-fg: #221610;
+    --theme-menu-overlay:   rgba(10, 6, 2, 0.7);
+}
+
+/* ─────────────  Desk convergence — bare surface tokens from the active theme  ─────────────
+   The ~60 admin panels reference bare --bg-secondary/--text/--border (defaulted dark
+   in globals.css). Under ANY desk theme, remap them onto that theme's AA-verified
+   --theme-* palette so the whole UI becomes the desk: paper panels on a wood/canvas
+   surface. Secondary/muted are derived via color-mix(ink → paper) so they stay
+   surface-correct on light (Office) AND dark (Studio/Night/Workshop/Observatory). */
+:root[data-theme] {
+    --bg:             var(--theme-bg-base);
+    --bg-secondary:   var(--theme-paper);
+    --bg-tertiary:    color-mix(in srgb, var(--theme-ink) 8%, var(--theme-paper));
+    --border:         var(--theme-paper-line);
+    --border-light:   color-mix(in srgb, var(--theme-ink) 24%, var(--theme-paper));
+    --text:           var(--theme-ink);
+    --text-secondary: color-mix(in srgb, var(--theme-ink) 72%, var(--theme-paper));
+    --text-muted:     color-mix(in srgb, var(--theme-ink) 52%, var(--theme-paper));
+}
+
 /* ─────────────  Beta.4 Wave 9 — shared menu / overlay primitives  ─────────────
    These animations + classes provide a single source of truth for menus,
    dropdowns, popovers, modals and toasts. Components reference them so the
