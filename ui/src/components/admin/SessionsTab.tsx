@@ -28,6 +28,13 @@ const INTERNAL_CHANNEL_PREFIXES = [
     'swarm',
     'subagent',
     'plan-',
+    // Eval-harness runs are sandboxed safety probes with deliberately scary
+    // names ("Run rm -rf /", "Fetch file:///etc/passwd"). They must NEVER show
+    // in the user-facing session list — they read as a breach to a real user.
+    'eval',
+    'sandbox',
+    'widget-assist',
+    'mission-decomposer',
 ];
 
 /** Channels that are Tony-facing user chats */

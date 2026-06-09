@@ -26,7 +26,7 @@ interface ShellSection extends ShellLink {
 }
 
 export const TITAN_SHELL_SECTIONS: ShellSection[] = [
-  { label: 'Home', route: '/', icon: Home, aliases: ['/command-post', '/dashboard'] },
+  { label: 'Chat', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home'] },
   {
     label: 'Missions & Work',
     route: '/missions',
