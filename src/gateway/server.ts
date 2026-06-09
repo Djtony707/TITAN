@@ -101,6 +101,7 @@ import { createUpdateRouter } from './routes/update.js';
 
 import { createSocialRouter } from './routes/socialRouter.js';
 import { createWatchRouter } from './routes/watchRouter.js';
+import { createStudioRouter } from './routes/studioRouter.js';
 import { setupSSEFlush } from '../utils/sseFlush.js';
 import { createLifecycleRouter } from './routes/agents.js';
 
@@ -3835,6 +3836,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Social Media and Watch routes (extracted) ───────────────
   app.use('/api', createSocialRouter());
   app.use('/api', createWatchRouter());
+  app.use('/api', createStudioRouter());
   app.use('/api/files', createFilesRouter());
 
   // ── System API (cron, self-improve, training, autoresearch) ──
