@@ -13,6 +13,7 @@
 import React from 'react';
 import { WorkshopSurface } from './WorkshopSurface';
 import { ObservatorySurface } from './ObservatorySurface';
+import { StudioSurface } from './StudioSurface';
 
 export type DeskTheme = 'oak' | 'walnut' | 'mahogany' | 'white';
 
@@ -156,6 +157,10 @@ export function DeskSurface(props: Props) {
   if (themeAttr === 'observatory') {
     const { noMotes, className, children } = props;
     return <ObservatorySurface noMotes={noMotes} className={className}>{children}</ObservatorySurface>;
+  }
+  if (themeAttr === 'studio') {
+    const { noMotes, className, children } = props;
+    return <StudioSurface noMotes={noMotes} className={className}>{children}</StudioSurface>;
   }
   // office / oak / walnut / mahogany / white / null → wood
   return <WoodDeskSurface {...props} />;
