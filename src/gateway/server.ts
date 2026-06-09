@@ -2066,6 +2066,25 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── v7.0 — Memory taxonomy (the 9 named memory types + live availability) ──
+  app.get('/api/memory/taxonomy', async (_req, res) => {
+    const { summarizeMemoryTaxonomy } = await import('../memory/taxonomy.js');
+    const cfg = loadConfig() as unknown as Record<string, unknown>;
+    let hindsightConnected = false;
+    try {
+      const { memory } = await import('../memory/facade.js');
+      hindsightConnected = Boolean(await memory.episodic.isCrossSessionConnected());
+    } catch { /* hindsight optional */ }
+    res.json(summarizeMemoryTaxonomy(cfg, { hindsightConnected }));
+  });
+
+  // ── v7.0 — Security self-audit (config_audit findings) ──
+  app.get('/api/security/audit', async (_req, res) => {
+    const { auditConfig } = await import('../skills/builtin/config_audit.js');
+    const cfg = loadConfig() as unknown as Record<string, unknown>;
+    res.json({ findings: auditConfig(cfg) });
+  });
+
   // ── v7.0 observability — run trace store ──────────────────────────
   app.get('/api/traces', async (req, res) => {
     const { listSpans } = await import('../telemetry/traceStore.js');

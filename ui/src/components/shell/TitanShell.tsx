@@ -58,6 +58,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
     aliases: ['/soma', '/intelligence'],
     submenu: [
       { label: 'Memory Graph', route: '/knowledge/memory-graph' },
+      { label: 'Memory Taxonomy', route: '/knowledge/memory-taxonomy' },
       { label: 'Wiki', route: '/knowledge/wiki' },
       { label: 'Autoresearch', route: '/knowledge/autoresearch' },
       { label: 'Self-Improve', route: '/knowledge/self-improve' },
@@ -71,6 +72,8 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
     icon: Wrench,
     submenu: [
       { label: 'Skills', route: '/tools/skills' },
+      { label: 'Evals', route: '/tools/evals' },
+      { label: 'Observability', route: '/tools/observability' },
       { label: 'MCP', route: '/tools/mcp' },
       { label: 'Integrations', route: '/tools/integrations' },
       { label: 'Channels', route: '/tools/channels' },

@@ -41,11 +41,13 @@ const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
 const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
 const MemoryGraphPanel = lazy(() => import('@/components/admin/MemoryGraphPanel'));
 const MemoryWikiPanel = lazy(() => import('@/components/admin/MemoryWikiPanel'));
+const MemoryTaxonomyPanel = lazy(() => import('@/components/admin/MemoryTaxonomyPanel'));
 const AutoresearchPanel = lazy(() => import('@/components/admin/AutoresearchPanel'));
 const SelfImprovePanel = lazy(() => import('@/components/admin/SelfImprovePanel'));
 const DreamPanel = lazy(() => import('@/components/admin/DreamPanel'));
 const TrainingPanel = lazy(() => import('@/components/admin/TrainingPanel'));
 const EvalHarnessPanel = lazy(() => import('@/components/admin/EvalHarnessPanel'));
+const TracesPanel = lazy(() => import('@/components/admin/TracesPanel'));
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -146,6 +148,7 @@ function AuthenticatedAppInner() {
             <Route path="/knowledge" element={<MemoryGraphPanel />} />
             <Route path="/knowledge/memory-graph" element={<MemoryGraphPanel />} />
             <Route path="/knowledge/wiki" element={<MemoryWikiPanel />} />
+            <Route path="/knowledge/memory-taxonomy" element={<MemoryTaxonomyPanel />} />
             <Route path="/knowledge/autoresearch" element={<AutoresearchPanel />} />
             <Route path="/knowledge/self-improve" element={<SelfImprovePanel />} />
             <Route path="/knowledge/dreams" element={<DreamPanel />} />
@@ -155,6 +158,7 @@ function AuthenticatedAppInner() {
             <Route path="/tools" element={<Navigate to="/tools/skills" replace />} />
             <Route path="/tools/skills" element={<SkillsPanel />} />
             <Route path="/tools/evals" element={<EvalHarnessPanel />} />
+            <Route path="/tools/observability" element={<TracesPanel />} />
             <Route path="/tools/mcp" element={<McpPanel />} />
             <Route path="/tools/integrations" element={<IntegrationsPanel />} />
             <Route path="/tools/channels" element={<ChannelsPanel />} />
