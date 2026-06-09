@@ -3870,6 +3870,46 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // ── Widget AI assist — rewrite a widget's source from a plain-English request.
+  //    Powers the "Ask AI" bar in the canvas widget editor so non-coders can edit
+  //    widgets by describing changes. One focused, tool-free LLM pass (model-agnostic
+  //    via the active provider); returns the full updated source for the editor draft. ──
+  app.post('/api/widget/assist', async (req, res) => {
+    try {
+      const source = String(req.body?.source ?? '');
+      const instruction = String(req.body?.instruction ?? '').trim();
+      const format = String(req.body?.format ?? 'react');
+      const name = String(req.body?.name ?? 'widget').slice(0, 80);
+      if (instruction.length < 2) { res.status(400).json({ error: 'instruction_required', message: 'Describe the change you want.' }); return; }
+
+      const { spawnSubAgent } = await import('../agent/subAgent.js');
+      const prompt = [
+        `You are an expert front-end engineer helping a NON-CODER edit a canvas widget by describing changes in plain English. They will NOT touch the code themselves.`,
+        `Widget name: "${name}". Source format: ${format}.`,
+        ``,
+        `CURRENT SOURCE:`,
+        '```',
+        source.slice(0, 12000),
+        '```',
+        ``,
+        `THE USER WANTS: ${instruction}`,
+        ``,
+        `Return ONLY the COMPLETE updated ${format} source — the full file, ready to render. No markdown fences, no commentary, no explanation. Keep it ONE self-contained widget. Preserve everything that already works and change only what the request implies. For a react widget, keep the component named "Widget" and the \`titan\` prop contract if present. If the request is ambiguous, make the most reasonable interpretation.`,
+      ].join('\n');
+
+      const result = await spawnSubAgent({ name: 'widget-assist', task: prompt, tier: 'fast', maxRounds: 1 });
+      let out = (result.content || '').trim();
+      // Strip a stray markdown code fence if the model wrapped the output.
+      const fence = out.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)\n```\s*$/);
+      if (fence) out = fence[1].trim();
+      if (!out) { res.status(502).json({ error: 'empty_result', message: 'The AI returned nothing — try rephrasing.' }); return; }
+      res.json({ source: out });
+    } catch (err) {
+      logger.error(COMPONENT, `widget assist error: ${(err as Error).message}`);
+      res.status(500).json({ error: 'widget_assist_failed', message: (err as Error).message });
+    }
+  });
+
   // ── GraphiTI / Knowledge Graph ───────────────────────────
   app.get('/api/graphiti', async (_req, res) => {
     try {

@@ -21,8 +21,9 @@
  *     closes.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Save, History, RotateCcw, Pencil } from 'lucide-react';
+import { X, Save, History, RotateCcw, Pencil, Sparkles } from 'lucide-react';
 import { SpaceEngine } from './SpaceEngine';
+import { apiFetch } from '@/api/client';
 import type { WidgetDef, WidgetFormat, WidgetVersion } from '../types';
 
 const WIDGET_HISTORY_MAX = 12;
@@ -44,6 +45,9 @@ export function WidgetEditor({ widget, spaceId, open, onClose, onSaved }: Props)
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [aiPrompt, setAiPrompt] = useState('');
+    const [aiBusy, setAiBusy] = useState(false);
+    const [aiNote, setAiNote] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Reset drafts whenever the widget or the modal's open flag flips.
@@ -108,6 +112,36 @@ export function WidgetEditor({ widget, spaceId, open, onClose, onSaved }: Props)
         setDraftFormat(v.format);
         setShowHistory(false);
     }, []);
+
+    // AI assist — the user describes a change in plain English and the agent
+    // rewrites the widget's source. Designed for non-coders: they never have to
+    // touch the code. The new draft replaces the editor text (review + Save,
+    // and History always lets them undo).
+    const askAi = useCallback(async () => {
+        const instruction = aiPrompt.trim();
+        if (!instruction || aiBusy) return;
+        setAiBusy(true);
+        setAiNote(null);
+        setError(null);
+        try {
+            const res = await apiFetch('/api/widget/assist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: draftSource, format: draftFormat, name: draftName, instruction }),
+            }).then(r => r.json());
+            if (res && typeof res.source === 'string' && res.source.trim()) {
+                setDraftSource(res.source);
+                setAiNote('✨ Updated from your request — review below, then Save. (History can undo.)');
+                setAiPrompt('');
+            } else {
+                setError(res?.message || 'The AI couldn\'t edit the widget — try rephrasing your request.');
+            }
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setAiBusy(false);
+        }
+    }, [aiPrompt, aiBusy, draftSource, draftFormat, draftName]);
 
     if (!open) return null;
 
@@ -177,6 +211,31 @@ export function WidgetEditor({ widget, spaceId, open, onClose, onSaved }: Props)
                     </span>
                     <div className="ml-auto text-[10px] text-[#52525b]">⌘/Ctrl + Enter to save</div>
                 </div>
+
+                {/* AI assist — describe a change in plain English; the agent rewrites the code.
+                    Front-and-center so a non-coder never has to touch the source below. */}
+                <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[#27272a] bg-[#0e0b16]">
+                    <Sparkles className="w-4 h-4 text-[#a855f7] shrink-0" />
+                    <input
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void askAi(); } }}
+                        disabled={aiBusy}
+                        placeholder="Ask the AI to change this widget — e.g. “make the background a warm gradient and the text bigger”"
+                        className="flex-1 bg-transparent text-[12.5px] text-[#e4e4e7] placeholder:text-[#6b6b76] outline-none disabled:opacity-60"
+                    />
+                    <button
+                        onClick={() => { void askAi(); }}
+                        disabled={aiBusy || !aiPrompt.trim()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#a855f7]/15 text-[#c084fc] border border-[#a855f7]/30 text-[11px] font-medium hover:bg-[#a855f7]/25 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {aiBusy ? 'AI is editing…' : 'Ask AI'}
+                    </button>
+                </div>
+                {aiNote && (
+                    <div className="px-5 py-1.5 text-[11px] text-[#c084fc] border-b border-[#27272a] bg-[#0e0b16]">{aiNote}</div>
+                )}
 
                 {/* Body — editor + optional history sidebar */}
                 <div className="flex-1 flex min-h-0">
