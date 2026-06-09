@@ -62,6 +62,24 @@ describe('getModelCapabilities', () => {
         expect(caps.contextWindow).toBe(32000);
     });
 
+    // v7.0 — the 2026 agentic models must NOT fall to the 32K/8K default (which
+    // truncates JSON). They match by BARE id too, since they route through the
+    // generic openai_compat provider / the local :4000 gateway without a prefix.
+    it.each([
+        ['qwen3.6-35b-a3b', 262_144, 32_768],
+        ['deepseek-v4-pro', 128_000, 64_000],
+        ['deepseek-v4-flash:cloud', 128_000, 64_000],
+        ['kimi-k2.6', 262_144, 128_000],
+        ['glm-5.1', 198_000, 128_000],
+        ['minimax-m3', 1_000_000, 40_000],
+        ['nemotron-3-super:cloud', 1_000_000, 32_000],
+    ])('gives the 2026 agentic model %s real ceilings (not the 8K fallback)', (model, ctx, out) => {
+        const caps = getModelCapabilities(model);
+        expect(caps.contextWindow).toBe(ctx);
+        expect(caps.maxOutput).toBe(out);
+        expect(caps.maxOutput).toBeGreaterThan(8192); // proves it's not the fallback
+    });
+
     it('config override takes precedence over family heuristic', () => {
         mockConfig = {
             providers: {

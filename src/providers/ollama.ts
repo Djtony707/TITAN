@@ -77,7 +77,7 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
  * toolTopP:          Optimal top_p for tool calling (null = omit)
  * toolTopK:          Optimal top_k for tool calling (null = omit)
  */
-interface ModelCapabilities {
+export interface ModelCapabilities {
     selfSelectsTools: boolean;
     thinkingWithTools: boolean;
     needsSystemMerge: boolean;
@@ -130,11 +130,16 @@ function inferCapabilitiesFromName(modelName: string): Partial<ModelCapabilities
 
 const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
     // ── Qwen family — excellent tool calling, uses thinking ──
+    'qwen3.6':          { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
     'qwen3.5':          { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
     'qwen3':            { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.7 },
     'qwen3-coder-next': { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.5 },
 
-    // ── DeepSeek family — strong reasoning, good tool use ──
+    // ── DeepSeek family — strong reasoning, good tool use. NOTE: the reasoner
+    //    endpoint rejects tool_choice:required + thinking with HTTP 400 — the
+    //    openai_compat provider guards that; here selfSelectsTools:true also
+    //    means we don't force tool_choice for them in the first place. ──
+    'deepseek-v4':      { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
     'deepseek-v3':      { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
     'deepseek-v3.1':    { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
     'deepseek-v3.2':    { selfSelectsTools: true, thinkingWithTools: true, needsSystemMerge: false, toolTemperature: 0.6 },
@@ -187,7 +192,7 @@ const MODEL_CAPABILITIES: Record<string, Partial<ModelCapabilities>> = {
  *   2. Hardcoded MODEL_CAPABILITIES map (this file) — matched by longest prefix
  *   3. DEFAULT_CAPABILITIES — conservative fallback for unknown models
  */
-function getModelCapabilities(modelName: string): ModelCapabilities {
+export function getModelCapabilities(modelName: string): ModelCapabilities {
     // Step 1: Check empirical probe registry (preferred)
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -20,6 +20,36 @@ import { fetchWithRetry } from '../utils/helpers.js';
 import { resolveApiKey } from './authResolver.js';
 import { v4 as uuid } from 'uuid';
 import { clampMaxTokens } from './modelCapabilities.js';
+// Reuse the Ollama provider's battle-tested per-model tool-behavior registry
+// (selfSelectsTools/etc.) so cloud models routed through this GENERIC provider
+// get the same model-agnostic treatment instead of a blind passthrough.
+import { getModelCapabilities as getToolCapabilities } from './ollama.js';
+
+/**
+ * Apply model-agnostic tool / structured-output controls to an OpenAI-compatible
+ * request body. Without this, this provider (which fronts ~24 backends incl.
+ * DeepSeek/Qwen/GLM/Kimi/MiniMax/xAI) silently ignores forceToolUse and format —
+ * so weak-self-selecting models answer in prose instead of calling the tool.
+ */
+function applyCompatToolControls(body: Record<string, unknown>, model: string, options: ChatOptions): void {
+    // forceToolUse → tool_choice:'required', but ONLY for models that don't
+    // self-select tools well (forcing a self-selecting model wastes a turn), and
+    // NEVER for a DeepSeek reasoner with thinking on — that combo is rejected
+    // with HTTP 400 by the reasoner endpoint (vllm #41132 / pydantic-ai #5193).
+    const tools = body.tools as unknown[] | undefined;
+    if (options.forceToolUse && Array.isArray(tools) && tools.length > 0) {
+        const isDeepseekReasoner = /deepseek/i.test(model) && options.thinking === true;
+        if (!isDeepseekReasoner && !getToolCapabilities(model).selfSelectsTools) {
+            body.tool_choice = 'required';
+        }
+    }
+    // format → native JSON mode + an anti-truncation floor (truncated/empty JSON
+    // is a common failure mode; json_object is the universally-supported shape).
+    if (options.format === 'json' || (options.format && typeof options.format === 'object')) {
+        body.response_format = { type: 'json_object' };
+        if (typeof body.max_tokens === 'number' && body.max_tokens < 2048) body.max_tokens = 2048;
+    }
+}
 
 /** Configuration for an OpenAI-compatible provider */
 export interface OpenAICompatConfig {
@@ -127,6 +157,7 @@ export class OpenAICompatProvider extends LLMProvider {
         if (options.tools && options.tools.length > 0) {
             body.tools = options.tools;
         }
+        applyCompatToolControls(body, model, options);
 
         if (options.temperature !== undefined) {
             body.temperature = options.temperature;
@@ -222,6 +253,7 @@ export class OpenAICompatProvider extends LLMProvider {
             max_tokens: clampMaxTokens(model, options.maxTokens),
         };
         if (options.tools && options.tools.length > 0) body.tools = options.tools;
+        applyCompatToolControls(body, model, options);
         if (options.temperature !== undefined) body.temperature = options.temperature;
 
         const headers: Record<string, string> = {
