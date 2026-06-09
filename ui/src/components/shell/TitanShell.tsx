@@ -25,54 +25,46 @@ interface ShellSection extends ShellLink {
   submenu?: ShellLink[];
 }
 
+/**
+ * v7.0 "likeable" nav — 5 doors instead of 48 destinations.
+ *
+ * The likeability research verdict: TITAN led with its engine room, so the
+ * cockpit WAS the product. Now the default nav is only the joyful core —
+ * Chat, the Desk (canvas), Studio (watch it work), Memory — plus ONE
+ * Workshop door holding the entire admin/power surface. Every old route
+ * stays alive (App.tsx unchanged); deep links and aliases still resolve.
+ * Complexity is earned, not dumped.
+ */
 export const TITAN_SHELL_SECTIONS: ShellSection[] = [
-  { label: 'Chat', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home'] },
+  { label: 'Chat', route: '/', icon: Home, aliases: ['/command-post', '/dashboard', '/home', '/missions'] },
+  { label: 'Desk', route: '/space/home', icon: Target, aliases: ['/space', '/canvas'] },
+  { label: 'Studio', route: '/studio', icon: Brain, aliases: ['/missions/studio', '/live-studio', '/missions/activity', '/watch'] },
+  { label: 'Memory', route: '/knowledge/memory-graph', icon: Users, aliases: ['/knowledge', '/intelligence'] },
   {
-    label: 'Missions & Work',
-    route: '/missions',
-    icon: Target,
-    aliases: ['/mission'],
+    label: 'Workshop',
+    route: '/system/settings',
+    icon: Wrench,
+    aliases: ['/system', '/infra', '/settings', '/tools', '/team', '/soma', '/mission'],
     submenu: [
-      { label: 'Library', route: '/missions/library', aliases: ['/mission/library'] },
+      // Missions & work
+      { label: 'Mission Library', route: '/missions/library', aliases: ['/mission/library'] },
       { label: 'Workflow Builder', route: '/missions/workflow-builder', aliases: ['/workflow-builder'] },
-      { label: 'Live Studio', route: '/studio', aliases: ['/missions/studio', '/live-studio'] },
       { label: 'Goals', route: '/missions/goals', aliases: ['/goals', '/command-post/goals'] },
       { label: 'Issues', route: '/missions/issues', aliases: ['/issues', '/command-post/issues'] },
       { label: 'Approvals', route: '/missions/approvals', aliases: ['/approvals', '/command-post/approvals'] },
-      { label: 'Activity', route: '/missions/activity', aliases: ['/activity', '/watch', '/command-post/activity'] },
       { label: 'Work', route: '/missions/work', aliases: ['/command-post/runs', '/command-post/work'] },
-    ],
-  },
-  {
-    label: 'Team',
-    route: '/team',
-    icon: Users,
-    submenu: [
+      // Team
       { label: 'Agents', route: '/team/agents', aliases: ['/command-post/agents'] },
       { label: 'Org Chart', route: '/team/org-chart', aliases: ['/command-post/org'] },
       { label: 'Personas', route: '/team/personas' },
-    ],
-  },
-  {
-    label: 'Knowledge',
-    route: '/knowledge',
-    icon: Brain,
-    aliases: ['/soma', '/intelligence'],
-    submenu: [
-      { label: 'Memory Graph', route: '/knowledge/memory-graph' },
+      // Knowledge internals
       { label: 'Memory Taxonomy', route: '/knowledge/memory-taxonomy' },
       { label: 'Wiki', route: '/knowledge/wiki' },
       { label: 'Autoresearch', route: '/knowledge/autoresearch' },
       { label: 'Self-Improve', route: '/knowledge/self-improve' },
       { label: 'Dreams', route: '/knowledge/dreams' },
       { label: 'Training', route: '/knowledge/training' },
-    ],
-  },
-  {
-    label: 'Tools & Connections',
-    route: '/tools',
-    icon: Wrench,
-    submenu: [
+      // Tools & connections
       { label: 'Skills', route: '/tools/skills' },
       { label: 'Evals', route: '/tools/evals' },
       { label: 'Observability', route: '/tools/observability' },
@@ -85,15 +77,8 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
       { label: 'Files', route: '/tools/files', aliases: ['/command-post/files'] },
       { label: 'Voice', route: '/tools/voice' },
       { label: 'Phone Desk', route: '/tools/phone-desk' },
-    ],
-  },
-  {
-    label: 'System',
-    route: '/system',
-    icon: Settings,
-    aliases: ['/infra', '/settings'],
-    submenu: [
-      { label: 'Settings', route: '/system/settings', aliases: ['/settings'] },
+      // System
+      { label: 'Settings', route: '/system/settings' },
       { label: 'Security', route: '/system/security' },
       { label: 'Costs', route: '/system/costs', aliases: ['/command-post/costs'] },
       { label: 'Audit', route: '/system/audit' },
@@ -105,6 +90,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
       { label: 'Fleet', route: '/system/fleet' },
       { label: 'Cron', route: '/system/cron' },
       { label: 'Quality Lab', route: '/system/quality-lab' },
+      { label: 'Soma Lab', route: '/soma' },
     ],
   },
 ];
