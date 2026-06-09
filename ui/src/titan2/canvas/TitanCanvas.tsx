@@ -72,6 +72,8 @@ import { NavWidget } from '../system/NavWidget';
 import { ChatWidget, findFirstFreeSlot } from '../system/ChatWidget';
 import { FloatingChatDock } from '../system/FloatingChatDock';
 import { SomaAdvisoryToast } from '../system/SomaAdvisoryToast';
+import { FreeMascot } from '../system/FreeMascot';
+import { HomeHeroWidget } from '../system/HomeHeroWidget';
 // v6.0 step 2 — Spaces sidebar mounted inside the canvas surface.
 import { SpacesSidebar } from '@/components/shell/SpacesSidebar';
 import { SpaceInstructionsEditor } from './SpaceInstructionsEditor';
@@ -115,6 +117,7 @@ import { QuickLinksWidget } from '../system/QuickLinksWidget';
 
 const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:nav': NavWidget,
+  'system:home-hero': HomeHeroWidget,
   'system:chat': ChatWidget,
   'system:cmd': CmdPaletteWidget,
   'system:soma': SomaWidget,
@@ -508,6 +511,24 @@ export default function TitanCanvas() {
     const id = spaceId || 'home';
     const s = SpaceEngine.get(id);
     if (s) {
+      // v7.0 redo — home is the canvas, and the "ask for anything" hero is
+      // itself a widget. Pin it once on the home space; if the user deletes
+      // it, respect that (the flag remembers) — it's THEIR desk.
+      if (id === 'home' && !s.widgets.some(w => w.source === 'system:home-hero')) {
+        let pinned = false;
+        try { pinned = localStorage.getItem('titan-home-hero-pinned') === '1'; } catch { /* default */ }
+        if (!pinned) {
+          try { localStorage.setItem('titan-home-hero-pinned', '1'); } catch { /* private */ }
+          SpaceEngine.addWidget(id, {
+            name: 'Ask TITAN',
+            format: 'system',
+            source: 'system:home-hero',
+            x: 3, y: 0, w: 6, h: 5,
+          });
+          setSpace(SpaceEngine.get(id) ?? s);
+          return;
+        }
+      }
       setSpace(s);
     } else {
       // Fallback to home
@@ -1085,6 +1106,10 @@ export default function TitanCanvas() {
         expanded state internally via the mascot click.
       */}
       <FloatingChatDock space={space} defaultExpanded={chatOpen} />
+      {/* v7.0 redo — the mascot loose on the desk: wanders, draggable, owns
+          the greeting/streak/celebration beats (FreeMascot listens to the
+          titan:mascot:* events the hero widget dispatches). */}
+      <FreeMascot />
 
       {/* v6.0.3 — Soma "TITAN noticed…" advisory toast. Polls every 30s
           and surfaces any new initiative-pulse decision as a floating card
