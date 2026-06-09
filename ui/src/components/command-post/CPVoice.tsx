@@ -14,6 +14,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Mic, Send, Volume2, StopCircle } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { PageHeader } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 
 async function postJSON(url: string, body: unknown): Promise<unknown> {
     const r = await apiFetch(url, {
@@ -62,6 +63,7 @@ declare global {
 }
 
 export default function CPVoice() {
+    const { toast } = useToast();
     const [input, setInput] = useState('');
     const [exchanges, setExchanges] = useState<Exchange[]>([]);
     const [listening, setListening] = useState(false);
@@ -120,7 +122,7 @@ export default function CPVoice() {
 
     const startListening = () => {
         const rec = recognitionRef.current;
-        if (!rec) { alert('Speech recognition not supported in this browser. Use Chrome.'); return; }
+        if (!rec) { toast('warning', 'Speech recognition is not supported in this browser. Use Chrome.'); return; }
         try { rec.start(); setListening(true); } catch { /* already running */ }
     };
     const stopListening = () => {

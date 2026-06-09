@@ -3,28 +3,36 @@ import { Save, Trash2, RefreshCw } from 'lucide-react';
 import { getCheckpoints, deleteCheckpoint } from '@/api/client';
 import type { CheckpointMeta } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export default function CheckpointsPanel() {
+  const { toast } = useToast();
   const [checkpoints, setCheckpoints] = useState<CheckpointMeta[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getCheckpoints();
       setCheckpoints(data.checkpoints || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load checkpoints — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleDelete = async (sessionId: string) => {
-    if (!confirm('Delete this checkpoint?')) return;
     try {
       await deleteCheckpoint(sessionId);
       await refresh();
-    } catch { /* ignore */ }
+      toast('success', 'Checkpoint deleted.');
+    } catch (err) {
+      toast('error', `Couldn't delete checkpoint — try again. (${(err as Error).message})`);
+    }
   };
 
   return (
@@ -45,12 +53,24 @@ export default function CheckpointsPanel() {
                 <div className="text-xs text-[#52525b]">{new Date(c.createdAt).toLocaleString()}</div>
               </div>
             </div>
-            <button onClick={() => handleDelete(c.sessionId)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
+            <button onClick={() => setConfirmId(c.sessionId)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={confirmId !== null}
+        title="Delete this checkpoint?"
+        message="This can't be undone. The saved session state will be permanently removed."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (confirmId) await handleDelete(confirmId);
+          setConfirmId(null);
+        }}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }

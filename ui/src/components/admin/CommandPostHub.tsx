@@ -91,6 +91,7 @@ function SectionHeader({ icon: Icon, title, count, action, help }: { icon: typeo
 // ═══════════════════════════════════════════════════════════════
 
 function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
+  const { toast } = useToast();
   const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
   const [companies, setCompanies] = useState<Array<{ id: string; name: string; mission?: string; status?: string }>>([]);
   const [showCreateCompany, setShowCreateCompany] = useState(false);
@@ -107,32 +108,42 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
-    await createCompany({ name: companyName.trim(), mission: companyMission.trim() || undefined });
-    setCompanyName('');
-    setCompanyMission('');
-    setShowCreateCompany(false);
-    loadData();
+    try {
+      await createCompany({ name: companyName.trim(), mission: companyMission.trim() || undefined });
+      setCompanyName('');
+      setCompanyMission('');
+      setShowCreateCompany(false);
+      toast('success', 'Company created.');
+      loadData();
+    } catch (e) {
+      toast('error', `Couldn't create company — try again. ${(e as Error).message}`);
+    }
   };
 
   const saveCompanyField = async (id: string, field: 'name' | 'mission', value: string) => {
     try {
       await updateCompany(id, { [field]: value });
       loadData();
-    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+    } catch (e) { toast('error', `Couldn't save company — try again. ${(e as Error).message}`); }
   };
 
   const performDeleteCompany = async () => {
     if (!confirmDeleteCompany) return;
-    await deleteCompany(confirmDeleteCompany.id);
-    setConfirmDeleteCompany(null);
-    loadData();
+    try {
+      await deleteCompany(confirmDeleteCompany.id);
+      setConfirmDeleteCompany(null);
+      toast('success', 'Company deleted.');
+      loadData();
+    } catch (e) {
+      toast('error', `Couldn't delete company — try again. ${(e as Error).message}`);
+    }
   };
 
   const saveAgentField = async (agentId: string, field: 'name' | 'role' | 'title' | 'reportsTo' | 'model', value: string) => {
     try {
       await updateCPAgent(agentId, { [field]: value || undefined });
       loadData();
-    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+    } catch (e) { toast('error', `Couldn't save agent — try again. ${(e as Error).message}`); }
   };
 
   const roles = ['ceo', 'manager', 'engineer', 'researcher', 'general'] as const;
@@ -285,6 +296,7 @@ function OrgChartTab({ agents }: { agents: RegisteredAgent[] }) {
 // ═══════════════════════════════════════════════════════════════
 
 function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
+  const { toast } = useToast();
   const [issues, setIssues] = useState<CPIssue[]>([]);
   const [filter, setFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -294,34 +306,54 @@ function IssuesTab({ agents }: { agents: RegisteredAgent[] }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    getCPIssues(filter ? { status: filter } : undefined).then(setIssues).catch(() => {});
-  }, [filter]);
+    getCPIssues(filter ? { status: filter } : undefined).then(setIssues).catch((e) => {
+      toast('error', `Couldn't load issues — try again. ${(e as Error).message}`);
+    });
+  }, [filter, toast]);
   useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
-    await createCPIssue({ title: newTitle, priority: newPriority });
-    setNewTitle('');
-    setShowCreate(false);
-    load();
+    try {
+      await createCPIssue({ title: newTitle, priority: newPriority });
+      setNewTitle('');
+      setShowCreate(false);
+      toast('success', 'Issue created.');
+      load();
+    } catch (e) {
+      toast('error', `Couldn't create issue — try again. ${(e as Error).message}`);
+    }
   };
 
   const handleStatusChange = async (id: string, status: string) => {
-    await updateCPIssue(id, { status: status as CPIssue['status'] });
-    load();
+    try {
+      await updateCPIssue(id, { status: status as CPIssue['status'] });
+      load();
+    } catch (e) {
+      toast('error', `Couldn't update issue status — try again. ${(e as Error).message}`);
+    }
   };
 
   const handleAssigneeChange = async (id: string, assigneeAgentId: string) => {
-    await updateCPIssue(id, { assigneeAgentId: assigneeAgentId || undefined });
-    load();
+    try {
+      await updateCPIssue(id, { assigneeAgentId: assigneeAgentId || undefined });
+      load();
+    } catch (e) {
+      toast('error', `Couldn't update assignee — try again. ${(e as Error).message}`);
+    }
   };
 
   const confirmDelete = async () => {
     if (!confirmDeleteId) return;
-    await deleteCPIssue(confirmDeleteId);
-    setConfirmDeleteId(null);
-    if (detailId === confirmDeleteId) setDetailId(null);
-    load();
+    try {
+      await deleteCPIssue(confirmDeleteId);
+      setConfirmDeleteId(null);
+      if (detailId === confirmDeleteId) setDetailId(null);
+      toast('success', 'Issue deleted.');
+      load();
+    } catch (e) {
+      toast('error', `Couldn't delete issue — try again. ${(e as Error).message}`);
+    }
   };
 
   const statuses = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked'];
@@ -431,6 +463,7 @@ function IssueDetailModal({
   onClose: () => void;
   onRequestDelete: () => void;
 }) {
+  const { toast } = useToast();
   const [issue, setIssue] = useState<(CPIssue & { comments: CPIssueComment[] }) | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [posting, setPosting] = useState(false);
@@ -439,24 +472,38 @@ function IssueDetailModal({
     try {
       const detail = await getCPIssueDetail(issueId);
       setIssue(detail);
-    } catch { /* ignore */ }
-  }, [issueId]);
+    } catch (e) {
+      toast('error', `Couldn't load issue details — try again. ${(e as Error).message}`);
+    }
+  }, [issueId, toast]);
 
   useEffect(() => { reload(); }, [reload]);
 
   const saveField = async (field: 'title' | 'description', value: string) => {
-    await updateCPIssue(issueId, { [field]: value });
-    reload();
+    try {
+      await updateCPIssue(issueId, { [field]: value });
+      reload();
+    } catch (e) {
+      toast('error', `Couldn't save issue — try again. ${(e as Error).message}`);
+    }
   };
 
   const savePriority = async (priority: string) => {
-    await updateCPIssue(issueId, { priority: priority as CPIssue['priority'] });
-    reload();
+    try {
+      await updateCPIssue(issueId, { priority: priority as CPIssue['priority'] });
+      reload();
+    } catch (e) {
+      toast('error', `Couldn't update priority — try again. ${(e as Error).message}`);
+    }
   };
 
   const saveAssignee = async (assigneeAgentId: string) => {
-    await updateCPIssue(issueId, { assigneeAgentId: assigneeAgentId || undefined });
-    reload();
+    try {
+      await updateCPIssue(issueId, { assigneeAgentId: assigneeAgentId || undefined });
+      reload();
+    } catch (e) {
+      toast('error', `Couldn't update assignee — try again. ${(e as Error).message}`);
+    }
   };
 
   const postComment = async () => {
@@ -466,6 +513,8 @@ function IssueDetailModal({
       await addCPIssueComment(issueId, commentDraft.trim(), { user: 'board' });
       setCommentDraft('');
       reload();
+    } catch (e) {
+      toast('error', `Couldn't post comment — try again. ${(e as Error).message}`);
     } finally {
       setPosting(false);
     }
@@ -604,6 +653,7 @@ function IssueDetailModal({
 // ═══════════════════════════════════════════════════════════════
 
 function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSaved: () => void }) {
+  const { toast } = useToast();
   const [voiceId, setVoiceId] = useState(agent.voiceId || '');
   const [personaId, setPersonaId] = useState(agent.personaId || '');
   const [systemPromptOverride, setSystemPromptOverride] = useState(agent.systemPromptOverride || '');
@@ -631,9 +681,10 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
           model: model || null,
         }),
       });
+      toast('success', 'Agent identity saved.');
       onSaved();
     } catch (e) {
-      alert(`Save failed: ${(e as Error).message}`);
+      toast('error', `Couldn't save agent identity — try again. ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -719,15 +770,21 @@ function AgentIdentityEditor({ agent, onSaved }: { agent: RegisteredAgent; onSav
 }
 
 function CostsTab({ budgets, onRefresh }: { budgets: BudgetPolicy[]; onRefresh: () => void }) {
+  const { toast } = useToast();
   const [editing, setEditing] = useState<BudgetPolicy | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<BudgetPolicy | null>(null);
 
   const performDelete = async () => {
     if (!confirmDelete) return;
-    await deleteCPBudget(confirmDelete.id);
-    setConfirmDelete(null);
-    onRefresh();
+    try {
+      await deleteCPBudget(confirmDelete.id);
+      setConfirmDelete(null);
+      toast('success', 'Budget deleted.');
+      onRefresh();
+    } catch (e) {
+      toast('error', `Couldn't delete budget — try again. ${(e as Error).message}`);
+    }
   };
 
   return (
@@ -820,6 +877,7 @@ function BudgetFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { toast } = useToast();
   const isEdit = !!existing;
   const [name, setName] = useState(existing?.name || '');
   const [scopeType, setScopeType] = useState<'global' | 'agent' | 'goal'>((existing?.scope.type as 'global' | 'agent' | 'goal') || 'global');
@@ -849,9 +907,10 @@ function BudgetFormModal({
       } else {
         await createCPBudget(payload);
       }
+      toast('success', isEdit ? 'Budget updated.' : 'Budget created.');
       onSaved();
     } catch (e) {
-      alert(`Save failed: ${(e as Error).message}`);
+      toast('error', `Couldn't save budget — try again. ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -1049,6 +1108,7 @@ interface DebateTranscript extends DebateSummary {
 }
 
 function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { toast } = useToast();
   const [question, setQuestion] = useState('');
   const [participants, setParticipants] = useState([
     { role: 'pragmatist', model: '' },
@@ -1088,9 +1148,10 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      toast('success', 'Debate finished — transcript saved.');
       onCreated();
     } catch (e) {
-      alert(`Debate failed: ${(e as Error).message}`);
+      toast('error', `Debate failed — try again. ${(e as Error).message}`);
     } finally {
       setSubmitting(false);
     }
@@ -1194,6 +1255,7 @@ function NewDebateForm({ onClose, onCreated }: { onClose: () => void; onCreated:
 }
 
 function ApprovalsTab() {
+  const { toast } = useToast();
   const [approvals, setApprovals] = useState<CPApproval[]>([]);
   const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [loading, setLoading] = useState(false);
@@ -1203,19 +1265,31 @@ function ApprovalsTab() {
     try {
       const data = await getCPApprovals(filter === 'all' ? undefined : filter);
       setApprovals(data);
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't load approvals — try again. ${(e as Error).message}`);
+    }
     setLoading(false);
-  }, [filter]);
+  }, [filter, toast]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleApprove = async (id: string) => {
-    try { await approveCPApproval(id, 'board'); } catch { /* ignore */ }
+    try {
+      await approveCPApproval(id, 'board');
+      toast('success', 'Approved.');
+    } catch (e) {
+      toast('error', `Couldn't approve — try again. ${(e as Error).message}`);
+    }
     load();
   };
 
   const handleReject = async (id: string) => {
-    try { await rejectCPApproval(id, 'board'); } catch { /* ignore */ }
+    try {
+      await rejectCPApproval(id, 'board');
+      toast('success', 'Rejected.');
+    } catch (e) {
+      toast('error', `Couldn't reject — try again. ${(e as Error).message}`);
+    }
     load();
   };
 
@@ -1275,6 +1349,7 @@ function ApprovalsTab() {
 }
 
 function DebatesTab() {
+  const { toast } = useToast();
   const [debates, setDebates] = useState<DebateSummary[]>([]);
   const [selected, setSelected] = useState<DebateTranscript | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1288,9 +1363,11 @@ function DebatesTab() {
         const r = await res.json() as { items: DebateSummary[] };
         setDebates(r?.items || []);
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't load debates — try again. ${(e as Error).message}`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
   useEffect(() => { load(); }, [load]);
 
   const open = async (id: string) => {
@@ -1300,7 +1377,9 @@ function DebatesTab() {
         const t = await res.json() as DebateTranscript;
         setSelected(t);
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't open debate transcript — try again. ${(e as Error).message}`);
+    }
   };
 
   if (selected) {

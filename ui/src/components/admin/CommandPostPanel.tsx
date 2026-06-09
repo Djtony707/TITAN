@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Shield, Users, Lock, DollarSign, Activity, ChevronRight, ChevronDown, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { getCommandPostDashboard, getCPBudgets, createCPBudget, deleteCPBudget } from '@/api/client';
 import { authHeaders } from '@/api/client';
+import { useToast } from '@/components/shared/Toast';
 import type { CommandPostDashboard, RegisteredAgent, TaskCheckout, BudgetPolicy, CPActivityEntry, GoalTreeNode } from '@/api/types';
 
 // ─── Status dot helper ────────────────────────────────────────
@@ -153,6 +154,7 @@ function timeSince(iso: string): string {
 // ─── New Budget Form ──────────────────────────────────────────
 
 function NewBudgetForm({ onCreated }: { onCreated: () => void }) {
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [scopeType, setScopeType] = useState<'global' | 'agent' | 'goal'>('global');
@@ -171,8 +173,11 @@ function NewBudgetForm({ onCreated }: { onCreated: () => void }) {
         warningThresholdPercent: 80, action: 'pause', enabled: true,
       });
       setName(''); setTargetId(''); setLimit('10'); setOpen(false);
+      toast('success', 'Budget policy created.');
       onCreated();
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't create budget policy — try again. ${(err as Error).message}`);
+    }
     setSaving(false);
   };
 
@@ -214,6 +219,7 @@ function NewBudgetForm({ onCreated }: { onCreated: () => void }) {
 // ─── Main Panel ───────────────────────────────────────────────
 
 function CommandPostPanel() {
+  const { toast } = useToast();
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -263,7 +269,13 @@ function CommandPostPanel() {
   }, [liveActivity]);
 
   const handleDeleteBudget = async (id: string) => {
-    try { await deleteCPBudget(id); refresh(); } catch { /* ignore */ }
+    try {
+      await deleteCPBudget(id);
+      toast('success', 'Budget policy deleted.');
+      refresh();
+    } catch (err) {
+      toast('error', `Couldn't delete budget policy — try again. ${(err as Error).message}`);
+    }
   };
 
   if (loading) return <div className="text-[var(--text-muted)]">Loading Command Post...</div>;

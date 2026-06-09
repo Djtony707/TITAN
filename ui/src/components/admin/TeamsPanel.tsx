@@ -3,28 +3,36 @@ import { Users, Trash2, RefreshCw } from 'lucide-react';
 import { getTeams, deleteTeam } from '@/api/client';
 import type { Team } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export default function TeamsPanel() {
+  const { toast } = useToast();
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getTeams();
       setTeams(data.teams || []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't load teams — try again. (${(e as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this team?')) return;
     try {
       await deleteTeam(id);
+      toast('success', 'Team deleted');
       await refresh();
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't delete team — try again. (${(e as Error).message})`);
+    }
   };
 
   return (
@@ -45,12 +53,24 @@ export default function TeamsPanel() {
                 <div className="text-xs text-[#52525b]">{t.members.length} members • {t.description}</div>
               </div>
             </div>
-            <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
+            <button onClick={() => setDeleteId(t.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="Delete team?"
+        message="This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (deleteId) await handleDelete(deleteId);
+          setDeleteId(null);
+        }}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }

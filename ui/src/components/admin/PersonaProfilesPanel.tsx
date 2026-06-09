@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, User, Clock, Pause, Volume2, Lock, Check } from 'lucide-react';
 import { getPersonaProfiles, getActivePersona, type PersonaProfile, type ActivePersona } from '@/api/client';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 /**
  * Persona Profiles panel — surfaces the v5.5.24 resolver state.
@@ -15,6 +16,7 @@ import { PageHeader } from '@/components/shared/PageHeader';
  * No mutation here — persona definitions are config-managed for v1.
  */
 export default function PersonaProfilesPanel() {
+  const { toast } = useToast();
   const [list, setList] = useState<{ enabled: boolean; defaultPersona: string | null; channelPins: Record<string, string>; profiles: PersonaProfile[] } | null>(null);
   const [active, setActive] = useState<ActivePersona | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,9 +27,11 @@ export default function PersonaProfilesPanel() {
       const [l, a] = await Promise.all([getPersonaProfiles(), getActivePersona()]);
       setList(l);
       setActive(a);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load persona profiles — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

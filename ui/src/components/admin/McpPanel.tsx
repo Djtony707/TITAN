@@ -3,14 +3,18 @@ import { Plug, Plus, Trash2, Power, TestTube, RefreshCw, Server, Globe } from 'l
 import { getMcpClients, addMcpClient, removeMcpClient, toggleMcpClient, testMcpClient, getMcpPresets } from '@/api/client';
 import type { McpServerInfo, McpPreset } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 function McpPanel() {
+  const { toast } = useToast();
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [presets, setPresets] = useState<McpPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; ok: boolean; tools: number; error?: string } | null>(null);
+  const [removeId, setRemoveId] = useState<string | null>(null);
 
   // Add form state
   const [newServer, setNewServer] = useState({
@@ -24,7 +28,9 @@ function McpPanel() {
       const [s, p] = await Promise.all([getMcpClients(), getMcpPresets()]);
       setServers(s);
       setPresets(p);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load MCP servers — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
   };
 
@@ -44,8 +50,9 @@ function McpPanel() {
       setShowAdd(false);
       setNewServer({ id: '', name: '', description: '', type: 'stdio', command: '', args: '', url: '' });
       refresh();
+      toast('success', 'MCP server added.');
     } catch (err) {
-      alert((err as Error).message);
+      toast('error', `Couldn't add MCP server — ${(err as Error).message}`);
     }
   };
 
@@ -53,20 +60,30 @@ function McpPanel() {
     try {
       await addMcpClient({ presetId });
       refresh();
+      toast('success', 'MCP server added.');
     } catch (err) {
-      alert((err as Error).message);
+      toast('error', `Couldn't add MCP server — ${(err as Error).message}`);
     }
   };
 
   const handleRemove = async (id: string) => {
-    if (!confirm(`Remove MCP server "${id}"?`)) return;
-    await removeMcpClient(id);
-    refresh();
+    try {
+      await removeMcpClient(id);
+      refresh();
+      toast('success', 'MCP server removed.');
+    } catch (err) {
+      toast('error', `Couldn't remove MCP server — try again. (${(err as Error).message})`);
+    }
   };
 
   const handleToggle = async (id: string, enabled: boolean) => {
-    await toggleMcpClient(id, enabled);
-    refresh();
+    try {
+      await toggleMcpClient(id, enabled);
+      refresh();
+      toast('success', enabled ? 'MCP server enabled.' : 'MCP server disabled.');
+    } catch (err) {
+      toast('error', `Couldn't update MCP server — try again. (${(err as Error).message})`);
+    }
   };
 
   const handleTest = async (id: string) => {
@@ -262,7 +279,7 @@ function McpPanel() {
                     className={`p-1.5 rounded-md transition-colors hover:bg-[var(--bg-tertiary)] ${server.enabled ? 'text-[var(--success)]' : 'text-[var(--text-muted)]'}`}>
                     <Power size={14} />
                   </button>
-                  <button onClick={() => handleRemove(server.id)}
+                  <button onClick={() => setRemoveId(server.id)}
                     title="Remove"
                     className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--bg-tertiary)] transition-colors">
                     <Trash2 size={14} />
@@ -289,6 +306,19 @@ function McpPanel() {
           Add any MCP-compatible server and its tools automatically become available in TITAN.
         </p>
       </div>
+
+      <ConfirmDialog
+        open={removeId !== null}
+        title="Remove MCP server?"
+        message={`This removes "${removeId}" and its tools from TITAN. This can't be undone.`}
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          const id = removeId;
+          setRemoveId(null);
+          if (id) await handleRemove(id);
+        }}
+        onCancel={() => setRemoveId(null)}
+      />
     </div>
   );
 }

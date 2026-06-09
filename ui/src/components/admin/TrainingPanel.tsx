@@ -3,8 +3,10 @@ import { Brain, Activity, Download, RefreshCw } from 'lucide-react';
 import { getTrainingStats, getTrainingRuns } from '@/api/client';
 import type { TrainingStats, TrainingRun } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function TrainingPanel() {
+  const { toast } = useToast();
   const [stats, setStats] = useState<TrainingStats | null>(null);
   const [runs, setRuns] = useState<TrainingRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,9 +17,11 @@ export default function TrainingPanel() {
       const [s, r] = await Promise.all([getTrainingStats(), getTrainingRuns()]);
       setStats(s);
       setRuns(r.runs || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load training data — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

@@ -8,7 +8,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Plus, X, CheckCircle2, XCircle, Circle, Clock } from 'lucide-react';
 import { apiFetch } from '@/api/client';
-import { PageHeader } from '@/components/shared';
+import { PageHeader, ConfirmDialog } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 
 async function getJSON(url: string): Promise<unknown> {
     const r = await apiFetch(url);
@@ -139,25 +140,36 @@ function CreateForm({ onCreated, onClose }: { onCreated: () => void; onClose: ()
 }
 
 export default function CPMissions() {
+    const { toast } = useToast();
     const [missions, setMissions] = useState<Mission[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreate, setShowCreate] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
+    const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         setLoading(true);
         try {
             const d = await getJSON('/api/missions') as { missions: Mission[] };
             setMissions(d.missions || []);
-        } catch { /* ok */ }
+        } catch (e) {
+            toast('error', `Couldn't load missions — try again. ${(e as Error).message}`);
+        }
         setLoading(false);
-    }, []);
+    }, [toast]);
 
     useEffect(() => { refresh(); }, [refresh]);
 
-    const cancel = async (id: string) => {
-        if (!confirm('Cancel this mission?')) return;
-        try { await postJSON(`/api/missions/${id}/cancel`, {}); } catch { /* ok */ }
+    const performCancel = async () => {
+        if (!confirmCancelId) return;
+        const id = confirmCancelId;
+        setConfirmCancelId(null);
+        try {
+            await postJSON(`/api/missions/${id}/cancel`, {});
+            toast('success', 'Mission cancelled.');
+        } catch (e) {
+            toast('error', `Couldn't cancel mission — try again. ${(e as Error).message}`);
+        }
         refresh();
     };
 
@@ -242,7 +254,7 @@ export default function CPMissions() {
                                         {!['done', 'failed', 'cancelled'].includes(m.phase) && (
                                             <div className="mt-3 flex justify-end">
                                                 <button
-                                                    onClick={() => cancel(m.missionId)}
+                                                    onClick={() => setConfirmCancelId(m.missionId)}
                                                     className="px-2 py-1 rounded border border-error/40 text-error hover:bg-error/10 text-xs"
                                                 >
                                                     Cancel mission
@@ -258,6 +270,16 @@ export default function CPMissions() {
             )}
 
             {showCreate && <CreateForm onCreated={refresh} onClose={() => setShowCreate(false)} />}
+
+            <ConfirmDialog
+                open={!!confirmCancelId}
+                title="Cancel this mission?"
+                message="The mission and its child goals stop running. This can't be undone."
+                confirmLabel="Cancel mission"
+                cancelLabel="Keep running"
+                onConfirm={performCancel}
+                onCancel={() => setConfirmCancelId(null)}
+            />
         </div>
     );
 }

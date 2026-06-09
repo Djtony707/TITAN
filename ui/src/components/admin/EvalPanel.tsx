@@ -3,8 +3,10 @@ import { TestTube, Play, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-re
 import { getTestHealthSummary, getFailingTests, getFlakyTests, runTests } from '@/api/client';
 import type { FailingTest, FlakyTest } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function EvalPanel() {
+  const { toast } = useToast();
   const [summary, setSummary] = useState<{ total: number; passing: number; failing: number; flaky: number; coverage?: number } | null>(null);
   const [failing, setFailing] = useState<FailingTest[]>([]);
   const [flaky, setFlaky] = useState<FlakyTest[]>([]);
@@ -18,15 +20,23 @@ export default function EvalPanel() {
       setSummary(s);
       setFailing(f.tests || []);
       setFlaky(fl.tests || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load test health — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleRun = async () => {
     setRunning(true);
-    try { await runTests(); await refresh(); } catch { /* ignore */ }
+    try {
+      await runTests();
+      await refresh();
+      toast('success', 'Test run started.');
+    } catch (err) {
+      toast('error', `Couldn't run tests — try again. (${(err as Error).message})`);
+    }
     setRunning(false);
   };
 

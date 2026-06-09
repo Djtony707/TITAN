@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { GitPullRequest, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 interface SpecialistVerdict {
   specialistId: 'scout' | 'builder' | 'writer' | 'analyst';
@@ -49,12 +51,14 @@ const STATUS_META: Record<SelfProposal['status'], { label: string; color: string
 };
 
 export default function SelfProposalsPanel() {
+  const { toast } = useToast();
   const [proposals, setProposals] = useState<SelfProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [disabled, setDisabled] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actioning, setActioning] = useState<string | null>(null);
   const [fileContents, setFileContents] = useState<Record<string, Record<string, string>>>({});
+  const [dismissId, setDismissId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -96,7 +100,10 @@ export default function SelfProposalsPanel() {
     setActioning(id);
     try {
       await apiFetch(`/api/self-proposals/${id}/review`, { method: 'POST' });
+      toast('success', 'Specialist review started.');
       await load();
+    } catch (err) {
+      toast('error', `Couldn't run specialist review — try again. ${(err as Error).message}`);
     } finally { setActioning(null); }
   };
 
@@ -106,18 +113,20 @@ export default function SelfProposalsPanel() {
       const r = await apiFetch(`/api/self-proposals/${id}/open-pr`, { method: 'POST' });
       const result = await r.json();
       if (result.prUrl) {
+        toast('success', 'GitHub PR opened.');
         window.open(result.prUrl, '_blank');
       } else if (result.errorMessage) {
-        alert('PR creation failed: ' + result.errorMessage);
+        toast('error', `PR creation failed — ${result.errorMessage}`);
       } else if (result.bundlePath) {
-        alert('No git checkout — bundle exported to:\n' + result.bundlePath);
+        toast('info', `No git checkout — bundle exported to: ${result.bundlePath}`);
       }
       await load();
+    } catch (err) {
+      toast('error', `Couldn't open the PR — try again. ${(err as Error).message}`);
     } finally { setActioning(null); }
   };
 
   const dismiss = async (id: string) => {
-    if (!window.confirm('Dismiss this self-proposal? This marks it rejected and prevents PR creation.')) return;
     setActioning(id);
     try {
       await apiFetch(`/api/self-proposals/${id}/dismiss`, {
@@ -125,7 +134,10 @@ export default function SelfProposalsPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'dismissed by user from UI' }),
       });
+      toast('success', 'Self-proposal dismissed.');
       await load();
+    } catch (err) {
+      toast('error', `Couldn't dismiss the proposal — try again. ${(err as Error).message}`);
     } finally { setActioning(null); }
   };
 
@@ -291,7 +303,7 @@ export default function SelfProposalsPanel() {
                       )}
                       {(p.status === 'captured' || p.status === 'review_pending' || p.status === 'approved') && (
                         <button
-                          onClick={() => dismiss(p.id)}
+                          onClick={() => setDismissId(p.id)}
                           disabled={actioning === p.id}
                           className="px-3 py-1.5 text-xs bg-[var(--bg-tertiary)] hover:bg-rose-600 hover:text-white disabled:opacity-50 text-[var(--text-muted)] rounded border border-[var(--border)]"
                         >
@@ -306,6 +318,19 @@ export default function SelfProposalsPanel() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={dismissId !== null}
+        title="Dismiss this self-proposal?"
+        message="This marks it rejected and prevents PR creation. The captured files stay for the record."
+        confirmLabel="Dismiss"
+        onConfirm={async () => {
+          const id = dismissId;
+          setDismissId(null);
+          if (id) await dismiss(id);
+        }}
+        onCancel={() => setDismissId(null)}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
 import { getTraces, getTraceDetail } from '@/api/client';
 import type { Trace, TraceStats } from '@/api/types';
 import HermesErrorPanel from './HermesErrorPanel';
+import { useToast } from '@/components/shared/Toast';
 
 function timeSince(dateStr: string): string {
   const s = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -16,6 +17,7 @@ function timeSince(dateStr: string): string {
 }
 
 export default function TraceViewer() {
+  const { toast } = useToast();
   const [traces, setTraces] = useState<Trace[]>([]);
   const [stats, setStats] = useState<TraceStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +30,14 @@ export default function TraceViewer() {
       const data = await getTraces(100);
       setTraces(data.traces || []);
       setStats(data.stats || null);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Surface only the initial load failure; the 10s background refresh
+      // stays silent so a transient blip doesn't spam toasts.
+      setLoading(prev => {
+        if (prev) toast('error', `Couldn't load traces — try again. ${(e as Error).message}`);
+        return prev;
+      });
+    }
     setLoading(false);
   };
 

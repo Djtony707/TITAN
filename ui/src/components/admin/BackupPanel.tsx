@@ -3,8 +3,10 @@ import { Archive, CheckCircle, AlertCircle, RefreshCw, Plus } from 'lucide-react
 import { listBackups, createBackup, verifyBackup } from '@/api/client';
 import type { BackupInfo } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function BackupPanel() {
+  const { toast } = useToast();
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -15,9 +17,11 @@ export default function BackupPanel() {
     try {
       const data = await listBackups();
       setBackups(data.backups || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load backups — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -26,7 +30,10 @@ export default function BackupPanel() {
     try {
       await createBackup();
       await refresh();
-    } catch { /* ignore */ }
+      toast('success', 'Backup created.');
+    } catch (err) {
+      toast('error', `Couldn't create backup — try again. (${(err as Error).message})`);
+    }
     setCreating(false);
   };
 
@@ -34,9 +41,9 @@ export default function BackupPanel() {
     setVerifying(path);
     try {
       await verifyBackup(path);
-      alert('Backup verified successfully');
-    } catch {
-      alert('Backup verification failed');
+      toast('success', 'Backup verified successfully.');
+    } catch (err) {
+      toast('error', `Backup verification failed. (${(err as Error).message})`);
     }
     setVerifying(null);
   };

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Network, Trash2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Search, X } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 interface GraphNode {
   id: string;
@@ -290,9 +292,11 @@ function drawArrowhead(ctx: CanvasRenderingContext2D, bx: number, by: number, cx
 }
 
 function MemoryGraphPanel() {
+  const { toast } = useToast();
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoverNode, setHoverNode] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -385,12 +389,14 @@ function MemoryGraphPanel() {
   }, [searchQuery, data]);
 
   const handleClear = async () => {
-    if (!confirm('Clear the entire memory graph? This cannot be undone.')) return;
     try {
       await apiFetch('/api/graphiti', { method: 'DELETE' });
+      toast('success', 'Memory graph cleared.');
       fetchData();
       setSelectedNode(null);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't clear the memory graph — try again. ${(err as Error).message}`);
+    }
   };
 
   const handleZoom = (delta: number) => {
@@ -837,7 +843,7 @@ function MemoryGraphPanel() {
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
           <button
-            onClick={handleClear}
+            onClick={() => setClearOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-bg-tertiary px-3 py-1.5 text-xs text-error hover:bg-error/10 transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" /> Clear
@@ -1007,6 +1013,18 @@ function MemoryGraphPanel() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={clearOpen}
+        title="Clear the entire memory graph?"
+        message="This permanently deletes every entity, relationship, and episode. This cannot be undone."
+        confirmLabel="Clear graph"
+        onConfirm={async () => {
+          setClearOpen(false);
+          await handleClear();
+        }}
+        onCancel={() => setClearOpen(false)}
+      />
     </div>
   );
 }
