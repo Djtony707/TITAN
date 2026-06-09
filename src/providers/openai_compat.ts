@@ -51,6 +51,22 @@ function applyCompatToolControls(body: Record<string, unknown>, model: string, o
     }
 }
 
+/**
+ * Parse the model's REAL token ceiling out of a "max_tokens too large" 400.
+ * Deployments cap a model below our static table (e.g. a vLLM behind LiteLLM with
+ * max_total_tokens=12288), so a static maxOutput can't be trusted — we adapt to
+ * what the deployment actually allows. Returns null if it's not that error.
+ * Examples handled:
+ *   vLLM:  "max_tokens=32768 cannot be greater than max_model_len=max_total_tokens=12288"
+ *   OpenAI:"maximum context length is 8192 tokens"
+ */
+export function parseMaxTokenLimit(errText: string): number | null {
+    const m = errText.match(/max_model_len=(?:max_total_tokens=)?(\d+)|max_total_tokens=(\d+)|maximum context length is (\d+)/i);
+    if (!m) return null;
+    const n = Number(m[1] || m[2] || m[3]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Configuration for an OpenAI-compatible provider */
 export interface OpenAICompatConfig {
     /** Internal provider name (e.g. 'groq') */
@@ -169,11 +185,28 @@ export class OpenAICompatProvider extends LLMProvider {
             ...(this.config.extraHeaders || {}),
         };
 
-        const response = await fetchWithRetry(`${this.baseUrl}/chat/completions`, {
+        const doFetch = () => fetchWithRetry(`${this.baseUrl}/chat/completions`, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
         });
+        let response = await doFetch();
+
+        // Adaptive max_tokens (model-agnostic): if the deployment caps this model
+        // below the max_tokens we requested, it 400s with the real limit. Reduce
+        // and retry ONCE so a too-high static ceiling never hard-fails a model.
+        if (!response.ok && response.status === 400 && typeof body.max_tokens === 'number') {
+            const errText = await response.text();
+            const limit = parseMaxTokenLimit(errText);
+            if (limit && (body.max_tokens as number) > limit) {
+                body.max_tokens = Math.max(512, Math.min(Math.floor(limit / 3), 4096)); // leave room for input
+                logger.warn(this.name, `[AdaptiveMaxTokens] ${model} deployment caps total tokens at ${limit}; retrying with max_tokens=${body.max_tokens}`);
+                response = await doFetch();
+            } else {
+                const { createProviderError } = await import('./errorTaxonomy.js');
+                throw createProviderError(`${this.displayName} API`, response, errText, { provider: this.name, model });
+            }
+        }
 
         if (!response.ok) {
             const errorText = await response.text();
