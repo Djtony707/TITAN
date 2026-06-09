@@ -179,6 +179,58 @@
     --theme-menu-overlay:   rgba(0, 0, 0, 0.78);
 }
 
+/* ─────────────  STUDIO — clean neutral dark (Linear/Vercel-calm, accessible)  ─────────────
+   v7.0 — a professional, low-chrome default. Neutral graphite canvas, calm
+   blue accent, no decorative grain. Respects the dark-canvas structural
+   assumption all surfaces share (light ink, light paper-fg). Every critical
+   pair is verified ≥ WCAG AA by tests/theme-contrast.test.ts. */
+:root[data-theme='studio'] {
+    --theme-bg-base:       #15171c;
+    --theme-bg-grain:      #101216;
+    --theme-bg-vignette:   rgba(0, 0, 0, 0.5);
+
+    --theme-paper:         #1e2128;          /* elevated panel */
+    --theme-paper-fg:      #e7e9ee;          /* light text on canvas (dark-canvas convention) */
+    --theme-paper-line:    rgba(255, 255, 255, 0.10);
+
+    --theme-ink:           #f2f4f8;          /* primary text */
+    --theme-ink-soft:      #aab2c0;          /* muted text — ≥3:1 on bg-base */
+
+    --theme-metal:         #6b7585;          /* neutral graphite */
+    --theme-metal-bright:  #aab4c4;
+    --theme-metal-dark:    #3a414c;
+    --theme-bolt:          #0a0c10;
+
+    --theme-leather:       #232730;
+    --theme-leather-edge:  #14171c;
+    --theme-leather-stitch:#5b9dff;
+    --theme-leather-tag:   #2c313b;
+
+    --theme-accent:        #5b9dff;          /* calm professional blue */
+    --theme-shadow:        rgba(0, 0, 0, 0.55);
+
+    --theme-sticky-yellow: #d9c98a;
+    --theme-sticky-pink:   #cf9bb0;
+    --theme-sticky-tape:   rgba(180, 190, 205, 0.4);
+
+    --theme-gauge-face:    #1e2128;
+    --theme-gauge-ring:    #6b7585;
+    --theme-gauge-needle:  #5b9dff;
+
+    --theme-font-display: 'Inter', system-ui, -apple-system, sans-serif;
+    --theme-font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+
+    /* Derived menu / overlay tokens. Active item = dark text on the blue fill
+       (≥4.5:1), matching the other themes' active-fg-is-dark pattern. */
+    --theme-menu-bg:        rgba(24, 27, 33, 0.97);
+    --theme-menu-bg-solid:  #1e2128;
+    --theme-menu-border:    #3a414c;
+    --theme-menu-hover:     rgba(91, 157, 255, 0.12);
+    --theme-menu-active-bg: #5b9dff;
+    --theme-menu-active-fg: #0a1020;
+    --theme-menu-overlay:   rgba(0, 0, 0, 0.65);
+}
+
 /* ─────────────  Beta.4 Wave 9 — shared menu / overlay primitives  ─────────────
    These animations + classes provide a single source of truth for menus,
    dropdowns, popovers, modals and toasts. Components reference them so the

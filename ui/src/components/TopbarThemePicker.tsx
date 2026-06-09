@@ -27,6 +27,7 @@ interface Props {
 }
 
 const OPTIONS: { value: ThemeName; label: string }[] = [
+    { value: 'studio',       label: 'Studio' },
     { value: 'office',       label: 'Office' },
     { value: 'workshop',     label: 'Workshop' },
     { value: 'observatory',  label: 'Observatory' },

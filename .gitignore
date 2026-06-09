@@ -129,3 +129,6 @@ docs/internal/
 
 # Local-only knowledge graph (understand-anything plugin output) — never committed
 .understand-anything/
+
+# v7.0 — local strategy/plan docs (competitor names — never ship)
+docs/*-plan.md
