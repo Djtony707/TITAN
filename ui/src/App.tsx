@@ -49,6 +49,7 @@ const TrainingPanel = lazy(() => import('@/components/admin/TrainingPanel'));
 const EvalHarnessPanel = lazy(() => import('@/components/admin/EvalHarnessPanel'));
 const TracesPanel = lazy(() => import('@/components/admin/TracesPanel'));
 const WorkflowBuilderPanel = lazy(() => import('@/components/admin/WorkflowBuilderPanel'));
+const LiveStudio = lazy(() => import('@/views/LiveStudio'));
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -137,6 +138,8 @@ function AuthenticatedAppInner() {
             <Route path="/missions/library" element={<MissionLibrary />} />
             <Route path="/missions/goals" element={<CommandPostRoute title="Goals"><CPGoals /></CommandPostRoute>} />
             <Route path="/missions/workflow-builder" element={<WorkflowBuilderPanel />} />
+            <Route path="/studio" element={<LiveStudio />} />
+            <Route path="/studio/:sessionId" element={<LiveStudio />} />
             <Route path="/missions/issues" element={<CommandPostRoute title="Issues"><CPIssues /></CommandPostRoute>} />
             <Route path="/missions/approvals" element={<CommandPostRoute title="Approvals"><CPApprovals /></CommandPostRoute>} />
             <Route path="/missions/activity" element={<CommandPostRoute title="Activity"><CPActivity /></CommandPostRoute>} />
