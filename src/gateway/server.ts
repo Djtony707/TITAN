@@ -1796,13 +1796,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       try {
         const { spawnSubAgent } = await import('../agent/subAgent.js');
         const decomposePrompt = [
-          `Decompose this autonomous mission into 3-6 concrete, independently-runnable subtasks.`,
+          `Decompose this autonomous mission into 3-6 concrete subtasks.`,
           ``,
           `Mission: ${description}`,
           ``,
-          `Return STRICT JSON: { "subtasks": [ { "title": "...", "description": "..." }, ... ] }.`,
+          `Return STRICT JSON: { "subtasks": [ { "title": "...", "description": "...", "dependsOn": [<1-based positions of prerequisite subtasks>] }, ... ] }.`,
+          `Use dependsOn to express real ordering: if a subtask needs an earlier subtask's output, list that earlier subtask's 1-based position. Independent subtasks use [].`,
+          `Example: if subtask 3 needs subtasks 1 and 2 done first -> "dependsOn": [1, 2]. Only reference EARLIER positions; never a later one or itself.`,
           `Each title <= 60 chars, each description <= 200 chars.`,
-          `Order subtasks dependency-aware (later ones may reference earlier output).`,
           `Do NOT add a verification subtask — the driver verifies automatically.`,
           `Do NOT wrap in markdown — pure JSON.`,
         ].join('\n');
@@ -1812,18 +1813,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           tier: 'fast',
           maxRounds: 1,
         });
-        const raw = (result.content || '').trim();
-        const jsonStart = raw.indexOf('{');
-        const jsonEnd = raw.lastIndexOf('}');
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-          const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as { subtasks?: Array<{ title?: string; description?: string }> };
-          if (Array.isArray(parsed.subtasks) && parsed.subtasks.length >= 1) {
-            subtasks = parsed.subtasks
-              .filter(s => typeof s?.title === 'string' && typeof s?.description === 'string')
-              .slice(0, 6)
-              .map(s => ({ title: String(s.title).slice(0, 80), description: String(s.description).slice(0, 280) }));
-          }
-        }
+        const { parseMissionSubtasks } = await import('../agent/missionDecompose.js');
+        subtasks = parseMissionSubtasks(result.content || '');
       } catch (err) {
         logger.warn(COMPONENT, `Mission decomposition failed, creating goal with no subtasks: ${(err as Error).message}`);
       }
