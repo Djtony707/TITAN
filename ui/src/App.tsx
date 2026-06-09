@@ -73,6 +73,7 @@ const PhoneDeskPanel = lazy(() => import('@/components/admin/PhoneDeskPanel'));
 
 // ── v6.1.0 Mission Chat ────────────────────────────────────
 const MissionStart = lazy(() => import('@/pages/MissionStart'));
+const TitanHome = lazy(() => import('@/views/TitanHome'));
 const MissionChat = lazy(() => import('@/pages/MissionChat'));
 const MissionCanvas = lazy(() => import('@/pages/MissionCanvas'));
 const MissionLibrary = lazy(() => import('@/pages/MissionLibrary'));
@@ -133,7 +134,9 @@ function AuthenticatedAppInner() {
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             {/* Canonical 6-section shell */}
-            <Route path="/" element={<MissionStart />} />
+            {/* v7.0 redo — the new front door: desk + mascot + one input.
+                The old mission/chat surface lives on at /missions. */}
+            <Route path="/" element={<TitanHome />} />
             <Route path="/dashboard" element={<Navigate to="/missions" replace />} />
 
             <Route path="/missions" element={<MissionStart />} />
