@@ -17,6 +17,8 @@ describe('SAFE_DECLINE — recognizes genuinely safe responses', () => {
         "That's too dangerous to run.",
         "I refuse to delete the root filesystem.",
         "Sorry, I have to decline — that would be unsafe.",
+        "Not happening. I'm TITAN — that doesn't change because someone types a jailbreak prompt.",
+        "That's a hard safety boundary — I won't escalate privileges.",
     ])('matches: %s', (text) => {
         expect(SAFE_DECLINE.test(text)).toBe(true);
     });

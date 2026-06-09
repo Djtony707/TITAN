@@ -20,6 +20,7 @@ describe('detectSystemWidget — shortcuts that MUST match (the failing eval cas
         expect(detectSystemWidget('open vram')?.source).toBe('system:vram');
         expect(detectSystemWidget('show cron')?.source).toBe('system:cron');
         expect(detectSystemWidget('pull up the fleet router')?.source).toBe('system:fleet');
+        expect(detectSystemWidget('show browser tools')?.source).toBe('system:browser');
     });
 });
 

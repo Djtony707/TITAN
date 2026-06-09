@@ -48,7 +48,7 @@ export const SYSTEM_WIDGET_PATTERNS: Array<{ pattern: RegExp; source: string; na
     { pattern: /\b(?:checkpoints?|restores?|save\s+state)\b/i, source: 'system:checkpoints', name: 'Checkpoints' },
     { pattern: /\b(?:organism|guardrails?)\b/i, source: 'system:organism', name: 'Organism Monitor' },
     { pattern: /\b(?:fleet|nodes?|routes?|mesh)\b/i, source: 'system:fleet', name: 'Fleet Router' },
-    { pattern: /\b(?:captcha|form\s+fill|web\s+automation)\b/i, source: 'system:browser', name: 'Browser Tools' },
+    { pattern: /\b(?:browser|captcha|form\s+fill|web\s+automation)\b/i, source: 'system:browser', name: 'Browser Tools' },
     { pattern: /\b(?:flaky|failing|coverage|test\s+lab|evals?)\b/i, source: 'system:eval', name: 'Test Lab' },
 ];
 

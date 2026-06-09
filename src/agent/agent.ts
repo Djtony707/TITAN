@@ -1612,7 +1612,7 @@ export async function processMessage(
         taskEnforcementActive = true;
     }
     if (/\b(fix|change|modify|update|refactor|implement|add|remove|replace|uncomment|activate|enable|rewrite|patch|upgrade)\b.{0,80}\b(code|function|file|class|method|module|component|logic|bug|feature|session|title|tool|test)\b/i.test(message)) {
-        systemPrompt += '\n\nWhen editing code: 1) read the relevant files first, 2) make the actual changes using write_file or edit_file, 3) run tests to verify, 4) report what you changed. Do NOT stop after reading — actually save your changes.';
+        systemPrompt += '\n\nWhen editing code: 1) read the relevant file first with read_file, 2) make the change with edit_file (for a small change) or write_file — do NOT use shell/sed/echo/cat to edit files; edit_file is the correct, verifiable tool, 3) run tests to verify, 4) report what you changed. Do NOT stop after reading — actually save your changes.';
         taskEnforcementActive = true;
     }
     // v5.0.2 / v7.0: detect system-widget shortcuts via the shared, model-agnostic
