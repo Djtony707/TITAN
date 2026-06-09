@@ -3,6 +3,7 @@ import { BookOpen, Play, Trash2, RefreshCw } from 'lucide-react';
 import { getRecipes, deleteRecipe, runRecipe } from '@/api/client';
 import type { Recipe } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { useToast } from '@/components/shared/Toast';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
@@ -56,6 +57,13 @@ export default function RecipesPanel() {
         </button>
       </div>
       <div className="space-y-2">
+        {!loading && recipes.length === 0 && (
+          <EmptyState
+            icon={<BookOpen className="w-8 h-8" />}
+            title="No recipes yet"
+            description={'Recipes are saved, repeatable workflows — teach TITAN a multi-step task once, run it anytime. Ask in chat: "save what we just did as a recipe called Weekly Report".'}
+          />
+        )}
         {recipes.map(r => (
           <div key={r.id} className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0f] border border-[#27272a]">
             <div className="flex items-center gap-3 min-w-0">

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, type KeyboardEvent, type ChangeEvent } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { MiniFluidBubble } from './MiniFluidBubble';
 
@@ -8,11 +8,26 @@ interface ChatInputProps {
   disabled?: boolean;
   voiceAvailable?: boolean;
   onVoiceClick?: () => void;
+  /** Quick-actions "fill, don't send": when this changes to a non-empty value,
+   *  the input is pre-filled + focused so the user finishes the thought instead
+   *  of a half-prompt getting submitted and wasting a turn. */
+  draft?: string;
 }
 
-export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceClick }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, disabled, voiceAvailable, onVoiceClick, draft }: ChatInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!draft) return;
+    setValue(draft);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      // place the caret at the end so typing continues the prompt
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+    }
+  }, [draft]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;

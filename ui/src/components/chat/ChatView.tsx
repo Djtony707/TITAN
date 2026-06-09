@@ -44,7 +44,10 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Default the session sidebar OPEN on desktop (UX audit: users couldn't find
+  // their past chats); stays closed on narrow screens.
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+  const [draft, setDraft] = useState('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -395,7 +398,13 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
         {' · '}
         {activeModel}
       </p>
-      <QuickActions onSelectAction={handleSend} onVoiceOpen={onVoiceOpen} visible={true} />
+      {/* Partial prompts (ending in ":") FILL the input for the user to finish;
+          complete prompts send straight away. No more wasted half-prompt turns. */}
+      <QuickActions
+        onSelectAction={(p) => { if (p.trim().endsWith(':')) setDraft(p); else handleSend(p); }}
+        onVoiceOpen={onVoiceOpen}
+        visible={true}
+      />
     </div>
   );
 
@@ -587,6 +596,7 @@ function ChatView({ onVoiceOpen, onToggleActivity, activityCollapsed }: ChatView
 
           {/* Input */}
           <ChatInput
+            draft={draft}
             onSend={handleSend}
             onStop={() => {
               cancel();
