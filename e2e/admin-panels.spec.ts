@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Admin Panels - Navigation', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -44,7 +44,7 @@ test.describe('Admin Panels - Navigation', () => {
 
 test.describe('Admin Panels - Settings', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Navigate to Settings
@@ -133,7 +133,7 @@ test.describe('Admin Panels - Settings', () => {
 
 test.describe('Admin Panels - Overview/Dashboard', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Navigate to Overview
@@ -189,7 +189,7 @@ test.describe('Admin Panels - Overview/Dashboard', () => {
 
 test.describe('Admin Panels - Additional Panels', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -301,7 +301,7 @@ test.describe('Admin Panels - Additional Panels', () => {
 
 test.describe('Admin Panels - Error States', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 

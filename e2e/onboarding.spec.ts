@@ -17,7 +17,7 @@ test.describe('Onboarding Wizard', () => {
   });
 
   test('should display onboarding wizard modal', async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
 
     // Wait for the modal to be visible
     const modal = page.locator('#onboarding-modal');
@@ -26,7 +26,7 @@ test.describe('Onboarding Wizard', () => {
   });
 
   test('should complete step 1 - user info and provider selection', async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
 
     const modal = page.locator('#onboarding-modal');
     await expect(modal).toBeVisible();
@@ -57,7 +57,7 @@ test.describe('Onboarding Wizard', () => {
   });
 
   test('should navigate through all steps', async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
 
     const modal = page.locator('#onboarding-modal');
     await expect(modal).toBeVisible();
@@ -79,7 +79,7 @@ test.describe('Onboarding Wizard', () => {
   });
 
   test('should validate required fields', async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
 
     // Try to proceed without filling name
     const nextBtn = page.locator('#ob-btn-next');
@@ -95,7 +95,7 @@ test.describe('Onboarding Wizard', () => {
 test.describe('Settings and Model Configuration', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to settings page
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
 
     // Go to Settings
     await page.click('text="⚙️ Settings"');
@@ -157,7 +157,7 @@ test.describe('Settings and Model Configuration', () => {
 
 test.describe('Dashboard Navigation', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should display main dashboard', async ({ page }) => {

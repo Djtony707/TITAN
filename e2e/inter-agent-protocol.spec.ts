@@ -38,7 +38,7 @@ async function getWakeupRequests(page: Page) {
 test.describe('TIT-8 Protocol - Wakeup API', () => {
   test.beforeEach(async ({ page }) => {
     // Clear any existing wakeup requests by checking and listing
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should create a wakeup request with valid parameters', async ({ page }) => {
@@ -144,7 +144,7 @@ test.describe('TIT-8 Protocol - Wakeup API', () => {
 
 test.describe('TIT-8 Protocol - Agent Inbox', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should return agent inbox with assigned issues', async ({ page }) => {
@@ -203,7 +203,7 @@ test.describe('TIT-8 Protocol - Agent Inbox', () => {
 
 test.describe('TIT-8 Protocol - Claim & Release Wakeup', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should track wakeup request lifecycle', async ({ page }) => {
@@ -223,7 +223,7 @@ test.describe('TIT-8 Protocol - Claim & Release Wakeup', () => {
 
 test.describe('TIT-8 Protocol - Concurrent Wakeup Requests', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should handle multiple simultaneous wakeup requests', async ({ page }) => {
@@ -266,7 +266,7 @@ test.describe('TIT-8 Protocol - Concurrent Wakeup Requests', () => {
 
 test.describe('TIT-8 Protocol - API Authentication', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should accept requests with valid auth token', async ({ page }) => {
@@ -304,7 +304,7 @@ test.describe('TIT-8 Protocol - API Authentication', () => {
 
 test.describe('TIT-8 Protocol - Integration with Mission Control', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
@@ -375,7 +375,7 @@ test.describe('TIT-8 Protocol - Integration with Mission Control', () => {
 
 test.describe('TIT-8 Protocol - Error Handling', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should handle malformed JSON gracefully', async ({ page }) => {
@@ -413,7 +413,7 @@ test.describe('TIT-8 Protocol - Error Handling', () => {
 
 test.describe('TIT-8 Protocol - Performance', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://127.0.0.1:48420/');
+    await page.goto('/');
   });
 
   test('should respond to wakeup API quickly', async ({ page }) => {
