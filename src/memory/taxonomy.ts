@@ -3,12 +3,11 @@
  *
  * Why this exists
  * ---------------
- * 2026 personal-AI products market their memory as a *named taxonomy* (Vellum
- * markets "8 memory types"). TITAN already implements a richer memory
- * architecture than any competitor — it just never named it. This module is
- * the honest map: each named type points at the REAL TITAN subsystem that
- * backs it, so the taxonomy is a description of what exists, not marketing
- * vapor.
+ * 2026 personal-AI products market their memory as a *named taxonomy* (e.g.
+ * "8 memory types"). TITAN already implements a richer memory architecture than
+ * any of them — it just never named it. This module is the honest map: each
+ * named type points at the REAL TITAN subsystem that backs it, so the taxonomy
+ * is a description of what exists, not marketing vapor.
  *
  * TITAN has NINE named types (≥ the field's eight), and one of them — the
  * **emotional/drive** type, backed by the Soma homeostatic drive layer — has
