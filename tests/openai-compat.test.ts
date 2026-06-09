@@ -96,6 +96,46 @@ describe('OpenAICompatProvider', () => {
         vi.stubGlobal('fetch', mockFetch);
     });
 
+    // ── Model-agnostic tool / structured-output controls (v7.0) ────────
+    // The generic openai_compat provider fronts ~24 backends (DeepSeek, Qwen,
+    // GLM, Kimi, MiniMax, xAI…). These prove it now honors forceToolUse + format
+    // per-model instead of a blind passthrough — and guards the DeepSeek-400 case.
+    describe('model-agnostic tool controls', () => {
+        const tool = { type: 'function' as const, function: { name: 'shell', description: 'run a command', parameters: { type: 'object', properties: {} } } };
+        async function bodyFor(opts: Record<string, unknown>) {
+            const provider = makeProvider();
+            mockFetchWithRetry.mockResolvedValue(makeJsonResponse({ id: 'c1', choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+            await provider.chat({ messages: [{ role: 'user', content: 'go' }], ...opts } as never);
+            return JSON.parse(mockFetchWithRetry.mock.calls[0][1].body);
+        }
+
+        it('forces tool_choice=required for a model that does NOT self-select tools', async () => {
+            const body = await bodyFor({ model: 'test-provider/minimax-m2.7', tools: [tool], forceToolUse: true });
+            expect(body.tool_choice).toBe('required');
+        });
+
+        it('does NOT force tool_choice for a self-selecting model (would waste a turn)', async () => {
+            const body = await bodyFor({ model: 'test-provider/qwen3.6-35b-a3b', tools: [tool], forceToolUse: true });
+            expect(body.tool_choice).toBeUndefined();
+        });
+
+        it('does NOT set tool_choice when forceToolUse is absent', async () => {
+            const body = await bodyFor({ model: 'test-provider/minimax-m2.7', tools: [tool] });
+            expect(body.tool_choice).toBeUndefined();
+        });
+
+        it('NEVER sends tool_choice=required to a DeepSeek reasoner with thinking on (HTTP-400 guard)', async () => {
+            const body = await bodyFor({ model: 'test-provider/deepseek-v4-pro', tools: [tool], forceToolUse: true, thinking: true });
+            expect(body.tool_choice).toBeUndefined();
+        });
+
+        it('enables native JSON mode + a max_tokens floor when format=json', async () => {
+            const body = await bodyFor({ model: 'test-provider/qwen3.6-35b-a3b', format: 'json', maxTokens: 100 });
+            expect(body.response_format).toEqual({ type: 'json_object' });
+            expect(body.max_tokens).toBeGreaterThanOrEqual(2048);
+        });
+    });
+
     // ── Constructor ───────────────────────────────────────────────────
 
     describe('constructor', () => {

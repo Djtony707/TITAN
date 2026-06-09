@@ -182,7 +182,9 @@ export class OpenAIProvider extends LLMProvider {
             }),
         };
 
-        if (isReasoningModel) { body.max_completion_tokens = options.maxTokens || 8192; }
+        // HIGH-5: clamp on the streaming path too (o-series can truncate JSON
+        // mid-object otherwise — the non-stream path at line ~74 already clamps).
+        if (isReasoningModel) { body.max_completion_tokens = clampMaxTokens(model, options.maxTokens); }
         else { body.max_tokens = clampMaxTokens(model, options.maxTokens); }
         if (options.tools && options.tools.length > 0) body.tools = options.tools;
         if (options.temperature !== undefined && !isReasoningModel) body.temperature = options.temperature;

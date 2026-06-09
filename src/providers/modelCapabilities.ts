@@ -42,6 +42,19 @@ const STATIC_TABLE: Record<string, ModelCapabilities> = {
 
 // Family heuristic for unknown specific versions.
 const FAMILY_DEFAULTS: Array<{ pattern: RegExp; caps: ModelCapabilities }> = [
+    // v7.0 — bare-id families for the 2026 agentic models. These match WITH OR
+    // WITHOUT a provider prefix (substring, not anchored), so models routed
+    // through the generic openai_compat provider or the local :4000 gateway
+    // (e.g. "qwen3.6-35b-a3b", "deepseek-v4-pro", "kimi-k2.6") get their real
+    // ceilings instead of the 32K/8K DEFAULT_FALLBACK (which truncates JSON).
+    // Placed FIRST so they win over the broad `^ollama/` catch-all below.
+    { pattern: /deepseek-v4/i,                caps: { contextWindow: 128_000, maxOutput: 64_000, supportsThinking: true } },
+    { pattern: /qwen3\.(6|7)/i,               caps: { contextWindow: 262_144, maxOutput: 32_768, supportsThinking: true } },
+    { pattern: /minimax-m3/i,                 caps: { contextWindow: 1_000_000, maxOutput: 40_000 } },
+    { pattern: /minimax/i,                    caps: { contextWindow: 200_000, maxOutput: 40_000 } },
+    { pattern: /\bglm-5/i,                    caps: { contextWindow: 198_000, maxOutput: 128_000 } },
+    { pattern: /kimi-k2/i,                    caps: { contextWindow: 262_144, maxOutput: 128_000 } },
+    { pattern: /nemotron-3/i,                 caps: { contextWindow: 1_000_000, maxOutput: 32_000 } },
     { pattern: /^anthropic\//,                caps: { contextWindow: 200_000, maxOutput: 8_192 } },
     { pattern: /^openai\/o\d/,                caps: { contextWindow: 200_000, maxOutput: 100_000, supportsThinking: true } },
     { pattern: /^openai\//,                   caps: { contextWindow: 128_000, maxOutput: 16_384 } },
