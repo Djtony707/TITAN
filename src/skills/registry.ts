@@ -297,6 +297,7 @@ export async function initBuiltinSkills(): Promise<void> {
     const { registerSpecSkill } = await import('./builtin/spec.js');
     const { registerMemoryMapSkill } = await import('./builtin/memory_map.js');
     const { registerCodebaseExploreSkill } = await import('./builtin/codebase_explore.js');
+    const { registerDelegateAgentSkill } = await import('./builtin/delegate_agent.js');
     const { registerChangelogGenSkill } = await import('./builtin/changelog_gen.js');
     const { registerJiraLinearSkill } = await import('./builtin/jira_linear.js');
     const { registerAuditTrailSkill } = await import('./builtin/audit_trail.js');
@@ -403,6 +404,7 @@ export async function initBuiltinSkills(): Promise<void> {
         ['spec', registerSpecSkill],
         ['memory_map', registerMemoryMapSkill],
         ['codebase_explore', registerCodebaseExploreSkill],
+        ['delegate_agent', registerDelegateAgentSkill],
         ['changelog_gen', registerChangelogGenSkill],
         ['jira_linear', registerJiraLinearSkill],
         ['audit_trail', registerAuditTrailSkill],
