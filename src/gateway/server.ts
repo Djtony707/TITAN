@@ -1438,6 +1438,19 @@ export async function startGateway(options?: { port?: number; host?: string; ver
    * minimal surface; uses the `widget` category to keep widget-scoped
    * facts separate from the agent's general memory namespace.
    */
+  // v7.0 — Memory taxonomy (9 named types + live availability). MUST be registered
+  // BEFORE the generic /api/memory/:key route below or it gets shadowed.
+  app.get('/api/memory/taxonomy', async (_req, res) => {
+    const { summarizeMemoryTaxonomy } = await import('../memory/taxonomy.js');
+    const cfg = loadConfig() as unknown as Record<string, unknown>;
+    let hindsightConnected = false;
+    try {
+      const { memory } = await import('../memory/facade.js');
+      hindsightConnected = Boolean(await memory.episodic.isCrossSessionConnected());
+    } catch { /* hindsight optional */ }
+    res.json(summarizeMemoryTaxonomy(cfg, { hindsightConnected }));
+  });
+
   app.get('/api/memory/:key', async (req, res) => {
     try {
       const { recallFact } = await import('../memory/memory.js');
@@ -2064,18 +2077,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     } catch (err) {
       res.status(500).json({ error: 'gift_unavailable', message: (err as Error).message });
     }
-  });
-
-  // ── v7.0 — Memory taxonomy (the 9 named memory types + live availability) ──
-  app.get('/api/memory/taxonomy', async (_req, res) => {
-    const { summarizeMemoryTaxonomy } = await import('../memory/taxonomy.js');
-    const cfg = loadConfig() as unknown as Record<string, unknown>;
-    let hindsightConnected = false;
-    try {
-      const { memory } = await import('../memory/facade.js');
-      hindsightConnected = Boolean(await memory.episodic.isCrossSessionConnected());
-    } catch { /* hindsight optional */ }
-    res.json(summarizeMemoryTaxonomy(cfg, { hindsightConnected }));
   });
 
   // ── v7.0 — Security self-audit (config_audit findings) ──
