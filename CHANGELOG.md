@@ -21,7 +21,7 @@
 
 ### Reliability + security
 - **FIX:** the agent loop-breaker could itself infinite-loop (the round counter froze) — now terminal + bounded.
-- **SECURITY:** the Facebook Messenger webhook now verifies `X-Hub-Signature-256` HMAC — forged POSTs to the public webhook URL are rejected (403).
+- **SECURITY:** the Facebook Messenger webhook verifies `X-Hub-Signature-256` HMAC (constant-time) when `FB_APP_SECRET` is configured — forged POSTs to the public webhook URL are then rejected (403). Without the secret, verification is skipped (set it to enable enforcement).
 - Replaced 29 hollow placeholder tests with real assertions; added real coverage for goalDriver Bug #3, `agent_messaging`, and 6 channel adapters.
 - Behavioral eval-gate: **93% (GO)**.
 
