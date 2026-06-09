@@ -1719,6 +1719,46 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     }
   });
 
+  // Soma-audit fix: SomaView's setpoint/weight sliders POSTed here but the
+  // routes never existed (404 into the void). The drive engine already honors
+  // config.organism.{driveSetpoints,driveWeights} overrides on every tick
+  // (drives.ts computeAllDrives), so these simply persist the override maps.
+  app.post('/api/soma/setpoints', async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const overrides: Record<string, number> = {};
+      for (const [k, v] of Object.entries(body)) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n >= 0 && n <= 1) overrides[k] = n;
+      }
+      if (Object.keys(overrides).length === 0) { res.status(400).json({ error: 'no_valid_setpoints', message: 'Provide { driveId: 0..1 }.' }); return; }
+      const cfg = loadConfig();
+      const organism = { ...cfg.organism, driveSetpoints: { ...(cfg.organism.driveSetpoints ?? {}), ...overrides } };
+      updateConfig({ organism });
+      res.json({ ok: true, driveSetpoints: organism.driveSetpoints });
+    } catch (err) {
+      res.status(500).json({ error: 'setpoints_failed', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/soma/weights', async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const overrides: Record<string, number> = {};
+      for (const [k, v] of Object.entries(body)) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n >= 0.1 && n <= 3.0) overrides[k] = n;
+      }
+      if (Object.keys(overrides).length === 0) { res.status(400).json({ error: 'no_valid_weights', message: 'Provide { driveId: 0.1..3.0 }.' }); return; }
+      const cfg = loadConfig();
+      const organism = { ...cfg.organism, driveWeights: { ...(cfg.organism.driveWeights ?? {}), ...overrides } };
+      updateConfig({ organism });
+      res.json({ ok: true, driveWeights: organism.driveWeights });
+    } catch (err) {
+      res.status(500).json({ error: 'weights_failed', message: (err as Error).message });
+    }
+  });
+
   // v6.0.5 — Time Travel surface. TITAN's shadow-git layer
   // (~/.titan/file-checkpoints/) already snapshots every file before any
   // write/edit/append tool runs, but pre-v6.0.5 we had no UI for it.

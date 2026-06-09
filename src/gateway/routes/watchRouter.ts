@@ -7,8 +7,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { join } from 'path';
-import { homedir } from 'os';
 import fs from 'fs';
+import { TITAN_HOME } from '../../utils/constants.js';
 import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 
@@ -64,7 +64,9 @@ export function createWatchRouter(): Router {
     // Initial snapshot — read drive state + recent goals so the UI has
     // something to render before the first live event arrives.
     try {
-      const driveStatePath = join(homedir(), '.titan', 'drive-state.json');
+      // Soma-audit fix: respect TITAN_HOME — the old hardcoded ~/.titan made a
+      // staging instance silently read PROD's drive data (cross-env leak).
+      const driveStatePath = join(TITAN_HOME, 'drive-state.json');
       if (fs.existsSync(driveStatePath)) {
         const raw = JSON.parse(fs.readFileSync(driveStatePath, 'utf-8'));
         const latest = raw.latest as { timestamp?: string; drives?: unknown[]; totalPressure?: number; dominantDrives?: string[] } | undefined;
@@ -109,8 +111,8 @@ export function createWatchRouter(): Router {
   // for the next tick.
   router.get('/watch/snapshot', (_req: Request, res: Response) => {
     try {
-      const driveStatePath = join(homedir(), '.titan', 'drive-state.json');
-      const goalsPath = join(homedir(), '.titan', 'goals.json');
+      const driveStatePath = join(TITAN_HOME, 'drive-state.json');
+      const goalsPath = join(TITAN_HOME, 'goals.json');
       const driveState = fs.existsSync(driveStatePath)
         ? JSON.parse(fs.readFileSync(driveStatePath, 'utf-8'))?.latest
         : null;
