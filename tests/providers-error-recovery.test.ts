@@ -42,6 +42,7 @@ import {
     __internal_getErrorStatus as getErrorStatus,
     __internal_CIRCUIT_BREAKER_CONFIG as CB,
     __internal_RETRY_CONFIG as RC,
+    __internal_stripThinkingFromResponse as stripThinking,
 } from '../src/providers/router.js';
 
 /** Construct an Error shaped the way the providers throw (status property + message). */
@@ -212,5 +213,24 @@ describe('Provider Error Recovery — Rate-limit cooldown (fallback gating)', ()
         vi.advanceTimersByTime(30_000); // MIN_PROBE_INTERVAL_MS
         expect(isInRateLimitCooldown('google')).toBe(false);
         expect(canRequest('google', true)).toBe(true);
+    });
+});
+
+// =================================================================
+describe('Provider Error Recovery — <think> CoT stripping (recovery paths)', () => {
+    // The router strips chain-of-thought from recovered responses so raw CoT
+    // never reaches the user. (Over-claim from the v7.0 audit: previously no
+    // test referenced stripThinkingFromResponse despite the claim.)
+    it('removes a <think>…</think> block, keeping the real answer', () => {
+        expect(stripThinking('<think>secret reasoning</think>Final answer')).toBe('Final answer');
+    });
+    it('leaves a normal answer untouched', () => {
+        expect(stripThinking('Just a normal reply.')).toBe('Just a normal reply.');
+    });
+    it('strips multiline CoT and ```thinking blocks', () => {
+        const r1 = stripThinking('<think>\nlots of\nreasoning here\n</think>\n\nThe result is 42.');
+        expect(r1).not.toContain('reasoning here');
+        expect(r1).toContain('The result is 42');
+        expect(stripThinking('```thinking\nplanning the reply\n```\nDone.')).not.toContain('planning the reply');
     });
 });

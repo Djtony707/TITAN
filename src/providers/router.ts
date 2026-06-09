@@ -663,6 +663,7 @@ export const __internal_parseRetryAfter = parseRetryAfter;
 export const __internal_isRetryableError = isRetryableError;
 export const __internal_getErrorStatus = getErrorStatus;
 export const __internal_RETRY_CONFIG = RETRY_CONFIG;
+export const __internal_stripThinkingFromResponse = stripThinkingFromResponse;
 
 /** Try the fallback chain for a chat request. Returns null if chain is empty or exhausted. */
 async function tryFallbackChain(

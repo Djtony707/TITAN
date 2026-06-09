@@ -129,14 +129,13 @@ describe('initAgents', () => {
         expect(defaultCount).toBe(1);
     });
 
-    it('should log initialization', () => {
-        // Since initAgents was already called in clearAllAgents -> listAgents,
-        // logger.info may already have been called. Clear and verify fresh.
+    it('does not re-log initialization once the default agent exists (idempotency guard)', () => {
+        // initAgents() short-circuits on `agents.size > 0` BEFORE it logs, so a
+        // re-init must NOT emit the "initialized" line again. Real assertion of
+        // the guard (replaces a former expect(true).toBe(true) placeholder).
         vi.clearAllMocks();
-        mockLoadConfig.mockReturnValue(makeDefaultConfig());
-        // initAgents won't re-init since agents.size > 0
-        // But we can verify the behavior was logged during setup
-        expect(true).toBe(true); // structure test
+        initAgents();
+        expect(logger.info).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('initialized'));
     });
 
     it('should set default agent status to running', () => {
