@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Search, Download, Trash2, Package, Store } from 'lucide-react';
 import { getSkills, apiFetch } from '@/api/client';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import type { SkillInfo } from '@/api/types';
 
 interface MarketplaceSkill {
@@ -15,6 +17,7 @@ interface MarketplaceSkill {
 }
 
 function SkillsPanel() {
+  const { toast } = useToast();
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [marketplace, setMarketplace] = useState<MarketplaceSkill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +26,7 @@ function SkillsPanel() {
   const [activeTab, setActiveTab] = useState<'installed' | 'marketplace'>('installed');
   const [search, setSearch] = useState('');
   const [installing, setInstalling] = useState<string | null>(null);
+  const [uninstallTarget, setUninstallTarget] = useState<string | null>(null);
 
   const loadSkills = useCallback(async () => {
     try {
@@ -59,25 +63,32 @@ function SkillsPanel() {
         body: JSON.stringify({ name: skillName }),
       });
       if (res.ok) {
+        toast('success', `Installed "${skillName}"`);
         loadSkills();
         loadMarketplace();
+      } else {
+        toast('error', `Couldn't install "${skillName}" — try again.`);
       }
+    } catch (e) {
+      toast('error', `Couldn't install "${skillName}" — try again. (${(e as Error).message})`);
     } finally {
       setInstalling(null);
     }
   };
 
   const handleUninstall = async (skillName: string) => {
-    if (!confirm(`Uninstall skill "${skillName}"?`)) return;
     try {
       await apiFetch('/api/marketplace/uninstall', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: skillName }),
       });
+      toast('success', `Uninstalled "${skillName}"`);
       loadSkills();
       loadMarketplace();
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't uninstall "${skillName}" — try again. (${(e as Error).message})`);
+    }
   };
 
   const categories = useMemo(() => {
@@ -189,7 +200,7 @@ function SkillsPanel() {
                 <span className="text-[10px] capitalize text-text-muted">{skill.category}</span>
                 {marketplace.some(m => m.name === skill.name && m.installed) && (
                   <button
-                    onClick={() => handleUninstall(skill.name)}
+                    onClick={() => setUninstallTarget(skill.name)}
                     className="text-[10px] text-error hover:underline flex items-center gap-1"
                   >
                     <Trash2 className="h-3 w-3" /> Uninstall
@@ -238,6 +249,18 @@ function SkillsPanel() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={uninstallTarget !== null}
+        title="Uninstall skill?"
+        message={uninstallTarget ? `Remove "${uninstallTarget}" from TITAN.` : ''}
+        confirmLabel="Uninstall"
+        onConfirm={async () => {
+          if (uninstallTarget) await handleUninstall(uninstallTarget);
+          setUninstallTarget(null);
+        }}
+        onCancel={() => setUninstallTarget(null)}
+      />
     </div>
   );
 }

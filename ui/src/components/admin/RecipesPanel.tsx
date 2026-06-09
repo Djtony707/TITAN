@@ -3,20 +3,26 @@ import { BookOpen, Play, Trash2, RefreshCw } from 'lucide-react';
 import { getRecipes, deleteRecipe, runRecipe } from '@/api/client';
 import type { Recipe } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export default function RecipesPanel() {
+  const { toast } = useToast();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getRecipes();
       setRecipes(data.recipes || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load recipes — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -24,16 +30,21 @@ export default function RecipesPanel() {
     setRunning(id);
     try {
       await runRecipe(id);
-    } catch { /* ignore */ }
+      toast('success', 'Recipe run started.');
+    } catch (err) {
+      toast('error', `Couldn't run recipe — try again. (${(err as Error).message})`);
+    }
     setRunning(null);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this recipe?')) return;
     try {
       await deleteRecipe(id);
       await refresh();
-    } catch { /* ignore */ }
+      toast('success', 'Recipe deleted.');
+    } catch (err) {
+      toast('error', `Couldn't delete recipe — try again. (${(err as Error).message})`);
+    }
   };
 
   return (
@@ -59,13 +70,25 @@ export default function RecipesPanel() {
               <button onClick={() => handleRun(r.id)} disabled={running === r.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#6366f1] text-white text-xs hover:bg-[#4f46e5] disabled:opacity-50">
                 <Play className="w-3.5 h-3.5" /> {running === r.id ? 'Running...' : 'Run'}
               </button>
-              <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
+              <button onClick={() => setConfirmId(r.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         ))}
       </div>
+      <ConfirmDialog
+        open={confirmId !== null}
+        title="Delete recipe?"
+        message="This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          const id = confirmId;
+          setConfirmId(null);
+          if (id) await handleDelete(id);
+        }}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }

@@ -11,7 +11,8 @@ import {
     CheckCircle2, AlertCircle, Clock,
 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
-import { PageHeader } from '@/components/shared';
+import { PageHeader, ConfirmDialog } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 
 async function getJSON(url: string): Promise<unknown> {
     const r = await apiFetch(url);
@@ -94,9 +95,11 @@ function phaseIcon(phase: string) {
 // ── Detail Modal ─────────────────────────────────────────────────
 
 function DriverDetail({ goalId, onClose, onRefresh }: { goalId: string; onClose: () => void; onRefresh: () => void }) {
+    const { toast } = useToast();
     const [data, setData] = useState<DriverState | null>(null);
     const [goalTitle, setGoalTitle] = useState<string>('');
     const [acting, setActing] = useState<string | null>(null);
+    const [confirmRollback, setConfirmRollback] = useState(false);
 
     const reload = useCallback(async () => {
         try {
@@ -117,7 +120,13 @@ function DriverDetail({ goalId, onClose, onRefresh }: { goalId: string; onClose:
 
     const action = async (name: string, url: string, body?: unknown) => {
         setActing(name);
-        try { await postJSON(url, body); } catch { /* ok */ }
+        try {
+            await postJSON(url, body);
+            const verb = name === 'resume' ? 'resumed' : name === 'pause' ? 'paused' : name === 'cancel' ? 'cancelled' : 'rolled back';
+            toast('success', `Driver ${verb}.`);
+        } catch (e) {
+            toast('error', `Couldn't ${name} the driver — try again. ${(e as Error).message}`);
+        }
         setActing(null);
         await reload();
         onRefresh();
@@ -135,6 +144,7 @@ function DriverDetail({ goalId, onClose, onRefresh }: { goalId: string; onClose:
     const doneSubs = Object.values(data.subtaskStates).filter(s => s.verificationResult?.passed).length;
 
     return (
+        <>
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
             <div
                 className="bg-bg-secondary border border-border rounded-xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl"
@@ -165,11 +175,7 @@ function DriverDetail({ goalId, onClose, onRefresh }: { goalId: string; onClose:
                         <button onClick={() => action('cancel', `/api/drivers/${goalId}/cancel`)} disabled={acting !== null} className="px-2 py-1 rounded border border-border hover:bg-bg-tertiary text-xs flex items-center gap-1">
                             <X size={12} /> Cancel
                         </button>
-                        <button onClick={() => {
-                            if (confirm('Rollback all file writes this goal made? This reverts via shadow-git to pre-goal state.')) {
-                                action('rollback', `/api/drivers/${goalId}/rollback`);
-                            }
-                        }} disabled={acting !== null} className="px-2 py-1 rounded border border-error/40 text-error hover:bg-error/10 text-xs flex items-center gap-1">
+                        <button onClick={() => setConfirmRollback(true)} disabled={acting !== null} className="px-2 py-1 rounded border border-error/40 text-error hover:bg-error/10 text-xs flex items-center gap-1">
                             <RotateCcw size={12} /> Rollback
                         </button>
                         <button onClick={onClose} className="px-2 py-1 rounded hover:bg-bg-tertiary text-text-muted ml-1">
@@ -268,6 +274,18 @@ function DriverDetail({ goalId, onClose, onRefresh }: { goalId: string; onClose:
                 </div>
             </div>
         </div>
+        <ConfirmDialog
+            open={confirmRollback}
+            title="Rollback all file writes?"
+            message="This reverts every file write this goal made, via shadow-git, back to the pre-goal state. This can't be undone."
+            confirmLabel="Rollback"
+            onConfirm={async () => {
+                setConfirmRollback(false);
+                await action('rollback', `/api/drivers/${goalId}/rollback`);
+            }}
+            onCancel={() => setConfirmRollback(false)}
+        />
+        </>
     );
 }
 

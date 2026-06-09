@@ -6,8 +6,10 @@ import {
 } from 'lucide-react';
 import { listFiles, readFile, getFileRoots, writeFile, createDirectory, renameFile, deleteFile } from '@/api/client';
 import type { FileEntry, FileContent } from '@/api/types';
+import { useToast } from '@/components/shared/Toast';
 
 function FilesPanel() {
+  const { toast } = useToast();
   // ── State ──
   const [roots, setRoots] = useState<Array<{ label: string; path: string }>>([]);
   const [activeRoot, setActiveRoot] = useState<string>('');
@@ -52,7 +54,7 @@ function FilesPanel() {
     try {
       const result = await listFiles(path ?? currentPath, activeRoot || undefined);
       setEntries(result.entries);
-    } catch { /* ignore */ }
+    } catch (e) { setError(`Couldn't load this folder — ${(e as Error).message}`); }
     setLoading(false);
   }, [currentPath, activeRoot]);
 
@@ -77,7 +79,7 @@ function FilesPanel() {
     try {
       const content = await readFile(entry.path, activeRoot || undefined);
       setSelectedFile(content);
-    } catch { /* ignore */ }
+    } catch (e) { setError(`Couldn't open ${entry.name} — ${(e as Error).message}`); }
     setFileLoading(false);
   };
 
@@ -90,6 +92,7 @@ function FilesPanel() {
       await writeFile(selectedFile.path, editContent, activeRoot || undefined);
       setSelectedFile({ ...selectedFile, content: editContent, size: new Blob([editContent]).size });
       setEditing(false);
+      toast('success', 'File saved');
     } catch (e) { setError((e as Error).message); }
     setSaving(false);
   };
@@ -102,6 +105,7 @@ function FilesPanel() {
       await writeFile(path, '', activeRoot || undefined);
       setShowNewFile(false);
       setNewName('');
+      toast('success', 'File created');
       refresh();
     } catch (e) { setError((e as Error).message); }
   };
@@ -114,6 +118,7 @@ function FilesPanel() {
       await createDirectory(path, activeRoot || undefined);
       setShowNewFolder(false);
       setNewName('');
+      toast('success', 'Folder created');
       refresh();
     } catch (e) { setError((e as Error).message); }
   };
@@ -126,6 +131,7 @@ function FilesPanel() {
       const newPath = parentPath ? `${parentPath}/${renameValue.trim()}` : renameValue.trim();
       await renameFile(entry.path, newPath, activeRoot || undefined);
       setRenamingEntry(null);
+      toast('success', 'Renamed');
       refresh();
     } catch (e) { setError((e as Error).message); }
   };
@@ -135,6 +141,7 @@ function FilesPanel() {
     setError('');
     try {
       await deleteFile(deleteTarget.path, activeRoot || undefined);
+      toast('success', `Deleted ${deleteTarget.name}`);
       setDeleteTarget(null);
       if (selectedFile?.path === deleteTarget.path) setSelectedFile(null);
       refresh();

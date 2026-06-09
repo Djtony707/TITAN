@@ -3,8 +3,10 @@ import { Cpu, MemoryStick, RefreshCw } from 'lucide-react';
 import { getVramSnapshot } from '@/api/client';
 import type { VramSnapshot } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function VramPanel() {
+  const { toast } = useToast();
   const [snapshot, setSnapshot] = useState<VramSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -13,9 +15,11 @@ export default function VramPanel() {
     try {
       const data = await getVramSnapshot();
       setSnapshot(data);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load VRAM snapshot — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

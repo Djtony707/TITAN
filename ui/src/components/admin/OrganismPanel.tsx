@@ -3,8 +3,10 @@ import { Shield, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
 import { getOrganismAlerts, getOrganismSafetyMetrics, acknowledgeAlert } from '@/api/client';
 import type { Alert } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function OrganismPanel() {
+  const { toast } = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -15,17 +17,22 @@ export default function OrganismPanel() {
       const [a, m] = await Promise.all([getOrganismAlerts(), getOrganismSafetyMetrics()]);
       setAlerts(a.alerts || []);
       setMetrics(m);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load the organism monitor — try again. ${(err as Error).message}`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleAck = async (id: string) => {
     try {
       await acknowledgeAlert(id);
+      toast('success', 'Alert acknowledged.');
       await refresh();
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't acknowledge the alert — try again. ${(err as Error).message}`);
+    }
   };
 
   return (

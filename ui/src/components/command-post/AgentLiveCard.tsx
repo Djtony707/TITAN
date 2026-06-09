@@ -7,6 +7,7 @@ import {
 import { getCPRuns, getTraces } from '@/api/client';
 import type { RegisteredAgent, CPRun, Trace } from '@/api/types';
 import { Modal } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 
 interface AgentLiveCardProps {
   agent: RegisteredAgent;
@@ -42,6 +43,7 @@ function timeSince(dateStr: string): string {
 }
 
 export function AgentLiveCard({ agent, onClose }: AgentLiveCardProps) {
+  const { toast } = useToast();
   const [runs, setRuns] = useState<CPRun[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,9 +59,16 @@ export function AgentLiveCard({ agent, onClose }: AgentLiveCardProps) {
       // Filter traces that likely belong to this agent by matching model or session heuristic
       // Since traces don't store agentId, we show recent traces and the user can infer
       setTraces(t.traces || []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Surface only the first (initial) load failure — the 10s background
+      // refresh stays silent so we don't spam toasts on a transient blip.
+      setLoading(prev => {
+        if (prev) toast('error', `Couldn't load agent activity — try again. ${(e as Error).message}`);
+        return prev;
+      });
+    }
     setLoading(false);
-  }, [agent.id]);
+  }, [agent.id, toast]);
 
   useEffect(() => {
     refresh();

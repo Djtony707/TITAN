@@ -3,19 +3,25 @@ import { Clock, ToggleLeft, ToggleRight, Trash2, RefreshCw } from 'lucide-react'
 import { getCronJobs, toggleCronJob, deleteCronJob } from '@/api/client';
 import type { CronJob } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export default function CronPanel() {
+  const { toast } = useToast();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getCronJobs();
       setJobs(data.jobs || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load cron jobs — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -23,15 +29,20 @@ export default function CronPanel() {
     try {
       await toggleCronJob(id);
       await refresh();
-    } catch { /* ignore */ }
+      toast('success', 'Cron job updated.');
+    } catch (err) {
+      toast('error', `Couldn't toggle cron job — try again. (${(err as Error).message})`);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this cron job?')) return;
     try {
       await deleteCronJob(id);
       await refresh();
-    } catch { /* ignore */ }
+      toast('success', 'Cron job deleted.');
+    } catch (err) {
+      toast('error', `Couldn't delete cron job — try again. (${(err as Error).message})`);
+    }
   };
 
   return (
@@ -56,13 +67,25 @@ export default function CronPanel() {
               <button onClick={() => handleToggle(j.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46]">
                 {j.enabled ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4 text-[#52525b]" />}
               </button>
-              <button onClick={() => handleDelete(j.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
+              <button onClick={() => setConfirmId(j.id)} className="p-1.5 rounded-md bg-[#27272a] text-[#a1a1aa] hover:bg-[#3f3f46] hover:text-red-400">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         ))}
       </div>
+      <ConfirmDialog
+        open={confirmId !== null}
+        title="Delete cron job?"
+        message="This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          const id = confirmId;
+          setConfirmId(null);
+          if (id) await handleDelete(id);
+        }}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }

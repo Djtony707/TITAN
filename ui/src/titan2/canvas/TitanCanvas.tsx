@@ -6,11 +6,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { SpaceEngine } from './SpaceEngine';
+import { useCanvasZoom, ZoomControls } from './useCanvasZoom';
 import { SandboxRuntime } from '../sandbox/SandboxRuntime';
 import type { Space, WidgetDef } from '../types';
 import { useUpdateCheck } from '@/hooks/useUpdateCheck';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { trackEvent } from '@/api/telemetry';
 import {
   BarChart3,
@@ -456,6 +459,8 @@ function CanvasIconButton({
 export default function TitanCanvas() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const zoom = useCanvasZoom(); // make the canvas as big or small as the user wants
   const [space, setSpace] = useState<Space | null>(null);
   // v6.3.4 — was hardcoded `true`, which made the chat panel open on
   // EVERY page load regardless of the user's edge-peek preference and
@@ -494,6 +499,9 @@ export default function TitanCanvas() {
   const gridWrapRef = useRef<HTMLDivElement>(null);
   const { info: updateInfo, triggerUpdate, waitForReload } = useUpdateCheck();
   const [updating, setUpdating] = useState(false);
+  // Destructive-action confirms (replaces raw window.confirm()).
+  const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   // Load space
   useEffect(() => {
@@ -635,6 +643,54 @@ export default function TitanCanvas() {
     handleAddWidget({ name, format: 'system', source, x: spot.x, y: spot.y, w, h });
   }, [handleAddWidget, findEmptySpot]);
 
+  // Clear-canvas runner — confirmed via ConfirmDialog. Wraps the
+  // SpaceEngine call so a failure surfaces a toast instead of leaving
+  // the canvas silently unchanged.
+  const runClearCanvas = useCallback(async () => {
+    if (!space) return;
+    const panelCount = Array.isArray(space.widgets) ? space.widgets.length : 0;
+    trackEvent('canvas_clear_all', { panelCount });
+    try {
+      await SpaceEngine.clearSpace(space.id);
+      setSpace({ ...space, widgets: [] });
+      toast('success', 'Canvas cleared.');
+    } catch (err) {
+      toast('error', `Couldn't clear the canvas — try again. (${(err as Error).message})`);
+    } finally {
+      setConfirmClearOpen(false);
+    }
+  }, [space, toast]);
+
+  // Update runner — confirmed via ConfirmDialog. Replaces the raw
+  // confirm()/alert() flow so success and every failure mode surface
+  // as toasts instead of blocking browser dialogs.
+  const runUpdate = useCallback(async () => {
+    setConfirmUpdateOpen(false);
+    if (!updateInfo?.isNewer || updating) return;
+    const previousVersion = updateInfo.current;
+    setUpdating(true);
+    try {
+      const result = await triggerUpdate(true);
+      if (!result.ok) {
+        setUpdating(false);
+        toast('error', `Update failed — ${result.error || 'unknown error'}.`);
+        return;
+      }
+      // Truthful: wait for the new process to answer before claiming success.
+      const newVersion = await waitForReload(previousVersion);
+      setUpdating(false);
+      if (newVersion) {
+        toast('success', `Updated to ${newVersion}. Reloading…`);
+        window.location.reload();
+      } else {
+        toast('error', 'Update sent, but the gateway did not come back within 30s. Check service status manually.');
+      }
+    } catch (err) {
+      setUpdating(false);
+      toast('error', `Update failed — try again. (${(err as Error).message})`);
+    }
+  }, [updateInfo, updating, triggerUpdate, waitForReload, toast]);
+
   // Listen for space refresh events (e.g., agent created widgets)
   useEffect(() => {
     const handler = (e: Event) => {
@@ -760,6 +816,10 @@ export default function TitanCanvas() {
   return (
     <div className="h-full w-full flex">
       <SpacesSidebar />
+      {/* Canvas zoom — make the desk as big or small as you want. */}
+      <div className="fixed bottom-5 right-6 z-[60]">
+        <ZoomControls {...zoom} />
+      </div>
       <div ref={canvasRef} className="flex-1 relative overflow-auto">
       {/*
         Resize-handle overrides — fix "cannot resize bigger than a
@@ -911,13 +971,7 @@ export default function TitanCanvas() {
           {validWidgets.length > 0 && (
             <CanvasIconButton
               label="Clear canvas"
-              onClick={async () => {
-                trackEvent('canvas_clear_all', { panelCount: validWidgets.length });
-                if (space) {
-                  await SpaceEngine.clearSpace(space.id);
-                  setSpace({ ...space, widgets: [] });
-                }
-              }}
+              onClick={() => setConfirmClearOpen(true)}
               variant="danger"
             >
               <Trash2 className="w-4 h-4" />
@@ -929,27 +983,9 @@ export default function TitanCanvas() {
             className={`titan-canvas-version-chip ${updateInfo?.isNewer ? 'titan-canvas-version-chip--update' : ''}`}
             style={!updateInfo?.isNewer ? { background: 'var(--theme-paper, rgba(253,246,227,0.7))', borderColor: 'var(--color-desk-border)' } : undefined}
             title={updateInfo?.isNewer ? `Update available: ${updateInfo.current} → ${updateInfo.latest}` : `TITAN ${updateInfo?.current || ''}`}
-            onClick={async () => {
+            onClick={() => {
               if (!updateInfo?.isNewer || updating) return;
-              if (!confirm(`Update TITAN from ${updateInfo.current} → ${updateInfo.latest}?
-
-Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`)) return;
-              const previousVersion = updateInfo.current;
-              setUpdating(true);
-              const result = await triggerUpdate(true);
-              if (!result.ok) {
-                setUpdating(false);
-                alert(`Update failed: ${result.error || 'Unknown error'}`);
-                return;
-              }
-              // Truthful: wait for the new process to answer before claiming success.
-              const newVersion = await waitForReload(previousVersion);
-              setUpdating(false);
-              if (newVersion) {
-                window.location.reload();
-              } else {
-                alert('Update sent, but the gateway did not come back within 30s. Check service status manually.');
-              }
+              setConfirmUpdateOpen(true);
             }}
           >
             {updating ? '…' : updateInfo?.isNewer ? `↑ ${updateInfo.latest}` : `v${updateInfo?.current || ''}`}
@@ -976,7 +1012,11 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           fixed TopbarThemePicker (top:48 + h:33 → bottom edge ≈ 81px) so
           neither the empty-state card nor placed widgets underflow the
           picker. */}
-      <div ref={gridWrapRef} className="relative pt-28 min-h-[5000px]">
+      <div
+        ref={gridWrapRef}
+        className="relative pt-28 min-h-[5000px]"
+        style={{ transform: `scale(${zoom.zoom})`, transformOrigin: 'top center', transition: 'transform 120ms ease-out' }}
+      >
         {validWidgets.length === 0 ? (
           <EmptyCanvas space={space} onAddWidget={handleAddSystemWidget} onOpenChat={() => window.dispatchEvent(new CustomEvent('titan:chat:toggle', { detail: { open: true } }))} />
         ) : (
@@ -1109,6 +1149,27 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
       )}
 
       <ShortcutsHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      {/* Clear-canvas confirmation — replaces a silent destructive action. */}
+      <ConfirmDialog
+        open={confirmClearOpen}
+        title="Clear this canvas?"
+        message={`This removes all ${validWidgets.length} panel${validWidgets.length !== 1 ? 's' : ''} from "${space.name}". This can't be undone.`}
+        confirmLabel="Clear canvas"
+        onConfirm={runClearCanvas}
+        onCancel={() => setConfirmClearOpen(false)}
+      />
+
+      {/* Update confirmation — replaces the raw window.confirm() prompt. */}
+      <ConfirmDialog
+        open={confirmUpdateOpen}
+        variant="primary"
+        title="Update TITAN?"
+        message={`Update TITAN from ${updateInfo?.current} → ${updateInfo?.latest}? Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`}
+        confirmLabel="Update"
+        onConfirm={runUpdate}
+        onCancel={() => setConfirmUpdateOpen(false)}
+      />
       </div>{/* /flex-1 canvas surface */}
     </div>
   );

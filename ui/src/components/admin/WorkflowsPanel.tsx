@@ -23,6 +23,8 @@ import {
 import { PageHeader } from '@/components/shared/PageHeader';
 import { apiFetch } from '@/api/client';
 import { InlineEditableField } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -184,10 +186,12 @@ function SubtaskIcon({ status }: { status: string }) {
 // ─── Goals Section ──────────────────────────────────────────────
 
 function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => void }) {
+  const { toast } = useToast();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const toggle = (id: string) => {
     setExpanded(prev => {
@@ -199,19 +203,25 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
 
   const createNewGoal = async () => {
     if (!formTitle.trim()) return;
-    await api('/api/goals', {
-      method: 'POST',
-      body: JSON.stringify({ title: formTitle, description: formDesc }),
-    });
-    setFormTitle('');
-    setFormDesc('');
-    setShowForm(false);
-    onRefresh();
+    try {
+      await api('/api/goals', {
+        method: 'POST',
+        body: JSON.stringify({ title: formTitle, description: formDesc }),
+      });
+      setFormTitle('');
+      setFormDesc('');
+      setShowForm(false);
+      onRefresh();
+      toast('success', 'Goal created.');
+    } catch (e) { toast('error', `Couldn't create goal — try again. (${(e as Error).message})`); }
   };
 
   const handleDelete = async (id: string) => {
-    await api(`/api/goals/${id}`, { method: 'DELETE' });
-    onRefresh();
+    try {
+      await api(`/api/goals/${id}`, { method: 'DELETE' });
+      onRefresh();
+      toast('success', 'Goal deleted.');
+    } catch (e) { toast('error', `Couldn't delete goal — try again. (${(e as Error).message})`); }
   };
 
   // v4.3.1: pause a stuck or noisy goal without deleting it. Backend
@@ -224,14 +234,15 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
         body: JSON.stringify({ status: next }),
       });
       onRefresh();
-    } catch (e) { alert(`Update failed: ${(e as Error).message}`); }
+    } catch (e) { toast('error', `Couldn't update goal — try again. (${(e as Error).message})`); }
   };
 
   const handleRetrySubtask = async (goalId: string, subtaskId: string) => {
     try {
       await api(`/api/goals/${goalId}/subtasks/${subtaskId}/retry`, { method: 'POST' });
       onRefresh();
-    } catch (e) { alert(`Retry failed: ${(e as Error).message}`); }
+      toast('success', 'Subtask retried.');
+    } catch (e) { toast('error', `Couldn't retry subtask — try again. (${(e as Error).message})`); }
   };
 
   const handleEditSubtaskTitle = async (goalId: string, subtaskId: string, title: string) => {
@@ -240,15 +251,18 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
         method: 'PATCH', body: JSON.stringify({ title }),
       });
       onRefresh();
-    } catch (e) { alert(`Save failed: ${(e as Error).message}`); }
+    } catch (e) { toast('error', `Couldn't save subtask — try again. (${(e as Error).message})`); }
   };
 
   const handleCompleteSubtask = async (goalId: string, subtaskId: string) => {
-    await api(`/api/goals/${goalId}/subtasks/${subtaskId}/complete`, {
-      method: 'POST',
-      body: JSON.stringify({ result: 'Completed via dashboard' }),
-    });
-    onRefresh();
+    try {
+      await api(`/api/goals/${goalId}/subtasks/${subtaskId}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ result: 'Completed via dashboard' }),
+      });
+      onRefresh();
+      toast('success', 'Subtask marked done.');
+    } catch (e) { toast('error', `Couldn't complete subtask — try again. (${(e as Error).message})`); }
   };
 
   return (
@@ -356,7 +370,7 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
                     </button>
                   )}
                   <button
-                    onClick={e => { e.stopPropagation(); handleDelete(goal.id); }}
+                    onClick={e => { e.stopPropagation(); setDeleteId(goal.id); }}
                     className="p-1 rounded hover:opacity-80 flex-shrink-0"
                     title="Delete goal"
                   >
@@ -410,6 +424,18 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="Delete this goal?"
+        message="This can't be undone. The goal and its subtasks will be permanently removed."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (deleteId) await handleDelete(deleteId);
+          setDeleteId(null);
+        }}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -417,33 +443,44 @@ function GoalsSection({ goals, onRefresh }: { goals: Goal[]; onRefresh: () => vo
 // ─── Cron Section ───────────────────────────────────────────────
 
 function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => void }) {
+  const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [schedule, setSchedule] = useState('');
   const [command, setCommand] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!name.trim() || !schedule.trim() || !command.trim()) return;
-    await api('/api/cron', {
-      method: 'POST',
-      body: JSON.stringify({ name, schedule, command }),
-    });
-    setName(''); setSchedule(''); setCommand('');
-    setShowForm(false);
-    onRefresh();
+    try {
+      await api('/api/cron', {
+        method: 'POST',
+        body: JSON.stringify({ name, schedule, command }),
+      });
+      setName(''); setSchedule(''); setCommand('');
+      setShowForm(false);
+      onRefresh();
+      toast('success', 'Cron job created.');
+    } catch (e) { toast('error', `Couldn't create cron job — try again. (${(e as Error).message})`); }
   };
 
   const handleToggle = async (id: string, enabled: boolean) => {
-    await api(`/api/cron/${id}/toggle`, {
-      method: 'POST',
-      body: JSON.stringify({ enabled: !enabled }),
-    });
-    onRefresh();
+    try {
+      await api(`/api/cron/${id}/toggle`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled: !enabled }),
+      });
+      onRefresh();
+      toast('success', enabled ? 'Cron job disabled.' : 'Cron job enabled.');
+    } catch (e) { toast('error', `Couldn't update cron job — try again. (${(e as Error).message})`); }
   };
 
   const handleDelete = async (id: string) => {
-    await api(`/api/cron/${id}`, { method: 'DELETE' });
-    onRefresh();
+    try {
+      await api(`/api/cron/${id}`, { method: 'DELETE' });
+      onRefresh();
+      toast('success', 'Cron job deleted.');
+    } catch (e) { toast('error', `Couldn't delete cron job — try again. (${(e as Error).message})`); }
   };
 
   return (
@@ -547,7 +584,7 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
                 </div>
               </div>
               <button
-                onClick={() => handleDelete(job.id)}
+                onClick={() => setDeleteId(job.id)}
                 className="p-1 rounded hover:opacity-80 flex-shrink-0"
                 title="Delete"
               >
@@ -557,6 +594,18 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="Delete this cron job?"
+        message="This can't be undone. The scheduled task will stop running and be removed."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (deleteId) await handleDelete(deleteId);
+          setDeleteId(null);
+        }}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }
@@ -564,6 +613,7 @@ function CronSection({ jobs, onRefresh }: { jobs: CronJob[]; onRefresh: () => vo
 // ─── Recipes Section ────────────────────────────────────────────
 
 function RecipesSection({ recipes, onRefresh }: { recipes: Recipe[]; onRefresh: () => void }) {
+  const { toast } = useToast();
   const [runningId, setRunningId] = useState<string | null>(null);
 
   const handleRun = async (id: string) => {
@@ -574,6 +624,9 @@ function RecipesSection({ recipes, onRefresh }: { recipes: Recipe[]; onRefresh: 
         body: JSON.stringify({ params: {} }),
       });
       onRefresh();
+      toast('success', 'Recipe started.');
+    } catch (e) {
+      toast('error', `Couldn't run recipe — try again. (${(e as Error).message})`);
     } finally {
       setRunningId(null);
     }
@@ -642,6 +695,7 @@ function AutopilotSection({ status, history, onRefresh }: {
   history: AutopilotRun[];
   onRefresh: () => void;
 }) {
+  const { toast } = useToast();
   const [toggling, setToggling] = useState(false);
   const [triggering, setTriggering] = useState(false);
 
@@ -653,6 +707,9 @@ function AutopilotSection({ status, history, onRefresh }: {
         body: JSON.stringify({ enabled: !status?.enabled }),
       });
       onRefresh();
+      toast('success', status?.enabled ? 'Autopilot disabled.' : 'Autopilot enabled.');
+    } catch (e) {
+      toast('error', `Couldn't update autopilot — try again. (${(e as Error).message})`);
     } finally {
       setToggling(false);
     }
@@ -663,6 +720,9 @@ function AutopilotSection({ status, history, onRefresh }: {
     try {
       await api('/api/autopilot/run', { method: 'POST' });
       onRefresh();
+      toast('success', 'Autopilot run started.');
+    } catch (e) {
+      toast('error', `Couldn't start autopilot run — try again. (${(e as Error).message})`);
     } finally {
       setTriggering(false);
     }

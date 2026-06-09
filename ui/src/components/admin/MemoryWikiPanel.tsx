@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Search, ArrowLeft, BookOpen, Link, Clock, Tag } from 'lucide-react';
 import { apiFetch } from '@/api/client';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 interface WikiEntity {
   id: string;
@@ -38,6 +39,7 @@ function timeAgo(iso: string): string {
 }
 
 function MemoryWikiPanel() {
+  const { toast } = useToast();
   const [entities, setEntities] = useState<WikiEntity[]>([]);
   const [selected, setSelected] = useState<WikiEntityDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,15 +53,21 @@ function MemoryWikiPanel() {
       if (typeFilter) params.set('type', typeFilter);
       const res = await apiFetch(`/api/wiki/entities?${params}`);
       if (res.ok) setEntities(await res.json());
-    } catch { /* ignore */ }
+      else toast('error', `Couldn't load the memory wiki — try again. (${res.status})`);
+    } catch (err) {
+      toast('error', `Couldn't load the memory wiki — try again. ${(err as Error).message}`);
+    }
     finally { setLoading(false); }
-  }, [search, typeFilter]);
+  }, [search, typeFilter, toast]);
 
   const selectEntity = async (name: string) => {
     try {
       const res = await apiFetch(`/api/wiki/entity/${encodeURIComponent(name)}`);
       if (res.ok) setSelected(await res.json());
-    } catch { /* ignore */ }
+      else toast('error', `Couldn't open "${name}" — try again. (${res.status})`);
+    } catch (err) {
+      toast('error', `Couldn't open "${name}" — try again. ${(err as Error).message}`);
+    }
   };
 
   useEffect(() => { fetchEntities(); }, [fetchEntities]);

@@ -3,7 +3,8 @@ import { Network, Trash2, StopCircle, Play } from 'lucide-react';
 import { getCPOrg } from '@/api/client';
 import { deleteCompany } from '@/api/client';
 import type { OrgNode } from '@/api/types';
-import { PageHeader, StatusBadge, EmptyState, SkeletonLoader } from '@/components/shared';
+import { PageHeader, StatusBadge, EmptyState, SkeletonLoader, ConfirmDialog } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 
 function modelShort(model: string): string {
   const parts = model.split('/');
@@ -84,10 +85,12 @@ function OrgTreeNode({
 }
 
 function CPOrg() {
+  const { toast } = useToast();
   const [org, setOrg] = useState<OrgNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -102,18 +105,20 @@ function CPOrg() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleDeleteCompany = useCallback(async (id: string, name: string) => {
-    if (!confirm(`Delete company "${name}"?\n\nThis will:\n• Stop the heartbeat runner\n• Archive all agents\n• Archive all goals and issues\n\nThis cannot be undone.`)) return;
-
+  const performDeleteCompany = useCallback(async () => {
+    if (!confirmDelete) return;
+    const { id } = confirmDelete;
+    setConfirmDelete(null);
     setDeleting(id);
     try {
       await deleteCompany(id);
+      toast('success', 'Company deleted.');
       await refresh();
     } catch (e) {
-      alert(`Failed to delete: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      toast('error', `Couldn't delete company — try again. ${e instanceof Error ? e.message : 'Unknown error'}`);
     }
     setDeleting(null);
-  }, [refresh]);
+  }, [confirmDelete, refresh, toast]);
 
   return (
     <div className="space-y-4">
@@ -123,7 +128,18 @@ function CPOrg() {
       />
 
       {loading && <SkeletonLoader variant="row" count={5} />}
-      {error && <div className="text-center py-8 text-error text-sm">{error}</div>}
+      {error && (
+        <div className="rounded-xl border border-error/50 bg-bg-secondary p-6">
+          <p className="text-sm font-medium text-error">Failed to load org chart</p>
+          <p className="mt-2 text-sm text-text-secondary">{error}</p>
+          <button
+            onClick={refresh}
+            className="mt-4 rounded-lg bg-bg-tertiary px-4 py-2 text-sm text-text hover:bg-border transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {!loading && !error && org.length === 0 && (
         <EmptyState icon={<Network size={32} />} title="No org structure" description="Register agents or create companies to see the org chart." />
@@ -136,7 +152,7 @@ function CPOrg() {
               key={node.id}
               node={node}
               depth={0}
-              onDelete={handleDeleteCompany}
+              onDelete={(id, name) => setConfirmDelete({ id, name })}
             />
           ))}
           {deleting && (
@@ -144,6 +160,15 @@ function CPOrg() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Delete company "${confirmDelete?.name || ''}"?`}
+        message="This stops the heartbeat runner and archives all of the company's agents, goals, and issues. This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={performDeleteCompany}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

@@ -3,8 +3,10 @@ import { ClipboardList, RefreshCw, Filter } from 'lucide-react';
 import { getAuditLog, getAuditStats } from '@/api/client';
 import type { AuditEntry, AuditStats } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 function AuditPanel() {
+  const { toast } = useToast();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [stats, setStats] = useState<AuditStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +22,9 @@ function AuditPanel() {
       ]);
       setEntries(e);
       setStats(s);
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast('error', `Couldn't load audit log — try again. (${(err as Error).message})`);
+    }
     setLoading(false);
   };
 

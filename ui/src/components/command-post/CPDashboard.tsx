@@ -4,6 +4,7 @@ import { Users, Lock, DollarSign, Target, Activity, ListTodo, AlertTriangle, Ref
 import { getCommandPostDashboard, getCPActivity, getCPIssues, getCPApprovals } from '@/api/client';
 import type { CommandPostDashboard, CPActivityEntry, CPIssue } from '@/api/types';
 import { StatusBadge, PageHeader, SkeletonLoader } from '@/components/shared';
+import { useToast } from '@/components/shared/Toast';
 import { PixelOfficeCrew } from './PixelOfficeCrew';
 
 function timeSince(dateStr: string): string {
@@ -28,6 +29,7 @@ function MetricCard({ icon: Icon, label, value, sub, color }: { icon: typeof Use
 }
 
 function CPDashboard() {
+  const { toast } = useToast();
   const [dashboard, setDashboard] = useState<CommandPostDashboard | null>(null);
   const [activity, setActivity] = useState<CPActivityEntry[]>([]);
   const [issues, setIssues] = useState<CPIssue[]>([]);
@@ -46,9 +48,16 @@ function CPDashboard() {
       setActivity(a);
       setIssues(i);
       setApprovals(appr.length);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Only surface the failure on the initial load — silent for the
+      // 15s background refresh so we don't spam toasts on a transient blip.
+      setDashboard(prev => {
+        if (prev === null) toast('error', `Couldn't load the dashboard — try again. ${(e as Error).message}`);
+        return prev;
+      });
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); const t = setInterval(refresh, 15_000); return () => clearInterval(t); }, [refresh]);
 

@@ -3,6 +3,7 @@ import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { Circle, Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import BodyStateIndicator from './BodyStateIndicator';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -17,14 +18,17 @@ export default function StatusBar() {
   const { info: updateInfo, triggerUpdate, waitForReload } = useUpdateCheck();
   const [updating, setUpdating] = useState(false);
   const [updateResult, setUpdateResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
 
-  const handleUpdate = async () => {
+  // Open the confirm dialog instead of a raw window.confirm().
+  const handleUpdate = () => {
     if (!updateInfo?.isNewer || updating) return;
-    if (!confirm(`Update TITAN from ${updateInfo.current} → ${updateInfo.latest}?
+    setConfirmUpdateOpen(true);
+  };
 
-Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`)) {
-      return;
-    }
+  const runUpdate = async () => {
+    setConfirmUpdateOpen(false);
+    if (!updateInfo?.isNewer || updating) return;
     const previousVersion = updateInfo.current;
     setUpdating(true);
     setUpdateResult(null);
@@ -118,6 +122,17 @@ Your data in ~/.titan/ will be preserved. The gateway will restart after the upd
           <span className="text-text-secondary">TITAN {status.version}</span>
         )}
       </div>
+
+      {/* Update confirmation — replaces the raw window.confirm() prompt. */}
+      <ConfirmDialog
+        open={confirmUpdateOpen}
+        variant="primary"
+        title="Update TITAN?"
+        message={`Update TITAN from ${updateInfo?.current} → ${updateInfo?.latest}? Your data in ~/.titan/ will be preserved. The gateway will restart after the update.`}
+        confirmLabel="Update"
+        onConfirm={runUpdate}
+        onCancel={() => setConfirmUpdateOpen(false)}
+      />
     </div>
   );
 }

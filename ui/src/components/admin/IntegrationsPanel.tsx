@@ -172,8 +172,8 @@ function IntegrationsPanel() {
           } catch { /* ignore */ }
           setOAuth(status);
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        showToast('error', `Couldn't load integrations — try again. (${e instanceof Error ? e.message : 'unknown error'})`);
       } finally {
         setLoading(false);
       }

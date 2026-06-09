@@ -3,8 +3,10 @@ import { Radio, RefreshCw } from 'lucide-react';
 import { getFleet } from '@/api/client';
 import type { FleetNode } from '@/api/types';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { useToast } from '@/components/shared/Toast';
 
 export default function FleetPanel() {
+  const { toast } = useToast();
   const [nodes, setNodes] = useState<FleetNode[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -13,9 +15,11 @@ export default function FleetPanel() {
     try {
       const data = await getFleet();
       setNodes(data.nodes || []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast('error', `Couldn't load fleet nodes — try again. (${(e as Error).message})`);
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

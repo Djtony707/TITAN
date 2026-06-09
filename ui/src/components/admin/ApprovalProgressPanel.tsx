@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ExternalLink, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { useToast } from '@/components/shared/Toast';
 
 interface Props {
     open: boolean;
@@ -317,6 +318,7 @@ function GoalProgress({ goal }: { goal: Goal }) {
 }
 
 function SubtaskRow({ goalId, subtask }: { goalId: string; subtask: Subtask }) {
+    const { toast } = useToast();
     const color = statusColor(subtask.status);
     const pulse = subtask.status === 'running';
     const [busy, setBusy] = useState(false);
@@ -325,7 +327,8 @@ function SubtaskRow({ goalId, subtask }: { goalId: string; subtask: Subtask }) {
         setBusy(true);
         try {
             await apiFetch(`/api/goals/${goalId}/subtasks/${subtask.id}/retry`, { method: 'POST' });
-        } catch (e) { alert(`Retry failed: ${(e as Error).message}`); }
+            toast('success', 'Subtask reset and retried.');
+        } catch (e) { toast('error', `Couldn't retry subtask — try again. (${(e as Error).message})`); }
         setBusy(false);
     };
     const markDone = async () => {
@@ -336,7 +339,8 @@ function SubtaskRow({ goalId, subtask }: { goalId: string; subtask: Subtask }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ result: 'Marked complete from Command Post' }),
             });
-        } catch (e) { alert(`Mark-done failed: ${(e as Error).message}`); }
+            toast('success', 'Subtask marked done.');
+        } catch (e) { toast('error', `Couldn't mark subtask done — try again. (${(e as Error).message})`); }
         setBusy(false);
     };
 
