@@ -558,11 +558,14 @@ describe('Agent processMessage', () => {
 
     // ── Loop detection ──────────────────────────────────────────────
 
-    it.skip('should stop when loop detection triggers a circuit breaker without leaking debug text (Hunt #24) — NATIVE CRASH in vitest worker, passes individually. Investigate post-release.', async () => {
+    it('should stop when loop detection triggers a circuit breaker without leaking debug text (Hunt #24)', async () => {
         const toolCalls = [
             { id: 'tc-1', type: 'function' as const, function: { name: 'shell', arguments: '{"command":"ls"}' } },
         ];
 
+        // The model keeps emitting tool calls every turn; the loop breaker must
+        // terminate this without spinning forever (v7.0 fix: the breaker→respond
+        // path used to bounce respond→act with `round` frozen → unbounded loop).
         mockChat.mockResolvedValue(makeChatResponse({ toolCalls, content: '' }));
 
         mockExecuteTools.mockResolvedValue([
@@ -584,7 +587,7 @@ describe('Agent processMessage', () => {
         // the user gets a normal reply based on the data collected.
         expect(result.content).not.toContain('Infinite loop detected');
         expect(result.content).not.toContain('called 10 times');
-        // The loop WAS broken (the loop didn't run forever) — content exists.
+        // The loop WAS broken (it terminated rather than running forever).
         expect(result.content).toBeTruthy();
     });
 

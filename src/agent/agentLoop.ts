@@ -790,6 +790,14 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // Force tool_choice=required on next think phase (set by incomplete task guard)
     let forceWriteOnNextThink = false;
 
+    // Hunt #24 / loop-breaker: once the loop breaker fires we route to the
+    // respond phase to give a final answer. That respond MUST be terminal — if
+    // the model emits more tool calls we ignore them and finalize, otherwise the
+    // breaker (whose whole job is to STOP a runaway) bounces respond→act→respond
+    // forever with `round` frozen (the switch-`break` skips round++). See the
+    // respond-phase tool-call guard below.
+    let loopBreakerActive = false;
+
     // F5: Budget soft warning — only inject once per loop
     let budgetWarningSent = false;
 
@@ -1934,6 +1942,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     });
                     phase = 'respond';
                     loopBroken = true;
+                    loopBreakerActive = true; // make the upcoming respond terminal (no bounce back to act)
                     break;
                 }
 
@@ -2032,9 +2041,11 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // Hunt Finding #24 (2026-04-14): previously `loopBroken` forced
             // phase='done' here, bypassing the respond phase. Now the loop
             // breaker sets phase='respond' directly so the user gets a real
-            // answer from the tool data, not the raw breaker message. Keep
-            // the `break` to exit the act loop but fall through to respond.
-            if (loopBroken) { break; }
+            // answer from the tool data, not the raw breaker message.
+            // NOTE: this `break` exits the `switch (phase)`, not the while loop,
+            // so it skips the `round++` below — advance `round` here so the
+            // breaker can never freeze the round counter into an infinite loop.
+            if (loopBroken) { round++; break; }
 
             // Progress scoring
             if (ctx.reflectionEnabled && toolResults.length > 0) {
@@ -2362,7 +2373,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             // it emitted a corrected write_file to /tmp/readme-b1-comparison.md.
             // Previously we dropped that tool call silently. Now we route
             // back to the think phase so the recovery actually executes.
-            if (response.toolCalls && response.toolCalls.length > 0) {
+            if (response.toolCalls && response.toolCalls.length > 0 && !loopBreakerActive) {
                 logger.warn(
                     COMPONENT,
                     `[RespondPhaseToolCall] Model emitted ${response.toolCalls.length} tool call(s) in respond phase — routing back to think phase to execute (Hunt #39)`,
