@@ -132,11 +132,17 @@ describe('classifyToolCall — standard policy', () => {
         expect(r.riskLevel).toBe('high');
     });
 
-    it('returns "gate" for an unknown tool (no contract registered)', () => {
+    it('returns "notify" for a benign unknown tool (no contract → run + log, not a wall)', () => {
         const r = classifyToolCall('mystery-tool');
-        expect(r.decision).toBe('gate');
+        expect(r.decision).toBe('notify');
         expect(r.reason).toMatch(/no contract/);
         expect(r.riskLevel).toBeUndefined();
+    });
+
+    it('still "gate"s a high-impact unknown tool by name (shell / delete / deploy / send)', () => {
+        expect(classifyToolCall('shell').decision).toBe('gate');
+        expect(classifyToolCall('delete_file').decision).toBe('gate');
+        expect(classifyToolCall('deploy_service').decision).toBe('gate');
     });
 });
 
@@ -186,8 +192,8 @@ describe('classifyToolCall — permissive policy', () => {
         expect(classifyToolCall('high-tool').decision).toBe('gate');
     });
 
-    it('still gates unknown tools (no contract = conservative)', () => {
-        expect(classifyToolCall('nobody-home').decision).toBe('gate');
+    it('notifies benign unknown tools (no contract → run + log)', () => {
+        expect(classifyToolCall('nobody-home').decision).toBe('notify');
     });
 });
 
