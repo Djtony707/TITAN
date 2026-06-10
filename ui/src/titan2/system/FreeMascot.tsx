@@ -76,6 +76,30 @@ export function FreeMascot() {
         } catch { /* private mode */ }
     }, []);
 
+    // ── Heartbeat — TITAN speaking FIRST ─────────────────────────────
+    // Every minute, check whether the backend heartbeat decided something was
+    // worth saying (it beats ~every 30 min and defaults to silence). A new
+    // note is spoken once in the bubble, then marked seen.
+    useEffect(() => {
+        let cancelled = false;
+        const check = async () => {
+            try {
+                const r = await apiFetch('/api/heartbeat/latest', { headers: { 'Content-Type': 'application/json' } });
+                const d = await r.json() as { note?: { at: string; message: string } | null };
+                if (cancelled || !d.note || busyRef.current) return;
+                const seen = localStorage.getItem('titan-heartbeat-seen');
+                if (seen === d.note.at) return;
+                localStorage.setItem('titan-heartbeat-seen', d.note.at);
+                setQuip(d.note.message);
+                setState('listening'); // perk up — it has something to say
+                setTimeout(() => { if (!cancelled && !busyRef.current) setState('idle'); }, 4000);
+            } catch { /* gateway briefly away — try next minute */ }
+        };
+        check();
+        const id = setInterval(check, 60_000);
+        return () => { cancelled = true; clearInterval(id); };
+    }, []);
+
     // ── Event bridge — any surface can drive the mascot ──────────────
     useEffect(() => {
         const onSay = (e: Event) => {
