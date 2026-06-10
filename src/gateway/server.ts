@@ -972,6 +972,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     logger.warn(COMPONENT, `somaInitiative failed to start: ${(err as Error).message}`);
   }
 
+  // v7.0 — the HEARTBEAT: every ~30 min TITAN looks at its world and decides
+  // whether ONE thing is worth telling Tony unprompted (else total silence).
+  // The single behavior that makes the agent feel inhabited rather than
+  // operated — see heartbeat.ts. Errors never break boot.
+  try {
+    const { registerHeartbeat } = await import('../agent/heartbeat.js');
+    registerHeartbeat();
+  } catch (err) {
+    logger.warn(COMPONENT, `heartbeat failed to register: ${(err as Error).message}`);
+  }
+
   // ── Rate limiter (inline, no deps) ─────────────────────────
   const defaultRateLimitWindowMs = options?.rateLimitWindowMs ?? 60000;
   const defaultRateLimitMax = options?.rateLimitMax ?? 30;
@@ -1779,6 +1790,26 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.json({ ok: true, driveWeights: organism.driveWeights });
     } catch (err) {
       res.status(500).json({ error: 'weights_failed', message: (err as Error).message });
+    }
+  });
+
+  // ── v7.0 Heartbeat — TITAN speaking first ──────────────────────────
+  app.get('/api/heartbeat/latest', async (_req, res) => {
+    try {
+      const { latestHeartbeat } = await import('../agent/heartbeat.js');
+      res.json({ note: latestHeartbeat() });
+    } catch (err) {
+      res.status(500).json({ error: 'heartbeat_failed', message: (err as Error).message });
+    }
+  });
+
+  app.post('/api/heartbeat/beat', async (_req, res) => {
+    try {
+      const { runHeartbeat } = await import('../agent/heartbeat.js');
+      const note = await runHeartbeat();
+      res.json({ ok: true, spoke: !!note, note });
+    } catch (err) {
+      res.status(500).json({ error: 'heartbeat_failed', message: (err as Error).message });
     }
   });
 
