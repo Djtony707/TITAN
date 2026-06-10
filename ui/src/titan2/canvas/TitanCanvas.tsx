@@ -1105,7 +1105,7 @@ export default function TitanCanvas() {
         parity (⌘J toggles it) but FloatingChatDock owns its own
         expanded state internally via the mascot click.
       */}
-      <FloatingChatDock space={space} defaultExpanded={chatOpen} />
+      <FloatingChatDock space={space} defaultExpanded={chatOpen} hideMascot />
       {/* v7.0 redo — the mascot loose on the desk: wanders, draggable, owns
           the greeting/streak/celebration beats (FreeMascot listens to the
           titan:mascot:* events the hero widget dispatches). */}

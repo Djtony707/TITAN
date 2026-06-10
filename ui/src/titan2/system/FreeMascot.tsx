@@ -145,6 +145,7 @@ export function FreeMascot() {
 
     return (
         <div
+            data-free-mascot
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}

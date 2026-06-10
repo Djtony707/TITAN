@@ -282,7 +282,7 @@ function pickPanelAnchor(pos: DockPos, size: DockSize): { left: number; top: num
     };
 }
 
-export function FloatingChatDock({ space, somaActive, defaultExpanded = false }: { space: Space; somaActive?: boolean; defaultExpanded?: boolean }) {
+export function FloatingChatDock({ space, somaActive, defaultExpanded = false, hideMascot = false }: { space: Space; somaActive?: boolean; defaultExpanded?: boolean; hideMascot?: boolean }) {
     // Live Soma state. Seeded from /api/config, updated on the
     // `titan:soma:changed` custom event that SomaWidget emits when the
     // master toggle flips. When `somaActive` prop is explicitly set,
@@ -594,7 +594,11 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
 
     return (
         <>
-            {/* The mascot — always rendered, always draggable. */}
+            {/* The mascot — draggable chat opener. Hidden when the canvas
+                already has the FreeMascot (one creature only — two TITANs on
+                the desk reads as a bug, not a feature). The chat panel still
+                opens via ⌘J / the titan:chat:toggle event / tapping FreeMascot. */}
+            {!hideMascot && (
             <div
                 style={{
                     position: 'fixed',
@@ -631,6 +635,7 @@ export function FloatingChatDock({ space, somaActive, defaultExpanded = false }:
                     edgeHidden={!!hiddenEdge}
                 />
             </div>
+            )}
 
             {/* Chat panel — only rendered when expanded. */}
             {expanded && (

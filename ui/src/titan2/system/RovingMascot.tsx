@@ -37,6 +37,9 @@ export function RovingMascot() {
     useEffect(() => {
         const onWork = (e: Event) => {
             const d = ((e as CustomEvent).detail || {}) as WorkDetail;
+            // One creature only: if a FreeMascot is on screen (canvas pages),
+            // it narrates the work — the rover stands down.
+            if (document.querySelector('[data-free-mascot]')) return;
             if (d.active) {
                 if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
                 setLabel(d.label || 'Working on your widget…');
