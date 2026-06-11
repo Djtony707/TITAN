@@ -58,6 +58,20 @@ export function loadConfig(): TitanConfig {
         }
     }
 
+    // v7.0: migrate organism.pressureThreshold 1.2 → 0.4. The old default was
+    // mathematically unreachable (a fully starved drive maxes ~0.49), so Soma
+    // could never propose work — and Zod materialized that dead value into
+    // every saved titan.json. Nobody chose 1.2 deliberately (it was the
+    // default), so an exact match is safe to retune; any other value is an
+    // explicit user choice and is respected.
+    {
+        const organism = (rawConfig as Record<string, unknown>).organism as Record<string, unknown> | undefined;
+        if (organism && typeof organism === 'object' && organism.pressureThreshold === 1.2) {
+            organism.pressureThreshold = 0.4;
+            logger.info(COMPONENT, 'Migrated organism.pressureThreshold 1.2 → 0.4 (the old default could never fire a proposal). Set any other value in titan.json to override.');
+        }
+    }
+
     // Detect unknown keys at every nesting depth BEFORE Zod silently strips
     // them. Hunt Finding #1 (2026-04-14) covered the top-level case
     // (`facebook: {...}` ignored). This expanded check also catches nested

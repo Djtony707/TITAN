@@ -58,12 +58,12 @@ describe('SpacesSidebar canvas-scoped pref model (v6.3.4)', () => {
 
     describe('Non-canvas route behavior', () => {
         it('defaults to expanded on / with no prefs', () => {
-            expect(readSpacesSidebarCollapsedPreference('/', getItem)).toBe(false);
+            expect(readSpacesSidebarCollapsedPreference('/missions', getItem)).toBe(false);
         });
 
         it('honors global "1" (collapsed) on non-canvas routes', () => {
             store[SPACES_SIDEBAR_COLLAPSED_KEY] = '1';
-            expect(readSpacesSidebarCollapsedPreference('/', getItem)).toBe(true);
+            expect(readSpacesSidebarCollapsedPreference('/missions', getItem)).toBe(true);
         });
 
         it('honors global "0" (expanded) on non-canvas routes', () => {
@@ -74,7 +74,7 @@ describe('SpacesSidebar canvas-scoped pref model (v6.3.4)', () => {
         it('IGNORES the canvas-pin key on non-canvas routes', () => {
             store[SPACES_SIDEBAR_CANVAS_PIN_KEY] = '1';
             // No global pref → defaults to expanded (false), canvas-pin is irrelevant.
-            expect(readSpacesSidebarCollapsedPreference('/', getItem)).toBe(false);
+            expect(readSpacesSidebarCollapsedPreference('/missions', getItem)).toBe(false);
         });
 
         it('"/spaces" listing route is NOT a canvas route (canvas requires /space/<id>)', () => {
@@ -98,7 +98,7 @@ describe('SpacesSidebar canvas-scoped pref model (v6.3.4)', () => {
         });
 
         it('writes to the global key on non-canvas routes', () => {
-            writeSpacesSidebarCollapsedPreference(true, '/', setItem);
+            writeSpacesSidebarCollapsedPreference(true, '/missions', setItem);
             expect(store[SPACES_SIDEBAR_COLLAPSED_KEY]).toBe('1');
             expect(SPACES_SIDEBAR_CANVAS_PIN_KEY in store).toBe(false);
         });
@@ -108,19 +108,25 @@ describe('SpacesSidebar canvas-scoped pref model (v6.3.4)', () => {
         it('toggling on canvas does not affect non-canvas behavior', () => {
             writeSpacesSidebarCollapsedPreference(false, '/space/home', setItem); // pin open on canvas
             // Non-canvas route still defaults to expanded (no global pref written)
-            expect(readSpacesSidebarCollapsedPreference('/', getItem)).toBe(false);
+            expect(readSpacesSidebarCollapsedPreference('/missions', getItem)).toBe(false);
         });
 
         it('toggling collapsed on a non-canvas page does not collapse canvas (canvas is already collapsed by default)', () => {
-            writeSpacesSidebarCollapsedPreference(true, '/', setItem); // collapse global
+            writeSpacesSidebarCollapsedPreference(true, '/missions', setItem); // collapse global
             // Canvas route still uses its own default (collapsed), unchanged
             expect(readSpacesSidebarCollapsedPreference('/space/home', getItem)).toBe(true);
         });
 
         it('toggling expanded on a non-canvas page does not expand the canvas (the v6.3.4 fix)', () => {
-            writeSpacesSidebarCollapsedPreference(false, '/', setItem); // expand global
+            writeSpacesSidebarCollapsedPreference(false, '/missions', setItem); // expand global
             // Canvas route stays collapsed
             expect(readSpacesSidebarCollapsedPreference('/space/home', getItem)).toBe(true);
         });
+    });
+});
+
+describe("v7.0 redo — '/' is the home canvas", () => {
+    it('defaults to collapsed on / (canvas-scoped, shell sidebar already navigates)', () => {
+        expect(readSpacesSidebarCollapsedPreference('/', () => null)).toBe(true);
     });
 });
