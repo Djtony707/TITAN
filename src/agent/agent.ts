@@ -1615,6 +1615,12 @@ export async function processMessage(
         systemPrompt += '\n\nWhen editing code: 1) read the relevant file first with read_file, 2) make the change with edit_file (for a small change) or write_file — do NOT use shell/sed/echo/cat to edit files; edit_file is the correct, verifiable tool, 3) run tests to verify, 4) report what you changed. Do NOT stop after reading — actually save your changes.';
         taskEnforcementActive = true;
     }
+    // v7.0 honesty rule (user-test T6 found a fabricated "I've scheduled a
+    // reminder" with zero tools called — trust-destroying). Steering applies
+    // when the ask implies a future/side-effect action.
+    if (/\b(remind|schedule|every (day|week|morning|hour)|later|tomorrow|at \d|recurring|cron|alarm|automat)/i.test(message)) {
+        systemPrompt += '\n\nHONESTY RULE: never claim you scheduled, set a reminder, automated, sent, or posted something unless you ACTUALLY called the corresponding tool in this turn (e.g. the `cron` tool for reminders/schedules: action=create with a name, cron expression, and command). If you cannot do it with your tools, say so plainly instead of pretending.';
+    }
     // v5.0.2 / v7.0: detect system-widget shortcuts via the shared, model-agnostic
     // detector (src/agent/systemWidgets.ts). It fires for "show the training
     // dashboard" AND short commands like "show backup" / "show recipes" (the old
@@ -2107,6 +2113,21 @@ export async function processMessage(
         if (sw && !finalContent.includes('_____widget')) {
             finalContent = finalContent ? `${finalContent}\n\n${buildSystemWidgetGate(sw)}` : buildSystemWidgetGate(sw);
             logger.info(COMPONENT, `[SystemWidgetShortcut] Deterministically emitted _____widget gate for ${sw.source}`);
+        }
+    }
+
+    // v7.0 anti-fabrication backstop (user-test T6: "I've scheduled a reminder
+    // for Friday at 5 PM" with zero scheduling tools called). If the reply
+    // CLAIMS a reminder/schedule was set but no scheduling-capable tool ran
+    // this turn, append an honest correction so the user is never silently
+    // misled. Deterministic + model-agnostic; the prompt steering above tries
+    // to prevent this — this guard guarantees it.
+    {
+        const claimsScheduled = /\b(i(?:'|’)?(?:ve| have)\s+(?:set|scheduled|created)|(?:reminder|schedule[d]?)\s+(?:is\s+)?(?:set|created|scheduled)|i(?:'|’)?ll remind you|scheduled a reminder)\b/i.test(finalContent);
+        const schedulingToolRan = toolsUsed.some(t => /^(cron|schedule|event_trigger|workflows?|social_scheduler)/i.test(t));
+        if (claimsScheduled && !schedulingToolRan) {
+            finalContent += '\n\n⚠️ Correction: I described scheduling that, but I did not actually create a scheduled job this turn. Say "add a cron job for it" and I\'ll set it up properly with the cron tool.';
+            logger.warn(COMPONENT, '[HonestyGuard] Reply claimed scheduling without a scheduling tool — appended correction');
         }
     }
 
