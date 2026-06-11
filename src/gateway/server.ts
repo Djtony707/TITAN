@@ -979,6 +979,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   try {
     const { registerHeartbeat } = await import('../agent/heartbeat.js');
     registerHeartbeat();
+    const { registerReminderWatcher } = await import('../agent/reminders.js');
+    registerReminderWatcher();
   } catch (err) {
     logger.warn(COMPONENT, `heartbeat failed to register: ${(err as Error).message}`);
   }

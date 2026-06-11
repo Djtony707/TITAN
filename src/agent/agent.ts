@@ -1619,7 +1619,7 @@ export async function processMessage(
     // reminder" with zero tools called — trust-destroying). Steering applies
     // when the ask implies a future/side-effect action.
     if (/\b(remind|schedule|every (day|week|morning|hour)|later|tomorrow|at \d|recurring|cron|alarm|automat)/i.test(message)) {
-        systemPrompt += '\n\nHONESTY RULE: never claim you scheduled, set a reminder, automated, sent, or posted something unless you ACTUALLY called the corresponding tool in this turn (e.g. the `cron` tool for reminders/schedules: action=create with a name, cron expression, and command). If you cannot do it with your tools, say so plainly instead of pretending.';
+        systemPrompt += '\n\nHONESTY RULE: never claim you scheduled, set a reminder, automated, sent, or posted something unless you ACTUALLY called the corresponding tool in this turn (the `reminder` tool for one-time reminders — action=set with message + ISO `when`; the `cron` tool for recurring jobs). If you cannot do it with your tools, say so plainly instead of pretending.';
     }
     // v5.0.2 / v7.0: detect system-widget shortcuts via the shared, model-agnostic
     // detector (src/agent/systemWidgets.ts). It fires for "show the training
@@ -2124,9 +2124,9 @@ export async function processMessage(
     // to prevent this — this guard guarantees it.
     {
         const claimsScheduled = /\b(i(?:'|’)?(?:ve| have)\s+(?:set|scheduled|created)|(?:reminder|schedule[d]?)\s+(?:is\s+)?(?:set|created|scheduled)|i(?:'|’)?ll remind you|scheduled a reminder)\b/i.test(finalContent);
-        const schedulingToolRan = toolsUsed.some(t => /^(cron|schedule|event_trigger|workflows?|social_scheduler)/i.test(t));
+        const schedulingToolRan = toolsUsed.some(t => /^(reminder|cron|schedule|event_trigger|workflows?|social_scheduler)/i.test(t));
         if (claimsScheduled && !schedulingToolRan) {
-            finalContent += '\n\n⚠️ Correction: I described scheduling that, but I did not actually create a scheduled job this turn. Say "add a cron job for it" and I\'ll set it up properly with the cron tool.';
+            finalContent += '\n\n⚠️ Correction: I described scheduling that, but I did not actually create a scheduled job this turn. Ask me again and I\'ll set it with the reminder tool properly.';
             logger.warn(COMPONENT, '[HonestyGuard] Reply claimed scheduling without a scheduling tool — appended correction');
         }
     }
