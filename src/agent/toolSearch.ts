@@ -30,6 +30,9 @@ export const DEFAULT_CORE_TOOLS = [
     'smart_form_fill',
     'weather',
     'memory',
+    // v7.0: "remind me at X" is a core personal-assistant verb — models were
+    // fabricating reminders precisely because this tool wasn't in their view.
+    'reminder',
     'system_info',
     'goal_list',
     'spawn_agent',
