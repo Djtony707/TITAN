@@ -552,7 +552,11 @@ export const CapsolverConfigSchema = z.object({
 export const OrganismConfigSchema = z.object({
     enabled: z.boolean().default(true).describe('Master switch. When true (default for v5.0+), Soma registers driveTick, writes drive state, and injects the hormonal ambient-state block into the system prompt. Flip via titan.json, Soma widget header, or Settings.'),
     hormonesInPrompt: z.boolean().default(true).describe('Include hormonal ambient-state block in the system prompt when Soma is enabled.'),
-    pressureThreshold: z.number().min(0).max(5).default(1.2).describe('Combined drive pressure above which Soma fires a proposal. Raise to make Soma more conservative.'),
+    // v7.0 life loop: was 1.2 — mathematically unreachable (a fully starved
+    // drive maxes near 0.49), so Soma had never once proposed work. 0.4 lets a
+    // genuinely neglected drive fire a proposal — which still goes through
+    // shadow rehearsal + the approvals inbox, never auto-runs.
+    pressureThreshold: z.number().min(0).max(5).default(0.4).describe('Combined drive pressure above which Soma fires a proposal. Raise to make Soma more conservative.'),
     driveSetpoints: z.record(z.string(), z.number().min(0).max(1)).optional().describe('Per-drive setpoint overrides: { purpose: 0.7, hunger: 0.6, ... }'),
     driveWeights: z.record(z.string(), z.number().min(0.1).max(3.0)).optional().describe('Per-drive weight overrides for pressure fusion. 1.0 is baseline; higher = more urgent.'),
     disabledDrives: z.array(z.string()).default([]).describe('Drive IDs to skip entirely in computeAllDrives + pressure fusion.'),
