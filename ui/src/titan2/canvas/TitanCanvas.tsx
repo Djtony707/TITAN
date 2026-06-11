@@ -519,11 +519,14 @@ export default function TitanCanvas() {
         try { pinned = localStorage.getItem('titan-home-hero-pinned') === '1'; } catch { /* default */ }
         if (!pinned) {
           try { localStorage.setItem('titan-home-hero-pinned', '1'); } catch { /* private */ }
+          // Land in a genuinely free slot — a fixed x/y overlapped whatever
+          // the user already had at the top of their desk.
+          const spot = findFirstFreeSlot(s.widgets, 6, 5);
           SpaceEngine.addWidget(id, {
             name: 'Ask TITAN',
             format: 'system',
             source: 'system:home-hero',
-            x: 3, y: 0, w: 6, h: 5,
+            x: spot.x, y: spot.y, w: 6, h: 5,
           });
           setSpace(SpaceEngine.get(id) ?? s);
           return;

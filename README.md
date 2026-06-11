@@ -74,6 +74,21 @@ A session-scoped **event spine** now emits `tool:call` / `tool:result` events (w
 
 *(The Live Studio ships with the timeline + diff stream + changed-files list. A live preview server, a one-click-revert button, and the round/token spine tail are on the [roadmap](#roadmap) — not in v7.0.)*
 
+### 🫀 Alive by default — the life loop
+
+TITAN doesn't just respond — it lives on your machine:
+
+- **The Heartbeat.** Every ~30 minutes TITAN checks its world and decides if ONE thing is worth telling you, unprompted — the mascot says it. Default is silence; quiet hours respected.
+- **Proactive memory.** It quietly notices durable things about you from real conversations (strict rules, never sensitive categories) — what it learns shapes every future reply and fills the plain-language **"What I know about you"** page.
+- **It proposes work.** When a drive is genuinely neglected, Soma files a suggestion into your approvals — shadow-rehearsed first, never auto-run. (v7.0 fixes the threshold that had made this mathematically impossible.)
+
+### 🪵 The Living Desk — home is a canvas, the mascot is a creature
+
+- **Home IS your canvas.** The "Ask TITAN" input is itself a widget — move it, resize it, build your desk around it. Five desk themes (incl. the new **Night Desk** dark walnut), zoomable 40–200%.
+- **The mascot wanders the desk**, goes wherever you place it, narrates work in plain English, celebrates finishes, carries your day-streak flame, and greets you with what it finished while you were away.
+- **Edit widgets by talking** — the editor's "Ask AI" bar rewrites a widget from a plain-English request; History undoes.
+- **Five doors, not 48** — Home · Desk · Studio · Memory · Workshop. All the power is still there, behind the Workshop door.
+
 ### 🔭 Observability & tracing
 
 - Per-run **spans** (latency, tokens, cost, tools) with a live summary and **OTel export**.

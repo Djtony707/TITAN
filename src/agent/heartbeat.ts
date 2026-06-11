@@ -103,7 +103,7 @@ export async function runHeartbeat(): Promise<HeartbeatNote | null> {
             ctx,
             '',
             'RULES:',
-            '- Default to silence. If there is nothing genuinely useful, timely, or delightful to say, reply with exactly: HEARTBEAT_OK',
+            '- Default to silence. If there is nothing genuinely useful, timely, or delightful to say, reply with exactly: HEARTBEAT_OK — all quiet on the desk.',
             '- Otherwise reply with ONE short, friendly, concrete message (max 140 characters) in TITAN\'s voice — a companion on the desk, not a notification system. No jargon, no "Soma", no markdown.',
             '- Worth speaking for: a finished mission he hasn\'t seen, a genuinely useful pending suggestion, something time-relevant. NOT worth it: status filler, greetings, anything resembling the previous note.',
             '- Between 11pm and 7am local time, reply HEARTBEAT_OK unless something FINISHED.',

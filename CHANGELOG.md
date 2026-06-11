@@ -25,6 +25,20 @@
 - Replaced 29 hollow placeholder tests with real assertions; added real coverage for goalDriver Bug #3, `agent_messaging`, and 6 channel adapters.
 - Behavioral eval-gate: **93% (GO)**.
 
+### Alive by default — the life loop
+- **The Heartbeat — TITAN speaks first.** Every ~30 minutes the agent looks at its world (pending suggestions, missions, its mood, the time, its own last note) and decides if ONE thing is worth telling you, unprompted — the mascot says it. Default is total silence; quiet hours respected. `GET /api/heartbeat/latest`, `POST /api/heartbeat/beat`.
+- **Proactive memory.** After real conversations (throttled, fire-and-forget) TITAN asks itself "did I learn something durable about this person?" and quietly saves it — strict rules: stable preferences/facts only, never sensitive categories. What it learns feeds every future prompt and the new **"What I know about you"** page (`/memory`, with identity + observations + stored facts via `GET /api/memory/about-me`).
+- **Soma can finally propose work.** `organism.pressureThreshold` default 1.2 → 0.4 — the old value was mathematically unreachable, so the "TITAN suggests useful work on its own" promise had never fired once. Proposals remain shadow-rehearsed + approvals-gated. Existing configs with the old 1.2 default are auto-migrated at load (any other value is respected).
+- De-jargoned by default: "Soma" no longer appears outside the Workshop — the status bar shows a friendly mood ("feeling curious"), the mascot wears the rest.
+
+### The Living Desk — home is a canvas, the mascot is a creature
+- **Home IS the canvas.** `/` opens your customizable desk; the "Ask TITAN" input is itself a widget (movable/resizable/removable — and respected if you delete it). The whole UI converges on the desk aesthetic (paper/brass/leather) across five themes including the new **Night Desk** (dark walnut), all WCAG-AA verified.
+- **The free mascot.** TITAN wanders the desk on its own, can be picked up and placed anywhere (it remembers its spot), narrates work in plain English, celebrates finished asks, carries your day-streak flame, greets you with what it finished while you were away, and delivers heartbeat notes. One creature, everywhere.
+- **Zoomable canvas** — 40–200%, Ctrl/Cmd+wheel and Ctrl±/0, floating control pill, persisted.
+- **AI co-pilot in the widget editor** — describe a change in plain English ("warm orange gradient + a reset button") and the agent rewrites the widget; History undoes. `POST /api/widget/assist`.
+- **Nav collapsed 48 → 5 doors** (Home · Desk · Studio · Memory · Workshop) — the entire admin surface lives behind the Workshop door; every old route still resolves. First run no longer blocks on the setup wizard (it moved to `/setup`; the mascot nudges instead).
+- **Failures are visible:** ~33 panels' silently-swallowed errors + raw `alert()`s replaced with the toast/dialog system; success toasts on mutations; real empty states with example asks.
+
 ### Live Studio + the session-scoped event spine
 - **Event spine (the keystone):** the previously-silent `tool:call` / `tool:result` topics now have a producer. `sessionTrace` stamps a stable `actionId` (+ session/agent/ts) and emits on the existing trace bus with a TTL dedupe, so the universal `executeTool` emit and the richer agent-loop emits collapse to one event. Wired at a single site in `executeTool` (before dispatch + on both success and throw paths), it lights up **every** tool path — chat, sub-agent, cron, mesh — for the existing `/watch` subscribers, additively and without ever throwing to the caller.
 - **Additive spine fields:** `ToolCallEvent` / `ToolResultEvent` gain optional `actionId`, `parentAgentId`, `roleId`, `round`, `resultPreview`, `diff`, `filePath`, `checkpointId`, `verdict`, and `taskType` — zero blast radius on existing consumers.

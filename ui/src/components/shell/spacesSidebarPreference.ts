@@ -27,7 +27,10 @@ export const SPACES_SIDEBAR_CANVAS_PIN_KEY = 'titan-sidebar-canvas-pin';
 
 /** True when the current route is a single-Space canvas page. */
 export function isSpaceCanvasPath(pathname: string): boolean {
-    return /^\/space\/[^/]+\/?$/.test(pathname);
+    // v7.0 redo: '/' IS the home canvas now, so it gets the same collapsed-by-
+    // default treatment — the shell sidebar already navigates there, and a
+    // second expanded panel read as clutter.
+    return pathname === '/' || /^\/space\/[^/]+\/?$/.test(pathname);
 }
 
 /**
