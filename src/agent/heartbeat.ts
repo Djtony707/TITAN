@@ -42,6 +42,16 @@ export function latestHeartbeat(): HeartbeatNote | null {
     }
 }
 
+/** Speak a note through the heartbeat channel (persist + emit) — the mascot
+ *  polls /api/heartbeat/latest and says it. Used by the beat itself and by
+ *  the reminder watcher, so reminders arrive as the companion speaking. */
+export function speakNote(message: string): HeartbeatNote {
+    const note: HeartbeatNote = { at: new Date().toISOString(), message: message.slice(0, 200) };
+    persistNote(note);
+    try { titanEvents.emit('heartbeat:note', note); } catch { /* never fatal */ }
+    return note;
+}
+
 function persistNote(note: HeartbeatNote): void {
     try {
         mkdirSync(dirname(NOTES_FILE()), { recursive: true });
