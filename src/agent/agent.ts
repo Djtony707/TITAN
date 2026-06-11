@@ -2262,6 +2262,15 @@ export async function processMessage(
         });
     } catch { /* tracing optional */ }
 
+    // v7.0 life loop — proactive memory (the Hermes move): occasionally notice
+    // something durable about the user from this exchange. Throttled + gated
+    // inside; fire-and-forget so it never delays the reply. Closes the audit
+    // gap where appendObservation had zero callers and the agent never learned.
+    try {
+        const { maybeObserve } = await import('./observationWriter.js');
+        maybeObserve(channel, message || '', finalContent || '');
+    } catch { /* observation optional */ }
+
     return {
         content: finalContent,
         sessionId: session.id,
