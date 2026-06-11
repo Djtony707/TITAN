@@ -329,20 +329,22 @@ ALWAYS show the top match's name + category to the user before calling gallery_g
         },
         {
             name: 'gallery_get',
-            description: `Fetch a single widget template from the gallery by id, with REPLACE_WITH_X placeholders substituted. Returns the canvas-ready React source you can paste into a _____react block.
+            description: `Fetch a single widget template from the gallery by id, with REPLACE_WITH_X placeholders substituted. Use it to INSPECT a template; to actually place the widget, call create_widget — NOT a _____react fence.
 
-USE WHEN: you just got a template id from gallery_search and now need its source. ALWAYS call gallery_search first to get the id — never guess a template name.
+USE WHEN: you just got a template id from gallery_search and need to inspect/verify its source. ALWAYS call gallery_search first to get the id — never guess a template name.
+
+AFTER THIS: call create_widget({ template: "<id>", fill: {...} }) to place it on the user's canvas. create_widget reports whether the canvas actually received it — a pasted _____react fence cannot confirm delivery and creates duplicates. Never claim a widget is "on the canvas" unless create_widget confirmed delivery.
 
 DO NOT USE FOR:
 - Browsing what's available → use gallery_search (returns ranked matches with descriptions).
 - Listing every template → use gallery_list (full catalogue).
-- Generating a brand-new widget that's not in the catalogue → emit a fresh _____react block directly; do not gallery_get for templates that don't exist.
+- Generating a brand-new widget that's not in the catalogue → call create_widget with raw source.
 
 Parameters:
 - id (string, required) — exact template id from gallery_search results.
 - fill (object, optional) — placeholder substitutions. Keys are the placeholder name WITHOUT the REPLACE_WITH_ prefix (so { "SYMBOL": "AAPL" } substitutes REPLACE_WITH_SYMBOL). Values are escaped automatically for backslash, single quote, and backtick.
 
-Returns: { source: string, size: { width, height }, category, displayName }. source is the full React component with placeholders filled. Drop it inside a _____react block on the next assistant turn.
+Returns: { source: string, size: { width, height }, category, displayName, next }. Follow the \`next\` instruction.
 
 Errors:
 - "Template not found: <id>" — the id is wrong (typo or stale). Re-run gallery_search to get a fresh id.
@@ -378,6 +380,11 @@ Errors:
                     defaultSize: t.defaultSize,
                     source: sourceWithMeta,
                     placeholders: t.placeholders ?? [],
+                    // v7.0 honesty fix: models were pasting the source into a
+                    // _____react fence and claiming "it's on your canvas" with
+                    // no delivery confirmation. The result itself now routes
+                    // them to the verifiable path.
+                    next: `Call create_widget({ template: "${t.id}"${fill ? `, fill: ${JSON.stringify(fill)}` : ''} }) NOW to place it — do NOT paste a _____react fence (it cannot confirm delivery and duplicates). Only claim the widget is on the canvas if create_widget confirms delivery.`,
                 });
             },
         },
