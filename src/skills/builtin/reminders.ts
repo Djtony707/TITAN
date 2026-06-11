@@ -28,7 +28,7 @@ export function registerReminderSkill(): void {
                 'NOT for recurring jobs ("every morning", "daily at 9") → use the `cron` tool for those.',
                 '',
                 'ACTIONS:',
-                '  • set    — message (what to say) + when (ISO 8601 datetime WITH timezone offset, e.g. "2026-06-12T17:00:00-07:00"). Convert the user\'s natural-language time to ISO using the current local date/time from your context.',
+                '  • set    — message (what to say) + a time. For RELATIVE asks ("in 20 minutes", "in 2 hours") pass inMinutes (a number) — do NOT compute ISO yourself. For ABSOLUTE times ("Friday 5pm") pass when as ISO 8601 WITH the local timezone offset from your date/time context (e.g. "2026-06-12T17:00:00-07:00").',
                 '  • list   — pending reminders.',
                 '  • cancel — id (from list), or "all" to clear pending.',
                 '',
@@ -39,7 +39,8 @@ export function registerReminderSkill(): void {
                 properties: {
                     action: { type: 'string', enum: ['set', 'list', 'cancel'], description: 'What to do.' },
                     message: { type: 'string', description: 'set: what to remind the user about.' },
-                    when: { type: 'string', description: 'set: ISO 8601 datetime with timezone offset.' },
+                    when: { type: 'string', description: 'set (absolute): ISO 8601 datetime with timezone offset.' },
+                    inMinutes: { type: 'number', description: 'set (relative): fire this many minutes from now. Preferred for "in N minutes/hours" asks.' },
                     id: { type: 'string', description: 'cancel: reminder id, or "all".' },
                 },
                 required: ['action'],
@@ -47,7 +48,11 @@ export function registerReminderSkill(): void {
             execute: async (args: Record<string, unknown>): Promise<string> => {
                 const action = String(args.action ?? '');
                 if (action === 'set') {
-                    const result = addReminder(String(args.message ?? ''), String(args.when ?? ''));
+                    const inMinutes = Number(args.inMinutes);
+                    const whenIso = Number.isFinite(inMinutes) && inMinutes > 0
+                        ? new Date(Date.now() + inMinutes * 60_000).toISOString()
+                        : String(args.when ?? '');
+                    const result = addReminder(String(args.message ?? ''), whenIso);
                     if ('error' in result) return `Error: ${result.error}`;
                     const local = new Date(result.dueAt).toLocaleString();
                     return `Reminder set (id: ${result.id}): "${result.message}" — I'll tell you on ${local}.`;
