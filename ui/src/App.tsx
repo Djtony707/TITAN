@@ -51,6 +51,7 @@ const TracesPanel = lazy(() => import('@/components/admin/TracesPanel'));
 const WorkflowBuilderPanel = lazy(() => import('@/components/admin/WorkflowBuilderPanel'));
 const LiveStudio = lazy(() => import('@/views/LiveStudio'));
 import { RovingMascot } from '@/titan2/system/RovingMascot';
+import WelcomeSetup from '@/titan2/system/WelcomeSetup';
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -116,6 +117,7 @@ function AuthenticatedAppInner() {
     <ConfigProvider>
       <RouteTracker />
       <RovingMascot />
+      <WelcomeSetup />
       <TitanShell>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>

@@ -274,7 +274,8 @@ export function createSkillsRouter(channels: Map<string, ChannelAdapter>): Route
       const { getRestartStats } = await import('../../utils/restartTracker.js');
       restarts = getRestartStats();
     } catch { /* tracker unavailable */ }
-    res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded, restarts });
+    const { getProviderReady } = await import('../onboarding.js');
+    res.json({ status: 'ok', version: TITAN_VERSION, uptime: process.uptime(), onboarded: cfg.onboarded, providerReady: getProviderReady(), restarts });
   });
 
   // ── Bug Reports ─────────────────────────────────────────────

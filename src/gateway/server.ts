@@ -868,28 +868,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const { hasUsableProvider } = await import('../config/config.js');
     const usable = await hasUsableProvider();
     if (!usable.ok) {
-      console.error('');
-      console.error('\x1b[31m\x1b[1m❌ TITAN is not configured.\x1b[0m');
-      console.error('');
-      console.error(`   ${usable.details}`);
-      console.error('');
-      console.error('   Run the setup wizard:');
-      console.error('     \x1b[36mtitan onboard\x1b[0m');
-      console.error('');
-      console.error('   Or set an environment variable:');
-      console.error('     \x1b[36mexport ANTHROPIC_API_KEY="sk-ant-..."\x1b[0m');
-      console.error('     \x1b[36mexport OPENAI_API_KEY="sk-..."\x1b[0m');
-      console.error('     \x1b[36mexport OLLAMA_BASE_URL="http://localhost:11434"\x1b[0m');
-      console.error('');
-      console.error('   Or check what went wrong:');
-      console.error('     \x1b[36mtitan doctor\x1b[0m');
-      console.error('');
-      console.error('   To skip this check (advanced):');
-      console.error('     \x1b[36mtitan gateway --skip-usable-check\x1b[0m');
-      console.error('');
-      process.exit(1);
+      // v7.0 Welcome Mode: never refuse to boot. Serve the UI and let the
+      // first-run setup screen connect a model — a first-time user should
+      // meet the desk, not a terminal error.
+      const { setProviderReady } = await import('./onboarding.js');
+      setProviderReady(false);
+      logger.warn(COMPONENT, `No usable provider yet (${usable.details}) — starting in WELCOME MODE. Open the dashboard to finish setup.`);
+      console.log('');
+      console.log('\x1b[36m\x1b[1m👋 Welcome to TITAN!\x1b[0m No AI model is connected yet.');
+      console.log('   Opening the dashboard will walk you through it in under a minute.');
+      console.log('');
     }
-    logger.info(COMPONENT, `Provider check passed: ${usable.details}`);
+    else { logger.info(COMPONENT, `Provider check passed: ${usable.details}`); }
   }
 
   // ── Production safety warning ─────────────────────────────────────
@@ -2764,6 +2754,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
+  // ── v7.0 Welcome Mode / first-run onboarding ──────────────────────
+  app.get('/api/onboarding/state', async (_req, res) => {
+    const { getOnboardingState } = await import('./onboarding.js');
+    res.json(await getOnboardingState());
+  });
+
+  app.post('/api/onboarding/configure', async (req, res) => {
+    const { applyOnboardingConfig } = await import('./onboarding.js');
+    const result = await applyOnboardingConfig(req.body || {});
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
   app.post('/api/message', rateLimit(defaultRateLimitWindowMs, defaultRateLimitMax), concurrencyGuard(MAX_CONCURRENT_MESSAGES), async (req, res) => {
     // v5.5.28 FIX: accept either {content} (canonical) or {message} (legacy
     // shape used by community SDKs / older clients). Previously rejected
@@ -2779,6 +2781,25 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (!content || typeof content !== 'string') {
       res.status(400).json({ error: 'content (or message) must be a non-empty string' });
       return;
+    }
+
+    // v7.0 Welcome Mode: no usable provider → friendly guidance, not a 500.
+    {
+      const { getProviderReady, refreshProviderReady } = await import('./onboarding.js');
+      if (!getProviderReady()) {
+        const recheck = await refreshProviderReady(); // picks up env/config changes automatically
+        if (!recheck.ok) {
+          res.json({
+            content: "I'm not connected to an AI model yet! Click **Set up TITAN** (or open Settings → Models) and I'll be ready in under a minute. If you use Ollama, just make sure it's running — I'll find it.",
+            sessionId: requestedSessionId || 'welcome',
+            model: 'none',
+            toolsUsed: [],
+            durationMs: 0,
+            welcomeMode: true,
+          });
+          return;
+        }
+      }
     }
 
     // v5.5.30 FIX: validate `model` early so a bad provider ID returns 400
