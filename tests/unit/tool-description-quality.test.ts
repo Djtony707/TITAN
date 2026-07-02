@@ -34,8 +34,10 @@ function extractToolDescription(filePath: string, toolName: string): string | nu
     // object literal. Handles backtick, single-quote-with-escapes, and array.join forms.
 
     // 1. Backtick form: name: 'X', description: `...`
+    // Escape-aware: a description may contain \` (escaped backticks) — stop
+    // only at the real closing backtick, not the first escaped one.
     const bt = new RegExp(
-        `name:\\s*['\"]${toolName}['\"]\\s*,\\s*description:\\s*\`([\\s\\S]*?)\``,
+        `name:\\s*['\"]${toolName}['\"]\\s*,\\s*description:\\s*\`((?:[^\`\\\\]|\\\\[\\s\\S])*)\``,
         'g',
     );
     let lastMatch: RegExpExecArray | null = null;
