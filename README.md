@@ -127,9 +127,10 @@ See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.0.0 entry and everything be
 ```bash
 # Stable release
 npm install -g titan-agent
-titan onboard            # interactive setup wizard
 titan gateway            # opens Mission Control at http://localhost:48420
 ```
+
+That's it — no setup required first. The dashboard greets you and connects a model in about a minute (one click if Ollama is running; or paste any API key / OpenAI-compatible endpoint). Prefer the terminal? `titan onboard` runs the full interactive wizard.
 
 Or one-liner:
 

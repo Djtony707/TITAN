@@ -1,6 +1,13 @@
 # Changelog
 
-## v7.0.0 — 2026-06-08 — Model-Agnostic + Accessible
+## v7.0.0 — 2026-07-02 — Alive, Welcoming, Model-Agnostic
+
+### Welcome Mode — first run finally feels like a product
+- **The gateway always boots.** No Ollama, no API key? v7.0 starts anyway and greets you: the dashboard shows a warm setup screen instead of the old terminal refusal that stopped first-time users before they ever saw the desk.
+- **One-click connect when Ollama is running** — models auto-detected and listed. Otherwise paste an Anthropic/OpenAI key or any OpenAI-compatible endpoint (LiteLLM, vLLM, LM Studio, llama.cpp).
+- **No restart needed** — connect a model and the desk unlocks live (`/api/onboarding/state`, `/api/onboarding/configure`, `providerReady` on `/api/health`).
+- Chat while unconfigured answers with friendly setup guidance instead of an error.
+
 
 ### Model-agnostic harness (works well with ANY capable LLM, not tuned to one)
 - The generic `openai_compat` provider (DeepSeek / Qwen / GLM / Kimi / MiniMax / xAI / Groq / …) now honors `forceToolUse` (per-model `tool_choice`, via the shared capability registry), JSON `format` (`response_format` + a 2 KB anti-truncation floor), and **guards the DeepSeek-reasoner HTTP-400 case** — instead of a blind passthrough.
