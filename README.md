@@ -81,6 +81,7 @@ TITAN doesn't just respond — it lives on your machine:
 - **The Heartbeat.** Every ~30 minutes TITAN checks its world and decides if ONE thing is worth telling you, unprompted — the mascot says it. Default is silence; quiet hours respected.
 - **Proactive memory.** It quietly notices durable things about you from real conversations (strict rules, never sensitive categories) — what it learns shapes every future reply and fills the plain-language **"What I know about you"** page.
 - **It proposes work.** When a drive is genuinely neglected, Soma files a suggestion into your approvals — shadow-rehearsed first, never auto-run. (v7.0 fixes the threshold that had made this mathematically impossible.)
+- **Real reminders, honestly kept.** "Remind me Friday at 5pm" actually fires — the mascot announces it at the right time. And a built-in anti-fabrication guard means TITAN can never claim it scheduled something it didn't.
 
 ### 🪵 The Living Desk — home is a canvas, the mascot is a creature
 
