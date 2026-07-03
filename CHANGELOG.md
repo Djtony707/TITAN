@@ -1,6 +1,8 @@
 # Changelog
 
-## v7.0.0 — 2026-07-02 — Alive, Welcoming, Model-Agnostic
+## v7.0.0 "Independence" — 2026-07-03 — Alive, Welcoming, Model-Agnostic
+
+> **The Independence Day release.** Local-first is independence: your AI, your hardware, your data — no cloud required. Ships with a little July 4th magic on the desk. 🎆
 
 ### Muscle Memory 💪 — trustworthy automatic self-improvement (industry first)
 - **TITAN notices your repeated workflows and teaches itself skills** — no ceremony, no manual skill files. Three successful repeats of the same tool pattern → a drafted, parameterized recipe with its own slash command.
@@ -10,6 +12,9 @@
 - Learning is invisible-until-proven: eval-channel runs never feed the learning loop back (no echo-chamber mining).
 - Config: `muscleMemory.{enabled,minOccurrences,verifyBeforePropose}` — on by default because nothing ever auto-adopts.
 - Also fixed en route: recipe runner now honors declared parameter defaults; recipe slash lookups normalize leading slashes; reminders + Muscle Memory run their own timers when the daemon is disabled (both were inert on default configs).
+
+### 🎆 Independence details
+- **Fireworks.** Connecting your first model earns a fireworks show over the desk, and on July 4th the mascot greets you with one ("Your AI, your hardware — fireworks on me."). Canvas-particle, zero idle cost, respects reduced-motion.
 
 ### Welcome Mode — first run finally feels like a product
 - **The gateway always boots.** No Ollama, no API key? v7.0 starts anyway and greets you: the dashboard shows a warm setup screen instead of the old terminal refusal that stopped first-time users before they ever saw the desk.

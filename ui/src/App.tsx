@@ -52,6 +52,7 @@ const WorkflowBuilderPanel = lazy(() => import('@/components/admin/WorkflowBuild
 const LiveStudio = lazy(() => import('@/views/LiveStudio'));
 import { RovingMascot } from '@/titan2/system/RovingMascot';
 import WelcomeSetup from '@/titan2/system/WelcomeSetup';
+import { Fireworks } from '@/titan2/system/Fireworks';
 const SkillsPanel = lazy(() => import('@/components/admin/SkillsPanel'));
 const McpPanel = lazy(() => import('@/components/admin/McpPanel'));
 const IntegrationsPanel = lazy(() => import('@/components/admin/IntegrationsPanel'));
@@ -118,6 +119,7 @@ function AuthenticatedAppInner() {
       <RouteTracker />
       <RovingMascot />
       <WelcomeSetup />
+      <Fireworks />
       <TitanShell>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>

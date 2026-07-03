@@ -43,9 +43,15 @@ export function FreeMascot() {
 
     // ── Welcome-back greeting + first-run nudge + streak ─────────────
     useEffect(() => {
-        const hour = new Date().getHours();
+        const now = new Date();
+        const hour = now.getHours();
         const hello = hour < 5 ? 'Burning the midnight oil?' : hour < 12 ? 'Morning.' : hour < 18 ? 'Afternoon.' : 'Evening.';
-        setQuip(`${hello} What are we building?`);
+        // Independence Day: local-first means independence. Fireworks on me. 🎆
+        if (now.getMonth() === 6 && now.getDate() === 4) {
+            setQuip('Happy Independence Day! 🎆 Your AI, your hardware — fireworks on me.');
+        } else {
+            setQuip(`${hello} What are we building?`);
+        }
         apiFetch('/api/health', { headers: { 'Content-Type': 'application/json' } })
             .then(r => r.json())
             .then(d => {

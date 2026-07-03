@@ -75,6 +75,7 @@ export default function WelcomeSetup() {
             const data = await res.json() as { ok: boolean; details: string };
             if (data.ok) {
                 setConnected(true);
+                window.dispatchEvent(new CustomEvent('titan:fireworks'));
                 setTimeout(() => setState(s => (s ? { ...s, providerReady: true } : s)), 1600);
             } else {
                 setError(data.details || 'That didn’t work — double-check and try again.');

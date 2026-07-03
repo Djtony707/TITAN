@@ -50,9 +50,9 @@
 
 <a id="whats-new"></a>
 
-## What's new in v7.0.0 — "Alive, Welcoming, Model-Agnostic"
+## What's new in v7.0.0 "Independence" — Alive, Welcoming, Model-Agnostic
 
-Four themes define this release: **TITAN provably teaches itself from your usage, first run takes one minute, it lives on your machine between conversations, and it runs well on any capable model.**
+**The Independence Day release** — because local-first *is* independence: your AI, your hardware, your data. Four themes: **TITAN provably teaches itself from your usage, first run takes one minute, it lives on your machine between conversations, and it runs well on any capable model.** (Connect your first model and you'll see the fireworks. 🎆)
 
 ### 💪 Muscle Memory — self-improvement you can actually trust
 
