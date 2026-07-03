@@ -45,9 +45,24 @@
 
 <a id="whats-new"></a>
 
-## What's new in v7.0.0 — "Model-Agnostic + Accessible"
+## What's new in v7.0.0 — "Alive, Welcoming, Model-Agnostic"
 
-Three themes define this release: **TITAN runs well on any capable model, the UI is accessible by design, and you can finally watch the agent work live.**
+Four themes define this release: **TITAN provably teaches itself from your usage, first run takes one minute, it lives on your machine between conversations, and it runs well on any capable model.**
+
+### 💪 Muscle Memory — self-improvement you can actually trust
+
+The #1 wish across agent-framework reviews: agents that turn repeated workflows into skills *by themselves* — without the untrustworthy self-grading that plagues every attempt at it. TITAN ships it, with proof:
+
+- **It notices.** Repeat a workflow ~3 times and TITAN mines the pattern from its own task trajectories and drafts a reusable, parameterized skill with its own slash command.
+- **The replay exam.** Before you ever see a learned skill, it must **reproduce the original workflow's exact tool path against your real historical request**, verified by the deterministic eval harness. No self-praise — grounded proof. Failed drafts stay hidden.
+- **Structurally safe.** Exams replay inside a tool allowlist sandbox; workflows containing side-effectful tools (send / post / delete / deploy / …) are never mined at all; nothing ever auto-adopts.
+- **One click to adopt** → instant `/slash-command` in every channel, a savings ledger per run, and a mascot that announces what it learned. "Not for me" is remembered forever.
+
+### 👋 Welcome Mode — first run in about a minute
+
+- **The gateway always boots.** No Ollama, no API keys? v7.0 starts anyway and greets you — no more terminal refusal before you've ever seen the desk.
+- **The dashboard walks you in:** one-click connect when Ollama is detected (models auto-listed), or paste an Anthropic/OpenAI key, or point at any OpenAI-compatible endpoint (LiteLLM, vLLM, LM Studio, llama.cpp).
+- **No restart** — connect a model and the desk unlocks live. Chat answers with friendly setup guidance until then.
 
 ### 🧠 Model-agnostic harness
 
@@ -113,6 +128,8 @@ See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.0.0 entry and everything be
 
 ## Why TITAN
 
+- **It teaches itself — provably.** Muscle Memory turns your repeated workflows into replay-verified skills. Every learned skill passes a deterministic exam against your real usage before you see it; nothing auto-adopts. No other framework ships trustworthy self-improvement on by default.
+- **One-minute first run.** `npm install -g titan-agent && titan gateway` — the dashboard greets you and connects a model in about a minute. No Docker, no YAML, no config-file editing.
 - **Model-agnostic, for real.** One harness, native tool-calls per vendor, a per-model capability registry, adaptive token ceilings. Bring DeepSeek, Qwen, GLM, Kimi, MiniMax, Anthropic, OpenAI, Gemini, or anything OpenAI-compatible — the framework adapts instead of being tuned to one LLM.
 - **Local-first.** Run any model on your own hardware via Ollama, or route to any of 36 providers through one router. Switch models mid-conversation. Failed models auto-fallback. Your data never leaves your machine unless you explicitly send it to a cloud provider.
 - **Watch it work.** The Live Studio shows the agent's step timeline, real file diffs, and changed files as it runs. Sessions are URL-addressable and replayable.
@@ -206,10 +223,10 @@ The LLM picks which specialists to spawn based on the goal. You can also call th
 | **Version** | 7.0.0 | `package.json`, `src/utils/constants.ts` |
 | **Downloads** | 40K+ lifetime | `npm view titan-agent` + npm stats |
 | **LLM providers** | 36 (4 native + 32 OpenAI-compat) | `src/providers/openai_compat.ts` |
-| **Channel adapters** | 16 | `src/channels/*.ts` |
+| **Channel adapters** | 19 | `src/channels/*.ts` |
 | **Skills loaded at runtime** | ~143 | `GET /api/skills` |
 | **Tools registered** | ~248 | `GET /api/skills` |
-| **Test cases** | 8,099 passing / 9 skipped / 0 failing | `npm test` |
+| **Test cases** | 8,122 passing / 9 skipped / 0 failing | `npm test` |
 | **Mission Control admin panels** | 51 | `ui/src/components/admin/` |
 | **Soma drives** | 5 (purpose, curiosity, hunger, safety, social) | `src/organism/` |
 | **Gateway port (default)** | 48420 | `src/utils/constants.ts` |
@@ -222,7 +239,9 @@ Every row above traces to code. The repo has a self-check at `tests/unit/readme-
 
 The v7.0.0 release was verified end-to-end before publish:
 
-- **Full test suite:** 8,099 pass / 9 skip / **0 fail**.
+- **Full test suite:** 8,122 pass / 9 skip / **0 fail**.
+- **Muscle Memory adversarial review:** 26-agent review fleet, 21 confirmed findings — all fixed before ship; the learned-skill pipeline was proven live (mined a real repeated workflow, drafted `add-widget`, passed its replay exam unprompted on first boot).
+- **Welcome Mode first-run:** verified on a virgin machine end-to-end — boot with zero config → guided connect → first real reply, no restart.
 - **Live UI route sweep:** 40 / 40 routes render clean (zero console errors).
 - **v7-smoke e2e:** 12 / 12.
 - **API sweep:** 18 / 19 (the one non-200 is a 503 by design).
@@ -260,7 +279,7 @@ Five testing layers cover regression risk at different levels:
 These are **planned**, not shipped. v7.0 lays the foundation for them but does not include them:
 
 - **Roster Forge — dynamic agent spawning.** Define and spin up new specialist roles at runtime, beyond the fixed five.
-- **Verdict-grounded self-evolution loop.** Close the loop so the agent's own eval verdicts drive prompt/behavior evolution automatically.
+- **Verdict-grounded self-evolution loop.** Close the loop so the agent's own eval verdicts drive prompt/behavior evolution automatically. (v7.0's Muscle Memory covers *workflow-level* self-learning with replay exams; this item extends grounded verdicts to prompt/behavior evolution, e.g. GEPA fitness.)
 - **Live Studio live preview pane.** A running preview server in the Studio right-pane (today: timeline + file-diff stream + changed-files list only — **no preview pane**).
 - **One-click revert + the round/token spine tail.** A revert button on the change rail and round/token accounting on the event spine (today: **no revert button**, diffs are read-only).
 

@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- **Node.js 20+** installed (check with `node --version`)
+- **Node.js 22+** installed (check with `node --version`)
 - **API key** for at least one LLM provider (OpenAI, Anthropic, etc.) or [Ollama](https://ollama.ai) for local models
 - Basic familiarity with TypeScript/JavaScript
 
@@ -20,19 +20,17 @@ titan --version
 
 ## Step 2: First-Time Setup
 
-Run the onboarding wizard:
+**The easy way (v7.0 Welcome Mode):** skip straight to `titan gateway`. The gateway always boots — the dashboard greets you and walks you through connecting a model in about a minute (one click if Ollama is running; or paste an API key / any OpenAI-compatible endpoint). No restart needed.
+
+**The terminal way:** prefer setting up before launch? Run the interactive wizard:
 
 ```bash
 titan onboard
 ```
 
-This interactive wizard will:
-1. Detect your system capabilities
-2. Prompt you to select an LLM provider
-3. Configure API keys (stored in `~/.titan/titan.json`)
-4. Run a health check to verify everything works
+It detects your system, prompts for an LLM provider, stores keys in `~/.titan/titan.json`, and health-checks everything.
 
-**Pro tip**: For local inference without API keys, install [Ollama](https://ollama.ai) first. TITAN will auto-detect it.
+**Pro tip**: For local inference without API keys, install [Ollama](https://ollama.ai) first. TITAN auto-detects it either way.
 
 ## Step 3: Start the Gateway
 
