@@ -84,7 +84,7 @@ describe('MCP Server — Dynamic Tool Discovery', () => {
         expect(response).not.toBeNull();
         const result = response!.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> };
         expect(result.tools).toBeDefined();
-        expect(result.tools.length).toBe(12); // 10 normal + large_output + failing
+        expect(result.tools.length).toBe(17); // 5 agent-level + 10 normal + large_output + failing
 
         // Verify each tool has complete metadata
         for (const tool of result.tools) {
@@ -121,7 +121,7 @@ describe('MCP Server — Dynamic Tool Discovery', () => {
         });
 
         const result = response!.result as { tools: unknown[] };
-        expect(result.tools.length).toBe(0);
+        expect(result.tools.length).toBe(5); // agent-level tools are always present
     });
 });
 

@@ -100,10 +100,12 @@ describe('MCP Server — tools/list', () => {
         expect(response).not.toBeNull();
         const result = response!.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> };
         expect(result.tools).toBeDefined();
-        expect(result.tools.length).toBe(2); // shell + web_search (disabled_tool filtered)
-        expect(result.tools[0].name).toBe('shell');
-        expect(result.tools[0].description).toBe('Execute a shell command');
-        expect(result.tools[0].inputSchema).toBeDefined();
+        expect(result.tools.length).toBe(7); // 5 agent-level + shell + web_search (disabled_tool filtered)
+        // Agent-level tools lead the list (peer agents discover the whole-agent interface first)
+        expect(result.tools[0].name).toBe('titan_chat');
+        const shell = result.tools.find(t => t.name === 'shell')!;
+        expect(shell.description).toBe('Execute a shell command');
+        expect(shell.inputSchema).toBeDefined();
     });
 
     it('should respect denied tools', async () => {
@@ -112,9 +114,11 @@ describe('MCP Server — tools/list', () => {
             jsonrpc: '2.0', id: 4, method: 'tools/list',
         });
 
-        const result = response!.result as { tools: Array<{ name: string }> };
-        expect(result.tools.length).toBe(1);
-        expect(result.tools[0].name).toBe('web_search');
+        const result = response!.result as { tools: Array<{ name: string; _skillSource?: string }> };
+        const granular = result.tools.filter(t => t._skillSource !== 'agent');
+        expect(result.tools.length).toBe(6); // 5 agent-level + web_search
+        expect(granular.length).toBe(1);
+        expect(granular[0].name).toBe('web_search');
         mockConfig.security.deniedTools = [];
     });
 
