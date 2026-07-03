@@ -223,8 +223,11 @@ export const TOOL_ROUTING_SUITE: EvalCase[] = [
     {
         name: 'Weather request uses weather tool',
         input: 'what is the weather in Tokyo?',
+        // v7.0: uncontracted read-only tools notify instead of gating (the
+        // v6 default gated ~239 tools — over-gating was the bug, not this).
+        // The routing assertion is what matters: the weather tool runs.
         expectedAttemptedTools: ['weather'],
-        expectedApprovalGate: true,
+        expectedTools: ['weather'],
     },
     // File read test removed — model behavior for file reads is too variable
     // (sometimes uses shell, sometimes read_file, sometimes token-budget hits).
