@@ -1,3 +1,39 @@
+# TITAN Model Benchmark — July 2026 (v7.0 harness)
+
+**What's different from the March benchmark below:** this run tests models *as TITAN's brain* — every case runs through the full v7.0 agent loop (system prompt, ~248 tools, widget gates, safety refusals) and is scored by the deterministic eval harness (`src/eval/harness.ts`), not by LLM-judged vibes. 5 suites × 27 cases per model: tool-routing-v2, widget-v2, gate-format-v2, safety, content. Per-suite cap 7 min. Local models ran on the machines named; cloud models via API routes. Single run per model, July 3 2026.
+
+## Overall Rankings — v7.0 harness
+
+| Rank | Model | Where | Harness pass | Median case | Safety | Notes |
+|------|-------|-------|-------------|-------------|--------|-------|
+| 🥇 cloud | **GLM-5.1** | cloud API | **25/27 (93%)** | 4.6s | ✅ 2/2 | Best cloud: top score AND fastest cloud median |
+| 🥇 cloud (tie) | **Kimi K2.6** | cloud API | **25/27 (93%)** | 7.6s | ✅ 2/2 | Same score, ~1.7× slower per case |
+| 🥈 cloud | DeepSeek V4 Pro | cloud API | 23/27 (85%) | 5.6s | ❌ 0/2 | Strong tools/widgets, **failed both safety refusals** |
+| 🥇 local | **Qwen3 Coder Next** | RTX 5090 (vLLM/llama-swap) | **20/27 (74%)** | **4.2s** | ❌ 0/2 | Best local by a mile — and fastest median overall |
+| — | Qwen3 30B A3B | RTX 5090 | 3/5 (3 suites DNF) | 22.8s | ✅ 2/2 | **Context overflow**: TITAN's harness prompt exceeds its 32k deployment — 3 of 5 suites timed out |
+| — | Nemotron-3 Nano 30B | GX10 / DGX Spark (NVFP4 vLLM) | 4/27 (15%) | 27.8s | ❌ 0/2 | Responds but rarely drives tools correctly through the harness |
+| — | GLM-4.7-Flash | GX10 / DGX Spark (NVFP4 vLLM) | 4/27 (15%) | 29.1s | ❌ 0/2 | Same pattern — great chat model, weak TITAN driver at this deployment |
+| — | Qwen3.6 35B A3B | RTX 5090 | 1/8 (2 suites DNF) | 60.4s | ❌ 0/2 | Slow + overflow-prone under the full harness |
+| DNF | Andy-4 | RTX 5090 | 0 (all suites timed out) | — | — | Never produced completions under the harness — deployment/config issue |
+| DNF | Ornith-1.0 9B | GX10 (Ollama q8) | 0 (all suites timed out) | — | — | 9B + full TITAN toolset = no answer within the cap |
+
+## Recommendations
+
+- **Best local (the default we'd ship): `qwen3-coder-next`** on an RTX 5090-class GPU. 74% harness pass at the fastest median case time of ANY model tested, including cloud. This is what TITAN's staging runs.
+- **Best cloud: `glm-5.1`**, with **`kimi-k2.6`** an equal-scoring alternative if you prefer its style — both aced widgets, gates, content AND both safety refusals. GLM is ~40% faster per case.
+- **Watch out for DeepSeek V4 Pro as a daily driver**: excellent tool work (85%) but it complied with both safety-suite requests that should be refused.
+- **Context matters more than parameter count.** Qwen3 30B and Qwen3.6 35B are *good models* that DNF'd because their deployments (32k-class contexts) can't hold TITAN's full ~248-tool prompt. If you run mid-size models, either raise the deployment context or slim the toolset — otherwise pick `qwen3-coder-next`-class models with big contexts.
+- **Quantized MoE ≠ agent-ready.** The GX10's NVFP4 deployments (GLM-4.7-Flash, Nemotron Nano) chat beautifully but scored 15% as TITAN drivers — tool-call formatting through an agent harness is a different skill than conversation. Benchmark YOUR deployment, not the model card.
+
+## Honest caveats
+
+- Single run per model; deterministic assertions (no LLM judging), so scores are strict — a "failure" can be a formatting miss, not stupidity.
+- The two tool-routing cases missed by ALL top models (6/8 ceiling) look harness-strict rather than model-specific.
+- DNF rows say as much about the *deployment* (context size, quant, server config) as the model.
+- Reproduce: `POST /api/eval/run {"suite": "tool-routing-v2"}` against your own gateway after `POST /api/model/switch` — the whole run is ~40 lines of shell (`benchmarks/` has the harness docs).
+
+---
+
 # TITAN Model Benchmark — March 2026
 
 Comprehensive model comparison testing 15 LLMs through TITAN's unified gateway. Each model was tested with 25 prompts across 7 categories, scored 0-10 per prompt. Cloud models were accessed via Ollama's cloud API; local models ran on Ollama with an NVIDIA RTX 5090 (32GB VRAM).
