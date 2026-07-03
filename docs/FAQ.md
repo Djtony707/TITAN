@@ -39,29 +39,30 @@ Key features:
 
 ```bash
 npm install -g titan-agent
-titan onboard  # Run the onboarding wizard
+titan gateway   # the dashboard walks you through setup (Welcome Mode)
 ```
+
+Prefer the terminal? `titan onboard` runs the interactive wizard first.
 
 ### Can I use TITAN without API keys?
 
 Yes! Install [Ollama](https://ollama.ai) for local inference:
 
 ```bash
-brew install ollama  # macOS
-ollama pull llama3.2  # Download a model
-titan onboard  # TITAN will auto-detect Ollama
+brew install ollama   # macOS
+ollama pull qwen3.5   # Download a model
+titan gateway         # Welcome Mode auto-detects Ollama — one click to connect
 ```
 
 ### What's the fastest way to get started?
 
 ```bash
 # One-line install
-curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Djtony707/TITAN/main/install.sh | bash
 
 # Or via npm
 npm install -g titan-agent
-titan onboard
-titan gateway
+titan gateway   # setup happens in the dashboard, ~1 minute
 ```
 
 ## Concepts
