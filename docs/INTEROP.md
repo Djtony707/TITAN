@@ -6,8 +6,16 @@ custom protocols.
 
 ## TITAN as a tool inside other agents
 
-TITAN's MCP server (stdio or HTTP) exposes **agent-level tools** in addition
-to its granular toolset:
+First, enable the server surface (off by default — exposing an agent on your
+gateway port is an explicit choice):
+
+```jsonc
+// titan.json
+{ "mcp": { "server": { "enabled": true } } }
+```
+
+TITAN's MCP server (stdio or HTTP at `POST /mcp`) then exposes **agent-level
+tools** in addition to its granular toolset:
 
 | Tool | What it does |
 |---|---|
