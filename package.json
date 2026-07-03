@@ -266,7 +266,7 @@
     "@browserbasehq/stagehand": "^3.4.0",
     "@whiskeysockets/baileys": "^6.7.0",
     "bonjour-service": "^1.3.0",
-    "imapflow": "^1.3.3",
+    "imapflow": "^1.4.3",
     "livekit-server-sdk": "^2.9.1",
     "matrix-js-sdk": "^41.5.0",
     "node-llama-cpp": "^3.0.0",
