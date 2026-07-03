@@ -3419,6 +3419,18 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         draft.agent.model = modelStr;
         changedFields.push('agent.model');
       }
+      // v7.1: accept a nested providers patch (deep-merged + Zod-validated by
+      // updateConfig). Previously this shape was silently ignored — the July
+      // benchmark rig posted {providers:{litellm:{baseUrl}}} and nothing
+      // happened, which zeroed an entire benchmark tier.
+      if (body.providers && typeof body.providers === 'object' && !Array.isArray(body.providers)) {
+        const { deepMerge } = await import('../utils/helpers.js');
+        draft.providers = deepMerge(
+          draft.providers as unknown as Record<string, unknown>,
+          body.providers as Record<string, unknown>,
+        ) as typeof draft.providers;
+        changedFields.push('providers');
+      }
       if (body.autonomyMode) { draft.autonomy.mode = body.autonomyMode as 'supervised' | 'autonomous' | 'locked'; changedFields.push('autonomy.mode'); }
       if (body.sandboxMode) { draft.security.sandboxMode = body.sandboxMode as 'host' | 'docker' | 'none'; changedFields.push('security.sandboxMode'); }
       if (body.logLevel) { draft.logging.level = body.logLevel as 'info' | 'debug' | 'warn' | 'silent'; changedFields.push('logging.level'); }

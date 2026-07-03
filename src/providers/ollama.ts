@@ -49,6 +49,7 @@ const CLOUD_MODEL_CTX: Record<string, number> = {
     'devstral-small-2:latest': 32768,
     // Nemotron 3 Nano — 1M native, 32K practical for local
     'nemotron-3-nano': 32768,
+    'nemotron-nano': 32768,
     'nemotron-3-nano:latest': 32768,
     'nemotron-3-nano:4b': 32768,
     'nemotron-3-nano:30b': 32768,

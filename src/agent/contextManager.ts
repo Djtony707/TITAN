@@ -41,7 +41,7 @@ export function calculateBudget(
     toolDefinitionsCount: number,
 ): ContextBudget {
     const systemTokens = estimateTokens(systemPrompt);
-    const toolTokens = toolDefinitionsCount * 120; // ~120 tokens per tool definition
+    const toolTokens = toolDefinitionsCount * 250; // measured avg 887 chars (~250 tok) per definition — 120 undercounted 4x and blew small contexts
     const reserveForResponse = 2000; // Reserve for completion
 
     return {

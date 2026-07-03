@@ -1810,16 +1810,47 @@ export async function processMessage(
         }
     }
 
-    // Small-model tool reduction — prevent tool hallucination on models <8B
-    // Validated on Ryzen 7 5825U: llama3.2:3b hallucinates web_search on trivial questions
+    // Context-fit tool tiers (v7.1 "truly model agnostic") — bind a toolset
+    // sized to the model's REAL context window (family registry + config
+    // override + ceilings learned from live backend 400s), instead of a
+    // hardcoded name list. Measured: full core ≈ 61KB of schemas + 7.5KB
+    // system prompt — fine at 64K+, fatal at 16K, sluggish prefill on
+    // bandwidth-bound local GPUs. Tiers:
+    //   tiny  (<12K ctx or known-tiny name): 6 primitives
+    //   small (<48K ctx): 14 lean essentials + minimal prompt mode
+    //   full  (>=48K):    the standard 30-tool core (toolSearch compact mode)
     const SMALL_MODEL_PATTERNS = ['llama3.2', 'llama3.1:8b', 'phi', 'gemma:2b', 'qwen3.5:4b', 'tinyllama', 'dolphin3'];
-    const isSmallModel = SMALL_MODEL_PATTERNS.some(p => activeModel.toLowerCase().includes(p));
-    if (isSmallModel) {
-        // web_search removed: small models hallucinate tool calls for trivial questions
+    const nameIsTiny = SMALL_MODEL_PATTERNS.some(p => activeModel.toLowerCase().includes(p));
+    const { getModelCapabilitiesEx } = await import('../providers/modelCapabilities.js');
+    const bareModel = activeModel.includes('/') ? activeModel.slice(activeModel.indexOf('/') + 1) : activeModel;
+    const capsA = getModelCapabilitiesEx(activeModel);
+    const capsB = getModelCapabilitiesEx(bareModel);
+    const best = capsA.caps.contextWindow <= capsB.caps.contextWindow ? capsA : capsB;
+    const modelCtxWindow = best.caps.contextWindow;
+    // A fallback guess must never shrink the toolset — only measured/known
+    // ceilings (static, config, family, learned-from-400s) trigger tiering.
+    const ctxIsKnown = best.source !== 'fallback';
+    const contextTier: 'tiny' | 'small' | 'full' =
+        nameIsTiny || (ctxIsKnown && modelCtxWindow < 12_000) ? 'tiny'
+        : ctxIsKnown && modelCtxWindow < 48_000 ? 'small'
+        : 'full';
+    const isSmallModel = contextTier !== 'full';
+    if (contextTier === 'tiny') {
         const CORE_TOOL_NAMES = ['shell', 'read_file', 'write_file', 'edit_file', 'list_dir', 'memory'];
         const coreTools = activeTools.filter(t => CORE_TOOL_NAMES.includes(t.function.name));
-        logger.info(COMPONENT, `[SmallModel] Reducing tools from ${activeTools.length} to ${coreTools.length} for ${activeModel}`);
+        logger.info(COMPONENT, `[ContextFit] tier=tiny (ctx=${modelCtxWindow}) — ${activeTools.length} → ${coreTools.length} tools for ${activeModel}`);
         activeTools = coreTools;
+    } else if (contextTier === 'small') {
+        const LEAN_TOOL_NAMES = [
+            'shell', 'read_file', 'write_file', 'edit_file', 'list_dir',
+            'web_search', 'browse_url', 'memory', 'create_widget',
+            'gallery_search', 'gallery_get', 'cron', 'reminder', 'tool_search',
+        ];
+        const leanTools = activeTools.filter(t => LEAN_TOOL_NAMES.includes(t.function.name));
+        if (leanTools.length > 0) {
+            logger.info(COMPONENT, `[ContextFit] tier=small (ctx=${modelCtxWindow}) — ${activeTools.length} → ${leanTools.length} tools for ${activeModel}`);
+            activeTools = leanTools;
+        }
     }
 
     // ── Brain: intelligent tool pre-filtering ──────────────────

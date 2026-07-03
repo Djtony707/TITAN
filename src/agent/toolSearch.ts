@@ -65,10 +65,22 @@ export const DEFAULT_CORE_TOOLS = [
 
 /** Build a compact one-line catalog of all tools for the tool_search description */
 export function buildToolCatalog(): string {
-    const tools = getRegisteredTools();
-    return tools
-        .filter(t => t.name !== 'tool_search')
-        .map(t => `${t.name}: ${t.description.slice(0, 50)}`)
+    // v7.1: names-only, grouped by namespace prefix. The old form embedded a
+    // 50-char description per tool — 18.5KB (~5K tokens) inside tool_search's
+    // OWN description, the single fattest item in every request. Names alone
+    // keep the full surface discoverable (tool_search returns full schemas on
+    // demand) at ~1/5 the size — for every model, local or cloud.
+    const tools = getRegisteredTools().filter(t => t.name !== 'tool_search');
+    const groups = new Map<string, string[]>();
+    for (const t of tools) {
+        const ns = t.name.includes('_') ? t.name.split('_')[0] : t.name;
+        const g = groups.get(ns) || [];
+        g.push(t.name);
+        groups.set(ns, g);
+    }
+    return [...groups.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([ns, names]) => (names.length === 1 ? names[0] : `${ns}: ${names.join(', ')}`))
         .join(' | ');
 }
 
