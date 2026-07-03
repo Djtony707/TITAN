@@ -20,6 +20,7 @@
  */
 import type { Express } from 'express';
 import { getRegisteredTools } from '../agent/toolRunner.js';
+import { AGENT_TOOLS, getAgentTool } from './agentTools.js';
 import { isToolSkillEnabled } from '../skills/registry.js';
 import { loadConfig } from '../config/config.js';
 import { TITAN_VERSION, TITAN_NAME } from '../utils/constants.js';
@@ -157,8 +158,15 @@ function handleToolsList(): unknown {
             _skillSource: ((tool as unknown) as { _skillSource?: string })?._skillSource || 'core',
         }));
 
-    logger.info(COMPONENT, `Listed ${tools.length} of ${allTools.length} total tools (filtered by security policy)`);
-    return { tools };
+    // v7.1 interop: agent-level tools (titan_chat / delegate / moa / status) —
+    // MCP-surface only, listed first so peer agents discover the whole-agent
+    // interface before the 250+ granular tools.
+    const agentLevel = AGENT_TOOLS
+        .filter(t => !denied.has(t.name) && (allowed.size === 0 || allowed.has(t.name)))
+        .map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, _skillSource: 'agent' }));
+
+    logger.info(COMPONENT, `Listed ${agentLevel.length} agent-level + ${tools.length} of ${allTools.length} granular tools (filtered by security policy)`);
+    return { tools: [...agentLevel, ...tools] };
 }
 
 async function handleToolsCall(params: Record<string, unknown>): Promise<unknown> {
@@ -175,6 +183,23 @@ async function internalToolsCall(params: Record<string, unknown>): Promise<unkno
             content: [{ type: 'text', text: 'Error: tool name is required and must be a string' }],
             isError: true,
         };
+    }
+
+    // v7.1 interop: agent-level tools take precedence (MCP-surface only)
+    const agentTool = getAgentTool(toolName);
+    if (agentTool) {
+        const config2 = loadConfig();
+        const denied2 = new Set(config2.security.deniedTools);
+        const allowed2 = new Set(config2.security.allowedTools);
+        if (denied2.has(toolName) || (allowed2.size > 0 && !allowed2.has(toolName))) {
+            return { content: [{ type: 'text', text: `Error: tool "${toolName}" is denied by security policy` }], isError: true };
+        }
+        try {
+            const text = await agentTool.execute(args);
+            return { content: [{ type: 'text', text }] };
+        } catch (e) {
+            return { content: [{ type: 'text', text: `Error: ${(e as Error).message}` }], isError: true };
+        }
     }
 
     const tools = getRegisteredTools();

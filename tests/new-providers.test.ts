@@ -654,10 +654,10 @@ describe('Router — New Provider Aliases', () => {
     });
 
     describe('getAllProviders()', () => {
-        // 5 core + 32 compat = 37 total
-        it('should return 37 total providers (5 core + 32 compat)', () => {
+        // 6 core (incl. the moa virtual provider, v7.1) + 32 compat = 38 total
+        it('should return 38 total providers (6 core incl. moa + 32 compat)', () => {
             const all = getAllProviders();
-            expect(all.size).toBe(37);
+            expect(all.size).toBe(38);
         });
 
         it('should include venice, bedrock, and litellm in the provider map', () => {
