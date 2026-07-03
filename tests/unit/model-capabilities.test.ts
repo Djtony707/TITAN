@@ -3,6 +3,12 @@
  * v5.4.1: Per-model output-token clamping.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as joinPath } from 'path';
+// Hermetic: the learned-deployment-limits store (v7.1) reads $TITAN_HOME —
+// this machine's real home may hold ceilings learned from live traffic.
+process.env.TITAN_HOME = mkdtempSync(joinPath(tmpdir(), 'titan-caps-'));
 
 let mockConfig: Record<string, unknown> = {};
 

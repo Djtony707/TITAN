@@ -67,6 +67,23 @@ export function parseMaxTokenLimit(errText: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Strict backends (vLLM/llama-swap with some chat templates) reject any
+ * system message that isn't the first message ("System message must be at
+ * the beginning"). TITAN legitimately injects mid-conversation system notes
+ * (task continuation, approvals) — convert those to user-role context notes
+ * so the timeline is preserved and every OpenAI-compatible backend accepts
+ * the conversation. The leading system message is untouched.
+ */
+export function normalizeSystemPlacement<T extends { role: string; content: string }>(messages: T[]): T[] {
+    return messages.map((m, i) => {
+        if (m.role === 'system' && i > 0) {
+            return { ...m, role: 'user', content: `[System note]\n${m.content}` };
+        }
+        return m;
+    });
+}
+
 /** Configuration for an OpenAI-compatible provider */
 export interface OpenAICompatConfig {
     /** Internal provider name (e.g. 'groq') */
@@ -147,7 +164,7 @@ export class OpenAICompatProvider extends LLMProvider {
 
         logger.debug(this.name, `Chat request: model=${model}, messages=${options.messages.length}`);
 
-        const sanitized = this.sanitizeMessages(options.messages);
+        const sanitized = normalizeSystemPlacement(this.sanitizeMessages(options.messages));
         const body: Record<string, unknown> = {
             model: apiModel,
             messages: sanitized.map((m) => {
@@ -199,6 +216,10 @@ export class OpenAICompatProvider extends LLMProvider {
             const errText = await response.text();
             const limit = parseMaxTokenLimit(errText);
             if (limit && (body.max_tokens as number) > limit) {
+                // v7.1: remember this deployment's real ceiling so tool-tier
+                // selection and future requests fit it without a 400 first.
+                const { recordLearnedContextWindow } = await import('./modelCapabilities.js');
+                recordLearnedContextWindow(model, limit);
                 body.max_tokens = Math.max(512, Math.min(Math.floor(limit / 3), 4096)); // leave room for input
                 logger.warn(this.name, `[AdaptiveMaxTokens] ${model} deployment caps total tokens at ${limit}; retrying with max_tokens=${body.max_tokens}`);
                 response = await doFetch();
@@ -269,7 +290,7 @@ export class OpenAICompatProvider extends LLMProvider {
         const apiKey = this.apiKey;
         if (!apiKey) { yield { type: 'error', error: `${this.displayName} API key not configured` }; return; }
 
-        const sanitized = this.sanitizeMessages(options.messages);
+        const sanitized = normalizeSystemPlacement(this.sanitizeMessages(options.messages));
         const body: Record<string, unknown> = {
             model,
             stream: true,

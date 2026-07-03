@@ -81,10 +81,10 @@ describe('ContextManager', () => {
             expect(budget.remainingForHistory).toBe(128000 - 106 - 0 - 2000);
         });
 
-        it('accounts for tool definitions (120 tokens per tool)', () => {
+        it('accounts for tool definitions (250 tokens per tool — measured avg)', () => {
             const budget = calculateBudget(128000, '', 10);
-            expect(budget.toolDefinitionTokens).toBe(1200);
-            expect(budget.remainingForHistory).toBe(128000 - 0 - 1200 - 2000);
+            expect(budget.toolDefinitionTokens).toBe(2500);
+            expect(budget.remainingForHistory).toBe(128000 - 0 - 2500 - 2000);
         });
 
         it('accounts for response reservation (2000 tokens)', () => {

@@ -112,10 +112,10 @@ describe('Tool Search', () => {
     describe('buildToolCatalog', () => {
         it('returns a compact string with all tool names', () => {
             const catalog = buildToolCatalog();
-            expect(catalog).toContain('shell:');
-            expect(catalog).toContain('read_file:');
-            expect(catalog).toContain('email_send:');
-            expect(catalog).toContain('github_repos:');
+            expect(catalog).toMatch(/\bshell\b/); // names-only catalog (v7.1 slim format)
+            expect(catalog).toMatch(/\bread_file\b/);
+            expect(catalog).toMatch(/\bemail_send\b/);
+            expect(catalog).toMatch(/\bgithub_repos\b/);
         });
 
         it('does not include tool_search in catalog', () => {
@@ -143,8 +143,8 @@ describe('Tool Search', () => {
 
         it('includes catalog in description', () => {
             const handler = getToolSearchHandler();
-            expect(handler.description).toContain('shell:');
-            expect(handler.description).toContain('email_send:');
+            expect(handler.description).toMatch(/\bshell\b/);
+            expect(handler.description).toMatch(/\bemail_send\b/);
         });
 
         it('executes search and returns results', async () => {

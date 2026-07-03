@@ -532,7 +532,7 @@ describe('ContextManager', () => {
             const budget = calculateBudget(128000, 'You are TITAN.', 10);
             expect(budget.maxTokens).toBe(128000);
             expect(budget.systemPromptTokens).toBe(estimateTokens('You are TITAN.'));
-            expect(budget.toolDefinitionTokens).toBe(10 * 120);
+            expect(budget.toolDefinitionTokens).toBe(10 * 250);
             expect(budget.remainingForHistory).toBe(
                 128000 - budget.systemPromptTokens - budget.toolDefinitionTokens - 2000,
             );

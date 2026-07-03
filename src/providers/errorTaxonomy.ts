@@ -237,6 +237,16 @@ export function classifyProviderError(error: unknown): ClassifiedError {
     const body = extractBody(error);
 
     // Step 3: Match exact status codes
+    // v7.1: a gateway with no route for this model is MODEL_NOT_FOUND, not a
+    // format problem — LiteLLM phrases it "no healthy deployments" / "No
+    // fallback model group". Retrying the same request 5x just burns ~30s per
+    // call (the exact failure mode that zeroed the GX10 tier in the July
+    // benchmark). Non-retryable; fail fast so the router can fall back.
+    const bodyLower = body.toLowerCase();
+    if (bodyLower.includes('no healthy deployments') || bodyLower.includes('no fallback model group')) {
+        return buildResult(FailoverReason.MODEL_NOT_FOUND, status, msg);
+    }
+
     if (status === 429) {
         return buildResult(FailoverReason.RATE_LIMIT, status, msg);
     }
