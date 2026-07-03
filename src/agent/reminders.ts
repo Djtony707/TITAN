@@ -107,4 +107,13 @@ export function registerReminderWatcher(): void {
         registerWatcher('reminders', async () => { await checkReminders(); }, CHECK_INTERVAL_MS);
         logger.info(COMPONENT, 'Reminder watcher registered (every 60s)');
     }).catch(err => logger.warn(COMPONENT, `Register failed: ${(err as Error).message}`));
+    // The daemon defaults to disabled — reminders must fire regardless, so run
+    // a self-owned timer when the daemon never starts (v7.0 review finding).
+    import('../config/config.js').then(({ loadConfig }) => {
+        const cfg = loadConfig() as { daemon?: { enabled?: boolean } };
+        if (cfg.daemon?.enabled !== true) {
+            setInterval(() => { checkReminders().catch(() => {}); }, CHECK_INTERVAL_MS).unref();
+            logger.info(COMPONENT, 'Daemon disabled — reminders running on their own 60s timer');
+        }
+    }).catch(() => {});
 }

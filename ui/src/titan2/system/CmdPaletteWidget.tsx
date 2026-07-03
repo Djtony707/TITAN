@@ -32,6 +32,7 @@ const ACTIONS = [
   { type: 'widget' as const, source: 'system:memory-wiki', name: 'Memory Wiki', w: 6, h: 6, icon: <BookOpen className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:autoresearch', name: 'Autoresearch', w: 6, h: 6, icon: <FlaskConical className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:self-proposals', name: 'Self-Proposals', w: 6, h: 6, icon: <GitPullRequest className="w-4 h-4" /> },
+  { type: 'widget' as const, source: 'system:muscle-memory', name: 'Muscle Memory', w: 6, h: 7, icon: <GitPullRequest className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:overview', name: 'Overview', w: 6, h: 5, icon: <Eye className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:sessions', name: 'Sessions', w: 6, h: 5, icon: <Clock className="w-4 h-4" /> },
   { type: 'widget' as const, source: 'system:watch', name: 'Watch', w: 8, h: 7, icon: <Activity className="w-4 h-4" /> },

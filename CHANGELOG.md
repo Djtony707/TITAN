@@ -2,6 +2,15 @@
 
 ## v7.0.0 — 2026-07-02 — Alive, Welcoming, Model-Agnostic
 
+### Muscle Memory 💪 — trustworthy automatic self-improvement (industry first)
+- **TITAN notices your repeated workflows and teaches itself skills** — no ceremony, no manual skill files. Three successful repeats of the same tool pattern → a drafted, parameterized recipe with its own slash command.
+- **The replay exam (the part nobody else has):** before you ever see a learned skill, it must reproduce the original workflow's exact tool path against your real historical request, verified by the deterministic eval harness — grounded proof, not self-grading. Failed drafts stay hidden.
+- **Exam sandbox:** replays bind *exactly* the mined tools (allowlist) and side-effectful workflows (send/post/delete/deploy/…) are never mined at all — self-learning can't re-send an email.
+- One-click **Adopt** → instant `/slash-command` in every channel; **Not for me** → remembered, never re-proposed. The mascot announces new skills; the 💪 widget shows evidence, exam verdicts, and measured time saved per run.
+- Learning is invisible-until-proven: eval-channel runs never feed the learning loop back (no echo-chamber mining).
+- Config: `muscleMemory.{enabled,minOccurrences,verifyBeforePropose}` — on by default because nothing ever auto-adopts.
+- Also fixed en route: recipe runner now honors declared parameter defaults; recipe slash lookups normalize leading slashes; reminders + Muscle Memory run their own timers when the daemon is disabled (both were inert on default configs).
+
 ### Welcome Mode — first run finally feels like a product
 - **The gateway always boots.** No Ollama, no API key? v7.0 starts anyway and greets you: the dashboard shows a warm setup screen instead of the old terminal refusal that stopped first-time users before they ever saw the desk.
 - **One-click connect when Ollama is running** — models auto-detected and listed. Otherwise paste an Anthropic/OpenAI key or any OpenAI-compatible endpoint (LiteLLM, vLLM, LM Studio, llama.cpp).

@@ -50,7 +50,10 @@ export function deleteRecipe(id: string): void {
 
 /** Get a recipe by slash command (e.g. "code-review") */
 export function findBySlashCommand(command: string): Recipe | null {
-    return listRecipes().find((r) => r.slashCommand === command) || null;
+    // Normalize: compare slash-less on both sides so a stored '/foo' (any
+    // future source) still resolves against parseSlashCommand's bare 'foo'.
+    const bare = command.replace(/^\/+/, '');
+    return listRecipes().find((r) => (r.slashCommand || '').replace(/^\/+/, '') === bare) || null;
 }
 
 /** Return built-in starter recipes */

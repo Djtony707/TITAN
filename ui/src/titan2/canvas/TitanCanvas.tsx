@@ -112,6 +112,7 @@ import {
 
 import { AgentsWidget } from '../system/AgentsWidget';
 import { HealthWidget } from '../system/HealthWidget';
+import { MuscleMemoryWidget } from '../system/MuscleMemoryWidget';
 import { StatsWidget } from '../system/StatsWidget';
 import { QuickLinksWidget } from '../system/QuickLinksWidget';
 
@@ -159,6 +160,7 @@ const SYSTEM_COMPONENTS: Record<string, React.FC<any>> = {
   'system:memory-wiki': MemoryWikiWidget,
   'system:autoresearch': AutoresearchWidget,
   'system:self-proposals': SelfProposalsWidget,
+  'system:muscle-memory': MuscleMemoryWidget,
   'system:overview': OverviewWidget,
   'system:sessions': SessionsWidget,
   'system:watch': WatchWidget,
