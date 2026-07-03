@@ -60,7 +60,7 @@ import { initSlashCommands, handleSlashCommand } from './slashCommands.js';
 import { initMcpServers } from '../mcp/registry.js';
 import { mountMcpHttpEndpoints } from '../mcp/server.js';
 import { initMonitors, setMonitorTriggerHandler, listMonitors, addMonitor, removeMonitor, getMonitorEvents } from '../agent/monitor.js';
-import { seedBuiltinRecipes } from '../recipes/store.js';
+import { seedBuiltinRecipes, findBySlashCommand } from '../recipes/store.js';
 import { parseSlashCommand, runRecipe } from '../recipes/runner.js';
 import { getCostStatus } from '../agent/costOptimizer.js';
 import { initLearning, getLearningStats } from '../memory/learning.js';
@@ -750,9 +750,22 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     if (args) { params['file'] = args; params['topic'] = args; params['error'] = args; }
     try {
       let fullResponse = '';
+      const slashRecipe = findBySlashCommand(command);
+      // v7.0: fill the recipe's DECLARED params with the arg string (learned
+      // recipes use named params like {{request}}, not the legacy trio).
+      if (slashRecipe && args) {
+        for (const key of Object.keys(slashRecipe.parameters || {})) params[key] = args;
+      }
+      const runStart = Date.now();
+      let runTokens = 0;
       for await (const step of runRecipe(command, params)) {
         const r = await processMessage(step.prompt, msg.channel, msg.userId);
+        runTokens += r.tokenUsage?.total || 0;
         fullResponse += (fullResponse ? '\n\n' : '') + r.content;
+      }
+      if (slashRecipe?.author === 'muscle-memory') {
+        const { recordAdoptedRun } = await import('../agent/muscleMemory.js');
+        recordAdoptedRun(slashRecipe.id, Date.now() - runStart, runTokens);
       }
       await safeSend(msg.channel, { channel: msg.channel, userId: msg.userId, groupId: msg.groupId, content: fullResponse, replyTo: msg.id });
       broadcast({ type: 'message', direction: 'outbound', channel: msg.channel, userId: msg.userId, content: fullResponse, timestamp: new Date().toISOString() });
@@ -971,6 +984,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     registerHeartbeat();
     const { registerReminderWatcher } = await import('../agent/reminders.js');
     registerReminderWatcher();
+    const { registerMuscleWatcher } = await import('../agent/muscleMemory.js');
+    registerMuscleWatcher();
   } catch (err) {
     logger.warn(COMPONENT, `heartbeat failed to register: ${(err as Error).message}`);
   }
@@ -2754,6 +2769,29 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Agent message endpoint (uses multi-agent routing)
   // Supports SSE streaming when Accept: text/event-stream header is present
+  // ── v7.0 Muscle Memory — trustworthy automatic self-improvement ───
+  app.get('/api/muscle', async (_req, res) => {
+    const { listSkills, muscleStats } = await import('../agent/muscleMemory.js');
+    res.json({ stats: muscleStats(), skills: listSkills() });
+  });
+
+  app.post('/api/muscle/scan', rateLimit(60_000, 2), async (_req, res) => {
+    const { runMuscleScan } = await import('../agent/muscleMemory.js');
+    res.json(await runMuscleScan(true));
+  });
+
+  app.post('/api/muscle/:id/adopt', rateLimit(60_000, 10), async (req, res) => {
+    const { adoptSkill } = await import('../agent/muscleMemory.js');
+    const result = adoptSkill(req.params.id);
+    res.status('error' in result ? 400 : 200).json(result);
+  });
+
+  app.post('/api/muscle/:id/dismiss', rateLimit(60_000, 10), async (req, res) => {
+    const { dismissSkill } = await import('../agent/muscleMemory.js');
+    const ok = dismissSkill(req.params.id, (req.body as { reason?: string })?.reason);
+    res.status(ok ? 200 : 400).json({ ok });
+  });
+
   // ── v7.0 Welcome Mode / first-run onboarding ──────────────────────
   app.get('/api/onboarding/state', async (_req, res) => {
     const { getOnboardingState } = await import('./onboarding.js');

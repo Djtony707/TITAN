@@ -503,6 +503,8 @@ export interface AgentResponse {
     checkpoint?: string;
     /** True when the response is a plan waiting for user approval (reply "yes"/"no") */
     pendingApproval?: boolean;
+    /** Ordered tool names as executed, repeats preserved (toolsUsed is deduplicated). */
+    orderedToolSequence?: string[];
     /** Structured artifacts from tool execution — used for inter-step context in deliberation */
     toolArtifacts?: {
         filePaths: { path: string; action: 'read' | 'write' | 'edit' | 'list' }[];
@@ -2056,7 +2058,10 @@ export async function processMessage(
     }
 
     // Active Learning: record strategy for future reference
-    if (toolsUsed.length > 0) {
+    // v7.0 Muscle Memory: eval-channel runs (replay exams, test harness) must
+    // never feed the learning loop — otherwise the exam's own replays re-enter
+    // the mining pool and the system studies its own echo.
+    if (toolsUsed.length > 0 && channel !== 'eval') {
         const success = !finalContent.toLowerCase().includes('error') && !budgetExhausted;
         recordStrategy(message, [...new Set(toolsUsed)], orderedToolSequence.length, success, orderedToolSequence);
 
@@ -2224,14 +2229,16 @@ export async function processMessage(
         durationMs,
         sessionId: session.id,
     };
-    logTrajectory(trajectory);
-    processTrajectoryForSkills(trajectory);
+    if (channel !== 'eval') {
+        logTrajectory(trajectory);
+        processTrajectoryForSkills(trajectory);
+    }
     // v6.4.0 — feed the same trajectory into the learning curator so it
     // can update its per-pattern lifecycle state and (every 24h) write
     // durable lessons to ~/.titan/logs/learning-curator/. Errors are
     // swallowed inside processTrajectoryForLearningReview so a curator
     // failure can't poison the agent loop.
-    processTrajectoryForLearningReview(trajectory);
+    if (channel !== 'eval') processTrajectoryForLearningReview(trajectory);
 
     // Finalize trace
     trace.setModel(modelUsed);
@@ -2297,6 +2304,7 @@ export async function processMessage(
         sessionId: session.id,
         toolsUsed: [...new Set(toolsUsed)],
         attemptedTools: [...new Set(attemptedTools)],
+        orderedToolSequence: [...orderedToolSequence],
         tokenUsage: {
             prompt: totalPromptTokens,
             completion: totalCompletionTokens,

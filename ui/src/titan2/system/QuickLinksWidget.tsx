@@ -26,6 +26,7 @@ const LINKS = [
   { label: 'Wiki', source: 'system:memory-wiki', w: 5, h: 5, icon: <BookOpen className="w-3.5 h-3.5" /> },
   { label: 'Research', source: 'system:autoresearch', w: 5, h: 5, icon: <FlaskConical className="w-3.5 h-3.5" /> },
   { label: 'Proposals', source: 'system:self-proposals', w: 5, h: 5, icon: <GitPullRequest className="w-3.5 h-3.5" /> },
+  { label: 'Muscle Memory', source: 'system:muscle-memory', w: 5, h: 6, icon: <GitPullRequest className="w-3.5 h-3.5" /> },
   { label: 'Overview', source: 'system:overview', w: 5, h: 4, icon: <Eye className="w-3.5 h-3.5" /> },
   { label: 'Sessions', source: 'system:sessions', w: 5, h: 4, icon: <Clock className="w-3.5 h-3.5" /> },
   { label: 'Watch', source: 'system:watch', w: 6, h: 5, icon: <Activity className="w-3.5 h-3.5" /> },

@@ -634,6 +634,16 @@ export const TitanConfigSchema = z.object({
         })).default({}),
     }).default({}),
     organism: OrganismConfigSchema.default({}),
+    /** v7.0 Muscle Memory — automatic, replay-verified skill learning.
+     *  Safe to enable by default: proposals never auto-adopt; every learned
+     *  skill must pass a deterministic replay exam before it is shown. */
+    muscleMemory: z.object({
+        enabled: z.boolean().default(true),
+        /** How many successful repetitions of a workflow before TITAN drafts a skill. */
+        minOccurrences: z.number().int().min(2).default(3),
+        /** Replay-verify drafts through the eval harness before proposing (the trust layer). */
+        verifyBeforePropose: z.boolean().default(true),
+    }).default({}),
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
     telephony: TelephonyConfigSchema,

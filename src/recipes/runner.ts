@@ -28,9 +28,19 @@ export async function* runRecipe(
 
     logger.info(COMPONENT, `Running recipe: ${recipe.name} (${recipe.steps.length} steps)`);
 
+    // v7.0: declared parameter defaults fill anything the caller didn't supply,
+    // so adopted/learned recipes never run with literal <param> placeholders.
+    const effectiveParams: Record<string, string> = {};
+    for (const [key, spec] of Object.entries(recipe.parameters || {})) {
+        if (spec?.default !== undefined) effectiveParams[key] = spec.default;
+    }
+    for (const [key, val] of Object.entries(userParams)) {
+        if (val !== undefined) effectiveParams[key] = val; // '' is a legitimate value
+    }
+
     for (let i = 0; i < recipe.steps.length; i++) {
         const step = recipe.steps[i];
-        const prompt = interpolate(step.prompt, userParams);
+        const prompt = interpolate(step.prompt, effectiveParams);
         yield { stepIndex: i, prompt, total: recipe.steps.length };
     }
 
