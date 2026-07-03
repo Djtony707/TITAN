@@ -1,7 +1,7 @@
 {
   "name": "titan-agent",
   "version": "7.0.0",
-  "description": "TITAN — TypeScript AI agent framework with multi-agent orchestration, provider routing, approval gates, receipts, evals, gateway APIs, and a React Mission Control dashboard. Open-source, MIT licensed.",
+  "description": "TITAN — the AI agent that provably teaches itself. TypeScript agent framework with replay-verified self-learned skills (Muscle Memory), one-minute Welcome Mode setup, a living desk with heartbeat/reminders/proactive memory, multi-agent orchestration, 36-provider routing, approval gates, receipts, evals, and a React Mission Control dashboard. Open-source, MIT.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {
     "type": "git",
@@ -122,7 +122,8 @@
     "research-agent",
     "ai-gateway",
     "model-routing",
-    "agent-delegation"
+    "agent-delegation",
+    "local-first"
   ],
   "engines": {
     "node": ">=22.0.0"
