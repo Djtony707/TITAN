@@ -91,6 +91,44 @@ export function initSlashCommands(): void {
     });
 
     // ── /think [off|low|medium|high] ──
+    // ── /moa — Mixture of Agents (v7.1) ─────────────────────────────
+    // "/moa <prompt>"  = one-shot: answer this with the default MoA preset.
+    // "/moa use <preset>" = make the preset this session's model.
+    // "/moa off"       = back to the configured model.
+    // "/moa"           = status + available presets.
+    registerSlashCommand('moa', async (args, channel, userId) => {
+        const { getMoaPresets } = await import('../providers/moa.js');
+        const presets = getMoaPresets();
+        const names = Object.keys(presets);
+        const cfg = loadConfig() as { moa?: { defaultPreset?: string } };
+        const def = cfg.moa?.defaultPreset || names[0];
+        const trimmed = args.trim();
+
+        if (!trimmed) {
+            if (names.length === 0) {
+                return { handled: true, response: 'No MoA presets configured yet. Add one under `moa.presets` in titan.json — e.g. a local council of your own models advising an aggregator. Docs: MOA section in README.' };
+            }
+            return { handled: true, response: `🧠 Mixture of Agents — presets: ${names.map(n => n === def ? `**${n}** (default)` : n).join(', ')}\nUse: \`/moa <prompt>\` (one-shot) · \`/moa use <preset>\` (session) · \`/moa off\`` };
+        }
+        if (trimmed === 'off') {
+            setSessionModelOverride(channel, userId, '');
+            return { handled: true, response: 'MoA off — back to your configured model.' };
+        }
+        if (trimmed.startsWith('use ')) {
+            const name = trimmed.slice(4).trim();
+            if (!presets[name]) return { handled: true, response: `No MoA preset "${name}". Available: ${names.join(', ') || '(none configured)'}` };
+            setSessionModelOverride(channel, userId, `moa/${name}`);
+            return { handled: true, response: `🧠 This session now thinks as a council: **moa/${name}** (${presets[name].references.length} advisors → ${presets[name].aggregator}). \`/moa off\` to revert.` };
+        }
+        if (!def) {
+            return { handled: true, response: 'No MoA presets configured yet — add one under `moa.presets` in titan.json first.' };
+        }
+        // One-shot: run the prompt through the preset without changing the session
+        const { processMessage } = await import('../agent/agent.js');
+        const res = await processMessage(trimmed, channel, userId, { model: `moa/${def}` });
+        return { handled: true, response: res.content };
+    });
+
     registerSlashCommand('think', (args, channel, userId) => {
         const session = getOrCreateSession(channel, userId, 'default');
         const config = loadConfig();

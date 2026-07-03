@@ -634,6 +634,24 @@ export const TitanConfigSchema = z.object({
         })).default({}),
     }).default({}),
     organism: OrganismConfigSchema.default({}),
+    /** v7.1 MoA — Mixture-of-Agents presets. A preset = N reference advisor
+     *  models (trimmed context, no tools, parallel with timeouts) + 1 acting
+     *  aggregator. Selectable anywhere as the virtual model `moa/<preset>`.
+     *  Local-first: the default `local-council` mixes models across the
+     *  user's own machines for $0 per turn. */
+    moa: z.object({
+        presets: z.record(z.string(), z.object({
+            references: z.array(z.object({
+                model: z.string(),
+                maxTokens: z.number().int().positive().optional(),
+                temperature: z.number().min(0).max(2).optional(),
+                timeoutMs: z.number().int().positive().optional(),
+            })).min(1),
+            aggregator: z.string(),
+            enabled: z.boolean().default(true),
+            maxTokens: z.number().int().positive().optional(),
+        })).default({}),
+    }).default({}),
     /** v7.0 Muscle Memory — automatic, replay-verified skill learning.
      *  Safe to enable by default: proposals never auto-adopt; every learned
      *  skill must pass a deterministic replay exam before it is shown. */
