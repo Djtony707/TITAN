@@ -125,6 +125,9 @@ export async function applyOnboardingConfig(input: OnboardingConfigureInput): Pr
     if (!patch) return { ok: false, details: 'Missing required fields for the chosen provider.' };
     updateConfig(patch);
     const usable = await refreshProviderReady();
+    // A successful welcome-mode connect IS onboarding — without this flag the
+    // mascot keeps nagging "I need a brain" after the desk is already alive.
+    if (usable.ok) updateConfig({ onboarded: true } as Partial<TitanConfig>);
     logger.info(COMPONENT, `Welcome-mode configure (${input.kind}) → ${usable.ok ? 'READY' : `not ready: ${usable.details}`}`);
     return usable;
 }

@@ -27,6 +27,11 @@
 </p>
 
 <p align="center">
+  <img src="docs/assets/titan-desk.gif" alt="The TITAN Living Desk — the mascot announces a self-learned skill and celebrates on the canvas" width="880"/>
+  <br><small><em>The Living Desk: home is a canvas, the mascot is a creature — here it announces a skill it just taught itself.</em></small>
+</p>
+
+<p align="center">
   <a href="#whats-new"><img src="https://img.shields.io/npm/v/titan-agent?color=blueviolet&label=version" alt="npm version"/></a>
   <img src="https://img.shields.io/badge/providers-36-purple" alt="36 LLM Providers"/>
   <img src="https://img.shields.io/badge/channels-19-orange" alt="19 Channels"/>
@@ -123,6 +128,20 @@ TITAN doesn't just respond — it lives on your machine:
 - **FIX:** the agent loop-breaker could itself infinite-loop (the round counter froze) — now terminal and bounded.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.0.0 entry and everything before it.
+
+---
+
+## See it
+
+| 👋 Welcome Mode — first run in a minute | 💪 Muscle Memory — a real learned skill |
+|---|---|
+| <img src="docs/assets/welcome-mode.png" alt="Welcome Mode setup card over the dimmed desk" width="420"/> | <img src="docs/assets/muscle-widget.png" alt="Muscle Memory widget showing a replay-verified learned skill awaiting adoption" width="420"/> |
+| *No model configured? The gateway boots anyway and walks you in.* | *An actual skill TITAN taught itself from repeated usage — exam badge and evidence included.* |
+
+<p align="center">
+  <img src="docs/assets/mascot-learned.png" alt="The mascot announcing a learned skill on the desk" width="880"/>
+  <br><small><em>“I taught myself add-widget — replay exam passed!” — proactive, and provable.</em></small>
+</p>
 
 ---
 
