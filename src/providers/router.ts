@@ -15,6 +15,7 @@ import { OpenAIProvider } from './openai.js';
 import { GoogleProvider } from './google.js';
 import { OllamaProvider } from './ollama.js';
 import { ClaudeCodeProvider } from './claudeCode.js';
+import { MoaProvider } from './moa.js';
 import { OpenAICompatProvider, PROVIDER_PRESETS } from './openai_compat.js';
 import { StubProvider, shouldUseStubProvider } from './stub.js';
 import { loadConfig } from '../config/config.js';
@@ -161,6 +162,7 @@ function initProviders(): void {
     providers.set('google', new GoogleProvider());
     providers.set('ollama', new OllamaProvider());
     providers.set('claude-code', new ClaudeCodeProvider());
+    providers.set('moa', new MoaProvider());
     // beta.11 — CI stub. Deterministic pattern-matched responses so
     // Eval Gate suites can run on every PR without LLM credentials.
     // Gated on shouldUseStubProvider() so it never registers in
