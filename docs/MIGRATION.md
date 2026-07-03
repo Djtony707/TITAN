@@ -1,5 +1,19 @@
 # Migration Guide
 
+
+## Upgrading to v7.0.0 "Independence" (from v5.x / v6.x)
+
+**TL;DR: `npm install -g titan-agent@latest` and restart. The migration runner takes an automatic backup to `~/.titan/backups/` before touching anything; `titan backup restore <id>` rolls you back.**
+
+What happens automatically on first boot:
+
+- **Config migrations** — `organism.pressureThreshold` migrates `1.2 → 0.4` (the old default could never fire a Soma proposal). All new config blocks get safe defaults.
+- **New config keys** (all optional, all safe defaults): `muscleMemory.{enabled,minOccurrences,verifyBeforePropose}` (self-learned skills — proposals only, nothing auto-adopts), `onboarded` (set by Welcome Mode).
+- **Welcome Mode** — if your config already has a working provider, you'll never see it. Unconfigured installs now boot into a guided setup instead of refusing to start.
+- **Reminders + Muscle Memory run their own timers** — they no longer require `daemon.enabled: true`.
+
+Nothing is removed or renamed in v7.0.0: existing configs, sessions, memory, personas, recipes, and channels carry forward unchanged. New surfaces (💪 Muscle Memory widget, heartbeat notes, the free-roaming mascot) appear without any action on your part.
+
 Moving to TITAN from another agent framework? This guide maps the concepts you already know to their TITAN equivalents and highlights what you gain.
 
 TITAN is a TypeScript autonomous AI agent framework, distributed as the `titan-agent` npm package. It runs as a gateway server (default port 48420) with a built-in React dashboard called Mission Control.
