@@ -51,7 +51,7 @@ jobs:
         # the suite finishes reliably. Heap also raised 4096 → 6144 MB
         # so the orchestrator process can hold the full file list.
         # 30min job timeout absorbs any runner slowness.
-        run: npx vitest run --reporter=verbose --max-workers=2 --min-workers=1
+        run: npx vitest run --reporter=verbose --max-workers=2
         env:
           NODE_OPTIONS: --max-old-space-size=6144
 
