@@ -2326,8 +2326,11 @@ export async function processMessage(
     // inside; fire-and-forget so it never delays the reply. Closes the audit
     // gap where appendObservation had zero callers and the agent never learned.
     try {
-        const { maybeObserve } = await import('./observationWriter.js');
-        maybeObserve(channel, message || '', finalContent || '');
+        const { isBenchMode } = await import('../utils/benchMode.js');
+        if (!isBenchMode()) {
+            const { maybeObserve } = await import('./observationWriter.js');
+            maybeObserve(channel, message || '', finalContent || '');
+        }
     } catch { /* observation optional */ }
 
     return {
