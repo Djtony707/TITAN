@@ -49,16 +49,20 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('@slack/web-api', () => ({
-    WebClient: vi.fn().mockImplementation(() => ({
-        chat: { postMessage: mockPostMessage },
-        conversations: {
-            history: mockConversationsHistory,
-            list: mockConversationsList,
-        },
-        search: { messages: mockSearchMessages },
-        reactions: { add: mockReactionsAdd },
-        users: { info: mockUsersInfo },
-    })),
+    // vitest 4: arrow-function mock implementations are not constructable,
+    // but production code does `new WebClient(token)` — use a function expression.
+    WebClient: vi.fn(function () {
+        return {
+            chat: { postMessage: mockPostMessage },
+            conversations: {
+                history: mockConversationsHistory,
+                list: mockConversationsList,
+            },
+            search: { messages: mockSearchMessages },
+            reactions: { add: mockReactionsAdd },
+            users: { info: mockUsersInfo },
+        };
+    }),
 }));
 
 // ── Import under test ────────────────────────────────────────────────────

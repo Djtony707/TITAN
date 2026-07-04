@@ -85,11 +85,15 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 vi.mock('bonjour-service', () => ({
-    Bonjour: vi.fn().mockImplementation(() => ({
-        publish: mockBonjourPublish,
-        find: mockBonjourFind,
-        destroy: mockBonjourDestroy,
-    })),
+    // vitest 4: arrow-fn mock implementations are not constructable — use a regular
+    // function so production code can call `new Bonjour()`.
+    Bonjour: vi.fn(function () {
+        return {
+            publish: mockBonjourPublish,
+            find: mockBonjourFind,
+            destroy: mockBonjourDestroy,
+        };
+    }),
 }));
 
 // Mock fs for identity
@@ -108,10 +112,12 @@ vi.mock('fs', async (importOriginal) => {
 let lastCreatedWs: ReturnType<typeof createMockWs> | null = null;
 
 vi.mock('ws', () => {
-    const MockWebSocket = vi.fn().mockImplementation(() => {
+    // vitest 4: arrow-fn mock implementations are not constructable — use a regular
+    // function so production code can call `new WebSocket(url, opts)`.
+    const MockWebSocket = vi.fn(function () {
         lastCreatedWs = createMockWs(0); // CONNECTING state initially
         return lastCreatedWs;
-    });
+    }) as ReturnType<typeof vi.fn> & Record<string, unknown>;
     // Static properties used by transport.ts (e.g., ws.readyState === WebSocket.OPEN)
     MockWebSocket.OPEN = 1;
     MockWebSocket.CLOSED = 3;

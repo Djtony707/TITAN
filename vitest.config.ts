@@ -68,13 +68,10 @@ export default defineConfig({
         // file so memory is released between files (especially
         // important on CI where HEAP_MB=4096 is tight).
         pool: 'forks',
-        poolOptions: {
-            forks: {
-                maxForks: MAX_FORKS,
-                minForks: 1,
-                execArgv: [`--max-old-space-size=${HEAP_MB}`, '--expose-gc'],
-            },
-        },
+        // vitest 4: poolOptions was removed — worker counts and fork exec
+        // args moved to top-level options.
+        maxWorkers: MAX_FORKS,
+        execArgv: [`--max-old-space-size=${HEAP_MB}`, '--expose-gc'],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'json-summary'],

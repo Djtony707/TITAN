@@ -144,6 +144,11 @@ describe('Fallback Chain Router Logic', () => {
     let loadConfigMock: ReturnType<typeof vi.fn>;
 
     beforeEach(async () => {
+        // vitest 4: restoreAllMocks() no longer resets vi.fn() state, and
+        // vi.spyOn() reuses an already-mocked method — so call counts on the
+        // singleton providers' chat mocks leak across tests. Clear them here
+        // to preserve the per-test isolation these assertions rely on.
+        vi.clearAllMocks();
         const configMod = await import('../src/config/config.js');
         loadConfigMock = configMod.loadConfig as ReturnType<typeof vi.fn>;
     });
