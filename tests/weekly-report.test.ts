@@ -40,9 +40,11 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('@slack/web-api', () => ({
-    WebClient: vi.fn().mockImplementation(() => ({
-        chat: { postMessage: mockSlackPostMessage },
-    })),
+    // vitest 4: arrow-function mock implementations are not constructable,
+    // so use a `function` implementation for `new WebClient()` in production code.
+    WebClient: vi.fn(function () {
+        return { chat: { postMessage: mockSlackPostMessage } };
+    }),
 }));
 
 import { registerWeeklyReportSkill } from '../src/skills/builtin/weekly_report.js';

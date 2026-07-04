@@ -57,36 +57,52 @@ const mockChatStream = vi.fn();
 const mockHealthCheck = vi.fn().mockResolvedValue(false);
 const mockListModels = vi.fn().mockResolvedValue([]);
 
+// NOTE: vitest 4 mocks preserve arrow-function semantics, so vi.fn(() => ({...}))
+// is not constructable. Use vi.fn(function () { ... }) so `new Provider()` works.
 vi.mock('../src/providers/anthropic.js', () => ({
-    AnthropicProvider: vi.fn().mockImplementation(() => ({
-        name: 'anthropic', displayName: 'Anthropic', chat: mockChat, chatStream: mockChatStream,
-        healthCheck: mockHealthCheck, listModels: mockListModels,
-        isConfigured: () => true,
-    })),
+    AnthropicProvider: vi.fn(function () {
+        return {
+            name: 'anthropic', displayName: 'Anthropic', chat: mockChat, chatStream: mockChatStream,
+            healthCheck: mockHealthCheck, listModels: mockListModels,
+            isConfigured: () => true,
+        };
+    }),
 }));
 vi.mock('../src/providers/openai.js', () => ({
-    OpenAIProvider: vi.fn().mockImplementation(() => ({
-        name: 'openai', displayName: 'OpenAI', chat: vi.fn().mockRejectedValue(new Error('no')),
-        chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
-        isConfigured: () => true,
-    })),
+    OpenAIProvider: vi.fn(function () {
+        return {
+            name: 'openai', displayName: 'OpenAI', chat: vi.fn().mockRejectedValue(new Error('no')),
+            chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+            isConfigured: () => true,
+        };
+    }),
 }));
 vi.mock('../src/providers/google.js', () => ({
-    GoogleProvider: vi.fn().mockImplementation(() => ({
-        name: 'google', displayName: 'Google', chat: vi.fn().mockRejectedValue(new Error('no')),
-        chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
-        isConfigured: () => true,
-    })),
+    GoogleProvider: vi.fn(function () {
+        return {
+            name: 'google', displayName: 'Google', chat: vi.fn().mockRejectedValue(new Error('no')),
+            chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+            isConfigured: () => true,
+        };
+    }),
 }));
 vi.mock('../src/providers/ollama.js', () => ({
-    OllamaProvider: vi.fn().mockImplementation(() => ({
-        name: 'ollama', displayName: 'Ollama', chat: vi.fn().mockRejectedValue(new Error('no')),
-        chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
-        isConfigured: () => true,
-    })),
+    OllamaProvider: vi.fn(function () {
+        return {
+            name: 'ollama', displayName: 'Ollama', chat: vi.fn().mockRejectedValue(new Error('no')),
+            chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+            isConfigured: () => true,
+        };
+    }),
 }));
 vi.mock('../src/providers/openai_compat.js', () => ({
-    OpenAICompatProvider: vi.fn(),
+    OpenAICompatProvider: vi.fn(function () {
+        return {
+            name: 'openai_compat', displayName: 'OpenAI Compatible', chat: vi.fn().mockRejectedValue(new Error('no')),
+            chatStream: vi.fn(), healthCheck: vi.fn().mockResolvedValue(false), listModels: vi.fn().mockResolvedValue([]),
+            isConfigured: () => false,
+        };
+    }),
     PROVIDER_PRESETS: [],
 }));
 vi.mock('../src/providers/base.js', () => ({

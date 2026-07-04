@@ -82,7 +82,8 @@ describe('TelegramChannel — extended', () => {
         };
 
         vi.doMock('grammy', () => ({
-            Bot: vi.fn(() => mockBotInstance),
+            // vitest 4: arrow-function mocks are not constructable — use a function expression
+            Bot: vi.fn(function () { return mockBotInstance; }),
         }));
 
         const mod = await import('../src/channels/telegram.js');
@@ -225,7 +226,8 @@ describe('SlackChannel — extended', () => {
         };
 
         vi.doMock('@slack/bolt', () => ({
-            App: vi.fn(() => mockApp),
+            // vitest 4: arrow-function mocks are not constructable — use a function expression
+            App: vi.fn(function () { return mockApp; }),
         }));
 
         const mod = await import('../src/channels/slack.js');
@@ -358,7 +360,8 @@ describe('DiscordChannel — extended', () => {
         };
 
         vi.doMock('discord.js', () => ({
-            Client: vi.fn(() => mockClient),
+            // vitest 4: arrow-function mocks are not constructable — use a function expression
+            Client: vi.fn(function () { return mockClient; }),
             GatewayIntentBits: { Guilds: 1, GuildMessages: 2, DirectMessages: 4, MessageContent: 8 },
             Events: { MessageCreate: 'messageCreate', ClientReady: 'ready' },
         }));
