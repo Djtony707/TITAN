@@ -288,6 +288,10 @@ export function initGraph(): void {
 
 // ── Entity extraction via any configured LLM ────────────────────
 async function extractEntities(content: string): Promise<{ entities: Array<{ name: string; type: string; facts: string[] }>; relations: Array<{ from: string; to: string; relation: string }> }> {
+    // Bench mode: entity extraction is an LLM call per message — silence it
+    // so benchmarks measure the model, not TITAN's memory keeper.
+    const { isBenchMode } = await import('../utils/benchMode.js');
+    if (isBenchMode()) return { entities: [], relations: [] };
     try {
         // Dynamic import to avoid circular dependency (router → config → graph)
         // Dynamic import breaks circular dependency: graph → router → agent → graph. This is intentional.

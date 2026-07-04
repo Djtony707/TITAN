@@ -968,9 +968,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // The loop is self-throttling (5-min pulse, conservative confidence
   // floor, frustration-aware throttling) so we can wire it on without
   // risk of spam. Errors are swallowed so a Soma bug never breaks boot.
+  const { isBenchMode } = await import('../utils/benchMode.js');
+  if (isBenchMode()) {
+    logger.warn(COMPONENT, 'TITAN_BENCH=1 — background loops (Soma, heartbeat, daemon, Muscle Memory, observation/graph extraction) are DISABLED for clean benchmarking');
+  }
   try {
-    const { startSomaInitiative } = await import('../agent/somaInitiative.js');
-    startSomaInitiative({ userId: 'default-user' });
+    if (!isBenchMode()) {
+      const { startSomaInitiative } = await import('../agent/somaInitiative.js');
+      startSomaInitiative({ userId: 'default-user' });
+    }
   } catch (err) {
     logger.warn(COMPONENT, `somaInitiative failed to start: ${(err as Error).message}`);
   }
@@ -980,12 +986,15 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // The single behavior that makes the agent feel inhabited rather than
   // operated — see heartbeat.ts. Errors never break boot.
   try {
-    const { registerHeartbeat } = await import('../agent/heartbeat.js');
-    registerHeartbeat();
+    if (!isBenchMode()) {
+      const { registerHeartbeat } = await import('../agent/heartbeat.js');
+      registerHeartbeat();
+      const { registerMuscleWatcher } = await import('../agent/muscleMemory.js');
+      registerMuscleWatcher();
+    }
+    // Reminders make no LLM calls — they stay live even in bench mode.
     const { registerReminderWatcher } = await import('../agent/reminders.js');
     registerReminderWatcher();
-    const { registerMuscleWatcher } = await import('../agent/muscleMemory.js');
-    registerMuscleWatcher();
   } catch (err) {
     logger.warn(COMPONENT, `heartbeat failed to register: ${(err as Error).message}`);
   }
@@ -5170,7 +5179,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   }
 
   // ── Daemon — persistent agent awareness loop ────────────────
-  initDaemon();
+  if (!(await import('../utils/benchMode.js')).isBenchMode()) initDaemon();
 
   // ── Morning Briefing — send once per day in 6am–12pm window ──
   checkAndSendBriefing(async (msg) => {
