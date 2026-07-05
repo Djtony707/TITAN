@@ -168,7 +168,7 @@ titan gateway            # opens Mission Control at http://localhost:48420
 
 That's it — no setup required first. The dashboard greets you and connects a model in about a minute (one click if Ollama is running; or paste any API key / OpenAI-compatible endpoint). Prefer the terminal? `titan onboard` runs the full interactive wizard.
 
-**Which model?** Benchmarked through TITAN's own harness (July 2026): best local = **`qwen3-coder-next`**-class (74% harness pass, fastest median case of anything tested); best cloud = **GLM-5.1** / **Kimi K2.6** (93%, both aced safety). Mid-size models on 32k contexts overflow TITAN's full toolset — details and honest caveats in [benchmarks/MODEL_COMPARISON.md](benchmarks/MODEL_COMPARISON.md).
+**Which model?** Benchmarked through TITAN's own harness (July 2026, clean rerun): best local = **`qwen3-coder-next`** (85%, 5.2s median) and — on DGX-Spark-class unified memory — **Qwen3.6-35B-A3B NVFP4** (85%, ties it); best cloud = **GLM-5.1** / **Kimi K2.6** (93%). TITAN v7.1 auto-adapts to each deployment's real context (learned live), so small-context deployments degrade gracefully instead of failing — details and honest caveats in [benchmarks/MODEL_COMPARISON.md](benchmarks/MODEL_COMPARISON.md).
 
 Or one-liner:
 

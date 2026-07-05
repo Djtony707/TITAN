@@ -1,3 +1,32 @@
+# TITAN Model Benchmark — July 2026, CORRECTED (v7.1 harness + bench mode)
+
+> **Correction & retraction (July 5):** the original July 3 GX10-tier rows below were **rig artifacts, not model results** — a silent provider-flip failure sent those models' requests to a gateway that didn't serve them, and TITAN's own background loops (Soma, GEPA, heartbeat, memory extraction) competed with the eval traffic. Both flaws are fixed in TITAN v7.1 (`TITAN_BENCH=1` isolation mode; nested `/api/config` provider patches; `/api/models`-verified flips) and the numbers below are from the clean rerun.
+
+## Corrected rankings — clean run, v7.1 Context-Fit code, bench isolation
+
+| Rank | Model | Where | Harness pass | Median case | Notes |
+|---|---|---|---|---|---|
+| 🥇 (tie) | **Qwen3.6-35B-A3B (NVFP4)** | **GX10 / DGX Spark** | **23/27 (85%)** | 26.6s | **The GX10 flagship — ties the 5090's best.** Was "1/13" in the retracted run. Aced safety 2/2 |
+| 🥇 (tie) | **Qwen3 Coder Next** | RTX 5090 | **23/27 (85%)** | **5.2s** | Fastest local; perfect widgets 11/11 |
+| — | Qwen3.6-35B-A3B | RTX 5090 (llama-swap, 12K ctx) | 5/8 | 162s | The 12,288-token deployment is the bottleneck, not the model — TITAN's learned-limits now auto-tier around it, but re-serve with ≥40K for real use |
+| — | GLM-4.7-Flash (NVFP4) | GX10 | 1/8 | 300s | Serves correctly (parsers right, 40K ctx) but its reasoning verbosity at ~41 tok/s makes 5-minute cases — better as a **MoA advisor** or Hermes brain than a TITAN driver |
+| — | Nemotron-3-Nano (NVFP4) | GX10 | DNF | — | Serving fixed (was a deleted launcher + an under-sized memory fraction); remaining gap: needs a Nemotron-aware reasoning parser — its thinking floods content before tool calls emit |
+
+**What changed between the retracted run and this one** (all shipped in TITAN v7.1):
+- Context-Fit: tool tiers sized to each deployment's real context (learned live from backend 400s)
+- Bench isolation (`TITAN_BENCH=1`): background loops no longer fight the eval for the same GPU
+- Gateway no-route 400s fail fast instead of 5x retries; strict system-message ordering accepted
+- Deployments fixed: correct tool parsers, agent-sized contexts, memory fractions that actually fit
+
+## Updated recommendations
+
+- **Best local (GPU-rich, 24GB+):** `qwen3-coder-next`-class — 85% at 5.2s median.
+- **Best local on DGX Spark / GB10-class unified memory:** **Qwen3.6-35B-A3B NVFP4** — 85%, and NVFP4 is half the memory of FP8 at higher speed on this hardware. This is the "local models finally first-class" result.
+- **GLM-4.7-Flash:** keep it as a Mixture-of-Agents advisor (`/moa` local-council) — its reasoning depth helps there without its latency hurting turns.
+- **Deployment > model.** Every failure in this saga was serving configuration: context sizes, memory fractions, tool/reasoning parsers, quant choice. Benchmark YOUR deployment.
+
+---
+
 # TITAN Model Benchmark — July 2026 (v7.0 harness)
 
 **What's different from the March benchmark below:** this run tests models *as TITAN's brain* — every case runs through the full v7.0 agent loop (system prompt, ~248 tools, widget gates, safety refusals) and is scored by the deterministic eval harness (`src/eval/harness.ts`), not by LLM-judged vibes. 5 suites × 27 cases per model: tool-routing-v2, widget-v2, gate-format-v2, safety, content. Per-suite cap 7 min. Local models ran on the machines named; cloud models via API routes. Single run per model, July 3 2026.
