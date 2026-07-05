@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>The local-first AI agent framework that is model-agnostic, accessible by design, and lets you watch it work.</strong>
+  <strong>The local-first AI agent framework that teaches itself, mixes councils of models, plays well with other agents — and lets you watch it work.</strong>
   <br><small>Your hardware. Your models. Your control. Built in TypeScript, MIT-licensed, 40K+ lifetime installs.</small>
 </p>
 
@@ -49,6 +49,25 @@
 ---
 
 <a id="whats-new"></a>
+
+## What's new in v7.1.0 "Council" — Local-First Intelligence, Together
+
+**Agents advising agents, models sized to their machines, and benchmarks you can trust.**
+
+### 🧠 `/moa` — Mixture of Agents
+Ask a **council**, not a model: N reference advisors answer in parallel (trimmed context, no tools, per-advisor timeouts), and one acting aggregator synthesizes the answer with full tool use. Advisors default to **your own local models across your own machines** — the mixture costs nothing and parallelizes across GPUs. `/moa <prompt>` for one answer, `/moa use <preset>` for a session, presets in config.
+
+### 🌐 Works alongside Hermes Agent & OpenClaw — the MCP triangle
+TITAN's MCP server now speaks **whole-agent**: `titan_chat`, `titan_delegate_task` / `titan_task_status`, `titan_moa`, `titan_status`. One config line makes TITAN a tool inside Hermes or OpenClaw — and TITAN's MCP client consumes their servers right back. Six directed edges, all shipped surfaces, no adapters. ([docs/INTEROP.md](docs/INTEROP.md))
+
+### 📏 Context-Fit — local models become first-class
+TITAN now **learns each deployment's real context ceiling from live traffic** and sizes its toolset to fit: small-context deployments get a lean toolset instead of a fatal overflow, and every request got ~4K tokens lighter (the tool catalog shrank 5×). Strict local backends (vLLM/llama.cpp/LM Studio template quirks) are handled; gateway misroutes fail fast.
+
+**Proof, not vibes**: under the new `TITAN_BENCH=1` isolation mode, **Qwen3.6-35B-A3B NVFP4 on DGX-Spark-class hardware scores 85% through TITAN's harness — tying the RTX 5090's best local model.** Full corrected tables in [benchmarks/MODEL_COMPARISON.md](benchmarks/MODEL_COMPARISON.md).
+
+See **[CHANGELOG.md](CHANGELOG.md)** for the complete v7.1.0 entry.
+
+---
 
 ## What's new in v7.0.0 "Independence" — Alive, Welcoming, Model-Agnostic
 
@@ -148,6 +167,8 @@ See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.0.0 entry and everything be
 ## Why TITAN
 
 - **It teaches itself — provably.** Muscle Memory turns your repeated workflows into replay-verified skills. Every learned skill passes a deterministic exam against your real usage before you see it; nothing auto-adopts. No other framework ships trustworthy self-improvement on by default.
+- **A council, not just a model.** `/moa` fans your question to advisor models across your own machines and synthesizes one sharper answer — mixture-of-agents at $0/turn.
+- **Plays well with other agents.** TITAN is an MCP tool inside Hermes/OpenClaw and consumes them right back — delegate jobs, share councils, cooperate.
 - **One-minute first run.** `npm install -g titan-agent && titan gateway` — the dashboard greets you and connects a model in about a minute. No Docker, no YAML, no config-file editing.
 - **Model-agnostic, for real.** One harness, native tool-calls per vendor, a per-model capability registry, adaptive token ceilings. Bring DeepSeek, Qwen, GLM, Kimi, MiniMax, Anthropic, OpenAI, Gemini, or anything OpenAI-compatible — the framework adapts instead of being tuned to one LLM.
 - **Local-first.** Run any model on your own hardware via Ollama, or route to any of 36 providers through one router. Switch models mid-conversation. Failed models auto-fallback. Your data never leaves your machine unless you explicitly send it to a cloud provider.
