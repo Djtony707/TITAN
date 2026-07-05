@@ -1,5 +1,32 @@
 # Changelog
 
+## v7.1.0 "Council" — 2026-07-05 — Local-First Intelligence, Together
+
+> Agents advising agents, models sized to their machines, and benchmarks you can trust. The release where local models became first-class citizens.
+
+### 🧠 MoA — Mixture of Agents (`/moa`)
+- **Presets = N reference advisors + 1 acting aggregator**, exposed as virtual models (`moa/<preset>`) selectable everywhere. Advisors get a trimmed, tool-free conversation and fan out in parallel with per-advisor timeouts (slow ones dropped, failures footnoted — the turn never aborts); their labeled guidance lands cache-stably at the end of the aggregator's prompt; the aggregator alone keeps tools and speaks.
+- **Local council economics**: advisors default to your own machines — the mixture costs $0 and parallelizes across GPUs. `/moa <prompt>` one-shot · `/moa use <preset>` per-session · `/moa off`.
+
+### 🌐 Agent interop — the MCP triangle (TITAN ↔ Hermes ↔ OpenClaw)
+- TITAN's MCP server now leads with **agent-level tools**: `titan_chat`, `titan_delegate_task` + `titan_task_status`, `titan_moa`, `titan_status` — a peer agent can converse with TITAN, delegate long jobs, and consult its council. MCP-surface only (zero recursion into TITAN's own loop); denied/allow-lists enforced; off by default (`mcp.server.enabled`).
+- Registration is one line on each peer; TITAN's MCP client consumes `hermes mcp serve` / `openclaw mcp serve` right back. See **docs/INTEROP.md** for the full matrix and why MCP beat A2A/proprietary meshes.
+
+### 📏 Context-Fit — truly model-agnostic local performance
+- **Learned deployment limits**: when a backend 400 reveals its real context ceiling, TITAN persists it and every later request — including tool-tier selection — fits the deployment automatically.
+- **Context-sized tool tiers**: <12K ctx → 6 primitives; <48K → 14 lean essentials; else the 30-tool core. A fallback *guess* never shrinks the toolset — only measured knowledge does.
+- The `tool_search` catalog shrank 5× (18.5KB → ~3.5KB): **~4K tokens saved on every request for every model, cloud included.**
+- Strict backends accepted (mid-loop system messages become user-role notes); gateway no-route 400s fail fast (was 5 retries × ~30s); `/api/config` accepts nested provider patches; per-tool token estimates corrected 4×.
+
+### 🧪 Bench mode + corrected benchmarks
+- `TITAN_BENCH=1` silences every background LLM consumer (Soma, GEPA, heartbeat, Muscle scans, observation/graph extraction) so benchmarks measure the model, not the model fighting TITAN's life loop for the GPU.
+- **Corrected model comparison** (benchmarks/MODEL_COMPARISON.md): the July-3 GX10 rows are retracted as rig artifacts; the clean rerun crowns **Qwen3.6-35B-A3B NVFP4 on DGX-Spark-class hardware at 85% — tying the RTX 5090's best** (`qwen3-coder-next`, 85% @ 5.2s median).
+
+### Also in v7.1
+- vitest 4 migration (constructable mocks, state isolation, config) and the dependency sweep (19-package group incl. the `ws` security fix, commander 15, vite/vitest majors).
+- Welcome-Mode connect now sets `onboarded` (the mascot stops asking for a brain it already has).
+- CI branch protection now gates on the real check names; the eval tool-routing case asserts v7 gating behavior.
+
 ## v7.0.0 "Independence" — 2026-07-03 — Alive, Welcoming, Model-Agnostic
 
 > **The Independence Day release.** Local-first is independence: your AI, your hardware, your data — no cloud required. Ships with a little July 4th magic on the desk. 🎆
