@@ -2158,6 +2158,17 @@ export async function processMessage(
     // this turn, append an honest correction so the user is never silently
     // misled. Deterministic + model-agnostic; the prompt steering above tries
     // to prevent this — this guard guarantees it.
+    // v7.1.x Organ 5 — self-critique (Reflexion). Off unless configured. Runs
+    // BEFORE the honesty guard so the guard validates the caveated text.
+    try {
+        const scCfg = (config.agent as { selfCritique?: import('./selfCritique.js').SelfCritiqueConfig }).selfCritique;
+        if (scCfg?.enabled) {
+            const { runSelfCritique } = await import('./selfCritique.js');
+            const sc = await runSelfCritique(scCfg, message, finalContent, [...new Set(toolsUsed)], modelUsed);
+            if (sc.critiqued && sc.issues.length > 0) finalContent = sc.content;
+        }
+    } catch (e) { logger.debug(COMPONENT, `Self-critique wrapper skipped: ${(e as Error).message}`); }
+
     // v7.1.x verification wall: generalized from scheduling to ALL
     // side-effect claims (send/post/delete/deploy/write/schedule). If the
     // reply says it DID something but no capable tool ran, append an honest

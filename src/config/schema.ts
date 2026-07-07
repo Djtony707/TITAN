@@ -221,6 +221,16 @@ export const AgentConfigSchema = z.object({
     /** Active persona ID (filename stem from assets/personas/). Default 'default' = no persona override. */
     persona: z.string().default('default'),
     workspace: z.string().optional(),
+    /** v7.1.x Organ 5 — adversarial self-critique (Reflexion). OFF by default.
+     *  When on, a substantive turn gets one bounded critique pass; real issues
+     *  become an appended "On reflection" caveat. Trades latency for reliability
+     *  — worth it for building/ops work on a local model. */
+    selfCritique: z.object({
+        enabled: z.boolean().default(false),
+        minToolCalls: z.number().int().min(0).default(1),
+        minDraftChars: z.number().int().min(0).default(200),
+        model: z.string().default(''),
+    }).default({}),
     sessionCompaction: z.object({
         enabled: z.boolean().default(true).describe('Auto-rotate sessions when limits exceeded'),
         maxSessionRuns: z.number().default(200).describe('Max interactions per session before rotation'),
