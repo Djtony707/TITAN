@@ -347,6 +347,7 @@ const CIRCUIT_BREAKER_CONFIG = {
 const circuitBreakers = new Map<string, CircuitBreakerState>();
 
 // Prune stale closed circuit breakers every 5 minutes to prevent unbounded growth
+// (.unref: a module-scope timer must never keep short-lived CLI/import processes alive)
 setInterval(() => {
     const now = Date.now();
     for (const [name, state] of circuitBreakers) {
@@ -354,7 +355,7 @@ setInterval(() => {
             circuitBreakers.delete(name);
         }
     }
-}, 300_000);
+}, 300_000).unref();
 
 
 /**

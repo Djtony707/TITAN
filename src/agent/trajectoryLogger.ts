@@ -7,7 +7,7 @@
  * Separate from trajectoryCapture.ts which produces ChatML format for LoRA fine-tuning.
  * Inspired by Hermes trajectory.py.
  */
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, fstatSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import logger from '../utils/logger.js';
 import { TITAN_HOME } from '../utils/constants.js';
@@ -86,7 +86,29 @@ export function getRecentTrajectories(
     if (!existsSync(TASK_TRAJECTORIES_FILE)) return [];
 
     try {
-        const content = readFileSync(TASK_TRAJECTORIES_FILE, 'utf-8');
+        // PERF (v7.1.x): this runs on EVERY message (auto-skill gate) and the
+        // file grows to 50MB before rotation — reading it whole cost tens of
+        // ms + a 50MB string per turn. Read only the TAIL: start with 512KB
+        // and double until we have enough parseable lines or hit the start.
+        const fd = openSync(TASK_TRAJECTORIES_FILE, 'r');
+        let content = '';
+        try {
+            const size = fstatSync(fd).size;
+            let want = 512 * 1024;
+            for (;;) {
+                const start = Math.max(0, size - want);
+                const buf = Buffer.alloc(size - start);
+                readSync(fd, buf, 0, buf.length, start);
+                content = buf.toString('utf-8');
+                // Drop the first (possibly truncated) line unless we read from 0
+                if (start > 0) content = content.slice(content.indexOf('\n') + 1);
+                const enough = content.split('\n').filter(l => l.trim()).length >= limit * 2;
+                if (enough || start === 0) break;
+                want *= 4;
+            }
+        } finally {
+            closeSync(fd);
+        }
         const lines = content.split('\n').filter(l => l.trim());
         let trajectories: TaskTrajectory[] = [];
 

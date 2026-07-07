@@ -917,7 +917,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // still use the full SESSION_TIMEOUT_MS (30min) inside cleanupStaleSessions.
   // Pre-fix: 5min interval + uniform 30min TTL accumulated 755 sessions in
   // 29min on the live service (Kimi observation, 2026-04-26).
-  setInterval(() => cleanupStaleSessions(), 60 * 1000);
+  setInterval(() => cleanupStaleSessions(), 60 * 1000).unref();
 
   // ── Port pre-check: fail fast before loading subsystems ────
   const portAvailable = await new Promise<boolean>((resolve) => {
