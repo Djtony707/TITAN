@@ -27,7 +27,7 @@ import { isAvailable as isBrainAvailable, selectTools as brainSelectTools, ensur
 import { DEFAULT_CORE_TOOLS } from './toolSearch.js';
 import { maybeBuildIdentityFactSheet } from './identityIntercept.js';
 import { applyCaps } from './promptSectionCaps.js';
-import { classifyPipeline, resolvePipelineConfig, PIPELINE_PROFILES } from './pipeline.js';
+import { classifyPipeline, resolvePipelineConfig } from './pipeline.js';
 import { buildSelfAwarenessContext } from './selfAwareness.js';
 import { assembleSystemPrompt, type PromptMode } from './systemPromptParts.js';
 import { getOptimizedPromptBlock } from '../skills/builtin/self_improve.js';
