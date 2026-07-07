@@ -1,5 +1,43 @@
 # Changelog
 
+## v7.2.0 "Conscience" — 2026-07-06 — Honesty as an Enforced Invariant
+
+> The release where TITAN stopped being able to bluff. Two honesty organs turn
+> any model — local or cloud — into one that verifies before it claims and
+> critiques before it speaks. This is how a local model reaches Fable-5-class
+> *reliability* without frontier size.
+
+### 🛡️ The verification wall (always on)
+- A deterministic backstop: if a reply claims it performed a side-effect
+  (sent / posted / deleted / deployed / saved a file / scheduled a job) but no
+  tool capable of that action ran this turn, TITAN appends a visible correction.
+  Generalizes the v7.0 scheduling-only guard to every action class. Model-
+  agnostic; conservative (flags committed phrasing, never offers).
+  `src/agent/honestyGuard.ts`.
+
+### 🧠 Self-critique + one-switch Reliability Mode
+- **`agent.reliabilityMode: true`** — one flag turns TITAN into the best harness
+  it can be: after a substantive turn, the model reviews its OWN draft
+  adversarially (claimed-but-unverified / likely-wrong / unstated-risk) and
+  appends honest "on reflection" caveats. Bounded (one call, capped, timed,
+  skips trivial turns, never loops). `src/agent/selfCritique.ts`.
+- Off by default; `reliabilityMode` is the front door, `selfCritique.{...}` the
+  knobs. An explicit setting always wins. Composes with the verification wall
+  (critique runs first; the wall validates the result).
+- Live-proven: a local model flagged its own over-precise population figure and
+  a city/prefecture definitional conflation — unprompted.
+
+### ⚡ Performance
+- Trajectory reads are now tail-only (the auto-skill gate ran on every message
+  and read a file that grows to 50MB — now O(512KB); ~19MB/turn deleted on a
+  busy install). Every periodic timer is `.unref()`'d so background loops never
+  hold short-lived processes alive.
+
+### Also in v7.2
+- Handoff docs: the operating manual, three skills, and the "rebuild a
+  Fable-5-class mind on local hardware" plan.
+- Dead-code + lint cleanup; vitest 4 fully migrated.
+
 ## v7.1.0 "Council" — 2026-07-05 — Local-First Intelligence, Together
 
 > Agents advising agents, models sized to their machines, and benchmarks you can trust. The release where local models became first-class citizens.

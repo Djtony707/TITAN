@@ -225,8 +225,12 @@ export const AgentConfigSchema = z.object({
      *  When on, a substantive turn gets one bounded critique pass; real issues
      *  become an appended "On reflection" caveat. Trades latency for reliability
      *  — worth it for building/ops work on a local model. */
+    /** v7.2 one-switch "best harness" preset: turns on the honesty organs
+     *  (self-critique; the verification wall is always on) without editing
+     *  nested config. Trades a little latency for Fable-5-class reliability. */
+    reliabilityMode: z.boolean().default(false),
     selfCritique: z.object({
-        enabled: z.boolean().default(false),
+        enabled: z.boolean().optional(),
         minToolCalls: z.number().int().min(0).default(1),
         minDraftChars: z.number().int().min(0).default(200),
         model: z.string().default(''),

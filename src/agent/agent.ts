@@ -2161,9 +2161,10 @@ export async function processMessage(
     // v7.1.x Organ 5 — self-critique (Reflexion). Off unless configured. Runs
     // BEFORE the honesty guard so the guard validates the caveated text.
     try {
-        const scCfg = (config.agent as { selfCritique?: import('./selfCritique.js').SelfCritiqueConfig }).selfCritique;
-        if (scCfg?.enabled) {
-            const { runSelfCritique } = await import('./selfCritique.js');
+        const agentCfg = config.agent as { selfCritique?: Partial<import('./selfCritique.js').SelfCritiqueConfig>; reliabilityMode?: boolean };
+        const { resolveSelfCritique, runSelfCritique } = await import('./selfCritique.js');
+        const scCfg = resolveSelfCritique(agentCfg.selfCritique, agentCfg.reliabilityMode === true);
+        if (scCfg.enabled) {
             const sc = await runSelfCritique(scCfg, message, finalContent, [...new Set(toolsUsed)], modelUsed);
             if (sc.critiqued && sc.issues.length > 0) finalContent = sc.content;
         }

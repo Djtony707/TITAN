@@ -40,6 +40,22 @@ export const DEFAULT_SELF_CRITIQUE: SelfCritiqueConfig = {
     model: '',
 };
 
+/**
+ * Resolve the effective self-critique config given the one-switch
+ * `reliabilityMode`. Reliability Mode is the "best harness" preset: it turns
+ * on self-critique (Organ 5) without the user editing nested config. An
+ * explicit `selfCritique.enabled` still wins if set. Pure.
+ */
+export function resolveSelfCritique(
+    selfCritique: Partial<SelfCritiqueConfig> | undefined,
+    reliabilityMode: boolean,
+): SelfCritiqueConfig {
+    const base = { ...DEFAULT_SELF_CRITIQUE, ...(selfCritique || {}) };
+    // reliabilityMode flips the default ON; an explicit false in config still wins.
+    if (reliabilityMode && selfCritique?.enabled === undefined) base.enabled = true;
+    return base;
+}
+
 /** Should this turn be critiqued? Pure. */
 export function shouldCritique(cfg: SelfCritiqueConfig, draft: string, toolsUsed: string[]): boolean {
     if (!cfg.enabled) return false;

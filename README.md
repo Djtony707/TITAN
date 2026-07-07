@@ -50,6 +50,27 @@
 
 <a id="whats-new"></a>
 
+## What's new in v7.2.0 "Conscience" — Honesty as an Enforced Invariant
+
+**TITAN stopped being able to bluff.** Two honesty organs turn any model — local
+or cloud — into one that *verifies before it claims* and *critiques before it
+speaks*. Flip one switch (`agent.reliabilityMode: true`) and your local model
+behaves with the reliability discipline of a frontier model, because reliability
+is enforced in the harness, not hoped for in the prompt.
+
+- 🛡️ **Verification wall (always on):** claim you sent/posted/deleted/deployed/
+  saved something with no tool that did it → TITAN appends a visible correction.
+- 🧠 **Self-critique (Reliability Mode):** the model reviews its own draft
+  adversarially and appends honest "on reflection" caveats. Live-proven: a local
+  model caught its own over-precise number and a definitional conflation,
+  unprompted.
+- ⚡ **Perf:** ~19MB/turn read deleted (tail-read trajectories); every timer
+  `.unref()`'d.
+
+See **[CHANGELOG.md](CHANGELOG.md)** for the full v7.2.0 entry.
+
+---
+
 ## What's new in v7.1.0 "Council" — Local-First Intelligence, Together
 
 **Agents advising agents, models sized to their machines, and benchmarks you can trust.**
@@ -69,7 +90,7 @@ TITAN now **learns each deployment's real context ceiling from live traffic** an
 TITAN won't let a model bluff. The **verification wall** appends a visible
 correction if a reply claims it *did* something (sent, posted, deleted,
 deployed, saved) with no tool that actually did it — deterministic, always on.
-Turn on **Reliability Mode** (`agent.selfCritique.enabled: true`) and TITAN
+Turn on **Reliability Mode** (`agent.reliabilityMode: true` — one switch) and TITAN
 also critiques its own draft before you see it, appending honest "on reflection"
 caveats for anything it didn't verify. This is how a local model reaches
 frontier *reliability* without frontier size — and it works on whatever brain

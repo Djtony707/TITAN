@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     shouldCritique, buildCritiquePrompt, parseCritique, formatReflection,
-    DEFAULT_SELF_CRITIQUE, type SelfCritiqueConfig,
+    resolveSelfCritique, DEFAULT_SELF_CRITIQUE, type SelfCritiqueConfig,
 } from '../src/agent/selfCritique.js';
 
 const on: SelfCritiqueConfig = { ...DEFAULT_SELF_CRITIQUE, enabled: true };
@@ -69,5 +69,24 @@ describe('formatReflection', () => {
         const out = formatReflection(['a', 'b']);
         expect(out).toContain('caveats');
         expect((out.match(/^- /gm) || []).length).toBe(2);
+    });
+});
+
+describe('resolveSelfCritique — the one-switch Reliability Mode', () => {
+    it('reliabilityMode ON flips self-critique on when not explicitly set', () => {
+        expect(resolveSelfCritique(undefined, true).enabled).toBe(true);
+        expect(resolveSelfCritique({}, true).enabled).toBe(true);
+    });
+    it('reliabilityMode OFF leaves the default (off)', () => {
+        expect(resolveSelfCritique(undefined, false).enabled).toBe(false);
+    });
+    it('an explicit selfCritique.enabled=false wins over reliabilityMode', () => {
+        expect(resolveSelfCritique({ enabled: false }, true).enabled).toBe(false);
+    });
+    it('an explicit selfCritique.enabled=true is honored without reliabilityMode', () => {
+        expect(resolveSelfCritique({ enabled: true }, false).enabled).toBe(true);
+    });
+    it('preserves other tuning fields', () => {
+        expect(resolveSelfCritique({ minToolCalls: 3 }, true)).toMatchObject({ enabled: true, minToolCalls: 3 });
     });
 });
