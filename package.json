@@ -1,6 +1,6 @@
 {
   "name": "titan-agent",
-  "version": "7.2.0",
+  "version": "7.2.1",
   "description": "TITAN — the AI agent that provably teaches itself. TypeScript agent framework with replay-verified self-learned skills (Muscle Memory), one-minute Welcome Mode setup, a living desk with heartbeat/reminders/proactive memory, multi-agent orchestration, 36-provider routing, approval gates, receipts, evals, and a React Mission Control dashboard. Open-source, MIT.",
   "author": "Tony Elliott (https://github.com/Djtony707)",
   "repository": {

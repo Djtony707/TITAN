@@ -1,5 +1,16 @@
 # Changelog
 
+## v7.2.1 — 2026-07-06 — Reliability Mode composes all four disciplines
+
+- **Discipline prompt (Organs 4+6)**: under `agent.reliabilityMode`, TITAN now
+  also plans first on multi-step tasks (writes a numbered plan, verifies each
+  step) and escalates the irreversible (confirms before destructive / public /
+  spend / shared-service actions; proceeds on reversible local work). With the
+  verification wall and self-critique already in place, Reliability Mode is now
+  the full Fable-5 *discipline* — plan, verify, critique, escalate — on any
+  model. Live-proven: a single complex+risky task triggered all four at once.
+- Off unless `reliabilityMode`; Eval Gate held at baseline. `src/agent/disciplinePrompt.ts`.
+
 ## v7.2.0 "Conscience" — 2026-07-06 — Honesty as an Enforced Invariant
 
 > The release where TITAN stopped being able to bluff. Two honesty organs turn
