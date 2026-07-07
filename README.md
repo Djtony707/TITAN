@@ -65,6 +65,16 @@ TITAN now **learns each deployment's real context ceiling from live traffic** an
 
 **Proof, not vibes**: under the new `TITAN_BENCH=1` isolation mode, **Qwen3.6-35B-A3B NVFP4 on DGX-Spark-class hardware scores 85% through TITAN's harness — tying the RTX 5090's best local model.** Full corrected tables in [benchmarks/MODEL_COMPARISON.md](benchmarks/MODEL_COMPARISON.md).
 
+### 🛡️ Honesty as an enforced invariant (any model)
+TITAN won't let a model bluff. The **verification wall** appends a visible
+correction if a reply claims it *did* something (sent, posted, deleted,
+deployed, saved) with no tool that actually did it — deterministic, always on.
+Turn on **Reliability Mode** (`agent.selfCritique.enabled: true`) and TITAN
+also critiques its own draft before you see it, appending honest "on reflection"
+caveats for anything it didn't verify. This is how a local model reaches
+frontier *reliability* without frontier size — and it works on whatever brain
+you plug in.
+
 See **[CHANGELOG.md](CHANGELOG.md)** for the complete v7.1.0 entry.
 
 ---
