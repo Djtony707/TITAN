@@ -22,6 +22,17 @@
 - `TITAN_BENCH=1` silences every background LLM consumer (Soma, GEPA, heartbeat, Muscle scans, observation/graph extraction) so benchmarks measure the model, not the model fighting TITAN's life loop for the GPU.
 - **Corrected model comparison** (benchmarks/MODEL_COMPARISON.md): the July-3 GX10 rows are retracted as rig artifacts; the clean rerun crowns **Qwen3.6-35B-A3B NVFP4 on DGX-Spark-class hardware at 85% — tying the RTX 5090's best** (`qwen3-coder-next`, 85% @ 5.2s median).
 
+### 🛡️ Honesty organs (any model)
+- **Verification wall** (`src/agent/honestyGuard.ts`) — deterministic, always
+  on: a reply that claims a side-effect (send/post/delete/deploy/write/schedule)
+  with no capable tool run gets a visible correction appended. Generalizes the
+  v7.0 scheduling-only guard to every action class.
+- **Self-critique / Reliability Mode** (`src/agent/selfCritique.ts`, off by
+  default via `agent.selfCritique.enabled`) — one bounded adversarial pass over
+  the model's own draft flags claimed-but-unverified / likely-wrong /
+  unstated-risk and appends "on reflection" caveats. The reliability discipline
+  that lets a local model punch above its size. Composes with the wall.
+
 ### Also in v7.1
 - vitest 4 migration (constructable mocks, state isolation, config) and the dependency sweep (19-package group incl. the `ws` security fix, commander 15, vite/vitest majors).
 - Welcome-Mode connect now sets `onboarded` (the mascot stops asking for a brain it already has).
