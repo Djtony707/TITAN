@@ -2158,12 +2158,16 @@ export async function processMessage(
     // this turn, append an honest correction so the user is never silently
     // misled. Deterministic + model-agnostic; the prompt steering above tries
     // to prevent this — this guard guarantees it.
+    // v7.1.x verification wall: generalized from scheduling to ALL
+    // side-effect claims (send/post/delete/deploy/write/schedule). If the
+    // reply says it DID something but no capable tool ran, append an honest
+    // correction. The single most important organ for honesty on any model.
     {
-        const claimsScheduled = /\b(i(?:'|’)?(?:ve| have)\s+(?:set|scheduled|created)|(?:reminder|schedule[d]?)\s+(?:is\s+)?(?:set|created|scheduled)|i(?:'|’)?ll remind you|scheduled a reminder)\b/i.test(finalContent);
-        const schedulingToolRan = toolsUsed.some(t => /^(reminder|cron|schedule|event_trigger|workflows?|social_scheduler)/i.test(t));
-        if (claimsScheduled && !schedulingToolRan) {
-            finalContent += '\n\n⚠️ Correction: I described scheduling that, but I did not actually create a scheduled job this turn. Ask me again and I\'ll set it with the reminder tool properly.';
-            logger.warn(COMPONENT, '[HonestyGuard] Reply claimed scheduling without a scheduling tool — appended correction');
+        const { applyHonestyGuard } = await import('./honestyGuard.js');
+        const guarded = applyHonestyGuard(finalContent, toolsUsed);
+        if (guarded.flagged.length > 0) {
+            finalContent = guarded.content;
+            logger.warn(COMPONENT, `[HonestyGuard] Reply claimed ${guarded.flagged.join(', ')} without a capable tool — appended correction`);
         }
     }
 
