@@ -1733,6 +1733,19 @@ export async function processMessage(
         logger.info(COMPONENT, `[Persona:${earlyPersona.id}] system prompt appendix injected`);
     }
 
+    // v7.2.x Organs 4+6 — plan-first + escalation discipline, under Reliability
+    // Mode only. Makes a weaker local brain decompose hard tasks and stop
+    // before irreversible actions by reflex (a frontier model does this
+    // automatically; a local one must be told).
+    try {
+        const relMode = (config.agent as { reliabilityMode?: boolean }).reliabilityMode === true;
+        if (relMode) {
+            const { buildDisciplinePrompt } = await import('./disciplinePrompt.js');
+            const frag = buildDisciplinePrompt(message, true);
+            if (frag) enrichedSystemPrompt += frag;
+        }
+    } catch { /* discipline prompt is best-effort */ }
+
     const messages: ChatMessage[] = [
         { role: 'system', content: enrichedSystemPrompt },
         ...historyMessages,
