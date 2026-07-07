@@ -321,5 +321,5 @@ export function startHeartbeatAnalytics(activeSessionsProvider: () => number): v
     };
 
     tick();
-    setInterval(tick, HEARTBEAT_INTERVAL_MS);
+    setInterval(tick, HEARTBEAT_INTERVAL_MS).unref();
 }
