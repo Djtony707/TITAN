@@ -3859,7 +3859,22 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       }
       // If no provider prefix (bare model like 'gpt-4o'), assume it's an alias or user knows what they're doing
 
-      updateConfig({ agent: { ...cfg.agent, model: resolved } });
+      // Aliases that tracked the OLD active model follow the switch. Without
+      // this, the load-time alias sanitizer materializes "the active model at
+      // sanitize time" into saved config, and a later switch leaves fast/cheap
+      // pointing at a model the new backend may not serve (2026-07-07: stale
+      // 'litellm/ornith' aliases 404-stormed a single-model vLLM base and
+      // tripped the circuit breaker before the active model ever answered).
+      const retargeted: Record<string, string> = { ...cfg.agent.modelAliases };
+      const followed: string[] = [];
+      for (const [tier, v] of Object.entries(retargeted)) {
+        if (v === cfg.agent.model && resolved !== cfg.agent.model) {
+          retargeted[tier] = resolved;
+          followed.push(tier);
+        }
+      }
+      if (followed.length) logger.info(COMPONENT, `[ModelSwitch] Aliases [${followed.join(', ')}] followed the active model → ${resolved}`);
+      updateConfig({ agent: { ...cfg.agent, model: resolved, modelAliases: retargeted } });
       // Invalidate cached responses for the old model so stale results aren't served
       invalidateCacheForModel(cfg.agent.model);
       logger.info(COMPONENT, `Model switched to: ${resolved}${resolved !== model ? ` (alias: ${model})` : ''}`);

@@ -402,14 +402,19 @@ export class OpenAICompatProvider extends LLMProvider {
                 headers,
                 signal: AbortSignal.timeout(8000),
             });
-            if (!response.ok) return this.config.knownModels;
+            if (!response.ok) {
+                logger.warn(this.config.displayName, `/models returned HTTP ${response.status} — falling back to the static known-models list (model discovery is BROKEN against this base; flips/pickers will not see real models)`);
+                return this.config.knownModels;
+            }
             const data = await response.json() as { data?: Array<{ id: string }> };
             const ids = (data.data || []).map((m) => m.id).filter(Boolean);
             // Sort alphabetically for stable UX (the catalogue is
             // already typically grouped by family).
             ids.sort();
             return ids.length > 0 ? ids : this.config.knownModels;
-        } catch {
+        } catch (e) {
+            logger.warn(this.config.displayName, `/models fetch failed (${(e as Error).message}) — falling back to the static known-models list`);
+            void 0;
             return this.config.knownModels;
         }
     }
