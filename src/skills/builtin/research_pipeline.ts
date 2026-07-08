@@ -59,7 +59,7 @@ function nextPipelineId(): string {
 /** Use a fast LLM to decompose the research question into sub-questions */
 async function decomposeQuestion(question: string, numSubQuestions: number): Promise<string[]> {
     const config = loadConfig();
-    const model = config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
+    const model = config.agent.modelAliases?.fast || config.agent.model;
 
     const response = await chat({
         model,
@@ -134,7 +134,7 @@ async function synthesizeFindings(
     subResults: { subQuestion: string; content: string }[],
 ): Promise<string> {
     const config = loadConfig();
-    const model = config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
+    const model = config.agent.modelAliases?.fast || config.agent.model;
 
     const findings = subResults
         .map((r, i) => `### Sub-question ${i + 1}: ${r.subQuestion}\n\n${compressResult(r.content)}`)

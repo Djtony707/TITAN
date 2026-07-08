@@ -217,11 +217,20 @@ export function getModelCapabilities(modelName: string): ModelCapabilities {
 
 /** Track which unknown models we've already triggered background probes for */
 const probeInFlight = new Set<string>();
+// Failed probes must NOT retrigger immediately: a fast-failing probe (model
+// not installed here) cleared the in-flight guard and the next capabilities
+// lookup re-triggered it — an async loop that OOM'd the gateway (SIGABRT
+// crash loop, found 2026-07-07 benching ollama-served models). Negative-cache
+// failures for a cooldown window instead.
+const probeFailedAt = new Map<string, number>();
+const PROBE_FAIL_COOLDOWN_MS = 15 * 60 * 1000;
 
 /** Trigger a background capability probe for an unknown model.
  *  Fire-and-forget: the next request will pick up the result from the registry. */
 function triggerBackgroundProbe(modelName: string): void {
     if (probeInFlight.has(modelName)) return;
+    const failedAt = probeFailedAt.get(modelName);
+    if (failedAt && Date.now() - failedAt < PROBE_FAIL_COOLDOWN_MS) return;
     probeInFlight.add(modelName);
     // Dynamic import to avoid circular deps at module load time
     import('../agent/modelProbe.js')
@@ -231,7 +240,10 @@ function triggerBackgroundProbe(modelName: string): void {
                 recordProbeResult(result);
                 logger.info(COMPONENT, `Background probe complete for ${modelName}: nativeTools=${result.nativeToolCalls}, respectsSystem=${result.respectsSystemPrompt}`);
             }))
-        .catch((err) => logger.warn(COMPONENT, `Background probe failed for ${modelName}: ${(err as Error).message}`))
+        .catch((err) => {
+            probeFailedAt.set(modelName, Date.now());
+            logger.warn(COMPONENT, `Background probe failed for ${modelName} (cooldown ${PROBE_FAIL_COOLDOWN_MS / 60000}min): ${(err as Error).message}`);
+        })
         .finally(() => probeInFlight.delete(modelName));
 }
 

@@ -4661,7 +4661,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           try {
             const existingSid = getCallSession(callSid);
             const voiceModel = (process.env.TWILIO_VOICE_MODEL
-              || 'ollama/qwen3.5:cloud');
+              || loadConfig().agent.model);
             const result = await processMessage(
               speechResult,
               'twilio-admin',
