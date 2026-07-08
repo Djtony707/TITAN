@@ -33,3 +33,15 @@ describe('buildDisciplinePrompt', () => {
         expect(p.indexOf('plan first')).toBeLessThan(p.indexOf('escalate the irreversible'));
     });
 });
+
+describe('ReDoS regression (confirmed O(n²) via `once .* done`, 2026-07-07)', () => {
+    it('100KB adversarial input completes in linear time', () => {
+        const evil = ('once '.repeat(20_000)) + 'x';
+        const t0 = performance.now();
+        looksComplex(evil);
+        expect(performance.now() - t0).toBeLessThan(50);
+    });
+    it('once…done sequencing still detected (linear form)', () => {
+        expect(looksComplex('Refactor the parser and once the tests are done deploy it to staging please.')).toBe(true);
+    });
+});

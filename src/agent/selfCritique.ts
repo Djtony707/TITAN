@@ -56,6 +56,21 @@ export function resolveSelfCritique(
     return base;
 }
 
+/**
+ * Channels where the critique pass makes sense: interactive surfaces where a
+ * human reads the reply. The life loop (soma/initiative/autopilot/heartbeat),
+ * eval harness, deliberation and mesh traffic must NOT pay +1 LLM call per
+ * message (confirmed cost/eval-contamination finding, 2026-07-07 review). Pure.
+ */
+export function shouldCritiqueChannel(channel: string): boolean {
+    const c = (channel || '').toLowerCase();
+    if (!c) return true;
+    if (c === 'eval' || c === 'bench') return false;
+    if (c.startsWith('autopilot')) return false;
+    const denied = ['deliberation', 'soma-initiative', 'initiative', 'monitor', 'mesh', 'heartbeat', 'cron', 'gepa', 'muscle', 'dreaming'];
+    return !denied.includes(c);
+}
+
 /** Should this turn be critiqued? Pure. */
 export function shouldCritique(cfg: SelfCritiqueConfig, draft: string, toolsUsed: string[]): boolean {
     if (!cfg.enabled) return false;
@@ -77,7 +92,9 @@ export function buildCritiquePrompt(task: string, draft: string, toolsUsed: stri
         '',
         'YOUR DRAFT ANSWER:',
         '"""',
-        draft.slice(0, DRAFT_CAP),
+        // Head+tail: conclusions (and bluffs) cluster at the END of a draft —
+        // a head-only slice made tail claims invisible to the critique.
+        draft.length <= DRAFT_CAP ? draft : `${draft.slice(0, DRAFT_CAP / 2)}\n[... middle truncated ...]\n${draft.slice(-DRAFT_CAP / 2)}`,
         '"""',
         '',
         'Find ONLY concrete problems in these three classes:',
@@ -129,22 +146,40 @@ export async function runSelfCritique(
     draft: string,
     toolsUsed: string[],
     turnModel: string,
+    outerSignal?: AbortSignal,
 ): Promise<{ content: string; critiqued: boolean; issues: string[] }> {
     if (!shouldCritique(cfg, draft, toolsUsed)) return { content: draft, critiqued: false, issues: [] };
+    if (outerSignal?.aborted) return { content: draft, critiqued: false, issues: [] };
     try {
         const { chat } = await import('../providers/router.js');
+        // If the turn ran on a MoA virtual model, critiquing through it would
+        // fan out the WHOLE council (+N advisor calls) for a 400-token check.
+        // Use the preset's aggregator instead (confirmed cost finding).
+        let critiqueModel = cfg.model || turnModel;
+        if (!cfg.model && critiqueModel.startsWith('moa/')) {
+            const { getMoaPresets } = await import('../providers/moa.js');
+            const preset = getMoaPresets()[critiqueModel.replace(/^moa\//, '')];
+            if (preset?.aggregator) critiqueModel = preset.aggregator;
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), CRITIQUE_TIMEOUT_MS);
         let response: string;
         try {
-            const res = await chat({
-                model: cfg.model || turnModel,
+            // Race a hard deadline: non-streaming providers do not honor the
+            // abort signal, so without the race the 30s cap was illusory and a
+            // slow provider could stall the whole turn.
+            const call = chat({
+                model: critiqueModel,
                 messages: [{ role: 'user', content: buildCritiquePrompt(task, draft, toolsUsed) }],
                 maxTokens: CRITIQUE_MAX_TOKENS,
                 temperature: 0.2,
                 signal: controller.signal,
-            } as Parameters<typeof chat>[0]);
-            response = res.content || '';
+            } as Parameters<typeof chat>[0]).then(r => r.content || '');
+            const deadline = new Promise<never>((_, rej) => {
+                controller.signal.addEventListener('abort', () => rej(new Error('critique deadline exceeded')), { once: true });
+                outerSignal?.addEventListener('abort', () => rej(new Error('turn aborted')), { once: true });
+            });
+            response = await Promise.race([call, deadline]);
         } finally {
             clearTimeout(timer);
         }

@@ -1744,7 +1744,7 @@ export async function processMessage(
             const frag = buildDisciplinePrompt(message, true);
             if (frag) enrichedSystemPrompt += frag;
         }
-    } catch { /* discipline prompt is best-effort */ }
+    } catch (e) { logger.debug(COMPONENT, `Discipline prompt skipped: ${(e as Error).message}`); }
 
     const messages: ChatMessage[] = [
         { role: 'system', content: enrichedSystemPrompt },
@@ -2151,48 +2151,42 @@ export async function processMessage(
         finalContent = "I wasn't able to finish that task — the connection to my brain hiccupped. Try asking again, or I can switch to my offline mode if you prefer.";
     }
 
-    // v7.0 model-agnostic guarantee: if the user's message was a system-widget
-    // shortcut ("show backup") but no _____widget gate made it into the reply —
-    // the model called a tool (e.g. backup_list) or answered in prose instead of
-    // emitting the gate — emit it deterministically so the widget renders no
-    // matter which model is driving. This is the canonical fix for the widget
-    // gate NOT depending on per-model formatting adherence.
-    {
-        const sw = detectSystemWidget(message);
-        if (sw && !finalContent.includes('_____widget')) {
-            finalContent = finalContent ? `${finalContent}\n\n${buildSystemWidgetGate(sw)}` : buildSystemWidgetGate(sw);
-            logger.info(COMPONENT, `[SystemWidgetShortcut] Deterministically emitted _____widget gate for ${sw.source}`);
-        }
-    }
-
-    // v7.0 anti-fabrication backstop (user-test T6: "I've scheduled a reminder
-    // for Friday at 5 PM" with zero scheduling tools called). If the reply
-    // CLAIMS a reminder/schedule was set but no scheduling-capable tool ran
-    // this turn, append an honest correction so the user is never silently
-    // misled. Deterministic + model-agnostic; the prompt steering above tries
-    // to prevent this — this guard guarantees it.
-    // v7.1.x Organ 5 — self-critique (Reflexion). Off unless configured. Runs
-    // BEFORE the honesty guard so the guard validates the caveated text.
+    // v7.1.x Organ 5 — self-critique (Reflexion). Off unless Reliability Mode.
+    // Interactive channels only (the life loop / eval / bench must not pay +1
+    // LLM call per message), aggregator-resolved for MoA turns, hard deadline.
     try {
         const agentCfg = config.agent as { selfCritique?: Partial<import('./selfCritique.js').SelfCritiqueConfig>; reliabilityMode?: boolean };
-        const { resolveSelfCritique, runSelfCritique } = await import('./selfCritique.js');
+        const { resolveSelfCritique, runSelfCritique, shouldCritiqueChannel } = await import('./selfCritique.js');
         const scCfg = resolveSelfCritique(agentCfg.selfCritique, agentCfg.reliabilityMode === true);
-        if (scCfg.enabled) {
-            const sc = await runSelfCritique(scCfg, message, finalContent, [...new Set(toolsUsed)], modelUsed);
+        if (scCfg.enabled && shouldCritiqueChannel(channel) && !process.env.TITAN_BENCH) {
+            const sc = await runSelfCritique(scCfg, message, finalContent, [...new Set(toolsUsed)], modelUsed, signal);
             if (sc.critiqued && sc.issues.length > 0) finalContent = sc.content;
         }
     } catch (e) { logger.debug(COMPONENT, `Self-critique wrapper skipped: ${(e as Error).message}`); }
 
-    // v7.1.x verification wall: generalized from scheduling to ALL
-    // side-effect claims (send/post/delete/deploy/write/schedule). If the
-    // reply says it DID something but no capable tool ran, append an honest
-    // correction. The single most important organ for honesty on any model.
+    // v7.1.x verification wall (Organ 2): if the reply claims a side-effect
+    // (send/post/delete/deploy/write/schedule) and no capable tool ran this
+    // turn, append an honest correction. Deterministic; runs on every channel
+    // — honesty is product behavior, not an option.
     {
         const { applyHonestyGuard } = await import('./honestyGuard.js');
         const guarded = applyHonestyGuard(finalContent, toolsUsed);
         if (guarded.flagged.length > 0) {
             finalContent = guarded.content;
             logger.warn(COMPONENT, `[HonestyGuard] Reply claimed ${guarded.flagged.join(', ')} without a capable tool — appended correction`);
+        }
+    }
+
+    // v7.0 model-agnostic guarantee: if the user's message was a system-widget
+    // shortcut ("show backup") but no _____widget gate made it into the reply,
+    // emit it deterministically. MUST run AFTER the honesty organs — anything
+    // appended after the gate would sit below the widget JSON and break the
+    // client's gate parsing (confirmed ordering finding, 2026-07-07 review).
+    {
+        const sw = detectSystemWidget(message);
+        if (sw && !finalContent.includes('_____widget')) {
+            finalContent = finalContent ? `${finalContent}\n\n${buildSystemWidgetGate(sw)}` : buildSystemWidgetGate(sw);
+            logger.info(COMPONENT, `[SystemWidgetShortcut] Deterministically emitted _____widget gate for ${sw.source}`);
         }
     }
 

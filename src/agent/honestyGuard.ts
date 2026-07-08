@@ -14,6 +14,16 @@
  *
  * Pure function → fully unit-testable. Only APPENDS text; never blocks tools
  * or changes behavior, so its blast radius is a string concat.
+ *
+ * RULE DESIGN (v2, hardened by the 2026-07-07 adversarial review — 22 confirmed
+ * findings): every claim alternative is FIRST-PERSON anchored ("I've/I have
+ * <verb>") and, where a verb is ambiguous (set/created), OBJECT-constrained.
+ * Passive ("was deleted") and third-party ("Reuters published...") phrasings
+ * are deliberately NOT flagged — they describe the world, not the agent.
+ * Known, accepted limitations: (a) narrating a PREVIOUS turn's real action
+ * ("as mentioned, I've sent it") can false-flag — toolsUsed is per-turn by
+ * design; (b) voice TTS speaks the streamed draft, so appended corrections
+ * reach the text transcript but not the audio.
  */
 
 export interface ActionClaimRule {
@@ -36,38 +46,40 @@ export interface ActionClaimRule {
 export const ACTION_CLAIM_RULES: ActionClaimRule[] = [
     {
         action: 'scheduling',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:set|scheduled|created)|(?:reminder|schedule[d]?)\s+(?:is\s+)?(?:set|created|scheduled)|i(?:'|’)?ll remind you|scheduled a reminder)\b/i,
-        satisfiedBy: /(^|_)(reminder|cron|schedule|event_trigger|workflows?|social_scheduler)/i,
+        // 'set/scheduled/created' require a schedule-like OBJECT (an
+        // unconstrained "I've created ..." matches summary tables and drafts).
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:set|scheduled|created)\s+(?:an?\s+|the\s+|another\s+)?(?:daily\s+|weekly\s+|recurring\s+)?(?:reminder|schedule|cron|alarm|timer|scheduled\s+(?:job|task|post))|i(?:'|\u2019)?ll remind you|scheduled a reminder|reminder\s+(?:is\s+)?(?:set|created|scheduled))\b/i,
+        satisfiedBy: /(^|_)(reminder|cron|schedule|event_trigger|trigger|calendar|workflows?|social_scheduler)/i,
         correction: 'I described scheduling that, but I did not actually create a scheduled job this turn. Ask me again and I\'ll set it with the reminder tool properly.',
     },
     {
         action: 'sending a message/email',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:sent|emailed|messaged|replied|forwarded)|(?:email|message|reply)\s+(?:has been|was)\s+sent|i(?:'|’)?ve dm(?:'|’)?d)\b/i,
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:sent|emailed|forwarded|texted)|i(?:'|\u2019)?ve dm(?:'|\u2019)?d)\b/i,
         satisfiedBy: /(^|_)(send|email|message|reply|forward|dm|sms|slack|discord|telegram|whatsapp|matrix|notify|post_message|messenger)/i,
         correction: 'I described sending that message, but no send tool ran this turn — nothing was actually sent. Tell me to send it and I will.',
     },
     {
         action: 'posting/publishing',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:posted|published|tweeted|shared)|(?:posted|published)\s+(?:it|the|to)\b)/i,
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:posted|published|tweeted))\b/i,
         satisfiedBy: /(^|_)(post|publish|tweet|share|x_|fb_|social|content_publish|deploy_website)/i,
         correction: 'I described posting/publishing that, but no publish tool ran this turn — nothing went live. Confirm and I\'ll actually publish it.',
     },
     {
         action: 'deleting/removing',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:deleted|removed|cleared|wiped)|(?:has been|was)\s+(?:deleted|removed))\b/i,
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:deleted|wiped|purged)|i(?:'|\u2019)?(?:ve| have)\s+removed\s+(?:the\s+|your\s+|that\s+)?(?:files?|folders?|records?|entr(?:y|ies)|emails?|events?|backups?|data|configs?|reminders?|posts?)\b)/i,
         satisfiedBy: /(^|_)(delete|remove|clear|wipe|purge|rm|trash|unlink)/i,
         correction: 'I described deleting that, but no delete tool ran this turn — nothing was actually removed.',
     },
     {
         action: 'deploying',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:deployed|shipped|released|pushed live)|(?:has been|was)\s+deployed|deployment\s+(?:is\s+)?complete)\b/i,
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:deployed|shipped|released)|i\s+pushed\s+(?:it\s+)?live)\b/i,
         satisfiedBy: /(^|_)(deploy|ship|release|publish|rollout|kubectl|docker_push)/i,
         correction: 'I described deploying that, but no deploy tool ran this turn — nothing was actually deployed.',
     },
     {
         action: 'writing a file',
-        claim: /\b(i(?:'|’)?(?:ve| have)\s+(?:saved|written|created|updated)\s+(?:the\s+)?(?:file|it to|config)|(?:file|it)\s+(?:has been|was)\s+(?:saved|written|created))\b/i,
-        satisfiedBy: /(^|_)(write|save|edit|create_file|file_write|append|patch|str_replace)/i,
+        claim: /\b(i(?:'|\u2019)?(?:ve| have)\s+(?:saved|written|created|updated)\s+(?:the\s+|your\s+|an?\s+)?(?:file|config|document|script|backup)\b|i(?:'|\u2019)?(?:ve| have)\s+saved\s+(?:it|this|that)\s+to\b)/i,
+        satisfiedBy: /(^|_)(write|save|edit|create_file|file_write|append|patch|str_replace|ingest|upload|export|backup)/i,
         correction: 'I described saving/writing that file, but no file-write tool ran this turn — nothing was actually written to disk.',
     },
 ];
