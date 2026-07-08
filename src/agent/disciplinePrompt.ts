@@ -16,11 +16,16 @@
 
 /** Heuristic: does this task look complex enough to warrant planning first? Pure. */
 export function looksComplex(message: string): boolean {
-    const m = (message || '').trim();
+    // Cap the scan: complexity shows in the first few KB, and the greedy
+    // sequencing regex was measurably quadratic on long single-line inputs
+    // (confirmed O(n²) ReDoS: ~3s at 100KB). Bounded input + no greedy `.*`.
+    const m = (message || '').trim().slice(0, 4000);
     if (m.length < 40) return false;
     let signals = 0;
-    // Sequencing language.
-    if (/\b(then|after that|next|finally|first|second|step \d|once .* (is )?done)\b/i.test(m)) signals++;
+    // Sequencing language (linear alternatives only; the old `once .* done`
+    // alternative is expressed as two independent word tests).
+    if (/\b(then|after that|next|finally|first|second|step \d)\b/i.test(m)
+        || (/\bonce\b/i.test(m) && /\bdone\b/i.test(m))) signals++;
     // Explicit multiplicity.
     if (/\band\b.*\band\b/i.test(m)) signals++;
     if (/\b(\d+)\s+(files?|steps?|things?|parts?|tasks?)\b/i.test(m)) signals++;

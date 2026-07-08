@@ -8,6 +8,7 @@
 import { Router, type Request, type Response } from 'express';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { execSync, spawn } from 'child_process';
 import { loadConfig } from '../../config/config.js';
@@ -15,6 +16,10 @@ import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { processMessage } from '../../agent/agent.js';
 import { routeMessage } from '../../agent/multiAgent.js';
+
+// ESM shim — @types/node declares __dirname globally so tsc accepts it,
+// but it does NOT exist at ESM runtime (broke F5-TTS auto-start on prod).
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const COMPONENT = 'VoiceRouter';
 

@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    shouldCritique, buildCritiquePrompt, parseCritique, formatReflection,
+    shouldCritique, shouldCritiqueChannel, buildCritiquePrompt, parseCritique, formatReflection,
     resolveSelfCritique, DEFAULT_SELF_CRITIQUE, type SelfCritiqueConfig,
 } from '../src/agent/selfCritique.js';
 
@@ -88,5 +88,26 @@ describe('resolveSelfCritique — the one-switch Reliability Mode', () => {
     });
     it('preserves other tuning fields', () => {
         expect(resolveSelfCritique({ minToolCalls: 3 }, true)).toMatchObject({ enabled: true, minToolCalls: 3 });
+    });
+});
+
+describe('shouldCritiqueChannel — the life loop and eval never pay for critique', () => {
+    it('interactive channels critique', () => {
+        for (const c of ['cli', 'gateway', 'mcp', 'voice', 'telegram', '']) {
+            expect(shouldCritiqueChannel(c)).toBe(true);
+        }
+    });
+    it('life-loop / eval / bench channels never critique', () => {
+        for (const c of ['eval', 'bench', 'deliberation', 'soma-initiative', 'initiative', 'monitor', 'mesh', 'heartbeat', 'cron', 'gepa', 'muscle', 'dreaming', 'autopilot', 'autopilot-self-improve', 'autopilot-autoresearch']) {
+            expect(shouldCritiqueChannel(c)).toBe(false);
+        }
+    });
+});
+
+describe('long-draft handling', () => {
+    it('a claim at the TAIL of a long draft reaches the critique prompt (head+tail slice)', () => {
+        const draft = 'x'.repeat(10_000) + ' FINAL CLAIM: the deploy succeeded.';
+        const prompt = buildCritiquePrompt('t', draft, []);
+        expect(prompt).toContain('FINAL CLAIM');
     });
 });
