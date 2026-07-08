@@ -305,7 +305,31 @@ async function probeSystemPrompt(modelId: string): Promise<{
  * Run the full probe suite against a model. Returns a ProbeResult
  * with discovered capabilities and any probe errors.
  */
+// Re-entrancy wall (2026-07-07 crash-loop fix): the probe's OWN chat calls
+// route back through provider capability checks, which re-trigger probes —
+// and the trigger-side guard can miss when callers key the same model as
+// 'ornith' vs 'ollama/ornith'. Normalize here and refuse re-entry, so at
+// most ONE probe per model exists no matter who triggers it.
+const activeProbes = new Set<string>();
+
+export function normalizeProbeKey(modelId: string): string {
+    return modelId.replace(/^[a-z0-9_-]+\//i, '').toLowerCase();
+}
+
 export async function probeModel(modelId: string): Promise<ProbeResult> {
+    const probeKey = normalizeProbeKey(modelId);
+    if (activeProbes.has(probeKey)) {
+        throw new Error(`Probe already in flight for ${probeKey} — refusing re-entrant probe`);
+    }
+    activeProbes.add(probeKey);
+    try {
+        return await probeModelInner(modelId);
+    } finally {
+        activeProbes.delete(probeKey);
+    }
+}
+
+async function probeModelInner(modelId: string): Promise<ProbeResult> {
     logger.info(COMPONENT, `Probing model: ${modelId}`);
     const start = Date.now();
     const errors: string[] = [];

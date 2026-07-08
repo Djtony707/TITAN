@@ -227,7 +227,10 @@ const PROBE_FAIL_COOLDOWN_MS = 15 * 60 * 1000;
 
 /** Trigger a background capability probe for an unknown model.
  *  Fire-and-forget: the next request will pick up the result from the registry. */
-function triggerBackgroundProbe(modelName: string): void {
+function triggerBackgroundProbe(rawModelName: string): void {
+    // Normalize: callers pass both 'ornith' and 'ollama/ornith' for the same
+    // model — unnormalized keys made the guard miss and probes stampede.
+    const modelName = rawModelName.replace(/^[a-z0-9_-]+\//i, '').toLowerCase();
     if (probeInFlight.has(modelName)) return;
     const failedAt = probeFailedAt.get(modelName);
     if (failedAt && Date.now() - failedAt < PROBE_FAIL_COOLDOWN_MS) return;
