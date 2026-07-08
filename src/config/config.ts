@@ -18,6 +18,43 @@ export function getDefaultConfig(): TitanConfig {
 }
 
 /** Load configuration from disk, merging with defaults */
+/**
+ * v7.2.x — floor-alias sanitizer. The schema's modelAliases floor injects
+ * Ollama-CLOUD SKUs (auth-gated at ollama.com) as tier defaults, which are
+ * dead on any box without that signin — and the .transform() floor means
+ * deleting them from titan.json cannot remove them. Every tier-selecting
+ * subsystem (deliberation, reflection, research pipeline, orchestrator …)
+ * then calls a model that can never answer; combined with probe retriggers
+ * this crash-looped a gateway (2026-07-07). Rule: if the alias came from the
+ * cloud floor while the user actually drives a NON-ollama model, the only
+ * guaranteed-working target is the user's own model — use it. Pure.
+ */
+export function sanitizeModelAliases(
+    aliases: Record<string, string>,
+    agentModel: string,
+): { aliases: Record<string, string>; rewritten: string[] } {
+    const rewritten: string[] = [];
+    const out = { ...aliases };
+    if (!agentModel || agentModel.startsWith('ollama/')) return { aliases: out, rewritten };
+    for (const [tier, v] of Object.entries(out)) {
+        if (/^ollama\/.+:cloud$/i.test(v)) {
+            out[tier] = agentModel;
+            rewritten.push(tier);
+        }
+    }
+    return { aliases: out, rewritten };
+}
+
+function applyAliasSanitizer(cfg: TitanConfig): void {
+    try {
+        const { aliases, rewritten } = sanitizeModelAliases(cfg.agent.modelAliases || {}, cfg.agent.model);
+        if (rewritten.length) {
+            cfg.agent.modelAliases = aliases;
+            logger.info(COMPONENT, `Model aliases [${rewritten.join(', ')}] pointed at auth-gated ollama-cloud floor models — resolved to active model ${cfg.agent.model}`);
+        }
+    } catch { /* sanitizer must never block config load */ }
+}
+
 export function loadConfig(): TitanConfig {
     if (cachedConfig) return cachedConfig;
 
@@ -120,6 +157,7 @@ export function loadConfig(): TitanConfig {
         }
     }
 
+    applyAliasSanitizer(cachedConfig);
     return cachedConfig;
 }
 
@@ -136,6 +174,7 @@ export function updateConfig(partial: Partial<TitanConfig>): TitanConfig {
     const current = loadConfig();
     const updated = deepMerge(current as Record<string, unknown>, partial as Record<string, unknown>) as TitanConfig;
     const validated = TitanConfigSchema.parse(updated);
+    applyAliasSanitizer(validated);
     saveConfig(validated);
     return validated;
 }

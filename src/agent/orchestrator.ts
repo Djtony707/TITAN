@@ -56,7 +56,7 @@ function isObviouslyTrivial(message: string): boolean {
 /** Analyze whether a message would benefit from sub-agent delegation */
 export async function analyzeForDelegation(message: string): Promise<DelegationPlan> {
     const config = loadConfig();
-    const fastModel = config.agent.modelAliases?.fast || 'ollama/qwen3.5:cloud';
+    const fastModel = config.agent.modelAliases?.fast || config.agent.model;
 
     // Cheap heuristic — keep the LLM classifier off for the messages that
     // can't possibly be multi-step missions.
