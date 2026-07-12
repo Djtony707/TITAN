@@ -20,6 +20,7 @@
  *   fb_review_queue    — Review/approve queued posts before publishing
  */
 import { registerSkill } from '../registry.js';
+import { loadConfig } from '../../config/config.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
@@ -129,29 +130,73 @@ async function graphGet(endpoint: string, params?: Record<string, string>): Prom
 
 // ─── Content Safety ────────────────────────────────────────────
 
+/**
+ * Operator-private terms are loaded from LOCAL config (`privacy` block in
+ * titan.json), never hardcoded — the code is open-source and public, so it must
+ * NOT contain anyone's real names, numbers, or private references. Each field
+ * is optional; the default is empty (generic detectors still run).
+ */
+export interface PrivacyDenylist {
+    /** Text terms — names, hostnames, project names. Matched separator-flexibly
+     *  ("gx10" catches "GX 10"), left-anchored so it isn't glued inside another
+     *  word, no right anchor so plurals/possessives match. */
+    terms?: string[];
+    /** Exact numbers (e.g. a zip) — matched only when NOT part of a longer digit
+     *  run, so "95451" catches "CA95451" but not "195451". */
+    numbers?: string[];
+    /** Private phone numbers — matched by digits in ANY formatting. */
+    phones?: string[];
+}
+
+function loadPrivacyDenylist(): PrivacyDenylist {
+    try {
+        const cfg = loadConfig() as unknown as { privacy?: PrivacyDenylist };
+        return cfg.privacy || {};
+    } catch { return {}; }
+}
+
+/** Does `content` contain the operator-private term separator-flexibly? Pure. */
+function termMatches(content: string, term: string): boolean {
+    const chars = (term || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (chars.length < 2) return false;
+    const body = chars.split('').map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s._-]*');
+    try { return new RegExp(`(?<![a-z0-9])${body}`, 'i').test(content); } catch { return false; }
+}
+
+/** Match the operator's private denylist. Pure — the list is injected, so this
+ *  is fully unit-testable with FAKE data (no real secrets in tests). */
+export function matchesPrivateDenylist(content: string, deny: PrivacyDenylist): string | null {
+    const digits = content.replace(/\D+/g, '');
+    for (const p of deny.phones || []) {
+        const pd = p.replace(/\D+/g, '');
+        if (pd.length >= 7 && digits.includes(pd)) return 'private phone number';
+    }
+    for (const n of deny.numbers || []) {
+        const nd = n.replace(/\D+/g, '');
+        if (nd) { try { if (new RegExp(`(?<![0-9])${nd}(?![0-9])`).test(content)) return 'private number'; } catch { /* skip */ } }
+    }
+    for (const t of deny.terms || []) {
+        if (termMatches(content, t)) return 'private identifier';
+    }
+    return null;
+}
+
 /** Block posts containing personal/sensitive information.
  *  Exported: THE outbound privacy wall for EVERY social surface (posts,
  *  replies, autopilot, X/Twitter, content publisher, browser-post) —
- *  deterministic, unit-tested. Public brand identity ("Tony Elliott",
- *  "DJTony707" — npm author / GitHub handle) is deliberately ALLOWED; private
- *  identifiers are not.
+ *  deterministic, unit-tested. Public brand identity is ALLOWED; operator
+ *  private terms (from local `privacy` config) are not. `deny` may be injected
+ *  for testing; otherwise it loads from config.
  *
- *  Hardened 2026-07-08 after a 3-lens adversarial red-team (14 confirmed
- *  findings): identifier checks run against a SEPARATOR-STRIPPED copy so
- *  spacing/punctuation evasions ("GX 10", "Michael Elliott", "CA95451",
- *  "djtony707 @ gmail . com") can't slip through; credential/phone checks are
- *  tightened so legit marketing ("token: launches", "128-256-8192 budgets",
- *  "sk-SK-LukasNeural" voice id) is not false-blocked. */
-export function checkForPII(content: string): string | null {
+ *  Hardened 2026-07-08 (3-lens adversarial red-team, 14 confirmed findings):
+ *  contact/identifier checks tolerate spacing/punctuation evasions; credential
+ *  and phone checks are tightened so legit marketing is not false-blocked. */
+export function checkForPII(content: string, deny?: PrivacyDenylist): string | null {
     if (!content) return null;
 
     // ── Contact info ──
     // Email — tolerant of spaced formats ("a @ b . com").
     if (/[a-z0-9._%+-]+\s*@\s*[a-z0-9.-]+\s*\.\s*[a-z]{2,}/i.test(content)) return 'email address';
-    // Known private phone numbers (Tony's), by digits, ANY formatting.
-    const digits = content.replace(/\D+/g, '');
-    const KNOWN_PRIVATE_PHONES = ['[redacted]', '[redacted]'];
-    if (KNOWN_PRIVATE_PHONES.some(n => digits.includes(n))) return 'phone number';
     // Generic phone ONLY with a phone MARKER (parens area code, +1, or
     // call/text/reach context) — so version strings like "128-256-8192" pass.
     if (/\(\d{3}\)\s*\d{3}[-.\s]?\d{4}/.test(content)
@@ -184,27 +229,10 @@ export function checkForPII(content: string): string | null {
         if (v.length >= 12 || (v.length >= 6 && /\d/.test(v))) return 'credential/password';
     }
 
-    // ── Operator-private identifiers — flexible separators WITHIN each term
-    // (catches "GX 10", "Michael Elliott", "R-320"), word-anchored in the
-    // ORIGINAL text so adjacent words ("s[redacted]l"⊅"[redacted]") don't false-match.
-    // Leading \b only on surnames → catches plurals ("[redacted]", "[redacted]").
-    const S = '[\\s._-]*'; // optional separators within a term
-    const identifiers: Array<{ pattern: RegExp; label: string }> = [
-        { pattern: new RegExp(`\\bmichael${S}elliott\\b`, 'i'), label: 'private identifier' },
-        { pattern: new RegExp(`\\bdj${S}crazy${S}t${S}707\\b`, 'i'), label: 'private identifier' },
-        { pattern: new RegExp(`\\bkelsey${S}ville\\b`, 'i'), label: 'home location' },
-        { pattern: /(?<![0-9])95451(?![0-9])/, label: 'home location' },
-        { pattern: new RegExp(`\\bg${S}x${S}10\\b`, 'i'), label: 'internal hostname' },
-        { pattern: new RegExp(`\\br${S}320\\b`, 'i'), label: 'internal hostname' },
-        { pattern: new RegExp(`\\bnet${S}pi\\b`, 'i'), label: 'internal hostname' },
-        { pattern: /\bidrac\b/i, label: 'internal hostname' },
-        { pattern: /\b[redacted]/i, label: 'private project reference' },
-        { pattern: /\b[redacted]/i, label: 'private project reference' },
-        { pattern: /\b[redacted]/i, label: 'private project reference' },
-    ];
-    for (const { pattern, label } of identifiers) {
-        if (pattern.test(content)) return label;
-    }
+    // ── Operator-private denylist (loaded from LOCAL config, never hardcoded
+    // in this public source): names, hostnames, project refs, home zip, phones.
+    const priv = matchesPrivateDenylist(content, deny ?? loadPrivacyDenylist());
+    if (priv) return priv;
 
     // Personal home-dir paths — allow generic/example paths ending in .titan or
     // /opt/TITAN; block real user directories otherwise.

@@ -632,6 +632,15 @@ export const TelephonyConfigSchema = z.object({
 }).default({});
 
 export const TitanConfigSchema = z.object({
+    /** Operator-private terms kept OUT of all social posts/replies. Loaded by
+     *  the social privacy wall (facebook.checkForPII). Lives in local titan.json
+     *  only — never in the public source. */
+    privacy: z.object({
+        terms: z.array(z.string()).default([]),
+        numbers: z.array(z.string()).default([]),
+        phones: z.array(z.string()).default([]),
+    }).partial().optional(),
+
     /** Whether the user has completed the web onboarding wizard */
     onboarded: z.boolean().default(false),
     agent: AgentConfigSchema.default({}),

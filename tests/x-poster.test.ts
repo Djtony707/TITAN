@@ -23,8 +23,10 @@ vi.mock('fs', async (importOriginal) => {
         mkdirSync: mockMkdirSync,
     };
 });
-vi.mock('../src/utils/constants.js', () => ({
-    TITAN_MD_FILENAME: 'TITAN.md',
+vi.mock('../src/utils/constants.js', async (importOriginal) => ({
+    // Keep every real export (x_poster now transitively imports facebook.js →
+    // config → constants, which needs the full set), override only the home dir.
+    ...(await importOriginal<typeof import('../src/utils/constants.js')>()),
     TITAN_HOME: '/tmp/titan-test',
 }));
 vi.mock('../src/utils/logger.js', () => ({
