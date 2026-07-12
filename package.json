@@ -164,9 +164,9 @@
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "jsdom": "^29.1.1",
-    "node-cron": "^4.5.0",
+    "node-cron": "^4.6.0",
     "ora": "^9.4.1",
-    "posthog-node": "^5.39.4",
+    "posthog-node": "^5.40.0",
     "turndown": "^7.2.2",
     "undici": "^8.6.0",
     "uuid": "^14.0.1",
@@ -181,14 +181,14 @@
     "@types/turndown": "^5.0.6",
     "@types/uuid": "^11.0.0",
     "@types/ws": "^8.5.12",
-    "@typescript-eslint/eslint-plugin": "^8.62.1",
-    "@typescript-eslint/parser": "^8.12.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@typescript-eslint/eslint-plugin": "^8.63.0",
+    "@typescript-eslint/parser": "^8.63.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^8.57.1",
     "tsup": "^8.3.5",
     "tsx": "^4.23.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   },
   "tsup": {
     "entry": [
@@ -267,9 +267,9 @@
     "@browserbasehq/stagehand": "^3.6.0",
     "@whiskeysockets/baileys": "^6.7.23",
     "bonjour-service": "^1.4.2",
-    "imapflow": "^1.4.3",
+    "imapflow": "^1.4.6",
     "livekit-server-sdk": "^2.16.0",
-    "matrix-js-sdk": "^41.8.0",
+    "matrix-js-sdk": "^41.9.0",
     "node-llama-cpp": "^3.19.0",
     "pdf-parse": "^2.4.5",
     "playwright": "^1.58.2"
