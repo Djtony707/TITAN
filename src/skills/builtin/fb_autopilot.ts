@@ -26,7 +26,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
 import { chat } from '../../providers/router.js';
-import { postToPage } from './facebook.js';
+import { postToPage, checkForPII } from './facebook.js';
 import logger from '../../utils/logger.js';
 import { getSelfKnowledge, type SelfKnowledge } from '../../agent/selfKnowledge.js';
 import { verifyPostTruthfulness } from './fb_truth_verifier.js';
@@ -223,6 +223,23 @@ function buildContentFocus(contentType: ContentType, snapshot: SelfKnowledge): s
     }
 }
 
+/**
+ * Demo media for visual post types — the same "moving photos" as the GitHub
+ * README, converted to mp4 (Facebook animates videos; GIFs post as frozen
+ * frames). Public raw URLs from the repo itself, so nothing private is hosted.
+ * Add more entries as more demo clips land in docs/assets/.
+ */
+const SHOWCASE_MEDIA: Array<{ videoUrl: string; theme: string }> = [
+    { videoUrl: 'https://raw.githubusercontent.com/Djtony707/TITAN/main/docs/assets/titan-desk.mp4', theme: 'the living desk — mascot, canvas and widgets working together' },
+];
+
+/** Visual post types get a demo video attached (rotated when more clips exist). */
+function pickShowcaseMedia(contentType: ContentType, index: number): { videoUrl: string; theme: string } | null {
+    if (SHOWCASE_MEDIA.length === 0) return null;
+    if (!/feature|promo|spotlight|capab|showcase|demo/i.test(String(contentType))) return null;
+    return SHOWCASE_MEDIA[index % SHOWCASE_MEDIA.length];
+}
+
 async function generateContent(contentType: ContentType): Promise<string> {
     const snapshot = await getSelfKnowledge();
     const config = loadConfig();
@@ -233,7 +250,8 @@ async function generateContent(contentType: ContentType): Promise<string> {
     const fbModel = fbConfig?.model as string;
     const agentModel = config.agent?.model as string;
     const model = (fbModel && fbModel.trim()) || agentModel || 'ollama/glm-5.1:cloud';
-    const focus = buildContentFocus(contentType, snapshot);
+    const focus = buildContentFocus(contentType, snapshot)
+        + ' End the post with ONE short, friendly question that invites people to reply (their use case, their biggest time-sink, what they would automate). Maximum 2 hashtags.';
 
     // ─── Graphiti Memory Context ─────────────────────────────────
     // Recall recent posts so we don't repeat topics and can build thematic threads
@@ -459,7 +477,12 @@ async function runFBAutopilot(): Promise<void> {
     for (let attempt = 1; attempt <= 3; attempt++) {
         logger.info(COMPONENT, `Generating ${contentType} post (attempt ${attempt}/3)...`);
         content = await generateContent(contentType);
-        if (content && content.length >= 20) break;
+        if (content && content.length >= 20) {
+            const pii = checkForPII(content);
+            if (!pii) break;
+            logger.warn(COMPONENT, `Generated post tripped the privacy wall (${pii}) — regenerating`);
+            content = '';
+        }
         if (attempt < 3) {
             logger.info(COMPONENT, `Attempt ${attempt} produced empty/short content — retrying`);
         }
@@ -484,8 +507,13 @@ async function runFBAutopilot(): Promise<void> {
         return;
     }
 
-    // Post through centralized postToPage() — handles dedup, PII, queue, and API
-    const result = await postToPage(content, { source: `autopilot:${contentType}` });
+    // Post through centralized postToPage() — handles dedup, PII, queue, and API.
+    // Visual post types carry the README's demo video ("moving photos").
+    const media = pickShowcaseMedia(contentType, state.contentIndex);
+    const result = await postToPage(content, {
+        source: `autopilot:${contentType}`,
+        ...(media ? { videoUrl: media.videoUrl } : {}),
+    });
 
     if (result.skipped) {
         logger.info(COMPONENT, `Autopilot post skipped: ${result.skipped}`);
@@ -746,6 +774,14 @@ async function monitorComments(): Promise<void> {
                     }
                 }
                 const safeReply = sanitized.text;
+                // Privacy wall on autopilot replies (this path posts directly to
+                // the Graph API and previously bypassed the PII check).
+                const replyPii = checkForPII(safeReply);
+                if (replyPii) {
+                    logger.warn(COMPONENT, `Reply to ${fromName} blocked by privacy wall (${replyPii}) — skipping`);
+                    repliedComments.add(commentId);
+                    continue;
+                }
 
                 // Post the reply
                 try {
@@ -760,6 +796,16 @@ async function monitorComments(): Promise<void> {
                         repliedComments.add(commentId);
                         state.repliesToday++;
                         logger.info(COMPONENT, `Replied to ${fromName}: "${reply.slice(0, 60)}..." (${state.repliesToday}/10 today)`);
+                        // Engagement: like the comment we just answered — small
+                        // signal that makes the page feel alive and boosts reach.
+                        try {
+                            await fetch(`https://graph.facebook.com/v21.0/${commentId}/likes`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ access_token: token }),
+                                signal: AbortSignal.timeout(10000),
+                            });
+                        } catch { /* like is best-effort */ }
                     } else {
                         const errBody = await replyResp.text().catch(() => '');
                         logger.warn(COMPONENT, `Reply API failed (${replyResp.status}): ${errBody.slice(0, 200)}`);

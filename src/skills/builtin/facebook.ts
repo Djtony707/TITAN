@@ -38,6 +38,7 @@ interface QueuedPost {
     content: string;
     replyToId?: string;
     imageUrl?: string;
+    videoUrl?: string;
     status: 'pending' | 'approved' | 'rejected' | 'posted';
     method: 'api' | 'browser';
     createdAt: string;
@@ -128,29 +129,89 @@ async function graphGet(endpoint: string, params?: Record<string, string>): Prom
 
 // ─── Content Safety ────────────────────────────────────────────
 
-/** Block posts containing personal/sensitive information */
-function checkForPII(content: string): string | null {
-    const lower = content.toLowerCase();
-    const patterns: Array<{ pattern: RegExp; label: string }> = [
-        { pattern: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/, label: 'phone number' },
-        { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, label: 'email address' },
-        { pattern: /\b\d{3}[-]?\d{2}[-]?\d{4}\b/, label: 'SSN-like number' },
-        { pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b/, label: 'credit card number' },
-        { pattern: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, label: 'IP address' },
-        { pattern: /(?:password|passwd|secret|api[_-]?key|token|bearer)\s*[:=]\s*\S+/i, label: 'credential/password' },
-        { pattern: /\b(?:ssh-rsa|ssh-ed25519|AKIA[0-9A-Z]{16})\b/, label: 'SSH/AWS key' },
-    ];
+/** Block posts containing personal/sensitive information.
+ *  Exported: THE outbound privacy wall for EVERY social surface (posts,
+ *  replies, autopilot, X/Twitter, content publisher, browser-post) —
+ *  deterministic, unit-tested. Public brand identity ("Tony Elliott",
+ *  "DJTony707" — npm author / GitHub handle) is deliberately ALLOWED; private
+ *  identifiers are not.
+ *
+ *  Hardened 2026-07-08 after a 3-lens adversarial red-team (14 confirmed
+ *  findings): identifier checks run against a SEPARATOR-STRIPPED copy so
+ *  spacing/punctuation evasions ("GX 10", "Michael Elliott", "CA95451",
+ *  "djtony707 @ gmail . com") can't slip through; credential/phone checks are
+ *  tightened so legit marketing ("token: launches", "128-256-8192 budgets",
+ *  "sk-SK-LukasNeural" voice id) is not false-blocked. */
+export function checkForPII(content: string): string | null {
+    if (!content) return null;
 
-    for (const { pattern, label } of patterns) {
-        if (pattern.test(content)) {
-            return label;
-        }
+    // ── Contact info ──
+    // Email — tolerant of spaced formats ("a @ b . com").
+    if (/[a-z0-9._%+-]+\s*@\s*[a-z0-9.-]+\s*\.\s*[a-z]{2,}/i.test(content)) return 'email address';
+    // Known private phone numbers (Tony's), by digits, ANY formatting.
+    const digits = content.replace(/\D+/g, '');
+    const KNOWN_PRIVATE_PHONES = ['[redacted]', '[redacted]'];
+    if (KNOWN_PRIVATE_PHONES.some(n => digits.includes(n))) return 'phone number';
+    // Generic phone ONLY with a phone MARKER (parens area code, +1, or
+    // call/text/reach context) — so version strings like "128-256-8192" pass.
+    if (/\(\d{3}\)\s*\d{3}[-.\s]?\d{4}/.test(content)
+        || /\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(content)
+        || (/\b(call|text|phone|reach|dial|cell|mobile|whatsapp|sms)\b/i.test(content) && /\d{3}[-.\s]\d{3}[-.\s]\d{4}/.test(content))) {
+        return 'phone number';
     }
 
-    // Check for home directory paths
-    if (/\/home\/[a-z]+\//i.test(content) || /\/Users\/[a-z]+\//i.test(content)) {
-        // Allow ~/.titan paths but block real user paths
-        if (!content.includes('~/.titan') && !content.includes('/opt/TITAN')) {
+    // ── Structured secrets / numbers ──
+    const structural: Array<{ pattern: RegExp; label: string }> = [
+        { pattern: /\b\d{3}[- ]\d{2}[- ]\d{4}\b/, label: 'SSN-like number' },
+        { pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b/, label: 'credit card number' },
+        { pattern: /\b(?:\d{1,3}\.){3}\d{1,3}\b/, label: 'IP address' },
+        { pattern: /\b(?:ssh-rsa|ssh-ed25519|AKIA[0-9A-Z]{16})\b/, label: 'SSH/AWS key' },
+        { pattern: /\bEAA[A-Za-z0-9]{20,}\b/, label: 'Facebook token' },
+        // Real API keys: sk- with a long hex-ish secret run — voice ids like
+        // "sk-SK-LukasNeural" have no 16-hex run, so they pass.
+        { pattern: /\bsk-[a-z0-9-]*[a-f0-9]{16,}[a-z0-9-]*\b/i, label: 'API key' },
+    ];
+    for (const { pattern, label } of structural) {
+        if (pattern.test(content)) return label;
+    }
+
+    // Credential assignment — only when the VALUE looks like a real secret
+    // (≥12 chars, or ≥6 chars with a digit). Blocks "password: h7x9q2k4mz",
+    // allows "token: launches next week" and "No api_key: in your .env".
+    const credMatch = /(?:password|passwd|secret|api[_-]?key|token|bearer)\s*[:=]\s*['"`]?([^\s'"`]+)/i.exec(content);
+    if (credMatch) {
+        const v = credMatch[1];
+        if (v.length >= 12 || (v.length >= 6 && /\d/.test(v))) return 'credential/password';
+    }
+
+    // ── Operator-private identifiers — flexible separators WITHIN each term
+    // (catches "GX 10", "Michael Elliott", "R-320"), word-anchored in the
+    // ORIGINAL text so adjacent words ("s[redacted]l"⊅"[redacted]") don't false-match.
+    // Leading \b only on surnames → catches plurals ("[redacted]", "[redacted]").
+    const S = '[\\s._-]*'; // optional separators within a term
+    const identifiers: Array<{ pattern: RegExp; label: string }> = [
+        { pattern: new RegExp(`\\bmichael${S}elliott\\b`, 'i'), label: 'private identifier' },
+        { pattern: new RegExp(`\\bdj${S}crazy${S}t${S}707\\b`, 'i'), label: 'private identifier' },
+        { pattern: new RegExp(`\\bkelsey${S}ville\\b`, 'i'), label: 'home location' },
+        { pattern: /(?<![0-9])95451(?![0-9])/, label: 'home location' },
+        { pattern: new RegExp(`\\bg${S}x${S}10\\b`, 'i'), label: 'internal hostname' },
+        { pattern: new RegExp(`\\br${S}320\\b`, 'i'), label: 'internal hostname' },
+        { pattern: new RegExp(`\\bnet${S}pi\\b`, 'i'), label: 'internal hostname' },
+        { pattern: /\bidrac\b/i, label: 'internal hostname' },
+        { pattern: /\b[redacted]/i, label: 'private project reference' },
+        { pattern: /\b[redacted]/i, label: 'private project reference' },
+        { pattern: /\b[redacted]/i, label: 'private project reference' },
+    ];
+    for (const { pattern, label } of identifiers) {
+        if (pattern.test(content)) return label;
+    }
+
+    // Personal home-dir paths — allow generic/example paths ending in .titan or
+    // /opt/TITAN; block real user directories otherwise.
+    const pathMatch = /\/(?:home|users)\/([a-z0-9_-]+)\/(\S*)/i.exec(content);
+    if (pathMatch) {
+        const rest = pathMatch[2] || '';
+        if (!/^\.titan\b/i.test(rest) && !content.includes('/opt/TITAN')) {
             return 'personal file path';
         }
     }
@@ -170,7 +231,7 @@ let postingInProgress = false;
  */
 export async function postToPage(
     inputMessage: string,
-    opts?: { imageUrl?: string; source?: string },
+    opts?: { imageUrl?: string; videoUrl?: string; source?: string },
 ): Promise<{ success: boolean; postId?: string; error?: string; skipped?: string }> {
     let message = inputMessage;
     // Concurrency lock — only one post at a time
@@ -213,7 +274,7 @@ export async function postToPage(
             // Queue for browser posting
             const post: QueuedPost = {
                 id: uuid().slice(0, 8), type: 'post', content: message,
-                imageUrl: opts?.imageUrl, status: 'pending', method: 'browser',
+                imageUrl: opts?.imageUrl, videoUrl: opts?.videoUrl, status: 'pending', method: 'browser',
                 createdAt: new Date().toISOString(),
             };
             queue.posts.push(post);
@@ -224,7 +285,11 @@ export async function postToPage(
         // Post via Graph API
         const pageId = getPageId();
         let result: Record<string, unknown>;
-        if (opts?.imageUrl) {
+        if (opts?.videoUrl) {
+            // Videos are how Facebook actually ANIMATES demo media in the feed —
+            // an animated GIF via /photos renders as a frozen first frame.
+            result = await graphPost(`/${pageId}/videos`, { file_url: opts.videoUrl, description: message });
+        } else if (opts?.imageUrl) {
             result = await graphPost(`/${pageId}/photos`, { url: opts.imageUrl, message });
         } else {
             result = await graphPost(`/${pageId}/feed`, { message });
@@ -282,6 +347,7 @@ export function registerFacebookSkill(): void {
                 properties: {
                     message: { type: 'string', description: 'The post content/message' },
                     imageUrl: { type: 'string', description: 'Optional image URL to attach to the post' },
+                    videoUrl: { type: 'string', description: 'Optional public video URL (mp4) to attach — use for animated/demo media; Facebook animates videos, not GIFs' },
                     skipReview: { type: 'boolean', description: 'Skip the review queue and post immediately (default: false)' },
                 },
                 required: ['message'],
@@ -545,6 +611,8 @@ export function registerFacebookSkill(): void {
                 const targetUrl = action === 'custom' ? (args.url as string || 'https://www.facebook.com') : urls[action] || 'https://www.facebook.com';
 
                 if (action === 'post' && args.postContent) {
+                    const browsePii = checkForPII(args.postContent as string);
+                    if (browsePii) return `Blocked: the content contains ${browsePii}. TITAN never posts private/personal info via any surface — remove it and retry.`;
                     return `To post on Facebook via browser:\n\n1. Use browse_url to navigate to: ${targetUrl}\n2. Use web_act to click the "What's on your mind?" input\n3. Use web_act to type: ${(args.postContent as string).slice(0, 200)}\n4. Use web_act to click the "Post" button\n5. Use browser_screenshot to verify the post was created\n\nNote: Make sure you're logged into Facebook first. Use browser_screenshot to check the current state.`;
                 }
 

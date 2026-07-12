@@ -6,6 +6,7 @@
  * Required env vars: X_BEARER_TOKEN, X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET
  */
 import { registerSkill } from '../registry.js';
+import { checkForPII } from './facebook.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { TITAN_HOME } from '../../utils/constants.js';
@@ -224,6 +225,9 @@ export function registerXPosterSkill(): void {
                 const content = (args.content as string).slice(0, 280);
                 const skipReview = args.skipReview as boolean;
 
+                const pii = checkForPII(content);
+                if (pii) return `Blocked: the tweet contains ${pii}. TITAN never posts private/personal info. Remove it and try again.`;
+
                 if (!process.env.X_API_KEY || !process.env.X_ACCESS_TOKEN) {
                     return 'Error: X API credentials not configured. Set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET env vars.';
                 }
@@ -283,6 +287,9 @@ export function registerXPosterSkill(): void {
                 const tweetId = args.tweetId as string;
                 const content = (args.content as string).slice(0, 280);
                 const skipReview = args.skipReview as boolean;
+
+                const replyPii = checkForPII(content);
+                if (replyPii) return `Blocked: the reply contains ${replyPii}. TITAN never posts private/personal info.`;
 
                 if (!process.env.X_API_KEY || !process.env.X_ACCESS_TOKEN) {
                     return 'Error: X API credentials not configured.';

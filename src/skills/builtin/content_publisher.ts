@@ -4,6 +4,7 @@
  * Uses existing web_search and github tools under the hood.
  */
 import { registerSkill } from '../registry.js';
+import { checkForPII } from './facebook.js';
 
 export function registerContentPublisherSkill(): void {
     // Tool 1: content_research
@@ -252,6 +253,11 @@ export function registerContentPublisherSkill(): void {
                     const content = args.content as string;
                     const branch = (args.branch as string) || 'main';
                     const commitMessage = (args.commitMessage as string) || `Publish: ${title}`;
+
+                    // Privacy wall — this commits to a PUBLIC repo. Screen title
+                    // + body + commit message for private/personal info.
+                    const pubPii = checkForPII(`${title}\n${content}\n${commitMessage}`);
+                    if (pubPii) return `Blocked: the content contains ${pubPii}. TITAN never publishes private/personal info to a public repo. Remove it and retry.`;
 
                     // Generate Jekyll-compatible filename
                     const now = new Date();
