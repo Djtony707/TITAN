@@ -49,6 +49,7 @@ import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import { detectSystemWidget, buildSystemWidgetGate } from './systemWidgets.js';
 import { startTrace } from './tracer.js';
+import { ensureTracePersistence } from './traceStore.js';
 import { initSoulState, updateSoulState, emitHeartbeat, getInnerMonologue, consolidateWisdom, clearSoulState, getWisdomHints } from './soul.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
@@ -1219,6 +1220,9 @@ export async function processMessage(
         const { setSessionGoal } = await import('./autonomyContext.js');
         setSessionGoal(session.id, overrides.goalContext);
     }
+    // v8 TraceStore (Stage 1: RECORD) — idempotent; persists every completed
+    // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
+    ensureTracePersistence();
     const trace = startTrace(session.id, message);
     // v4.4.5: accept a caller-provided strategy override. Phone calls
     // force 'direct' so vague conversational questions like "what are
@@ -2299,7 +2303,7 @@ export async function processMessage(
     trace.setRounds(loopResult.toolCallDetails.length);
     trace.setTokens(totalPromptTokens, totalCompletionTokens);
     for (const tc of loopResult.toolCallDetails) {
-        trace.toolCall(tc.name, tc.args, 0, tc.success, 0);
+        trace.toolCall(tc.name, tc.args, 0, tc.success, 0, tc.actionId);
     }
     trace.end(budgetExhausted ? 'failed' : 'completed', budgetExhausted ? 'budget exhausted' : undefined);
 

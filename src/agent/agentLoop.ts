@@ -458,6 +458,8 @@ export interface LoopResult {
         args: Record<string, unknown>;
         resultSnippet: string;
         success: boolean;
+        /** Receipt action_id for this call (v8 TraceStore join key) */
+        actionId?: string;
     }>;
 }
 
@@ -1866,6 +1868,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     args: tcArgs,
                     resultSnippet: tr.content.slice(0, 300),
                     success: tcSuccess,
+                    ...(tr.actionId ? { actionId: tr.actionId } : {}),
                 });
 
                 // Tool result summarization disabled — was confusing models into
