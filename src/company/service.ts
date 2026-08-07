@@ -80,6 +80,14 @@ async function buildState(): Promise<State> {
                 charterOf: agentId => crew.get(agentId) ?? '',
             }, productionRunner, productionReviewer);
             candidate.queueDispatch.recover(); // fold-derived crash reconciliation (v5 §4)
+            // The watchman is an infrastructure principal like 'user', not
+            // crew — no persona pack mints it. Queue mode is what gives it
+            // duties (supervisor blocks, holds), so its signing identity is
+            // minted here, idempotently (no-clobber election), at the first
+            // queue-mode boot. Found by the slice-close e2e gate: without
+            // this, production supervisors could never sign a stalled block.
+            const { mintAgentKeys } = await import('./keys.js');
+            mintAgentKeys('watchman', keysDir);
             // Separate periodic loop (v5 §5): a one-lane dispatcher awaiting
             // a stuck model call cannot tick to detect its own silence.
             const { CompanySupervisor } = await import('./supervisor.js');

@@ -193,6 +193,20 @@ describe('service ensure() orchestration', () => {
         await b.svc.delegateTask({ from: 'user', to: 'scout', spec: 'still fine' }); // not refused
     });
 
+    it('(8) queue-mode boot mints the watchman signing identity (slice-close e2e gap)', async () => {
+        // No persona pack mints the watchman — queue-mode ensure() must,
+        // or production supervisors can never sign a stalled block.
+        const { loadAgentKeys } = await import('../src/company/keys.js');
+        const a = await freshService(true);
+        await a.svc.getCompanyStatus(); // triggers ensure()
+        const watchman = loadAgentKeys('watchman', join(a.home, 'company', 'keys'));
+        expect(watchman.publicKeyPem).toContain('PUBLIC KEY');
+        // slice-1 boot does NOT mint it (queue-only principal)
+        const b = await freshService(false);
+        await b.svc.getCompanyStatus();
+        expect(() => loadAgentKeys('watchman', join(b.home, 'company', 'keys'))).toThrow();
+    });
+
     it('(3) pure slice-1 install (queue never enabled): basic recovery proceeds, no refusal', async () => {
         const { svc } = await freshService(false);
         await svc.createCompany({ name: 'Pure S1' });
