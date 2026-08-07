@@ -42,7 +42,7 @@ function scenario(): S {
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     return { log, keysDir, user, ceo, scout, watchman };
 }
 const AGENTS = ['ceo', 'scout'];

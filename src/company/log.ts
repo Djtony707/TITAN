@@ -1,10 +1,14 @@
 /**
  * TITAN — Company event log (v8 Slice 1)
  *
- * The company substrate: ONE append-only log of signed, kind-dispatched
- * events in local SQLite (node:sqlite — zero new dependencies).
+ * Company-specific wrapper over the feature-neutral signed event log
+ * substrate (src/substrate/eventLog.ts). Per the v8 architecture baseline
+ * (Claude ruling ef548f79, Honey design verdict 77eedd22), the signed event
+ * log is substrate, not a company feature. This module provides Company's
+ * kinds, authority table, key management, and queue-specific methods on
+ * top of the SystemStore coordinator and its branded FeatureCapability.
  *
- * Trust model (reworked per static review, event 56c3dd16):
+ * Trust model (unchanged from original Slice 1, event 56c3dd16):
  *  - Actor binding: append() derives the public key from the supplied
  *    private key and requires it to MATCH the actor's registered public
  *    key on disk. No key can sign as another actor.
@@ -28,13 +32,19 @@
  * layer refuses to activate below the floor); package `engines` stays at
  * the v7 floor because the flag-off product must keep supporting it.
  */
-import { DatabaseSync } from 'node:sqlite';
-import { randomUUID, createHash, createPublicKey } from 'crypto';
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
 import type { KeyObject } from 'crypto';
+import { createPublicKey } from 'crypto';
+import {
+    SystemStore,
+    type FeatureCapability,
+    type SystemEvent,
+    type SystemAppendContext,
+    type SystemLifecycleValidator,
+    type SigningContext,
+    type FeatureRegistration,
+} from '../substrate/eventLog.js';
 import { signBytes, verifyBytes, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
-import { emit as busEmit } from '../substrate/traceBus.js';
+import { emit as busEmit, type CompanyEventPayload } from '../substrate/traceBus.js';
 import { queueValidator as builtinQueueValidator, foldQueue } from './queue.js';
 
 import logger from '../utils/logger.js';
@@ -61,14 +71,14 @@ export const KNOWN_KINDS = [...EVENT_KINDS, ...QUEUE_KINDS] as const;
 export type CompanyEventKind = (typeof KNOWN_KINDS)[number];
 
 /** Context handed to an installed lifecycle validator INSIDE the append txn. */
-export interface AppendContext {
+export interface AppendContext extends SystemAppendContext {
     kind: CompanyEventKind;
-    actor: string;
-    payload: Record<string, unknown>;
-    /** Full event history read within the same transaction (tail-consistent). */
+    /** Narrowed to CompanyEvent[]: the Company feature only registers
+     *  Company kinds, so every event in the shared store that reaches a
+     *  Company validator IS a CompanyEvent. Overriding the base
+     *  SystemEvent[] here fixes the B3 typecheck error (foldQueue expects
+     *  CompanyEvent[], not SystemEvent[]). */
     events: readonly CompanyEvent[];
-    /** Set only by the maintenance transaction (queue-discard). */
-    capability?: 'maintenance';
 }
 export type LifecycleValidator = (ctx: AppendContext) => void;
 
@@ -82,7 +92,7 @@ export interface CompanyLogOptions {
 }
 
 /** Which actors may append which kinds (slice 1). '*' = any registered actor. */
-const AUTHORITY: Record<CompanyEventKind, readonly string[] | '*'> = {
+const AUTHORITY: Record<string, readonly string[] | '*'> = {
     'company.created': ['user'],
     'agent.minted': ['user'],
     'room.message': '*',
@@ -101,15 +111,8 @@ const AUTHORITY: Record<CompanyEventKind, readonly string[] | '*'> = {
     'commitment.closed': '*',
 };
 
-export interface CompanyEvent {
-    seq: number;
-    id: string;
-    prevHash: string;
+export interface CompanyEvent extends SystemEvent {
     kind: CompanyEventKind;
-    ts: number;
-    actor: string;
-    sig: string;
-    payload: Record<string, unknown>;
 }
 
 export interface AppendInput {
@@ -118,91 +121,87 @@ export interface AppendInput {
     payload: Record<string, unknown>;
 }
 
-interface Row {
-    seq: number;
-    id: string;
-    prev_hash: string;
-    kind: string;
-    ts: number;
-    actor: string;
-    sig: string;
-    payload: string;
-}
-
-/** Canonical byte string signatures cover. payloadJson is the stored serialization. */
-function canonical(id: string, prevHash: string, kind: string, ts: number, actor: string, payloadJson: string): Buffer {
-    return Buffer.from(`${id}|${prevHash}|${kind}|${ts}|${actor}|${payloadJson}`, 'utf-8');
-}
-
-/** Chain hash binding an event to its predecessor. */
-function chainHash(prevRow: Pick<Row, 'sig' | 'id'> | undefined): string {
-    if (!prevRow) return 'genesis';
-    return createHash('sha256').update(`${prevRow.sig}|${prevRow.id}`).digest('hex');
-}
-
-function rowToEvent(r: Row): CompanyEvent {
-    return {
-        seq: r.seq, id: r.id, prevHash: r.prev_hash, kind: r.kind as CompanyEventKind,
-        ts: r.ts, actor: r.actor, sig: r.sig,
-        payload: JSON.parse(r.payload) as Record<string, unknown>,
-    };
-}
+/** Signing context: bridges Company key management to the substrate. */
+const companySigning: SigningContext = {
+    loadPublicKey: (actor: string, keysDir: string) => loadAgentPublicKey(actor, keysDir),
+    verifySigner: (privateKey: KeyObject, registered: KeyObject) =>
+        samePublicKey(createPublicKey(privateKey), registered),
+    sign: (data: Buffer, privateKey: KeyObject) => signBytes(data, privateKey),
+    verify: (data: Buffer, signatureB64: string, publicKey: KeyObject) =>
+        verifyBytes(data, signatureB64, publicKey),
+    validateActorId: (actor: string) => assertValidAgentId(actor),
+};
 
 export class CompanyLog {
-    private db: DatabaseSync;
+    private store: SystemStore;
+    private cap: FeatureCapability;
+    private isQueueMode: boolean;
     private keysDir: string;
-    private pubkeyCache = new Map<string, KeyObject>();
 
-    private appendable: ReadonlySet<string>;
-    private validator?: LifecycleValidator;
-    /** Private capability flag — settable ONLY by discardQueueState(); never caller data. */
-    private inMaintenance = false;
-    /** Emits buffered during the discard txn; flushed post-COMMIT only. */
-    private pendingEmits: CompanyEvent[] = [];
-
-    constructor(dbPath: string, keysDir: string, opts: CompanyLogOptions = {}) {
+    /**
+     * @param titanHome  $TITAN_HOME directory. The substrate derives
+     *   `$TITAN_HOME/system.db` as the authoritative system log and
+     *   discovers/migrates `$TITAN_HOME/company/company.db` before the
+     *   first append. No arbitrary dbPath is accepted (Honey, f485ec93).
+     */
+    constructor(titanHome: string, keysDir: string, opts: CompanyLogOptions = {}) {
+        this.isQueueMode = opts.queue ?? false;
         this.keysDir = keysDir;
-        if (opts.queue) {
-            this.appendable = new Set(KNOWN_KINDS);
-            this.validator = builtinQueueValidator; // internal, non-injectable
-        } else {
-            this.appendable = new Set(EVENT_KINDS);
-            this.validator = undefined;
-        }
-        mkdirSync(dirname(dbPath), { recursive: true });
-        this.db = new DatabaseSync(dbPath);
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS events (
-                seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                id TEXT NOT NULL UNIQUE,
-                prev_hash TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                ts INTEGER NOT NULL,
-                actor TEXT NOT NULL,
-                sig TEXT NOT NULL,
-                payload TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company
-                ON events(kind) WHERE kind = 'company.created';
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_attempt
-                ON events(kind, json_extract(payload,'$.taskRef'), json_extract(payload,'$.attempt'))
-                WHERE kind IN ('task.started','task.result');
-            CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
-        `);
-    }
+        const knownKinds = KNOWN_KINDS as readonly string[];
+        const appendableKinds = opts.queue ? knownKinds : (EVENT_KINDS as readonly string[]);
 
-    /** Registered public key for an actor (cached). Null if the actor has no identity. */
-    private registeredKey(actor: string): KeyObject | null {
-        const cached = this.pubkeyCache.get(actor);
-        if (cached) return cached;
-        const key = loadAgentPublicKey(actor, this.keysDir);
-        if (key) this.pubkeyCache.set(actor, key);
-        return key;
-    }
+        // Validator adapter: the substrate passes a SystemAppendContext
+        // (kind: string, events: SystemEvent[]). The Company validator
+        // expects AppendContext (kind: CompanyEventKind, events:
+        // CompanyEvent[]). This adapter narrows at the boundary — sound
+        // because the Company feature only registers Company kinds, so
+        // every event in the one store that reaches this validator IS a
+        // CompanyEvent. No `as unknown` cast (Honey B3): the narrowing is
+        // explicit and localized here.
+        const validator: SystemLifecycleValidator | undefined = opts.queue
+            ? (ctx: SystemAppendContext) => {
+                builtinQueueValidator({
+                    kind: ctx.kind as CompanyEventKind,
+                    actor: ctx.actor,
+                    payload: ctx.payload,
+                    events: ctx.events as readonly CompanyEvent[],
+                    capability: ctx.capability,
+                });
+            }
+            : undefined;
 
-    private lastRow(): Row | undefined {
-        return this.db.prepare('SELECT * FROM events ORDER BY seq DESC LIMIT 1').get() as unknown as Row | undefined;
+        // Bus emit adapter: the substrate emits SystemEvent; the trace bus
+        // 'company:event' topic expects CompanyEventPayload, which is
+        // structurally identical to SystemEvent (same fields, same types).
+        // The cast is structural-identity-only — no runtime change.
+        const companyBusEmit = (event: SystemEvent) => {
+            busEmit('company:event', event as CompanyEventPayload);
+        };
+
+        const reg: FeatureRegistration = {
+            featureId: 'company',
+            kinds: knownKinds,
+            baseAppendable: appendableKinds,
+            authority: AUTHORITY,
+            validator,
+            signing: companySigning,
+            keysDir,
+            busEmit: companyBusEmit,
+            extraDdl: [
+                `CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company ON events(kind) WHERE kind = 'company.created'`,
+                `CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_attempt ON events(kind, json_extract(payload,'$.taskRef'), json_extract(payload,'$.attempt')) WHERE kind IN ('task.started','task.result')`,
+            ],
+        };
+
+        this.store = new SystemStore(titanHome, {
+            // Legacy signing context (Honey B2): used ONLY to cryptographically
+            // verify legacy company.db rows during migration. Company passes
+            // its own signing context + keysDir so the substrate can verify
+            // pre-existing signed rows without importing Company key management.
+            legacySigning: companySigning,
+            legacyKeysDir: keysDir,
+        });
+        this.cap = this.store.registerFeature(reg);
     }
 
     /**
@@ -210,85 +209,12 @@ export class CompanyLog {
      * registered identity, and the actor must hold authority for the kind.
      */
     append(input: AppendInput, privateKey: KeyObject): CompanyEvent {
-        assertValidAgentId(input.actor);
-        if (!(KNOWN_KINDS as readonly string[]).includes(input.kind)) {
-            throw new Error(`CompanyLog: unknown event kind "${input.kind}"`);
-        }
-        if (!this.appendable.has(input.kind)) {
-            throw new Error(`CompanyLog: kind "${input.kind}" is not appendable under current capabilities`);
-        }
-        const allowed = AUTHORITY[input.kind];
-        if (allowed !== '*' && !allowed.includes(input.actor)) {
-            throw new Error(`CompanyLog: actor "${input.actor}" lacks authority for "${input.kind}"`);
-        }
-        const registered = this.registeredKey(input.actor);
-        if (!registered) {
-            throw new Error(`CompanyLog: actor "${input.actor}" has no registered identity`);
-        }
-        const signerPub = createPublicKey(privateKey);
-        if (!samePublicKey(signerPub, registered)) {
-            throw new Error(`CompanyLog: signing key does not match registered identity of "${input.actor}"`);
-        }
-
-        // v5 §2: write lock BEFORE the tail read — fold/validate/append is one
-        // transaction; concurrent processes serialize on BEGIN IMMEDIATE.
-        // Inside the discard operation, the OUTER transaction owns BEGIN/COMMIT.
-        const ownTxn = !this.inMaintenance;
-        if (ownTxn) this.db.exec('BEGIN IMMEDIATE');
-        let event: CompanyEvent;
-        try {
-            // Timestamp/id AFTER the lock (review f0d61bd9): a writer that
-            // waited on the lock must not append a later seq with an earlier ts.
-            const ts = Date.now();
-            const id = randomUUID();
-            if (this.validator) {
-                // Uncapped tail read (review #3): the authoritative fold must
-                // see FULL history — no 5,000-row truncation.
-                const events = this.readAll();
-                this.validator({
-                    kind: input.kind, actor: input.actor,
-                    payload: input.payload ?? {}, events,
-                    capability: this.inMaintenance ? 'maintenance' : undefined,
-                });
-            }
-            const prevHash = chainHash(this.lastRow());
-            const payloadJson = JSON.stringify(input.payload ?? {});
-            const sig = signBytes(canonical(id, prevHash, input.kind, ts, input.actor, payloadJson), privateKey);
-            this.db
-                .prepare('INSERT INTO events (id, prev_hash, kind, ts, actor, sig, payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
-                .run(id, prevHash, input.kind, ts, input.actor, sig, payloadJson);
-            const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as unknown as Row;
-            event = rowToEvent(row);
-            if (ownTxn) this.db.exec('COMMIT');
-        } catch (err) {
-            if (ownTxn) { try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ } }
-            throw err;
-        }
-        // Phantom-event fix (review f0d61bd9 #3): emits are observed ONLY
-        // after a successful COMMIT. Inside the discard txn they buffer and
-        // flush post-commit (or are discarded on rollback).
-        if (!ownTxn) {
-            this.pendingEmits.push(event);
-            return event;
-        }
-        // Guarded publish on the SHARED emitter (substrate emit swallows
-        // subscriber exceptions): persistence is committed at this point.
-        busEmit('company:event', event);
-        return event;
+        return this.cap.append(input, privateKey) as CompanyEvent;
     }
 
     /** Read events in seq order. Optionally filter by kind / start after a seq. */
     read(opts: { afterSeq?: number; kind?: CompanyEventKind; limit?: number } = {}): CompanyEvent[] {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (opts.afterSeq !== undefined) { clauses.push('seq > ?'); params.push(opts.afterSeq); }
-        if (opts.kind !== undefined) { clauses.push('kind = ?'); params.push(opts.kind); }
-        const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-        const limit = Math.min(Math.max(opts.limit ?? 500, 1), 5000);
-        const rows = this.db
-            .prepare(`SELECT * FROM events ${where} ORDER BY seq ASC LIMIT ?`)
-            .all(...params, limit) as unknown as Row[];
-        return rows.map(rowToEvent);
+        return this.cap.read(opts) as CompanyEvent[];
     }
 
     /**
@@ -297,12 +223,7 @@ export class CompanyLog {
      * fields are never trusted.
      */
     verifyEvent(eventId: string): { ok: boolean; event?: CompanyEvent; reason?: string } {
-        const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(eventId) as unknown as Row | undefined;
-        if (!row) return { ok: false, reason: 'no such event' };
-        const key = this.registeredKey(row.actor);
-        if (!key) return { ok: false, reason: `actor "${row.actor}" has no registered identity` };
-        const ok = verifyBytes(canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, key);
-        return ok ? { ok, event: rowToEvent(row) } : { ok: false, reason: 'signature mismatch' };
+        return this.cap.verifyEvent(eventId) as { ok: boolean; event?: CompanyEvent; reason?: string };
     }
 
     /**
@@ -310,27 +231,12 @@ export class CompanyLog {
      * seq order. Detects tamper, reorder, re-identification, and splices.
      */
     verifyChain(): { ok: boolean; badSeq?: number; reason?: string } {
-        const rows = this.db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
-        let prev: Row | undefined;
-        for (const row of rows) {
-            const expectedPrev = chainHash(prev);
-            if (row.prev_hash !== expectedPrev) {
-                return { ok: false, badSeq: row.seq, reason: 'chain link mismatch' };
-            }
-            const key = this.registeredKey(row.actor);
-            if (!key) return { ok: false, badSeq: row.seq, reason: `unregistered actor "${row.actor}"` };
-            if (!verifyBytes(canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, key)) {
-                return { ok: false, badSeq: row.seq, reason: 'signature mismatch' };
-            }
-            prev = row;
-        }
-        return { ok: true };
+        return this.cap.verifyChain();
     }
 
     /** Uncapped full-history read in seq order (fold/verify use). */
     readAll(): CompanyEvent[] {
-        const rows = this.db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
-        return rows.map(rowToEvent);
+        return this.cap.readAll() as CompanyEvent[];
     }
 
     /**
@@ -358,17 +264,14 @@ export class CompanyLog {
      * could achieve anyway; it cannot alter, add, or authorize anything.
      */
     discardQueueState(userPrivateKey: KeyObject, opts: { afterEachAppend?: () => void } = {}): { unblocked: number; lifted: number; terminalized: number } {
-        if (!this.validator) {
+        if (!this.isQueueMode) {
             throw new Error('CompanyLog: discardQueueState requires a queue-mode instance');
         }
-        if (this.inMaintenance) throw new Error('CompanyLog: discard cannot nest');
         const registered = loadAgentPublicKey('user', this.keysDir);
         if (!registered || !samePublicKey(createPublicKey(userPrivateKey), registered)) {
             throw new Error('CompanyLog: discard requires the registered workspace user key');
         }
-        this.db.exec('BEGIN IMMEDIATE');
-        this.inMaintenance = true;
-        this.pendingEmits = [];
+        this.cap.beginMaintenance();
         try {
             const user = { privateKey: userPrivateKey };
             const fold = foldQueue(this.readAll());
@@ -395,17 +298,13 @@ export class CompanyLog {
                 terminalized += 1;
                 opts.afterEachAppend?.();
             }
-            this.db.exec('COMMIT');
-            const emits = this.pendingEmits;
-            this.pendingEmits = [];
-            for (const e of emits) busEmit('company:event', e); // ordered, post-commit only
+            this.cap.commitMaintenance();
             return { unblocked, lifted, terminalized };
         } catch (err) {
-            try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ }
-            this.pendingEmits = []; // rollback: subscribers observe NOTHING
+            this.cap.rollbackMaintenance();
             throw err;
         } finally {
-            this.inMaintenance = false;
+            this.cap.endMaintenance();
         }
     }
 
@@ -453,12 +352,11 @@ export class CompanyLog {
 
     /** Total number of events (cheap health/consistency probe). */
     count(): number {
-        const row = this.db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number };
-        return row.n;
+        return this.cap.count();
     }
 
     close(): void {
-        try { this.db.close(); } catch (err) {
+        try { this.cap.close(); } catch (err) {
             logger.warn(COMPONENT, `close failed: ${err instanceof Error ? err.message : String(err)}`);
         }
     }

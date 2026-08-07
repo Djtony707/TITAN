@@ -39,7 +39,7 @@ function scenario(): S {
     const scout = mintAgentKeys('scout', keysDir);
     const builder = mintAgentKeys('builder', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     log.append({ kind: 'agent.minted', actor: 'user', payload: { agentId: 'scout', displayName: 'Scout', role: 'Researcher', charter: 'find things' } }, user.privateKey);
     log.append({ kind: 'agent.minted', actor: 'user', payload: { agentId: 'builder', displayName: 'Builder', role: 'Engineer', charter: 'build things' } }, user.privateKey);
     return { log, user, ceo, scout, builder, watchman };

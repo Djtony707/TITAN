@@ -42,17 +42,19 @@ let caseId = 0;
 function fresh() {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    return { dbPath: join(dir, 'company.db'), keysDir: join(dir, 'keys') };
+    // dbPath points at the substrate-owned system.db (for raw inspection);
+    // CompanyLog takes `dir` (titanHome) and derives system.db internally.
+    return { home: dir, dbPath: join(dir, 'system.db'), keysDir: join(dir, 'keys') };
 }
 
 /** Standard cast: user + ceo + scout minted; log open. */
 function scenario() {
-    const { dbPath, keysDir } = fresh();
+    const { home, dbPath, keysDir } = fresh();
     const user = mintAgentKeys('user', keysDir);
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);
-    const log = new CompanyLog(dbPath, keysDir);
-    return { dbPath, keysDir, user, ceo, scout, log };
+    const log = new CompanyLog(home, keysDir);
+    return { home, dbPath, keysDir, user, ceo, scout, log };
 }
 
 describe('v8 slice 1 — company keys', () => {
@@ -207,13 +209,13 @@ describe('v8 slice 1 — company event log', () => {
     });
 
     it('replays identically after reopen and the chain still verifies from cold storage', () => {
-        const { log, user, ceo, dbPath, keysDir } = scenario();
+        const { log, user, ceo, home, keysDir } = scenario();
         log.append({ kind: 'company.created', actor: 'user', payload: { name: 'Acme' } }, user.privateKey);
         log.append({ kind: 'agent.minted', actor: 'user', payload: { agentId: 'scout' } }, user.privateKey);
         log.append({ kind: 'room.message', actor: 'ceo', payload: { text: 'hi' } }, ceo.privateKey);
         const before = log.read();
         log.close();
-        const log2 = new CompanyLog(dbPath, keysDir);
+        const log2 = new CompanyLog(home, keysDir);
         expect(log2.read()).toEqual(before);
         expect(log2.verifyChain().ok).toBe(true);
         log2.close();

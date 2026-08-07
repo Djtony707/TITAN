@@ -77,7 +77,7 @@ function scenario() {
     const memoryDir = join(dir, 'memory');
     const user = mintAgentKeys('user', keysDir);
     mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     const minted = mintCompany(log, keysDir, { name: 'Acme' });
     const mk = (runner: TurnRunner, reviewer: Reviewer, maxAttempts = 2) =>
         new CompanyDispatch(log, keysDir, memoryDir, {

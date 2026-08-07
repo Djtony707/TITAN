@@ -134,17 +134,21 @@ describe('service ensure() orchestration', () => {
     });
 
     it('(5) copied log behaves identically: refusal decision is log-derived, no side-store', async () => {
-        const { copyFileSync, mkdirSync, cpSync } = await import('fs');
-        void copyFileSync; void mkdirSync;
+        const { mkdirSync, cpSync, copyFileSync } = await import('fs');
+        void mkdirSync;
         // Build queue-era history with a bare delegation (queue ON).
         const a = await freshService(true);
         await a.svc.createCompany({ name: 'Copy Co' });
         await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'bare' });
         // Byte-copy the ENTIRE company dir (log + keys, no other state) to a
-        // fresh home and boot queue OFF there.
+        // fresh home and boot queue OFF there. The recovery bundle is the
+        // unified system.db (at the titanHome root) PLUS the Company-owned
+        // keys/memory under company/. Copying only company/ would now be an
+        // invalid backup — the signed log is substrate, not a company file.
         const home2 = mkdtempSync(join(tmpdir(), 'titan-svc-copy-'));
         HOMES.push(home2);
         cpSync(join(a.home, 'company'), join(home2, 'company'), { recursive: true });
+        copyFileSync(join(a.home, 'system.db'), join(home2, 'system.db'));
         calls.basicRecover = 0; calls.basicEnqueue = 0;
         const b = await freshService(false, home2);
         await b.svc.getCompanyStatus();
@@ -164,7 +168,7 @@ describe('service ensure() orchestration', () => {
         // queue-mode log — a validated, signed slice-2 event referencing it.
         const { CompanyLog } = await import('../src/company/log.js');
         const keysDir = join(a.home, 'company', 'keys');
-        const qlog = new CompanyLog(join(a.home, 'company', 'company.db'), keysDir, { queue: true });
+        const qlog = new CompanyLog(a.home, keysDir, { queue: true });
         const legacy = qlog.readAll().find(e => e.kind === 'task.delegated');
         expect((legacy?.payload as { queueMode?: unknown }).queueMode).toBeUndefined(); // truly unflagged
         const scout = loadAgentKeys('scout', keysDir) ?? mintAgentKeys('scout', keysDir);
