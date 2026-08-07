@@ -1,185 +1,173 @@
 /**
- * TITAN v8 — Recipe Compiler (Self-Compiling Agent, Stage 3, Tier 2)
+ * TITAN v8 Slice 5 — Recipe Compiler
  *
- * Takes a persisted trace (later: a cluster from the Recognizer) and emits
- * an executable recipe: a deterministic tool plan with typed parameter
- * slots that replays with ZERO model calls. The local smollm2-360m does
- * slot-filling only — that's the "100th invocation goes to ~zero tokens"
- * claim, made concrete.
+ * Turns RECOGNIZE TaskClusters into:
+ *   - tier-1 advice skills (context injection, no tools executed)
+ *   - tier-2 executable recipes (saved as slash-command recipes with typed parameter slots)
  *
- * Port of TITAN/prototype/recipeCompiler.ts onto the real tree:
- *   - CompiledRecipe extends the real Recipe from src/recipes/types.ts
- *   - stakes classification reuses the real src/agent/toolIntent.ts
- *     (getToolKind/isDestructive/isRisky), not a copied tool list
- *   - signatures come from recipeSignature.computeAbstractSignature
- *     (Finding 1 fix): entities are slot-abstracted before the signature
- *     is computed, so one compiled recipe serves a parameter family
- *
- * Deliberately conservative: better to over-slot (force the user to supply
- * a value) than bake a wrong fixed arg into a recipe. A wrong fixed arg is
- * silent breakage; a missing slot is a loud question.
+ * Does NOT wait on Vera. It defines its own cluster input type and builds
+ * against fixtures. The compiler is pure where possible; gating is handled
+ * by callers (recipeRegistry.ts).
  */
+import type { CompiledRecipe, RecipeTier } from './recipeRegistry.js';
+import type { Recipe } from '../recipes/types.js';
 
-import type { Recipe, RecipeStep } from '../recipes/types.js';
-import { getToolKind, isDestructive, isRisky } from './toolIntent.js';
-import type { PersistedTrace } from './traceStore.js';
-
-// ── Types ────────────────────────────────────────────────────────────────
-
-/** A compiled step always invokes a tool directly (zero model calls). */
-export interface CompiledRecipeStep extends RecipeStep {
-    tool: string;
-    toolArgs: Record<string, unknown>;
+/**
+ * Minimal cluster input shape we need from RECOGNIZE.
+ * Defined here so we are not blocked on Vera's final cluster type.
+ */
+export interface CompileCluster {
+    /** Canonical task signature (intent::entityType::...). */
+    signature: { signature: string; intent: string; hash: string };
+    /** Dominant tool sequence. */
+    dominantToolSequence: string[];
+    /** Example task texts. */
+    examples: string[];
+    /** Number of trajectories in the cluster. */
+    frequency: number;
+    /** Fraction of trajectories that succeeded. */
+    successRate: number;
+    /** Fraction sharing the dominant tool sequence. */
+    outcomeStability: number;
+    /** Composite score from RECOGNIZE. */
+    score: number;
 }
 
-/** A Recipe plus the v8 compile/gate metadata. A valid v7 Recipe. */
-export interface CompiledRecipe extends Omit<Recipe, 'steps'> {
-    steps: CompiledRecipeStep[];
-    /** Abstracted task signature this recipe answers (see recipeSignature). */
-    signature: string;
+/** Compilation options. */
+export interface CompileOptions {
+    /** Trace IDs to bind as provenance. */
     sourceTraceIds: string[];
-    tier: 1 | 2;
-    /** Promotion state machine: candidate → shadow → active → (demoted|retired) */
-    state: 'candidate' | 'shadow' | 'active' | 'demoted' | 'retired';
-    stats: {
-        invocations: number;
-        successes: number;
-        /** Sum of recorded prompt+completion tokens from the source traces —
-         *  measured, not narrated (Finding 3). Populated by the registry. */
-        tokensSaved: number;
-        shadowComparisons: number;
+    /** Model-used token counts to set a measured baseline. */
+    baselineTokens?: number;
+}
+
+function slugify(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+}
+
+/** Map a tool sequence to a concise description for an advice skill. */
+function describeToolSequence(seq: string[]): string {
+    if (seq.length === 0) return 'no specific tools';
+    return seq.map(t => `\`${t}\``).join(' → ');
+}
+
+/**
+ * Compile a tier-1 advice skill.
+ * This is injected into the system prompt as reusable guidance, not executed.
+ */
+export function compileTier1Advice(cluster: CompileCluster, opts: CompileOptions): CompiledRecipe {
+    const signatureStr = cluster.signature.signature;
+    const intent = cluster.signature.intent || 'task';
+    const hash = cluster.signature.hash;
+    const slug = slugify(`${intent}-${hash}`);
+    const examples = cluster.examples.slice(0, 2).map(e => `- "${e.slice(0, 120)}"`).join('\n');
+    const body = [
+        `## Reusable approach: ${intent}`,
+        `Signature: \`${signatureStr}\``,
+        `Proven tool path: ${describeToolSequence(cluster.dominantToolSequence)}`,
+        `Observed: ${cluster.frequency} successful runs (${Math.round(cluster.successRate * 100)}% success, ${Math.round(cluster.outcomeStability * 100)}% stable).`,
+        '',
+        'Examples:',
+        examples,
+        '',
+        'When this signature matches, prefer the tool path above.',
+    ].join('\n');
+
+    return {
+        id: `advice-${slug}`,
+        name: `Advice: ${intent}`,
+        description: `Reusable approach for "${intent}" tasks (signature ${hash}).`,
+        slashCommand: slug,
+        parameters: {},
+        steps: [{ prompt: body }],
+        author: 'compiler-tier1',
+        tags: ['compiled', 'tier1', 'advice'],
+        createdAt: new Date().toISOString(),
+        signature: signatureStr,
+        sourceTraceIds: opts.sourceTraceIds,
+        tier: 1,
+        state: 'candidate',
+        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0 },
     };
 }
 
-/** Marker written into a step's toolArgs for a slot the router must fill. */
-export interface SlotRef {
-    __slot: string;
-}
-
-export function isSlotRef(value: unknown): value is SlotRef {
-    return typeof value === 'object' && value !== null && typeof (value as SlotRef).__slot === 'string';
-}
-
-// ── Arg classification ───────────────────────────────────────────────────
-
 /**
- * Classify an argument value as FIXED (baked into the recipe) or VARIABLE
- * (a slot the user supplies at replay time).
- *
- * Heuristic (honest about being a heuristic — the Recognizer will learn
- * this from a cluster of traces, not one):
- *   - path-like strings (explicit markers) or *path-named keys → VARIABLE
- *   - strings appearing verbatim in the user's message → VARIABLE
- *   - short strings / numbers / booleans → FIXED (config flags)
+ * Compile a tier-2 executable recipe.
+ * The recipe's parameters are typed slots derived from the signature intent and entities.
  */
-function classifyArg(
-    key: string,
-    value: unknown,
-    traceMessage: string,
-): { fixed: true; value: unknown } | { fixed: false; slotName: string } {
-    if (typeof value === 'string') {
-        // Paths are always slots — the user always supplies a new file
-        if (/^(\/|~|\.\/|\.\.\/)/.test(value) || key.toLowerCase().includes('path')) {
-            return { fixed: false, slotName: key };
-        }
-        // If the value appears verbatim in the user's message, it's user input, not config
-        if (value.length > 3 && traceMessage.includes(value)) {
-            return { fixed: false, slotName: key };
-        }
-        // Short strings / flags are config
-        if (value.length <= 64) return { fixed: true, value };
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') {
-        return { fixed: true, value };
-    }
-    // Objects/arrays: keep as fixed (rare for tool args, and complex to slot)
-    return { fixed: true, value };
-}
+export function compileTier2Recipe(cluster: CompileCluster, opts: CompileOptions): CompiledRecipe {
+    const signatureStr = cluster.signature.signature;
+    const intent = cluster.signature.intent || 'task';
+    const hash = cluster.signature.hash;
+    const slug = slugify(`${intent}-${hash}`);
+    const primaryTool = cluster.dominantToolSequence[0] || 'web_search';
 
-// ── The compiler ─────────────────────────────────────────────────────────
+    // Build typed parameter slots. We infer one primary variable slot from the intent.
+    const parameters: CompiledRecipe['parameters'] = {
+        query: {
+            description: `${intent} target or query`,
+            required: true,
+        },
+    };
 
-/**
- * Compile a single trace into a Tier-2 executable recipe.
- *
- * In the full pipeline this runs on a CLUSTER of traces (the Recognizer's
- * output), not one trace — FIXED vs VARIABLE becomes robust when you can
- * compare the same tool call across N invocations. For now we compile from
- * one representative trace and mark that honestly in sourceTraceIds.
- */
-export function compileRecipe(
-    trace: PersistedTrace,
-    options?: { id?: string; name?: string },
-): CompiledRecipe {
-    if (!trace.signature) {
-        throw new Error(`compileRecipe: trace ${trace.traceId} has no signature — persist via traceStore first`);
-    }
-    const parameters: NonNullable<Recipe['parameters']> = {};
-    const steps: CompiledRecipeStep[] = [];
+    const steps = cluster.dominantToolSequence.map((tool, idx) => ({
+        prompt: idx === 0
+            ? `Use the ${tool} tool to ${intent}: {{query}}`
+            : `Continue the ${intent} workflow with the ${tool} tool, using the result so far.`,
+        tool: tool,
+        toolArgs: { query: { __slot: 'query' } },
+    }));
 
-    for (const tc of trace.toolCalls) {
-        const stepArgs: Record<string, unknown> = {};
-        for (const [key, rawValue] of Object.entries(tc.args)) {
-            const classified = classifyArg(key, rawValue, trace.message);
-            if (classified.fixed) {
-                stepArgs[key] = classified.value;
-            } else {
-                if (!parameters[classified.slotName]) {
-                    parameters[classified.slotName] = {
-                        description: `Slot filled from user intent at replay time (source: trace ${trace.traceId}, tool ${tc.tool}, arg ${key})`,
-                        required: true,
-                    };
-                }
-                stepArgs[key] = { __slot: classified.slotName } satisfies SlotRef;
-            }
-        }
-        steps.push({
-            // RecipeStep.prompt is required by the v7 type; for compiled
-            // steps it is a human-readable label — execution uses tool/toolArgs.
-            prompt: `replay ${tc.tool} (compiled from trace ${trace.traceId})`,
-            tool: tc.tool,
-            toolArgs: stepArgs,
-            // Risky/destructive tools always ask for confirmation on replay.
-            // Classification from the real toolIntent map, not a copy.
-            awaitConfirm: isRisky(tc.tool),
-        });
-    }
-
-    const intentLabel = trace.message.slice(0, 40).replace(/\s+/g, '-').replace(/[^\w-]/g, '') || 'task';
     return {
-        id: options?.id ?? `compiled-${intentLabel}-${trace.traceId.slice(0, 6)}`,
-        name: options?.name ?? `Compiled: ${trace.message.slice(0, 60)}`,
-        description: `Auto-compiled from trace ${trace.traceId}. Replays ${trace.toolCalls.length} tool call(s) with zero model calls; slots filled by local smollm2-360m.`,
-        slashCommand: undefined, // not exposed as a slash command until promoted to 'active'
+        id: `recipe-${slug}`,
+        name: `${intent.charAt(0).toUpperCase() + intent.slice(1)} workflow`,
+        description: `Compiled recipe for tasks matching signature ${hash}. Observed ${cluster.frequency} times.`,
+        slashCommand: slug,
         parameters,
         steps,
+        author: 'compiler-tier2',
+        tags: ['compiled', 'tier2', 'executable'],
         createdAt: new Date().toISOString(),
-        signature: trace.signature,
-        sourceTraceIds: [trace.traceId],
+        signature: signatureStr,
+        sourceTraceIds: opts.sourceTraceIds,
         tier: 2,
         state: 'candidate',
-        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0 },
+        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0 },
     };
 }
 
-// ── Stakes (real toolIntent classification) ──────────────────────────────
-
-/**
- * Stakes floor: any recipe whose step list includes a destructive or risky
- * tool is forced to a higher rung regardless of match confidence. This is
- * the router's safety invariant, lifted out so the gate can inspect it too.
- * Kinds come from the real src/agent/toolIntent.ts TOOL_KINDS map.
- */
-export function recipeStakes(recipe: CompiledRecipe): 'low' | 'medium' | 'high' {
-    for (const s of recipe.steps) {
-        if (isDestructive(s.tool)) return 'high';
-    }
-    for (const s of recipe.steps) {
-        if (isRisky(s.tool)) return 'medium';
-    }
-    return 'low';
+/** Compile both tiers from one cluster. */
+export function compileCluster(cluster: CompileCluster, opts: CompileOptions): { tier1: CompiledRecipe; tier2: CompiledRecipe } {
+    return {
+        tier1: compileTier1Advice(cluster, opts),
+        tier2: compileTier2Recipe(cluster, opts),
+    };
 }
 
-/** Expose the raw kind for the router/gate without re-importing toolIntent there. */
-export function stepToolKind(toolName: string): ReturnType<typeof getToolKind> {
-    return getToolKind(toolName);
+/** Minimal shape of a RECOGNIZE cluster we can adapt from. */
+interface RecognizeClusterLike {
+    signature: { signature: string; intent: string; hash: string };
+    dominantToolSequence: string[];
+    examples: string[];
+    frequency: number;
+    successRate: number;
+    outcomeStability: number;
+    score: number;
+}
+
+/** Adapter: turn a RECOGNIZE TaskCluster (once Vera finalizes it) into our CompileCluster. */
+export function adaptTaskCluster(cluster: RecognizeClusterLike): CompileCluster {
+    return {
+        signature: {
+            signature: cluster.signature.signature,
+            intent: cluster.signature.intent,
+            hash: cluster.signature.hash,
+        },
+        dominantToolSequence: cluster.dominantToolSequence,
+        examples: cluster.examples,
+        frequency: cluster.frequency,
+        successRate: cluster.successRate,
+        outcomeStability: cluster.outcomeStability,
+        score: cluster.score,
+    };
 }

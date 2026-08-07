@@ -1,323 +1,365 @@
 /**
- * TITAN v8 — Recipe Registry (Self-Compiling Agent, Stage 4: GATE)
+ * TITAN v8 Slice 5 — Recipe Registry / Promotion State Machine
  *
- * The promotion state machine for compiled recipes:
+ * Holds compiled recipes (from RECOGNIZE clusters) and runs them through
+ * candidate → shadow → active → demoted/retired. Every stage is gated by
+ * selfCompiling.enabled AND its own sub-flag.
  *
- *   candidate → shadow → active → (demoted | retired)
- *
- * No path skips shadow. A recipe is `active` (routable by routerMiddleware)
- * only after it survives the shadow gate:
- *
- *   - SHADOW_MIN_COMPARISONS shadow invocations, AND
- *   - EVERY shadow comparison semantically equivalent (zero-false-positive
- *     bar — one mismatch blocks promotion until the recipe is re-compiled)
- *
- * Auto-demote on failure: one failed replay of an active recipe demotes it
- * immediately (rollback = the router stops matching it; the frontier path
- * takes over — the same "fail safe, fall back to the expensive thing"
- * pattern as migrate's auto-rollback, at recipe granularity).
- *
- * Measured metrics only (Finding 3 / hard gate 8): tokensSaved is the
- * per-recipe baseline computed from the ACTUAL token counts of the source
- * traces at registration time, and the running total is incremented only
- * after a successful replay. Nothing is narrated.
- *
- * Persistence: `$TITAN_HOME/compiler/registry.json`, atomic temp+rename
- * (same conventions as capabilitiesRegistry). TITAN_HOME is resolved at
- * call time (mirroring traceStore.ts) so tests isolate per-fixture homes.
+ * Seams:
+ *   - src/agent/recipeCompiler.ts produces candidate recipes
+ *   - src/recipes/store.ts persists active tier-2 recipes as real slash commands
+ *   - src/skills/registry.ts registers tier-1 advice skills for context injection
+ *   - src/agent/muscleMemory.ts replay exam + eval harness supplies shadow verdicts
  */
-
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
-import { dirname, join } from 'path';
-import type { CompiledRecipe } from './recipeCompiler.js';
-import { readTraces } from './traceStore.js';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { randomBytes } from 'crypto';
+import { TITAN_HOME } from '../utils/constants.js';
+import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
+import { listRecordSpans } from '../telemetry/traceStore.js';
+import type { Recipe } from '../recipes/types.js';
 
 const COMPONENT = 'RecipeRegistry';
+const REGISTRY_PATH = join(TITAN_HOME, 'compiled-recipes.json');
 
-/** Promotion gate thresholds. Strict by design: a regression that reaches
- *  `active` costs user trust; a recipe stuck in shadow costs nothing. */
-export const SHADOW_MIN_COMPARISONS = 3;
-export const SHADOW_MIN_SUCCESS_RATE = 1.0;
+/** Promotion stages for a compiled recipe. */
+export type PromotionState = 'candidate' | 'shadow' | 'active' | 'demoted' | 'retired';
 
-// ── Types ────────────────────────────────────────────────────────────────
+/** Tier-1 = advice skill injected into system prompt; tier-2 = executable recipe. */
+export type RecipeTier = 1 | 2;
 
-export type RecipeState = CompiledRecipe['state'];
+/** A compiled recipe carries the promotion ledger on top of Recipe. */
+export interface CompiledRecipe extends Recipe {
+    /** Task-signature this recipe was compiled from. */
+    signature: string;
+    /** Source trace IDs used to compile it. */
+    sourceTraceIds: string[];
+    /** 1 = advice skill, 2 = executable recipe. */
+    tier: RecipeTier;
+    /** Promotion state machine state. */
+    state: PromotionState;
+    /** Runtime statistics. */
+    stats: {
+        invocations: number;
+        successes: number;
+        /** Measured tokens saved vs source-trace baseline. */
+        tokensSaved: number;
+        /** Number of shadow comparisons performed. */
+        shadowComparisons: number;
+        /** Number of shadow comparisons that passed semantic equivalence. */
+        shadowSuccesses: number;
+    };
+}
 
+/** Internal registry entry with measured baseline and transition history. */
 export interface RegistryEntry {
     recipe: CompiledRecipe;
-    /** Measured per-invocation token baseline: mean (prompt+completion)
-     *  tokens across the source traces, read from the TraceStore at
-     *  registration time. 0 when source traces carry no token counts. */
+    /** Measured token baseline from source traces at registration time. */
     baselineTokens: number;
-    /** Human/audit-visible reason for the last state transition. */
-    lastTransition: { at: string; from: RecipeState; to: RecipeState; reason: string };
+    /** Transition audit trail. */
+    transitions: Array<{ from: PromotionState | null; to: PromotionState; at: string; reason?: string }>;
+    /** Convenience copy of the most recent transition. */
+    lastTransition: { from: PromotionState | null; to: PromotionState; at: string; reason?: string };
 }
 
-export interface CompilerStats {
-    totalRecipes: number;
-    byState: Record<RecipeState, number>;
-    totalInvocations: number;
-    totalSuccesses: number;
-    /** Sum of measured tokens saved by successful replays across all recipes. */
-    totalTokensSaved: number;
+/** Gating flags under config.selfCompiling. */
+export interface SelfCompilingConfig {
+    enabled: boolean;
+    /** Master compile gate. */
+    compile: boolean;
+    /** Promotion gate. */
+    promote: boolean;
+    /** Runtime invocation recording gate. */
+    record: boolean;
+    /** Route active recipes into the agent loop. */
+    route: boolean;
 }
 
-interface RegistryFile {
-    version: 1;
-    updatedAt: string;
-    entries: Record<string, RegistryEntry>;
+/** Minimum shadow comparisons before activation. */
+export const SHADOW_MIN_COMPARISONS = 3;
+/** Shadow success rate must be exactly 1.0 (zero false positives). */
+export const SHADOW_MIN_SUCCESS_RATE = 1.0;
+
+function defaultSelfCompiling(): SelfCompilingConfig {
+    return { enabled: false, compile: false, promote: false, record: false, route: false };
 }
 
-// ── Storage path (mirrors traceStore.ts) ─────────────────────────────────
-
-function registryPath(): string {
-    const envHome = process.env.TITAN_HOME?.trim();
-    if (envHome) {
-        if (envHome.startsWith('~/')) return join(homedir(), envHome.slice(2), 'compiler', 'registry.json');
-        if (envHome === '~') return join(homedir(), 'compiler', 'registry.json');
-        return join(envHome, 'compiler', 'registry.json');
-    }
-    return join(homedir(), '.titan', 'compiler', 'registry.json');
-}
-
-// ── Persistence (in-memory cache + atomic write-through) ─────────────────
-
-let cache: RegistryFile | null = null;
-
-function emptyRegistry(): RegistryFile {
-    return { version: 1, updatedAt: new Date().toISOString(), entries: {} };
-}
-
-function load(): RegistryFile {
-    if (cache) return cache;
-    const path = registryPath();
+/** Read the selfCompiling config block. Missing sections return defaults (off). */
+export function getSelfCompilingConfig(): SelfCompilingConfig {
     try {
-        if (existsSync(path)) {
-            const parsed = JSON.parse(readFileSync(path, 'utf-8')) as RegistryFile;
-            if (parsed.version === 1 && typeof parsed.entries === 'object') {
-                cache = parsed;
-                return cache;
+        const cfg = loadConfig() as { selfCompiling?: Partial<SelfCompilingConfig> };
+        return { ...defaultSelfCompiling(), ...(cfg.selfCompiling || {}) };
+    } catch {
+        return defaultSelfCompiling();
+    }
+}
+
+/** Pure gate: master switch enabled AND the named sub-flag is true. */
+export function selfCompilingFlag(flag: keyof Omit<SelfCompilingConfig, 'enabled'>): boolean {
+    const cfg = getSelfCompilingConfig();
+    return !!(cfg.enabled && cfg[flag]);
+}
+
+/** Pure gate used by compile/promote/record/route entry points. */
+export function gateOn(flag: keyof Omit<SelfCompilingConfig, 'enabled'>): boolean {
+    return selfCompilingFlag(flag);
+}
+
+function readRegistry(): Record<string, RegistryEntry> {
+    try {
+        if (existsSync(REGISTRY_PATH)) {
+            const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8')) as Record<string, RegistryEntry>;
+            // Normalize entries in case stored before a shape change
+            for (const e of Object.values(parsed)) {
+                e.lastTransition = e.lastTransition || e.transitions[e.transitions.length - 1] || { from: null, to: e.recipe.state, at: e.recipe.createdAt };
+                e.transitions = e.transitions || [e.lastTransition];
             }
+            return parsed;
         }
-    } catch (err) {
-        logger.warn(COMPONENT, `Failed to load registry: ${(err as Error).message} — starting empty`);
+    } catch (e) {
+        logger.warn(COMPONENT, `Registry unreadable, starting fresh: ${(e as Error).message}`);
     }
-    cache = emptyRegistry();
-    return cache;
+    return {};
 }
 
-function save(reg: RegistryFile): void {
-    const path = registryPath();
+function writeRegistry(registry: Record<string, RegistryEntry>): void {
+    mkdirSync(TITAN_HOME, { recursive: true });
+    writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2), 'utf-8');
+}
+
+/** Compute measured baseline tokens from source traces. Returns 0 if gate/record off or no traces. */
+function measureBaselineTokens(traceIds: string[]): number {
+    if (!selfCompilingFlag('record')) return 0;
     try {
-        mkdirSync(dirname(path), { recursive: true });
-        reg.updatedAt = new Date().toISOString();
-        const tmp = `${path}.tmp`;
-        writeFileSync(tmp, JSON.stringify(reg, null, 2), 'utf-8');
-        renameSync(tmp, path);
-    } catch (err) {
-        // Registry persistence must never affect the agent loop.
-        logger.error(COMPONENT, `Failed to save registry: ${(err as Error).message}`);
+        const spans = listRecordSpans();
+        const matched = spans.filter(s => traceIds.includes(s.id));
+        if (matched.length === 0) return 0;
+        return matched.reduce((sum, s) => sum + (s.promptTokens || 0) + (s.completionTokens || 0), 0) / matched.length;
+    } catch {
+        return 0;
     }
 }
 
-/** Test hook: drop the in-memory cache so the next call re-reads disk. */
-export function invalidateRegistryCache(): void {
-    cache = null;
-}
-
-// ── Baseline from source traces (measured, Finding 3) ────────────────────
-
-/**
- * Mean total (prompt+completion) tokens across the recipe's source traces.
- * Reads the TraceStore — the actual recorded runs — so the savings report
- * is grounded in measured counts, not estimates. Traces without token
- * counts contribute nothing; if none have counts the baseline is 0 and the
- * savings report says so honestly.
- */
-function measureBaselineTokens(recipe: CompiledRecipe): number {
-    const wanted = new Set(recipe.sourceTraceIds);
-    if (wanted.size === 0) return 0;
-    let sum = 0;
-    let counted = 0;
-    for (const trace of readTraces(1000)) {
-        if (!wanted.has(trace.traceId)) continue;
-        if (!trace.tokens) continue;
-        sum += (trace.tokens.prompt || 0) + (trace.tokens.completion || 0);
-        counted++;
-    }
-    return counted > 0 ? Math.round(sum / counted) : 0;
-}
-
-// ── State machine ────────────────────────────────────────────────────────
-
-const TRANSITIONS: Record<RecipeState, RecipeState[]> = {
-    candidate: ['shadow', 'retired'],
-    shadow: ['active', 'demoted', 'retired'],
-    active: ['demoted', 'retired'],
-    demoted: ['shadow', 'retired'], // re-compiled/fixed recipes re-enter at shadow, never at active
-    retired: [],
-};
-
-function transition(entry: RegistryEntry, to: RecipeState, reason: string): void {
-    const from = entry.recipe.state;
-    if (!TRANSITIONS[from].includes(to)) {
-        throw new Error(`RecipeRegistry: illegal transition ${from} → ${to} for recipe ${entry.recipe.id}`);
-    }
+function recordTransition(
+    entry: RegistryEntry,
+    from: PromotionState | null,
+    to: PromotionState,
+    reason?: string,
+): void {
+    const tx = { from, to, at: new Date().toISOString(), reason };
+    entry.transitions.push(tx);
+    entry.lastTransition = tx;
     entry.recipe.state = to;
-    entry.lastTransition = { at: new Date().toISOString(), from, to, reason };
-    logger.info(COMPONENT, `Recipe ${entry.recipe.id}: ${from} → ${to} (${reason})`);
 }
 
-// ── Public API ───────────────────────────────────────────────────────────
-
-/**
- * Register a freshly compiled recipe as a `candidate`. The source-trace
- * token baseline is measured here, once, while the traces are fresh.
- */
-export function registerRecipe(recipe: CompiledRecipe): RegistryEntry {
-    const reg = load();
-    const entry: RegistryEntry = {
-        recipe: { ...recipe, state: 'candidate' },
-        baselineTokens: measureBaselineTokens(recipe),
-        lastTransition: { at: '', from: 'candidate', to: 'candidate', reason: '' },
-    };
-    entry.lastTransition = {
-        at: new Date().toISOString(),
-        from: 'candidate',
-        to: 'candidate',
-        reason: `registered; baseline ${entry.baselineTokens} tokens from ${recipe.sourceTraceIds.length} source trace(s)`,
-    };
-    reg.entries[recipe.id] = entry;
-    save(reg);
-    return entry;
+function freshId(): string {
+    return `cr-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
 }
 
-export function getEntry(id: string): RegistryEntry | null {
-    return load().entries[id] ?? null;
-}
-
-export function listEntries(): RegistryEntry[] {
-    return Object.values(load().entries);
-}
-
-/** The router's view: only `active` recipes may replay. */
-export function getActiveRecipes(): CompiledRecipe[] {
-    return listEntries().filter(e => e.recipe.state === 'active').map(e => e.recipe);
-}
-
-/** candidate → shadow. Shadow execution runs alongside the frontier path. */
-export function promoteToShadow(id: string, reason = 'entered shadow evaluation'): RegistryEntry {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
-    transition(entry, 'shadow', reason);
-    save(reg);
-    return entry;
-}
-
-/**
- * shadow → active, behind the promotion gate. Refuses (throws) unless the
- * recipe has enough shadow comparisons and EVERY one was semantically
- * equivalent. The eval-harness suite gate (scripts/eval-gate.sh) runs at
- * release time over the whole build; this per-recipe gate runs at promotion
- * time over the recipe's own shadow evidence.
- */
-export function activate(id: string): RegistryEntry {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
-    const { shadowComparisons, successes } = entry.recipe.stats;
-    if (entry.recipe.state === 'shadow') {
-        if (shadowComparisons < SHADOW_MIN_COMPARISONS) {
-            throw new Error(
-                `RecipeRegistry: promotion gate refused ${id} — ${shadowComparisons}/${SHADOW_MIN_COMPARISONS} shadow comparisons`,
-            );
-        }
-        const rate = successes / shadowComparisons;
-        if (rate < SHADOW_MIN_SUCCESS_RATE) {
-            throw new Error(
-                `RecipeRegistry: promotion gate refused ${id} — shadow equivalence ${(rate * 100).toFixed(0)}% < ${SHADOW_MIN_SUCCESS_RATE * 100}%`,
-            );
-        }
+/** Register a compiled recipe. Requires selfCompiling.enabled && compile, otherwise returns null. */
+export function registerRecipe(recipe: Omit<CompiledRecipe, 'id'> & { id?: string }): RegistryEntry {
+    if (!selfCompilingFlag('compile')) {
+        throw new Error('selfCompiling compile gate is closed');
     }
-    transition(entry, 'active', `promotion gate passed (${successes}/${shadowComparisons} equivalent)`);
-    save(reg);
+    const registry = readRegistry();
+    const id = recipe.id || freshId();
+    if (registry[id]) {
+        throw new Error(`Compiled recipe ${id} already registered`);
+    }
+    const full: CompiledRecipe = {
+        id,
+        name: recipe.name,
+        description: recipe.description,
+        slashCommand: recipe.slashCommand,
+        parameters: recipe.parameters || {},
+        steps: recipe.steps,
+        author: recipe.author || 'compiler',
+        tags: recipe.tags || ['compiled'],
+        createdAt: recipe.createdAt || new Date().toISOString(),
+        signature: recipe.signature,
+        sourceTraceIds: recipe.sourceTraceIds || [],
+        tier: recipe.tier,
+        state: 'candidate',
+        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0 },
+    };
+    const entry: RegistryEntry = {
+        recipe: full,
+        baselineTokens: measureBaselineTokens(full.sourceTraceIds),
+        transitions: [],
+        lastTransition: { from: null, to: 'candidate', at: full.createdAt, reason: 'registered' },
+    };
+    recordTransition(entry, null, 'candidate', 'registered');
+    registry[id] = entry;
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Registered ${full.tier === 1 ? 'tier-1 advice' : 'tier-2 recipe'} ${id} (${full.signature})`);
     return entry;
 }
 
-/** (shadow|active) → demoted. The router stops matching it immediately. */
-export function demote(id: string, reason: string): RegistryEntry {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
-    transition(entry, 'demoted', reason);
-    save(reg);
+/** Promote candidate → shadow or demoted → shadow. Requires selfCompiling.enabled && promote. */
+export function promoteToShadow(id: string, reason = 'promotion'): RegistryEntry {
+    if (!selfCompilingFlag('promote')) {
+        throw new Error('selfCompiling promote gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state !== 'candidate' && entry.recipe.state !== 'demoted') {
+        throw new Error(`Illegal transition: ${entry.recipe.state} → shadow`);
+    }
+    recordTransition(entry, entry.recipe.state, 'shadow', reason);
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Promoted ${id} to shadow`);
     return entry;
 }
 
-export function retire(id: string, reason: string): RegistryEntry {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
-    transition(entry, 'retired', reason);
-    save(reg);
-    return entry;
-}
-
-/**
- * Record one shadow comparison. `equivalent` is the eval harness's verdict
- * on whether the recipe's output matched the frontier path's output.
- */
-export function recordShadowComparison(id: string, equivalent: boolean): void {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) return;
+/** Record one shadow comparison verdict (true = semantically equivalent). */
+export function recordShadowComparison(id: string, equivalent: boolean): RegistryEntry {
+    if (!selfCompilingFlag('promote')) {
+        throw new Error('selfCompiling promote gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state !== 'shadow') {
+        throw new Error(`Shadow comparison only valid in shadow state, got ${entry.recipe.state}`);
+    }
     entry.recipe.stats.shadowComparisons++;
-    if (equivalent) entry.recipe.stats.successes++;
-    save(reg);
+    if (equivalent) entry.recipe.stats.shadowSuccesses++;
+    writeRegistry(registry);
+    logger.debug(COMPONENT, `Shadow comparison for ${id}: ${equivalent ? 'equivalent' : 'different'}`);
+    return entry;
 }
 
-/**
- * Record one replay invocation of an active recipe. tokensSaved is credited
- * ONLY on success (hard gate 8: measured, post-completion). A failed replay
- * auto-demotes the recipe — one bad zero-token answer is enough evidence
- * that the recipe no longer matches the world it was compiled in.
- */
-export function recordInvocation(id: string, success: boolean): void {
-    const reg = load();
-    const entry = reg.entries[id];
-    if (!entry) return;
+/** Activate shadow → active. Requires min comparisons and 100% success rate. */
+export function activate(id: string): RegistryEntry {
+    if (!selfCompilingFlag('promote')) {
+        throw new Error('selfCompiling promote gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state !== 'shadow') {
+        throw new Error(`Illegal transition: ${entry.recipe.state} → active`);
+    }
+    const comps = entry.recipe.stats.shadowComparisons;
+    if (comps < SHADOW_MIN_COMPARISONS) {
+        throw new Error(`promotion gate refused: ${comps}/${SHADOW_MIN_COMPARISONS} shadow comparisons`);
+    }
+    const rate = comps === 0 ? 0 : entry.recipe.stats.shadowSuccesses / comps;
+    if (rate < SHADOW_MIN_SUCCESS_RATE) {
+        throw new Error(`promotion gate refused: shadow success rate ${rate.toFixed(2)} < ${SHADOW_MIN_SUCCESS_RATE}`);
+    }
+    recordTransition(entry, 'shadow', 'active', 'shadow comparisons passed');
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Activated ${id}`);
+    return entry;
+}
+
+/** Demote active → demoted. Demoted recipes can re-enter shadow, never active. */
+export function demote(id: string, reason: string): RegistryEntry {
+    if (!selfCompilingFlag('promote')) {
+        throw new Error('selfCompiling promote gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state !== 'active' && entry.recipe.state !== 'shadow') {
+        throw new Error(`Illegal transition: ${entry.recipe.state} → demoted`);
+    }
+    recordTransition(entry, entry.recipe.state, 'demoted', reason);
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Demoted ${id}: ${reason}`);
+    return entry;
+}
+
+/** Auto-demote helper: active recipe fails an active-run replay equivalence check. */
+export function autoDemoteOnFailure(id: string, detail: string): RegistryEntry {
+    return demote(id, `auto-demote: active replay failed (${detail})`);
+}
+
+/** Retire any non-retired recipe. Retired is terminal. */
+export function retire(id: string, reason: string): RegistryEntry {
+    if (!selfCompilingFlag('promote')) {
+        throw new Error('selfCompiling promote gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state === 'retired') {
+        throw new Error(`Recipe ${id} is already retired`);
+    }
+    recordTransition(entry, entry.recipe.state, 'retired', reason);
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Retired ${id}: ${reason}`);
+    return entry;
+}
+
+/** Record an active invocation result. Success credits tokensSaved; failure auto-demotes. */
+export function recordInvocation(id: string, success: boolean): RegistryEntry {
+    if (!selfCompilingFlag('record')) {
+        throw new Error('selfCompiling record gate is closed');
+    }
+    const registry = readRegistry();
+    const entry = registry[id];
+    if (!entry) throw new Error(`No compiled recipe ${id}`);
+    if (entry.recipe.state !== 'active') {
+        throw new Error(`recordInvocation only valid in active state, got ${entry.recipe.state}`);
+    }
     entry.recipe.stats.invocations++;
     if (success) {
         entry.recipe.stats.successes++;
         entry.recipe.stats.tokensSaved += entry.baselineTokens;
-        save(reg);
     } else {
-        save(reg);
-        if (entry.recipe.state === 'active') {
-            try {
-                demote(id, 'auto-demote: replay failed — falling back to frontier path');
-            } catch {
-                /* demotion failure must never mask the original failure */
-            }
-        }
+        recordTransition(entry, 'active', 'demoted', 'auto-demote: active invocation failed');
     }
+    writeRegistry(registry);
+    logger.info(COMPONENT, `Recorded invocation ${id}: ${success ? 'success' : 'demoted'}`);
+    return entry;
 }
 
-/** Aggregate stats for the `titan compiler status` savings report (step 4). */
-export function compilerStats(): CompilerStats {
+/** Get a registry entry by ID. */
+export function getEntry(id: string): RegistryEntry | undefined {
+    return readRegistry()[id];
+}
+
+/** List all entries. */
+export function listEntries(): RegistryEntry[] {
+    return Object.values(readRegistry());
+}
+
+/** Only active tier-2 recipes should be exposed as slash commands. */
+export function getActiveRecipes(): CompiledRecipe[] {
+    return listEntries()
+        .filter(e => e.recipe.state === 'active' && e.recipe.tier === 2)
+        .map(e => e.recipe);
+}
+
+/** Tier-1 advice skills in active state. */
+export function getActiveAdviceSkills(): CompiledRecipe[] {
+    return listEntries()
+        .filter(e => e.recipe.state === 'active' && e.recipe.tier === 1)
+        .map(e => e.recipe);
+}
+
+/** Aggregate measured compiler stats. */
+export function compilerStats(): {
+    totalRecipes: number;
+    activeRecipes: number;
+    shadowRecipes: number;
+    demotedRecipes: number;
+    totalTokensSaved: number;
+    totalInvocations: number;
+    totalSuccesses: number;
+} {
     const entries = listEntries();
-    const byState: Record<RecipeState, number> = { candidate: 0, shadow: 0, active: 0, demoted: 0, retired: 0 };
-    let totalInvocations = 0;
-    let totalSuccesses = 0;
-    let totalTokensSaved = 0;
-    for (const e of entries) {
-        byState[e.recipe.state]++;
-        totalInvocations += e.recipe.stats.invocations;
-        totalSuccesses += e.recipe.stats.successes;
-        totalTokensSaved += e.recipe.stats.tokensSaved;
-    }
-    return { totalRecipes: entries.length, byState, totalInvocations, totalSuccesses, totalTokensSaved };
+    return {
+        totalRecipes: entries.length,
+        activeRecipes: entries.filter(e => e.recipe.state === 'active').length,
+        shadowRecipes: entries.filter(e => e.recipe.state === 'shadow').length,
+        demotedRecipes: entries.filter(e => e.recipe.state === 'demoted').length,
+        totalTokensSaved: entries.reduce((sum, e) => sum + e.recipe.stats.tokensSaved, 0),
+        totalInvocations: entries.reduce((sum, e) => sum + e.recipe.stats.invocations, 0),
+        totalSuccesses: entries.reduce((sum, e) => sum + e.recipe.stats.successes, 0),
+    };
 }
