@@ -284,6 +284,72 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         log.close();
     });
 
+    it('CRASH-AFTER-RESULT (close review 44bf387e): boot resumes CEO review from the signed result — no rerun, no duplicate', async () => {
+        const { log, keysDir, mk } = scenario();
+        // The exact crashed state: result appended, check never landed.
+        const ev = delegate(log, keysDir, 'scout', 'crashed after result');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        const seededResult = log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'work done pre-crash', success: true, toolsUsed: [] } }, scout.privateKey);
+        // "Restart": fresh dispatcher; the worker must NOT rerun.
+        const runner = vi.fn(okRunner);
+        const d = mk(runner, okReviewer);
+        d.recover();
+        await d.idle();
+        expect(runner).not.toHaveBeenCalled();
+        const results = log.read({ kind: 'task.result' });
+        const checks = log.read({ kind: 'task.checked' });
+        expect(results).toHaveLength(1); // signed result untouched, not duplicated
+        expect(checks).toHaveLength(1);
+        expect(checks[0].actor).toBe('ceo');
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, resultRef: seededResult.id, verdict: 'accepted', attempt: 1 });
+        expect(log.read({ kind: 'task.started' })).toHaveLength(1); // no new attempt
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
+    it('CRASH-AFTER-RESULT, reviewer failing: recovery stalls gracefully (no spin, no check); next recovery completes', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'reviewer down');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+        const runner = vi.fn(okRunner);
+        const badReviewer: Reviewer = async () => { throw new Error('review model offline'); };
+        const d1 = mk(runner, badReviewer);
+        d1.recover();
+        await d1.idle(); // MUST terminate: reviewer failure stalls the pair instead of spinning
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);
+        expect(runner).not.toHaveBeenCalled();
+        // Next recovery (fresh chance) with a working reviewer terminalizes.
+        const d2 = mk(runner, okReviewer);
+        d2.recover();
+        await d2.idle();
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, verdict: 'accepted', attempt: 1 });
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
+    it('CRASH-AFTER-FAILED-RESULT below cap: resumption re-queues via failure-retry and the pipeline completes', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'failed then crashed');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'boom', success: false, toolsUsed: [] } }, scout.privateKey);
+        const runner = vi.fn(okRunner);
+        const d = mk(runner, okReviewer, 2);
+        d.recover();
+        await d.idle();
+        // Same bounded-retry semantics as the live path: retry declared,
+        // attempt 2 actually ran (worker called ONCE), then checked.
+        expect(log.read({ kind: 'task.retry' }).map(e => e.payload)).toMatchObject([{ taskRef: ev.id, attempt: 2, reason: 'failure-retry' }]);
+        expect(runner).toHaveBeenCalledTimes(1);
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, verdict: 'accepted', attempt: 2 });
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
     it('#4 parseSafeInt: full-string parse rejects junk suffixes', () => {
         expect(parseSafeInt(undefined, 100)).toBe(100);
         expect(parseSafeInt('12', 0)).toBe(12);

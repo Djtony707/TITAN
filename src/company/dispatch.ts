@@ -151,7 +151,10 @@ export class CompanyDispatch {
      * Crash reconciliation (v5 §4), fold-derived: declared-attempt-started-
      * but-unresulted tasks get a task.retry (crash-resume); the retry-crash
      * window (declared, unstarted) needs NO new event — the drain loop
-     * dispatches it directly via nextDispatchable. Returns nonterminal count.
+     * dispatches it directly via nextDispatchable. The result-before-check
+     * window also needs NO new event here: the kick() below drains into
+     * resumeReview(), which completes CEO review from the signed result
+     * (close review 44bf387e). Returns nonterminal count.
      */
     recover(): number {
         this.stalled.clear(); // stalled pairs get one fresh chance per recovery
@@ -185,11 +188,24 @@ export class CompanyDispatch {
     async idle(): Promise<void> {
         for (;;) {
             if (!this.running) {
-                const next = nextDispatchable(this.fold());
+                const f = this.fold();
+                if (this.nextPendingReview(f)) { await new Promise(r => setTimeout(r, 5)); this.kick(); continue; }
+                const next = nextDispatchable(f);
                 if (!next || this.stalled.has(`${next.taskRef}:${next.attempt}`)) return;
             }
             await new Promise(r => setTimeout(r, 5));
         }
+    }
+
+    /** First resulted-but-unchecked task the drain must resume (crash-
+     *  after-result boundary, close review 44bf387e) — FIFO, unblocked,
+     *  not stalled. */
+    private nextPendingReview(f: QueueFold): TaskFold | undefined {
+        return [...f.tasks.values()]
+            .filter(t => !t.checked && t.activeBlocks.size === 0
+                && t.attempt > 0 && t.resultedAttempts.has(t.attempt)
+                && !this.stalled.has(`${t.taskRef}:${t.attempt}`))
+            .sort((a, b) => a.delegatedSeq - b.delegatedSeq)[0];
     }
 
     private async drain(): Promise<void> {
@@ -197,7 +213,25 @@ export class CompanyDispatch {
         this.running = true;
         try {
             for (;;) {
-                const next = nextDispatchable(this.fold());
+                const f = this.fold();
+                // Crash-after-result boundary (close review 44bf387e): a
+                // signed result whose check never landed resumes CEO review
+                // HERE — deterministically from the log, without rerunning
+                // the worker or touching the recorded result. Reviews go
+                // before new dispatch so earlier tasks terminalize first.
+                const pendingReview = this.nextPendingReview(f);
+                if (pendingReview) {
+                    const rkey = `${pendingReview.taskRef}:${pendingReview.attempt}`;
+                    await this.resumeReview(pendingReview).catch(err => {
+                        // Reviewer failure must NOT spin the loop: stall the
+                        // pair (one fresh chance per recover(), which clears
+                        // stalled) — the durable exit stays user queue-discard.
+                        logger.error(COMPONENT, `review resumption failed for ${rkey}: ${err instanceof Error ? err.message : String(err)}`);
+                        this.stalled.add(rkey);
+                    });
+                    continue;
+                }
+                const next = nextDispatchable(f);
                 if (!next) break;
                 const key = `${next.taskRef}:${next.attempt}`;
                 if (this.stalled.has(key)) break; // no progress possible now
@@ -308,6 +342,48 @@ export class CompanyDispatch {
         this.log.append({
             kind: 'task.checked', actor: 'ceo',
             payload: { taskRef: task.taskRef, resultRef: result.id, verdict: review.verdict, note: review.note, attempt },
+        }, ceoKeys.privateKey);
+    }
+
+    /**
+     * Resume the pipeline from a SIGNED current-attempt result (v5 §4
+     * extension, close review 44bf387e): failed-below-cap re-queues via
+     * failure-retry exactly like the live path; otherwise the CEO review
+     * runs from the recorded result payload and appends a validated
+     * task.checked citing it. A throwing reviewer propagates to drain,
+     * which stalls the pair instead of spinning.
+     */
+    private async resumeReview(task: TaskFold): Promise<void> {
+        const f = this.fold().tasks.get(task.taskRef);
+        if (!f || f.checked || !f.resultedAttempts.has(f.attempt)) return;
+        const attempt = f.attempt;
+        const resultEvent = this.log.readAll().find(e =>
+            e.kind === 'task.result'
+            && String((e.payload as { taskRef?: unknown }).taskRef) === f.taskRef
+            && (e.payload as { attempt?: unknown }).attempt === attempt
+            && e.actor === f.owner);
+        if (!resultEvent) throw new Error(`no signed result for ${f.taskRef} attempt ${attempt}`);
+        const rp = resultEvent.payload as { content?: unknown; success?: unknown; toolsUsed?: unknown };
+        const outcome: TurnOutcome = {
+            content: String(rp.content ?? ''),
+            success: rp.success === true,
+            toolsUsed: Array.isArray(rp.toolsUsed) ? rp.toolsUsed.map(String) : [],
+        };
+        const spec = this.specOf(f.taskRef);
+
+        // Same bounded-retry semantics as the live pipeline.
+        if (!outcome.success && attempt < this.maxAttempts) {
+            retryTask(this.log, this.keysDir, f.taskRef, 'failure-retry');
+            return;
+        }
+        let review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
+        if (!outcome.success && attempt >= this.maxAttempts) {
+            review = { verdict: 'needs-work', note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300) };
+        }
+        const ceoKeys = loadAgentKeys('ceo', this.keysDir);
+        this.log.append({
+            kind: 'task.checked', actor: 'ceo',
+            payload: { taskRef: f.taskRef, resultRef: resultEvent.id, verdict: review.verdict, note: review.note, attempt },
         }, ceoKeys.privateKey);
     }
 
