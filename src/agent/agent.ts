@@ -1224,7 +1224,7 @@ export async function processMessage(
     // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
     // Gated behind config.selfCompiling.record (default off) so flag-off is
     // byte-identical to v7: no trace file is created, no observer is subscribed.
-    if (config.selfCompiling?.record) {
+    if (config.selfCompiling?.enabled && config.selfCompiling?.record) {
         ensureTracePersistence();
     }
     const trace = startTrace(session.id, message);

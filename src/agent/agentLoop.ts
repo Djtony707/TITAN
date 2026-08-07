@@ -866,7 +866,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // Gated behind config.selfCompiling.route (default off): flag-off is
     // byte-identical to v7 — no registry read, no signature compute, no log line.
     // With an empty registry this is a cheap constant-time miss.
-    if (ctx.config.selfCompiling?.route && ctx.message && !ctx.voiceFastPath) {
+    if (ctx.config.selfCompiling?.enabled && ctx.config.selfCompiling?.route && ctx.message && !ctx.voiceFastPath) {
         try {
             const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
             if (routeDecision.kind === 'replay') {

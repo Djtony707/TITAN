@@ -34,7 +34,7 @@
 import type { CompiledRecipe } from './recipeCompiler.js';
 import { isSlotRef, recipeStakes } from './recipeCompiler.js';
 import { computeAbstractSignature, type TypedSlot } from './recipeSignature.js';
-import { TOOL_KINDS } from './toolIntent.js';
+import { TOOL_KINDS, getToolKind } from './toolIntent.js';
 
 export type StakesLevel = 'low' | 'medium' | 'high';
 
@@ -128,11 +128,28 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     const recipe = matches[0]!;
 
     // 2. Capability metadata, default deny (hard gate 3): every step's tool
-    //    must be DECLARED in TOOL_KINDS. Unknown/plugin/MCP/renamed tools
-    //    are non-replayable by default.
+    //    must be DECLARED in TOOL_KINDS AND be 'sync' (proven read-only).
+    //    Unknown/plugin/MCP/renamed tools are non-replayable. 'long-running'
+    //    external-write tools (email_send, fb_post, slack_post, etc.) and
+    //    risky/destructive tools escalate to confirm-required even on an
+    //    exact match. "Declared" is not equivalent to "read-only" (Honey
+    //    audit finding): the default-deny replay set is sync-only.
     const unknownTool = recipe.steps.find(s => !(s.tool in TOOL_KINDS));
     if (unknownTool) {
         return { kind: 'miss', reason: `non-replayable-undeclared-tool (${unknownTool.tool})`, expectedSignature: sig };
+    }
+    const nonSyncTool = recipe.steps.find(s => getToolKind(s.tool) !== 'sync');
+    if (nonSyncTool) {
+        // Declared but not read-only: escalate, never auto-replay.
+        const kind = getToolKind(nonSyncTool.tool);
+        const stakes = kind === 'destructive' ? 'high' : 'medium';
+        return {
+            kind: 'confirm-required',
+            recipe,
+            resolvedSteps: resolveSlots(recipe, slots) ?? [],
+            stakes,
+            reason: `${kind} tool (${nonSyncTool.tool}) requires a bound approval before replay`,
+        };
     }
 
     // 3. Strict slot fill.
@@ -142,9 +159,10 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     }
 
     // 4. Stakes floor (Finding 2 / hard gate 2): medium/high-effect recipes
-    //    never auto-replay. The decision carries the pre-filled plan so the
-    //    executor can run it behind a bound approval; `awaitConfirm`
-    //    metadata survives on every step.
+    //    never auto-replay. By this point all steps are 'sync' (step 2
+    //    escalated anything else), but a stakesOverride from the caller
+    //    can still force a higher rung. The decision carries the pre-filled
+    //    plan; `awaitConfirm` metadata survives on every step.
     let stakes = recipeStakes(recipe);
     if (input.stakesOverride === 'high') stakes = 'high';
     else if (input.stakesOverride === 'medium' && stakes === 'low') stakes = 'medium';
