@@ -21,7 +21,16 @@ import { listRecordSpans } from '../telemetry/traceStore.js';
 import type { Recipe } from '../recipes/types.js';
 
 const COMPONENT = 'RecipeRegistry';
-const REGISTRY_PATH = join(TITAN_HOME, 'compiled-recipes.json');
+
+/** Resolve the registry path lazily so tests can override TITAN_HOME per-test.
+ *  The module-level const captured TITAN_HOME at import time, so setting
+ *  process.env.TITAN_HOME in beforeEach had no effect. */
+function registryPath(): string {
+    // Re-read TITAN_HOME from env if set, otherwise fall back to the import-time const.
+    const envHome = process.env.TITAN_HOME;
+    if (envHome) return join(envHome, 'compiled-recipes.json');
+    return join(TITAN_HOME, 'compiled-recipes.json');
+}
 
 /** Promotion stages for a compiled recipe. */
 export type PromotionState = 'candidate' | 'shadow' | 'active' | 'demoted' | 'retired';
@@ -85,8 +94,11 @@ function defaultSelfCompiling(): SelfCompilingConfig {
     return { enabled: false, compile: false, promote: false, record: false, route: false };
 }
 
-/** Read the selfCompiling config block. Missing sections return defaults (off). */
-export function getSelfCompilingConfig(): SelfCompilingConfig {
+/** Read the selfCompiling config block. Missing sections return defaults (off).
+ *  Accepts an optional override so tests can drive the gates without writing
+ *  a config file; production callers pass nothing and get loadConfig(). */
+export function getSelfCompilingConfig(override?: SelfCompilingConfig): SelfCompilingConfig {
+    if (override) return override;
     try {
         const cfg = loadConfig() as { selfCompiling?: Partial<SelfCompilingConfig> };
         return { ...defaultSelfCompiling(), ...(cfg.selfCompiling || {}) };
@@ -95,21 +107,24 @@ export function getSelfCompilingConfig(): SelfCompilingConfig {
     }
 }
 
-/** Pure gate: master switch enabled AND the named sub-flag is true. */
-export function selfCompilingFlag(flag: keyof Omit<SelfCompilingConfig, 'enabled'>): boolean {
-    const cfg = getSelfCompilingConfig();
+/** Pure gate: master switch enabled AND the named sub-flag is true.
+ *  Accepts an optional config override for testability; production callers
+ *  pass nothing and get the loaded config (default off = v7 byte-identical). */
+export function selfCompilingFlag(flag: keyof Omit<SelfCompilingConfig, 'enabled'>, configOverride?: SelfCompilingConfig): boolean {
+    const cfg = getSelfCompilingConfig(configOverride);
     return !!(cfg.enabled && cfg[flag]);
 }
 
 /** Pure gate used by compile/promote/record/route entry points. */
-export function gateOn(flag: keyof Omit<SelfCompilingConfig, 'enabled'>): boolean {
-    return selfCompilingFlag(flag);
+export function gateOn(flag: keyof Omit<SelfCompilingConfig, 'enabled'>, configOverride?: SelfCompilingConfig): boolean {
+    return selfCompilingFlag(flag, configOverride);
 }
 
 function readRegistry(): Record<string, RegistryEntry> {
+    const path = registryPath();
     try {
-        if (existsSync(REGISTRY_PATH)) {
-            const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf-8')) as Record<string, RegistryEntry>;
+        if (existsSync(path)) {
+            const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, RegistryEntry>;
             // Normalize entries in case stored before a shape change
             for (const e of Object.values(parsed)) {
                 e.lastTransition = e.lastTransition || e.transitions[e.transitions.length - 1] || { from: null, to: e.recipe.state, at: e.recipe.createdAt };
@@ -124,13 +139,15 @@ function readRegistry(): Record<string, RegistryEntry> {
 }
 
 function writeRegistry(registry: Record<string, RegistryEntry>): void {
-    mkdirSync(TITAN_HOME, { recursive: true });
-    writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2), 'utf-8');
+    const path = registryPath();
+    const home = process.env.TITAN_HOME || TITAN_HOME;
+    mkdirSync(home, { recursive: true });
+    writeFileSync(path, JSON.stringify(registry, null, 2), 'utf-8');
 }
 
 /** Compute measured baseline tokens from source traces. Returns 0 if gate/record off or no traces. */
-function measureBaselineTokens(traceIds: string[]): number {
-    if (!selfCompilingFlag('record')) return 0;
+function measureBaselineTokens(traceIds: string[], configOverride?: SelfCompilingConfig): number {
+    if (!selfCompilingFlag('record', configOverride)) return 0;
     try {
         const spans = listRecordSpans();
         const matched = spans.filter(s => traceIds.includes(s.id));
@@ -158,8 +175,8 @@ function freshId(): string {
 }
 
 /** Register a compiled recipe. Requires selfCompiling.enabled && compile, otherwise returns null. */
-export function registerRecipe(recipe: Omit<CompiledRecipe, 'id'> & { id?: string }): RegistryEntry {
-    if (!selfCompilingFlag('compile')) {
+export function registerRecipe(recipe: Omit<CompiledRecipe, 'id'> & { id?: string }, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('compile', configOverride)) {
         throw new Error('selfCompiling compile gate is closed');
     }
     const registry = readRegistry();
@@ -185,7 +202,7 @@ export function registerRecipe(recipe: Omit<CompiledRecipe, 'id'> & { id?: strin
     };
     const entry: RegistryEntry = {
         recipe: full,
-        baselineTokens: measureBaselineTokens(full.sourceTraceIds),
+        baselineTokens: measureBaselineTokens(full.sourceTraceIds, configOverride),
         transitions: [],
         lastTransition: { from: null, to: 'candidate', at: full.createdAt, reason: 'registered' },
     };
@@ -197,8 +214,8 @@ export function registerRecipe(recipe: Omit<CompiledRecipe, 'id'> & { id?: strin
 }
 
 /** Promote candidate → shadow or demoted → shadow. Requires selfCompiling.enabled && promote. */
-export function promoteToShadow(id: string, reason = 'promotion'): RegistryEntry {
-    if (!selfCompilingFlag('promote')) {
+export function promoteToShadow(id: string, reason = 'promotion', configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('promote', configOverride)) {
         throw new Error('selfCompiling promote gate is closed');
     }
     const registry = readRegistry();
@@ -214,8 +231,8 @@ export function promoteToShadow(id: string, reason = 'promotion'): RegistryEntry
 }
 
 /** Record one shadow comparison verdict (true = semantically equivalent). */
-export function recordShadowComparison(id: string, equivalent: boolean): RegistryEntry {
-    if (!selfCompilingFlag('promote')) {
+export function recordShadowComparison(id: string, equivalent: boolean, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('promote', configOverride)) {
         throw new Error('selfCompiling promote gate is closed');
     }
     const registry = readRegistry();
@@ -232,8 +249,8 @@ export function recordShadowComparison(id: string, equivalent: boolean): Registr
 }
 
 /** Activate shadow → active. Requires min comparisons and 100% success rate. */
-export function activate(id: string): RegistryEntry {
-    if (!selfCompilingFlag('promote')) {
+export function activate(id: string, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('promote', configOverride)) {
         throw new Error('selfCompiling promote gate is closed');
     }
     const registry = readRegistry();
@@ -257,8 +274,8 @@ export function activate(id: string): RegistryEntry {
 }
 
 /** Demote active → demoted. Demoted recipes can re-enter shadow, never active. */
-export function demote(id: string, reason: string): RegistryEntry {
-    if (!selfCompilingFlag('promote')) {
+export function demote(id: string, reason: string, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('promote', configOverride)) {
         throw new Error('selfCompiling promote gate is closed');
     }
     const registry = readRegistry();
@@ -274,13 +291,13 @@ export function demote(id: string, reason: string): RegistryEntry {
 }
 
 /** Auto-demote helper: active recipe fails an active-run replay equivalence check. */
-export function autoDemoteOnFailure(id: string, detail: string): RegistryEntry {
-    return demote(id, `auto-demote: active replay failed (${detail})`);
+export function autoDemoteOnFailure(id: string, detail: string, configOverride?: SelfCompilingConfig): RegistryEntry {
+    return demote(id, `auto-demote: active replay failed (${detail})`, configOverride);
 }
 
 /** Retire any non-retired recipe. Retired is terminal. */
-export function retire(id: string, reason: string): RegistryEntry {
-    if (!selfCompilingFlag('promote')) {
+export function retire(id: string, reason: string, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('promote', configOverride)) {
         throw new Error('selfCompiling promote gate is closed');
     }
     const registry = readRegistry();
@@ -296,8 +313,8 @@ export function retire(id: string, reason: string): RegistryEntry {
 }
 
 /** Record an active invocation result. Success credits tokensSaved; failure auto-demotes. */
-export function recordInvocation(id: string, success: boolean): RegistryEntry {
-    if (!selfCompilingFlag('record')) {
+export function recordInvocation(id: string, success: boolean, configOverride?: SelfCompilingConfig): RegistryEntry {
+    if (!selfCompilingFlag('record', configOverride)) {
         throw new Error('selfCompiling record gate is closed');
     }
     const registry = readRegistry();
