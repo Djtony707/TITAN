@@ -130,7 +130,7 @@ function scoreCluster(group: SignedTrajectory[]): TaskCluster {
     const frequency = group.length;
     const successCount = group.filter(t => t.success).length;
     const successRate = successCount / frequency;
-    const stability = computeStability(group);
+    const stability = computeStability(group.filter(t => t.success));
     const score = frequency * stability * successRate;
     
     // Find the dominant tool sequence
@@ -177,7 +177,7 @@ function scoreCluster(group: SignedTrajectory[]): TaskCluster {
 export function runClustering(
     trajectoryLimit: number = 500,
 ): { clusters: TaskCluster[]; trajectoryCount: number } {
-    const trajectories = getRecentTrajectories(trajectoryLimit, { success: true });
+    const trajectories = getRecentTrajectories(trajectoryLimit);
     if (trajectories.length === 0) {
         return { clusters: [], trajectoryCount: 0 };
     }

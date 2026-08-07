@@ -859,7 +859,7 @@ export const TitanConfigSchema = z.object({
             end: z.number().min(0).max(23).default(23),
         }).optional(),
         /** Autopilot mode: 'checklist' (AUTOPILOT.md), 'goals' (goal-based), or 'self-improve' (autonomous self-improvement) */
-        mode: z.enum(['checklist', 'goals', 'self-improve']).default('checklist'),
+        mode: z.enum(['checklist', 'goals', 'self-improve', 'recognize']).default('checklist'),
         /** Goal-based autopilot settings */
         goals: z.object({
             /** Maximum active goals */

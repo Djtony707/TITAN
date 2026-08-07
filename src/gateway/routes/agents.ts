@@ -10,8 +10,7 @@ import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { loadConfig, saveConfig } from '../../config/config.js';
 
-// Recognize (v8 Slice 4)
-import { getCompileQueue, getClusterStats } from '../../agent/recognizeCluster.js';
+// Recognize (v8 Slice 4) — dynamically required inside gated handler
 
 // Autopilot
 import {
@@ -74,8 +73,12 @@ export function createLifecycleRouter(): Router {
     }
   });
 
-  // v8 Slice 4: Compile Queue (read-only)
+  // v8 Slice 4: Compile Queue (read-only, gated behind company.enabled)
   router.get('/compile-queue', (_req, res) => {
+    const cfg = loadConfig() as Record<string, unknown>;
+    const company = cfg.company as { enabled?: boolean } | undefined;
+    if (!company?.enabled) { res.status(404).json({ error: 'Not found' }); return; }
+    const { getCompileQueue, getClusterStats } = require('../../agent/recognizeCluster.js');
     const clusters = getCompileQueue();
     const stats = getClusterStats();
     res.json({ clusters, stats });

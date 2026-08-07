@@ -174,7 +174,6 @@ export function signTrajectories(
     }>,
 ): SignedTrajectory[] {
     return trajectories
-        .filter(t => t.success)
         .map(t => ({
             trajectoryId: t.id,
             task: t.task,

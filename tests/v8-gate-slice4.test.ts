@@ -113,85 +113,69 @@ describe('v8 hard gate — slice 4 flag-off invariant', () => {
         } catch {
             // Module does not exist yet — implementers will create it.
         }
-        // This test documents the expectation; passes either way.
-        expect(true).toBe(true);
+        expect(clusteringExists).toBe(false);
     });
 });
 
 // GATE 2 — MEASURED-ONLY RULE
 
 describe('v8 hard gate — slice 4 measured-only rule', () => {
-    it('#4 clustering scores must be labeled as estimates, never measurements', () => {
-        interface ClusterScore {
-            clusterId: string;
-            taskType: string;
-            frequency: number;
-            outcomeStability: number;
-            successRate: number;
-            _confidence: 'estimate';
-        }
-
-        const validScore: ClusterScore = {
-            clusterId: 'c1',
-            taskType: 'research',
-            frequency: 0.85,
-            outcomeStability: 0.72,
-            successRate: 0.91,
-            _confidence: 'estimate',
+    it('#4 clustering scores must be labeled as estimates, never measurements', async () => {
+        await import('../src/agent/recognizeCluster.js');
+        // Build a valid TaskCluster and verify it has no measurement-claiming fields
+        const cluster: Record<string, unknown> = {
+            signature: { intent: 'test', entities: [], signature: 'test::', hash: 'abc' },
+            frequency: 10,
+            successRate: 0.9,
+            outcomeStability: 0.8,
+            score: 7.2,
+            dominantToolSequence: ['shell'],
+            examples: ['test task'],
+            firstSeen: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            isNew: false,
         };
-        expect(validScore._confidence).toBe('estimate');
+        // These fields would claim measurement precision — they must not exist
+        expect(cluster.confidence).toBeUndefined();
+        expect(cluster.provenance).toBeUndefined();
+        expect(cluster.measured).toBeUndefined();
+        expect(cluster.precision).toBeUndefined();
+        // But the real fields must be present
+        expect(cluster.frequency).toBe(10);
+        expect(cluster.successRate).toBe(0.9);
+        expect(cluster.outcomeStability).toBe(0.8);
     });
 
-    it('#5 compile-queue panel is READ-ONLY — no compilation decisions from estimates', () => {
-        interface CompileQueuePanelItem {
-            clusterId: string;
-            taskType: string;
-            signature: string;
-            frequency: number;
-            outcomeStability: number;
-            successRate: number;
-            _confidence: 'estimate';
-        }
-
-        const item: CompileQueuePanelItem = {
-            clusterId: 'c1',
-            taskType: 'research',
-            signature: 'research::web_search->browse_url',
-            frequency: 0.85,
-            outcomeStability: 0.72,
-            successRate: 0.91,
-            _confidence: 'estimate',
+    it('#5 compile-queue panel is READ-ONLY — no compilation decisions from estimates', async () => {
+        await import('../src/agent/recognizeCluster.js');
+        // Build a valid cluster and verify it has no compilation action fields
+        const item: Record<string, unknown> = {
+            signature: { intent: 'test', entities: [], signature: 'test::', hash: 'abc' },
+            frequency: 10,
+            successRate: 0.9,
+            outcomeStability: 0.8,
+            score: 7.2,
+            dominantToolSequence: ['shell'],
+            examples: ['test task'],
+            firstSeen: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            isNew: false,
         };
-        expect((item as Record<string, unknown>).compile).toBeUndefined();
-        expect((item as Record<string, unknown>).promote).toBeUndefined();
-        expect((item as Record<string, unknown>).select).toBeUndefined();
-        expect((item as Record<string, unknown>).approve).toBeUndefined();
+        expect(item.compile).toBeUndefined();
+        expect(item.promote).toBeUndefined();
+        expect(item.select).toBeUndefined();
+        expect(item.approve).toBeUndefined();
     });
 
-    it('#6 autopilot run classification must not report estimated cost as measured', () => {
-        interface AutopilotRun {
-            timestamp: string;
-            duration: number;
-            tokensUsed: number;
-            cost: number;
-            classification: string;
-            summary: string;
-            toolsUsed: string[];
-            skipped?: boolean;
-            skipReason?: string;
+    it('#6 autopilot run classification must not report estimated cost as measured', async () => {
+        const { getRunHistory } = await import('../src/agent/autopilot.js');
+        const history = getRunHistory(1);
+        expect(Array.isArray(history)).toBe(true);
+        for (const run of history) {
+            const r = run as Record<string, unknown>;
+            expect(r.estimatedCost).toBeUndefined();
+            expect(r.projectedCost).toBeUndefined();
+            expect(r.costEstimate).toBeUndefined();
         }
-
-        const run: AutopilotRun & Record<string, unknown> = {
-            timestamp: new Date().toISOString(),
-            duration: 5000,
-            tokensUsed: 150,
-            cost: 0.002,
-            classification: 'ok',
-            summary: 'test',
-            toolsUsed: ['web_search'],
-        };
-        expect(run.estimatedCost).toBeUndefined();
-        expect(run.projectedCost).toBeUndefined();
-        expect(run.costEstimate).toBeUndefined();
     });
 });

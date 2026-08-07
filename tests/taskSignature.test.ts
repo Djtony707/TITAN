@@ -59,14 +59,16 @@ describe('taskSignature extraction', () => {
 });
 
 describe('signTrajectories', () => {
-    it('filters out failed trajectories', () => {
+    it('signs all trajectories including failures (caller filters)', () => {
         const trajectories = [
             { id: '1', task: 'Deploy auth to staging', success: true, durationMs: 1000, rounds: 3, toolSequence: ['shell', 'git'] },
             { id: '2', task: 'Fix timeout', success: false, durationMs: 500, rounds: 1, toolSequence: ['shell'] },
         ];
         const signed = signTrajectories(trajectories);
-        expect(signed).toHaveLength(1);
+        expect(signed).toHaveLength(2);
         expect(signed[0].trajectoryId).toBe('1');
+        expect(signed[1].trajectoryId).toBe('2');
+        expect(signed[1].success).toBe(false);
     });
 });
 

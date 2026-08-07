@@ -1228,6 +1228,7 @@ document.addEventListener('click', (e) => {
     if (target.dataset.load === 'autopilot') loadAutopilot();
     if (target.dataset.load === 'telemetry') loadTelemetry();
     if (target.dataset.load === 'voice') loadVoicePanel();
+    if (target.dataset.load === 'compile-queue') loadCompileQueue();
     // Close sidebar on mobile
     document.getElementById('sidebar')?.classList.remove('open');
   }
@@ -1266,6 +1267,7 @@ document.addEventListener('click', (e) => {
     if (a === 'clear-graph') clearGraphData();
     if (a === 'clear-all-data') clearAllData();
     if (a === 'refresh-autopilot') loadAutopilot();
+    if (a === 'refresh-compile-queue') loadCompileQueue();
     if (a === 'run-autopilot') runAutopilotNow();
     if (a === 'trigger-update') triggerUpdate();
     if (a === 'connect-google') connectGoogle();
@@ -2394,7 +2396,6 @@ async function loadAutopilot() {
     const [status, history] = await Promise.all([
       fetch('/api/autopilot/status', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({})),
       fetch('/api/autopilot/history', {headers:authHeaders()}).then(r=>r.json()).catch(()=>[]),
-      fetch('/api/compile-queue', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({clusters:[],stats:{}})),
     ]);
     const sEl = document.getElementById('ap-status');
     if (sEl) sEl.textContent = status.enabled ? (status.running ? 'Running' : 'Enabled') : 'Disabled';
@@ -2429,6 +2430,39 @@ async function loadAutopilot() {
     }
   } catch(e) {
     toast('Failed to load autopilot data', 'error');
+  }
+}
+
+async function loadCompileQueue() {
+  try {
+    const data = await fetch('/api/compile-queue', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({clusters:[],stats:{}}));
+    const stats = data.stats || {};
+    const clusters = data.clusters || [];
+    const el = (id) => document.getElementById(id);
+    if (el('cq-total')) el('cq-total').textContent = stats.totalClusters ?? '—';
+    if (el('cq-trajectories')) el('cq-trajectories').textContent = stats.totalTrajectories ?? '—';
+    if (el('cq-last-run')) el('cq-last-run').textContent = stats.lastRun ? new Date(stats.lastRun).toLocaleString() : '—';
+    if (el('cq-top-score')) el('cq-top-score').textContent = stats.topScore != null ? (stats.topScore * 100).toFixed(1) + '%' : '—';
+    const tbody = el('compile-queue-body');
+    const empty = el('compile-queue-empty');
+    const table = el('compile-queue-table');
+    if (clusters.length > 0) {
+      if (table) table.style.display = '';
+      if (empty) empty.style.display = 'none';
+      if (tbody) tbody.innerHTML = clusters.map(c => {
+        const sr = c.successRate != null ? (c.successRate * 100).toFixed(0) + '%' : '—';
+        const stab = c.stability != null ? (c.stability * 100).toFixed(0) + '%' : '—';
+        const score = c.score != null ? (c.score * 100).toFixed(1) + '%' : '—';
+        const tools = Array.isArray(c.dominantTools) ? c.dominantTools.slice(0, 3).map(escHtml).join(', ') : '—';
+        return '<tr><td>' + escHtml(c.intent || '—') + '</td><td>' + (c.frequency ?? '—') + '</td><td>' + sr + '</td><td>' + stab + '</td><td>' + score + '</td><td style="font-size:12px">' + tools + '</td></tr>';
+      }).join('');
+    } else {
+      if (table) table.style.display = 'none';
+      if (empty) empty.style.display = '';
+      if (tbody) tbody.innerHTML = '';
+    }
+  } catch(e) {
+    toast('Failed to load compile queue', 'error');
   }
 }
 
