@@ -1,5 +1,26 @@
 # Changelog
 
+## v7.2.2 — 2026-08-07 — Security patch
+
+Dependency security updates closing 32 Dependabot alerts (12 High severity).
+No public API changes; no migration required.
+
+- **undici** 7.28.0→7.29.0, 8.7.0→8.10.0 — cross-user information disclosure
+  in shared caches, CRLF injection via blob `type`, cookie-attribute injection
+  in `setCookie()`, `no-cache`/`private` shared-cache bypass, retry-interceptor
+  response desynchronization
+- **next** 15.5.18→15.5.21 — SSRF in Server Actions on custom servers, SSRF via
+  rewrites, App Router Server Actions DoS, Turbopack middleware bypass, cache
+  confusion, image-optimizer DoS, Server Function endpoint disclosure
+- **axios** 1.17.0→1.18.1 — proxy-routing (CVE-2026-67320), `formDataToJSON`
+  recursion DoS, `maxBodyLength` bypass, `NO_PROXY` bypass
+- **fast-uri** 3.1.2→3.1.5 — host confusion via backslash authority, IDN
+  canonicalization
+- **brace-expansion** 1.1.14→1.1.16 — CVE-2026-13149 exponential-expansion DoS
+- **tar** 7.5.19→7.5.22 — unbounded recursion in `mapHas`/`filesFilter`
+- **nvidia/cuda** base image 13.3.0→13.3.1 (GPU Docker stage only)
+
+
 ## v7.2.1 — 2026-07-06 — Reliability Mode composes all four disciplines
 
 - **Discipline prompt (Organs 4+6)**: under `agent.reliabilityMode`, TITAN now
