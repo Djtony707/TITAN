@@ -23,6 +23,7 @@ import { loadConfig } from '../config/config.js';
 import type { KeyObject } from 'crypto';
 import type { CompanyDispatch } from './dispatch.js';
 import type { BasicCompanyDispatch } from './dispatchBasic.js';
+import type { CompanySupervisor } from './supervisor.js';
 import type { CompanyLog, CompanyEvent } from './log.js';
 import logger from '../utils/logger.js';
 
@@ -35,6 +36,8 @@ interface State {
     /** Exactly one of these is set, per company.queue.enabled. */
     queueDispatch?: CompanyDispatch;
     basicDispatch?: BasicCompanyDispatch;
+    /** Queue mode only: the watchman's periodic loop (v5 §5). */
+    supervisor?: CompanySupervisor;
 }
 
 let state: State | null = null;
@@ -58,7 +61,7 @@ async function buildState(): Promise<State> {
         // Validated config path (review 9a85bc9f #1): company.queue now
         // exists in TitanConfigSchema — no unknown-key casting.
         const cfg = loadConfig();
-        const queueCfg = (cfg as { company: { queue: { enabled: boolean; maxAttempts: number } } }).company.queue;
+        const queueCfg = (cfg as { company: { queue: { enabled: boolean; maxAttempts: number; stuckAfterMs: number } } }).company.queue;
         const queueEnabled = Boolean(queueCfg?.enabled);
         const root = join(TITAN_HOME, 'company');
         const keysDir = join(root, 'keys');
@@ -77,6 +80,11 @@ async function buildState(): Promise<State> {
                 charterOf: agentId => crew.get(agentId) ?? '',
             }, productionRunner, productionReviewer);
             candidate.queueDispatch.recover(); // fold-derived crash reconciliation (v5 §4)
+            // Separate periodic loop (v5 §5): a one-lane dispatcher awaiting
+            // a stuck model call cannot tick to detect its own silence.
+            const { CompanySupervisor } = await import('./supervisor.js');
+            candidate.supervisor = new CompanySupervisor(log, keysDir, { stuckAfterMs: queueCfg.stuckAfterMs });
+            candidate.supervisor.start();
         } else {
             // Slice-1 pipeline preserved when the sub-flag is off; queue
             // modules stay UNIMPORTED — the downgrade scan is the neutral
@@ -161,6 +169,23 @@ export async function getCompanyStatus(): Promise<CompanyStatus> {
         agents,
         eventCount: log.count(),
     };
+}
+
+/**
+ * GET /api/company/presence?now= — pure derivation from the signed log at
+ * an explicit clock (v5 §6). Queue mode only: presence.ts imports the
+ * queue fold, and the flag-off contract keeps queue modules unimported,
+ * so the dynamic import happens strictly after the mode check.
+ */
+export async function companyPresence(now: number = Date.now()) {
+    const st = await ensure();
+    if (!st.queueDispatch) throw new Error('Presence requires company.queue.enabled');
+    const { presenceAt } = await import('./presence.js');
+    const cfg = loadConfig();
+    const stuckAfterMs = (cfg as { company: { queue: { stuckAfterMs: number } } }).company.queue.stuckAfterMs;
+    const agentIds = st.log.read({ kind: 'agent.minted', limit: 100 })
+        .map(e => String(e.payload.agentId ?? '')).filter(Boolean);
+    return presenceAt(st.log.readAll(), agentIds, now, { stuckAfterMs });
 }
 
 /** POST /api/company — idempotent: slice 1 supports exactly one company. */

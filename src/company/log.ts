@@ -434,8 +434,9 @@ export class CompanyLog {
         // without a new event kind.
         const adopted = new Set<string>();
         for (const e of events) {
-            if (e.kind === 'task.started' || e.kind === 'task.retry'
-                || e.kind === 'task.blocked' || e.kind === 'task.unblocked') {
+            // (task.unblocked carries blockRef, not taskRef — started/retry/
+            //  blocked already provide complete adoption evidence.)
+            if (e.kind === 'task.started' || e.kind === 'task.retry' || e.kind === 'task.blocked') {
                 const ref = String((e.payload as { taskRef?: unknown }).taskRef ?? '');
                 if (ref) adopted.add(ref);
             }
