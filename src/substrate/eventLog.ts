@@ -59,8 +59,13 @@
  *    or `coordinator()`. Features are acquired ONLY through exported
  *    feature-specific factory functions (`createCompanyFeature`,
  *    `createCompilerFeature`) which hold a module-private
- *    `RegistrationToken`. The coordinator capability is reachable only
- *    through `createCoordinator`, which also requires the token. A
+ *    `RegistrationToken` AND lock the feature's namespace (kinds,
+ *    authority, extraDdl) to module-owned constants — callers supply
+ *    ONLY runtime fields (signing, keysDir, validator, busEmit,
+ *    appendable kinds), so no caller can mint an arbitrary namespace
+ *    under an approved label. The coordinator capability is NOT
+ *    exported; store-wide reads/verification are reachable only via
+ *    `@internal` SystemStore methods used by the capability impls. A
  *    `FeatureCapability` does not expose its store reference, so a
  *    feature cap holder cannot escalate to store-wide reads.
  *  - C6 Order-independent options. Legacy signing is registerable
@@ -231,10 +236,11 @@ export interface FeatureCapability {
 
 /**
  * Privileged coordinator capability: store-wide reads and verification
- * across ALL features' namespaces. Granted only by the store coordinator
- * itself via `createCoordinator` (which requires the module-private
- * RegistrationToken, C5). Used by maintenance/audit paths that must see
- * the whole log. Feature capabilities do NOT get this and cannot reach it.
+ * across ALL features' namespaces. NOT exported — ordinary callers
+ * cannot acquire this (C5). Store-wide reads/verification are reachable
+ * only via @internal SystemStore methods used by the capability impls.
+ * Used by maintenance/audit paths that must see the whole log. Feature
+ * capabilities do NOT get this and cannot reach it.
  */
 export interface CoordinatorCapability {
     /** Read ALL events in seq order (every feature's namespace). */
@@ -459,7 +465,7 @@ export class SystemStore {
      * maintenance/audit paths that must see the whole log.
      *
      * C5: requires the module-private RegistrationToken. External callers
-     * use `createCoordinator`.
+     * use the exported factory functions, which lock the namespace.
      *
      * @internal Callers must possess `REGISTRATION_TOKEN`.
      */
@@ -484,8 +490,9 @@ export class SystemStore {
      * Release one feature consumer (C2). Decrements the refcount; when it
      * hits zero, invalidates the feature's live caps, removes its kinds,
      * and — if no features and no coordinators remain — closes the store.
+     * @internal — called by FeatureCapabilityImpl.close() only.
      */
-    private releaseFeature(featureId: string): void {
+    releaseFeature(featureId: string): void {
         const n = (this.featureRefcounts.get(featureId) ?? 0) - 1;
         if (n > 0) {
             this.featureRefcounts.set(featureId, n);
@@ -505,7 +512,8 @@ export class SystemStore {
         }
     }
 
-    private releaseCoordinator(): void {
+    /** @internal — called by CoordinatorCapabilityImpl.close() only. */
+    releaseCoordinator(): void {
         if (this.coordinatorRefCount > 0) this.coordinatorRefCount -= 1;
         if (this.features.size === 0 && this.coordinatorRefCount === 0) {
             this.close();
@@ -862,10 +870,14 @@ export class SystemStore {
 
     /**
      * C4: full parity validation on reopen. Called after the first feature
-     * registers (so its signing context is available). Verifies the
-     * destination's row count, terminal chain hash, complete seq sequence,
-     * and every resolvable signature against the durable marker. A damaged
-     * destination with a surviving marker is rejected.
+     * registers (so its signing context is available). Validates the
+     * IMMUTABLE migrated prefix (rows with seq <= marker.row_count) against
+     * the durable marker: row count, complete seq sequence, terminal chain
+     * hash, and every resolvable signature. Then verifies the FULL live
+     * chain extends that prefix (every prev_hash links correctly from
+     * genesis through the latest row). A damaged/partial destination with
+     * a surviving marker is rejected; post-migration appends do NOT break
+     * parity (they extend the prefix, they don't alter it).
      */
     private maybeValidateMigrationParity(): void {
         if (this.migrationParityChecked) return;
@@ -878,29 +890,27 @@ export class SystemStore {
         this.migrationParityChecked = true;
 
         const rows = this.db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
-        // 1) row count.
-        if (rows.length !== meta.row_count) {
-            throw new Error(`SystemStore: migration parity failed — row_count ${rows.length} != marker ${meta.row_count}`);
+        if (rows.length < meta.row_count) {
+            throw new Error(`SystemStore: migration parity failed — row_count ${rows.length} < marker ${meta.row_count} (destination lost rows)`);
         }
-        // 2) complete seq sequence (1..N contiguous).
-        for (let i = 0; i < rows.length; i++) {
-            if (rows[i].seq !== i + 1) {
-                throw new Error(`SystemStore: migration parity failed — seq gap/dup at position ${i} (seq=${rows[i].seq})`);
-            }
-        }
-        // 3) terminal chain hash + 4) cryptographic chain (resolvable rows).
+
+        // 1) Validate the IMMUTABLE migrated prefix (seq 1..row_count):
+        //    complete seq sequence, chain links, terminal chain hash, and
+        //    every resolvable signature. Post-migration rows (seq > row_count)
+        //    are NOT compared to the marker — they extend the prefix.
         const pubkeyCache = new Map<string, KeyObject | null>();
         let prev: Row | undefined;
-        let terminal = 'genesis';
-        for (const row of rows) {
+        let prefixTerminal = 'genesis';
+        for (let i = 0; i < meta.row_count; i++) {
+            const row = rows[i];
+            if (row.seq !== i + 1) {
+                throw new Error(`SystemStore: migration parity failed — seq gap/dup at position ${i} (seq=${row.seq})`);
+            }
             const expected = chainHash(prev);
             if (row.prev_hash !== expected) {
                 throw new Error(`SystemStore: migration parity failed — chain link broken at seq ${row.seq}`);
             }
-            // Cryptographic verification for resolvable kinds. Unresolvable
-            // kinds (no feature + no legacy signing) are skipped here and
-            // surfaced later by verifyChain/verifyEvent once their feature
-            // registers.
+            // Cryptographic verification for resolvable kinds.
             try {
                 const { signing, keysDir } = this.signingForKind(row.kind);
                 let key = pubkeyCache.get(`${keysDir}:${row.actor}`);
@@ -909,10 +919,10 @@ export class SystemStore {
                     pubkeyCache.set(`${keysDir}:${row.actor}`, key);
                 }
                 if (!key) {
-                    throw new Error(`unregistered actor "${row.actor}" for kind "${row.kind}"`);
+                    throw new Error(`SystemStore: migration parity failed — unregistered actor "${row.actor}" for kind "${row.kind}"`);
                 }
                 if (!signing.verify(canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, key)) {
-                    throw new Error(`signature mismatch at seq ${row.seq} (kind "${row.kind}", actor "${row.actor}")`);
+                    throw new Error(`SystemStore: migration parity failed — signature mismatch at seq ${row.seq} (kind "${row.kind}", actor "${row.actor}")`);
                 }
             } catch (err) {
                 // Unresolvable kind — defer to verifyChain. Structural checks
@@ -922,10 +932,22 @@ export class SystemStore {
                 }
             }
             prev = row;
-            terminal = chainHash(row);
+            prefixTerminal = chainHash(row);
         }
-        if (terminal !== meta.chain_hash) {
-            throw new Error(`SystemStore: migration parity failed — terminal chain hash ${terminal} != marker ${meta.chain_hash}`);
+        if (prefixTerminal !== meta.chain_hash) {
+            throw new Error(`SystemStore: migration parity failed — prefix terminal chain hash ${prefixTerminal} != marker ${meta.chain_hash}`);
+        }
+
+        // 2) Verify the FULL live chain extends the prefix: every
+        //    post-migration row's prev_hash links correctly. Signatures
+        //    were verified at append time, so no re-verification here.
+        for (let i = meta.row_count; i < rows.length; i++) {
+            const row = rows[i];
+            const expected = chainHash(prev);
+            if (row.prev_hash !== expected) {
+                throw new Error(`SystemStore: migration parity failed — post-migration chain link broken at seq ${row.seq}`);
+            }
+            prev = row;
         }
     }
 
@@ -1262,6 +1284,11 @@ class FeatureCapabilityImpl implements FeatureCapability {
     }
 
     close(): void {
+        // B3: idempotent close. A double-close decrements the refcount
+        // only once; subsequent calls are no-ops. Without this guard,
+        // double-closing one capability would remove the feature / close
+        // the shared store while another live consumer still exists.
+        if (!this.valid) return;
         // C2: closing a consumer decrements the feature refcount; the
         // shared store closes only when the last consumer releases.
         this.invalidate();
@@ -1273,9 +1300,9 @@ class FeatureCapabilityImpl implements FeatureCapability {
 
 /**
  * Store-wide privileged capability. Reads and verification span ALL
- * features' namespaces. Granted only via `createCoordinator` (which
- * requires the module-private RegistrationToken), never by feature
- * registration.
+ * features' namespaces. NOT exported — ordinary callers cannot acquire
+ * this (C5). The internal `coordinator()` method requires the
+ * module-private RegistrationToken.
  */
 class CoordinatorCapabilityImpl implements CoordinatorCapability {
     private store: SystemStore;
@@ -1315,6 +1342,8 @@ class CoordinatorCapabilityImpl implements CoordinatorCapability {
     }
 
     close(): void {
+        // B3: idempotent close — same principle as feature caps.
+        if (!this.valid) return;
         this.valid = false;
         this.store.releaseCoordinator();
     }
@@ -1323,47 +1352,123 @@ class CoordinatorCapabilityImpl implements CoordinatorCapability {
 // ── Exported feature-specific factories (C5) ───────────────────────
 
 /**
- * Configuration for a feature factory: everything in
- * {@link FeatureRegistration} except `featureId` (the factory locks it).
- * The trusted feature wrapper (e.g. CompanyLog) supplies the
- * feature-specific kinds/authority/signing; external callers cannot set
- * the featureId.
+ * Runtime-only configuration for a feature factory: everything a caller
+ * MAY legitimately vary at runtime (signing context, key directory,
+ * lifecycle validator, bus emit, and which kinds are appendable under
+ * base/extended capabilities). The namespace fields that define the
+ * feature's identity — kinds, authority, extraDdl — are NOT here: they
+ * are module-owned constants (C5), so no caller can mint an arbitrary
+ * namespace under an approved feature label.
  */
-export interface FeatureFactoryConfig {
-    kinds: readonly string[];
-    baseAppendable: readonly string[];
-    extendedAppendable?: readonly string[];
-    authority: AuthorityTable;
-    validator?: SystemLifecycleValidator;
-    extraDdl?: string[];
+export interface FeatureRuntimeConfig {
+    /** Signing context for this feature's key management. */
     signing: SigningContext;
+    /** Keys directory for this feature. */
     keysDir: string;
+    /** Optional lifecycle validator (feature-layer typed). */
+    validator?: SystemLifecycleValidator;
+    /** Bus emit function for event publication. */
     busEmit: (event: SystemEvent) => void;
+    /** Kinds appendable under the base capability. Must be a subset of
+     *  the feature's owned kinds. */
+    baseAppendable: readonly string[];
+    /** Additional kinds appendable under extended capabilities (queue). */
+    extendedAppendable?: readonly string[];
 }
+
+// ── Module-owned feature namespace constants (C5) ──────────────────
+// These define the immutable identity of each approved feature. No
+// caller can override them — the factories merge them with the runtime
+// config internally.
+
+/** Company's immutable namespace (mirrors src/company/log.ts). */
+const COMPANY_NAMESPACE = {
+    kinds: [
+        'company.created', 'agent.minted', 'room.message',
+        'task.delegated', 'task.result', 'task.checked',
+        'task.started', 'task.retry', 'task.blocked', 'task.unblocked',
+        'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
+    ] as readonly string[],
+    authority: {
+        'company.created': ['user'],
+        'agent.minted': ['user'],
+        'room.message': '*',
+        'task.delegated': ['ceo', 'user'],
+        'task.result': '*',
+        'task.checked': ['ceo', 'user'],
+        'task.started': '*',
+        'task.retry': ['user'],
+        'task.blocked': '*',
+        'task.unblocked': '*',
+        'hold.set': ['watchman', 'user'],
+        'hold.lifted': ['watchman', 'user'],
+        'commitment.opened': '*',
+        'commitment.closed': '*',
+    } as Record<string, readonly string[] | '*'>,
+    extraDdl: [
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company ON events(kind) WHERE kind = 'company.created'`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_attempt ON events(kind, json_extract(payload,'$.taskRef'), json_extract(payload,'$.attempt')) WHERE kind IN ('task.started','task.result')`,
+    ],
+};
+
+/** Compiler's immutable namespace. */
+const COMPILER_NAMESPACE = {
+    kinds: [
+        'recipe.promoted', 'recipe.demoted',
+    ] as readonly string[],
+    authority: {
+        'recipe.promoted': ['compiler'],
+        'recipe.demoted': ['compiler'],
+    } as Record<string, readonly string[] | '*'>,
+    extraDdl: [],
+};
 
 /**
  * Create the Company feature capability on `store` (C5). Locks the
- * featureId to `'company'`; the caller cannot forge a different id. The
- * trusted Company wrapper passes Company's kinds/authority/signing.
+ * featureId to `'company'` AND the namespace (kinds, authority, DDL)
+ * to module-owned constants. The caller supplies only runtime fields
+ * (signing, keysDir, validator, busEmit, appendable kinds) and CANNOT
+ * override the namespace.
  */
-export function createCompanyFeature(store: SystemStore, config: FeatureFactoryConfig): FeatureCapability {
-    return store.registerFeature({ ...config, featureId: 'company' }, REGISTRATION_TOKEN);
+export function createCompanyFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
+    return store.registerFeature({
+        featureId: 'company',
+        kinds: COMPANY_NAMESPACE.kinds,
+        authority: COMPANY_NAMESPACE.authority,
+        extraDdl: COMPANY_NAMESPACE.extraDdl,
+        signing: config.signing,
+        keysDir: config.keysDir,
+        validator: config.validator,
+        busEmit: config.busEmit,
+        baseAppendable: config.baseAppendable,
+        extendedAppendable: config.extendedAppendable,
+    }, REGISTRATION_TOKEN);
 }
 
 /**
  * Create the Compiler feature capability on `store` (C5). Locks the
- * featureId to `'compiler'`.
+ * featureId to `'compiler'` and the namespace to module-owned constants.
  */
-export function createCompilerFeature(store: SystemStore, config: FeatureFactoryConfig): FeatureCapability {
-    return store.registerFeature({ ...config, featureId: 'compiler' }, REGISTRATION_TOKEN);
+export function createCompilerFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
+    return store.registerFeature({
+        featureId: 'compiler',
+        kinds: COMPILER_NAMESPACE.kinds,
+        authority: COMPILER_NAMESPACE.authority,
+        extraDdl: COMPILER_NAMESPACE.extraDdl,
+        signing: config.signing,
+        keysDir: config.keysDir,
+        validator: config.validator,
+        busEmit: config.busEmit,
+        baseAppendable: config.baseAppendable,
+        extendedAppendable: config.extendedAppendable,
+    }, REGISTRATION_TOKEN);
 }
 
-/**
- * Create the privileged coordinator capability: store-wide reads and
- * multi-identity verification across ALL features' namespaces (C5). A
- * feature cap holder cannot reach this (FeatureCapability does not
- * expose its store reference).
- */
-export function createCoordinator(store: SystemStore): CoordinatorCapability {
-    return store.coordinator(REGISTRATION_TOKEN);
-}
+// `createCoordinator` is intentionally NOT exported. The coordinator
+// capability (store-wide reads/verification) is an internal surface
+// used by the capability impls that delegate to SystemStore's @internal
+// methods. Ordinary callers — including feature cap holders — cannot
+// acquire it (C5). Tests that need store-wide reads use SystemStore's
+// @internal methods (readAllStoreWide, countStoreWide,
+// verifyChainStoreWide) directly, which are reachable only within the
+// module's own test surface.

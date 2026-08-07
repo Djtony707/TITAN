@@ -178,18 +178,16 @@ export class CompanyLog {
             busEmit('company:event', event as CompanyEventPayload);
         };
 
-        const regConfig = {
-            kinds: knownKinds,
+        // C5: the factory locks kinds/authority/extraDdl to module-owned
+        // constants inside eventLog.ts. Company supplies ONLY runtime
+        // fields: signing context, key directory, lifecycle validator,
+        // bus emit, and which kinds are appendable (base vs extended).
+        const runtimeConfig = {
             baseAppendable: appendableKinds,
-            authority: AUTHORITY,
             validator,
             signing: companySigning,
             keysDir,
             busEmit: companyBusEmit,
-            extraDdl: [
-                `CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company ON events(kind) WHERE kind = 'company.created'`,
-                `CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_attempt ON events(kind, json_extract(payload,'$.taskRef'), json_extract(payload,'$.attempt')) WHERE kind IN ('task.started','task.result')`,
-            ],
         };
 
         // Construction takes only titanHome; legacy signing is registered
@@ -203,10 +201,11 @@ export class CompanyLog {
         // signed rows without importing Company key management.
         this.store.setLegacySigning(companySigning, keysDir);
         // C5: features are acquired ONLY through feature-specific factories
-        // that hold the module-private RegistrationToken. CompanyLog is the
-        // sole caller of createCompanyFeature; external code cannot forge a
-        // 'company' registration with arbitrary kinds/signing/authority.
-        this.cap = createCompanyFeature(this.store, regConfig);
+        // that hold the module-private RegistrationToken AND lock the
+        // namespace. CompanyLog is the sole caller of createCompanyFeature;
+        // external code cannot forge a 'company' registration with arbitrary
+        // kinds/signing/authority.
+        this.cap = createCompanyFeature(this.store, runtimeConfig);
     }
 
     /**

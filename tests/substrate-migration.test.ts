@@ -51,13 +51,11 @@ import {
     SystemStore,
     createCompanyFeature,
     createCompilerFeature,
-    createCoordinator,
-    type FeatureFactoryConfig,
+    type FeatureRuntimeConfig,
     type FeatureCapability,
-    type CoordinatorCapability,
     type SigningContext,
 } from '../src/substrate/eventLog.js';
-import { mintAgentKeys, loadAgentPublicKey, samePublicKey, signBytes, verifyBytes, assertValidAgentId } from '../src/company/keys.js';
+import { mintAgentKeys, loadAgentKeys, loadAgentPublicKey, samePublicKey, signBytes, verifyBytes, assertValidAgentId } from '../src/company/keys.js';
 import type { KeyObject } from 'crypto';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'titan-substrate-mig-'));
@@ -204,10 +202,8 @@ describe('substrate migration — compiler-first semantics', () => {
         const compilerUser = mintAgentKeys('compiler', compilerKeysDir);
         const compilerSigning = makeSigning(compilerKeysDir);
 
-        const compilerConfig: FeatureFactoryConfig = {
-            kinds: ['recipe.promoted', 'recipe.demoted'],
+        const compilerConfig: FeatureRuntimeConfig = {
             baseAppendable: ['recipe.promoted', 'recipe.demoted'],
-            authority: { 'recipe.promoted': ['compiler'], 'recipe.demoted': ['compiler'] },
             signing: compilerSigning,
             keysDir: compilerKeysDir,
             busEmit: () => { /* compiler has no bus topic yet */ },
@@ -227,10 +223,10 @@ describe('substrate migration — compiler-first semantics', () => {
         expect(compilerCap.readAll()).toHaveLength(0);
         expect(compilerCap.count()).toBe(0);
 
-        // The COORDINATOR capability (C5: only via createCoordinator) sees
-        // the whole store: the 3 migrated legacy Company rows are visible.
-        const coord: CoordinatorCapability = createCoordinator(store);
-        const allEvents = coord.readAll();
+        // Store-wide reads (C5: @internal SystemStore methods, NOT a
+        // publicly exported coordinator capability) see the whole store:
+        // the 3 migrated legacy Company rows are visible.
+        const allEvents = store.readAllStoreWide();
         expect(allEvents).toHaveLength(3); // legacy company rows migrated
         expect(allEvents.every(e => e.kind.startsWith('company.') || e.kind.startsWith('room.') || e.kind.startsWith('agent.')))
             .toBe(true);
@@ -261,36 +257,44 @@ describe('substrate migration — compiler-first semantics', () => {
         expect(existsSync(join(home, 'company', 'company.db'))).toBe(false);
         expect(existsSync(join(home, 'company', 'company.db.migrated'))).toBe(true);
 
-        coord.close();
         store.close();
     });
 
-    it('(B.2) namespace disjointness: two approved features cannot register the same kind', () => {
+    it('(B.2) namespace disjointness: Company and Compiler own disjoint kinds (the factories lock them)', () => {
+        // C5: the factories lock kinds to module-owned constants. A caller
+        // cannot pass arbitrary kinds — the factory ignores caller kinds.
+        // Company and Compiler own inherently disjoint kind sets.
         const home = freshHome();
         const store = new SystemStore(home);
         const keysDir = join(home, 'keys');
         mkdirSync(keysDir, { recursive: true });
         mintAgentKeys('a', keysDir);
+        mintAgentKeys('compiler', join(home, 'compiler', 'keys'));
+        mkdirSync(join(home, 'compiler', 'keys'), { recursive: true });
         const signing = makeSigning(keysDir);
-        createCompanyFeature(store, {
-            kinds: ['shared.kind'], baseAppendable: ['shared.kind'],
-            authority: { 'shared.kind': ['a'] }, signing, keysDir, busEmit: () => {},
+        // Company and Compiler can coexist (disjoint kinds).
+        const companyCap = createCompanyFeature(store, {
+            baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
         });
-        expect(() => createCompilerFeature(store, {
-            kinds: ['shared.kind'], baseAppendable: ['shared.kind'],
-            authority: { 'shared.kind': ['a'] }, signing, keysDir, busEmit: () => {},
-        })).toThrow(/already registered by another feature/);
+        const compilerCap = createCompilerFeature(store, {
+            baseAppendable: ['recipe.promoted'],
+            signing: makeSigning(join(home, 'compiler', 'keys')),
+            keysDir: join(home, 'compiler', 'keys'),
+            busEmit: () => {},
+        });
+        expect(companyCap.count()).toBe(0);
+        expect(compilerCap.count()).toBe(0);
         store.close();
     });
 
-    it('(B.3) closed factories: the public API exposes no way to register an arbitrary featureId (C5)', () => {
+    it('(B.3) closed factories: the public API exposes no way to register an arbitrary featureId or namespace (C5)', () => {
         // The only exported registration surfaces are createCompanyFeature
-        // and createCompilerFeature, which lock the featureId. There is no
-        // exported registerFeature, coordinator(), or RegistrationToken.
-        // A caller cannot forge 'rogue-feature' or reach registerFeature
-        // with an arbitrary id. This test documents that boundary by
-        // confirming the factory functions are the ONLY way in: a
-        // rogue-feature id is simply not constructible.
+        // and createCompilerFeature, which lock BOTH the featureId AND the
+        // namespace (kinds/authority/extraDdl) to module-owned constants.
+        // There is no exported registerFeature, coordinator(), createCoordinator,
+        // or RegistrationToken. A caller cannot forge 'rogue-feature', cannot
+        // pass arbitrary kinds/authority (FeatureRuntimeConfig has no such
+        // fields), and cannot reach registerFeature with an arbitrary id.
         const home = freshHome();
         const store = new SystemStore(home);
         const keysDir = join(home, 'keys');
@@ -298,15 +302,17 @@ describe('substrate migration — compiler-first semantics', () => {
         mintAgentKeys('a', keysDir);
         const signing = makeSigning(keysDir);
         // Company and Compiler are the only reachable feature ids.
+        // The factory accepts ONLY runtime fields — no kinds/authority.
         const cap = createCompanyFeature(store, {
-            kinds: ['company.created'], baseAppendable: ['company.created'],
-            authority: { 'company.created': ['a'] }, signing, keysDir, busEmit: () => {},
+            baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
         });
         expect(cap.count()).toBe(0);
-        // Re-registering company with a DIFFERENT namespace is a conflict.
+        // Re-registering company with a different signing context is a
+        // namespace conflict (different signing = different namespace).
+        const keysDir2 = join(home, 'keys2');
+        mkdirSync(keysDir2, { recursive: true });
         expect(() => createCompanyFeature(store, {
-            kinds: ['company.other'], baseAppendable: ['company.other'],
-            authority: { 'company.other': ['a'] }, signing, keysDir, busEmit: () => {},
+            baseAppendable: ['company.created'], signing, keysDir: keysDir2, busEmit: () => {},
         })).toThrow(/conflicting re-registration/);
         store.close();
     });
@@ -371,17 +377,13 @@ describe('substrate migration — feature-filtered views (Honey B6)', () => {
         const store = new SystemStore(home);
         store.setLegacySigning(companySigning, companyKeysDir);
         const companyCap = createCompanyFeature(store, {
-            kinds: ['company.created', 'room.message'] as readonly string[],
             baseAppendable: ['company.created', 'room.message'],
-            authority: { 'company.created': ['user'], 'room.message': '*' },
             signing: companySigning,
             keysDir: companyKeysDir,
             busEmit: () => {},
         });
         const compilerCap = createCompilerFeature(store, {
-            kinds: ['recipe.promoted'] as readonly string[],
             baseAppendable: ['recipe.promoted'],
-            authority: { 'recipe.promoted': ['compiler'] },
             signing: makeSigning(compilerKeysDir),
             keysDir: compilerKeysDir,
             busEmit: () => {},
@@ -402,18 +404,17 @@ describe('substrate migration — feature-filtered views (Honey B6)', () => {
         expect(compilerEvents.map(e => e.kind)).toEqual(['recipe.promoted']);
         expect(compilerCap.count()).toBe(1);
 
-        // Coordinator (C5: only via createCoordinator) sees everything (3 events).
-        const coord = createCoordinator(store);
-        expect(coord.readAll()).toHaveLength(3);
-        expect(coord.count()).toBe(3);
+        // Store-wide reads (C5: @internal SystemStore methods, NOT an
+        // exported coordinator capability) see everything (3 events).
+        expect(store.readAllStoreWide()).toHaveLength(3);
+        expect(store.countStoreWide()).toBe(3);
 
         // Store-level verifyChain resolves the correct signing context per
         // kind: Company keys for company rows, Compiler keys for the recipe row.
         expect(companyCap.verifyChain().ok).toBe(true);
         expect(compilerCap.verifyChain().ok).toBe(true);
-        expect(coord.verifyChain().ok).toBe(true);
+        expect(store.verifyChainStoreWide().ok).toBe(true);
 
-        coord.close();
         store.close();
     });
 });
@@ -466,9 +467,8 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         mkdirSync(keysDir, { recursive: true });
         mintAgentKeys('a', keysDir);
         const signing = makeSigning(keysDir);
-        const cfg = {
-            kinds: ['company.created'] as readonly string[], baseAppendable: ['company.created'],
-            authority: { 'company.created': ['a'] }, signing, keysDir, busEmit: () => {},
+        const cfg: FeatureRuntimeConfig = {
+            baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
         };
         const cap1 = createCompanyFeature(store, cfg);
         // C2: identical re-registration succeeds, returns a DIFFERENT cap,
@@ -492,7 +492,7 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         store2.close();
     });
 
-    it('(G.2) a conflicting re-registration (different namespace) is rejected (C2)', () => {
+    it('(G.2) a conflicting re-registration (different keysDir) is rejected (C2)', () => {
         const home = freshHome();
         const store = new SystemStore(home);
         const keysDir = join(home, 'keys');
@@ -500,20 +500,13 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         mintAgentKeys('a', keysDir);
         const signing = makeSigning(keysDir);
         createCompanyFeature(store, {
-            kinds: ['company.created'] as readonly string[], baseAppendable: ['company.created'],
-            authority: { 'company.created': ['a'] }, signing, keysDir, busEmit: () => {},
+            baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
         });
-        // Different kinds = different namespace = conflict.
-        expect(() => createCompanyFeature(store, {
-            kinds: ['company.other'] as readonly string[], baseAppendable: ['company.other'],
-            authority: { 'company.other': ['a'] }, signing, keysDir, busEmit: () => {},
-        })).toThrow(/conflicting re-registration.*kinds differ/);
-        // Different keysDir = conflict.
+        // Different keysDir = different namespace = conflict.
         const keysDir2 = join(home, 'keys2');
         mkdirSync(keysDir2, { recursive: true });
         expect(() => createCompanyFeature(store, {
-            kinds: ['company.created'] as readonly string[], baseAppendable: ['company.created'],
-            authority: { 'company.created': ['a'] }, signing, keysDir: keysDir2, busEmit: () => {},
+            baseAppendable: ['company.created'], signing, keysDir: keysDir2, busEmit: () => {},
         })).toThrow(/conflicting re-registration.*keysDir differs/);
         store.close();
     });
@@ -526,30 +519,27 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         const signing = makeSigning(keysDir);
 
         const store = new SystemStore(home);
-        // First feature opens the store.
+        // First feature opens the store. Company's module-owned extraDdl
+        // (idx_one_company, idx_unique_attempt) is applied on open.
         createCompanyFeature(store, {
-            kinds: ['company.created'] as readonly string[], baseAppendable: ['company.created'],
-            authority: { 'company.created': ['a'] }, signing, keysDir, busEmit: () => {},
-            extraDdl: ['CREATE UNIQUE INDEX IF NOT EXISTS idx_late_test ON events(kind) WHERE kind = \'company.created\''],
+            baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
         });
 
         // A second feature registered AFTER the store is open — its
-        // extraDdl must still be applied.
+        // module-owned extraDdl must still be applied.
         const compilerKeysDir = join(home, 'compiler', 'keys');
         mkdirSync(compilerKeysDir, { recursive: true });
         mintAgentKeys('compiler', compilerKeysDir);
         createCompilerFeature(store, {
-            kinds: ['recipe.promoted'] as readonly string[], baseAppendable: ['recipe.promoted'],
-            authority: { 'recipe.promoted': ['compiler'] },
+            baseAppendable: ['recipe.promoted'],
             signing: makeSigning(compilerKeysDir), keysDir: compilerKeysDir, busEmit: () => {},
-            extraDdl: ['CREATE UNIQUE INDEX IF NOT EXISTS idx_late_compiler ON events(kind) WHERE kind = \'recipe.promoted\''],
         });
 
-        // Both indexes exist in the now-open store.
+        // Company's indexes exist in the now-open store.
         const db = new DatabaseSync(join(home, 'system.db'));
-        const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_late_test','idx_late_compiler')").all() as Array<{ name: string }>;
+        const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_one_company','idx_unique_attempt')").all() as Array<{ name: string }>;
         const names = indexes.map(i => i.name).sort();
-        expect(names).toEqual(['idx_late_compiler', 'idx_late_test']);
+        expect(names).toEqual(['idx_one_company', 'idx_unique_attempt']);
         db.close();
         store.close();
     });
@@ -568,17 +558,13 @@ describe('substrate migration — interleaved Company/Compiler verification (Hon
         const store = new SystemStore(home);
         store.setLegacySigning(companySigning, companyKeysDir);
         const companyCap = createCompanyFeature(store, {
-            kinds: ['company.created', 'room.message'] as readonly string[],
             baseAppendable: ['company.created', 'room.message'],
-            authority: { 'company.created': ['user'], 'room.message': '*' },
             signing: companySigning,
             keysDir: companyKeysDir,
             busEmit: () => {},
         });
         const compilerCap = createCompilerFeature(store, {
-            kinds: ['recipe.promoted', 'recipe.demoted'] as readonly string[],
             baseAppendable: ['recipe.promoted', 'recipe.demoted'],
-            authority: { 'recipe.promoted': ['compiler'], 'recipe.demoted': ['compiler'] },
             signing: makeSigning(compilerKeysDir),
             keysDir: compilerKeysDir,
             busEmit: () => {},
@@ -590,19 +576,17 @@ describe('substrate migration — interleaved Company/Compiler verification (Hon
         companyCap.append({ kind: 'room.message', actor: 'user', payload: { text: 'hi' } }, user.privateKey);
         compilerCap.append({ kind: 'recipe.demoted', actor: 'compiler', payload: { r: 'b' } }, compilerActor.privateKey);
 
-        // Both feature capabilities AND the coordinator verify the whole
-        // interleaved chain by resolving per-kind signing contexts.
+        // Both feature capabilities AND store-wide verification verify the
+        // whole interleaved chain by resolving per-kind signing contexts.
         expect(companyCap.verifyChain().ok).toBe(true);
         expect(compilerCap.verifyChain().ok).toBe(true);
-        const coord = createCoordinator(store);
-        expect(coord.verifyChain().ok).toBe(true);
+        expect(store.verifyChainStoreWide().ok).toBe(true);
 
         // verifyEvent on a row of the OTHER feature works via store-level
         // resolution: the Company cap can verify a Compiler event.
         const compilerEvents = compilerCap.readAll();
         expect(companyCap.verifyEvent(compilerEvents[0].id).ok).toBe(true);
 
-        coord.close();
         store.close();
     });
 });
@@ -618,9 +602,7 @@ describe('substrate migration — Honey third-review regression tests', () => {
         const storeA = new SystemStore(home);
         storeA.setLegacySigning(companySigning, keysDir);
         const capA = createCompanyFeature(storeA, {
-            kinds: KNOWN_KINDS as readonly string[],
-            baseAppendable: EVENT_KINDS as readonly string[],
-            authority: AUTHORITY,
+            baseAppendable: EVENT_KINDS,
             signing: companySigning, keysDir, busEmit: () => {},
         });
         expect(capA.count()).toBe(3); // migrated
@@ -633,9 +615,7 @@ describe('substrate migration — Honey third-review regression tests', () => {
         const storeB = new SystemStore(home);
         storeB.setLegacySigning(companySigning, keysDir);
         const capB = createCompanyFeature(storeB, {
-            kinds: KNOWN_KINDS as readonly string[],
-            baseAppendable: EVENT_KINDS as readonly string[],
-            authority: AUTHORITY,
+            baseAppendable: EVENT_KINDS,
             signing: companySigning, keysDir, busEmit: () => {},
         });
         // Migration marker is durable (completed=1, retired=1); no
@@ -659,9 +639,7 @@ describe('substrate migration — Honey third-review regression tests', () => {
         const store = new SystemStore(home);
         store.setLegacySigning(companySigning, keysDir);
         const cap = createCompanyFeature(store, {
-            kinds: KNOWN_KINDS as readonly string[],
-            baseAppendable: EVENT_KINDS as readonly string[],
-            authority: AUTHORITY,
+            baseAppendable: EVENT_KINDS,
             signing: companySigning, keysDir, busEmit: () => {},
         });
         expect(cap.count()).toBe(3);
@@ -731,11 +709,14 @@ describe('substrate migration — Honey third-review regression tests', () => {
     it('(R6) forged approved-id registration is impossible (C5 closed factories)', () => {
         // The module-private RegistrationToken is not exported. The only
         // way to register a feature is through createCompanyFeature /
-        // createCompilerFeature, which lock the featureId. registerFeature
-        // and coordinator ARE callable on SystemStore but require a token
-        // that external code cannot construct (the type is not exported),
-        // so any call without it throws at runtime. This test confirms the
-        // runtime boundary: no token ⇒ throw.
+        // createCompilerFeature, which lock BOTH the featureId AND the
+        // namespace (kinds/authority/extraDdl) to module-owned constants.
+        // registerFeature and coordinator ARE callable on SystemStore but
+        // require a token that external code cannot construct (the type is
+        // not exported), so any call without it throws at runtime. There is
+        // NO exported createCoordinator — the coordinator capability is not
+        // reachable by ordinary callers. This test confirms the runtime
+        // boundary: no token ⇒ throw.
         const home = freshHome();
         const store = new SystemStore(home);
         // Calling registerFeature without the module-private token throws.
@@ -747,7 +728,8 @@ describe('substrate migration — Honey third-review regression tests', () => {
         // A caller cannot forge a token: RegistrationToken is a `type` alias
         // to `symbol` that is NOT exported, so no external expression can
         // produce a value === REGISTRATION_TOKEN. The factories are the only
-        // way in.
+        // way in, and they lock the namespace — no caller can mint an
+        // arbitrary namespace under an approved label.
         store.close();
     });
 
@@ -766,24 +748,18 @@ describe('substrate migration — Honey third-review regression tests', () => {
         const store = new SystemStore(home);
         store.setLegacySigning(companySigning, companyKeysDir);
         const compilerCap = createCompilerFeature(store, {
-            kinds: ['recipe.promoted'] as readonly string[],
             baseAppendable: ['recipe.promoted'],
-            authority: { 'recipe.promoted': ['compiler'] },
             signing: makeSigning(compilerKeysDir), keysDir: compilerKeysDir, busEmit: () => {},
         });
         // Migration ran before the compiler's first append (legacy rows present).
-        const coord = createCoordinator(store);
-        expect(coord.readAll()).toHaveLength(3);
-        coord.close();
+        expect(store.readAllStoreWide()).toHaveLength(3);
         compilerCap.append({ kind: 'recipe.promoted', actor: 'compiler', payload: { r: 'a' } }, compilerActor.privateKey);
         // Now register Company AFTER compiler. C6: this does NOT discard
         // the compiler's options; setLegacySigning already ran. Company
         // registers its kinds and can read the migrated legacy rows.
         const user = loadAgentKeys('user', companyKeysDir);
         const companyCap = createCompanyFeature(store, {
-            kinds: KNOWN_KINDS as readonly string[],
-            baseAppendable: EVENT_KINDS as readonly string[],
-            authority: AUTHORITY,
+            baseAppendable: EVENT_KINDS,
             signing: companySigning, keysDir: companyKeysDir, busEmit: () => {},
         });
         expect(companyCap.count()).toBe(3); // the 3 migrated legacy rows
@@ -823,29 +799,8 @@ function writeStaleLockFile(path: string, pid: number): void {
     writeFileSync(path, JSON.stringify({ pid, ts: Date.now() - 100000 }));
 }
 
-/** Shared authority/kind tables mirroring CompanyLog for store-level tests. */
-const AUTHORITY: Record<string, readonly string[] | '*'> = {
-    'company.created': ['user'],
-    'agent.minted': ['user'],
-    'room.message': '*',
-    'task.delegated': ['ceo', 'user'],
-    'task.result': '*',
-    'task.checked': ['ceo', 'user'],
-    'task.started': '*',
-    'task.retry': ['user'],
-    'task.blocked': '*',
-    'task.unblocked': '*',
-    'hold.set': ['watchman', 'user'],
-    'hold.lifted': ['watchman', 'user'],
-    'commitment.opened': '*',
-    'commitment.closed': '*',
-};
+/** Shared kind tables mirroring CompanyLog for store-level tests. */
 const EVENT_KINDS = [
     'company.created', 'agent.minted', 'room.message',
     'task.delegated', 'task.result', 'task.checked',
 ] as const;
-const QUEUE_KINDS = [
-    'task.started', 'task.retry', 'task.blocked', 'task.unblocked',
-    'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
-] as const;
-const KNOWN_KINDS = [...EVENT_KINDS, ...QUEUE_KINDS] as const;
