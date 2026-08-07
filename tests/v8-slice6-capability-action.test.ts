@@ -42,7 +42,7 @@ function makeFixedRecipe(message: string, steps: Array<{ tool: string; toolArgs:
         sourceTraceIds: ["tr-test"],
         tier: 2,
         state: "active",
-        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 3 },
+        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 3, shadowSuccesses: 3, shadowEpoch: 1 },
     };
 }
 
@@ -136,7 +136,7 @@ describe("slot resolution order: miss on mismatch", () => {
             sourceTraceIds: ["tr-test"],
             tier: 2,
             state: "active",
-            stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 3 },
+            stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 3, shadowSuccesses: 3, shadowEpoch: 1 },
         };
         // "read the file" abstracts to "read the file" (no path entity),
         // which won't match the recipe signature "read {path}".

@@ -30,3 +30,26 @@ export function shouldPersistTraces(config: TitanConfig): boolean {
 export function shouldRoute(config: TitanConfig): boolean {
     return !!(config.selfCompiling?.enabled && config.selfCompiling?.route);
 }
+
+/**
+ * Whether the v8 recipe compiler (Stage 3: COMPILE) should activate.
+ * Checks the master switch AND the compile sub-flag.
+ * {enabled:false, compile:true} returns false — the master switch gates.
+ * When false, `registerRecipe` refuses to register a new candidate —
+ * the compile gate is enforced inside the registry, not just at the
+ * production call site.
+ */
+export function shouldCompile(config: TitanConfig): boolean {
+    return !!(config.selfCompiling?.enabled && config.selfCompiling?.compile);
+}
+
+/**
+ * Whether the v8 promotion state machine (Stage 4: GATE) should activate.
+ * Checks the master switch AND the promote sub-flag.
+ * {enabled:false, promote:true} returns false — the master switch gates.
+ * When false, `promoteToShadow`, `activate`, and `recordShadowComparison`
+ * refuse — the promotion gate is enforced inside the registry.
+ */
+export function shouldPromote(config: TitanConfig): boolean {
+    return !!(config.selfCompiling?.enabled && config.selfCompiling?.promote);
+}
