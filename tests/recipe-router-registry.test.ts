@@ -67,7 +67,7 @@ function activateRecipe(trace: PersistedTrace): CompiledRecipe {
     const recipe = compileRecipe(trace);
     registerRecipe(recipe);
     promoteToShadow(recipe.id);
-    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, true);
+    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, { recipeOutput: 1, frontierOutput: 1 });
     activate(recipe.id);
     return getEntry(recipe.id)!.recipe;
 }
@@ -106,12 +106,12 @@ describe('recipeRegistry', () => {
         registerRecipe(recipe);
         promoteToShadow(recipe.id);
 
-        recordShadowComparison(recipe.id, true);
-        recordShadowComparison(recipe.id, true);
+        recordShadowComparison(recipe.id, { recipeOutput: 1, frontierOutput: 1 });
+        recordShadowComparison(recipe.id, { recipeOutput: 1, frontierOutput: 1 });
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
 
-        recordShadowComparison(recipe.id, false); // one mismatch kills it
-        recordShadowComparison(recipe.id, true);
+        recordShadowComparison(recipe.id, { recipeOutput: 1, frontierOutput: 2 }); // one mismatch kills it
+        recordShadowComparison(recipe.id, { recipeOutput: 1, frontierOutput: 1 });
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
     });
@@ -195,7 +195,7 @@ describe('routerMiddleware', () => {
         const b = compileRecipe(makeTrace({ traceId: 'trBBBBBB' }), { id: 'second-recipe' });
         registerRecipe(b);
         promoteToShadow(b.id);
-        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, true);
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, { recipeOutput: 1, frontierOutput: 1 });
         activate(b.id);
 
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [a, getEntry(b.id)!.recipe] });
