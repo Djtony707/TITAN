@@ -153,6 +153,46 @@ describe('service ensure() orchestration', () => {
             .rejects.toThrow(/read-only/i);
     });
 
+    it('(6) LEGACY ADOPTION: unflagged slice-1 task touched by queue events → refusal after crash+disable', async () => {
+        const { loadAgentKeys, mintAgentKeys } = await import('../src/company/keys.js');
+        // Phase A: pure slice-1 home with an UNFLAGGED unfinished delegation.
+        const a = await freshService(false);
+        await a.svc.createCompany({ name: 'Legacy Co' });
+        await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'legacy work' }); // no queueMode flag
+        // Phase B: queue enabled; simulate the dispatcher ADOPTING the legacy
+        // task (what real recover() does): append task.started via a
+        // queue-mode log — a validated, signed slice-2 event referencing it.
+        const { CompanyLog } = await import('../src/company/log.js');
+        const keysDir = join(a.home, 'company', 'keys');
+        const qlog = new CompanyLog(join(a.home, 'company', 'company.db'), keysDir, { queue: true });
+        const legacy = qlog.readAll().find(e => e.kind === 'task.delegated');
+        expect((legacy?.payload as { queueMode?: unknown }).queueMode).toBeUndefined(); // truly unflagged
+        const scout = loadAgentKeys('scout', keysDir) ?? mintAgentKeys('scout', keysDir);
+        qlog.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: legacy?.id, attempt: 1 } }, scout.privateKey);
+        qlog.close(); // ...crash here (no result, no check)
+        // Phase C: queue OFF restart — the ADOPTED task must force refusal.
+        calls.basicRecover = 0; calls.basicEnqueue = 0;
+        const c = await freshService(false, a.home);
+        await c.svc.getCompanyStatus();
+        expect(calls.basicRecover).toBe(0);
+        await expect(c.svc.delegateTask({ from: 'user', to: 'scout', spec: 'x' }))
+            .rejects.toThrow(/read-only/i);
+        expect(calls.basicEnqueue).toBe(0);
+    });
+
+    it('(7) UNTOUCHED unflagged slice-1 task at boot: basic recovery proceeds normally', async () => {
+        // Unfinished slice-1 delegation, queue NEVER involved: no refusal,
+        // recovery runs (the legacy-history requirement stays intact).
+        const a = await freshService(false);
+        await a.svc.createCompany({ name: 'Untouched Co' });
+        await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'slice1 unfinished' });
+        calls.basicRecover = 0;
+        const b = await freshService(false, a.home);
+        await b.svc.getCompanyStatus();
+        expect(calls.basicRecover).toBe(1); // recovery invoked, not refused
+        await b.svc.delegateTask({ from: 'user', to: 'scout', spec: 'still fine' }); // not refused
+    });
+
     it('(3) pure slice-1 install (queue never enabled): basic recovery proceeds, no refusal', async () => {
         const { svc } = await freshService(false);
         await svc.createCompany({ name: 'Pure S1' });

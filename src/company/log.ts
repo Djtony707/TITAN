@@ -427,10 +427,23 @@ export class CompanyLog {
             if (e.kind === 'task.checked') checked.add(String((e.payload as { taskRef?: unknown }).taskRef ?? ''));
             if (e.kind === 'hold.lifted') liftedHolds.add(String((e.payload as { holdRef?: unknown }).holdRef ?? ''));
         }
+        // Queue adoption evidence (review 17bc9f91): a legacy (unflagged)
+        // delegation becomes queue-era the moment ANY validated slice-2
+        // lifecycle event references it — those events are themselves
+        // signed queue-mode appends, so adoption is signed and replayable
+        // without a new event kind.
+        const adopted = new Set<string>();
+        for (const e of events) {
+            if (e.kind === 'task.started' || e.kind === 'task.retry'
+                || e.kind === 'task.blocked' || e.kind === 'task.unblocked') {
+                const ref = String((e.payload as { taskRef?: unknown }).taskRef ?? '');
+                if (ref) adopted.add(ref);
+            }
+        }
         let nonterminalTasks = 0, activeHolds = 0;
         for (const e of events) {
             if (e.kind === 'task.delegated'
-                && (e.payload as { queueMode?: unknown }).queueMode === true
+                && ((e.payload as { queueMode?: unknown }).queueMode === true || adopted.has(e.id))
                 && !checked.has(e.id)) nonterminalTasks += 1;
             if (e.kind === 'hold.set' && !liftedHolds.has(e.id)) activeHolds += 1;
         }
