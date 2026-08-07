@@ -35,13 +35,13 @@
 import type { KeyObject } from 'crypto';
 import { createPublicKey } from 'crypto';
 import {
-    SystemStore,
-    createCompanyFeature,
+    openCompanyFeature,
     type FeatureCapability,
     type SystemEvent,
     type SystemAppendContext,
     type SystemLifecycleValidator,
     type SigningContext,
+    type LegacySigningConfig,
 } from '../substrate/eventLog.js';
 import { signBytes, verifyBytes, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
 import { emit as busEmit, type CompanyEventPayload } from '../substrate/traceBus.js';
@@ -133,7 +133,6 @@ const companySigning: SigningContext = {
 };
 
 export class CompanyLog {
-    private store: SystemStore;
     private cap: FeatureCapability;
     private isQueueMode: boolean;
     private keysDir: string;
@@ -182,6 +181,8 @@ export class CompanyLog {
         // constants inside eventLog.ts. Company supplies ONLY runtime
         // fields: signing context, key directory, lifecycle validator,
         // bus emit, and which kinds are appendable (base vs extended).
+        // The store coordinator is created internally by openCompanyFeature;
+        // CompanyLog never receives a SystemStore reference (C5).
         const runtimeConfig = {
             baseAppendable: appendableKinds,
             validator,
@@ -190,22 +191,17 @@ export class CompanyLog {
             busEmit: companyBusEmit,
         };
 
-        // Construction takes only titanHome; legacy signing is registered
-        // separately (C6: order-independent — a Compiler-first store can be
-        // repaired by a later Company registration that calls this).
-        this.store = new SystemStore(titanHome);
-        // Legacy signing context: used ONLY to cryptographically verify
-        // legacy company.db rows during migration and to resolve unowned
-        // kinds on reopen parity validation (C4). Company passes its own
-        // signing context + keysDir so the substrate can verify pre-existing
-        // signed rows without importing Company key management.
-        this.store.setLegacySigning(companySigning, keysDir);
-        // C5: features are acquired ONLY through feature-specific factories
-        // that hold the module-private RegistrationToken AND lock the
-        // namespace. CompanyLog is the sole caller of createCompanyFeature;
-        // external code cannot forge a 'company' registration with arbitrary
-        // kinds/signing/authority.
-        this.cap = createCompanyFeature(this.store, runtimeConfig);
+        // C6: legacy signing is registered separately so a Compiler-first
+        // store can be repaired by a later Company registration. Company
+        // passes its own signing context + keysDir so the substrate can
+        // verify pre-existing signed rows without importing Company key
+        // management.
+        const legacy: LegacySigningConfig = {
+            signing: companySigning,
+            keysDir,
+        };
+
+        this.cap = openCompanyFeature(titanHome, runtimeConfig, legacy);
     }
 
     /**

@@ -148,7 +148,7 @@ type AuthorityTable = Record<string, AuthorityEntry>;
  * registration here accepts a generic validator over the feature's own
  * append-context type and adapts it internally.
  */
-export interface FeatureRegistration {
+interface FeatureRegistration {
     /** Feature identifier (e.g., 'company', 'compiler'). */
     featureId: string;
     /** Event kinds this feature owns (e.g., 'company.created', 'task.delegated'). */
@@ -242,7 +242,7 @@ export interface FeatureCapability {
  * Used by maintenance/audit paths that must see the whole log. Feature
  * capabilities do NOT get this and cannot reach it.
  */
-export interface CoordinatorCapability {
+interface CoordinatorCapability {
     /** Read ALL events in seq order (every feature's namespace). */
     readAll(): SystemEvent[];
     /** Read events with optional kind/afterSeq filter across all namespaces. */
@@ -330,7 +330,7 @@ const coordinators = new Map<string, SystemStore>();
  * Coordinator uniqueness is enforced per `titanHome` per process: a
  * second construction with the same home returns the existing instance.
  */
-export class SystemStore {
+class SystemStore {
     private db: DatabaseSync | null = null;
     private readonly titanHome!: string;
     private readonly dbPath!: string;
@@ -490,7 +490,7 @@ export class SystemStore {
      * Release one feature consumer (C2). Decrements the refcount; when it
      * hits zero, invalidates the feature's live caps, removes its kinds,
      * and — if no features and no coordinators remain — closes the store.
-     * @internal — called by FeatureCapabilityImpl.close() only.
+     * @private — called by FeatureCapabilityImpl.close() only.
      */
     releaseFeature(featureId: string): void {
         const n = (this.featureRefcounts.get(featureId) ?? 0) - 1;
@@ -512,7 +512,7 @@ export class SystemStore {
         }
     }
 
-    /** @internal — called by CoordinatorCapabilityImpl.close() only. */
+    /** @private — called by CoordinatorCapabilityImpl.close() only. */
     releaseCoordinator(): void {
         if (this.coordinatorRefCount > 0) this.coordinatorRefCount -= 1;
         if (this.features.size === 0 && this.coordinatorRefCount === 0) {
@@ -939,13 +939,35 @@ export class SystemStore {
         }
 
         // 2) Verify the FULL live chain extends the prefix: every
-        //    post-migration row's prev_hash links correctly. Signatures
-        //    were verified at append time, so no re-verification here.
+        //    post-migration row's prev_hash links correctly AND its
+        //    signature is cryptographically verified with the per-kind
+        //    signing context. Persisted rows can be corrupted or tampered
+        //    after append, so reopen must verify the entire live log —
+        //    not just chain links (Honey recovery blocker).
         for (let i = meta.row_count; i < rows.length; i++) {
             const row = rows[i];
             const expected = chainHash(prev);
             if (row.prev_hash !== expected) {
                 throw new Error(`SystemStore: migration parity failed — post-migration chain link broken at seq ${row.seq}`);
+            }
+            // Cryptographic verification for post-migration rows.
+            try {
+                const { signing, keysDir } = this.signingForKind(row.kind);
+                let key = pubkeyCache.get(`${keysDir}:${row.actor}`);
+                if (key === undefined && !pubkeyCache.has(`${keysDir}:${row.actor}`)) {
+                    key = signing.loadPublicKey(row.actor, keysDir);
+                    pubkeyCache.set(`${keysDir}:${row.actor}`, key);
+                }
+                if (!key) {
+                    throw new Error(`SystemStore: migration parity failed — unregistered actor "${row.actor}" for kind "${row.kind}" at seq ${row.seq}`);
+                }
+                if (!signing.verify(canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, key)) {
+                    throw new Error(`SystemStore: migration parity failed — post-migration signature mismatch at seq ${row.seq} (kind "${row.kind}", actor "${row.actor}")`);
+                }
+            } catch (err) {
+                if (!/no signing context resolves/.test(err instanceof Error ? err.message : '')) {
+                    throw err;
+                }
             }
             prev = row;
         }
@@ -972,6 +994,7 @@ export class SystemStore {
      * Store-level chain verification: walks every row in seq order, checks
      * prev_hash links, and verifies each row's signature with the signing
      * context that owns its kind (not a single feature's context).
+     * @private
      */
     verifyChainStoreWide(): { ok: boolean; badSeq?: number; reason?: string } {
         const db = this.getDb();
@@ -1001,6 +1024,7 @@ export class SystemStore {
     /**
      * Store-level single-event verification: resolves the signing context
      * for the row's kind and verifies its signature.
+     * @private
      */
     verifyEventStoreWide(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string } {
         const db = this.getDb();
@@ -1013,13 +1037,13 @@ export class SystemStore {
         return ok ? { ok, event: rowToEvent(row) } : { ok: false, reason: 'signature mismatch' };
     }
 
-    /** @internal — used by FeatureCapabilityImpl/CoordinatorCapabilityImpl only */
+    /** Private — used by FeatureCapabilityImpl/CoordinatorCapabilityImpl only */
     getDb(): DatabaseSync {
         if (!this.db) throw new Error('SystemStore: not opened');
         return this.db;
     }
 
-    /** @internal — feature-filtered read for a capability. */
+    /** Private — feature-filtered read for a capability. */
     readFeatureKinds(kinds: readonly string[], opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
         const db = this.getDb();
         const clauses: string[] = [];
@@ -1040,7 +1064,7 @@ export class SystemStore {
         return rows.map(rowToEvent);
     }
 
-    /** @internal — feature-filtered readAll for a capability. */
+    /** Private — feature-filtered readAll for a capability. */
     readAllFeatureKinds(kinds: readonly string[]): SystemEvent[] {
         const db = this.getDb();
         const placeholders = kinds.map(() => '?').join(',');
@@ -1049,7 +1073,7 @@ export class SystemStore {
         return rows.map(rowToEvent);
     }
 
-    /** @internal — feature-filtered count. */
+    /** Private — feature-filtered count. */
     countFeatureKinds(kinds: readonly string[]): number {
         const db = this.getDb();
         const placeholders = kinds.map(() => '?').join(',');
@@ -1058,14 +1082,14 @@ export class SystemStore {
         return row.n;
     }
 
-    /** @internal — store-wide read for the coordinator. */
+    /** Private — store-wide read for the coordinator. */
     readAllStoreWide(): SystemEvent[] {
         const db = this.getDb();
         const rows = db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
         return rows.map(rowToEvent);
     }
 
-    /** @internal — store-wide read for the coordinator. */
+    /** Private — store-wide read for the coordinator. */
     readStoreWide(opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
         const db = this.getDb();
         const clauses: string[] = [];
@@ -1079,14 +1103,14 @@ export class SystemStore {
         return rows.map(rowToEvent);
     }
 
-    /** @internal — store-wide count for the coordinator. */
+    /** Private — store-wide count for the coordinator. */
     countStoreWide(): number {
         const db = this.getDb();
         const row = db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number };
         return row.n;
     }
 
-    /** @internal — last row for append chain linking. */
+    /** Private — last row for append chain linking. */
     lastRowStoreWide(): Row | undefined {
         const db = this.getDb();
         return db.prepare('SELECT * FROM events ORDER BY seq DESC LIMIT 1').get() as unknown as Row | undefined;
@@ -1376,6 +1400,19 @@ export interface FeatureRuntimeConfig {
     extendedAppendable?: readonly string[];
 }
 
+/**
+ * Optional legacy signing context for migration. When a legacy
+ * `company.db` exists, the substrate needs a signing context to
+ * cryptographically verify legacy rows during migration. Company
+ * supplies its own; Compiler-first stores can set it separately.
+ */
+export interface LegacySigningConfig {
+    /** Signing context for verifying legacy company.db rows. */
+    signing: SigningContext;
+    /** Keys directory for legacy row actors. */
+    keysDir: string;
+}
+
 // ── Module-owned feature namespace constants (C5) ──────────────────
 // These define the immutable identity of each approved feature. No
 // caller can override them — the factories merge them with the runtime
@@ -1424,13 +1461,13 @@ const COMPILER_NAMESPACE = {
 };
 
 /**
- * Create the Company feature capability on `store` (C5). Locks the
- * featureId to `'company'` AND the namespace (kinds, authority, DDL)
+ * Internal helper: register the Company feature on a store (C5). Locks
+ * the featureId to `'company'` AND the namespace (kinds, authority, DDL)
  * to module-owned constants. The caller supplies only runtime fields
  * (signing, keysDir, validator, busEmit, appendable kinds) and CANNOT
  * override the namespace.
  */
-export function createCompanyFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
+function createCompanyFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
     return store.registerFeature({
         featureId: 'company',
         kinds: COMPANY_NAMESPACE.kinds,
@@ -1446,10 +1483,11 @@ export function createCompanyFeature(store: SystemStore, config: FeatureRuntimeC
 }
 
 /**
- * Create the Compiler feature capability on `store` (C5). Locks the
- * featureId to `'compiler'` and the namespace to module-owned constants.
+ * Internal helper: register the Compiler feature on a store (C5). Locks
+ * the featureId to `'compiler'` and the namespace to module-owned
+ * constants.
  */
-export function createCompilerFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
+function createCompilerFeature(store: SystemStore, config: FeatureRuntimeConfig): FeatureCapability {
     return store.registerFeature({
         featureId: 'compiler',
         kinds: COMPILER_NAMESPACE.kinds,
@@ -1464,11 +1502,59 @@ export function createCompilerFeature(store: SystemStore, config: FeatureRuntime
     }, REGISTRATION_TOKEN);
 }
 
-// `createCoordinator` is intentionally NOT exported. The coordinator
-// capability (store-wide reads/verification) is an internal surface
-// used by the capability impls that delegate to SystemStore's @internal
-// methods. Ordinary callers — including feature cap holders — cannot
-// acquire it (C5). Tests that need store-wide reads use SystemStore's
-// @internal methods (readAllStoreWide, countStoreWide,
-// verifyChainStoreWide) directly, which are reachable only within the
-// module's own test surface.
+/**
+ * Open the Company feature on the system log at `titanHome` (C5). This
+ * is the sole public entry point for acquiring a Company append/read
+ * capability. The caller never receives a `SystemStore` reference — the
+ * store coordinator is created internally, legacy signing is registered
+ * if provided, and the returned capability is the only handle.
+ *
+ * The featureId and namespace (kinds, authority, DDL) are locked to
+ * module-owned constants; the caller supplies only runtime fields.
+ *
+ * @param titanHome  $TITAN_HOME directory.
+ * @param config     Runtime-only configuration (signing, keys, validator,
+ *   bus emit, appendable kinds).
+ * @param legacy     Optional legacy signing context for migrating a
+ *   pre-refactor `company.db`. Company typically passes its own signing
+ *   context + keysDir.
+ */
+export function openCompanyFeature(
+    titanHome: string,
+    config: FeatureRuntimeConfig,
+    legacy?: LegacySigningConfig,
+): FeatureCapability {
+    const store = new SystemStore(titanHome);
+    if (legacy) store.setLegacySigning(legacy.signing, legacy.keysDir);
+    return createCompanyFeature(store, config);
+}
+
+/**
+ * Open the Compiler feature on the system log at `titanHome` (C5). This
+ * is the sole public entry point for acquiring a Compiler append/read
+ * capability. The caller never receives a `SystemStore` reference.
+ *
+ * @param titanHome  $TITAN_HOME directory.
+ * @param config     Runtime-only configuration.
+ * @param legacy     Optional legacy signing context (required if a legacy
+ *   `company.db` exists and Company has not yet registered, so migration
+ *   can verify legacy rows).
+ */
+export function openCompilerFeature(
+    titanHome: string,
+    config: FeatureRuntimeConfig,
+    legacy?: LegacySigningConfig,
+): FeatureCapability {
+    const store = new SystemStore(titanHome);
+    if (legacy) store.setLegacySigning(legacy.signing, legacy.keysDir);
+    return createCompilerFeature(store, config);
+}
+
+// `SystemStore`, `createCoordinator`, `CoordinatorCapability`,
+// `FeatureRegistration`, and `RegistrationToken` are intentionally NOT
+// exported. The coordinator capability (store-wide reads/verification)
+// is an internal surface used by the capability impls that delegate to
+// SystemStore's private methods. Ordinary callers — including feature
+// cap holders — cannot acquire it or even reference the store type (C5).
+// The sole public entry points are openCompanyFeature / openCompilerFeature,
+// which create the store internally and return only a FeatureCapability.
