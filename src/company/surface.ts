@@ -154,6 +154,20 @@ export function queueView(events: readonly CompanyEvent[], now: number): QueueFo
             view.stateSince = blockEvent?.ts ?? view.stateSince;
             return view;
         }
+        const asHeld = (holdRef: string, hold: { setter: string }): QueueSlotView => {
+            view.state = 'held';
+            const holdEvent = byId.get(holdRef);
+            view.hold = { holdRef, setter: hold.setter, reason: holdEvent ? payloadStr(holdEvent, 'reason') : '', at: holdEvent?.ts ?? 0 };
+            view.stateSince = holdEvent?.ts ?? view.stateSince;
+            return view;
+        };
+        // TASK-SCOPED hold outranks running/reviewing (round-3 review
+        // 5be8ad8f): hold.set(scope=taskRef) is legal mid-attempt and the
+        // user must see the provenance and the Lift Hold control — while
+        // laneBusy/laneOwner stay fold-derived below, so a running task
+        // displayed Held still occupies the lane.
+        const taskHold = [...fold.activeHolds.entries()].find(([, h]) => h.scope === t.taskRef);
+        if (taskHold) return asHeld(taskHold[0], taskHold[1]);
         // Lane truth comes from the AUTHORITATIVE fold, never re-derived
         // (patch-5 review 8e7ad98b #1): 'running' is exactly
         // fold.runningTask — at most one slot, by construction.
@@ -171,18 +185,9 @@ export function queueView(events: readonly CompanyEvent[], now: number): QueueFo
             view.stateSince = lastLifecycle?.ts ?? view.stateSince;
             return view;
         }
-        // Dispatch-waiting from here on. Holds gate dispatch (v5 §1):
-        // a task-scope or queue-scope hold renders the waiting slot held.
-        const [holdRef, hold] = [...fold.activeHolds.entries()].find(([, h]) => h.scope === t.taskRef)
-            ?? queueHolds[0]
-            ?? [];
-        if (holdRef && hold) {
-            view.state = 'held';
-            const holdEvent = byId.get(holdRef);
-            view.hold = { holdRef, setter: hold.setter, reason: holdEvent ? payloadStr(holdEvent, 'reason') : '', at: holdEvent?.ts ?? 0 };
-            view.stateSince = holdEvent?.ts ?? view.stateSince;
-            return view;
-        }
+        // Dispatch-waiting from here on: a QUEUE-scoped hold gates
+        // dispatch (v5 §1) and renders the waiting slot held.
+        if (queueHolds[0]) return asHeld(queueHolds[0][0], queueHolds[0][1]);
         // queued — a retry re-queues; date the state from the retry.
         view.stateSince = retry?.ts ?? view.stateSince;
         return view;

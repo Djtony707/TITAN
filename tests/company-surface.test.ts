@@ -100,6 +100,33 @@ describe('queueView — slot states, counts, commitments', () => {
         s.log.close();
     });
 
+    it('TASK-SCOPED hold outranks running/reviewing (review 5be8ad8f): provenance + lane truth stay independent', () => {
+        const s = scenario();
+        // (a) hold on the CURRENT RUNNING task: displayed Held with lift
+        // metadata, while the fold-derived lane stays busy with the owner.
+        const d1 = delegate(s, 'scout', 'held mid-attempt');
+        s.log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d1.id, attempt: 1 } }, s.scout.privateKey);
+        const h1 = s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: d1.id, reason: 'mid-attempt audit' } }, s.watchman.privateKey);
+        const v = queueView(s.log.readAll(), h1.ts + 1);
+        expect(v.slots[0].state).toBe('held');
+        expect(v.slots[0].hold).toMatchObject({ holdRef: h1.id, setter: 'watchman', reason: 'mid-attempt audit' });
+        expect(v).toMatchObject({ heldCount: 1, runningCount: 0, laneBusy: true, laneOwner: 'Scout' });
+        // (b) hold on a RESULT/CHECK-PENDING task: Held, lane free;
+        // lifting restores Reviewing.
+        s.log.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef: h1.id } }, s.user.privateKey);
+        s.log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: d1.id, attempt: 1, content: 'ok', success: true } }, s.scout.privateKey);
+        const h2 = s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: d1.id, reason: 'verdict pause' } }, s.watchman.privateKey);
+        const v2 = queueView(s.log.readAll(), h2.ts + 1);
+        expect(v2.slots[0].state).toBe('held');
+        expect(v2.slots[0].hold).toMatchObject({ holdRef: h2.id, setter: 'watchman', reason: 'verdict pause' });
+        expect(v2).toMatchObject({ laneBusy: false, runningCount: 0 });
+        s.log.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef: h2.id } }, s.user.privateKey);
+        const v3 = queueView(s.log.readAll(), h2.ts + 2);
+        expect(v3.slots[0].state).toBe('reviewing');
+        expect(v3.reviewingCount).toBe(1);
+        s.log.close();
+    });
+
     it('queue-scope hold renders queued slots held (not the in-flight one); discard maps to discarded', () => {
         const s = scenario();
         const d1 = delegate(s, 'scout', 'running one');
