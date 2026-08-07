@@ -70,15 +70,18 @@ interface RegistryFile {
     version: 1;
     updatedAt: string;
     entries: Record<string, RegistryEntry>;
+    /** Persisted shadow comparison records (Honey blocker 3 final form). */
+    comparisons?: ShadowComparisonRecord[];
 }
 
-// ── Equivalence (Honey blocker 3) ─────────────────────────────────────────
+// ── Equivalence (Honey blocker 3 — closed comparator registry) ───────────
 
 /**
  * The output of one side of a shadow comparison. The registry is given both
  * sides and computes the equivalence verdict itself — the caller cannot pass
- * a bare boolean. `recipe` is the compiled recipe's replay output; `frontier`
- * is what the frontier model produced for the same request.
+ * a bare boolean OR an injected comparator. `recipe` is the compiled recipe's
+ * replay output; `frontier` is what the frontier model produced for the same
+ * request.
  */
 export interface ShadowRunOutput {
     /** The replayed tool outputs from the compiled recipe (zero model calls). */
@@ -88,30 +91,72 @@ export interface ShadowRunOutput {
 }
 
 /**
- * Equivalence comparator: decides whether the recipe replay and the frontier
- * run are semantically equivalent for promotion-gate purposes. The registry
- * calls this; the caller of `recordShadowComparison` supplies the run data,
- * NOT the verdict. A default comparator is provided (structural equality of
- * the rendered outputs) but production should inject a stricter one
- * (semantic / canonicalized comparison) — the point is that the gate's
- * truth is computed, not asserted.
+ * Internal comparator type. NOT exported through the promotion API — callers
+ * cannot inject this. The registry selects a comparator from a closed registry
+ * (COMPARATOR_REGISTRY) by id; the selected comparator's id and version are
+ * persisted on every ShadowComparisonRecord so the evidence trail identifies
+ * which trusted comparator generated each verdict.
  */
-export type EquivalenceComparator = (runs: ShadowRunOutput) => boolean;
+type EquivalenceComparator = (runs: ShadowRunOutput) => boolean;
+
+/** Metadata for a registered comparator. */
+interface ComparatorEntry {
+    id: string;
+    version: number;
+    fn: EquivalenceComparator;
+}
 
 /**
- * Default comparator: structural equality. Renders both sides to a flat
- * content string and compares. Strict and dumb on purpose — it is the
- * fallback, not the recommendation. Production wires a real semantic
- * comparator; this one exists so the gate can be exercised end-to-end
- * without one and so tests have a deterministic default.
+ * Closed comparator registry. Comparators are registered here at module load;
+ * the public API references them by id only. Callers cannot add to this
+ * registry — it is a closed set. The default structural comparator is the
+ * only one registered now; production adds semantic comparators here, not
+ * via function parameters.
  */
-export const defaultEquivalenceComparator: EquivalenceComparator = (runs) => {
+const COMPARATOR_REGISTRY = new Map<string, ComparatorEntry>();
+const DEFAULT_COMPARATOR_ID = 'structural-v1';
+
+function registerComparator(id: string, version: number, fn: EquivalenceComparator): void {
+    COMPARATOR_REGISTRY.set(id, { id, version, fn });
+}
+
+/** Default comparator: structural equality. Renders both sides to a flat
+ *  content string and compares. Strict and dumb on purpose — it is the
+ *  fallback, not the recommendation. Production registers a real semantic
+ *  comparator; this one exists so the gate can be exercised end-to-end. */
+function structuralCompare(runs: ShadowRunOutput): boolean {
     const recipeSide = runs.recipe.map(r => r.content).join('\n');
     const frontierSide = typeof runs.frontier === 'string'
         ? runs.frontier
         : runs.frontier.map(r => r.content).join('\n');
     return recipeSide === frontierSide;
-};
+}
+
+registerComparator(DEFAULT_COMPARATOR_ID, 1, structuralCompare);
+
+/**
+ * A persisted record of one shadow comparison. The registry returns this
+ * instead of a bare boolean so the evidence trail identifies which trusted
+ * comparator generated the verdict, at which epoch, and with what output
+ * hashes. Activation counts unique records for the current epoch.
+ */
+export interface ShadowComparisonRecord {
+    recipeId: string;
+    shadowEpoch: number;
+    comparisonId: string;
+    equivalent: boolean;
+    comparatorId: string;
+    comparatorVersion: number;
+    recipeOutputHash: string;
+    frontierOutputHash: string;
+    createdAt: string;
+}
+
+/** Simple deterministic hash for evidence records (not cryptographic). */
+function hashOutput(output: ShadowRunOutput['recipe'] | ShadowRunOutput['frontier']): string {
+    if (typeof output === 'string') return `s:${output.length}:${output.slice(0, 64)}`;
+    return 'a:' + output.map(r => `${r.name}:${r.content.length}:${r.content.slice(0, 64)}`).join('|');
+}
 
 // ── Storage path (mirrors traceStore.ts) ─────────────────────────────────
 
@@ -359,39 +404,85 @@ export function retire(id: string, reason: string): RegistryEntry {
 }
 
 /**
- * Record one shadow comparison. Honey blocker 3 fix: equivalence is
- * COMPUTED from the compared runs, not accepted as a caller-supplied
- * boolean. The caller supplies `runs` (the recipe replay output and the
- * frontier output for the same request); the registry invokes
- * `comparator` (defaulting to `defaultEquivalenceComparator`) to decide
- * whether they are equivalent. A caller that wants to satisfy the gate
- * must supply real run data that the comparator agrees is equivalent —
- * there is no `equivalent: true` argument to pass.
+ * Record one shadow comparison. Honey blocker 3 fix (final form): the public
+ * API accepts epoch-bound structured evidence and returns a persisted
+ * ShadowComparisonRecord. Equivalence is computed by an internal comparator
+ * selected from a closed registry — there is NO public comparator parameter.
+ * A caller cannot inject `() => true` because the function signature does not
+ * accept a comparator. The verdict is computed, persisted with identity
+ * metadata (comparator id/version, output hashes), and only then increments
+ * derived counters.
  *
  * Gated by `selfCompiling.promote` (Stage 4): shadow comparisons are part
  * of the promotion flow; when the gate is off the comparison is refused
  * and the counters do not advance.
+ *
+ * Validation:
+ *   - Rejects stale epochs (comparisonEpoch must match the recipe's current
+ *     shadowEpoch).
+ *   - Rejects duplicate comparisonIds.
+ *   - Rejects missing/malformed outputs (empty recipe array, empty frontier).
  */
 export function recordShadowComparison(
     id: string,
-    runs: ShadowRunOutput,
-    options?: {
-        comparator?: EquivalenceComparator;
-        configOverride?: TitanConfig;
+    evidence: {
+        /** The recipe's current shadowEpoch — must match the registry's view. */
+        epoch: number;
+        /** Unique identifier for this comparison (caller-generated, must be unique). */
+        comparisonId: string;
+        /** The recipe's replay output. Must be non-empty. */
+        recipe: Array<{ name: string; content: string }>;
+        /** The frontier model's output for the same request. Must be non-empty. */
+        frontier: Array<{ name: string; content: string }> | string;
     },
-): boolean {
+    options?: { configOverride?: TitanConfig },
+): ShadowComparisonRecord {
     if (options?.configOverride && !shouldPromote(options.configOverride)) {
         throw new Error(`RecipeRegistry: promote gate refused shadow comparison for ${id} — selfCompiling.promote is off`);
     }
-    const comparator = options?.comparator ?? defaultEquivalenceComparator;
-    const equivalent = comparator(runs);
+    // Validate evidence shape.
+    if (!evidence.recipe || evidence.recipe.length === 0) {
+        throw new Error(`RecipeRegistry: shadow comparison ${evidence.comparisonId} rejected — empty recipe output`);
+    }
+    if (evidence.frontier === '' || (Array.isArray(evidence.frontier) && evidence.frontier.length === 0)) {
+        throw new Error(`RecipeRegistry: shadow comparison ${evidence.comparisonId} rejected — empty frontier output`);
+    }
     const reg = load();
     const entry = reg.entries[id];
-    if (!entry) return equivalent;
+    if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
+    // Stale epoch check: the comparison must be for the current shadow epoch.
+    if (evidence.epoch !== entry.recipe.stats.shadowEpoch) {
+        throw new Error(
+            `RecipeRegistry: shadow comparison ${evidence.comparisonId} rejected — stale epoch ${evidence.epoch} (current: ${entry.recipe.stats.shadowEpoch})`,
+        );
+    }
+    // Duplicate comparisonId check.
+    if (!reg.comparisons) reg.comparisons = [];
+    if (reg.comparisons.some(r => r.comparisonId === evidence.comparisonId)) {
+        throw new Error(`RecipeRegistry: shadow comparison ${evidence.comparisonId} rejected — duplicate comparisonId`);
+    }
+    // Select comparator from closed registry (internal, not caller-injected).
+    const comparatorEntry = COMPARATOR_REGISTRY.get(DEFAULT_COMPARATOR_ID)!;
+    const runs: ShadowRunOutput = { recipe: evidence.recipe, frontier: evidence.frontier };
+    const equivalent = comparatorEntry.fn(runs);
+    // Build the persisted record.
+    const record: ShadowComparisonRecord = {
+        recipeId: id,
+        shadowEpoch: evidence.epoch,
+        comparisonId: evidence.comparisonId,
+        equivalent,
+        comparatorId: comparatorEntry.id,
+        comparatorVersion: comparatorEntry.version,
+        recipeOutputHash: hashOutput(evidence.recipe),
+        frontierOutputHash: hashOutput(evidence.frontier),
+        createdAt: new Date().toISOString(),
+    };
+    // Persist the record BEFORE incrementing derived counters.
+    reg.comparisons.push(record);
     entry.recipe.stats.shadowComparisons++;
     if (equivalent) entry.recipe.stats.shadowSuccesses++;
     save(reg);
-    return equivalent;
+    return record;
 }
 
 /**
