@@ -2311,7 +2311,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── v8 Company Room API (Slice 1) ──────────────────────────────
   // Guarded by company.enabled flag — 404s when off (byte-identical v7).
   // Distinct from the v7 /api/companies router above.
-  app.use('/api/company', createCompanyRouter());
+  // v8 company layer: mount NOTHING when disabled — unmatched /api/company
+  // requests then take Express's normal v7 fall-through path (re-review fix,
+  // event cb5b802d). The router keeps its own internal guard as defense in depth.
+  if (loadConfig().company?.enabled) {
+    app.use('/api/company', createCompanyRouter());
+  }
 
   // ── Command Post API (Agent Governance) ───────────────────
   app.use('/api/command-post', createCommandPostRouter());

@@ -128,6 +128,8 @@ export class CompanyLog {
                 payload TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company
+                ON events(kind) WHERE kind = 'company.created';
             CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
         `);
     }
@@ -180,7 +182,7 @@ export class CompanyLog {
         // Guarded publish on the SHARED emitter (substrate emit swallows
         // subscriber exceptions): persistence is already committed and must
         // never appear failed because a listener threw.
-        busEmit('company:event', event as never);
+        busEmit('company:event', event);
         return event;
     }
 

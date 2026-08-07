@@ -48,8 +48,8 @@ function dayLabel(ts: number): string {
 /** Resolve an actor id to a display name + role from the crew list */
 function actorInfo(actor: string, agents: CompanyAgent[]): { name: string; role: string; isUser: boolean } {
   if (actor === 'user') return { name: 'You', role: 'Owner', isUser: true };
-  const agent = agents.find(a => a.id === actor);
-  if (agent) return { name: agent.name, role: agent.role, isUser: false };
+  const agent = agents.find(a => a.agentId === actor);
+  if (agent) return { name: agent.displayName, role: agent.role, isUser: false };
   // Fall back to short hex if we don't have a name yet
   return { name: actor.slice(0, 8) + '…', role: 'Agent', isUser: false };
 }
@@ -138,8 +138,8 @@ function TaskCard({ event, agents }: { event: CompanyEvent; agents: CompanyAgent
   const { name, role, isUser } = actorInfo(event.actor, agents);
 
   if (event.kind === 'task.delegated') {
-    const toAgent = agents.find(a => a.id === event.payload.to);
-    const toName = toAgent?.name || (event.payload.to as string || '').slice(0, 8) + '…';
+    const toAgent = agents.find(a => a.agentId === event.payload.to);
+    const toName = toAgent?.displayName || (event.payload.to as string || '').slice(0, 8) + '…';
     const spec = (event.payload.spec as string) || '';
     return (
       <div className="flex gap-3 py-2 px-4">
@@ -286,7 +286,11 @@ export function CompanyRoom() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // ── SSE: live room events ───────────────────────────────────
+  // ── SSE: live room events with gap-free recovery ────────────
+  // On open (and on reconnect), perform a catch-up read from lastSeq
+  // to fill any events that arrived in the gap between the initial
+  // fetch and the SSE subscription, or during a reconnect. Dedupe by
+  // event id/seq so catch-up and live events never double-append.
   useEffect(() => {
     if (error || !status?.exists) return;
     const token = localStorage.getItem('titan-token');
@@ -294,21 +298,57 @@ export function CompanyRoom() {
     const es = new EventSource(url);
     let retries = 0;
 
+    // Catch-up: fetch all events after our last known seq, merge them
+    // in order, then update lastSeq. Called on open and on reconnect.
+    const catchUp = async () => {
+      try {
+        const after = lastSeqRef.current;
+        const page = await getCompanyRoom(after, 500);
+        if (page.events.length > 0) {
+          setEvents(prev => {
+            // Dedupe by event id — catch-up may overlap with live events
+            // that already arrived via SSE.
+            const seen = new Set(prev.map(e => e.id));
+            const fresh = page.events.filter(e => !seen.has(e.id));
+            return fresh.length > 0 ? [...prev, ...fresh] : prev;
+          });
+          // Advance lastSeq to the highest seq we've seen
+          const maxSeq = page.events.reduce((m, e) => Math.max(m, e.seq), after);
+          lastSeqRef.current = Math.max(lastSeqRef.current, maxSeq);
+        }
+      } catch { /* catch-up failure is non-fatal — live events still work */ }
+    };
+
+    es.onopen = () => {
+      retries = 0;
+      // Gap-free recovery: catch up on anything missed before the
+      // SSE connection was established or during a reconnect.
+      catchUp();
+    };
+
     es.addEventListener('company:event', (e) => {
       retries = 0;
       try {
         const evt = JSON.parse(e.data) as CompanyEvent;
-        // Only append events we haven't seen (by seq)
+        // Only append events we haven't seen (by seq + id for dedup)
         if (evt.seq > lastSeqRef.current) {
           lastSeqRef.current = evt.seq;
-          setEvents(prev => [...prev, evt]);
+          setEvents(prev => {
+            // Dedupe by id in case catch-up already added it
+            if (prev.some(e => e.id === evt.id)) return prev;
+            return [...prev, evt];
+          });
         }
       } catch { /* malformed event */ }
     });
 
     es.onerror = () => {
       retries++;
-      if (retries > 5) es.close();
+      if (retries > 5) {
+        es.close();
+      }
+      // EventSource auto-reconnects; onopen fires again on reconnect,
+      // which triggers catchUp() to fill the gap.
     };
 
     return () => es.close();
@@ -453,7 +493,7 @@ export function CompanyRoom() {
               >
                 <option value="">Select agent…</option>
                 {agents.map(a => (
-                  <option key={a.id} value={a.id}>{a.name} ({a.role})</option>
+                  <option key={a.agentId} value={a.agentId}>{a.displayName} ({a.role})</option>
                 ))}
               </select>
               <input

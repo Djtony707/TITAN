@@ -147,6 +147,7 @@ export interface CompanyEventPayload {
     ts: number;
     actor: string;
     sig: string;
+    prevHash: string;
     payload: Record<string, unknown>;
 }
 

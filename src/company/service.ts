@@ -17,7 +17,9 @@ import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { assertCompanyRuntime } from './compat.js';
 import { mintCompany, STARTER_CREW, type MintedCompany } from './crew.js';
-import { loadAgentKeys } from './keys.js';
+import { loadAgentKeys, assertValidAgentId } from './keys.js';
+import { LIMITS, assertLen } from './wire.js';
+import { CompanyDispatch, productionRunner, productionReviewer } from './dispatch.js';
 import type { CompanyLog, CompanyEvent } from './log.js';
 import logger from '../utils/logger.js';
 
@@ -26,6 +28,7 @@ const COMPONENT = 'CompanyService';
 interface State {
     log: CompanyLog;
     keysDir: string;
+    dispatch: CompanyDispatch;
 }
 
 let state: State | null = null;
@@ -36,7 +39,8 @@ async function ensure(): Promise<State> {
         const { CompanyLog } = await import('./log.js');
         const root = join(TITAN_HOME, 'company');
         const keysDir = join(root, 'keys');
-        state = { log: new CompanyLog(join(root, 'company.db'), keysDir), keysDir };
+        const log = new CompanyLog(join(root, 'company.db'), keysDir);
+        state = { log, keysDir, dispatch: new CompanyDispatch(log, keysDir, productionRunner, productionReviewer) };
         logger.info(COMPONENT, `Company log open at ${join(root, 'company.db')}`);
     }
     return state;
@@ -73,10 +77,19 @@ export async function getCompanyStatus(): Promise<CompanyStatus> {
 /** POST /api/company — idempotent: slice 1 supports exactly one company. */
 export async function createCompany(opts: { name: string; mission?: string }): Promise<CompanyStatus> {
     const { log, keysDir } = await ensure();
+    assertLen(opts.name, LIMITS.companyName, 'company name');
+    if (opts.mission) assertLen(opts.mission, LIMITS.mission, 'mission');
     const existing = await getCompanyStatus();
     if (existing.exists) return existing;
-    const minted: MintedCompany = mintCompany(log, keysDir, opts);
-    logger.info(COMPONENT, `Company "${minted.name}" minted with ${minted.agents.length} agents`);
+    try {
+        const minted: MintedCompany = mintCompany(log, keysDir, opts);
+        logger.info(COMPONENT, `Company "${minted.name}" minted with ${minted.agents.length} agents`);
+    } catch (err) {
+        // Transactional idempotency: the log's unique one-company index makes
+        // a concurrent double-create lose here — converge on the winner.
+        if (!/UNIQUE|idx_one_company/i.test(err instanceof Error ? err.message : '')) throw err;
+        logger.info(COMPONENT, 'Concurrent company creation detected — returning the existing company');
+    }
     return getCompanyStatus();
 }
 
@@ -89,6 +102,8 @@ export async function getRoomEvents(opts: { after?: number; limit?: number }): P
 /** POST /api/company/room — the human speaks in the room, as themselves. */
 export async function postUserMessage(text: string, replyTo?: string): Promise<CompanyEvent> {
     const { log, keysDir } = await ensure();
+    assertLen(text, LIMITS.roomText, 'message text');
+    if (replyTo) assertLen(replyTo, LIMITS.replyTo, 'replyTo');
     if (!(await getCompanyStatus()).exists) throw new Error('No company exists yet — create one first');
     const user = loadAgentKeys('user', keysDir);
     return log.append(
@@ -100,19 +115,26 @@ export async function postUserMessage(text: string, replyTo?: string): Promise<C
 /** POST /api/company/delegate — user-initiated delegation (user outranks CEO on their machine). */
 export async function delegateTask(opts: { from: string; to: string; spec: string }): Promise<CompanyEvent> {
     const { log, keysDir } = await ensure();
+    assertValidAgentId(opts.to);
+    assertLen(opts.spec, LIMITS.taskSpec, 'task spec');
     const status = await getCompanyStatus();
     if (!status.exists) throw new Error('No company exists yet — create one first');
     if (!status.agents.some(a => a.agentId === opts.to)) {
         throw new Error(`No such agent "${opts.to}" — crew: ${status.agents.map(a => a.agentId).join(', ')}`);
     }
     const user = loadAgentKeys('user', keysDir);
-    // Slice 1: gateway delegations are user acts. CEO-signed delegation
-    // arrives with the dispatch loop (next patch), which will also run the
-    // delegated agent and append task.result / task.checked.
-    return log.append(
+    // Gateway delegations are user acts (the user outranks the CEO locally).
+    const event = log.append(
         { kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: opts.to, spec: opts.spec } },
         user.privateKey,
     );
+    // Kick the dispatch loop: the delegated agent runs, its result lands as a
+    // task.result signed by that agent, and the CEO appends a task.checked.
+    // enqueue() is fire-and-forget SAFE — every failure path inside dispatch
+    // is contained (no unhandled rejections, the toolRunner telemetry lesson).
+    const charter = status.agents.find(a => a.agentId === opts.to)?.charter ?? '';
+    (await ensure()).dispatch.enqueue(event, charter);
+    return event;
 }
 
 export { STARTER_CREW };

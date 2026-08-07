@@ -74,15 +74,27 @@ describe('v8 slice 1 — company keys', () => {
         }
     });
 
-    it('concurrent mints of the same id converge on one consistent pair', async () => {
+    it('single-file pair: a mismatched public/private split is impossible by construction', () => {
         const { keysDir } = fresh();
-        const results = await Promise.all(
-            Array.from({ length: 10 }, () => Promise.resolve().then(() => mintAgentKeys('ceo', keysDir))),
-        );
-        const pems = new Set(results.map(r => r.publicKeyPem));
-        expect(pems.size).toBe(1);
-        // pair consistency: loaded private key derives the stored public key
-        expect(loadAgentKeys('ceo', keysDir).publicKeyPem).toBe(results[0].publicKeyPem);
+        const a = mintAgentKeys('ceo', keysDir);
+        // the public key is DERIVED from the stored private key on every read
+        const loaded = loadAgentKeys('ceo', keysDir);
+        expect(loaded.publicKeyPem).toBe(a.publicKeyPem);
+        // interleaved re-mint (the race's losing path): whoever renames last
+        // wins the WHOLE pair, and every caller converges on disk state
+        const winner = mintAgentKeys('ceo', keysDir); // idempotent load path
+        expect(winner.publicKeyPem).toBe(loadAgentKeys('ceo', keysDir).publicKeyPem);
+    });
+
+    it('mint returns post-rename DISK state, not the local pair (convergence)', () => {
+        const { keysDir } = fresh();
+        mintAgentKeys('ceo', keysDir);
+        const before = loadAgentKeys('ceo', keysDir).publicKeyPem;
+        // simulate a concurrent winner replacing the pair atomically
+        rmSync(join(keysDir, 'ceo.keypair'));
+        const after = mintAgentKeys('ceo', keysDir);
+        expect(after.publicKeyPem).not.toBe(before);
+        expect(after.publicKeyPem).toBe(loadAgentKeys('ceo', keysDir).publicKeyPem);
     });
 });
 

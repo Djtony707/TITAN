@@ -734,6 +734,9 @@ export interface OrgNode {
  * A single signed event in the v8 company append-only event log.
  * Kinds (Slice 1): company.created, agent.minted, room.message,
  * task.delegated, task.result, task.checked.
+ *
+ * Signature covers the canonical envelope: id | prevHash | kind | ts | actor | payload
+ * (per Fizz's chain binding — sha256 of prev sig+id, 'genesis' for first event).
  */
 export interface CompanyEvent {
   /** Total order sequence number (SQLite AUTOINCREMENT) */
@@ -746,19 +749,28 @@ export interface CompanyEvent {
   ts: number;
   /** agent id (pubkey hex) or 'user' */
   actor: string;
-  /** ed25519 signature over (kind|ts|actor|payload) */
+  /** ed25519 signature over canonical envelope (id | prevHash | kind | ts | actor | payload) */
   sig: string;
+  /** Hash of previous event (sha256 of prev sig+id), 'genesis' for first */
+  prevHash: string;
   /** JSON, kind-specific */
   payload: Record<string, unknown>;
 }
 
-/** Agent in the v8 company crew */
+/**
+ * Agent in the v8 company crew.
+ * Wire contract matches service.ts:getCompanyStatus exactly:
+ * { agentId, displayName, role, charter }.
+ */
 export interface CompanyAgent {
-  id: string;
-  name: string;
+  /** Agent pubkey hex — the identity key from mint */
+  agentId: string;
+  /** Human-readable name from the persona pack */
+  displayName: string;
+  /** Role in the company (CEO, Builder, Scout, etc.) */
   role: string;
-  persona?: string;
-  charter?: string;
+  /** Charter / system prompt from persona pack */
+  charter: string;
 }
 
 /** Company status response from GET /api/company */

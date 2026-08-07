@@ -16,7 +16,7 @@
  *   GET  /api/company/stream   → SSE (company:event from traceBus)
  *
  * The event log, signing, crew minting, and dispatch live in
- * src/company/log.ts, src/company/crew.ts, src/company/dispatch.ts
+ * src/company/service.ts, src/company/crew.ts, src/company/dispatch.ts
  * (Fizz's patches 1-4). This router is a thin transport layer: it
  * validates input, delegates to those modules, and serializes events.
  *
@@ -75,6 +75,17 @@ export function createCompanyRouter(): Router {
   // these modules — keeping the v7 boot path untouched.
   logger.info(COMPONENT, '✅ v8 Company layer is active — room surface mounted');
 
+  // ── Input validation constants (server-side security boundary) ──
+  // UI input attributes are NOT a security boundary — validate here.
+  const MAX_NAME_LEN = 200;        // company name
+  const MAX_MISSION_LEN = 2000;    // company mission
+  const MAX_TEXT_LEN = 10000;      // room message text
+  const MAX_SPEC_LEN = 5000;       // task delegation spec
+  const MAX_AGENT_ID_LEN = 128;    // agent pubkey hex (ed25519 = 64 hex)
+  const MAX_REPLYTO_LEN = 64;      // event uuid
+  const MIN_LIMIT = 1;
+  const MAX_LIMIT = 500;
+
   // ── GET / — company status ───────────────────────────────────────
   router.get('/', async (_req, res) => {
     try {
@@ -91,10 +102,13 @@ export function createCompanyRouter(): Router {
   router.post('/', async (req, res) => {
     try {
       const { createCompany } = await import('../../company/service.js');
+      const { name, mission } = req.body as { name?: string; mission?: string };
+      // Validate and clamp inputs
+      const safeName = (name || 'Titan Company').slice(0, MAX_NAME_LEN);
+      const safeMission = mission ? mission.slice(0, MAX_MISSION_LEN) : undefined;
       // Idempotent: if a company already exists, return it.
       // Slice 1 supports exactly one company.
-      const { name, mission } = req.body as { name?: string; mission?: string };
-      const company = await createCompany({ name: name || 'Titan Company', mission });
+      const company = await createCompany({ name: safeName, mission: safeMission });
       res.json(company);
     } catch (e) {
       logger.error(COMPONENT, `Create error: ${(e as Error).message}`);
@@ -106,8 +120,19 @@ export function createCompanyRouter(): Router {
   router.get('/room', async (req, res) => {
     try {
       const { getRoomEvents } = await import('../../company/service.js');
-      const after = parseInt(req.query.after as string || '0', 10);
-      const limit = Math.min(parseInt(req.query.limit as string || '100', 10), 500);
+      // Validate pagination params — NaN or out-of-range → 400
+      const afterRaw = parseInt(req.query.after as string || '0', 10);
+      const limitRaw = parseInt(req.query.limit as string || '100', 10);
+      if (!Number.isFinite(afterRaw) || afterRaw < 0) {
+        res.status(400).json({ error: 'after must be a non-negative integer' });
+        return;
+      }
+      if (!Number.isFinite(limitRaw) || limitRaw < 1) {
+        res.status(400).json({ error: 'limit must be a positive integer' });
+        return;
+      }
+      const after = afterRaw;
+      const limit = Math.min(Math.max(limitRaw, MIN_LIMIT), MAX_LIMIT);
       const events = await getRoomEvents({ after, limit });
       res.json({ events, after, limit });
     } catch (e) {
@@ -125,7 +150,17 @@ export function createCompanyRouter(): Router {
         res.status(400).json({ error: 'Message text is required' });
         return;
       }
-      const event = await postUserMessage(text.trim(), replyTo);
+      if (text.length > MAX_TEXT_LEN) {
+        res.status(400).json({ error: `Message text exceeds ${MAX_TEXT_LEN} characters` });
+        return;
+      }
+      if (replyTo !== undefined && replyTo !== null) {
+        if (typeof replyTo !== 'string' || replyTo.length > MAX_REPLYTO_LEN) {
+          res.status(400).json({ error: `replyTo must be a string of at most ${MAX_REPLYTO_LEN} characters` });
+          return;
+        }
+      }
+      const event = await postUserMessage(text.trim(), replyTo || undefined);
       res.json(event);
     } catch (e) {
       logger.error(COMPONENT, `Room post error: ${(e as Error).message}`);
@@ -142,8 +177,16 @@ export function createCompanyRouter(): Router {
         res.status(400).json({ error: 'agentId is required' });
         return;
       }
+      if (agentId.length > MAX_AGENT_ID_LEN) {
+        res.status(400).json({ error: `agentId exceeds ${MAX_AGENT_ID_LEN} characters` });
+        return;
+      }
       if (!spec || typeof spec !== 'string' || spec.trim().length === 0) {
         res.status(400).json({ error: 'Task spec is required' });
+        return;
+      }
+      if (spec.length > MAX_SPEC_LEN) {
+        res.status(400).json({ error: `Task spec exceeds ${MAX_SPEC_LEN} characters` });
         return;
       }
       // User-initiated delegation bypasses CEO authority (it's their machine).

@@ -1548,15 +1548,21 @@ export default function CommandPostHub() {
   const [activity, setActivity] = useState<CPActivityEntry[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<RegisteredAgent | null>(null);
+  const [companyEnabled, setCompanyEnabled] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [cpData, runsData] = await Promise.allSettled([
+      const [cpData, runsData, cfgRes] = await Promise.allSettled([
         getCommandPostDashboard(),
         getCPRuns(),
+        apiFetch('/api/config').then(r => r.json()),
       ]);
       if (cpData.status === 'fulfilled') { setDashboard(cpData.value); setActivity(cpData.value.recentActivity || []); }
       if (runsData.status === 'fulfilled') setRuns(runsData.value);
+      if (cfgRes.status === 'fulfilled') {
+        const cfg = cfgRes.value as { company?: { enabled?: boolean } };
+        setCompanyEnabled(Boolean(cfg.company?.enabled));
+      }
       setError(null);
     } catch (err) { setError((err as Error).message); }
     setLoading(false);
@@ -1599,7 +1605,9 @@ export default function CommandPostHub() {
   if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-warning" size={32} /><p className="text-sm text-text-secondary mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-bg-tertiary rounded-lg hover:bg-border text-text-secondary transition-colors">Retry</button></div></div>;
 
   const d = dashboard ?? { agents: [], totalAgents: 0, activeAgents: 0, activeCheckouts: 0, budgetUtilization: 0, recentActivity: [], checkouts: [], budgets: [], goalTree: [], companies: [] } as CommandPostDashboard;
-  const flatTabs = TAB_GROUPS.flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })));
+  const flatTabs = TAB_GROUPS
+    .flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })))
+    .filter(t => t.id !== 'Company' || companyEnabled);
 
   const TabContent = () => {
     switch (tab) {

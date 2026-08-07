@@ -5,15 +5,21 @@
  * ed25519 keypair. Every event appended to the company log is signed by
  * its actor's private key and verifiable against the stored public key.
  *
- * Storage: <keysDir>/<agentId>.key (private, PEM, mode 0600)
- *          <keysDir>/<agentId>.pub (public, PEM, mode 0644)
+ * Storage (re-review fix, event cb5b802d): the WHOLE PAIR lives in ONE
+ * file — <keysDir>/<agentId>.keypair (private PKCS8 PEM followed by
+ * public SPKI PEM, mode 0600). Minting writes a temp file and renames it
+ * into place. Because POSIX rename of a single file is atomic and the
+ * pair never travels separately, NO interleaving of concurrent mints can
+ * produce a mismatched pair: readers observe either a complete old pair
+ * or a complete new pair, and racing minters converge by re-loading the
+ * post-rename disk state (last complete pair wins; every caller returns
+ * exactly what is on disk).
  *
- * Security properties (static review, event 56c3dd16):
+ * Security properties:
  *  - EVERY exported filesystem entry point validates agentId (containment);
  *    validation is centralized in assertValidAgentId.
- *  - Minting is atomic: keys are written to temp files and renamed into
- *    place, so a crash or concurrent mint can never leave a mismatched
- *    pair visible. Concurrent mints of the same id converge on one pair.
+ *  - The public key is always DERIVED from the stored private key — a
+ *    tampered or stale public half cannot exist by construction.
  *
  * Node's built-in ed25519 (crypto.generateKeyPairSync) — zero dependencies.
  */
@@ -26,7 +32,7 @@ import {
     randomBytes,
     type KeyObject,
 } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import logger from '../utils/logger.js';
 
@@ -48,61 +54,53 @@ export interface AgentKeys {
     publicKey: KeyObject;
 }
 
-function paths(agentId: string, keysDir: string): { priv: string; pub: string } {
+function pairPath(agentId: string, keysDir: string): string {
     assertValidAgentId(agentId);
-    return { priv: join(keysDir, `${agentId}.key`), pub: join(keysDir, `${agentId}.pub`) };
+    return join(keysDir, `${agentId}.keypair`);
+}
+
+function readPair(agentId: string, file: string): AgentKeys {
+    const pem = readFileSync(file, 'utf-8');
+    const privateKey = createPrivateKey(pem); // parses the first (private) PEM block
+    const publicKey = createPublicKey(privateKey); // ALWAYS derived — no split-brain possible
+    const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+    return { agentId, publicKeyPem, privateKey, publicKey };
 }
 
 /**
- * Mint a new ed25519 keypair for an agent and persist it under keysDir.
- * Idempotent and concurrency-safe: if a pair already exists (or appears
- * concurrently), the existing pair is loaded. Writes are temp+rename so a
- * partially-written pair is never observable.
+ * Mint an ed25519 keypair for an agent. Idempotent and concurrency-safe:
+ * the pair is written as ONE temp file renamed into place (atomic), and
+ * the value RETURNED is always re-read from post-rename disk state, so
+ * every concurrent caller converges on the same final pair.
  */
 export function mintAgentKeys(agentId: string, keysDir: string): AgentKeys {
-    const { priv, pub } = paths(agentId, keysDir);
-    if (existsSync(priv)) return loadAgentKeys(agentId, keysDir);
+    const file = pairPath(agentId, keysDir);
+    if (existsSync(file)) return readPair(agentId, file);
 
     mkdirSync(keysDir, { recursive: true, mode: 0o700 });
     const { publicKey, privateKey } = generateKeyPairSync('ed25519');
     const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
     const pubPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
 
-    const nonce = randomBytes(6).toString('hex');
-    const privTmp = `${priv}.${nonce}.tmp`;
-    const pubTmp = `${pub}.${nonce}.tmp`;
-    writeFileSync(privTmp, privPem, { mode: 0o600 });
-    writeFileSync(pubTmp, pubPem, { mode: 0o644 });
-    // Public first, private last: the pair is "live" only once the private
-    // key lands, and a reader that sees .key always finds .pub.
-    renameSync(pubTmp, pub);
-    if (existsSync(priv)) {
-        // Lost a concurrent mint race — discard ours, converge on the winner.
-        rmSync(privTmp, { force: true });
-        return loadAgentKeys(agentId, keysDir);
-    }
-    renameSync(privTmp, priv);
+    const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+    writeFileSync(tmp, privPem + pubPem, { mode: 0o600 });
+    renameSync(tmp, file); // atomic: complete pair or nothing; last writer wins whole
     logger.info(COMPONENT, `Minted ed25519 identity for "${agentId}"`);
-    return { agentId, publicKeyPem: pubPem, privateKey, publicKey };
+    // Convergence: return DISK state, not our local pair — if another minter
+    // renamed after us, everyone still agrees with what verification reads.
+    return readPair(agentId, file);
 }
 
-/** Load an existing agent keypair from keysDir. Throws if absent. */
+/** Load an existing agent keypair. Throws if absent. */
 export function loadAgentKeys(agentId: string, keysDir: string): AgentKeys {
-    const { priv } = paths(agentId, keysDir);
-    const privPem = readFileSync(priv, 'utf-8');
-    const privateKey = createPrivateKey(privPem);
-    // Derive the public key from the private key — self-consistent even if
-    // the .pub file was tampered with or lost.
-    const publicKey = createPublicKey(privateKey);
-    const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
-    return { agentId, publicKeyPem, privateKey, publicKey };
+    return readPair(agentId, pairPath(agentId, keysDir));
 }
 
 /** Load only the public key (verification side). Null if the agent has no identity. */
 export function loadAgentPublicKey(agentId: string, keysDir: string): KeyObject | null {
-    const { pub } = paths(agentId, keysDir);
-    if (!existsSync(pub)) return null;
-    return createPublicKey(readFileSync(pub, 'utf-8'));
+    const file = pairPath(agentId, keysDir);
+    if (!existsSync(file)) return null;
+    return readPair(agentId, file).publicKey;
 }
 
 /** Compare two public keys for identity (DER bytes). */
