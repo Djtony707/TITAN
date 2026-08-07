@@ -132,7 +132,7 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         // blocked gate on a second task
         const d2 = delegate(s);
         start(s, d2.id, 1);
-        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled' } }, s.watchman.privateKey);
+        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         result(s, d2.id, 1); // late result records (v5 §4)
         expect(() => s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: d2.id, verdict: 'accepted', attempt: 1 } }, s.ceo.privateKey)).toThrow(/E_BLOCKED/);
         // user clears, then check proceeds
@@ -163,7 +163,7 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
 
         // (1) FORGED ref
         const dA = delegate(s); start(s, dA.id, 1);
-        const blkA = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dA.id, reason: 'stalled' } }, s.watchman.privateKey);
+        const blkA = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dA.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         expect(() => clear(blkA.id, 'no-such-event')).toThrow(/E_EVIDENCE.*requires evidenceRef|E_EVIDENCE/);
 
         // (2) WRONG KIND: cite the block event itself (right task, not a result)
@@ -178,12 +178,15 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         const resB = s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: dB.id, attempt: 1, content: 'x', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
         expect(() => clear(blkA.id, resB.id)).toThrow(/evidence taskRef mismatch/);
 
-        // (4) PRE-BLOCK evidence: new task, result lands BEFORE the block
+        // (4) PRE-BLOCK evidence is now structurally unreachable: the patch-4
+        // append boundary (E_STALE_STALL) refuses a stalled block once the
+        // attempt has resulted, so no validated stalled block can ever have
+        // same-attempt pre-block evidence. Assert the boundary; the predates
+        // check survives as defense in depth (slice-1-history test below).
         const dC = delegate(s); start(s, dC.id, 1);
-        const preRes = result(s, dC.id, 1);
-        const blkC = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dC.id, reason: 'stalled' } }, s.watchman.privateKey);
-        expect(() => clear(blkC.id, preRes.id)).toThrow(/evidence predates the block/);
-        s.log.append({ kind: 'task.unblocked', actor: 'user', payload: { blockRef: blkC.id } }, s.user.privateKey);
+        result(s, dC.id, 1);
+        expect(() => s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dC.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey))
+            .toThrow(/E_STALE_STALL/);
         s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: dC.id, verdict: 'accepted', attempt: 1 } }, s.ceo.privateKey);
 
         // (5) WRONG ATTEMPT: task reaches attempt 2, blocked, cite the attempt-1 result
@@ -191,7 +194,7 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         const res1 = result(s, dD.id, 1);
         s.log.append({ kind: 'task.retry', actor: 'user', payload: { taskRef: dD.id, attempt: 2, reason: 'failure-retry' } }, s.user.privateKey);
         start(s, dD.id, 2);
-        const blkD = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dD.id, reason: 'stalled' } }, s.watchman.privateKey);
+        const blkD = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dD.id, reason: 'stalled', attempt: 2 } }, s.watchman.privateKey);
         expect(() => clear(blkD.id, res1.id)).toThrow(/not the current attempt/);
         // VALID: post-block current-attempt owner result clears it
         const res2 = result(s, dD.id, 2);
@@ -202,21 +205,29 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
     });
 
     it('NON-OWNER evidence rejected (constructed via slice-1-mode history, validated on reopen)', () => {
-        // Build a same-task result authored by a NON-owner in slice-1 mode
-        // (no queue validator exists there — the historical-shape loophole),
-        // then verify the queue validator rejects it as evidence.
+        // Build a POST-BLOCK, current-attempt result authored by a NON-owner
+        // through slice-1-mode history (no queue validator exists there — the
+        // historical-shape loophole; patch-4's E_STALE_STALL boundary also
+        // means the forged result must land AFTER the block, or the block
+        // itself is unappendable). The owner check is then the first and only
+        // failing evidence rule.
         const s = scenario({ noValidator: true }); // slice-1 mode log
         mintAgentKeys('builder', s.keysDir);
         const d = s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey);
-        const foreign = s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d.id, attempt: 1, content: 'not mine', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
         s.log.close();
         const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
         q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d.id, attempt: 1 } }, s.scout.privateKey);
-        const blk = q.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled' } }, s.watchman.privateKey);
-        expect(() =>
-            q.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef: blk.id, reason: 'progress-observed', evidenceRef: foreign.id } }, s.watchman.privateKey),
-        ).toThrow(/not authored by the task owner|not the current attempt|predates/);
+        const blk = q.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         q.close();
+        // Foreign result appended through a REOPENED slice-1-mode log (post-block seq, current attempt).
+        const s1 = new CompanyLog(s.dbPath, s.keysDir, {});
+        const foreign = s1.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d.id, attempt: 1, content: 'not mine', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
+        s1.close();
+        const q2 = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        expect(() =>
+            q2.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef: blk.id, reason: 'progress-observed', evidenceRef: foreign.id } }, s.watchman.privateKey),
+        ).toThrow(/not authored by the task owner/);
+        q2.close();
     });
 
     it('commitments: owner opens; owner-or-user closes; refs validated', () => {
@@ -256,7 +267,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
         const s = scenario();
         const d1 = delegate(s);                       // never-started
         const d2 = delegate(s); start(s, d2.id, 1);   // running
-        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled' } }, s.watchman.privateKey);
+        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         void blk;
         const h = s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'x' } }, s.watchman.privateKey);
         void h;
@@ -295,7 +306,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
         const s = scenario();
         const d1 = delegate(s); void d1;
         const d2 = delegate(s); start(s, d2.id, 1);
-        s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled' } }, s.watchman.privateKey);
+        s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'x' } }, s.watchman.privateKey);
         const seen: unknown[] = [];
         bus.on('company:event', e => seen.push(e));

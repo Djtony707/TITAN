@@ -243,6 +243,23 @@ export function queueValidator(ctx: AppendContext): void {
             if (!task) reject('E_NO_TASK', `no delegated task ${taskRef}`);
             if (task.checked) reject('E_TERMINAL', 'task already checked');
             if (!(actor === task.owner || actor === 'watchman')) reject('E_AUTHORITY', 'block is owner or watchman');
+            // Patch-4 review (c4751563): a watchman 'stalled' block is a claim
+            // about a SPECIFIC in-flight attempt, re-validated here INSIDE the
+            // append transaction against the tail fold. A supervisor deciding
+            // from a stale snapshot cannot block an attempt that has since
+            // resulted or been superseded by a retry — the TOCTOU window
+            // between its read and this append closes at this boundary. The
+            // attempt must be carried EXPLICITLY (no legacy default-to-1) so a
+            // stale block can never silently target a newer attempt.
+            if (actor === 'watchman' && String(p.reason ?? '') === 'stalled') {
+                const attempt = p.attempt;
+                if (typeof attempt !== 'number' || !Number.isInteger(attempt)) {
+                    reject('E_STALE_STALL', 'stalled block must declare the attempt it targets');
+                }
+                if (attempt !== task.attempt || !task.startedAttempts.has(attempt) || task.resultedAttempts.has(attempt)) {
+                    reject('E_STALE_STALL', `attempt ${attempt} is not the current in-flight attempt of ${taskRef}`);
+                }
+            }
             return;
         }
         case 'task.unblocked': {

@@ -102,12 +102,18 @@ export class CompanySupervisor {
                 }
                 if (now - lastSeen > this.stuckAfterMs) {
                     try {
+                        // The attempt travels with the claim: the validator
+                        // re-checks IN the append txn that this exact attempt
+                        // is still started and unresulted, so a result (or
+                        // retry) landing between our read and this append
+                        // rejects the block instead of stranding the task.
                         this.log.append({
                             kind: 'task.blocked', actor: 'watchman',
-                            payload: { taskRef: t.taskRef, reason: 'stalled' },
+                            payload: { taskRef: t.taskRef, reason: 'stalled', attempt: t.attempt },
                         }, watchman.privateKey);
                         blocked += 1;
                     } catch (err) {
+                        // E_STALE_STALL here is the race resolving correctly.
                         logger.warn(COMPONENT, `stall block rejected for ${t.taskRef}: ${err instanceof Error ? err.message : String(err)}`);
                     }
                 }
