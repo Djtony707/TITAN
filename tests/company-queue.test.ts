@@ -34,22 +34,24 @@ afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
 
 let caseId = 0;
 interface S {
-    log: CompanyLog; keysDir: string; dbPath: string;
+    log: CompanyLog; keysDir: string; dbPath: string; home: string;
     user: AgentKeys; ceo: AgentKeys; scout: AgentKeys; watchman: AgentKeys;
 }
 function scenario(opts: { queueOn?: boolean; noValidator?: boolean } = {}): S {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
-    const dbPath = join(dir, 'company.db');
+    const keysDir = join(dir, 'company', 'keys');
+    // dbPath points at the substrate-owned system.db (for raw inspection);
+    // CompanyLog takes `dir` (titanHome) and derives system.db internally.
+    const dbPath = join(dir, 'system.db');
     const user = mintAgentKeys('user', keysDir);
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
     const queueOn = opts.queueOn ?? true;
-    const log = new CompanyLog(dbPath, keysDir,
+    const log = new CompanyLog(dir, keysDir,
         opts.noValidator ? {} : (queueOn ? { queue: true } : {}));
-    return { log, keysDir, dbPath, user, ceo, scout, watchman };
+    return { log, keysDir, dbPath, home: dir, user, ceo, scout, watchman };
 }
 function delegate(s: S, to = 'scout', spec = 'work'): CompanyEvent {
     return s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to, spec, queueMode: true } }, s.user.privateKey);
@@ -70,7 +72,7 @@ describe('slice 2 patch 1 — fold', () => {
         expect(f1.tasks.get(d.id)?.state).toBe('resulted');
         expect(f2).toEqual(f1);
         s.log.close();
-        const log2 = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const log2 = new CompanyLog(s.home, s.keysDir, { queue: true });
         expect(foldQueue(log2.read())).toEqual(f1);
         log2.close();
     });
@@ -91,7 +93,7 @@ describe('slice 2 patch 1 — capabilities (knownKinds ≠ appendableKinds)', ()
         const s = scenario(); // queue on: create queue-era history
         const d = delegate(s); start(s, d.id);
         s.log.close();
-        const off = new CompanyLog(s.dbPath, s.keysDir, {}); // defaults: slice-1 appendable only
+        const off = new CompanyLog(s.home, s.keysDir, {}); // defaults: slice-1 appendable only
         expect(() =>
             off.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, s.user.privateKey),
         ).toThrow(/not appendable under current capabilities/);
@@ -215,15 +217,15 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         mintAgentKeys('builder', s.keysDir);
         const d = s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey);
         s.log.close();
-        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const q = new CompanyLog(s.home, s.keysDir, { queue: true });
         q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d.id, attempt: 1 } }, s.scout.privateKey);
         const blk = q.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled', attempt: 1 } }, s.watchman.privateKey);
         q.close();
         // Foreign result appended through a REOPENED slice-1-mode log (post-block seq, current attempt).
-        const s1 = new CompanyLog(s.dbPath, s.keysDir, {});
+        const s1 = new CompanyLog(s.home, s.keysDir, {});
         const foreign = s1.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d.id, attempt: 1, content: 'not mine', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
         s1.close();
-        const q2 = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const q2 = new CompanyLog(s.home, s.keysDir, { queue: true });
         expect(() =>
             q2.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef: blk.id, reason: 'progress-observed', evidenceRef: foreign.id } }, s.watchman.privateKey),
         ).toThrow(/not authored by the task owner/);
@@ -248,17 +250,21 @@ describe('slice 2 patch 1 — backstops and races', () => {
         // hostile caller passing extra props gets slice-1 mode or full
         // validation; never queue-capable-unvalidated.
         const dir = join(ROOT, `inv-${++caseId}`);
-        mintAgentKeys('user', join(dir, 'keys'));
-        const sneaky = new CompanyLog(join(dir, 'db'), join(dir, 'keys'),
+        const home1 = join(dir, 'home1');
+        const home2 = join(dir, 'home2');
+        const keys1 = join(home1, 'company', 'keys');
+        const keys2 = join(home2, 'company', 'keys');
+        mintAgentKeys('user', keys1);
+        const sneaky = new CompanyLog(home1, keys1,
             { validator: () => {}, appendableKinds: KNOWN_KINDS } as unknown as { queue?: boolean });
         // unknown props ignored → slice-1 mode: queue kinds NOT appendable
-        expect(() => sneaky.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', join(dir, 'keys')).privateKey))
+        expect(() => sneaky.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', keys1).privateKey))
             .toThrow(/not appendable/);
         sneaky.close();
-        const q = new CompanyLog(join(dir, 'db2'), join(dir, 'keys'), { queue: true, validator: () => {} } as unknown as { queue: boolean });
+        const q = new CompanyLog(home2, keys2, { queue: true, validator: () => {} } as unknown as { queue: boolean });
         // even with a stub passed, the BUILT-IN validator governs:
-        mintAgentKeys('scout', join(dir, 'keys'));
-        expect(() => q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: 'ghost', attempt: 1 } }, mintAgentKeys('scout', join(dir, 'keys')).privateKey))
+        mintAgentKeys('scout', keys2);
+        expect(() => q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: 'ghost', attempt: 1 } }, mintAgentKeys('scout', keys2).privateKey))
             .toThrow(/E_NO_TASK/);
         q.close();
     });
@@ -297,7 +303,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
         bus.removeAllListeners('company:event');
         s.log.close();
         // queue-off logs cannot host the discard:
-        const off = new CompanyLog(s.dbPath, s.keysDir, {});
+        const off = new CompanyLog(s.home, s.keysDir, {});
         expect(() => off.discardQueueState(s.user.privateKey)).toThrow(/requires a queue-mode instance/);
         off.close();
     });
@@ -348,7 +354,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
             s.log.append({ kind: 'room.message', actor: 'user', payload: { i } }, s.user.privateKey);
         }
         s.log.close();
-        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const q = new CompanyLog(s.home, s.keysDir, { queue: true });
         const d = q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'late', queueMode: true } }, s.user.privateKey);
         const h = q.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'late-hold' } }, s.watchman.privateKey);
         const f = foldQueue(q.readAll());
@@ -372,7 +378,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
             `import(${JSON.stringify('file://' + process.cwd() + '/src/company/log.ts')}).then(async L => {` +
             `const Q = await import(${JSON.stringify('file://' + process.cwd() + '/src/company/queue.ts')});` +
             `const K = await import(${JSON.stringify('file://' + process.cwd() + '/src/company/keys.ts')});` +
-            `const log = new L.CompanyLog(${JSON.stringify(s.dbPath)}, ${JSON.stringify(s.keysDir)}, { queue: true });` +
+            `const log = new L.CompanyLog(${JSON.stringify(s.home)}, ${JSON.stringify(s.keysDir)}, { queue: true });` +
             `const scout = K.loadAgentKeys('scout', ${JSON.stringify(s.keysDir)});` +
             `try { log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ${JSON.stringify(d.id)}, attempt: 1 } }, scout.privateKey); console.log('WIN-${'${'}${'}'}'); console.log('WIN'); } catch (e) { console.log('LOSE'); }` +
             `log.close(); }).catch(e => { console.error(e); process.exit(1); });`;
@@ -382,7 +388,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
         ]);
         const outcomes = [a.stdout, b.stdout].map(o => (o.includes('WIN') ? 'WIN' : 'LOSE')).sort();
         expect(outcomes).toEqual(['LOSE', 'WIN']);
-        const verify = new CompanyLog(s.dbPath, s.keysDir, {});
+        const verify = new CompanyLog(s.home, s.keysDir, {});
         expect(verify.read({ kind: 'task.started' })).toHaveLength(1);
         expect(verify.verifyChain().ok).toBe(true);
         verify.close();
@@ -445,11 +451,11 @@ describe('slice 2 patch 3 fixes — production config + flag-off pipeline (revie
     it('#2 flag-off pipeline: the BASIC dispatcher completes the slice-1 chain on a queue-off log', async () => {
         const { BasicCompanyDispatch } = await import('../src/company/dispatchBasic.js');
         const dir = join(ROOT, `basic-${++caseId}`);
-        const keysDir = join(dir, 'keys');
+        const keysDir = join(dir, 'company', 'keys');
         const user = mintAgentKeys('user', keysDir);
         mintAgentKeys('ceo', keysDir);
         mintAgentKeys('scout', keysDir);
-        const log = new CompanyLog(join(dir, 'company.db'), keysDir, {}); // QUEUE OFF
+        const log = new CompanyLog(dir, keysDir, {}); // QUEUE OFF
         const d = new BasicCompanyDispatch(log, keysDir, join(dir, 'memory'),
             async () => ({ content: 'done', success: true, toolsUsed: [] }),
             async () => ({ verdict: 'accepted' as const, note: 'ok' }));

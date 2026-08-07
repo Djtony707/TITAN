@@ -63,10 +63,12 @@ async function buildState(): Promise<State> {
         const cfg = loadConfig();
         const queueCfg = (cfg as { company: { queue: { enabled: boolean; maxAttempts: number; stuckAfterMs: number } } }).company.queue;
         const queueEnabled = Boolean(queueCfg?.enabled);
-        const root = join(TITAN_HOME, 'company');
-        const keysDir = join(root, 'keys');
-        const log = new CompanyLog(join(root, 'company.db'), keysDir, queueEnabled ? { queue: true } : {});
-        const memoryDir = join(root, 'memory');
+        const keysDir = join(TITAN_HOME, 'company', 'keys');
+        const memoryDir = join(TITAN_HOME, 'company', 'memory');
+        // The substrate derives $TITAN_HOME/system.db and migrates a legacy
+        // $TITAN_HOME/company/company.db before the first append. Company
+        // owns keys/memory under company/; the signed log is substrate.
+        const log = new CompanyLog(TITAN_HOME, keysDir, queueEnabled ? { queue: true } : {});
         const crew = new Map(log.read({ kind: 'agent.minted', limit: 100 })
             .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
         const candidate: State = { log, keysDir, memoryDir };
@@ -138,9 +140,8 @@ export async function queueDiscard(userPrivateKey: KeyObject): Promise<{ unblock
     // registered user identity. An in-process caller without the user key
     // cannot trigger a discard.
     const { CompanyLog } = await import('./log.js');
-    const root = join(TITAN_HOME, 'company');
-    const keysDir = join(root, 'keys');
-    const log = new CompanyLog(join(root, 'company.db'), keysDir, { queue: true });
+    const keysDir = join(TITAN_HOME, 'company', 'keys');
+    const log = new CompanyLog(TITAN_HOME, keysDir, { queue: true });
     try {
         const out = log.discardQueueState(userPrivateKey);
         queueRefusal = null; // refusal condition cleared

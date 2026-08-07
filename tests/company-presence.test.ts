@@ -37,12 +37,12 @@ interface S { log: CompanyLog; keysDir: string; user: AgentKeys; ceo: AgentKeys;
 function scenario(): S {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
+    const keysDir = join(dir, 'company', 'keys');
     const user = mintAgentKeys('user', keysDir);
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     return { log, keysDir, user, ceo, scout, watchman };
 }
 const AGENTS = ['ceo', 'scout'];

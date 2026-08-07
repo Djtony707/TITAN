@@ -73,11 +73,11 @@ let caseId = 0;
 function scenario() {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
+    const keysDir = join(dir, 'company', 'keys');
     const memoryDir = join(dir, 'memory');
     const user = mintAgentKeys('user', keysDir);
     mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     const minted = mintCompany(log, keysDir, { name: 'Acme' });
     const mk = (runner: TurnRunner, reviewer: Reviewer, maxAttempts = 2) =>
         new CompanyDispatch(log, keysDir, memoryDir, {

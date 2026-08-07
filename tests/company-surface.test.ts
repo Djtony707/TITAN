@@ -33,13 +33,13 @@ interface S { log: CompanyLog; user: AgentKeys; ceo: AgentKeys; scout: AgentKeys
 function scenario(): S {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
+    const keysDir = join(dir, 'company', 'keys');
     const user = mintAgentKeys('user', keysDir);
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);
     const builder = mintAgentKeys('builder', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
+    const log = new CompanyLog(dir, keysDir, { queue: true });
     log.append({ kind: 'agent.minted', actor: 'user', payload: { agentId: 'scout', displayName: 'Scout', role: 'Researcher', charter: 'find things' } }, user.privateKey);
     log.append({ kind: 'agent.minted', actor: 'user', payload: { agentId: 'builder', displayName: 'Builder', role: 'Engineer', charter: 'build things' } }, user.privateKey);
     return { log, user, ceo, scout, builder, watchman };
