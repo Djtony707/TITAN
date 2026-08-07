@@ -503,7 +503,7 @@ export class CompanyDispatch {
         } catch (err) {
             const isReviewerErr = err instanceof ReviewerTelemetryError;
             const note = isReviewerErr ? err.message : `Review failed: ${err instanceof Error ? err.message : String(err)}`;
-            const telemetry = isReviewerErr ? err.telemetry : {
+            const telemetry: TurnTelemetry = isReviewerErr ? { ...err.telemetry, actionId: reviewActionId } : {
                 actionId: reviewActionId,
                 promptTokens: 0,
                 completionTokens: 0,
@@ -529,7 +529,8 @@ export class CompanyDispatch {
                 durationMs: review.durationMs,
             }
             : review;
-        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, finalReview.telemetry?.actionId ?? reviewActionId, {
+        finalReview.telemetry = finalReview.telemetry ? { ...finalReview.telemetry, actionId: reviewActionId } : undefined;
+        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, reviewActionId, {
             content: finalReview.note,
             success: finalReview.verdict === 'accepted',
             durationMs: finalReview.durationMs,
@@ -581,7 +582,7 @@ export class CompanyDispatch {
         } catch (err) {
             const isReviewerErr = err instanceof ReviewerTelemetryError;
             const note = isReviewerErr ? err.message : `Review failed: ${err instanceof Error ? err.message : String(err)}`;
-            const telemetry = isReviewerErr ? err.telemetry : {
+            const telemetry: TurnTelemetry = isReviewerErr ? { ...err.telemetry, actionId: reviewActionId } : {
                 actionId: reviewActionId,
                 promptTokens: 0,
                 completionTokens: 0,
@@ -607,7 +608,8 @@ export class CompanyDispatch {
                 durationMs: review.durationMs,
             }
             : review;
-        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: f.taskRef, attempt }, finalReview.telemetry?.actionId ?? reviewActionId, {
+        finalReview.telemetry = finalReview.telemetry ? { ...finalReview.telemetry, actionId: reviewActionId } : undefined;
+        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: f.taskRef, attempt }, reviewActionId, {
             content: finalReview.note,
             success: finalReview.verdict === 'accepted',
             durationMs: finalReview.durationMs,

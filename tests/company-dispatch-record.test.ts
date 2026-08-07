@@ -1,4 +1,3 @@
-
 /**
  * TITAN — v8 Slice 3 durable RECORD sink dispatch tests.
  *
@@ -187,7 +186,6 @@ const okReviewer: Reviewer = async req => ({
         log.close();
     });
 
-
 describe('v8 slice 3 — RECORD sink durability and gates', () => {
     it('uses unique dispatcher-minted reviewer actionIds that equal the span actionId on success', async () => {
         const { log, keysDir, mk } = scenario();
@@ -227,6 +225,86 @@ describe('v8 slice 3 — RECORD sink durability and gates', () => {
         expect(new Set(seenReqActionIds).size).toBe(2); // unique per review call
         expect(seenSpanActionIds.sort()).toEqual(seenReqActionIds.sort()); // span carries exact dispatcher id
         expect(seenSpanActionIds).not.toContain('reviewer-error');
+        log.close();
+    });
+
+    it('records the dispatcher-minted actionId even when the reviewer returns a different telemetry id (live path)', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'adversarial live');
+        let capturedReqActionId = '';
+        const adversarialReviewer: Reviewer = async req => {
+            capturedReqActionId = req.actionId;
+            return {
+                verdict: 'accepted',
+                note: 'looks good',
+                telemetry: {
+                    actionId: 'reviewer-forged-id',
+                    promptTokens: 5,
+                    completionTokens: 7,
+                    costUsd: 0,
+                    measured: true,
+                    providerCalls: 1,
+                    returnedCalls: 1,
+                    exit: 'completed',
+                },
+                durationMs: 8,
+            };
+        };
+        const d = mk(async () => ({
+            content: 'ok', success: true, toolsUsed: [],
+            durationMs: 4,
+            telemetry: { actionId: 'worker-x', promptTokens: 1, completionTokens: 1, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), adversarialReviewer);
+        d.kick();
+        await d.idle();
+
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer' && s.taskRef === ev.id);
+        expect(spans).toHaveLength(1);
+        expect(spans[0].actionId).toBe(capturedReqActionId);
+        expect(spans[0].actionId).not.toBe('reviewer-forged-id');
+        expect(capturedReqActionId).toMatch(/^[0-9a-f]{20,}$/);
+        log.close();
+    });
+
+    it('records the dispatcher-minted actionId even when the reviewer returns a different telemetry id (resume path)', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'adversarial resume');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+
+        let capturedReqActionId = '';
+        const adversarialReviewer: Reviewer = async req => {
+            capturedReqActionId = req.actionId;
+            return {
+                verdict: 'accepted',
+                note: 'resume looks good',
+                telemetry: {
+                    actionId: 'reviewer-forged-resume-id',
+                    promptTokens: 3,
+                    completionTokens: 4,
+                    costUsd: 0,
+                    measured: true,
+                    providerCalls: 1,
+                    returnedCalls: 1,
+                    exit: 'completed',
+                },
+                durationMs: 6,
+            };
+        };
+        const d = mk(async () => ({
+            content: 'ok', success: true, toolsUsed: [],
+            durationMs: 1,
+            telemetry: { actionId: 'worker-y', promptTokens: 1, completionTokens: 1, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), adversarialReviewer);
+        d.recover();
+        await d.idle();
+
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer' && s.taskRef === ev.id);
+        expect(spans).toHaveLength(1);
+        expect(spans[0].actionId).toBe(capturedReqActionId);
+        expect(spans[0].actionId).not.toBe('reviewer-forged-resume-id');
+        expect(capturedReqActionId).toMatch(/^[0-9a-f]{20,}$/);
         log.close();
     });
 
@@ -310,7 +388,7 @@ describe('v8 slice 3 — RECORD sink durability and gates', () => {
 
         const file = join(home, 'traces', 'record', 'spans.jsonl');
         expect(existsSync(file)).toBe(true);
-        const raw = readFileSync(file, 'utf-8').trim().split('\n');
+        const raw = readFileSync(file, 'utf-8').trim().split("\n");
         expect(raw.length).toBeGreaterThanOrEqual(2);
         for (const line of raw) {
             const parsed = JSON.parse(line);

@@ -40,7 +40,7 @@ export interface TraceSpan {
     taskRef?: string;
     attempt?: number;
     agentId?: string;
-    role?: 'worker' | 'reviewer';
+    role?: 'worker' | 'reviewer' | 'main';
     usageMeasured?: boolean;
     exit?: 'completed' | 'provider-error' | 'depth-limit' | 'concurrency-limit' | 'timeout' | 'error' | 'unknown';
 }
