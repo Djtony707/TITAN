@@ -3,7 +3,10 @@
  * Full-featured web GUI: auth, working chat, config editor, live data.
  */
 
-export function getMissionControlHTML(): string {
+export function getMissionControlHTML(v8Enabled: boolean = false): string {
+  const compileQueueNav = v8Enabled
+    ? '<div class="nav-item" data-panel="compile-queue" data-load="compile-queue"><span class="icon">📋</span>Compile Queue</div>'
+    : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -324,7 +327,7 @@ tr:hover{background:rgba(6,182,212,.03)}
     <div class="nav-section">System</div>
     <div class="nav-item" data-panel="telemetry" data-load="telemetry"><span class="icon">📈</span>Telemetry</div>
     <div class="nav-item" data-panel="autopilot" data-load="autopilot"><span class="icon">🚁</span>Autopilot</div>
-    <div class="nav-item" data-panel="compile-queue" data-load="compile-queue"><span class="icon">📋</span>Compile Queue</div>
+    ${compileQueueNav}
     <div class="nav-item" data-panel="security"><span class="icon">🔒</span>Security</div>
     <div class="nav-item" data-panel="logs" data-load="logs"><span class="icon">📜</span>Logs</div>
     <div class="nav-item" data-panel="workflows" data-load="workflows"><span class="icon">🔀</span>Workflows</div>
@@ -1042,7 +1045,7 @@ tr:hover{background:rgba(6,182,212,.03)}
         </div>
       </div>
     </div>
-
+${v8Enabled ? `
     <!-- Compile Queue Panel (v8 Slice 4 — RECOGNIZE) -->
     <div id="panel-compile-queue" class="panel">
       <div class="card-grid">
@@ -1069,7 +1072,7 @@ tr:hover{background:rgba(6,182,212,.03)}
           No clusters yet. Enable autopilot mode "recognize" and wait for the nightly run, or run it manually.
         </div>
       </div>
-    </div>
+    </div>` : ""}
 
     <!-- Voice Panel -->
     <div id="panel-voice" class="panel">
