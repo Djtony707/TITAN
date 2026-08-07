@@ -2444,8 +2444,8 @@ async function loadCompileQueue() {
     const el = (id) => document.getElementById(id);
     if (el('cq-total')) el('cq-total').textContent = stats.totalClusters ?? '—';
     if (el('cq-trajectories')) el('cq-trajectories').textContent = stats.totalTrajectories ?? '—';
-    if (el('cq-last-run')) el('cq-last-run').textContent = stats.lastRun ? new Date(stats.lastRun).toLocaleString() : '—';
-    if (el('cq-top-score')) el('cq-top-score').textContent = stats.topScore != null ? (stats.topScore * 100).toFixed(1) + '%' : '—';
+    if (el('cq-last-run')) el('cq-last-run').textContent = stats.lastRunAt ? new Date(stats.lastRunAt).toLocaleString() : '—';
+    if (el('cq-top-score')) el('cq-top-score').textContent = stats.topCluster ? stats.topCluster.score.toFixed(1) : '—';
     const tbody = el('compile-queue-body');
     const empty = el('compile-queue-empty');
     const table = el('compile-queue-table');
@@ -2454,10 +2454,11 @@ async function loadCompileQueue() {
       if (empty) empty.style.display = 'none';
       if (tbody) tbody.innerHTML = clusters.map(c => {
         const sr = c.successRate != null ? (c.successRate * 100).toFixed(0) + '%' : '—';
-        const stab = c.stability != null ? (c.stability * 100).toFixed(0) + '%' : '—';
-        const score = c.score != null ? (c.score * 100).toFixed(1) + '%' : '—';
-        const tools = Array.isArray(c.dominantTools) ? c.dominantTools.slice(0, 3).map(escHtml).join(', ') : '—';
-        return '<tr><td>' + escHtml(c.intent || '—') + '</td><td>' + (c.frequency ?? '—') + '</td><td>' + sr + '</td><td>' + stab + '</td><td>' + score + '</td><td style="font-size:12px">' + tools + '</td></tr>';
+        const stab = c.outcomeStability != null ? (c.outcomeStability * 100).toFixed(0) + '%' : '—';
+        const score = c.score != null ? c.score.toFixed(1) : '—';
+        const tools = Array.isArray(c.dominantToolSequence) ? c.dominantToolSequence.slice(0, 3).map(escHtml).join(', ') : '—';
+        const intent = c.signature ? (c.signature.intent || '—') : '—';
+        return '<tr><td>' + escHtml(intent) + '</td><td>' + (c.frequency ?? '—') + '</td><td>' + sr + '</td><td>' + stab + '</td><td>' + score + '</td><td style="font-size:12px">' + tools + '</td></tr>';
       }).join('');
     } else {
       if (table) table.style.display = 'none';
