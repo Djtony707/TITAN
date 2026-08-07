@@ -19,7 +19,7 @@
  */
 import type { KeyObject } from 'crypto';
 import type { CompanyLog, CompanyEvent } from './log.js';
-import { foldQueue, type QueueFold, type TaskFold } from './queue.js';
+import { foldQueue, QueueValidationError, type QueueFold, type TaskFold } from './queue.js';
 import { nextDispatchable, startTask, retryTask } from './queueCommands.js';
 import { loadAgentKeys } from './keys.js';
 import { appendMemory, renderMemoryForPrompt } from './memoryStream.js';
@@ -27,10 +27,15 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'CompanyDispatch';
 
-/** The task.checked validator refused because a task-scoped hold covers the
- *  task (E_HELD_VERDICT) — the async-review/hold race resolving correctly. */
-function isHeldVerdictRace(err: unknown): boolean {
-    return /E_HELD_VERDICT/.test(err instanceof Error ? err.message : String(err));
+/** The task.checked validator refused because a task-scoped hold covers
+ *  the task — the async-review/hold race resolving correctly. STRUCTURED
+ *  classification only (close review 1eaf46a2): the error must be the
+ *  validator's own type with the exact code; a provider/model error whose
+ *  message merely contains the token never matches. Callers additionally
+ *  re-verify the hold against a refreshed fold before treating the
+ *  rejection as benign. */
+function isHeldVerdictError(err: unknown): boolean {
+    return err instanceof QueueValidationError && err.code === 'E_HELD_VERDICT';
 }
 const MAX_RESULT_CHARS = 8000;
 
@@ -133,6 +138,12 @@ export class CompanyDispatch {
 
     private fold(): QueueFold {
         return foldQueue(this.log.readAll());
+    }
+
+    /** Refreshed-fold confirmation that an active TASK-scoped hold covers
+     *  the task right now — the second half of the benign-race test. */
+    private taskHeldNow(taskRef: string): boolean {
+        return [...this.fold().activeHolds.values()].some(h => h.scope === taskRef);
     }
 
     /** Nonterminal tasks, derived from the log (status surfaces/tests). */
@@ -241,7 +252,12 @@ export class CompanyDispatch {
                         // (E_HELD_VERDICT, close review bb2d09dc) — benign,
                         // NOT a stalled pair: the next fold excludes the task
                         // and a user lift + kick resumes it in-process.
-                        if (isHeldVerdictRace(err)) {
+                        // Benign ONLY when the structured code matches AND a
+                        // refreshed fold confirms the task hold actually
+                        // exists (close review 1eaf46a2) — anything else is
+                        // an ordinary reviewer failure and takes the stall
+                        // path, preserving the no-spin contract.
+                        if (isHeldVerdictError(err) && this.taskHeldNow(pendingReview.taskRef)) {
                             logger.info(COMPONENT, `verdict for ${rkey} paused by a task-scoped hold set mid-review`);
                             return;
                         }
@@ -261,7 +277,8 @@ export class CompanyDispatch {
                     // Same benign race on the LIVE path: a hold set while the
                     // reviewer ran leaves the task resulted-unchecked and
                     // held — no terminal failure, no stall; lift resumes it.
-                    if (isHeldVerdictRace(err)) {
+                    // Same double condition: structured code + refreshed fold.
+                    if (isHeldVerdictError(err) && this.taskHeldNow(next.taskRef)) {
                         logger.info(COMPONENT, `verdict for ${next.taskRef} paused by a task-scoped hold set mid-review`);
                         return;
                     }

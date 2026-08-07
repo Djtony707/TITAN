@@ -398,6 +398,36 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(log.verifyChain().ok).toBe(true);
     });
 
+    it('CONTAINMENT (close review 1eaf46a2): reviewer error CONTAINING the held-verdict token, no hold — stalls, no spin', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'spoofed token');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        const seededResult = log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+        // A provider error whose MESSAGE contains the code — but it is not
+        // the validator's structured rejection, and no hold exists. Must
+        // take the ordinary reviewer-failure stall path, not loop forever.
+        const runner = vi.fn(okRunner);
+        const spoofReviewer = vi.fn(async () => {
+            throw new Error('upstream provider 502: E_HELD_VERDICT appeared in the response body');
+        });
+        const d1 = mk(runner, spoofReviewer);
+        d1.recover();
+        await d1.idle();                                  // terminates — no-spin contract holds
+        expect(spoofReviewer).toHaveBeenCalledTimes(1);   // exactly one attempt, not a loop
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);
+        expect(runner).not.toHaveBeenCalled();
+        // A later recovery (fresh chance) with a working reviewer completes.
+        const d2 = mk(runner, okReviewer);
+        d2.recover();
+        await d2.idle();
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, resultRef: seededResult.id, verdict: 'accepted', attempt: 1 });
+        expect(log.read({ kind: 'task.result' })).toHaveLength(1);
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
     it('CRASH-AFTER-FAILED-RESULT below cap: resumption re-queues via failure-retry and the pipeline completes', async () => {
         const { log, keysDir, mk } = scenario();
         const ev = delegate(log, keysDir, 'scout', 'failed then crashed');

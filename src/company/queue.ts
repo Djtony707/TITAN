@@ -158,9 +158,20 @@ export function foldQueue(events: readonly CompanyEvent[]): QueueFold {
     return fold;
 }
 
+/** Validator rejection carrying its code as a STRUCTURED property —
+ *  callers classify by `code`, never by message substring (a wrapped
+ *  upstream error whose text merely contains a code must not match;
+ *  close review 1eaf46a2). */
+export class QueueValidationError extends Error {
+    constructor(public readonly code: string, msg: string) {
+        super(`QueueValidator[${code}]: ${msg}`);
+        this.name = 'QueueValidationError';
+    }
+}
+
 /** Reject helper with stable error codes for tests. */
 function reject(code: string, msg: string): never {
-    throw new Error(`QueueValidator[${code}]: ${msg}`);
+    throw new QueueValidationError(code, msg);
 }
 
 /**
