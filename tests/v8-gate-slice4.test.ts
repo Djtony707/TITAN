@@ -22,10 +22,13 @@ vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Import-contract mock: records if clustering is ever imported
-let { wasClusteringImported } = vi.hoisted(() => ({ wasClusteringImported: false }));
-vi.mock('../src/agent/clustering.js', () => {
-    wasClusteringImported = true;
+// Import-contract mock: records if recognizeCluster is ever imported.
+// Production dynamically imports recognizeCluster.js (the real Slice 4 module);
+// spying on clustering.js (which does not exist) would miss an unconditional
+// import of the real module.
+let { wasRecognizeClusterImported } = vi.hoisted(() => ({ wasRecognizeClusterImported: false }));
+vi.mock('../src/agent/recognizeCluster.js', () => {
+    wasRecognizeClusterImported = true;
     return {};
 });
 
@@ -78,17 +81,18 @@ describe('v8 hard gate — slice 4 flag-off invariant', () => {
         expect(skill.successRate).toBeUndefined();
     });
 
-    it('#3 recognize-off: no clustering modules are imported (flag-off import contract)', async () => {
-        // The mock at the top of this file records if clustering.js is ever imported.
-        // Import the v7 surface — if it pulls in clustering, wasClusteringImported
-        // becomes true and this test FAILS.
+    it('#3 recognize-off: no recognizeCluster module is imported (flag-off import contract)', async () => {
+        // The mock at the top of this file records if recognizeCluster.js is
+        // ever imported. Import the v7 surface — if it pulls in
+        // recognizeCluster, wasRecognizeClusterImported becomes true and this
+        // test FAILS.
         await import('../src/agent/autopilot.js');
         await import('../src/agent/muscleMemory.js');
 
         // PROOF: delete or comment out the flag guard in autopilot.ts or
-        // muscleMemory.ts that prevents the clustering import. This test
-        // will go RED because wasClusteringImported becomes true.
-        expect(wasClusteringImported).toBe(false);
+        // muscleMemory.ts that prevents the recognizeCluster import. This test
+        // will go RED because wasRecognizeClusterImported becomes true.
+        expect(wasRecognizeClusterImported).toBe(false);
     });
 });
 

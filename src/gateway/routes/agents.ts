@@ -73,15 +73,20 @@ export function createLifecycleRouter(): Router {
     }
   });
 
-  // v8 Slice 4: Compile Queue (read-only, gated behind company.enabled)
-  router.get('/compile-queue', (_req, res) => {
+  // v8 Slice 4: Compile Queue (read-only, gated behind selfCompiling.enabled)
+  router.get('/compile-queue', async (_req, res) => {
     const cfg = loadConfig() as Record<string, unknown>;
-    const company = cfg.company as { enabled?: boolean } | undefined;
-    if (!company?.enabled) { res.status(404).json({ error: 'Not found' }); return; }
-    const { getCompileQueue, getClusterStats } = require('../../agent/recognizeCluster.js');
-    const clusters = getCompileQueue();
-    const stats = getClusterStats();
-    res.json({ clusters, stats });
+    const selfCompiling = cfg.selfCompiling as { enabled?: boolean } | undefined;
+    if (!selfCompiling?.enabled) { res.status(404).json({ error: 'Not found' }); return; }
+    try {
+      const { getCompileQueue, getClusterStats } = await import('../../agent/recognizeCluster.js');
+      const clusters = getCompileQueue();
+      const stats = getClusterStats();
+      res.json({ clusters, stats });
+    } catch (e) {
+      logger.error(COMPONENT, `Compile queue error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to load compile queue' });
+    }
   });
 
   router.post('/autopilot/toggle', (req, res) => {

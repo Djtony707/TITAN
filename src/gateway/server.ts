@@ -1344,7 +1344,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Legacy dashboard (kept during migration, also fallback if React UI not built)
   app.get('/legacy', (_req, res) => {
     const cfg = loadConfig();
-    const v8Enabled = !!(cfg as any).company?.enabled;
+    const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
     res.setHeader('Content-Type', 'text/html');
     res.send(getMissionControlHTML(v8Enabled));
   });
@@ -1358,7 +1358,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.send(cachedIndexHtml);
     } else {
       const cfg = loadConfig();
-      const v8Enabled = !!(cfg as any).company?.enabled;
+      const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
       res.setHeader('Content-Type', 'text/html');
       res.send(getMissionControlHTML(v8Enabled));
     }

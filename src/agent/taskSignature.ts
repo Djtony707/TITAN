@@ -160,8 +160,8 @@ export function extractTaskSignature(task: string): TaskSignature {
 
 /**
  * Annotate a batch of trajectories with their task signatures.
- * Only successful trajectories are annotated (failed ones don't form
- * useful clusters).
+ * All trajectories (success and failure) are annotated so that
+ * scoreCluster can compute success rate over the full population.
  */
 export function signTrajectories(
     trajectories: Array<{
