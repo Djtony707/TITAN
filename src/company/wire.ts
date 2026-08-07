@@ -25,6 +25,10 @@ export const WIRE_EVENT_FIELDS = ['seq', 'id', 'prevHash', 'kind', 'ts', 'actor'
 
 export const WIRE_STATUS_FIELDS = ['exists', 'name', 'mission', 'agents', 'eventCount'] as const;
 
+/** The two task.checked verdicts — the ONLY values either side may use. */
+export const VERDICTS = ['accepted', 'needs-work'] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
 /** Server-side input limits (characters), enforced in the service layer. */
 export const LIMITS = {
     companyName: 120,

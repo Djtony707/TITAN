@@ -194,7 +194,8 @@ function TaskCard({ event, agents }: { event: CompanyEvent; agents: CompanyAgent
   if (event.kind === 'task.checked') {
     const verdict = event.payload.verdict as string || 'unknown';
     const note = event.payload.note as string || '';
-    const isApproved = verdict === 'approved' || verdict === 'pass';
+    // Wire contract (src/company/wire.ts VERDICTS): 'accepted' | 'needs-work'
+    const isApproved = verdict === 'accepted';
     return (
       <div className="flex gap-3 py-2 px-4">
         <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${isUser ? 'bg-accent/20 text-accent-light' : avatarColor(event.actor)}`}>
@@ -204,7 +205,7 @@ function TaskCard({ event, agents }: { event: CompanyEvent; agents: CompanyAgent
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-sm font-semibold text-text">{name}</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded ${isApproved ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
-              {isApproved ? <><CheckCircle2 size={10} className="inline mr-1" />checked ✓</> : <><XCircle size={10} className="inline mr-1" />rejected</>}
+              {isApproved ? <><CheckCircle2 size={10} className="inline mr-1" />accepted ✓</> : <><XCircle size={10} className="inline mr-1" />needs work</>}
             </span>
             <span className="text-[10px] text-text-muted ml-auto">{timeFormat(event.ts)}</span>
           </div>
@@ -312,33 +313,43 @@ export function CompanyRoom() {
     const catchUp = async () => {
       catchingUp = true;
       liveBuffer.length = 0; // clear stale buffer from a previous run
+      let fetchFailed = false;
       try {
         let after = lastSeqRef.current;
-        // Loop until we get an empty or partial page (log exhausted).
-        // MAX_LIMIT on the server is 500.
+        // Loop until the CONTIGUOUS cursor reaches the log tail AND the
+        // highest live-buffered seq (re-review fix, event a2d54b20 #1):
+        // a partial page alone is NOT sufficient to stop — a live event
+        // buffered during the fetch may sit BEYOND the page tail, and
+        // stopping there would skip the persisted rows in between.
         while (true) {
           const page = await getCompanyRoom(after, 500);
-          if (page.events.length === 0) break;
-          // Merge this page's events into state with dedup by id
-          setEvents(prev => {
-            const seen = new Set(prev.map(e => e.id));
-            const fresh = page.events.filter(e => !seen.has(e.id));
-            return fresh.length > 0 ? [...prev, ...fresh] : prev;
-          });
-          // Advance the contiguous cursor to the highest seq in this page
-          after = page.events.reduce((m, e) => Math.max(m, e.seq), after);
-          lastSeqRef.current = Math.max(lastSeqRef.current, after);
-          // If the page was partial (< limit), we've reached the tail
-          if (page.events.length < 500) break;
+          if (page.events.length > 0) {
+            setEvents(prev => {
+              const seen = new Set(prev.map(e => e.id));
+              const fresh = page.events.filter(e => !seen.has(e.id));
+              return fresh.length > 0 ? [...prev, ...fresh] : prev;
+            });
+            after = page.events.reduce((m, e) => Math.max(m, e.seq), after);
+            lastSeqRef.current = Math.max(lastSeqRef.current, after);
+          }
+          if (page.events.length === 500) continue; // full page → more persisted rows
+          const liveTarget = liveBuffer.reduce((m, e) => Math.max(m, e.seq), 0);
+          if (liveTarget > after) continue;         // live ran ahead → fetch the gap
+          break;                                     // contiguous through the live target
         }
-      } catch { /* catch-up failure is non-fatal — live events still work */ }
+      } catch {
+        // Fetch error: DISCARD the buffer — merging it could advance the
+        // cursor across an unfetched gap. Rows are persisted; the next
+        // onopen/reconnect catch-up resumes from the contiguous cursor.
+        fetchFailed = true;
+        liveBuffer.length = 0;
+      }
       catchingUp = false;
 
       // ── Merge buffered live events ──
-      // Events that arrived via SSE while catch-up was running. Sort by
-      // seq and append any we haven't seen yet (dedup by id against both
-      // the current state and the catch-up pages we just merged).
-      if (liveBuffer.length > 0) {
+      // Only after the contiguous cursor covers every buffered seq; page
+      // dedup by id makes the overlap harmless.
+      if (!fetchFailed && liveBuffer.length > 0) {
         liveBuffer.sort((a, b) => a.seq - b.seq);
         setEvents(prev => {
           const seen = new Set(prev.map(e => e.id));

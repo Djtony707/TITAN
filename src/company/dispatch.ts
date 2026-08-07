@@ -99,7 +99,10 @@ export const productionReviewer: Reviewer = async (req) => {
         maxTokens: 200,
     });
     const text = typeof res.content === 'string' ? res.content : String(res.content ?? '');
-    const accepted = /^\s*ACCEPTED/i.test(text) && req.result.success;
+    // Exact first-line enum (re-review fix #3): the protocol requires the
+    // first line to EQUAL 'ACCEPTED' — 'ACCEPTEDLY' / 'ACCEPTED? no' reject.
+    const firstLine = (text.trim().split('\n')[0] ?? '').trim().toUpperCase();
+    const accepted = firstLine === 'ACCEPTED' && req.result.success;
     return {
         verdict: accepted ? 'accepted' : 'needs-work',
         note: text.split('\n').slice(0, 2).join(' ').slice(0, 300) || 'no rationale returned',

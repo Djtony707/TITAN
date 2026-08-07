@@ -163,6 +163,23 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(call.tools).toBeUndefined(); // tool-less by construction
         expect(ok).toEqual({ verdict: 'accepted', note: 'ACCEPTED Solid work.' });
 
+        // adversarial prefixes must reject (re-review #3)
+        for (const hostile of ['ACCEPTEDLY\ngreat', 'ACCEPTED? no', 'accepted-ish\nx', 'I ACCEPTED it']) {
+            chatMock.mockResolvedValueOnce({ content: hostile });
+            const v = await productionReviewer({
+                spec: 's', agentId: 'scout',
+                result: { content: 'x', success: true, toolsUsed: [] },
+            });
+            expect(v.verdict, `"${hostile}" must reject`).toBe('needs-work');
+        }
+        // exact match with surrounding whitespace/case still accepts
+        chatMock.mockResolvedValueOnce({ content: '  accepted  \nnice' });
+        const lax = await productionReviewer({
+            spec: 's', agentId: 'scout',
+            result: { content: 'x', success: true, toolsUsed: [] },
+        });
+        expect(lax.verdict).toBe('accepted');
+
         chatMock.mockResolvedValueOnce({ content: 'NEEDS-WORK\nMissing tests.' });
         const bad = await productionReviewer({
             spec: 's', agentId: 'scout',
