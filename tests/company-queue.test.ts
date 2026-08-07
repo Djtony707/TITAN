@@ -52,7 +52,7 @@ function scenario(opts: { queueOn?: boolean; noValidator?: boolean } = {}): S {
     return { log, keysDir, dbPath, user, ceo, scout, watchman };
 }
 function delegate(s: S, to = 'scout', spec = 'work'): CompanyEvent {
-    return s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to, spec } }, s.user.privateKey);
+    return s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to, spec, queueMode: true } }, s.user.privateKey);
 }
 function start(s: S, taskRef: string, attempt = 1, key: AgentKeys = s.scout, actor = 'scout'): CompanyEvent {
     return s.log.append({ kind: 'task.started', actor, payload: { taskRef, attempt } }, key.privateKey);
@@ -338,13 +338,13 @@ describe('slice 2 patch 1 — backstops and races', () => {
         }
         s.log.close();
         const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
-        const d = q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'late' } }, s.user.privateKey);
+        const d = q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'late', queueMode: true } }, s.user.privateKey);
         const h = q.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'late-hold' } }, s.watchman.privateKey);
         const f = foldQueue(q.readAll());
         expect(f.tasks.get(d.id)?.state).toBe('queued');       // post-5000 task visible
         expect(f.activeHolds.has(h.id)).toBe(true);            // post-5000 hold visible
         // and the validator SEES the late hold: delegation now refused
-        expect(() => q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey)).toThrow(/E_HELD/);
+        expect(() => q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x', queueMode: true } }, s.user.privateKey)).toThrow(/E_HELD/);
         q.close();
     }, 120000);
 

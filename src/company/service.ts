@@ -20,7 +20,6 @@ import { mintCompany, STARTER_CREW, type MintedCompany } from './crew.js';
 import { loadAgentKeys, assertValidAgentId } from './keys.js';
 import { LIMITS, assertLen } from './wire.js';
 import { loadConfig } from '../config/config.js';
-import { existsSync, writeFileSync, rmSync } from 'fs';
 import type { KeyObject } from 'crypto';
 import type { CompanyDispatch } from './dispatch.js';
 import type { BasicCompanyDispatch } from './dispatchBasic.js';
@@ -69,13 +68,9 @@ async function buildState(): Promise<State> {
             .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
         const candidate: State = { log, keysDir, memoryDir };
         logger.info(COMPONENT, `Company log open (queue ${queueEnabled ? 'ON' : 'off'})`);
-        const markerPath = join(root, 'queue-active');
 
         if (queueEnabled) {
             // Queue modules load ONLY here (flag-off contract: unimported).
-            // Persist the queue-era marker: once the queue has ever been on,
-            // a later queue-off boot applies the STRICT v5 §3 refusal rule.
-            if (!existsSync(markerPath)) writeFileSync(markerPath, String(Date.now()), { mode: 0o600 });
             const { CompanyDispatch, productionRunner, productionReviewer } = await import('./dispatch.js');
             candidate.queueDispatch = new CompanyDispatch(log, keysDir, memoryDir, {
                 maxAttempts: queueCfg.maxAttempts,
@@ -88,14 +83,14 @@ async function buildState(): Promise<State> {
             // CompanyLog.scanNonterminal() (review f11c9e22 boundary item).
             const { BasicCompanyDispatch, productionRunner, productionReviewer } = await import('./dispatchBasic.js');
             candidate.basicDispatch = new BasicCompanyDispatch(log, keysDir, memoryDir, productionRunner, productionReviewer);
-            const queueEra = existsSync(markerPath);
             const scan = log.scanNonterminal();
-            // STRICT rule (v5 §3, review #1) whenever queue-era evidence
-            // exists: EVERY unchecked delegation — including bare
-            // never-started ones — plus any active hold forces refusal.
-            // Without queue-era evidence this is a pure slice-1 install and
-            // basic crash recovery proceeds as slice 1 always has.
-            if (queueEra ? (scan.nonterminalTasks > 0 || scan.activeHolds > 0) : scan.activeHolds > 0) {
+            // STRICT rule (v5 §3) from SIGNED-LOG evidence alone (review
+            // 86794542): queue-era = delegations carrying the signed
+            // queueMode flag (validator-required in queue mode). Every
+            // unchecked flagged delegation — bare never-started included —
+            // plus any active hold forces refusal. Unflagged (slice-1)
+            // delegations recover normally.
+            if (scan.nonterminalTasks > 0 || scan.activeHolds > 0) {
                 queueRefusal = 'Queue history contains unfinished work or active holds. ' +
                     'Re-enable company.queue.enabled, or run `titan company queue-discard` to terminalize it.';
                 logger.warn(COMPONENT, `READ-ONLY REFUSAL: ${queueRefusal}`);
@@ -133,7 +128,6 @@ export async function queueDiscard(userPrivateKey: KeyObject): Promise<{ unblock
     try {
         const out = log.discardQueueState(userPrivateKey);
         queueRefusal = null; // refusal condition cleared
-        rmSync(join(root, 'queue-active'), { force: true }); // queue-era marker cleared
         logger.info(COMPONENT, `queue-discard: ${out.unblocked} unblocked, ${out.lifted} lifted, ${out.terminalized} terminalized`);
         return out;
     } finally {
@@ -221,11 +215,14 @@ export async function delegateTask(opts: { from: string; to: string; spec: strin
     }
     const user = loadAgentKeys('user', keysDir);
     // Gateway delegations are user acts (the user outranks the CEO locally).
+    const st0 = await ensure();
+    const payload: Record<string, unknown> = { from: 'user', to: opts.to, spec: opts.spec };
+    if (st0.queueDispatch) payload.queueMode = true; // signed queue-era evidence
     const event = log.append(
-        { kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: opts.to, spec: opts.spec } },
+        { kind: 'task.delegated', actor: 'user', payload },
         user.privateKey,
     );
-    const st = await ensure();
+    const st = st0;
     if (st.queueDispatch) {
         st.queueDispatch.kick();
     } else if (st.basicDispatch) {

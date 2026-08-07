@@ -58,7 +58,7 @@ function scenario() {
 function delegate(log: CompanyLog, keysDir: string, to: string, spec: string) {
     const user = mintAgentKeys('user', keysDir);
     return log.append(
-        { kind: 'task.delegated', actor: 'user', payload: { from: 'user', to, spec } },
+        { kind: 'task.delegated', actor: 'user', payload: { from: 'user', to, spec, queueMode: true } },
         user.privateKey,
     );
 }

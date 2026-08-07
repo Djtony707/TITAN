@@ -110,6 +110,49 @@ describe('service ensure() orchestration', () => {
         expect(calls.queueKick).toBeGreaterThan(0);
     });
 
+    it('(4) queue ON → discard → NEW bare delegation → queue OFF restart: refusal from signed log alone', async () => {
+        const { loadAgentKeys } = await import('../src/company/keys.js');
+        // Phase A: queue ON, mint, delegate, DISCARD (terminalizes everything).
+        const a = await freshService(true);
+        await a.svc.createCompany({ name: 'Discard Co' });
+        await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'first' });
+        const user = loadAgentKeys('user', join(a.home, 'company', 'keys'));
+        await a.svc.queueDiscard(user.privateKey);
+        // NEW bare delegation AFTER the discard, still queue ON (signed queueMode flag).
+        await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'post-discard work' });
+
+        // Phase B: queue OFF restart on the SAME home — the flagged bare
+        // delegation must force refusal purely from the signed log
+        // (the lifecycle hole Honey identified in the marker design).
+        calls.basicRecover = 0; calls.basicEnqueue = 0;
+        const b = await freshService(false, a.home);
+        await b.svc.getCompanyStatus();
+        expect(calls.basicRecover).toBe(0);
+        await expect(b.svc.delegateTask({ from: 'user', to: 'scout', spec: 'nope' }))
+            .rejects.toThrow(/read-only/i);
+        expect(calls.basicEnqueue).toBe(0);
+    });
+
+    it('(5) copied log behaves identically: refusal decision is log-derived, no side-store', async () => {
+        const { copyFileSync, mkdirSync, cpSync } = await import('fs');
+        void copyFileSync; void mkdirSync;
+        // Build queue-era history with a bare delegation (queue ON).
+        const a = await freshService(true);
+        await a.svc.createCompany({ name: 'Copy Co' });
+        await a.svc.delegateTask({ from: 'user', to: 'scout', spec: 'bare' });
+        // Byte-copy the ENTIRE company dir (log + keys, no other state) to a
+        // fresh home and boot queue OFF there.
+        const home2 = mkdtempSync(join(tmpdir(), 'titan-svc-copy-'));
+        HOMES.push(home2);
+        cpSync(join(a.home, 'company'), join(home2, 'company'), { recursive: true });
+        calls.basicRecover = 0; calls.basicEnqueue = 0;
+        const b = await freshService(false, home2);
+        await b.svc.getCompanyStatus();
+        expect(calls.basicRecover).toBe(0);            // identical refusal on the copy
+        await expect(b.svc.delegateTask({ from: 'user', to: 'scout', spec: 'x' }))
+            .rejects.toThrow(/read-only/i);
+    });
+
     it('(3) pure slice-1 install (queue never enabled): basic recovery proceeds, no refusal', async () => {
         const { svc } = await freshService(false);
         await svc.createCompany({ name: 'Pure S1' });

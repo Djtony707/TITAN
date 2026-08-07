@@ -138,7 +138,9 @@ export class CompanyDispatch {
     ceoDelegate(to: string, spec: string): CompanyEvent {
         const ceo = loadAgentKeys('ceo', this.keysDir);
         const event = this.log.append(
-            { kind: 'task.delegated', actor: 'ceo', payload: { from: 'ceo', to, spec } },
+            // queueMode: signed queue-era evidence (this dispatcher exists
+            // only in queue mode; the validator requires the flag).
+            { kind: 'task.delegated', actor: 'ceo', payload: { from: 'ceo', to, spec, queueMode: true } },
             ceo.privateKey,
         );
         this.kick();

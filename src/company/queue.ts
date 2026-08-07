@@ -179,6 +179,13 @@ export function queueValidator(ctx: AppendContext): void {
 
     switch (kind as CompanyEventKind) {
         case 'task.delegated': {
+            // SIGNED queue-era evidence (review 86794542): every delegation
+            // appended in queue mode must declare it IN ITS SIGNED PAYLOAD.
+            // The downgrade decision then derives from the log alone — no
+            // parallel mutable store; copies of the log behave identically.
+            if (p.queueMode !== true) {
+                reject('E_QUEUE_FLAG', 'queue-mode delegations must carry queueMode: true in the signed payload');
+            }
             // Queue entry: reject while a queue-scoped hold is active.
             for (const h of fold.activeHolds.values()) {
                 if (h.scope === 'queue') reject('E_HELD', 'queue hold active — delegation refused');

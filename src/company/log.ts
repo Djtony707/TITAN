@@ -410,10 +410,14 @@ export class CompanyLog {
     }
 
     /**
-     * Neutral cold downgrade scan (review f11c9e22): counts nonterminal
-     * delegations (ANY task.delegated lacking a task.checked — including
-     * never-started) and active holds WITHOUT importing queue modules.
-     * Used by the service's v5 §3 refusal check on queue-off boots.
+     * Neutral cold downgrade scan (reviews f11c9e22, 86794542): counts
+     * nonterminal QUEUE-ERA delegations — identified by the SIGNED
+     * queueMode flag in their payload, which the queue-mode validator
+     * requires at append — plus active holds, WITHOUT importing queue
+     * modules. Fully log-derived: a byte-copied log behaves identically,
+     * and no unsigned side-store can flip the decision. Slice-1
+     * delegations (no flag) never trigger refusal, preserving slice-1
+     * crash recovery.
      */
     scanNonterminal(): { nonterminalTasks: number; activeHolds: number } {
         const events = this.readAll();
@@ -425,7 +429,9 @@ export class CompanyLog {
         }
         let nonterminalTasks = 0, activeHolds = 0;
         for (const e of events) {
-            if (e.kind === 'task.delegated' && !checked.has(e.id)) nonterminalTasks += 1;
+            if (e.kind === 'task.delegated'
+                && (e.payload as { queueMode?: unknown }).queueMode === true
+                && !checked.has(e.id)) nonterminalTasks += 1;
             if (e.kind === 'hold.set' && !liftedHolds.has(e.id)) activeHolds += 1;
         }
         return { nonterminalTasks, activeHolds };
