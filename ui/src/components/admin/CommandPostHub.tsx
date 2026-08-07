@@ -1483,7 +1483,7 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals';
+type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals' | 'Company';
 
 const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof Shield }[] }[] = [
   {
@@ -1508,6 +1508,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof 
       { id: 'Issues', label: 'Issues', icon: MessageSquare },
       { id: 'Approvals', label: 'Approvals', icon: Shield },
       { id: 'Org Chart', label: 'Org Chart', icon: GitBranch },
+      { id: 'Company', label: 'Company', icon: Building2 },
       { id: 'Agents', label: 'Agents', icon: Users },
       { id: 'Files', label: 'Files', icon: FileText },
       { id: 'Debates', label: 'Debates', icon: Scale },
@@ -1534,6 +1535,7 @@ const CPSocialLazy = lazy(() => import('@/components/command-post/CPSocial'));
 const CPDashboardLazy = lazy(() => import('@/components/command-post/CPDashboard'));
 const CPGoalsLazy = lazy(() => import('@/components/command-post/CPGoals'));
 const CPAgentsLazy = lazy(() => import('@/components/command-post/CPAgents'));
+const CompanyRoomLazy = lazy(() => import('@/components/command-post/CompanyRoom'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
@@ -1610,6 +1612,7 @@ export default function CommandPostHub() {
       case 'Issues': return <IssuesTab agents={d.agents} />;
       case 'Approvals': return <ApprovalsTab />;
       case 'Org Chart': return <OrgChartTab agents={d.agents} />;
+      case 'Company': return <Suspense fallback={<TabFallback label="company room" />}><CompanyRoomLazy /></Suspense>;
       case 'Agents': return <Suspense fallback={<TabFallback label="agents" />}><CPAgentsLazy /></Suspense>;
       case 'Files': return <Suspense fallback={<TabFallback label="files" />}><CPFilesLazy /></Suspense>;
       case 'Debates': return <DebatesTab />;

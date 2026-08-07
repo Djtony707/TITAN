@@ -728,6 +728,56 @@ export interface OrgNode {
   reports: OrgNode[];
 }
 
+// ---- v8 Company Room (Slice 1) ----
+
+/**
+ * A single signed event in the v8 company append-only event log.
+ * Kinds (Slice 1): company.created, agent.minted, room.message,
+ * task.delegated, task.result, task.checked.
+ */
+export interface CompanyEvent {
+  /** Total order sequence number (SQLite AUTOINCREMENT) */
+  seq: number;
+  /** UUID */
+  id: string;
+  /** Event kind — one of the six slice-1 kinds */
+  kind: 'company.created' | 'agent.minted' | 'room.message' | 'task.delegated' | 'task.result' | 'task.checked';
+  /** ms epoch */
+  ts: number;
+  /** agent id (pubkey hex) or 'user' */
+  actor: string;
+  /** ed25519 signature over (kind|ts|actor|payload) */
+  sig: string;
+  /** JSON, kind-specific */
+  payload: Record<string, unknown>;
+}
+
+/** Agent in the v8 company crew */
+export interface CompanyAgent {
+  id: string;
+  name: string;
+  role: string;
+  persona?: string;
+  charter?: string;
+}
+
+/** Company status response from GET /api/company */
+export interface CompanyStatus {
+  exists: boolean;
+  name?: string;
+  mission?: string;
+  createdAt?: number;
+  agents: CompanyAgent[];
+  eventCount: number;
+}
+
+/** Paged room events response from GET /api/company/room */
+export interface CompanyRoomPage {
+  events: CompanyEvent[];
+  after: number;
+  limit: number;
+}
+
 // ---- Backup ----
 
 export interface BackupManifest {

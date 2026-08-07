@@ -84,6 +84,7 @@ import { createTracesRouter } from './routes/traces.js';
 import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
+import { createCompanyRouter } from './routes/company.js';
 import { createMissionsRouter } from './routes/missions.js';
 import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange, reattachMissionBridgesOnStartup } from '../agent/missionLifecycle.js';
 import { createAdminRouter } from './routes/adminRouter.js';
@@ -2307,6 +2308,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Company API (Paperclip-style) ─────────────────────────────
   app.use('/api/companies', createCompaniesRouter());
 
+  // ── v8 Company Room API (Slice 1) ──────────────────────────────
+  // Guarded by company.enabled flag — 404s when off (byte-identical v7).
+  // Distinct from the v7 /api/companies router above.
+  app.use('/api/company', createCompanyRouter());
+
   // ── Command Post API (Agent Governance) ───────────────────
   app.use('/api/command-post', createCommandPostRouter());
 
@@ -3390,6 +3396,11 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         maxConcurrentAgents: (cfg as Record<string, any>).commandPost?.maxConcurrentAgents ?? 10,
         checkoutTimeoutMs: (cfg as Record<string, any>).commandPost?.checkoutTimeoutMs ?? 300000,
       },
+      company: {
+        enabled: Boolean((cfg as Record<string, any>).company?.enabled),
+        name: (cfg as Record<string, any>).company?.name ?? '',
+        mission: (cfg as Record<string, any>).company?.mission ?? '',
+      },
     });
   });
 
@@ -3582,6 +3593,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (cp.enabled !== undefined) draft.commandPost.enabled = Boolean(cp.enabled);
         changedFields.push('commandPost');
       }
+      // v8 company layer flag
+      if (body.company !== undefined && typeof body.company === 'object') {
+        const co = body.company as Record<string, unknown>;
+        if (!(draft as Record<string, unknown>).company) (draft as Record<string, unknown>).company = {};
+        const dco = (draft as Record<string, unknown>).company as Record<string, unknown>;
+        if (co.enabled !== undefined) dco.enabled = Boolean(co.enabled);
+        if (co.name !== undefined && typeof co.name === 'string') dco.name = co.name;
+        if (co.mission !== undefined && typeof co.mission === 'string') dco.mission = co.mission;
+        changedFields.push('company');
+      }
       if (body.mesh !== undefined && typeof body.mesh === 'object') {
         const m = body.mesh as Record<string, unknown>;
         if (!draft.mesh) (draft as Record<string, unknown>).mesh = {};
@@ -3675,7 +3696,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
           'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia', 'organism',
           'autonomy', 'selfMod', 'commandPost', 'mesh', 'autopilot', 'brain', 'mcp',
-          'training', 'teams', 'tunnel', 'vault', 'capsolver', 'deliberation', 'selfImprove', 'memory'];
+          'training', 'teams', 'tunnel', 'vault', 'capsolver', 'deliberation', 'selfImprove', 'memory', 'company'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }

@@ -685,12 +685,6 @@ export const TitanConfigSchema = z.object({
         /** Replay-verify drafts through the eval harness before proposing (the trust layer). */
         verifyBeforePropose: z.boolean().default(true),
     }).default({}),
-    /** v8 Slice 1 — the Company Layer. Default OFF: with `enabled: false` the
-     *  gateway boots byte-identical v7 (no DB created, no routes mounted, no
-     *  UI tab). Everything company-related keys off this flag. */
-    company: z.object({
-        enabled: z.boolean().default(false),
-    }).default({}),
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
     telephony: TelephonyConfigSchema,
@@ -1277,6 +1271,21 @@ export const TitanConfigSchema = z.object({
         profiles: z.record(z.string(), z.object({
             headless: z.boolean().optional(),
         })).default({}),
+    }).default({}),
+    /**
+     * v8 Company Layer (Slice 1) — the company-of-agents platform.
+     * When enabled, mints a workspace + CEO + starter crew with signed
+     * identities into one shared room in Mission Control. When disabled
+     * (default), the gateway boots byte-identical to v7 — no DB, no
+     * routes, no UI tab. See V8_SLICE1_DESIGN.md.
+     */
+    company: z.object({
+        /** Master switch for the v8 company layer. Default off. */
+        enabled: z.boolean().default(false),
+        /** Company name (used when minting the initial company). */
+        name: z.string().optional(),
+        /** Mission statement for the company. */
+        mission: z.string().optional(),
     }).default({}),
     /** v5.0: UI theming */
     ui: z.object({

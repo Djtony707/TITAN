@@ -36,6 +36,7 @@ const CPOrg = lazy(() => import('@/components/command-post/CPOrg'));
 const CPFiles = lazy(() => import('@/components/command-post/CPFiles'));
 const CPVoice = lazy(() => import('@/components/command-post/CPVoice'));
 const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
+const CompanyRoom = lazy(() => import('@/components/command-post/CompanyRoom'));
 
 // ── Canonical shell section pages ────────────────────────────
 const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
@@ -145,6 +146,7 @@ function AuthenticatedAppInner() {
             <Route path="/team" element={<Navigate to="/team/agents" replace />} />
             <Route path="/team/agents" element={<CommandPostRoute title="Agents"><CPAgents /></CommandPostRoute>} />
             <Route path="/team/org-chart" element={<CommandPostRoute title="Org Chart"><CPOrg /></CommandPostRoute>} />
+            <Route path="/team/company" element={<CompanyRoute><CompanyRoom /></CompanyRoute>} />
             <Route path="/team/personas" element={<PersonasPanel />} />
 
             <Route path="/knowledge" element={<MemoryGraphPanel />} />
@@ -298,6 +300,59 @@ function CommandPostRoute({ children, title }: { children: ReactNode; title: str
             >
               Start a mission
             </Link>
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * v8 Company Route guard — gates on `company.enabled` (independent of
+ * Command Post). When the v8 company layer is off (default), shows a
+ * disabled state with a link to settings. When on, renders children.
+ */
+function CompanyRoute({ children }: { children: ReactNode }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setEnabled(Boolean(cfg.company?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (enabled === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!enabled) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            v8 Company is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">The Company Room is not active</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            The v8 company layer mints a workspace with a CEO and crew into a shared room.
+            Enable it in settings when you're ready to try the company-of-agents platform.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
             <Link
               to="/system/settings"
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"

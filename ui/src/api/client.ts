@@ -31,6 +31,9 @@ import type {
   CPApproval,
   CPRun,
   OrgNode,
+  CompanyEvent,
+  CompanyStatus,
+  CompanyRoomPage,
 } from './types';
 
 import { trackEvent } from './telemetry';
@@ -931,6 +934,37 @@ export async function updateCompany(id: string, updates: { name?: string; missio
 
 export async function deleteCompany(id: string): Promise<{ success: boolean }> {
   return request(`/api/companies/${id}`, { method: 'DELETE' });
+}
+
+// ---- v8 Company Room (Slice 1) ----
+// These hit the v8 company gateway router at /api/company/*, which is
+// guarded by the `company.enabled` config flag. When the flag is off,
+// these endpoints return 404.
+
+export async function getCompanyStatus(): Promise<CompanyStatus> {
+  return request('/api/company');
+}
+
+export async function createV8Company(opts: { name?: string; mission?: string }): Promise<CompanyStatus> {
+  return request('/api/company', { method: 'POST', body: JSON.stringify(opts) });
+}
+
+export async function getCompanyRoom(after = 0, limit = 100): Promise<CompanyRoomPage> {
+  return request(`/api/company/room?after=${after}&limit=${limit}`);
+}
+
+export async function postCompanyMessage(text: string, replyTo?: string): Promise<CompanyEvent> {
+  return request('/api/company/room', {
+    method: 'POST',
+    body: JSON.stringify({ text, replyTo }),
+  });
+}
+
+export async function delegateCompanyTask(agentId: string, spec: string): Promise<CompanyEvent> {
+  return request('/api/company/delegate', {
+    method: 'POST',
+    body: JSON.stringify({ agentId, spec }),
+  });
 }
 
 // ---- Session Management ----
