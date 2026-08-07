@@ -126,7 +126,7 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         expect(() => s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.ceo.privateKey)).toThrow(/E_NO_RESULT/);
         // same append WITHOUT capability by user also rejected
         expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
-        const out = s.log.discardQueueState(); // never-started task terminalizes at attempt 1
+        const out = s.log.discardQueueState(s.user.privateKey); // never-started task terminalizes at attempt 1
         expect(out.terminalized).toBe(1);
         expect(foldQueue(s.log.readAll()).tasks.get(d.id)?.checked).toBe(true);
         // blocked gate on a second task
@@ -262,10 +262,21 @@ describe('slice 2 patch 1 — backstops and races', () => {
         void h;
         // the waiver is unreachable through public append:
         expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d1.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
-        // ordered post-commit emission proof:
+        // AUTHORITY: an ordinary log holder WITHOUT the user key cannot discard
+        expect(() => s.log.discardQueueState(s.scout.privateKey)).toThrow(/requires the registered workspace user key/);
+        // ordered post-commit emission proof + committed-at-emit proof:
+        // the subscriber re-reads the DB on every emit and asserts the event
+        // is ALREADY persisted (no phantom pre-commit observation).
+        const { DatabaseSync } = await import('node:sqlite');
         const seen: string[] = [];
-        bus.on('company:event', (e: CompanyEvent) => seen.push(e.kind));
-        const out = s.log.discardQueueState();
+        bus.on('company:event', (e: CompanyEvent) => {
+            const rawDb = new DatabaseSync(s.dbPath);
+            const row = rawDb.prepare('SELECT id FROM events WHERE id = ?').get(e.id);
+            rawDb.close();
+            expect(row, `emit for ${e.kind} must already be committed`).toBeTruthy();
+            seen.push(e.kind);
+        });
+        const out = s.log.discardQueueState(s.user.privateKey);
         expect(out).toEqual({ unblocked: 1, lifted: 1, terminalized: 2 });
         expect(seen).toEqual(['task.unblocked', 'hold.lifted', 'task.checked', 'task.checked']); // ordered, post-commit
         const fold = foldQueue(s.log.readAll());
@@ -276,29 +287,34 @@ describe('slice 2 patch 1 — backstops and races', () => {
         s.log.close();
         // queue-off logs cannot host the discard:
         const off = new CompanyLog(s.dbPath, s.keysDir, {});
-        expect(() => off.discardQueueState()).toThrow(/requires a queue-mode instance/);
+        expect(() => off.discardQueueState(s.user.privateKey)).toThrow(/requires a queue-mode instance/);
         off.close();
     });
 
-    it('DISCARD rollback: failure emits NOTHING and persists NOTHING', async () => {
+    it('DISCARD rollback MID-TRANSACTION: after buffered appends, failure emits NOTHING and persists NOTHING', () => {
         const s = scenario();
-        delegate(s);
-        s.log.close();
-        // remove the user keypair: discard fails before any append commits
-        const pairPath = join(s.keysDir, 'user.keypair');
-        const pairBytes = readFileSync(pairPath);
-        rmSync(pairPath);
-        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const d1 = delegate(s); void d1;
+        const d2 = delegate(s); start(s, d2.id, 1);
+        s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled' } }, s.watchman.privateKey);
+        s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'x' } }, s.watchman.privateKey);
         const seen: unknown[] = [];
         bus.on('company:event', e => seen.push(e));
-        const before = q.count();
-        expect(() => q.discardQueueState()).toThrow(/ENOENT|no such file/i);
-        expect(seen).toHaveLength(0);          // zero rollback emissions
-        expect(q.count()).toBe(before);        // zero phantom rows
-        writeFileSync(pairPath, pairBytes, { mode: 0o600 }); // restore for chain verification
-        expect(q.verifyChain().ok).toBe(true);
+        const before = s.log.count();
+        // abort-only fault injection: throw after the SECOND buffered append —
+        // one unblock and one lift are already inside the transaction.
+        let appended = 0;
+        expect(() => s.log.discardQueueState(s.user.privateKey, {
+            afterEachAppend: () => { appended += 1; if (appended === 2) throw new Error('injected mid-discard fault'); },
+        })).toThrow(/injected mid-discard fault/);
+        expect(appended).toBe(2);              // failure occurred AFTER buffered appends
+        expect(seen).toHaveLength(0);          // zero emissions despite two buffered events
+        expect(s.log.count()).toBe(before);    // zero persisted rows — full rollback
+        expect(s.log.verifyChain().ok).toBe(true);
+        // and the state is fully retryable: a clean discard still works
+        const out = s.log.discardQueueState(s.user.privateKey);
+        expect(out.unblocked + out.lifted + out.terminalized).toBeGreaterThan(0);
         bus.removeAllListeners('company:event');
-        q.close();
+        s.log.close();
     });
 
     it('unique-index backstop holds even against a RAW non-API writer', async () => {

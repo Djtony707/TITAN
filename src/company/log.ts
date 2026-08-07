@@ -344,28 +344,46 @@ export class CompanyLog {
      * nothing except this well-defined discard — there is no arbitrary
      * maintenance capability for any caller to reach.
      * Emits buffer and flush only after COMMIT; rollback discards them.
+     *
+     * AUTHORITY (review f0d61bd9 #1 follow-up, event 037866fc): the log
+     * NEVER self-acquires the user signing key. The caller must SUPPLY the
+     * user's private key — obtainable only by the authenticated service
+     * path for the user-invoked `titan company queue-discard` — and it is
+     * verified against the registered user identity before anything runs.
+     * An ordinary log holder without that key cannot invoke discard.
+     *
+     * `afterEachAppend` is an abort-only fault-injection/observability hook
+     * (tests force mid-discard rollback with it). It confers no authority:
+     * throwing from it can only ABORT the transaction, which any caller
+     * could achieve anyway; it cannot alter, add, or authorize anything.
      */
-    discardQueueState(): { unblocked: number; lifted: number; terminalized: number } {
+    discardQueueState(userPrivateKey: KeyObject, opts: { afterEachAppend?: () => void } = {}): { unblocked: number; lifted: number; terminalized: number } {
         if (!this.validator) {
             throw new Error('CompanyLog: discardQueueState requires a queue-mode instance');
         }
         if (this.inMaintenance) throw new Error('CompanyLog: discard cannot nest');
+        const registered = loadAgentPublicKey('user', this.keysDir);
+        if (!registered || !samePublicKey(createPublicKey(userPrivateKey), registered)) {
+            throw new Error('CompanyLog: discard requires the registered workspace user key');
+        }
         this.db.exec('BEGIN IMMEDIATE');
         this.inMaintenance = true;
         this.pendingEmits = [];
         try {
-            const user = loadAgentKeys('user', this.keysDir);
+            const user = { privateKey: userPrivateKey };
             const fold = foldQueue(this.readAll());
             let unblocked = 0, lifted = 0, terminalized = 0;
             for (const t of fold.tasks.values()) {
                 for (const blockRef of t.activeBlocks.keys()) {
                     this.append({ kind: 'task.unblocked', actor: 'user', payload: { blockRef } }, user.privateKey);
                     unblocked += 1;
+                    opts.afterEachAppend?.();
                 }
             }
             for (const holdRef of fold.activeHolds.keys()) {
                 this.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef } }, user.privateKey);
                 lifted += 1;
+                opts.afterEachAppend?.();
             }
             for (const t of fold.tasks.values()) {
                 if (t.checked) continue;
@@ -375,6 +393,7 @@ export class CompanyLog {
                     payload: { taskRef: t.taskRef, verdict: 'needs-work', note: 'discarded on queue downgrade', attempt },
                 }, user.privateKey);
                 terminalized += 1;
+                opts.afterEachAppend?.();
             }
             this.db.exec('COMMIT');
             const emits = this.pendingEmits;
