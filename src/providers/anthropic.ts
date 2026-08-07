@@ -153,6 +153,7 @@ export class AnthropicProvider extends LLMProvider {
                     promptTokens: usage.input_tokens,
                     completionTokens: usage.output_tokens,
                     totalTokens: usage.input_tokens + usage.output_tokens,
+                    measured: true,
                 }
                 : undefined,
             finishReason: (() => {

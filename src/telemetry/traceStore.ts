@@ -9,7 +9,7 @@
  * `summarizeTraces()` and `toOTel()` are PURE (take a spans array) for tests;
  * `recordSpan()`/`listSpans()` are the file-backed surface.
  */
-import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, unlinkSync, cpSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -43,6 +43,7 @@ function titanHome(): string {
     return join(homedir(), '.titan');
 }
 function spansPath(): string { return join(titanHome(), 'traces', 'spans.jsonl'); }
+function archiveDir(): string { return join(titanHome(), 'traces', 'archive'); }
 
 let _seq = 0;
 function nextId(startedAt: string): string {
@@ -50,6 +51,25 @@ function nextId(startedAt: string): string {
     // in some contexts): the caller's ISO start + a monotonic counter.
     _seq = (_seq + 1) % 1_000_000;
     return `sp_${startedAt.replace(/[^0-9]/g, '').slice(0, 17)}_${_seq.toString(36)}`;
+}
+
+/** Archive the current spans.jsonl to a timestamped file; best-effort. */
+export function recordSpanArchive(reason = 'rotation'): string | null {
+    const src = spansPath();
+    if (!existsSync(src)) return null;
+    const dir = archiveDir();
+    try {
+        mkdirSync(dir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const dest = join(dir, `spans-${stamp}-${reason}.jsonl`);
+        cpSync(src, dest, { force: true });
+        // After archival, start a fresh spans file so the live store stays bounded.
+        try { writeFileSync(src, '', 'utf-8'); } catch { /* best effort */ }
+        return dest;
+    } catch (e) {
+        logger.debug(COMPONENT, `Failed to archive spans: ${(e as Error).message}`);
+        return null;
+    }
 }
 
 /** Append a span. Best-effort — never throws into the agent path. */

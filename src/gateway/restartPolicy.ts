@@ -21,6 +21,7 @@ export const RESTART_REQUIRED_PATTERNS = [
     'logging.level',
     'company.enabled',
     'company.queue.enabled',
+    'record.enabled',
 ];
 
 /** Which of the changed fields require a restart to take effect. */

@@ -151,6 +151,7 @@ export class OpenAIProvider extends LLMProvider {
                     promptTokens: usage.prompt_tokens,
                     completionTokens: usage.completion_tokens,
                     totalTokens: usage.total_tokens,
+                    measured: true,
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : (choice.finish_reason as 'stop' | 'length') || 'stop',

@@ -355,6 +355,7 @@ export class StubProvider extends LLMProvider {
                 promptTokens,
                 completionTokens,
                 totalTokens: promptTokens + completionTokens,
+                measured: false,
             },
             finishReason: intent.finishReason,
             model: options.model || 'stub/echo',

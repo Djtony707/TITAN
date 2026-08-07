@@ -169,7 +169,7 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(chatMock).toHaveBeenCalledTimes(1);
         const call = chatMock.mock.calls[0][0];
         expect(call.tools).toBeUndefined(); // tool-less by construction
-        expect(ok).toEqual({ verdict: 'accepted', note: 'ACCEPTED Solid work.' });
+        expect(ok).toMatchObject({ verdict: 'accepted', note: 'ACCEPTED Solid work.' });
 
         // adversarial prefixes must reject (re-review #3)
         for (const hostile of ['ACCEPTEDLY\ngreat', 'ACCEPTED? no', 'accepted-ish\nx', 'I ACCEPTED it']) {
@@ -498,6 +498,111 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(checks).toHaveLength(1);
         expect(checks[0].payload).toMatchObject({ taskRef: ev.id, verdict: 'accepted', attempt: 2 });
         expect(log.verifyChain().ok).toBe(true);
+    });
+
+    // v8 Slice 3 telemetry proofs
+    it('#11 worker turn carries TurnTelemetry from spawnSubAgent', async () => {
+        const { log, keysDir, mk } = scenario();
+        const runner: TurnRunner = async () => ({
+            content: 'telemetry done',
+            success: true,
+            toolsUsed: [],
+            durationMs: 42,
+            telemetry: {
+                actionId: 'worker-action-id',
+                promptTokens: 10,
+                completionTokens: 20,
+                costUsd: 0.0001,
+                measured: true,
+                providerCalls: 1,
+                returnedCalls: 1,
+                exit: 'completed',
+                model: 'test-model',
+            },
+        });
+        const d = mk(runner, okReviewer);
+        const ev = delegate(log, keysDir, 'scout', 'telemetry task');
+        d.kick();
+        await d.idle();
+        const result = log.read({ kind: 'task.result' })[0];
+        expect(result.payload.success).toBe(true);
+        const checked = log.read({ kind: 'task.checked' })[0];
+        expect(checked.payload.verdict).toBe('accepted');
+        log.close();
+    });
+
+    it('#12 reviewer TurnTelemetry is preserved on verdict override', async () => {
+        const { log, keysDir, mk } = scenario();
+        const failingRunner: TurnRunner = async () => ({
+            content: 'fail',
+            success: false,
+            toolsUsed: [],
+        });
+        const reviewer: Reviewer = async () => ({
+            verdict: 'accepted',
+            note: 'I want to accept',
+            telemetry: {
+                actionId: 'reviewer-action-id',
+                promptTokens: 5,
+                completionTokens: 5,
+                costUsd: 0.0002,
+                measured: false,
+                providerCalls: 1,
+                returnedCalls: 1,
+                exit: 'completed',
+                model: 'reviewer-model',
+            },
+            durationMs: 17,
+        });
+        const d = mk(failingRunner, reviewer, 1);
+        delegate(log, keysDir, 'scout', 'doomed');
+        d.kick();
+        await d.idle();
+        const checked = log.read({ kind: 'task.checked' })[0];
+        expect(checked.payload.verdict).toBe('needs-work');
+        log.close();
+    });
+
+    it('#14 productionReviewer returns TurnTelemetry with measured flag', async () => {
+        chatMock.mockReset();
+        chatMock.mockResolvedValueOnce({
+            content: 'ACCEPTED\nGood.',
+            usage: { promptTokens: 8, completionTokens: 4, totalTokens: 12, measured: true },
+            model: 'test-review-model',
+        });
+        const res = await productionReviewer({
+            spec: 's',
+            agentId: 'scout',
+            result: { content: 'done', success: true, toolsUsed: [] },
+        });
+        expect(res.verdict).toBe('accepted');
+        expect(res.telemetry).toMatchObject({
+            promptTokens: 8,
+            completionTokens: 4,
+            measured: true,
+            providerCalls: 1,
+            returnedCalls: 1,
+            exit: 'completed',
+            model: 'test-review-model',
+        });
+        expect(res.telemetry!.costUsd).toBeGreaterThan(0);
+    });
+
+    it('#16 productionReviewer marks failed chat as provider-error telemetry', async () => {
+        chatMock.mockReset();
+        chatMock.mockRejectedValueOnce(new Error('review model offline'));
+        const res = await productionReviewer({
+            spec: 's',
+            agentId: 'scout',
+            result: { content: 'done', success: true, toolsUsed: [] },
+        });
+        expect(res.verdict).toBe('needs-work');
+        expect(res.telemetry).toMatchObject({
+            providerCalls: 1,
+            returnedCalls: 0,
+            measured: false,
+            exit: 'provider-error',
+        });
     });
 
     it('#4 parseSafeInt: full-string parse rejects junk suffixes', () => {

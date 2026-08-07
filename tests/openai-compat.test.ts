@@ -191,7 +191,7 @@ describe('OpenAICompatProvider', () => {
             expect(result.id).toBe('chatcmpl-123');
             expect(result.content).toBe('Hello world');
             expect(result.finishReason).toBe('stop');
-            expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+            expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15, measured: true });
             expect(result.model).toBe('test-provider/test-model-1');
         });
 

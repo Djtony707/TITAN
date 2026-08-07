@@ -1279,6 +1279,13 @@ export const TitanConfigSchema = z.object({
      * (default), the gateway boots byte-identical to v7 — no DB, no
      * routes, no UI tab. See V8_SLICE1_DESIGN.md.
      */
+    /** v8 Slice 3 — persistent recording of agent turns for audit/replay.
+     *  When enabled, each completed agent turn is durably recorded; the
+     *  runtime loads this setting at boot, so toggling it requires restart. */
+    record: z.object({
+        enabled: z.boolean().default(false),
+    }).default({}),
+
     company: z.object({
         /** Master switch for the v8 company layer. Default off. */
         enabled: z.boolean().default(false),

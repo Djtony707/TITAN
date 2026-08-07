@@ -24,6 +24,9 @@ import { nextDispatchable, startTask, retryTask } from './queueCommands.js';
 import { loadAgentKeys } from './keys.js';
 import { appendMemory, renderMemoryForPrompt } from './memoryStream.js';
 import logger from '../utils/logger.js';
+import { mintActionId } from '../receipts/mint.js';
+import { calculateActualCost } from '../agent/costEstimator.js';
+import type { TurnTelemetry } from '../agent/subAgent.js';
 
 const COMPONENT = 'CompanyDispatch';
 
@@ -51,6 +54,8 @@ export interface TurnOutcome {
     content: string;
     success: boolean;
     toolsUsed: string[];
+    durationMs?: number;
+    telemetry?: TurnTelemetry;
 }
 
 export type TurnRunner = (req: TurnRequest) => Promise<TurnOutcome>;
@@ -64,6 +69,8 @@ export interface ReviewRequest {
 export interface ReviewOutcome {
     verdict: 'accepted' | 'needs-work';
     note: string;
+    telemetry?: TurnTelemetry;
+    durationMs?: number;
 }
 
 export type Reviewer = (req: ReviewRequest) => Promise<ReviewOutcome>;
@@ -82,39 +89,121 @@ export const productionRunner: TurnRunner = async (req) => {
         maxRounds: 6,
         tags: ['company', 'slice2'],
     });
-    return { content: res.content, success: res.success, toolsUsed: res.toolsUsed };
+    return {
+        content: res.content,
+        success: res.success,
+        toolsUsed: res.toolsUsed,
+        durationMs: res.durationMs,
+        telemetry: res.telemetry,
+    };
 };
 
 /** Production reviewer — a DIRECT chat() call; tool-less by construction. */
 export const productionReviewer: Reviewer = async (req) => {
     const { chat } = await import('../providers/router.js');
-    const res = await chat({
-        messages: [
-            {
-                role: 'system',
-                content: 'You are the CEO. You check the crew\'s work before accepting it. Be strict but fair. ' +
-                    'Reply with exactly ACCEPTED or NEEDS-WORK on the first line, then one short sentence of rationale.',
+    const turnActionId = mintActionId();
+    const reviewStart = Date.now();
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let costUsd = 0;
+    let measured = false;
+    let model = '';
+    let text = '';
+    try {
+        const res = await chat({
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are the CEO. You check the crew\'s work before accepting it. Be strict but fair. ' +
+                        'Reply with exactly ACCEPTED or NEEDS-WORK on the first line, then one short sentence of rationale.',
+                },
+                {
+                    role: 'user',
+                    content: `Task spec: ${req.spec}\nAgent: ${req.agentId}\nAgent reported success: ${req.result.success}\n` +
+                        `Result:\n${req.result.content.slice(0, 4000)}`,
+                },
+            ],
+            maxTokens: 200,
+        });
+        text = typeof res.content === 'string' ? res.content : String(res.content ?? '');
+        if (res.usage) {
+            promptTokens = res.usage.promptTokens || 0;
+            completionTokens = res.usage.completionTokens || 0;
+            costUsd = calculateActualCost(res.model || '', {
+                prompt: promptTokens,
+                completion: completionTokens,
+            });
+            measured = res.usage.measured === true;
+            model = res.model || '';
+        }
+    } catch (err) {
+        const durationMs = Date.now() - reviewStart;
+        return {
+            verdict: 'needs-work',
+            note: `Review failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+            telemetry: {
+                actionId: turnActionId,
+                promptTokens: 0,
+                completionTokens: 0,
+                costUsd: 0,
+                measured: false,
+                providerCalls: 1,
+                returnedCalls: 0,
+                exit: 'provider-error',
             },
-            {
-                role: 'user',
-                content: `Task spec: ${req.spec}\nAgent: ${req.agentId}\nAgent reported success: ${req.result.success}\n` +
-                    `Result:\n${req.result.content.slice(0, 4000)}`,
-            },
-        ],
-        maxTokens: 200,
-    });
-    const text = typeof res.content === 'string' ? res.content : String(res.content ?? '');
+            durationMs,
+        };
+    }
     const firstLine = (text.trim().split('\n')[0] ?? '').trim().toUpperCase();
     const accepted = firstLine === 'ACCEPTED' && req.result.success;
+    const durationMs = Date.now() - reviewStart;
     return {
         verdict: accepted ? 'accepted' : 'needs-work',
         note: text.split('\n').slice(0, 2).join(' ').slice(0, 300) || 'no rationale returned',
+        telemetry: {
+            actionId: turnActionId,
+            promptTokens,
+            completionTokens,
+            costUsd,
+            measured,
+            providerCalls: 1,
+            returnedCalls: 1,
+            exit: 'completed',
+            model: model || undefined,
+        },
+        durationMs,
     };
 };
 
 export interface DispatchConfig {
     maxAttempts?: number;
     charterOf: (agentId: string) => string;
+}
+
+/** Record a trace span for a worker or reviewer turn (best-effort). */
+async function recordDispatchSpan(
+    kind: 'worker' | 'reviewer',
+    req: { agentId: string; taskRef: string; attempt: number },
+    outcome: { content: string; success?: boolean; durationMs?: number; telemetry?: TurnTelemetry },
+): Promise<void> {
+    try {
+        const { recordSpan } = await import('../telemetry/traceStore.js');
+        const t = outcome.telemetry;
+        recordSpan({
+            sessionId: `${req.agentId}:${req.taskRef}:${req.attempt}`,
+            runId: t?.actionId,
+            startedAt: new Date(Date.now() - (outcome.durationMs ?? 0)).toISOString(),
+            durationMs: outcome.durationMs ?? 0,
+            model: t?.model ?? 'unknown',
+            input: `${kind} turn for ${req.taskRef} attempt ${req.attempt}`.slice(0, 500),
+            output: (outcome.content ?? '').slice(0, 1000),
+            toolsUsed: [],
+            promptTokens: t?.promptTokens ?? 0,
+            completionTokens: t?.completionTokens ?? 0,
+            costUsd: t?.costUsd ?? 0,
+            ok: outcome.success ?? false,
+        });
+    } catch { /* trace recording is best-effort */ }
 }
 
 export class CompanyDispatch {
@@ -342,6 +431,7 @@ export class CompanyDispatch {
                 success: false, toolsUsed: [],
             };
         }
+        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt }, outcome);
 
         const ownerKeys = loadAgentKeys(f.owner, this.keysDir);
         const result = this.log.append({
@@ -377,8 +467,19 @@ export class CompanyDispatch {
             review = { verdict: 'needs-work', note: `Review failed: ${err instanceof Error ? err.message : String(err)}` };
         }
         if (!outcome.success && attempt >= this.maxAttempts) {
-            review = { verdict: 'needs-work', note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300) };
+            review = {
+                verdict: 'needs-work',
+                note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300),
+                telemetry: review.telemetry,
+                durationMs: review.durationMs,
+            };
         }
+        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt }, {
+            content: review.note,
+            success: review.verdict === 'accepted',
+            durationMs: review.durationMs,
+            telemetry: review.telemetry,
+        });
 
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
         this.log.append({
@@ -420,8 +521,19 @@ export class CompanyDispatch {
         }
         let review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
         if (!outcome.success && attempt >= this.maxAttempts) {
-            review = { verdict: 'needs-work', note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300) };
+            review = {
+                verdict: 'needs-work',
+                note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300),
+                telemetry: review.telemetry,
+                durationMs: review.durationMs,
+            };
         }
+        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: f.taskRef, attempt }, {
+            content: review.note,
+            success: review.verdict === 'accepted',
+            durationMs: review.durationMs,
+            telemetry: review.telemetry,
+        });
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
         this.log.append({
             kind: 'task.checked', actor: 'ceo',

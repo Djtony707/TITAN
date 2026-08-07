@@ -250,6 +250,7 @@ export class GoogleProvider extends LLMProvider {
                     promptTokens: usageMeta.promptTokenCount || 0,
                     completionTokens: usageMeta.candidatesTokenCount || 0,
                     totalTokens: usageMeta.totalTokenCount || 0,
+                    measured: true,
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',

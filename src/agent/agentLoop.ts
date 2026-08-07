@@ -1207,7 +1207,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     id: `stream-${Date.now()}`,
                     content: streamContent,
                     toolCalls: streamToolCalls.length > 0 ? streamToolCalls : undefined,
-                    usage: { promptTokens: estPromptTokens, completionTokens: estCompletionTokens, totalTokens: estPromptTokens + estCompletionTokens },
+                    usage: { promptTokens: estPromptTokens, completionTokens: estCompletionTokens, totalTokens: estPromptTokens + estCompletionTokens, measured: false },
                     finishReason: streamToolCalls.length > 0 ? 'tool_calls' : 'stop',
                     model: activeModel,
                 };
@@ -2354,7 +2354,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 response = {
                     id: `stream-${Date.now()}`,
                     content: streamContent,
-                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, measured: false },
                     finishReason: 'stop',
                     model: activeModel,
                 };

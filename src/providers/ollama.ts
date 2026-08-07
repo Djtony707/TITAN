@@ -781,6 +781,7 @@ export class OllamaProvider extends LLMProvider {
                 promptTokens: (data.prompt_eval_count as number) || 0,
                 completionTokens: (data.eval_count as number) || 0,
                 totalTokens: ((data.prompt_eval_count as number) || 0) + ((data.eval_count as number) || 0),
+                measured: true,
             },
             finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
             model: `ollama/${model}`,

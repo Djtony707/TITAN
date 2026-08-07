@@ -169,3 +169,69 @@ describe('SubAgent', () => {
         });
     });
 });
+
+describe('v8 slice 3 telemetry accumulator', () => {
+    it('measured=true for a single server-reported usage response', async () => {
+        mockChat.mockResolvedValue({
+            content: 'Research completed.',
+            toolCalls: [],
+            usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, measured: true },
+            model: 'test-model',
+        });
+        const result = await spawnSubAgent({ name: 'Explorer', task: 'Research AI' });
+        expect(result.telemetry).toMatchObject({
+            actionId: expect.any(String),
+            promptTokens: 10,
+            completionTokens: 20,
+            providerCalls: 1,
+            returnedCalls: 1,
+            measured: true,
+            exit: 'completed',
+            model: 'test-model',
+        });
+    });
+
+    it('measured=false when usage is absent', async () => {
+        mockChat.mockResolvedValue({ content: 'No usage.', toolCalls: [] });
+        const result = await spawnSubAgent({ name: 'Explorer', task: 'Research AI' });
+        expect(result.telemetry.measured).toBe(false);
+        expect(result.telemetry.providerCalls).toBe(1);
+        expect(result.telemetry.returnedCalls).toBe(1);
+    });
+
+    it('provider throw makes whole turn unmeasured with provider-error exit', async () => {
+        mockChat.mockRejectedValue(new Error('provider down'));
+        const result = await spawnSubAgent({ name: 'Explorer', task: 'Research AI' });
+        expect(result.telemetry).toMatchObject({
+            providerCalls: 1,
+            returnedCalls: 0,
+            measured: false,
+            exit: 'provider-error',
+        });
+    });
+
+    it('mixed success-then-throw makes the whole turn unmeasured', async () => {
+        mockChat
+            .mockResolvedValueOnce({
+                content: 'first',
+                toolCalls: [{ id: '1', type: 'function', function: { name: 'web_search', arguments: '{}' } }],
+                usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10, measured: true },
+                model: 'test-model',
+            })
+            .mockRejectedValueOnce(new Error('provider down'));
+        mockExecuteTools.mockResolvedValue([{ toolCallId: '1', name: 'web_search', content: 'results', success: true }]);
+        const result = await spawnSubAgent({ name: 'Explorer', task: 'Research AI' });
+        expect(result.telemetry.promptTokens).toBe(5);
+        expect(result.telemetry.completionTokens).toBe(5);
+        expect(result.telemetry.providerCalls).toBe(2);
+        expect(result.telemetry.returnedCalls).toBe(1);
+        expect(result.telemetry.measured).toBe(false);
+        expect(result.telemetry.exit).toBe('provider-error');
+    });
+
+    it('early-return depth limit has telemetry with exit depth-limit', async () => {
+        const result = await spawnSubAgent({ name: 'Test', task: 'x', isNested: true });
+        expect(result.telemetry.exit).toBe('depth-limit');
+        expect(result.telemetry.measured).toBe(false);
+    });
+});
