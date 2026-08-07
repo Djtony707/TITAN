@@ -9,11 +9,13 @@
  * file — <keysDir>/<agentId>.keypair (private PKCS8 PEM followed by
  * public SPKI PEM, mode 0600). Minting writes a temp file and renames it
  * into place. Because POSIX rename of a single file is atomic and the
- * pair never travels separately, NO interleaving of concurrent mints can
- * produce a mismatched pair: readers observe either a complete old pair
- * or a complete new pair, and racing minters converge by re-loading the
- * post-rename disk state (last complete pair wins; every caller returns
- * exactly what is on disk).
+ * pair never travels separately, no interleaving can split a pair. The
+ * winner is elected with atomic NO-CLOBBER link(2): the FIRST minter to
+ * link its temp pair into place wins; every later minter's link fails
+ * with EEXIST, discards its own pair, and loads the winner. Every caller
+ * therefore returns the registered on-disk identity — there is no window
+ * where a caller holds a private key that is not the registered one
+ * (re-review fix, event a760bf8a finding 2).
  *
  * Security properties:
  *  - EVERY exported filesystem entry point validates agentId (containment);
@@ -32,7 +34,7 @@ import {
     randomBytes,
     type KeyObject,
 } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, linkSync, rmSync } from 'fs';
 import { join } from 'path';
 import logger from '../utils/logger.js';
 
@@ -84,10 +86,15 @@ export function mintAgentKeys(agentId: string, keysDir: string): AgentKeys {
 
     const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
     writeFileSync(tmp, privPem + pubPem, { mode: 0o600 });
-    renameSync(tmp, file); // atomic: complete pair or nothing; last writer wins whole
-    logger.info(COMPONENT, `Minted ed25519 identity for "${agentId}"`);
-    // Convergence: return DISK state, not our local pair — if another minter
-    // renamed after us, everyone still agrees with what verification reads.
+    try {
+        linkSync(tmp, file); // atomic NO-CLOBBER: first minter wins, forever
+        logger.info(COMPONENT, `Minted ed25519 identity for "${agentId}"`);
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') { rmSync(tmp, { force: true }); throw err; }
+        // Lost the election — a concurrent minter linked first. Converge.
+    } finally {
+        rmSync(tmp, { force: true });
+    }
     return readPair(agentId, file);
 }
 

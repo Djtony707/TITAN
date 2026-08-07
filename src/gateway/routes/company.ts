@@ -27,6 +27,7 @@ import { Router, type Request, type Response } from 'express';
 import { loadConfig } from '../../config/config.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { titanEvents } from '../../agent/daemon.js';
+import { LIMITS, parseSafeInt } from '../../company/wire.js';
 import logger from '../../utils/logger.js';
 
 const COMPONENT = 'CompanyRouter';
@@ -77,12 +78,14 @@ export function createCompanyRouter(): Router {
 
   // ── Input validation constants (server-side security boundary) ──
   // UI input attributes are NOT a security boundary — validate here.
-  const MAX_NAME_LEN = 200;        // company name
-  const MAX_MISSION_LEN = 2000;    // company mission
-  const MAX_TEXT_LEN = 10000;      // room message text
-  const MAX_SPEC_LEN = 5000;       // task delegation spec
-  const MAX_AGENT_ID_LEN = 128;    // agent pubkey hex (ed25519 = 64 hex)
-  const MAX_REPLYTO_LEN = 64;      // event uuid
+  // Single source of truth for limits: src/company/wire.ts (re-review #4).
+  // Semantics: REJECT with 400 beyond a limit — never silently clamp/slice.
+  const MAX_NAME_LEN = LIMITS.companyName;
+  const MAX_MISSION_LEN = LIMITS.mission;
+  const MAX_TEXT_LEN = LIMITS.roomText;
+  const MAX_SPEC_LEN = LIMITS.taskSpec;
+  const MAX_AGENT_ID_LEN = 64;     // agentId charset gate lives in the service
+  const MAX_REPLYTO_LEN = LIMITS.replyTo;
   const MIN_LIMIT = 1;
   const MAX_LIMIT = 500;
 
@@ -104,8 +107,16 @@ export function createCompanyRouter(): Router {
       const { createCompany } = await import('../../company/service.js');
       const { name, mission } = req.body as { name?: string; mission?: string };
       // Validate and clamp inputs
-      const safeName = (name || 'Titan Company').slice(0, MAX_NAME_LEN);
-      const safeMission = mission ? mission.slice(0, MAX_MISSION_LEN) : undefined;
+      const safeName = name || 'Titan Company';
+      if (safeName.length > MAX_NAME_LEN) {
+        res.status(400).json({ error: `Company name exceeds ${MAX_NAME_LEN} characters` });
+        return;
+      }
+      const safeMission = mission || undefined;
+      if (safeMission && safeMission.length > MAX_MISSION_LEN) {
+        res.status(400).json({ error: `Mission exceeds ${MAX_MISSION_LEN} characters` });
+        return;
+      }
       // Idempotent: if a company already exists, return it.
       // Slice 1 supports exactly one company.
       const company = await createCompany({ name: safeName, mission: safeMission });
@@ -120,14 +131,14 @@ export function createCompanyRouter(): Router {
   router.get('/room', async (req, res) => {
     try {
       const { getRoomEvents } = await import('../../company/service.js');
-      // Validate pagination params — NaN or out-of-range → 400
-      const afterRaw = parseInt(req.query.after as string || '0', 10);
-      const limitRaw = parseInt(req.query.limit as string || '100', 10);
-      if (!Number.isFinite(afterRaw) || afterRaw < 0) {
+      // Strict full-string parse (re-review #4): '12junk' → 400, not 12.
+      const afterRaw = parseSafeInt(req.query.after, 0);
+      const limitRaw = parseSafeInt(req.query.limit, 100);
+      if (afterRaw === null || afterRaw < 0) {
         res.status(400).json({ error: 'after must be a non-negative integer' });
         return;
       }
-      if (!Number.isFinite(limitRaw) || limitRaw < 1) {
+      if (limitRaw === null || limitRaw < 1) {
         res.status(400).json({ error: 'limit must be a positive integer' });
         return;
       }

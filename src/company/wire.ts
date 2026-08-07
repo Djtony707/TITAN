@@ -34,6 +34,15 @@ export const LIMITS = {
     taskSpec: 4000,
 } as const;
 
+/** Full-string non-negative safe-integer parse: '12junk' and '' are rejected (null). */
+export function parseSafeInt(raw: unknown, fallback: number): number | null {
+    if (raw === undefined || raw === null) return fallback;
+    const str = String(raw);
+    if (!/^\d{1,15}$/.test(str)) return null;
+    const n = Number(str);
+    return Number.isSafeInteger(n) ? n : null;
+}
+
 export function assertLen(value: string, max: number, field: string): void {
     if (value.length > max) {
         throw new Error(`${field} exceeds the ${max}-character limit`);

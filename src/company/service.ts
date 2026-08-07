@@ -28,6 +28,7 @@ const COMPONENT = 'CompanyService';
 interface State {
     log: CompanyLog;
     keysDir: string;
+    memoryDir: string;
     dispatch: CompanyDispatch;
 }
 
@@ -40,8 +41,15 @@ async function ensure(): Promise<State> {
         const root = join(TITAN_HOME, 'company');
         const keysDir = join(root, 'keys');
         const log = new CompanyLog(join(root, 'company.db'), keysDir);
-        state = { log, keysDir, dispatch: new CompanyDispatch(log, keysDir, productionRunner, productionReviewer) };
+        const memoryDir = join(root, 'memory');
+        const dispatch = new CompanyDispatch(log, keysDir, memoryDir, productionRunner, productionReviewer);
+        state = { log, keysDir, memoryDir, dispatch };
         logger.info(COMPONENT, `Company log open at ${join(root, 'company.db')}`);
+        // Durability (re-review #6): re-enqueue persisted tasks that never
+        // reached a terminal check (crash reconciliation at activation).
+        const crew = new Map(log.read({ kind: 'agent.minted', limit: 100 })
+            .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
+        dispatch.recover(agentId => crew.get(agentId) ?? '');
     }
     return state;
 }
@@ -135,6 +143,18 @@ export async function delegateTask(opts: { from: string; to: string; spec: strin
     const charter = status.agents.find(a => a.agentId === opts.to)?.charter ?? '';
     (await ensure()).dispatch.enqueue(event, charter);
     return event;
+}
+
+/** CEO-signed delegation (re-review #5): the CEO delegates in its own name. */
+export async function ceoDelegateTask(opts: { to: string; spec: string }): Promise<CompanyEvent> {
+    const { dispatch } = await ensure();
+    assertValidAgentId(opts.to);
+    assertLen(opts.spec, LIMITS.taskSpec, 'task spec');
+    const status = await getCompanyStatus();
+    if (!status.exists) throw new Error('No company exists yet — create one first');
+    const agent = status.agents.find(a => a.agentId === opts.to);
+    if (!agent) throw new Error(`No such agent "${opts.to}"`);
+    return dispatch.ceoDelegate(opts.to, opts.spec, agent.charter);
 }
 
 export { STARTER_CREW };

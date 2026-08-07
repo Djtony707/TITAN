@@ -287,10 +287,10 @@ export function CompanyRoom() {
   useEffect(() => { refresh(); }, [refresh]);
 
   // ── SSE: live room events with gap-free recovery ────────────
-  // On open (and on reconnect), perform a catch-up read from lastSeq
-  // to fill any events that arrived in the gap between the initial
-  // fetch and the SSE subscription, or during a reconnect. Dedupe by
-  // event id/seq so catch-up and live events never double-append.
+  // On open (and on reconnect), perform a paginated catch-up read
+  // from lastSeq until the log is exhausted, buffering any live SSE
+  // events that arrive during catch-up behind a contiguous cursor.
+  // No seq is skipped on races or large backlogs. Dedupe by event id.
   useEffect(() => {
     if (error || !status?.exists) return;
     const token = localStorage.getItem('titan-token');
@@ -298,25 +298,60 @@ export function CompanyRoom() {
     const es = new EventSource(url);
     let retries = 0;
 
-    // Catch-up: fetch all events after our last known seq, merge them
-    // in order, then update lastSeq. Called on open and on reconnect.
+    // ── Catch-up state ──
+    // `catchingUp` gates whether live events go to state or to the buffer.
+    // `liveBuffer` holds live events that arrive while catch-up is running.
+    // After catch-up completes, the buffer is merged in seq order with dedup.
+    let catchingUp = false;
+    const liveBuffer: CompanyEvent[] = [];
+
+    // Paginated catch-up: loop fetching pages from lastSeq until the
+    // page comes back empty or partial (meaning we've caught up to the
+    // log tail). Each page advances the contiguous cursor. This handles
+    // backlogs larger than the 500-event page limit.
     const catchUp = async () => {
+      catchingUp = true;
+      liveBuffer.length = 0; // clear stale buffer from a previous run
       try {
-        const after = lastSeqRef.current;
-        const page = await getCompanyRoom(after, 500);
-        if (page.events.length > 0) {
+        let after = lastSeqRef.current;
+        // Loop until we get an empty or partial page (log exhausted).
+        // MAX_LIMIT on the server is 500.
+        while (true) {
+          const page = await getCompanyRoom(after, 500);
+          if (page.events.length === 0) break;
+          // Merge this page's events into state with dedup by id
           setEvents(prev => {
-            // Dedupe by event id — catch-up may overlap with live events
-            // that already arrived via SSE.
             const seen = new Set(prev.map(e => e.id));
             const fresh = page.events.filter(e => !seen.has(e.id));
             return fresh.length > 0 ? [...prev, ...fresh] : prev;
           });
-          // Advance lastSeq to the highest seq we've seen
-          const maxSeq = page.events.reduce((m, e) => Math.max(m, e.seq), after);
-          lastSeqRef.current = Math.max(lastSeqRef.current, maxSeq);
+          // Advance the contiguous cursor to the highest seq in this page
+          after = page.events.reduce((m, e) => Math.max(m, e.seq), after);
+          lastSeqRef.current = Math.max(lastSeqRef.current, after);
+          // If the page was partial (< limit), we've reached the tail
+          if (page.events.length < 500) break;
         }
       } catch { /* catch-up failure is non-fatal — live events still work */ }
+      catchingUp = false;
+
+      // ── Merge buffered live events ──
+      // Events that arrived via SSE while catch-up was running. Sort by
+      // seq and append any we haven't seen yet (dedup by id against both
+      // the current state and the catch-up pages we just merged).
+      if (liveBuffer.length > 0) {
+        liveBuffer.sort((a, b) => a.seq - b.seq);
+        setEvents(prev => {
+          const seen = new Set(prev.map(e => e.id));
+          const fresh = liveBuffer.filter(e => !seen.has(e.id));
+          // Advance lastSeq past any buffered events we appended
+          if (fresh.length > 0) {
+            const maxBufSeq = fresh.reduce((m, e) => Math.max(m, e.seq), 0);
+            lastSeqRef.current = Math.max(lastSeqRef.current, maxBufSeq);
+          }
+          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+        });
+        liveBuffer.length = 0;
+      }
     };
 
     es.onopen = () => {
@@ -330,14 +365,23 @@ export function CompanyRoom() {
       retries = 0;
       try {
         const evt = JSON.parse(e.data) as CompanyEvent;
-        // Only append events we haven't seen (by seq + id for dedup)
-        if (evt.seq > lastSeqRef.current) {
-          lastSeqRef.current = evt.seq;
-          setEvents(prev => {
-            // Dedupe by id in case catch-up already added it
-            if (prev.some(e => e.id === evt.id)) return prev;
-            return [...prev, evt];
-          });
+        if (catchingUp) {
+          // ── Buffer mode ──
+          // Catch-up is running. Don't append to state yet — buffer this
+          // live event. It will be merged in seq order after catch-up
+          // completes. This prevents out-of-order appends and ensures
+          // the contiguous cursor is maintained.
+          liveBuffer.push(evt);
+        } else {
+          // ── Live mode ──
+          // Catch-up is done. Append directly, deduping by id.
+          if (evt.seq > lastSeqRef.current) {
+            lastSeqRef.current = evt.seq;
+            setEvents(prev => {
+              if (prev.some(e => e.id === evt.id)) return prev;
+              return [...prev, evt];
+            });
+          }
         }
       } catch { /* malformed event */ }
     });
