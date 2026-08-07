@@ -69,8 +69,14 @@ program
         // running this CLI command IS the user's authorization; the service
         // loads the workspace user key and hands it to the closed log op.
         const { queueDiscard } = await import('../company/service.js');
+        const { loadAgentKeys } = await import('../company/keys.js');
+        const { TITAN_HOME } = await import('../utils/constants.js');
+        const { join } = await import('path');
         try {
-            const out = await queueDiscard();
+            // Credential acquisition happens HERE, at the authenticated
+            // user-invoked CLI boundary — the service op is non-ambient.
+            const user = loadAgentKeys('user', join(TITAN_HOME, 'company', 'keys'));
+            const out = await queueDiscard(user.privateKey);
             console.log(`queue-discard complete: ${out.unblocked} unblocked, ${out.lifted} holds lifted, ${out.terminalized} tasks terminalized (needs-work).`);
         } catch (err) {
             console.error(`queue-discard failed: ${err instanceof Error ? err.message : String(err)}`);

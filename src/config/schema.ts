@@ -1286,6 +1286,15 @@ export const TitanConfigSchema = z.object({
         name: z.string().optional(),
         /** Mission statement for the company. */
         mission: z.string().optional(),
+        /** v8 Slice 2 — the work queue sub-layer. Default off: queue kinds
+         *  are not appendable and queue modules stay unimported. */
+        queue: z.object({
+            enabled: z.boolean().default(false),
+            /** Bounded failure retries per task (attempts cap). */
+            maxAttempts: z.number().int().min(1).max(5).default(2),
+            /** Owner-silence threshold for stuck derivation (ms). */
+            stuckAfterMs: z.number().int().positive().default(5 * 60 * 1000),
+        }).default({}),
     }).default({}),
     /** v5.0: UI theming */
     ui: z.object({

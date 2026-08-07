@@ -415,3 +415,48 @@ describe('slice 2 patch 2 — queueCommands intent API', () => {
         s.log.close();
     });
 });
+
+describe('slice 2 patch 3 fixes — production config + flag-off pipeline (review 9a85bc9f)', () => {
+    it('#1 company.queue survives the REAL validated config schema', async () => {
+        const { TitanConfigSchema } = await import('../src/config/schema.js');
+        const parsed = TitanConfigSchema.parse({
+            company: { enabled: true, queue: { enabled: true, maxAttempts: 3 } },
+        }) as { company: { queue: { enabled: boolean; maxAttempts: number; stuckAfterMs: number } } };
+        expect(parsed.company.queue.enabled).toBe(true);      // NOT stripped by Zod
+        expect(parsed.company.queue.maxAttempts).toBe(3);
+        expect(parsed.company.queue.stuckAfterMs).toBe(300000);
+        const defaults = TitanConfigSchema.parse({}) as { company: { queue: { enabled: boolean } } };
+        expect(defaults.company.queue.enabled).toBe(false);   // default off
+    });
+
+    it('#2 flag-off pipeline: the BASIC dispatcher completes the slice-1 chain on a queue-off log', async () => {
+        const { BasicCompanyDispatch } = await import('../src/company/dispatchBasic.js');
+        const dir = join(ROOT, `basic-${++caseId}`);
+        const keysDir = join(dir, 'keys');
+        const user = mintAgentKeys('user', keysDir);
+        mintAgentKeys('ceo', keysDir);
+        mintAgentKeys('scout', keysDir);
+        const log = new CompanyLog(join(dir, 'company.db'), keysDir, {}); // QUEUE OFF
+        const d = new BasicCompanyDispatch(log, keysDir, join(dir, 'memory'),
+            async () => ({ content: 'done', success: true, toolsUsed: [] }),
+            async () => ({ verdict: 'accepted' as const, note: 'ok' }));
+        const ev = log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, user.privateKey);
+        d.enqueue(ev, 'charter');
+        await d.idle();
+        // Full slice-1 chain landed using ONLY slice-1 kinds (no task.started —
+        // which the queue-off log would reject):
+        expect(log.read({ kind: 'task.result' })).toHaveLength(1);
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(1);
+        expect(log.readAll().every(e => !e.kind.startsWith('hold.') && e.kind !== 'task.started' && e.kind !== 'task.retry')).toBe(true);
+        expect(log.verifyChain().ok).toBe(true);
+        log.close();
+    });
+
+    it('#3 queueDiscard is non-ambient: it requires the user private key as input', async () => {
+        const svc = await import('../src/company/service.js');
+        // The exported op cannot run without a caller-supplied key (compile-
+        // level: parameter is required; runtime: a wrong key is rejected by
+        // the closed log op — proven in the log-layer tests above).
+        expect(svc.queueDiscard.length).toBe(1);
+    });
+});
