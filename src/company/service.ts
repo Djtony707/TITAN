@@ -171,21 +171,80 @@ export async function getCompanyStatus(): Promise<CompanyStatus> {
     };
 }
 
+/** Queue-mode gate for the slice-2 read/action surface. The router maps
+ *  this sentinel to 404 (flag-off endpoints are indistinguishable from
+ *  absent, mirroring the slice-1 company gate). */
+export const QUEUE_DISABLED = 'QUEUE_DISABLED: requires company.queue.enabled';
+
+async function ensureQueue(): Promise<State> {
+    const st = await ensure();
+    if (!st.queueDispatch) throw new Error(QUEUE_DISABLED);
+    return st;
+}
+
 /**
  * GET /api/company/presence?now= — pure derivation from the signed log at
- * an explicit clock (v5 §6). Queue mode only: presence.ts imports the
- * queue fold, and the flag-off contract keeps queue modules unimported,
- * so the dynamic import happens strictly after the mode check.
+ * an explicit clock (v5 §6). Queue mode only: surface.ts imports the
+ * queue fold and presence modules, and the flag-off contract keeps queue
+ * modules unimported, so the dynamic import happens strictly after the
+ * mode check.
  */
 export async function companyPresence(now: number = Date.now()) {
-    const st = await ensure();
-    if (!st.queueDispatch) throw new Error('Presence requires company.queue.enabled');
-    const { presenceAt } = await import('./presence.js');
+    const st = await ensureQueue();
+    const { presenceView } = await import('./surface.js');
     const cfg = loadConfig();
     const stuckAfterMs = (cfg as { company: { queue: { stuckAfterMs: number } } }).company.queue.stuckAfterMs;
-    const agentIds = st.log.read({ kind: 'agent.minted', limit: 100 })
-        .map(e => String(e.payload.agentId ?? '')).filter(Boolean);
-    return presenceAt(st.log.readAll(), agentIds, now, { stuckAfterMs });
+    return { presence: presenceView(st.log.readAll(), now, { stuckAfterMs }), now };
+}
+
+/** GET /api/company/queue — the fold in UI wire shape (v5 §8 step 5). */
+export async function companyQueueView(now: number = Date.now()) {
+    const st = await ensureQueue();
+    const { queueView } = await import('./surface.js');
+    return queueView(st.log.readAll(), now);
+}
+
+/**
+ * POST /api/company/queue/lift-hold — user lifts hold(s) covering a slot.
+ * Hold lift is USER-only (v5 §1); the authenticated gateway is the user's
+ * surface, same authority model as the slice-1 delegate route. Task-scope
+ * holds on the slot are lifted; failing any, a queue-scope hold (which is
+ * what renders the slot 'held') is lifted instead.
+ */
+export async function liftHoldForTask(taskRef: string): Promise<{ lifted: number }> {
+    const st = await ensureQueue();
+    const { foldQueue } = await import('./queue.js');
+    const { liftHold } = await import('./queueCommands.js');
+    const fold = foldQueue(st.log.readAll());
+    let refs = [...fold.activeHolds.entries()].filter(([, h]) => h.scope === taskRef).map(([ref]) => ref);
+    if (refs.length === 0) refs = [...fold.activeHolds.entries()].filter(([, h]) => h.scope === 'queue').map(([ref]) => ref);
+    if (refs.length === 0) throw new Error(`No active hold covers task ${taskRef}`);
+    for (const ref of refs) liftHold(st.log, st.keysDir, ref);
+    st.queueDispatch?.kick(); // the lane may have just opened
+    return { lifted: refs.length };
+}
+
+/** POST /api/company/queue/clear-block — user clears the slot's active
+ *  block(s). The user may clear any block (v5 §1: setter-or-user). */
+export async function clearBlockForTask(taskRef: string): Promise<{ cleared: number }> {
+    const st = await ensureQueue();
+    const { foldQueue } = await import('./queue.js');
+    const { unblockTask } = await import('./queueCommands.js');
+    const task = foldQueue(st.log.readAll()).tasks.get(taskRef);
+    if (!task) throw new Error(`No task ${taskRef}`);
+    const refs = [...task.activeBlocks.keys()];
+    if (refs.length === 0) throw new Error(`No active block on task ${taskRef}`);
+    for (const ref of refs) unblockTask(st.log, st.keysDir, ref, 'user');
+    st.queueDispatch?.kick();
+    return { cleared: refs.length };
+}
+
+/** POST /api/company/queue/commitment/close — user closes a commitment
+ *  (owner-or-user authority; the gateway acts as the user). */
+export async function closeCommitmentById(id: string, note?: string) {
+    const st = await ensureQueue();
+    const { closeCommitment } = await import('./queueCommands.js');
+    return closeCommitment(st.log, st.keysDir, 'user', id, note?.trim() || 'closed');
 }
 
 /** POST /api/company — idempotent: slice 1 supports exactly one company. */

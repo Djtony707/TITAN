@@ -34,6 +34,8 @@ import type {
   CompanyEvent,
   CompanyStatus,
   CompanyRoomPage,
+  QueueFold,
+  QueuePresenceResponse,
 } from './types';
 
 import { trackEvent } from './telemetry';
@@ -964,6 +966,49 @@ export async function delegateCompanyTask(agentId: string, spec: string): Promis
   return request('/api/company/delegate', {
     method: 'POST',
     body: JSON.stringify({ agentId, spec }),
+  });
+}
+
+// ---- v8 Work Queue (Slice 2) ----
+// These hit the v8 company queue gateway router at /api/company/queue/* and
+// /api/company/presence, guarded by the `company.queue.enabled` config flag
+// (default false). When the flag is off, these endpoints return 404.
+// Per V8_SLICE2_DESIGN.md §8: the queue is a fold over the event log —
+// these endpoints read derived state; writes go through the event log.
+// Event shapes are exactly the slice-1 wire format plus the 8 new kinds.
+
+/** Get the queue fold: slots, commitments, counts. (GET /api/company/queue) */
+export async function getQueueFold(): Promise<QueueFold> {
+  return request('/api/company/queue');
+}
+
+/** Get derived presence at a point in time. (GET /api/company/presence?now=) */
+export async function getQueuePresence(now?: number): Promise<QueuePresenceResponse> {
+  const qs = now !== undefined ? `?now=${now}` : '';
+  return request(`/api/company/presence${qs}`);
+}
+
+/** Lift a hold on a slot (user only — per §1 hold-release rules). */
+export async function liftHold(taskRef: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/lift-hold', {
+    method: 'POST',
+    body: JSON.stringify({ taskRef }),
+  });
+}
+
+/** Lift/clear a block on a slot (setter or user — per §1 block-release rules). */
+export async function clearBlock(taskRef: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/clear-block', {
+    method: 'POST',
+    body: JSON.stringify({ taskRef }),
+  });
+}
+
+/** Close a commitment (the agent or user who opened it). */
+export async function closeCommitment(commitmentId: string, note?: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/commitment/close', {
+    method: 'POST',
+    body: JSON.stringify({ id: commitmentId, note }),
   });
 }
 

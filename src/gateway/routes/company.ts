@@ -68,6 +68,11 @@ export function createCompanyRouter(): Router {
     router.post('/room', companyDisabled);
     router.post('/delegate', companyDisabled);
     router.get('/stream', companyDisabled);
+    router.get('/queue', companyDisabled);
+    router.get('/presence', companyDisabled);
+    router.post('/queue/lift-hold', companyDisabled);
+    router.post('/queue/clear-block', companyDisabled);
+    router.post('/queue/commitment/close', companyDisabled);
     return router;
   }
 
@@ -208,6 +213,101 @@ export function createCompanyRouter(): Router {
     } catch (e) {
       logger.error(COMPONENT, `Delegate error: ${(e as Error).message}`);
       res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  // ── v8 Slice 2: Work Queue + Presence surface ────────────────────
+  // All five endpoints are additionally gated on company.queue.enabled:
+  // the service throws the QUEUE_DISABLED sentinel when the sub-flag is
+  // off, and the router maps it to 404 — flag-off queue endpoints are
+  // indistinguishable from absent, mirroring the company gate above.
+  // Reads are pure folds over the signed log (design v5 §8 step 5);
+  // writes go through the validated queueCommands append path as the
+  // user (the authenticated gateway IS the user's surface, the same
+  // authority model as POST /delegate above).
+  const asQueueError = (res: Response, e: Error): void => {
+    if (e.message.startsWith('QUEUE_DISABLED')) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.status(400).json({ error: e.message });
+  };
+
+  // ── GET /queue — the queue fold in UI wire shape ─────────────────
+  router.get('/queue', async (_req, res) => {
+    try {
+      const { companyQueueView } = await import('../../company/service.js');
+      res.json(await companyQueueView());
+    } catch (e) {
+      asQueueError(res, e as Error);
+    }
+  });
+
+  // ── GET /presence?now= — presenceAt(now) derivation ──────────────
+  router.get('/presence', async (req, res) => {
+    try {
+      const { companyPresence } = await import('../../company/service.js');
+      // Strict full-string parse; ?now= is optional (defaults server-side).
+      const nowRaw = req.query.now === undefined ? undefined : parseSafeInt(req.query.now, 0);
+      if (nowRaw === null) {
+        res.status(400).json({ error: 'now must be a non-negative integer (ms epoch)' });
+        return;
+      }
+      res.json(await companyPresence(nowRaw));
+    } catch (e) {
+      asQueueError(res, e as Error);
+    }
+  });
+
+  // ── POST /queue/lift-hold — USER-only hold release (v5 §1) ───────
+  router.post('/queue/lift-hold', async (req, res) => {
+    try {
+      const { liftHoldForTask } = await import('../../company/service.js');
+      const { taskRef } = req.body as { taskRef?: string };
+      if (!taskRef || typeof taskRef !== 'string' || taskRef.length > MAX_REPLYTO_LEN) {
+        res.status(400).json({ error: `taskRef must be a string of at most ${MAX_REPLYTO_LEN} characters` });
+        return;
+      }
+      const out = await liftHoldForTask(taskRef);
+      res.json({ success: true, ...out });
+    } catch (e) {
+      asQueueError(res, e as Error);
+    }
+  });
+
+  // ── POST /queue/clear-block — setter-or-user block release ───────
+  router.post('/queue/clear-block', async (req, res) => {
+    try {
+      const { clearBlockForTask } = await import('../../company/service.js');
+      const { taskRef } = req.body as { taskRef?: string };
+      if (!taskRef || typeof taskRef !== 'string' || taskRef.length > MAX_REPLYTO_LEN) {
+        res.status(400).json({ error: `taskRef must be a string of at most ${MAX_REPLYTO_LEN} characters` });
+        return;
+      }
+      const out = await clearBlockForTask(taskRef);
+      res.json({ success: true, ...out });
+    } catch (e) {
+      asQueueError(res, e as Error);
+    }
+  });
+
+  // ── POST /queue/commitment/close — owner-or-user close ───────────
+  router.post('/queue/commitment/close', async (req, res) => {
+    try {
+      const { closeCommitmentById } = await import('../../company/service.js');
+      const { id, note } = req.body as { id?: string; note?: string };
+      if (!id || typeof id !== 'string' || id.length > MAX_REPLYTO_LEN) {
+        res.status(400).json({ error: `id must be a string of at most ${MAX_REPLYTO_LEN} characters` });
+        return;
+      }
+      if (note !== undefined && (typeof note !== 'string' || note.length > MAX_TEXT_LEN)) {
+        res.status(400).json({ error: `note must be a string of at most ${MAX_TEXT_LEN} characters` });
+        return;
+      }
+      await closeCommitmentById(id, note);
+      res.json({ success: true });
+    } catch (e) {
+      asQueueError(res, e as Error);
     }
   });
 

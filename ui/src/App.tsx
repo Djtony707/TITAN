@@ -37,6 +37,7 @@ const CPFiles = lazy(() => import('@/components/command-post/CPFiles'));
 const CPVoice = lazy(() => import('@/components/command-post/CPVoice'));
 const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
 const CompanyRoom = lazy(() => import('@/components/command-post/CompanyRoom'));
+const CompanyQueue = lazy(() => import('@/components/command-post/CompanyQueue'));
 
 // ── Canonical shell section pages ────────────────────────────
 const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
@@ -147,6 +148,7 @@ function AuthenticatedAppInner() {
             <Route path="/team/agents" element={<CommandPostRoute title="Agents"><CPAgents /></CommandPostRoute>} />
             <Route path="/team/org-chart" element={<CommandPostRoute title="Org Chart"><CPOrg /></CommandPostRoute>} />
             <Route path="/team/company" element={<CompanyRoute><CompanyRoom /></CompanyRoute>} />
+            <Route path="/team/queue" element={<QueueRoute><CompanyQueue /></QueueRoute>} />
             <Route path="/team/personas" element={<PersonasPanel />} />
 
             <Route path="/knowledge" element={<MemoryGraphPanel />} />
@@ -351,6 +353,65 @@ function CompanyRoute({ children }: { children: ReactNode }) {
           <p className="mb-5 text-sm leading-relaxed text-text-secondary">
             The v8 company layer mints a workspace with a CEO and crew into a shared room.
             Enable it in settings when you're ready to try the company-of-agents platform.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * v8 Queue Route guard — gates on both `company.enabled` AND
+ * `company.queue.enabled`. Shows a disabled state pointing to settings
+ * when either flag is off.
+ */
+function QueueRoute({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<{ companyOn: boolean; queueOn: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setState({
+          companyOn: Boolean(cfg.company?.enabled),
+          queueOn: Boolean(cfg.company?.queue?.enabled),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ companyOn: false, queueOn: false });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (state === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!state.companyOn || !state.queueOn) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            v8 Work Queue is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">The Work Queue is not active</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            The v8 work queue adds one-lane task serialization, derived presence, holds, blocks,
+            and commitments on top of the company layer.
+            {!state.companyOn && ' Enable company.enabled first, then '}
+            {!state.companyOn && 'enable company.queue.enabled in settings.'}
+            {state.companyOn && !state.queueOn && ' Enable company.queue.enabled in settings.'}
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             <Link

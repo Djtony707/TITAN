@@ -3405,6 +3405,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         enabled: Boolean((cfg as Record<string, any>).company?.enabled),
         name: (cfg as Record<string, any>).company?.name ?? '',
         mission: (cfg as Record<string, any>).company?.mission ?? '',
+        queue: {
+          enabled: Boolean((cfg as Record<string, any>).company?.queue?.enabled),
+        },
       },
     });
   });
@@ -3606,6 +3609,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (co.enabled !== undefined) dco.enabled = Boolean(co.enabled);
         if (co.name !== undefined && typeof co.name === 'string') dco.name = co.name;
         if (co.mission !== undefined && typeof co.mission === 'string') dco.mission = co.mission;
+        // v8 Slice 2 — work queue sub-flag
+        if (co.queue !== undefined && typeof co.queue === 'object') {
+          const q = co.queue as Record<string, unknown>;
+          if (!dco.queue) dco.queue = {};
+          const dq = dco.queue as Record<string, unknown>;
+          if (q.enabled !== undefined) dq.enabled = Boolean(q.enabled);
+        }
         changedFields.push('company');
       }
       if (body.mesh !== undefined && typeof body.mesh === 'object') {
