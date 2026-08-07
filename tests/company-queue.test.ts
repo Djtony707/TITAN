@@ -11,7 +11,7 @@
  * REAL multi-process double-start race.
  */
 import { describe, it, expect, vi, afterAll } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -48,7 +48,7 @@ function scenario(opts: { queueOn?: boolean; noValidator?: boolean } = {}): S {
     const watchman = mintAgentKeys('watchman', keysDir);
     const queueOn = opts.queueOn ?? true;
     const log = new CompanyLog(dbPath, keysDir,
-        opts.noValidator ? {} : (queueOn ? { appendableKinds: KNOWN_KINDS, validator: queueValidator } : {}));
+        opts.noValidator ? {} : (queueOn ? { queue: true } : {}));
     return { log, keysDir, dbPath, user, ceo, scout, watchman };
 }
 function delegate(s: S, to = 'scout', spec = 'work'): CompanyEvent {
@@ -70,7 +70,7 @@ describe('slice 2 patch 1 — fold', () => {
         expect(f1.tasks.get(d.id)?.state).toBe('resulted');
         expect(f2).toEqual(f1);
         s.log.close();
-        const log2 = new CompanyLog(s.dbPath, s.keysDir, { appendableKinds: KNOWN_KINDS, validator: queueValidator });
+        const log2 = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
         expect(foldQueue(log2.read())).toEqual(f1);
         log2.close();
     });
@@ -126,10 +126,9 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         expect(() => s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.ceo.privateKey)).toThrow(/E_NO_RESULT/);
         // same append WITHOUT capability by user also rejected
         expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
-        const ev = s.log.maintenance(() =>
-            s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', note: 'discarded on queue downgrade', attempt: 1 } }, s.user.privateKey),
-        );
-        expect(ev.kind).toBe('task.checked');
+        const out = s.log.discardQueueState(); // never-started task terminalizes at attempt 1
+        expect(out.terminalized).toBe(1);
+        expect(foldQueue(s.log.readAll()).tasks.get(d.id)?.checked).toBe(true);
         // blocked gate on a second task
         const d2 = delegate(s);
         start(s, d2.id, 1);
@@ -211,7 +210,7 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         const d = s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey);
         const foreign = s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d.id, attempt: 1, content: 'not mine', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
         s.log.close();
-        const q = new CompanyLog(s.dbPath, s.keysDir, { appendableKinds: KNOWN_KINDS, validator: queueValidator });
+        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
         q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d.id, attempt: 1 } }, s.scout.privateKey);
         const blk = q.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled' } }, s.watchman.privateKey);
         expect(() =>
@@ -232,24 +231,74 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
 });
 
 describe('slice 2 patch 1 — backstops and races', () => {
-    it('CONSTRUCTION INVARIANT: queue kinds appendable without the validator throws', () => {
+    it('CLOSED CONSTRUCTION: no public surface can yield a queue-capable unvalidated log', () => {
+        // The options type has no validator/appendableKinds members at all —
+        // queue:true installs the built-in validator, non-injectably. A
+        // hostile caller passing extra props gets slice-1 mode or full
+        // validation; never queue-capable-unvalidated.
         const dir = join(ROOT, `inv-${++caseId}`);
         mintAgentKeys('user', join(dir, 'keys'));
-        expect(() => new CompanyLog(join(dir, 'db'), join(dir, 'keys'), { appendableKinds: KNOWN_KINDS }))
-            .toThrow(/queue kinds cannot be appendable without the queue validator/);
+        const sneaky = new CompanyLog(join(dir, 'db'), join(dir, 'keys'),
+            { validator: () => {}, appendableKinds: KNOWN_KINDS } as unknown as { queue?: boolean });
+        // unknown props ignored → slice-1 mode: queue kinds NOT appendable
+        expect(() => sneaky.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', join(dir, 'keys')).privateKey))
+            .toThrow(/not appendable/);
+        sneaky.close();
+        const q = new CompanyLog(join(dir, 'db2'), join(dir, 'keys'), { queue: true, validator: () => {} } as unknown as { queue: boolean });
+        // even with a stub passed, the BUILT-IN validator governs:
+        mintAgentKeys('scout', join(dir, 'keys'));
+        expect(() => q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: 'ghost', attempt: 1 } }, mintAgentKeys('scout', join(dir, 'keys')).privateKey))
+            .toThrow(/E_NO_TASK/);
+        q.close();
     });
 
-    it('MAINTENANCE is unforgeable via public append and unavailable on queue-off logs', () => {
+    it('DISCARD is the only maintenance surface: closed, atomic, emit-safe', async () => {
         const s = scenario();
-        const d = delegate(s);
-        // public append has NO capability parameter; the waiver is unreachable:
-        expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
+        const d1 = delegate(s);                       // never-started
+        const d2 = delegate(s); start(s, d2.id, 1);   // running
+        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d2.id, reason: 'stalled' } }, s.watchman.privateKey);
+        void blk;
+        const h = s.log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'x' } }, s.watchman.privateKey);
+        void h;
+        // the waiver is unreachable through public append:
+        expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d1.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
+        // ordered post-commit emission proof:
+        const seen: string[] = [];
+        bus.on('company:event', (e: CompanyEvent) => seen.push(e.kind));
+        const out = s.log.discardQueueState();
+        expect(out).toEqual({ unblocked: 1, lifted: 1, terminalized: 2 });
+        expect(seen).toEqual(['task.unblocked', 'hold.lifted', 'task.checked', 'task.checked']); // ordered, post-commit
+        const fold = foldQueue(s.log.readAll());
+        expect([...fold.tasks.values()].every(t => t.checked)).toBe(true);
+        expect(fold.activeHolds.size).toBe(0);
+        expect(s.log.verifyChain().ok).toBe(true);
+        bus.removeAllListeners('company:event');
         s.log.close();
+        // queue-off logs cannot host the discard:
         const off = new CompanyLog(s.dbPath, s.keysDir, {});
-        expect(() => off.maintenance(() => undefined)).toThrow(/maintenance requires a queue-validated instance/);
-        // and queue-off appends of slice-2 kinds stay rejected regardless
-        expect(() => off.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', s.keysDir).privateKey)).toThrow(/not appendable/);
+        expect(() => off.discardQueueState()).toThrow(/requires a queue-mode instance/);
         off.close();
+    });
+
+    it('DISCARD rollback: failure emits NOTHING and persists NOTHING', async () => {
+        const s = scenario();
+        delegate(s);
+        s.log.close();
+        // remove the user keypair: discard fails before any append commits
+        const pairPath = join(s.keysDir, 'user.keypair');
+        const pairBytes = readFileSync(pairPath);
+        rmSync(pairPath);
+        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
+        const seen: unknown[] = [];
+        bus.on('company:event', e => seen.push(e));
+        const before = q.count();
+        expect(() => q.discardQueueState()).toThrow(/ENOENT|no such file/i);
+        expect(seen).toHaveLength(0);          // zero rollback emissions
+        expect(q.count()).toBe(before);        // zero phantom rows
+        writeFileSync(pairPath, pairBytes, { mode: 0o600 }); // restore for chain verification
+        expect(q.verifyChain().ok).toBe(true);
+        bus.removeAllListeners('company:event');
+        q.close();
     });
 
     it('unique-index backstop holds even against a RAW non-API writer', async () => {
@@ -272,7 +321,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
             s.log.append({ kind: 'room.message', actor: 'user', payload: { i } }, s.user.privateKey);
         }
         s.log.close();
-        const q = new CompanyLog(s.dbPath, s.keysDir, { appendableKinds: KNOWN_KINDS, validator: queueValidator });
+        const q = new CompanyLog(s.dbPath, s.keysDir, { queue: true });
         const d = q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'late' } }, s.user.privateKey);
         const h = q.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'late-hold' } }, s.watchman.privateKey);
         const f = foldQueue(q.readAll());
@@ -294,7 +343,7 @@ describe('slice 2 patch 1 — backstops and races', () => {
             `import(${JSON.stringify('file://' + process.cwd() + '/src/company/log.ts')}).then(async L => {` +
             `const Q = await import(${JSON.stringify('file://' + process.cwd() + '/src/company/queue.ts')});` +
             `const K = await import(${JSON.stringify('file://' + process.cwd() + '/src/company/keys.ts')});` +
-            `const log = new L.CompanyLog(${JSON.stringify(s.dbPath)}, ${JSON.stringify(s.keysDir)}, { appendableKinds: L.KNOWN_KINDS, validator: Q.queueValidator });` +
+            `const log = new L.CompanyLog(${JSON.stringify(s.dbPath)}, ${JSON.stringify(s.keysDir)}, { queue: true });` +
             `const scout = K.loadAgentKeys('scout', ${JSON.stringify(s.keysDir)});` +
             `try { log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ${JSON.stringify(d.id)}, attempt: 1 } }, scout.privateKey); console.log('WIN-${'${'}${'}'}'); console.log('WIN'); } catch (e) { console.log('LOSE'); }` +
             `log.close(); }).catch(e => { console.error(e); process.exit(1); });`;

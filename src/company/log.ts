@@ -33,8 +33,10 @@ import { randomUUID, createHash, createPublicKey } from 'crypto';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type { KeyObject } from 'crypto';
-import { signBytes, verifyBytes, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
+import { signBytes, verifyBytes, loadAgentKeys, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
 import { emit as busEmit } from '../substrate/traceBus.js';
+import { queueValidator as builtinQueueValidator, foldQueue } from './queue.js';
+
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'CompanyLog';
@@ -71,14 +73,12 @@ export interface AppendContext {
 export type LifecycleValidator = (ctx: AppendContext) => void;
 
 export interface CompanyLogOptions {
-    /** Capability set: kinds appendable through this instance.
-     *  Default: slice-1 kinds only (queue off). knownKinds always decode. */
-    appendableKinds?: readonly CompanyEventKind[];
-    /** Mandatory validator for governed kinds; runs inside the append txn.
-     *  INVARIANT (review event 8a2b8b01 #1): construction with any queue
-     *  kind appendable and no validator THROWS — there is no public way to
-     *  build a queue-capable, unvalidated instance. */
-    validator?: LifecycleValidator;
+    /** Closed queue mode (review event f0d61bd9 #1): when true, the log
+     *  enables the slice-2 kinds AND installs the built-in queue validator
+     *  internally. There is NO injectable validator and NO public
+     *  appendableKinds — a queue-capable instance is validated by
+     *  construction, and the validator cannot be replaced or stubbed. */
+    queue?: boolean;
 }
 
 /** Which actors may append which kinds (slice 1). '*' = any registered actor. */
@@ -155,16 +155,19 @@ export class CompanyLog {
 
     private appendable: ReadonlySet<string>;
     private validator?: LifecycleValidator;
-    /** Private capability flag — settable ONLY by maintenance(); never caller data. */
+    /** Private capability flag — settable ONLY by discardQueueState(); never caller data. */
     private inMaintenance = false;
+    /** Emits buffered during the discard txn; flushed post-COMMIT only. */
+    private pendingEmits: CompanyEvent[] = [];
 
     constructor(dbPath: string, keysDir: string, opts: CompanyLogOptions = {}) {
         this.keysDir = keysDir;
-        this.appendable = new Set(opts.appendableKinds ?? EVENT_KINDS);
-        this.validator = opts.validator;
-        const queueKinds = new Set<string>(QUEUE_KINDS);
-        if (!this.validator && [...this.appendable].some(k => queueKinds.has(k))) {
-            throw new Error('CompanyLog: queue kinds cannot be appendable without the queue validator installed');
+        if (opts.queue) {
+            this.appendable = new Set(KNOWN_KINDS);
+            this.validator = builtinQueueValidator; // internal, non-injectable
+        } else {
+            this.appendable = new Set(EVENT_KINDS);
+            this.validator = undefined;
         }
         mkdirSync(dirname(dbPath), { recursive: true });
         this.db = new DatabaseSync(dbPath);
@@ -227,15 +230,17 @@ export class CompanyLog {
             throw new Error(`CompanyLog: signing key does not match registered identity of "${input.actor}"`);
         }
 
-        const ts = Date.now();
-        const id = randomUUID();
         // v5 §2: write lock BEFORE the tail read — fold/validate/append is one
         // transaction; concurrent processes serialize on BEGIN IMMEDIATE.
-        // Inside maintenance(), the OUTER transaction owns BEGIN/COMMIT.
+        // Inside the discard operation, the OUTER transaction owns BEGIN/COMMIT.
         const ownTxn = !this.inMaintenance;
         if (ownTxn) this.db.exec('BEGIN IMMEDIATE');
         let event: CompanyEvent;
         try {
+            // Timestamp/id AFTER the lock (review f0d61bd9): a writer that
+            // waited on the lock must not append a later seq with an earlier ts.
+            const ts = Date.now();
+            const id = randomUUID();
             if (this.validator) {
                 // Uncapped tail read (review #3): the authoritative fold must
                 // see FULL history — no 5,000-row truncation.
@@ -259,9 +264,15 @@ export class CompanyLog {
             if (ownTxn) { try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ } }
             throw err;
         }
+        // Phantom-event fix (review f0d61bd9 #3): emits are observed ONLY
+        // after a successful COMMIT. Inside the discard txn they buffer and
+        // flush post-commit (or are discarded on rollback).
+        if (!ownTxn) {
+            this.pendingEmits.push(event);
+            return event;
+        }
         // Guarded publish on the SHARED emitter (substrate emit swallows
-        // subscriber exceptions): persistence is already committed and must
-        // never appear failed because a listener threw.
+        // subscriber exceptions): persistence is committed at this point.
         busEmit('company:event', event);
         return event;
     }
@@ -323,27 +334,56 @@ export class CompanyLog {
     }
 
     /**
-     * Unforgeable maintenance capability (review event 8a2b8b01 #2): the ONLY
-     * way appends run with the maintenance waiver. Requires a queue-validated
-     * instance (a queue-off log cannot host maintenance), wraps fn in ONE
-     * atomic transaction (v5 §3b), and sets a PRIVATE flag the validator
-     * reads — public append() carries no capability parameter to forge.
-     * Appends inside fn must still be slice-2-appendable via this instance
-     * and are validated per event with capability='maintenance'.
+     * The CLOSED discard operation (reviews 8a2b8b01 #2 / f0d61bd9 #2+#4):
+     * the ONLY maintenance surface. No callback, fully synchronous, one
+     * atomic BEGIN IMMEDIATE transaction implementing design v5 §3b exactly:
+     * user-signed task.unblocked for every active block → hold.lifted for
+     * every active hold → terminal task.checked for every nonterminal task
+     * (attempt = latest declared, or 1 for never-started). Requires a
+     * queue-mode instance and the workspace user key on disk. It can do
+     * nothing except this well-defined discard — there is no arbitrary
+     * maintenance capability for any caller to reach.
+     * Emits buffer and flush only after COMMIT; rollback discards them.
      */
-    maintenance<T>(fn: () => T): T {
+    discardQueueState(): { unblocked: number; lifted: number; terminalized: number } {
         if (!this.validator) {
-            throw new Error('CompanyLog: maintenance requires a queue-validated instance');
+            throw new Error('CompanyLog: discardQueueState requires a queue-mode instance');
         }
-        if (this.inMaintenance) throw new Error('CompanyLog: maintenance cannot nest');
+        if (this.inMaintenance) throw new Error('CompanyLog: discard cannot nest');
         this.db.exec('BEGIN IMMEDIATE');
         this.inMaintenance = true;
+        this.pendingEmits = [];
         try {
-            const out = fn();
+            const user = loadAgentKeys('user', this.keysDir);
+            const fold = foldQueue(this.readAll());
+            let unblocked = 0, lifted = 0, terminalized = 0;
+            for (const t of fold.tasks.values()) {
+                for (const blockRef of t.activeBlocks.keys()) {
+                    this.append({ kind: 'task.unblocked', actor: 'user', payload: { blockRef } }, user.privateKey);
+                    unblocked += 1;
+                }
+            }
+            for (const holdRef of fold.activeHolds.keys()) {
+                this.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef } }, user.privateKey);
+                lifted += 1;
+            }
+            for (const t of fold.tasks.values()) {
+                if (t.checked) continue;
+                const attempt = t.attempt === 0 ? 1 : t.attempt;
+                this.append({
+                    kind: 'task.checked', actor: 'user',
+                    payload: { taskRef: t.taskRef, verdict: 'needs-work', note: 'discarded on queue downgrade', attempt },
+                }, user.privateKey);
+                terminalized += 1;
+            }
             this.db.exec('COMMIT');
-            return out;
+            const emits = this.pendingEmits;
+            this.pendingEmits = [];
+            for (const e of emits) busEmit('company:event', e); // ordered, post-commit only
+            return { unblocked, lifted, terminalized };
         } catch (err) {
             try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ }
+            this.pendingEmits = []; // rollback: subscribers observe NOTHING
             throw err;
         } finally {
             this.inMaintenance = false;
