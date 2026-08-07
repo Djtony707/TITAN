@@ -40,7 +40,7 @@ interface S {
 function scenario(opts: { queueOn?: boolean; noValidator?: boolean } = {}): S {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
+    const keysDir = join(dir, 'company', 'keys');
     // dbPath points at the substrate-owned system.db (for raw inspection);
     // CompanyLog takes `dir` (titanHome) and derives system.db internally.
     const dbPath = join(dir, 'system.db');
@@ -250,17 +250,21 @@ describe('slice 2 patch 1 — backstops and races', () => {
         // hostile caller passing extra props gets slice-1 mode or full
         // validation; never queue-capable-unvalidated.
         const dir = join(ROOT, `inv-${++caseId}`);
-        mintAgentKeys('user', join(dir, 'keys'));
-        const sneaky = new CompanyLog(join(dir, 'home1'), join(dir, 'keys'),
+        const home1 = join(dir, 'home1');
+        const home2 = join(dir, 'home2');
+        const keys1 = join(home1, 'company', 'keys');
+        const keys2 = join(home2, 'company', 'keys');
+        mintAgentKeys('user', keys1);
+        const sneaky = new CompanyLog(home1, keys1,
             { validator: () => {}, appendableKinds: KNOWN_KINDS } as unknown as { queue?: boolean });
         // unknown props ignored → slice-1 mode: queue kinds NOT appendable
-        expect(() => sneaky.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', join(dir, 'keys')).privateKey))
+        expect(() => sneaky.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', keys1).privateKey))
             .toThrow(/not appendable/);
         sneaky.close();
-        const q = new CompanyLog(join(dir, 'home2'), join(dir, 'keys'), { queue: true, validator: () => {} } as unknown as { queue: boolean });
+        const q = new CompanyLog(home2, keys2, { queue: true, validator: () => {} } as unknown as { queue: boolean });
         // even with a stub passed, the BUILT-IN validator governs:
-        mintAgentKeys('scout', join(dir, 'keys'));
-        expect(() => q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: 'ghost', attempt: 1 } }, mintAgentKeys('scout', join(dir, 'keys')).privateKey))
+        mintAgentKeys('scout', keys2);
+        expect(() => q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: 'ghost', attempt: 1 } }, mintAgentKeys('scout', keys2).privateKey))
             .toThrow(/E_NO_TASK/);
         q.close();
     });
@@ -447,7 +451,7 @@ describe('slice 2 patch 3 fixes — production config + flag-off pipeline (revie
     it('#2 flag-off pipeline: the BASIC dispatcher completes the slice-1 chain on a queue-off log', async () => {
         const { BasicCompanyDispatch } = await import('../src/company/dispatchBasic.js');
         const dir = join(ROOT, `basic-${++caseId}`);
-        const keysDir = join(dir, 'keys');
+        const keysDir = join(dir, 'company', 'keys');
         const user = mintAgentKeys('user', keysDir);
         mintAgentKeys('ceo', keysDir);
         mintAgentKeys('scout', keysDir);

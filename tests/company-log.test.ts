@@ -44,7 +44,10 @@ function fresh() {
     const dir = join(ROOT, `case-${caseId}`);
     // dbPath points at the substrate-owned system.db (for raw inspection);
     // CompanyLog takes `dir` (titanHome) and derives system.db internally.
-    return { home: dir, dbPath: join(dir, 'system.db'), keysDir: join(dir, 'keys') };
+    // Canonical Company key registry: join(titanHome, 'company', 'keys').
+    // openCompanyFeature derives this internally; tests must mint keys here
+    // so the capability can find the registered identities (Honey D4).
+    return { home: dir, dbPath: join(dir, 'system.db'), keysDir: join(dir, 'company', 'keys') };
 }
 
 /** Standard cast: user + ceo + scout minted; log open. */

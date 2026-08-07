@@ -39,13 +39,9 @@ import {
     type FeatureCapability,
     type SystemEvent,
     type SystemAppendContext,
-    type SystemLifecycleValidator,
-    type SigningContext,
-    type LegacySigningConfig,
-} from '../substrate/eventLog.js';
-import { signBytes, verifyBytes, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
-import { emit as busEmit, type CompanyEventPayload } from '../substrate/traceBus.js';
-import { queueValidator as builtinQueueValidator, foldQueue } from './queue.js';
+} from './feature.js';
+import { loadAgentPublicKey, samePublicKey } from './keys.js';
+import { foldQueue } from './queue.js';
 
 import logger from '../utils/logger.js';
 
@@ -121,16 +117,8 @@ export interface AppendInput {
     payload: Record<string, unknown>;
 }
 
-/** Signing context: bridges Company key management to the substrate. */
-const companySigning: SigningContext = {
-    loadPublicKey: (actor: string, keysDir: string) => loadAgentPublicKey(actor, keysDir),
-    verifySigner: (privateKey: KeyObject, registered: KeyObject) =>
-        samePublicKey(createPublicKey(privateKey), registered),
-    sign: (data: Buffer, privateKey: KeyObject) => signBytes(data, privateKey),
-    verify: (data: Buffer, signatureB64: string, publicKey: KeyObject) =>
-        verifyBytes(data, signatureB64, publicKey),
-    validateActorId: (actor: string) => assertValidAgentId(actor),
-};
+/** Signing context is now defined in src/company/feature.ts (Honey D4).
+ *  It is NOT caller-supplied — openCompanyFeature hardcodes it. */
 
 export class CompanyLog {
     private cap: FeatureCapability;
@@ -146,62 +134,14 @@ export class CompanyLog {
     constructor(titanHome: string, keysDir: string, opts: CompanyLogOptions = {}) {
         this.isQueueMode = opts.queue ?? false;
         this.keysDir = keysDir;
-        const knownKinds = KNOWN_KINDS as readonly string[];
-        const appendableKinds = opts.queue ? knownKinds : (EVENT_KINDS as readonly string[]);
-
-        // Validator adapter: the substrate passes a SystemAppendContext
-        // (kind: string, events: SystemEvent[]). The Company validator
-        // expects AppendContext (kind: CompanyEventKind, events:
-        // CompanyEvent[]). This adapter narrows at the boundary — sound
-        // because the Company feature only registers Company kinds, so
-        // every event in the one store that reaches this validator IS a
-        // CompanyEvent. No `as unknown` cast (Honey B3): the narrowing is
-        // explicit and localized here.
-        const validator: SystemLifecycleValidator | undefined = opts.queue
-            ? (ctx: SystemAppendContext) => {
-                builtinQueueValidator({
-                    kind: ctx.kind as CompanyEventKind,
-                    actor: ctx.actor,
-                    payload: ctx.payload,
-                    events: ctx.events as readonly CompanyEvent[],
-                    capability: ctx.capability,
-                });
-            }
-            : undefined;
-
-        // Bus emit adapter: the substrate emits SystemEvent; the trace bus
-        // 'company:event' topic expects CompanyEventPayload, which is
-        // structurally identical to SystemEvent (same fields, same types).
-        // The cast is structural-identity-only — no runtime change.
-        const companyBusEmit = (event: SystemEvent) => {
-            busEmit('company:event', event as CompanyEventPayload);
-        };
-
-        // C5: the factory locks kinds/authority/extraDdl to module-owned
-        // constants inside eventLog.ts. Company supplies ONLY runtime
-        // fields: signing context, key directory, lifecycle validator,
-        // bus emit, and which kinds are appendable (base vs extended).
-        // The store coordinator is created internally by openCompanyFeature;
-        // CompanyLog never receives a SystemStore reference (C5).
-        const runtimeConfig = {
-            baseAppendable: appendableKinds,
-            validator,
-            signing: companySigning,
-            keysDir,
-            busEmit: companyBusEmit,
-        };
-
-        // C6: legacy signing is registered separately so a Compiler-first
-        // store can be repaired by a later Company registration. Company
-        // passes its own signing context + keysDir so the substrate can
-        // verify pre-existing signed rows without importing Company key
-        // management.
-        const legacy: LegacySigningConfig = {
-            signing: companySigning,
-            keysDir,
-        };
-
-        this.cap = openCompanyFeature(titanHome, runtimeConfig, legacy);
+        // C5/D4: openCompanyFeature derives the canonical key registry
+        // from titanHome internally (join(titanHome, 'company', 'keys')).
+        // It does NOT accept a caller-supplied keysDir — this closes the
+        // exploit where an attacker could redirect the capability to their
+        // own key directory. CompanyLog retains its own keysDir reference
+        // for key loading operations (loadAgentPublicKey etc.), but the
+        // capability's key registry is canonical.
+        this.cap = openCompanyFeature(titanHome, { queue: opts.queue });
     }
 
     /**
