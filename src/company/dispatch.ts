@@ -1,41 +1,38 @@
 /**
- * TITAN — Company dispatch loop (v8 Slice 1)
+ * TITAN — Company dispatch loop (v8 Slice 2, patch 3)
  *
- * task.delegated → the delegated agent runs (existing sub-agent machinery,
- * with its OWN attributed memory stream read into context) → task.result
- * signed BY THAT AGENT (+ an observation appended to its memory stream) →
- * CEO review via a DIRECT model call → task.checked signed by the CEO.
+ * Dispatch consumes the QUEUE FOLD (design v5 §2): the next runnable task
+ * is derived from the log itself (first delegated, unheld, unblocked,
+ * lane free — nextDispatchable), and every lifecycle transition is an
+ * append through the validated log. Slice 1's private in-memory FIFO is
+ * gone; a restart resumes the EXACT queue shape from the fold.
  *
- * Re-review fixes (event a760bf8a):
- *  - #1 The CEO reviewer calls providers/router chat() directly — tool-less
- *    by construction; it cannot hit spawnSubAgent's empty-toolset abort.
- *  - #5 CEO-signed delegation exists: ceoDelegate() appends a task.delegated
- *    signed by the CEO's own key; memory streams are real (read+write).
- *  - #6 Durability: recover() re-enqueues persisted task.delegated events
- *    that never reached a task.checked (crash reconciliation); the ENTIRE
- *    per-task pipeline — key loads and appends included — runs inside
- *    containment, and a catastrophic failure still attempts a durable
- *    terminal task.checked before giving up.
+ * Execution semantics (v5 §4): at-least-once across attempts, exactly-once
+ * recording per attempt. Crash recovery: a task whose declared attempt has
+ * a task.started but no task.result gets a user-signed task.retry (n+1)
+ * and re-executes; a declared-but-unstarted attempt (the retry-crash
+ * window) starts WITHOUT a second retry event. Failure retry is bounded
+ * by maxAttempts; exhaustion terminalizes with a CEO needs-work check.
  *
- * Queue semantics: strict in-memory FIFO, one task at a time (the queue
- * platform object is Slice 2); durability comes from the event log itself
- * plus startup reconciliation, not from queue persistence.
+ * Containment discipline unchanged from slice 1: every pipeline failure
+ * lands durably; nothing escapes as an unhandled rejection.
  */
+import type { KeyObject } from 'crypto';
 import type { CompanyLog, CompanyEvent } from './log.js';
+import { foldQueue, type QueueFold, type TaskFold } from './queue.js';
+import { nextDispatchable, startTask, retryTask } from './queueCommands.js';
 import { loadAgentKeys } from './keys.js';
 import { appendMemory, renderMemoryForPrompt } from './memoryStream.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'CompanyDispatch';
-
-/** Max stored result size — the room renders summaries, not blobs. */
 const MAX_RESULT_CHARS = 8000;
 
 export interface TurnRequest {
     agentId: string;
     charter: string;
     spec: string;
-    /** The agent's own memory-stream context, pre-rendered. */
+    attempt: number;
     memoryContext: string;
 }
 
@@ -69,18 +66,15 @@ export const productionRunner: TurnRunner = async (req) => {
         systemPrompt:
             `You are ${req.agentId}, a member of this TITAN company. Your charter: ${req.charter}\n` +
             req.memoryContext +
+            (req.attempt > 1 ? `This is attempt ${req.attempt} — a previous attempt did not complete.\n` : '') +
             `Complete the delegated task and reply with the finished result.`,
         maxRounds: 6,
-        tags: ['company', 'slice1'],
+        tags: ['company', 'slice2'],
     });
     return { content: res.content, success: res.success, toolsUsed: res.toolsUsed };
 };
 
-/**
- * Production reviewer — a DIRECT chat() call (re-review fix #1). Tool-less
- * by construction: no toolset is offered, so no tool-filtering path exists
- * to abort on. Bounded, single round, no streaming.
- */
+/** Production reviewer — a DIRECT chat() call; tool-less by construction. */
 export const productionReviewer: Reviewer = async (req) => {
     const { chat } = await import('../providers/router.js');
     const res = await chat({
@@ -99,8 +93,6 @@ export const productionReviewer: Reviewer = async (req) => {
         maxTokens: 200,
     });
     const text = typeof res.content === 'string' ? res.content : String(res.content ?? '');
-    // Exact first-line enum (re-review fix #3): the protocol requires the
-    // first line to EQUAL 'ACCEPTED' — 'ACCEPTEDLY' / 'ACCEPTED? no' reject.
     const firstLine = (text.trim().split('\n')[0] ?? '').trim().toUpperCase();
     const accepted = firstLine === 'ACCEPTED' && req.result.success;
     return {
@@ -109,75 +101,91 @@ export const productionReviewer: Reviewer = async (req) => {
     };
 };
 
-interface QueueItem {
-    delegated: CompanyEvent;
-    charter: string;
+export interface DispatchConfig {
+    maxAttempts?: number;
+    charterOf: (agentId: string) => string;
 }
 
 export class CompanyDispatch {
-    private queue: QueueItem[] = [];
     private running = false;
+    private maxAttempts: number;
+    /** (taskRef:attempt) pairs whose pipeline AND terminalization failed —
+     *  skipped by drain until recover() clears them (prevents spin; the
+     *  durable exit for an untenable task is the user's queue-discard). */
+    private stalled = new Set<string>();
 
     constructor(
         private log: CompanyLog,
         private keysDir: string,
         private memoryDir: string,
+        private config: DispatchConfig,
         private runner: TurnRunner = productionRunner,
         private reviewer: Reviewer = productionReviewer,
-    ) {}
-
-    /** Number of tasks waiting or running (for status surfaces/tests). */
-    depth(): number {
-        return this.queue.length + (this.running ? 1 : 0);
+    ) {
+        this.maxAttempts = Math.max(1, config.maxAttempts ?? 2);
     }
 
-    /**
-     * CEO-signed delegation (re-review fix #5): the CEO delegates work in
-     * its own name, signed with its own key, and the task dispatches like
-     * any other. Returns the delegated event.
-     */
-    ceoDelegate(to: string, spec: string, charter: string): CompanyEvent {
+    private fold(): QueueFold {
+        return foldQueue(this.log.readAll());
+    }
+
+    /** Nonterminal tasks, derived from the log (status surfaces/tests). */
+    depth(): number {
+        return [...this.fold().tasks.values()].filter(t => !t.checked).length;
+    }
+
+    /** CEO-signed delegation (slice-1 acceptance criterion, retained). */
+    ceoDelegate(to: string, spec: string): CompanyEvent {
         const ceo = loadAgentKeys('ceo', this.keysDir);
         const event = this.log.append(
             { kind: 'task.delegated', actor: 'ceo', payload: { from: 'ceo', to, spec } },
             ceo.privateKey,
         );
-        this.enqueue(event, charter);
+        this.kick();
         return event;
     }
 
     /**
-     * Startup reconciliation (re-review fix #6): any persisted task.delegated
-     * with no terminal task.checked is re-enqueued, so a crash between
-     * delegation and check can not silently lose a task.
+     * Crash reconciliation (v5 §4), fold-derived: declared-attempt-started-
+     * but-unresulted tasks get a task.retry (crash-resume); the retry-crash
+     * window (declared, unstarted) needs NO new event — the drain loop
+     * dispatches it directly via nextDispatchable. Returns nonterminal count.
      */
-    recover(charterOf: (agentId: string) => string): number {
-        const delegated = this.log.read({ kind: 'task.delegated', limit: 5000 });
-        const checkedRefs = new Set(
-            this.log.read({ kind: 'task.checked', limit: 5000 }).map(e => String(e.payload.taskRef)),
-        );
-        let recovered = 0;
-        for (const ev of delegated) {
-            if (checkedRefs.has(ev.id)) continue;
-            this.enqueue(ev, charterOf(String(ev.payload.to ?? '')));
-            recovered += 1;
+    recover(): number {
+        this.stalled.clear(); // stalled pairs get one fresh chance per recovery
+        const f = this.fold();
+        let pending = 0;
+        for (const t of f.tasks.values()) {
+            if (t.checked) continue;
+            pending += 1;
+            if (t.activeBlocks.size > 0) continue;
+            const started = t.attempt > 0 && t.startedAttempts.has(t.attempt);
+            const resulted = t.resultedAttempts.has(t.attempt);
+            if (started && !resulted) {
+                try {
+                    retryTask(this.log, this.keysDir, t.taskRef, 'crash-resume');
+                } catch (err) {
+                    logger.warn(COMPONENT, `recover retry failed for ${t.taskRef}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
         }
-        if (recovered > 0) logger.info(COMPONENT, `Recovered ${recovered} unfinished task(s) from the log`);
-        return recovered;
+        if (pending > 0) logger.info(COMPONENT, `Recovered queue state: ${pending} nonterminal task(s)`);
+        this.kick();
+        return pending;
     }
 
-    /**
-     * Enqueue a delegated task. Fire-and-forget safe: returns immediately,
-     * processing is serialized, and no failure escapes as a rejection.
-     */
-    enqueue(delegated: CompanyEvent, charter: string): void {
-        this.queue.push({ delegated, charter });
+    /** Kick the loop (fire-and-forget safe; serialized; failures contained). */
+    kick(): void {
         void this.drain();
     }
 
-    /** Await quiescence (tests). */
+    /** Await quiescence (tests): no runnable work left. */
     async idle(): Promise<void> {
-        while (this.running || this.queue.length > 0) {
+        for (;;) {
+            if (!this.running) {
+                const next = nextDispatchable(this.fold());
+                if (!next || this.stalled.has(`${next.taskRef}:${next.attempt}`)) return;
+            }
             await new Promise(r => setTimeout(r, 5));
         }
     }
@@ -186,16 +194,21 @@ export class CompanyDispatch {
         if (this.running) return;
         this.running = true;
         try {
-            while (this.queue.length > 0) {
-                const item = this.queue.shift() as QueueItem;
-                // Full-pipeline containment (re-review fix #6): key loads and
-                // appends are INSIDE; a catastrophic failure still attempts a
-                // durable terminal check before the task is surrendered.
-                await this.runOne(item).catch(err => {
+            for (;;) {
+                const next = nextDispatchable(this.fold());
+                if (!next) break;
+                const key = `${next.taskRef}:${next.attempt}`;
+                if (this.stalled.has(key)) break; // no progress possible now
+                await this.runOne(next).catch(async err => {
                     logger.error(COMPONENT, `task pipeline failed: ${err instanceof Error ? err.message : String(err)}`);
-                    this.appendTerminalFailure(item.delegated, err).catch(e2 =>
-                        logger.error(COMPONENT, `terminal-failure append also failed: ${e2 instanceof Error ? e2.message : String(e2)}`),
-                    );
+                    await this.appendTerminalFailure(next, err).catch(e2 => {
+                        logger.error(COMPONENT, `terminal-failure append also failed: ${e2 instanceof Error ? e2.message : String(e2)}`);
+                    });
+                    // If terminalization couldn't land (e.g. an unownable
+                    // agent — the validator rightly refuses forged results),
+                    // stall the pair; the durable exit is user queue-discard.
+                    const after = this.fold().tasks.get(next.taskRef);
+                    if (after && !after.checked) this.stalled.add(key);
                 });
             }
         } finally {
@@ -203,87 +216,103 @@ export class CompanyDispatch {
         }
     }
 
-    /** Durable terminal failure: a needs-work check recording the pipeline error. */
-    private async appendTerminalFailure(delegated: CompanyEvent, err: unknown): Promise<void> {
+    /** Durable terminal failure: record a failure result if needed, then check. */
+    private async appendTerminalFailure(task: TaskFold, err: unknown): Promise<void> {
+        const f = this.fold().tasks.get(task.taskRef);
+        if (!f || f.checked) return;
+        const attempt = f.attempt === 0 ? 1 : f.attempt;
+        if (!f.resultedAttempts.has(attempt)) {
+            try {
+                const owner = loadAgentKeys(f.owner, this.keysDir);
+                if (!f.startedAttempts.has(attempt)) {
+                    this.log.append({ kind: 'task.started', actor: f.owner, payload: { taskRef: f.taskRef, attempt } }, owner.privateKey);
+                }
+                this.log.append({
+                    kind: 'task.result', actor: f.owner,
+                    payload: { taskRef: f.taskRef, attempt, content: `Pipeline failure: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), success: false, toolsUsed: [] },
+                }, owner.privateKey);
+            } catch (e) {
+                logger.error(COMPONENT, `failure-result append failed: ${e instanceof Error ? e.message : String(e)}`);
+                return; // cannot terminalize without a result; recover() will resume
+            }
+        }
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
-        this.log.append(
-            {
-                kind: 'task.checked',
-                actor: 'ceo',
-                payload: {
-                    taskRef: delegated.id,
-                    verdict: 'needs-work',
-                    note: `Dispatch pipeline failure: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
-                },
-            },
-            ceoKeys.privateKey,
-        );
+        this.log.append({
+            kind: 'task.checked', actor: 'ceo',
+            payload: { taskRef: task.taskRef, verdict: 'needs-work', note: `Dispatch pipeline failure: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), attempt },
+        }, ceoKeys.privateKey);
     }
 
-    private async runOne(item: QueueItem): Promise<void> {
-        const { delegated, charter } = item;
-        const agentId = String(delegated.payload.to ?? '');
-        const spec = String(delegated.payload.spec ?? '');
+    private async runOne(task: TaskFold): Promise<void> {
+        const started = startTask(this.log, this.keysDir, task.taskRef);
+        const attempt = (started.payload as { attempt: number }).attempt;
+        const f = this.fold().tasks.get(task.taskRef);
+        if (!f) return;
+        const spec = this.specOf(task.taskRef);
 
         let outcome: TurnOutcome;
         try {
             outcome = await this.runner({
-                agentId, charter, spec,
-                memoryContext: renderMemoryForPrompt(this.memoryDir, agentId),
+                agentId: f.owner,
+                charter: this.config.charterOf(f.owner),
+                spec, attempt,
+                memoryContext: renderMemoryForPrompt(this.memoryDir, f.owner),
             });
         } catch (err) {
             outcome = {
                 content: `Task failed: ${err instanceof Error ? err.message : String(err)}`,
-                success: false,
-                toolsUsed: [],
+                success: false, toolsUsed: [],
             };
         }
 
-        const agentKeys = loadAgentKeys(agentId, this.keysDir);
-        const result = this.log.append(
-            {
-                kind: 'task.result',
-                actor: agentId,
-                payload: {
-                    taskRef: delegated.id,
-                    content: outcome.content.slice(0, MAX_RESULT_CHARS),
-                    success: outcome.success,
-                    toolsUsed: outcome.toolsUsed,
-                },
-            },
-            agentKeys.privateKey,
-        );
+        const ownerKeys = loadAgentKeys(f.owner, this.keysDir);
+        const result = this.log.append({
+            kind: 'task.result', actor: f.owner,
+            payload: { taskRef: task.taskRef, attempt, content: outcome.content.slice(0, MAX_RESULT_CHARS), success: outcome.success, toolsUsed: outcome.toolsUsed },
+        }, ownerKeys.privateKey);
 
-        // The agent's OWN attributed memory: what it did and how it went.
         try {
             appendMemory(this.memoryDir, {
-                agentId,
-                kind: 'observation',
-                text: `Task "${spec.slice(0, 120)}" → ${outcome.success ? 'succeeded' : 'failed'}: ${outcome.content.slice(0, 200)}`,
+                agentId: f.owner, kind: 'observation',
+                text: `Task "${spec.slice(0, 120)}" attempt ${attempt} → ${outcome.success ? 'succeeded' : 'failed'}: ${outcome.content.slice(0, 200)}`,
                 eventRef: result.id,
             });
         } catch (err) {
-            logger.warn(COMPONENT, `memory append failed for ${agentId}: ${err instanceof Error ? err.message : String(err)}`);
+            logger.warn(COMPONENT, `memory append failed for ${f.owner}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        // Bounded failure retry: a failed attempt below the cap re-queues via
+        // task.retry — the drain loop dispatches the next attempt in FIFO turn.
+        if (!outcome.success && attempt < this.maxAttempts) {
+            try {
+                retryTask(this.log, this.keysDir, task.taskRef, 'failure-retry');
+                return;
+            } catch (err) {
+                logger.warn(COMPONENT, `failure-retry append failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
         }
 
         let review: ReviewOutcome;
         try {
-            review = await this.reviewer({ spec, agentId, result: outcome });
+            review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
         } catch (err) {
-            review = {
-                verdict: 'needs-work',
-                note: `Review failed: ${err instanceof Error ? err.message : String(err)}`,
-            };
+            review = { verdict: 'needs-work', note: `Review failed: ${err instanceof Error ? err.message : String(err)}` };
+        }
+        if (!outcome.success && attempt >= this.maxAttempts) {
+            review = { verdict: 'needs-work', note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300) };
         }
 
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
-        this.log.append(
-            {
-                kind: 'task.checked',
-                actor: 'ceo',
-                payload: { taskRef: delegated.id, resultRef: result.id, verdict: review.verdict, note: review.note },
-            },
-            ceoKeys.privateKey,
-        );
+        this.log.append({
+            kind: 'task.checked', actor: 'ceo',
+            payload: { taskRef: task.taskRef, resultRef: result.id, verdict: review.verdict, note: review.note, attempt },
+        }, ceoKeys.privateKey);
+    }
+
+    private specOf(taskRef: string): string {
+        const ev = this.log.readAll().find(e => e.id === taskRef);
+        return ev ? String((ev.payload as { spec?: unknown }).spec ?? '') : '';
     }
 }
+
+export type { KeyObject };

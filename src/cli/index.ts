@@ -54,6 +54,30 @@ program
         }
     });
 
+// ─── COMPANY (v8) ────────────────────────────────────────────────
+program
+    .command('company')
+    .description('v8 company layer maintenance')
+    .argument('<action>', 'queue-discard: terminalize all unfinished queue work (user-authorized)')
+    .action(async (action: string) => {
+        if (action !== 'queue-discard') {
+            console.error(`Unknown company action "${action}". Available: queue-discard`);
+            process.exitCode = 1;
+            return;
+        }
+        // The authenticated user-invoked discard path (design v5 §3b):
+        // running this CLI command IS the user's authorization; the service
+        // loads the workspace user key and hands it to the closed log op.
+        const { queueDiscard } = await import('../company/service.js');
+        try {
+            const out = await queueDiscard();
+            console.log(`queue-discard complete: ${out.unblocked} unblocked, ${out.lifted} holds lifted, ${out.terminalized} tasks terminalized (needs-work).`);
+        } catch (err) {
+            console.error(`queue-discard failed: ${err instanceof Error ? err.message : String(err)}`);
+            process.exitCode = 1;
+        }
+    });
+
 // ─── GATEWAY ─────────────────────────────────────────────────────
 program
     .command('gateway')

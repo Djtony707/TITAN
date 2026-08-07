@@ -20,6 +20,8 @@ import { mintCompany, STARTER_CREW, type MintedCompany } from './crew.js';
 import { loadAgentKeys, assertValidAgentId } from './keys.js';
 import { LIMITS, assertLen } from './wire.js';
 import { CompanyDispatch, productionRunner, productionReviewer } from './dispatch.js';
+import { foldQueue } from './queue.js';
+import { loadConfig } from '../config/config.js';
 import type { CompanyLog, CompanyEvent } from './log.js';
 import logger from '../utils/logger.js';
 
@@ -38,20 +40,70 @@ async function ensure(): Promise<State> {
     assertCompanyRuntime();
     if (!state) {
         const { CompanyLog } = await import('./log.js');
+        const cfg = loadConfig() as unknown as { company?: { queue?: { enabled?: boolean; maxAttempts?: number } } };
+        const queueEnabled = Boolean(cfg.company?.queue?.enabled);
         const root = join(TITAN_HOME, 'company');
         const keysDir = join(root, 'keys');
-        const log = new CompanyLog(join(root, 'company.db'), keysDir);
+        const log = new CompanyLog(join(root, 'company.db'), keysDir, queueEnabled ? { queue: true } : {});
         const memoryDir = join(root, 'memory');
-        const dispatch = new CompanyDispatch(log, keysDir, memoryDir, productionRunner, productionReviewer);
-        state = { log, keysDir, memoryDir, dispatch };
-        logger.info(COMPONENT, `Company log open at ${join(root, 'company.db')}`);
-        // Durability (re-review #6): re-enqueue persisted tasks that never
-        // reached a terminal check (crash reconciliation at activation).
         const crew = new Map(log.read({ kind: 'agent.minted', limit: 100 })
             .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
-        dispatch.recover(agentId => crew.get(agentId) ?? '');
+        const dispatch = new CompanyDispatch(log, keysDir, memoryDir, {
+            maxAttempts: cfg.company?.queue?.maxAttempts,
+            charterOf: agentId => crew.get(agentId) ?? '',
+        }, productionRunner, productionReviewer);
+        state = { log, keysDir, memoryDir, dispatch };
+        logger.info(COMPONENT, `Company log open (queue ${queueEnabled ? 'ON' : 'off'})`);
+
+        if (queueEnabled) {
+            dispatch.recover(); // fold-derived crash reconciliation (v5 §4)
+        } else {
+            // DOWNGRADE REFUSAL (design v5 §3): with the queue off, any
+            // nonterminal queue-era work or active hold makes dispatch
+            // read-only — nothing auto-recovers, delegation refuses. The
+            // only exits: re-enable the queue, or the user-invoked
+            // queue-discard (queueDiscard() below).
+            const f = foldQueue(log.readAll());
+            const nonterminal = [...f.tasks.values()].some(t => !t.checked);
+            if (nonterminal || f.activeHolds.size > 0) {
+                queueRefusal = 'Queue history contains unfinished work or active holds. ' +
+                    'Re-enable company.queue.enabled, or run `titan company queue-discard` to terminalize it.';
+                logger.warn(COMPONENT, `READ-ONLY REFUSAL: ${queueRefusal}`);
+            }
+        }
     }
     return state;
+}
+
+/** Non-null when the v5 §3 downgrade refusal is active. */
+let queueRefusal: string | null = null;
+
+function assertNotRefused(): void {
+    if (queueRefusal) throw new Error(`Company dispatch is read-only: ${queueRefusal}`);
+}
+
+/**
+ * The authenticated queue-discard path (v5 §3b): user-invoked via
+ * `titan company queue-discard` (CLI) — THIS function loads the user key
+ * from the workspace and hands it to the closed log operation. The log
+ * itself never self-acquires it (review 037866fc).
+ */
+export async function queueDiscard(): Promise<{ unblocked: number; lifted: number; terminalized: number }> {
+    const { CompanyLog } = await import('./log.js');
+    const root = join(TITAN_HOME, 'company');
+    const keysDir = join(root, 'keys');
+    // A queue-MODE instance is required for discard; open one deliberately
+    // for this maintenance operation regardless of the current flag.
+    const log = new CompanyLog(join(root, 'company.db'), keysDir, { queue: true });
+    try {
+        const user = loadAgentKeys('user', keysDir);
+        const out = log.discardQueueState(user.privateKey);
+        queueRefusal = null; // refusal condition cleared
+        logger.info(COMPONENT, `queue-discard: ${out.unblocked} unblocked, ${out.lifted} lifted, ${out.terminalized} terminalized`);
+        return out;
+    } finally {
+        log.close();
+    }
 }
 
 export interface CompanyStatus {
@@ -110,6 +162,7 @@ export async function getRoomEvents(opts: { after?: number; limit?: number }): P
 /** POST /api/company/room — the human speaks in the room, as themselves. */
 export async function postUserMessage(text: string, replyTo?: string): Promise<CompanyEvent> {
     const { log, keysDir } = await ensure();
+    // room chat stays available under refusal — only task flow is read-only
     assertLen(text, LIMITS.roomText, 'message text');
     if (replyTo) assertLen(replyTo, LIMITS.replyTo, 'replyTo');
     if (!(await getCompanyStatus()).exists) throw new Error('No company exists yet — create one first');
@@ -123,6 +176,7 @@ export async function postUserMessage(text: string, replyTo?: string): Promise<C
 /** POST /api/company/delegate — user-initiated delegation (user outranks CEO on their machine). */
 export async function delegateTask(opts: { from: string; to: string; spec: string }): Promise<CompanyEvent> {
     const { log, keysDir } = await ensure();
+    assertNotRefused();
     assertValidAgentId(opts.to);
     assertLen(opts.spec, LIMITS.taskSpec, 'task spec');
     const status = await getCompanyStatus();
@@ -140,21 +194,20 @@ export async function delegateTask(opts: { from: string; to: string; spec: strin
     // task.result signed by that agent, and the CEO appends a task.checked.
     // enqueue() is fire-and-forget SAFE — every failure path inside dispatch
     // is contained (no unhandled rejections, the toolRunner telemetry lesson).
-    const charter = status.agents.find(a => a.agentId === opts.to)?.charter ?? '';
-    (await ensure()).dispatch.enqueue(event, charter);
+    (await ensure()).dispatch.kick();
     return event;
 }
 
 /** CEO-signed delegation (re-review #5): the CEO delegates in its own name. */
 export async function ceoDelegateTask(opts: { to: string; spec: string }): Promise<CompanyEvent> {
     const { dispatch } = await ensure();
+    assertNotRefused();
     assertValidAgentId(opts.to);
     assertLen(opts.spec, LIMITS.taskSpec, 'task spec');
     const status = await getCompanyStatus();
     if (!status.exists) throw new Error('No company exists yet — create one first');
-    const agent = status.agents.find(a => a.agentId === opts.to);
-    if (!agent) throw new Error(`No such agent "${opts.to}"`);
-    return dispatch.ceoDelegate(opts.to, opts.spec, agent.charter);
+    if (!status.agents.some(a => a.agentId === opts.to)) throw new Error(`No such agent "${opts.to}"`);
+    return dispatch.ceoDelegate(opts.to, opts.spec);
 }
 
 export { STARTER_CREW };

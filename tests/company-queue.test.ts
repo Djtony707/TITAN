@@ -11,7 +11,7 @@
  * REAL multi-process double-start race.
  */
 import { describe, it, expect, vi, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 

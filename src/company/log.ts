@@ -33,7 +33,7 @@ import { randomUUID, createHash, createPublicKey } from 'crypto';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type { KeyObject } from 'crypto';
-import { signBytes, verifyBytes, loadAgentKeys, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
+import { signBytes, verifyBytes, loadAgentPublicKey, samePublicKey, assertValidAgentId } from './keys.js';
 import { emit as busEmit } from '../substrate/traceBus.js';
 import { queueValidator as builtinQueueValidator, foldQueue } from './queue.js';
 

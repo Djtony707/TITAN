@@ -44,9 +44,15 @@ function scenario() {
     const keysDir = join(dir, 'keys');
     const memoryDir = join(dir, 'memory');
     const user = mintAgentKeys('user', keysDir);
-    const log = new CompanyLog(join(dir, 'company.db'), keysDir);
+    mintAgentKeys('watchman', keysDir);
+    const log = new CompanyLog(join(dir, 'company.db'), keysDir, { queue: true });
     const minted = mintCompany(log, keysDir, { name: 'Acme' });
-    return { log, keysDir, memoryDir, user, minted };
+    const mk = (runner: TurnRunner, reviewer: Reviewer, maxAttempts = 2) =>
+        new CompanyDispatch(log, keysDir, memoryDir, {
+            maxAttempts,
+            charterOf: (id: string) => minted.agents.find(a => a.agentId === id)?.charter ?? 'charter',
+        }, runner, reviewer);
+    return { log, keysDir, memoryDir, user, minted, mk };
 }
 
 function delegate(log: CompanyLog, keysDir: string, to: string, spec: string) {
@@ -62,10 +68,11 @@ const okReviewer: Reviewer = async req => ({ verdict: req.result.success ? 'acce
 
 describe('v8 slice 1 — dispatch loop', () => {
     it('runs delegated → result (signed by the agent) → checked (signed by CEO)', async () => {
-        const { log, keysDir } = scenario();
-        const d = new CompanyDispatch(log, keysDir, join(ROOT, `mem-${caseId}`), okRunner, okReviewer);
+        const { log, keysDir, mk } = scenario();
+        const d = mk(okRunner, okReviewer);
+        
         const ev = delegate(log, keysDir, 'scout', 'find X');
-        d.enqueue(ev, 'research charter');
+        d.kick();
         await d.idle();
         const result = log.read({ kind: 'task.result' })[0];
         const checked = log.read({ kind: 'task.checked' })[0];
@@ -78,16 +85,15 @@ describe('v8 slice 1 — dispatch loop', () => {
     });
 
     it('CONTAINMENT: throwing runner and reviewer produce failure events, no rejection', async () => {
-        const { log, keysDir } = scenario();
-        const d = new CompanyDispatch(
-            log, keysDir, join(ROOT, `mem-${caseId}`),
-            async () => { throw new Error('model exploded'); },
-            async () => { throw new Error('review exploded'); },
-        );
+        const { log, keysDir, mk } = scenario();
+        const d = mk(async () => { throw new Error('model exploded'); },
+                     async () => { throw new Error('review exploded'); }, 1);
         const unhandled: unknown[] = [];
         const trap = (e: unknown) => unhandled.push(e);
         process.on('unhandledRejection', trap);
-        d.enqueue(delegate(log, keysDir, 'builder', 'do Y'), 'charter');
+        mintAgentKeys('builder', keysDir);
+        delegate(log, keysDir, 'builder', 'do Y');
+        d.kick();
         await d.idle();
         await new Promise(r => setTimeout(r, 20));
         process.off('unhandledRejection', trap);
@@ -102,14 +108,16 @@ describe('v8 slice 1 — dispatch loop', () => {
     });
 
     it('FIFO: two delegations produce strictly ordered chains', async () => {
-        const { log, keysDir } = scenario();
+        const { log, keysDir, mk } = scenario();
+        mintAgentKeys('builder', keysDir);
         const order: string[] = [];
-        const d = new CompanyDispatch(log, keysDir, join(ROOT, `mem-${caseId}`), async req => {
+        const d = mk(async req => {
             order.push(req.spec);
             return { content: req.spec, success: true, toolsUsed: [] };
         }, okReviewer);
-        d.enqueue(delegate(log, keysDir, 'scout', 'first'), 'c');
-        d.enqueue(delegate(log, keysDir, 'builder', 'second'), 'c');
+        delegate(log, keysDir, 'scout', 'first');
+        delegate(log, keysDir, 'builder', 'second');
+        d.kick();
         await d.idle();
         expect(order).toEqual(['first', 'second']);
         const kinds = log.read().map(e => e.kind);
@@ -197,9 +205,9 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
     });
 
     it('#5 CEO-signed delegation: ceoDelegate appends actor=ceo and the chain completes', async () => {
-        const { log, keysDir, memoryDir } = scenario();
-        const d = new CompanyDispatch(log, keysDir, memoryDir, okRunner, okReviewer);
-        const ev = d.ceoDelegate('scout', 'ceo says: find Y', 'research charter');
+        const { log, keysDir, mk } = scenario();
+        const d = mk(okRunner, okReviewer);
+        const ev = d.ceoDelegate('scout', 'ceo says: find Y');
         expect(ev.actor).toBe('ceo');
         expect(ev.payload.from).toBe('ceo');
         await d.idle();
@@ -210,19 +218,21 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
     });
 
     it('#5 memory streams: dispatch WRITES an observation; the next turn READS it', async () => {
-        const { log, keysDir, memoryDir } = scenario();
+        const { log, keysDir, memoryDir, mk } = scenario();
         const seenContexts: string[] = [];
-        const d = new CompanyDispatch(log, keysDir, memoryDir, async req => {
+        const d = mk(async req => {
             seenContexts.push(req.memoryContext);
             return { content: 'ok', success: true, toolsUsed: [] };
         }, okReviewer);
-        d.enqueue(delegate(log, keysDir, 'scout', 'first task'), 'c');
+        delegate(log, keysDir, 'scout', 'first task');
+        d.kick();
         await d.idle();
         const entries = readMemoryTail(memoryDir, 'scout');
         expect(entries).toHaveLength(1);
         expect(entries[0]).toMatchObject({ agentId: 'scout', kind: 'observation' });
         expect(entries[0].text).toContain('first task');
-        d.enqueue(delegate(log, keysDir, 'scout', 'second task'), 'c');
+        delegate(log, keysDir, 'scout', 'second task');
+        d.kick();
         await d.idle();
         expect(seenContexts[0]).toBe('');                       // no memory yet
         expect(seenContexts[1]).toContain('first task');        // own stream read back
@@ -237,35 +247,40 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
     });
 
     it('#6 recovery: a persisted delegated task with no check is re-run after restart', async () => {
-        const { log, keysDir, memoryDir } = scenario();
+        const { log, keysDir, mk } = scenario();
         const orphan = delegate(log, keysDir, 'scout', 'orphaned work');
         // simulate restart: fresh dispatch instance, recover from the log
-        const d = new CompanyDispatch(log, keysDir, memoryDir, okRunner, okReviewer);
-        const recovered = d.recover(() => 'charter');
+        const d = mk(okRunner, okReviewer);
+        const recovered = d.recover();
         expect(recovered).toBe(1);
         await d.idle();
         const checked = log.read({ kind: 'task.checked' });
         expect(checked).toHaveLength(1);
         expect(checked[0].payload.taskRef).toBe(orphan.id);
         // and a completed task is NOT re-recovered
-        expect(new CompanyDispatch(log, keysDir, memoryDir, okRunner, okReviewer).recover(() => 'c')).toBe(0);
+        expect(mk(okRunner, okReviewer).recover()).toBe(0);
         log.close();
     });
 
-    it('#6 durable terminal failure: pipeline failure outside runner still lands a check', async () => {
-        const { log, keysDir, memoryDir } = scenario();
-        // delegate to an agent with NO minted identity: loadAgentKeys throws
-        // INSIDE the pipeline (outside runner/reviewer catches)
+    it('#6 untenable task: dispatch stalls GRACEFULLY (no forged events) and user queue-discard terminalizes', async () => {
+        const { log, keysDir, user, mk } = scenario();
+        // delegate to an agent with NO minted identity: the pipeline cannot
+        // run it, and the validator rightly refuses dispatch forging a result
+        // or check for a keyless agent — the task stalls instead of spinning
+        // or fabricating events, and the durable exit is user queue-discard.
         const ev = delegate(log, keysDir, 'ghostagent', 'doomed');
-        const d = new CompanyDispatch(log, keysDir, memoryDir, okRunner, okReviewer);
-        d.enqueue(ev, 'c');
-        await d.idle();
-        await new Promise(r => setTimeout(r, 20));
-        const checked = log.read({ kind: 'task.checked' });
-        expect(checked).toHaveLength(1);
-        expect(checked[0].payload.taskRef).toBe(ev.id);
-        expect(checked[0].payload.verdict).toBe('needs-work');
-        expect(String(checked[0].payload.note)).toContain('Dispatch pipeline failure');
+        const d = mk(okRunner, okReviewer);
+        d.kick();
+        await d.idle();                                   // resolves: graceful stall
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);  // nothing forged
+        expect(log.read({ kind: 'task.result' })).toHaveLength(0);
+        expect(d.depth()).toBe(1);                        // still nonterminal, visible
+        const out = log.discardQueueState(user.privateKey);
+        expect(out.terminalized).toBe(1);
+        const checked = log.read({ kind: 'task.checked' })[0];
+        expect(checked.payload.taskRef).toBe(ev.id);
+        expect(checked.actor).toBe('user');
+        expect(log.verifyChain().ok).toBe(true);
         log.close();
     });
 
