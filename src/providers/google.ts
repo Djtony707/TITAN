@@ -23,6 +23,13 @@ import { homedir } from 'os';
 
 const COMPONENT = 'Google';
 
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
 function isFiniteNonNeg(v: unknown): v is number {
     return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
@@ -251,9 +258,9 @@ export class GoogleProvider extends LLMProvider {
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: usageMeta
                 ? {
-                    promptTokens: usageMeta.promptTokenCount || 0,
-                    completionTokens: usageMeta.candidatesTokenCount || 0,
-                    totalTokens: usageMeta.totalTokenCount || 0,
+                    promptTokens: normalizeTokenCount(usageMeta.promptTokenCount),
+                    completionTokens: normalizeTokenCount(usageMeta.candidatesTokenCount),
+                    totalTokens: normalizeTokenCount(usageMeta.totalTokenCount),
                     measured: isFiniteNonNeg(usageMeta.promptTokenCount) && isFiniteNonNeg(usageMeta.candidatesTokenCount),
                 }
                 : undefined,

@@ -75,4 +75,29 @@ describe('AnthropicProvider — honest usage.measured normalization', () => {
             expect(result.usage!.measured, JSON.stringify(usage)).toBe(false);
         }
     });
+
+
+    it('normalizes malformed counts to finite nonnegative numbers while keeping measured=false', async () => {
+        const provider = new AnthropicProvider();
+        const cases = [
+            { input_tokens: -1, output_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { input_tokens: 'ten', output_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { input_tokens: NaN, output_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { input_tokens: Infinity, output_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { input_tokens: null, output_tokens: undefined, expectedPrompt: 0, expectedCompletion: 0 },
+        ];
+        for (const c of cases) {
+            mockFetchWithRetry.mockResolvedValueOnce(mockResponse({
+                id: 'msg_bad',
+                content: [{ type: 'text', text: 'x' }],
+                role: 'assistant',
+                usage: c,
+                stop_reason: 'end_turn',
+            }));
+            const result = await provider.chat({ model: 'anthropic/claude-sonnet-4-20250514', messages: [{ role: 'user', content: 'Hi' }] });
+            expect(result.usage!.measured).toBe(false);
+            expect(result.usage!.promptTokens).toBe(c.expectedPrompt);
+            expect(result.usage!.completionTokens).toBe(c.expectedCompletion);
+                    }
+    });
 });

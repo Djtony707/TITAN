@@ -100,7 +100,7 @@ const okReviewer: Reviewer = async req => ({
     verdict: req.result.success ? 'accepted' : 'needs-work',
     note: 'fine',
     telemetry: {
-        actionId: 'reviewer-action-id',
+        actionId: req.actionId,
         promptTokens: 2,
         completionTokens: 3,
         costUsd: 0,
@@ -112,7 +112,158 @@ const okReviewer: Reviewer = async req => ({
     durationMs: 9,
 });
 
+    it('uses unique dispatcher-minted reviewer actionIds that equal the span actionId on success', async () => {
+        const { log, keysDir, mk } = scenario();
+        const seenReqActionIds: string[] = [];
+        const seenSpanActionIds: string[] = [];
+        const trackingReviewer: Reviewer = async req => {
+            seenReqActionIds.push(req.actionId);
+            return {
+                verdict: req.result.success ? 'accepted' : 'needs-work',
+                note: 'ok',
+                telemetry: {
+                    actionId: req.actionId,
+                    promptTokens: 1,
+                    completionTokens: 1,
+                    costUsd: 0,
+                    measured: true,
+                    providerCalls: 1,
+                    returnedCalls: 1,
+                    exit: 'completed',
+                },
+                durationMs: 5,
+            };
+        };
+        const d = mk(async () => ({
+            content: 'first', success: true, toolsUsed: [],
+            durationMs: 10,
+            telemetry: { actionId: 'worker-1', promptTokens: 2, completionTokens: 2, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), trackingReviewer);
+        delegate(log, keysDir, 'scout', 'task a');
+        delegate(log, keysDir, 'scout', 'task b');
+        d.kick();
+        await d.idle();
+
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer');
+        for (const s of spans) seenSpanActionIds.push(s.actionId!);
+        expect(seenReqActionIds).toHaveLength(2);
+        expect(new Set(seenReqActionIds).size).toBe(2); // unique per review call
+        expect(seenSpanActionIds.sort()).toEqual(seenReqActionIds.sort()); // span carries exact dispatcher id
+        expect(seenSpanActionIds).not.toContain('reviewer-error');
+        log.close();
+    });
+
+    it('records distinct reviewer actionIds for arbitrary throws on live and resume paths', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'throw on resume');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+
+        let callCount = 0;
+        const throwingReviewer: Reviewer = async () => {
+            callCount += 1;
+            throw new Error(`boom ${callCount}`);
+        };
+        const d = mk(async () => ({
+            content: 'ok', success: true, toolsUsed: [],
+            durationMs: 1,
+            telemetry: { actionId: 'worker-x', promptTokens: 1, completionTokens: 1, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), throwingReviewer);
+
+        d.recover();
+        await d.idle();
+
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer' && s.exit === 'provider-error');
+        expect(spans.length).toBeGreaterThanOrEqual(1);
+        for (const s of spans) {
+            expect(s.actionId).not.toBe('reviewer-error');
+            expect(s.actionId).toMatch(/^[0-9a-f]{20,}$/);
+        }
+        if (spans.length >= 2) {
+            expect(new Set(spans.map(s => s.actionId)).size).toBe(spans.length);
+        }
+        log.close();
+    });
+
+
 describe('v8 slice 3 — RECORD sink durability and gates', () => {
+    it('uses unique dispatcher-minted reviewer actionIds that equal the span actionId on success', async () => {
+        const { log, keysDir, mk } = scenario();
+        const seenReqActionIds: string[] = [];
+        const seenSpanActionIds: string[] = [];
+        const trackingReviewer: Reviewer = async req => {
+            seenReqActionIds.push(req.actionId);
+            return {
+                verdict: req.result.success ? 'accepted' : 'needs-work',
+                note: 'ok',
+                telemetry: {
+                    actionId: req.actionId,
+                    promptTokens: 1,
+                    completionTokens: 1,
+                    costUsd: 0,
+                    measured: true,
+                    providerCalls: 1,
+                    returnedCalls: 1,
+                    exit: 'completed',
+                },
+                durationMs: 5,
+            };
+        };
+        const d = mk(async () => ({
+            content: 'first', success: true, toolsUsed: [],
+            durationMs: 10,
+            telemetry: { actionId: 'worker-1', promptTokens: 2, completionTokens: 2, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), trackingReviewer);
+        delegate(log, keysDir, 'scout', 'task a');
+        delegate(log, keysDir, 'scout', 'task b');
+        d.kick();
+        await d.idle();
+
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer');
+        for (const s of spans) seenSpanActionIds.push(s.actionId!);
+        expect(seenReqActionIds).toHaveLength(2);
+        expect(new Set(seenReqActionIds).size).toBe(2); // unique per review call
+        expect(seenSpanActionIds.sort()).toEqual(seenReqActionIds.sort()); // span carries exact dispatcher id
+        expect(seenSpanActionIds).not.toContain('reviewer-error');
+        log.close();
+    });
+
+    it('records distinct reviewer actionIds for arbitrary throws on live and resume paths', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'throw on resume');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+
+        let callCount = 0;
+        const throwingReviewer: Reviewer = async () => {
+            callCount += 1;
+            throw new Error();
+        };
+        const d = mk(async () => ({
+            content: 'ok', success: true, toolsUsed: [],
+            durationMs: 1,
+            telemetry: { actionId: 'worker-x', promptTokens: 1, completionTokens: 1, costUsd: 0, measured: true, providerCalls: 1, returnedCalls: 1, exit: 'completed' },
+        }), throwingReviewer);
+
+        d.recover();
+        await d.idle();
+
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);
+        const spans = listRecordSpans().filter(s => s.role === 'reviewer' && s.exit === 'provider-error');
+        expect(spans.length).toBeGreaterThanOrEqual(1);
+        for (const s of spans) {
+            expect(s.actionId).not.toBe('reviewer-error');
+            expect(s.actionId).toMatch(/^[0-9a-f]{20,}$/);
+        }
+        if (spans.length >= 2) {
+            expect(new Set(spans.map(s => s.actionId)).size).toBe(spans.length);
+        }
+        log.close();
+    });
+
     it('writes worker + reviewer spans with all join keys when record.enabled=true', async () => {
         const { log, keysDir, mk } = scenario();
         const runner: TurnRunner = async () => ({
@@ -154,7 +305,7 @@ describe('v8 slice 3 — RECORD sink durability and gates', () => {
         }
         expect(worker!.actionId).toBe('worker-action-id');
         expect(worker!.toolsUsed).toEqual(['tool-a', 'tool-b']);
-        expect(reviewer!.actionId).toBe('reviewer-action-id');
+        expect(reviewer!.actionId).toMatch(/^[0-9a-f]{20,}$/);
         expect(reviewer!.usageMeasured).toBe(true);
 
         const file = join(home, 'traces', 'record', 'spans.jsonl');
@@ -212,7 +363,8 @@ describe('v8 slice 3 — RECORD sink durability and gates', () => {
         const spans = listRecordSpans();
         const failure = spans.find(s => s.role === 'reviewer' && s.exit === 'provider-error');
         expect(failure).toBeDefined();
-        expect(failure!.actionId).toMatch(/reviewer-error|reviewer-action-id/); // typed error carries its own actionId
+        expect(failure!.actionId).not.toBe('reviewer-error');
+        expect(failure!.actionId).toMatch(/^[0-9a-f]{20,}$/); // ulid-style dispatcher-minted id
         expect(failure!.ok).toBe(false);
         expect(failure!.taskRef).toBe(ev.id);
         expect(failure!.attempt).toBe(1);

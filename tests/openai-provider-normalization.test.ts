@@ -71,4 +71,27 @@ describe('OpenAIProvider — honest usage.measured normalization', () => {
             expect(result.usage!.measured, JSON.stringify(usage)).toBe(false);
         }
     });
+
+
+    it('normalizes malformed counts to finite nonnegative numbers while keeping measured=false', async () => {
+        const provider = new OpenAIProvider();
+        const cases = [
+            { prompt_tokens: -1, completion_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { prompt_tokens: 'ten', completion_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { prompt_tokens: NaN, completion_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { prompt_tokens: Infinity, completion_tokens: 5, expectedPrompt: 0, expectedCompletion: 5 },
+            { prompt_tokens: null, completion_tokens: undefined, expectedPrompt: 0, expectedCompletion: 0 },
+        ];
+        for (const c of cases) {
+            mockFetchWithRetry.mockResolvedValueOnce(mockResponse({
+                id: 'chatcmpl-bad',
+                choices: [{ message: { content: 'x' }, finish_reason: 'stop' }],
+                usage: c,
+            }));
+            const result = await provider.chat({ model: 'openai/gpt-4o', messages: [{ role: 'user', content: 'Hi' }] });
+            expect(result.usage!.measured).toBe(false);
+            expect(result.usage!.promptTokens).toBe(c.expectedPrompt);
+            expect(result.usage!.completionTokens).toBe(c.expectedCompletion);
+                    }
+    });
 });

@@ -35,6 +35,14 @@ export interface TraceSpan {
     completionTokens: number;
     costUsd: number;
     ok: boolean;
+    // v8 Slice 3 — RECORD-span join keys and role/exit metadata.
+    actionId?: string;
+    taskRef?: string;
+    attempt?: number;
+    agentId?: string;
+    role?: 'worker' | 'reviewer';
+    usageMeasured?: boolean;
+    exit?: 'completed' | 'provider-error' | 'depth-limit' | 'concurrency-limit' | 'timeout' | 'error' | 'unknown';
 }
 
 function titanHome(): string {
