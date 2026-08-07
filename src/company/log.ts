@@ -409,6 +409,28 @@ export class CompanyLog {
         }
     }
 
+    /**
+     * Neutral cold downgrade scan (review f11c9e22): counts nonterminal
+     * delegations (ANY task.delegated lacking a task.checked — including
+     * never-started) and active holds WITHOUT importing queue modules.
+     * Used by the service's v5 §3 refusal check on queue-off boots.
+     */
+    scanNonterminal(): { nonterminalTasks: number; activeHolds: number } {
+        const events = this.readAll();
+        const checked = new Set<string>();
+        const liftedHolds = new Set<string>();
+        for (const e of events) {
+            if (e.kind === 'task.checked') checked.add(String((e.payload as { taskRef?: unknown }).taskRef ?? ''));
+            if (e.kind === 'hold.lifted') liftedHolds.add(String((e.payload as { holdRef?: unknown }).holdRef ?? ''));
+        }
+        let nonterminalTasks = 0, activeHolds = 0;
+        for (const e of events) {
+            if (e.kind === 'task.delegated' && !checked.has(e.id)) nonterminalTasks += 1;
+            if (e.kind === 'hold.set' && !liftedHolds.has(e.id)) activeHolds += 1;
+        }
+        return { nonterminalTasks, activeHolds };
+    }
+
     /** Total number of events (cheap health/consistency probe). */
     count(): number {
         const row = this.db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number };

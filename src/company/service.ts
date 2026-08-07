@@ -20,6 +20,7 @@ import { mintCompany, STARTER_CREW, type MintedCompany } from './crew.js';
 import { loadAgentKeys, assertValidAgentId } from './keys.js';
 import { LIMITS, assertLen } from './wire.js';
 import { loadConfig } from '../config/config.js';
+import { existsSync, writeFileSync, rmSync } from 'fs';
 import type { KeyObject } from 'crypto';
 import type { CompanyDispatch } from './dispatch.js';
 import type { BasicCompanyDispatch } from './dispatchBasic.js';
@@ -38,10 +39,22 @@ interface State {
 }
 
 let state: State | null = null;
+/** Single-flight init (review f11c9e22 #2): the singleton is assigned only
+ *  after dispatcher/refusal initialization completes; concurrent first
+ *  callers share ONE initialization promise and never observe a partial
+ *  state (a State without its dispatcher cannot exist). */
+let initPromise: Promise<State> | null = null;
 
 async function ensure(): Promise<State> {
     assertCompanyRuntime();
-    if (!state) {
+    if (state) return state;
+    initPromise ??= buildState().then(s => { state = s; return s; })
+        .catch(err => { initPromise = null; throw err; });
+    return initPromise;
+}
+
+async function buildState(): Promise<State> {
+    {
         const { CompanyLog } = await import('./log.js');
         // Validated config path (review 9a85bc9f #1): company.queue now
         // exists in TitanConfigSchema — no unknown-key casting.
@@ -54,40 +67,44 @@ async function ensure(): Promise<State> {
         const memoryDir = join(root, 'memory');
         const crew = new Map(log.read({ kind: 'agent.minted', limit: 100 })
             .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
-        state = { log, keysDir, memoryDir };
+        const candidate: State = { log, keysDir, memoryDir };
         logger.info(COMPONENT, `Company log open (queue ${queueEnabled ? 'ON' : 'off'})`);
+        const markerPath = join(root, 'queue-active');
 
         if (queueEnabled) {
             // Queue modules load ONLY here (flag-off contract: unimported).
+            // Persist the queue-era marker: once the queue has ever been on,
+            // a later queue-off boot applies the STRICT v5 §3 refusal rule.
+            if (!existsSync(markerPath)) writeFileSync(markerPath, String(Date.now()), { mode: 0o600 });
             const { CompanyDispatch, productionRunner, productionReviewer } = await import('./dispatch.js');
-            state.queueDispatch = new CompanyDispatch(log, keysDir, memoryDir, {
+            candidate.queueDispatch = new CompanyDispatch(log, keysDir, memoryDir, {
                 maxAttempts: queueCfg.maxAttempts,
                 charterOf: agentId => crew.get(agentId) ?? '',
             }, productionRunner, productionReviewer);
-            state.queueDispatch.recover(); // fold-derived crash reconciliation (v5 §4)
+            candidate.queueDispatch.recover(); // fold-derived crash reconciliation (v5 §4)
         } else {
-            // Slice-1 pipeline preserved EXACTLY when the sub-flag is off
-            // (review 9a85bc9f #2): basic dispatcher, slice-1 kinds only,
-            // no queue modules imported by it.
+            // Slice-1 pipeline preserved when the sub-flag is off; queue
+            // modules stay UNIMPORTED — the downgrade scan is the neutral
+            // CompanyLog.scanNonterminal() (review f11c9e22 boundary item).
             const { BasicCompanyDispatch, productionRunner, productionReviewer } = await import('./dispatchBasic.js');
-            state.basicDispatch = new BasicCompanyDispatch(log, keysDir, memoryDir, productionRunner, productionReviewer);
-            // DOWNGRADE REFUSAL (v5 §3): nonterminal queue-era work or active
-            // holds make TASK FLOW read-only. The check necessarily reads
-            // queue history — foldQueue loads lazily just for this read.
-            const { foldQueue } = await import('./queue.js');
-            const f = foldQueue(log.readAll());
-            const queueEra = [...f.tasks.values()].some(t => !t.checked && (t.attempt > 0 || t.activeBlocks.size > 0))
-                || f.activeHolds.size > 0;
-            if (queueEra) {
+            candidate.basicDispatch = new BasicCompanyDispatch(log, keysDir, memoryDir, productionRunner, productionReviewer);
+            const queueEra = existsSync(markerPath);
+            const scan = log.scanNonterminal();
+            // STRICT rule (v5 §3, review #1) whenever queue-era evidence
+            // exists: EVERY unchecked delegation — including bare
+            // never-started ones — plus any active hold forces refusal.
+            // Without queue-era evidence this is a pure slice-1 install and
+            // basic crash recovery proceeds as slice 1 always has.
+            if (queueEra ? (scan.nonterminalTasks > 0 || scan.activeHolds > 0) : scan.activeHolds > 0) {
                 queueRefusal = 'Queue history contains unfinished work or active holds. ' +
                     'Re-enable company.queue.enabled, or run `titan company queue-discard` to terminalize it.';
                 logger.warn(COMPONENT, `READ-ONLY REFUSAL: ${queueRefusal}`);
             } else {
-                state.basicDispatch.recover(agentId => crew.get(agentId) ?? '');
+                candidate.basicDispatch.recover(agentId => crew.get(agentId) ?? '');
             }
         }
+        return candidate;
     }
-    return state;
 }
 
 /** Non-null when the v5 §3 downgrade refusal is active. */
@@ -116,6 +133,7 @@ export async function queueDiscard(userPrivateKey: KeyObject): Promise<{ unblock
     try {
         const out = log.discardQueueState(userPrivateKey);
         queueRefusal = null; // refusal condition cleared
+        rmSync(join(root, 'queue-active'), { force: true }); // queue-era marker cleared
         logger.info(COMPONENT, `queue-discard: ${out.unblocked} unblocked, ${out.lifted} lifted, ${out.terminalized} terminalized`);
         return out;
     } finally {
