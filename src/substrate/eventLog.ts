@@ -29,34 +29,54 @@
  *    never trusted.
  *  - Append-only: no update/delete API exists.
  *
- * Shared-store invariants (Honey second review, event dcc1019f):
- *  - Multi-identity verification: the STORE resolves the correct signing
- *    context per event kind (kind→feature map). A feature capability
- *    delegates verification to the store so a Compiler cap can verify a
- *    chain that interleaves Company rows.
- *  - Legacy migration is cryptographic: every legacy row's signature is
- *    verified (with the legacy signing context) before copying, and every
- *    migrated row is re-verified after.
- *  - Durable migration cutover: a `migration_meta` table records source
- *    path, row count, chain hash, and a `completed` marker, committed
- *    atomically with the copied rows. Idempotency checks the marker, not
- *    row count.
- *  - Cross-process first-open lock: `BEGIN IMMEDIATE` is acquired before
- *    any discovery/inspection of the destination. A failed legacy rename
- *    fails closed (no append) unless a durable cutover record exists.
- *  - Closed per-home coordination: a module-level `Map<titanHome, SystemStore>`
- *    ensures one coordinator per home per process. Feature registration is
- *    closed to approved factories. Late registration applies `extraDdl`
- *    even on an already-open store.
- *  - Feature-filtered views: `FeatureCapability.read/readAll` default to
- *    owned-kind reads (`WHERE kind IN (...)`). Store-wide reads and
- *    verification belong to a privileged coordinator capability only.
+ * Shared-store invariants (Honey second review dcc1019f, third review
+ * ffabc970 — blockers C1-C6 fully addressed this revision):
+ *  - C1 Migration-only cross-process lock. The exclusive lock file is
+ *    held ONLY across discovery/migration/cutover and released in a
+ *    `finally`; other processes can open the shared DB once the cutover
+ *    is done. The lock file carries owner PID + start timestamp, and a
+ *    stale owner (PID no longer alive) is recovered automatically so a
+ *    crash can never permanently wedge the store.
+ *  - C2 Idempotent, ref-counted feature registration. An identical
+ *    re-registration of an already-registered feature returns a NEW
+ *    compatible capability and bumps a refcount (so service restart and
+ *    queueDiscard paths that build a second wrapper for the same home
+ *    succeed). A conflicting re-registration (different namespace:
+ *    kinds/authority/keysDir/signing) fails. Closing one consumer
+ *    decrements the refcount; the shared store closes only when the
+ *    LAST consumer releases it.
+ *  - C3 Restart-safe cutover. The `migration_meta` row carries a
+ *    `retired` column. Only `completed=1 AND retired=1` is accepted. If
+ *    a completed marker is found but the legacy file still exists (a
+ *    prior rename failed), the store tries to finish retirement under
+ *    the lock and FAILS CLOSED if it cannot — the next process can
+ *    never silently append past an un-retired legacy DB.
+ *  - C4 Full parity validation on reopen. A surviving marker is NOT
+ *    trusted on its own: the destination's row count, terminal chain
+ *    hash, complete seq sequence, and every resolvable signature are
+ *    verified against the marker before migration is declared complete.
+ *  - C5 Actually closed factories. There is no public `registerFeature`
+ *    or `coordinator()`. Features are acquired ONLY through exported
+ *    feature-specific factory functions (`createCompanyFeature`,
+ *    `createCompilerFeature`) which hold a module-private
+ *    `RegistrationToken`. The coordinator capability is reachable only
+ *    through `createCoordinator`, which also requires the token. A
+ *    `FeatureCapability` does not expose its store reference, so a
+ *    feature cap holder cannot escalate to store-wide reads.
+ *  - C6 Order-independent options. Legacy signing is registerable
+ *    separately from construction via `store.setLegacySigning(...)`,
+ *    so a Compiler-first construction can be repaired by a later
+ *    Company registration without discarding options. Construction
+ *    takes only `titanHome`; no options bag.
+ *  - Feature-filtered views: `FeatureCapability.read/readAll` default
+ *    to owned-kind reads. Store-wide reads and verification belong to
+ *    the privileged coordinator capability only.
  *
  * Runtime floor: node:sqlite runs unflagged on Node >= 22.13.0.
  */
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, createHash } from 'crypto';
-import { mkdirSync, existsSync, renameSync, openSync, closeSync, unlinkSync } from 'fs';
+import { mkdirSync, existsSync, renameSync, openSync, closeSync, unlinkSync, writeFileSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import type { KeyObject } from 'crypto';
 
@@ -138,9 +158,9 @@ export interface FeatureRegistration {
      * Optional lifecycle validator. Receives the base SystemAppendContext;
      * feature wrappers install a validator that narrows `kind`/`events`
      * to the feature's own types internally. `events` contains ONLY this
-     * feature's rows (feature-filtered, Honey B6), so the Company wrapper
-     * casts to `CompanyEvent[]` soundly even when Compiler rows interleave
-     * in the shared store.
+     * feature's rows (feature-filtered), so the Company wrapper casts to
+     * `CompanyEvent[]` soundly even when Compiler rows interleave in the
+     * shared store.
      */
     validator?: SystemLifecycleValidator;
     /** Feature-specific DDL (indexes, unique constraints). */
@@ -156,11 +176,14 @@ export interface FeatureRegistration {
 /**
  * Branded capability granted to a feature by the store coordinator.
  * Only allows appending the feature's own kinds. Reads default to the
- * feature's OWNED kinds only (feature-filtered views, Honey B6); a
- * feature cannot see another feature's rows by default. Verification
- * delegates to store-level multi-identity verification (Honey B1) so a
- * feature capability can verify a chain that interleaves other
- * features' rows.
+ * feature's OWNED kinds only (feature-filtered views); a feature cannot
+ * see another feature's rows by default. Verification delegates to
+ * store-level multi-identity verification so a feature capability can
+ * verify a chain that interleaves other features' rows.
+ *
+ * The capability does NOT expose its SystemStore reference (C5): a
+ * feature cap holder cannot escalate to store-wide reads or coordinator
+ * access.
  */
 export interface FeatureCapability {
     /** Append an event. Kind must be in this feature's registered kinds. */
@@ -168,22 +191,22 @@ export interface FeatureCapability {
     /**
      * Read events of THIS feature's kinds, optionally filtered further.
      * `kind` (if given) must be one of this feature's kinds. Reads are
-     * feature-filtered by default (Honey B6): rows of other features are
-     * never returned.
+     * feature-filtered by default: rows of other features are never
+     * returned.
      */
     read(opts?: { afterSeq?: number; kind?: string; limit?: number }): SystemEvent[];
     /** Read all events of THIS feature's kinds in seq order. */
     readAll(): SystemEvent[];
     /**
      * Verify one event by id. Delegates to store-level verification,
-     * resolving the correct signing context for the row's kind (Honey B1),
-     * so this works even for rows owned by another feature.
+     * resolving the correct signing context for the row's kind, so this
+     * works even for rows owned by another feature.
      */
     verifyEvent(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string };
     /**
      * Verify the entire log chain. Delegates to store-level multi-identity
-     * verification (Honey B1): every row is verified with the signing
-     * context of the feature that owns its kind, not this capability's own.
+     * verification: every row is verified with the signing context of the
+     * feature that owns its kind, not this capability's own.
      */
     verifyChain(): { ok: boolean; badSeq?: number; reason?: string };
     /** Count total events of THIS feature's kinds. */
@@ -196,28 +219,35 @@ export interface FeatureCapability {
     rollbackMaintenance(): void;
     /** End maintenance mode (always called, even on error). */
     endMaintenance(): void;
-    /** Close the log. */
+    /**
+     * Enable extended appendable kinds (e.g., queue mode) on this cap.
+     * Idempotent.
+     */
+    enableExtendedKinds(): void;
+    /** Close this consumer. Decrements the feature refcount; the shared
+     *  store closes only when the last consumer releases (C2). */
     close(): void;
 }
 
 /**
  * Privileged coordinator capability: store-wide reads and verification
  * across ALL features' namespaces. Granted only by the store coordinator
- * itself (not by feature registration). Used by maintenance/audit paths
- * that must see the whole log. Feature capabilities do NOT get this.
+ * itself via `createCoordinator` (which requires the module-private
+ * RegistrationToken, C5). Used by maintenance/audit paths that must see
+ * the whole log. Feature capabilities do NOT get this and cannot reach it.
  */
 export interface CoordinatorCapability {
     /** Read ALL events in seq order (every feature's namespace). */
     readAll(): SystemEvent[];
     /** Read events with optional kind/afterSeq filter across all namespaces. */
     read(opts?: { afterSeq?: number; kind?: string; limit?: number }): SystemEvent[];
-    /** Verify the ENTIRE log with per-kind signing contexts (Honey B1). */
+    /** Verify the ENTIRE log with per-kind signing contexts. */
     verifyChain(): { ok: boolean; badSeq?: number; reason?: string };
     /** Verify one event by id with the correct per-kind signing context. */
     verifyEvent(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string };
     /** Count ALL events in the store. */
     count(): number;
-    /** Close the store coordinator. */
+    /** Release this coordinator handle (decrements the coordinator refcount). */
     close(): void;
 }
 
@@ -253,37 +283,27 @@ function rowToEvent(r: Row): SystemEvent {
     };
 }
 
+// ── Registration token (C5: module-private, not exported) ───────────
+
+/**
+ * Module-private registration token. Only the factory functions in this
+ * module possess it, so only they can call `SystemStore.registerFeature`
+ * / `SystemStore.coordinator`. The class methods require a token that
+ * `=== REGISTRATION_TOKEN`; any other value (including undefined) is
+ * rejected. The type is not exported, so external code cannot construct
+ * a valid one — this closes the approved-id boundary (Honey C5).
+ */
+const REGISTRATION_TOKEN: RegistrationToken = Symbol('SystemStore.registration');
+/** Branded token type — not exported. */
+type RegistrationToken = symbol;
+
 // ── SystemStore — the one store coordinator ────────────────────────
 
 /**
- * Construction options for {@link SystemStore}.
- */
-export interface SystemStoreOptions {
-    /**
-     * Signing context used ONLY to cryptographically verify legacy
-     * `company.db` rows during migration (Honey B2). The substrate never
-     * imports feature key management; this is a bounded, audit-able seam
-     * for verifying pre-existing signed rows whose owning feature may
-     * not be registered yet (e.g., a Compiler-first open with a legacy
-     * Company DB). Company passes its `companySigning` here.
-     */
-    legacySigning?: SigningContext;
-    /** Keys directory for the legacy signing context (Honey B2). */
-    legacyKeysDir?: string;
-}
-
-/**
- * Approved feature factory ids. Registration is closed to these (Honey B5):
- * only the known feature wrappers (`company`, `compiler`, …) may register.
- * This prevents an arbitrary caller from minting a registry/capability.
- */
-const APPROVED_FEATURE_IDS = new Set(['company', 'compiler']);
-
-/**
  * Module-level coordinator registry: one SystemStore per `titanHome` per
- * process (Honey B5). Separate `new SystemStore(titanHome)` calls on the
- * same home return the SAME coordinator, so overlapping registrations for
- * the same physical log are impossible within a process.
+ * process. Separate `new SystemStore(titanHome)` calls on the same home
+ * return the SAME coordinator, so overlapping registrations for the same
+ * physical log are impossible within a process.
  */
 const coordinators = new Map<string, SystemStore>();
 
@@ -294,17 +314,15 @@ const coordinators = new Map<string, SystemStore>();
  *
  * Lazy initialization: system.db is created only when the first feature
  * registers. Legacy company.db migration happens before the first
- * append (migration-order invariant, §5.1 item 6).
+ * append (migration-order invariant).
  *
- * Construction takes `titanHome` ($TITAN_HOME) and derives both paths
- * internally — `system.db` at the root and legacy `company.db` at
- * `company/company.db`. The neutral substrate exports no constructor
- * or factory that accepts arbitrary paths/registries; only the titanHome
- * root is accepted (Honey, event f485ec93). Company wraps this with a
- * `CompanyLog(titanHome, keysDir, opts)` seam.
+ * Construction takes only `titanHome` and derives both paths internally
+ * — `system.db` at the root and legacy `company.db` at
+ * `company/company.db`. Legacy signing is registered separately via
+ * {@link setLegacySigning} (C6: order-independent).
  *
- * Coordinator uniqueness is enforced per `titanHome` per process (Honey B5):
- * a second construction with the same home returns the existing instance.
+ * Coordinator uniqueness is enforced per `titanHome` per process: a
+ * second construction with the same home returns the existing instance.
  */
 export class SystemStore {
     private db: DatabaseSync | null = null;
@@ -312,31 +330,32 @@ export class SystemStore {
     private readonly dbPath!: string;
     private readonly legacyDbPath!: string;
     private readonly lockPath!: string;
-    private readonly opts!: SystemStoreOptions;
+    private legacySigning: SigningContext | null = null;
+    private legacyKeysDir: string | null = null;
     private opened = false;
     private migrated = false;
-    private migrationVerified = false;
+    private migrationParityChecked = false;
     private lockFd: number | null = null;
+    private lockOwner = false;
     private features = new Map<string, FeatureRegistration>();
+    /** Per-feature refcount (C2): a second identical registration bumps this. */
+    private featureRefcounts = new Map<string, number>();
     private kindToFeature = new Map<string, FeatureRegistration>();
-    private capabilities = new Map<string, FeatureCapabilityImpl>();
+    /** Outstanding feature caps per featureId — invalidated on close. */
+    private liveCaps = new Map<string, Set<FeatureCapabilityImpl>>();
     private appliedDdlFeatures = new Set<string>();
+    private coordinatorRefCount = 0;
 
     /**
      * @param titanHome  $TITAN_HOME directory. The system log lives at
      *   `$TITAN_HOME/system.db`; a legacy `company.db` is discovered at
      *   `$TITAN_HOME/company/company.db` and migrated before the first
      *   append. No arbitrary path is accepted.
-     * @param opts  Legacy signing context for migration verification.
      */
-    constructor(titanHome: string, opts: SystemStoreOptions = {}) {
-        // Closed per-home coordination (Honey B5): one coordinator per
-        // home per process. A second construction returns the existing
-        // instance so overlapping registrations are impossible.
+    constructor(titanHome: string) {
         const existing = coordinators.get(titanHome);
         if (existing) return existing;
         this.titanHome = titanHome;
-        this.opts = opts;
         this.dbPath = join(titanHome, 'system.db');
         this.legacyDbPath = join(titanHome, 'company', 'company.db');
         this.lockPath = join(titanHome, 'system.db.lock');
@@ -344,25 +363,59 @@ export class SystemStore {
     }
 
     /**
+     * Register the legacy signing context used to cryptographically verify
+     * legacy `company.db` rows during migration and to resolve unowned
+     * kinds on reopen parity validation (C6). Order-independent: a
+     * Compiler-first construction can be repaired by a later Company
+     * registration that calls this. Idempotent: a second call with a
+     * different context for an un-migrated store replaces; once migration
+     * has run the context is only used for reopen parity, so replacing is
+     * safe.
+     */
+    setLegacySigning(legacySigning: SigningContext, legacyKeysDir: string): void {
+        this.legacySigning = legacySigning;
+        this.legacyKeysDir = legacyKeysDir;
+    }
+
+    /**
      * Register a feature. Kinds must be disjoint across all registered
      * features. Returns a branded capability object for this feature.
      * Lazily opens the DB (and runs legacy migration) on the first
-     * registration — the migration-order invariant requires legacy
-     * company.db to be migrated BEFORE any feature can append.
+     * registration.
      *
-     * Registration is closed to approved feature ids (Honey B5).
+     * C2 idempotent/ref-counted: a second registration of the SAME
+     * featureId with an identical NAMESPACE (kinds, authority, keysDir,
+     * signing reference, validator reference, extraDdl) returns a NEW
+     * compatible capability and bumps the refcount — it does NOT throw.
+     * This lets service restart/queueDiscard paths build a second wrapper
+     * for the same home. A conflicting re-registration (different
+     * namespace) throws.
+     *
+     * C5: requires the module-private RegistrationToken. External callers
+     * use the exported factory functions instead.
+     *
+     * @internal Callers must possess `REGISTRATION_TOKEN`.
      */
-    registerFeature(reg: FeatureRegistration): FeatureCapability {
-        // Closed registration (Honey B5): only approved feature factories.
-        if (!APPROVED_FEATURE_IDS.has(reg.featureId)) {
-            throw new Error(`SystemStore: feature "${reg.featureId}" is not an approved feature factory`);
+    registerFeature(reg: FeatureRegistration, token: RegistrationToken): FeatureCapability {
+        if (token !== REGISTRATION_TOKEN) {
+            throw new Error('SystemStore: registerFeature requires the module-private registration token');
         }
-        if (this.capabilities.has(reg.featureId)) {
-            throw new Error(`SystemStore: feature "${reg.featureId}" is already registered`);
+        const existing = this.features.get(reg.featureId);
+        if (existing) {
+            // C2: idempotent for an identical namespace; reject conflicts.
+            this.assertSameNamespace(existing, reg);
+            // Identical namespace — bump refcount, return a NEW cap with
+            // this registration's own base/extended appendable set. We do
+            // NOT re-add kinds (already owned) or re-apply DDL.
+            const n = (this.featureRefcounts.get(reg.featureId) ?? 0) + 1;
+            this.featureRefcounts.set(reg.featureId, n);
+            const cap = new FeatureCapabilityImpl(this, reg);
+            this.trackCap(reg.featureId, cap);
+            return cap;
         }
-        // Validate namespace disjointness (capability boundary, §5.1 item 3).
-        // Read-only check BEFORE any mutation so a failed ensureOpen does not
-        // pollute the kind/feature maps (Honey B4 fail-closed recovery).
+
+        // New feature: validate namespace disjointness BEFORE any mutation
+        // so a failed ensureOpen leaves no partial state.
         for (const kind of reg.kinds) {
             if (this.kindToFeature.has(kind)) {
                 throw new Error(`SystemStore: kind "${kind}" is already registered by another feature`);
@@ -371,8 +424,7 @@ export class SystemStore {
 
         // Lazily open the DB on first feature registration. Migration
         // runs before the table is created so the legacy chain becomes
-        // the historical prefix of system.db's seq space. Done BEFORE
-        // mutating maps so a migration failure leaves no partial state.
+        // the historical prefix of system.db's seq space.
         this.ensureOpen();
 
         // Now mutate: register kinds + feature.
@@ -380,42 +432,139 @@ export class SystemStore {
             this.kindToFeature.set(kind, reg);
         }
         this.features.set(reg.featureId, reg);
+        this.featureRefcounts.set(reg.featureId, 1);
 
-        // Late registration (Honey B5): if the store is already open,
-        // apply this feature's extra DDL NOW (ensureOpen already ran the
-        // previously-registered features' DDL). Idempotent (IF NOT EXISTS).
+        // Late registration: if the store is already open, apply this
+        // feature's extra DDL NOW. Idempotent (IF NOT EXISTS).
         if (this.opened && reg.extraDdl && !this.appliedDdlFeatures.has(reg.featureId)) {
             for (const ddl of reg.extraDdl) this.db!.exec(ddl);
             this.appliedDdlFeatures.add(reg.featureId);
         }
 
+        // After the first feature registers, run migration parity
+        // validation (C4) if a migration marker exists and hasn't been
+        // checked yet. At this point kindToFeature has the new feature, so
+        // its signing context resolves for its rows; legacy rows resolve
+        // via the legacy signing context.
+        this.maybeValidateMigrationParity();
+
         const cap = new FeatureCapabilityImpl(this, reg);
-        this.capabilities.set(reg.featureId, cap);
+        this.trackCap(reg.featureId, cap);
         return cap;
     }
 
     /**
      * Grant the privileged coordinator capability: store-wide reads and
-     * multi-identity verification across ALL features' namespaces (Honey
-     * B1/B6). Used by maintenance/audit paths that must see the whole log.
+     * multi-identity verification across ALL features' namespaces. Used by
+     * maintenance/audit paths that must see the whole log.
+     *
+     * C5: requires the module-private RegistrationToken. External callers
+     * use `createCoordinator`.
+     *
+     * @internal Callers must possess `REGISTRATION_TOKEN`.
      */
-    coordinator(): CoordinatorCapability {
+    coordinator(token: RegistrationToken): CoordinatorCapability {
+        if (token !== REGISTRATION_TOKEN) {
+            throw new Error('SystemStore: coordinator requires the module-private registration token');
+        }
         this.ensureOpen();
+        this.coordinatorRefCount += 1;
         return new CoordinatorCapabilityImpl(this);
+    }
+
+    // ── C2 ref-counting helpers ─────────────────────────────────────
+
+    private trackCap(featureId: string, cap: FeatureCapabilityImpl): void {
+        let set = this.liveCaps.get(featureId);
+        if (!set) { set = new Set(); this.liveCaps.set(featureId, set); }
+        set.add(cap);
+    }
+
+    /**
+     * Release one feature consumer (C2). Decrements the refcount; when it
+     * hits zero, invalidates the feature's live caps, removes its kinds,
+     * and — if no features and no coordinators remain — closes the store.
+     */
+    private releaseFeature(featureId: string): void {
+        const n = (this.featureRefcounts.get(featureId) ?? 0) - 1;
+        if (n > 0) {
+            this.featureRefcounts.set(featureId, n);
+            return;
+        }
+        // Last consumer of this feature.
+        this.featureRefcounts.set(featureId, 0);
+        const reg = this.features.get(featureId);
+        if (reg) {
+            for (const kind of reg.kinds) this.kindToFeature.delete(kind);
+        }
+        const set = this.liveCaps.get(featureId);
+        if (set) { for (const c of set) c.invalidate(); set.clear(); this.liveCaps.delete(featureId); }
+        this.features.delete(featureId);
+        if (this.features.size === 0 && this.coordinatorRefCount === 0) {
+            this.close();
+        }
+    }
+
+    private releaseCoordinator(): void {
+        if (this.coordinatorRefCount > 0) this.coordinatorRefCount -= 1;
+        if (this.features.size === 0 && this.coordinatorRefCount === 0) {
+            this.close();
+        }
+    }
+
+    /** Compare the namespace-relevant fields of two registrations (C2). */
+    private assertSameNamespace(a: FeatureRegistration, b: FeatureRegistration): void {
+        const aKeys = [...a.kinds].sort().join(',');
+        const bKeys = [...b.kinds].sort().join(',');
+        if (aKeys !== bKeys) {
+            throw new Error(`SystemStore: conflicting re-registration of "${a.featureId}" — kinds differ`);
+        }
+        if (a.keysDir !== b.keysDir) {
+            throw new Error(`SystemStore: conflicting re-registration of "${a.featureId}" — keysDir differs`);
+        }
+        if (a.signing !== b.signing) {
+            throw new Error(`SystemStore: conflicting re-registration of "${a.featureId}" — signing context differs`);
+        }
+        if (JSON.stringify(a.authority) !== JSON.stringify(b.authority)) {
+            throw new Error(`SystemStore: conflicting re-registration of "${a.featureId}" — authority differs`);
+        }
+        const aExtra = a.extraDdl ? [...a.extraDdl].sort().join('\n') : '';
+        const bExtra = b.extraDdl ? [...b.extraDdl].sort().join('\n') : '';
+        if (aExtra !== bExtra) {
+            throw new Error(`SystemStore: conflicting re-registration of "${a.featureId}" — extraDdl differs`);
+        }
+        // validator is an implementation detail; a different reference for
+        // the same namespace is allowed (e.g. a fresh closure). baseAppendable
+        // and extendedAppendable are per-capability, not namespace, so they
+        // are intentionally NOT compared here.
     }
 
     private ensureOpen(): void {
         if (this.opened) return;
-        // Cross-process first-open lock (Honey B4): acquire an exclusive
-        // lock file BEFORE any discovery/inspection of the destination.
         mkdirSync(dirname(this.dbPath), { recursive: true });
-        this.acquireLock();
-        // Migration-order invariant (Honey, event 88488fd4): discover and
-        // migrate legacy company.db BEFORE the first new append — before
-        // the events table is created or any seq is consumed.
-        this.migrateLegacyIfNeeded();
-        this.db = new DatabaseSync(this.dbPath);
-        this.db.exec(`
+        // C1: hold the cross-process lock ONLY across
+        // discovery/migration/cutover, release it in `finally` so other
+        // processes can open the shared DB once the cutover is done.
+        try {
+            this.acquireLock();
+            this.migrateLegacyIfNeeded();
+            this.db = new DatabaseSync(this.dbPath);
+            this.applySchema(this.db);
+            // Apply all registered features' extra DDL (idempotent).
+            for (const reg of this.features.values()) {
+                if (reg.extraDdl && !this.appliedDdlFeatures.has(reg.featureId)) {
+                    for (const ddl of reg.extraDdl) this.db.exec(ddl);
+                    this.appliedDdlFeatures.add(reg.featureId);
+                }
+            }
+            this.opened = true;
+        } finally {
+            this.releaseLock();
+        }
+    }
+
+    private applySchema(db: DatabaseSync): void {
+        db.exec(`
             CREATE TABLE IF NOT EXISTS events (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,
                 id TEXT NOT NULL UNIQUE,
@@ -434,142 +583,175 @@ export class SystemStore {
                 row_count INTEGER NOT NULL,
                 chain_hash TEXT NOT NULL,
                 completed INTEGER NOT NULL,
+                retired INTEGER NOT NULL DEFAULT 0,
                 migrated_at INTEGER NOT NULL
             );
         `);
-        // Apply all registered features' extra DDL (idempotent — uses
-        // IF NOT EXISTS; safe to re-run across feature registrations).
-        for (const reg of this.features.values()) {
-            if (reg.extraDdl && !this.appliedDdlFeatures.has(reg.featureId)) {
-                for (const ddl of reg.extraDdl) this.db.exec(ddl);
-                this.appliedDdlFeatures.add(reg.featureId);
-            }
+        // Upgrade path: an existing migration_meta from the prior schema
+        // lacks the `retired` column. Add it if missing so C3 applies.
+        const cols = db.prepare("PRAGMA table_info(migration_meta)").all() as Array<{ name: string }>;
+        if (!cols.some(c => c.name === 'retired')) {
+            db.exec('ALTER TABLE migration_meta ADD COLUMN retired INTEGER NOT NULL DEFAULT 0');
         }
-        this.opened = true;
     }
 
     /**
-     * Acquire a cross-process exclusive lock (Honey B4). Uses an advisory
-     * lock file with flock-style exclusivity via O_EXCL link when needed.
-     * node:sqlite's BEGIN IMMEDIATE provides in-DB exclusivity for writes;
-     * this lock serializes the discovery+open window across processes.
+     * Acquire a cross-process exclusive migration lock (C1). The lock file
+     * carries owner PID + start timestamp. On contention, a stale owner
+     * (PID no longer alive) is reclaimed automatically; a live owner is
+     * retried for a bounded window. The lock is held ONLY across the
+     * migration/cutover window in `ensureOpen` and released in `finally`.
      */
     private acquireLock(): void {
-        if (this.lockFd !== null) return;
-        // POSIX: open with O_CREAT|O_EXCL wins once; losers retry-read.
-        // We keep the fd open for the lifetime of the coordinator.
+        if (this.lockFd !== null && this.lockOwner) return;
+        const ownerInfo = JSON.stringify({ pid: process.pid, ts: Date.now() });
+        // First try: create exclusively.
         try {
             this.lockFd = openSync(this.lockPath, 'wx');
-        } catch {
-            // Lock file exists — another process owns it. Wait briefly
-            // and retry a bounded number of times (best-effort; tests use
-            // fresh homes so contention is only from concurrent opens).
-            for (let attempt = 0; attempt < 50; attempt++) {
-                if (!existsSync(this.lockPath)) {
-                    try { this.lockFd = openSync(this.lockPath, 'wx'); return; }
-                    catch { continue; }
+            writeFileSync(this.lockFd, ownerInfo);
+            this.lockOwner = true;
+            return;
+        } catch { /* exists — fall through to stale-owner recovery */ }
+        // Stale-owner recovery (C1): read the owner, check liveness, reclaim.
+        for (let attempt = 0; attempt < 100; attempt++) {
+            let owner: { pid?: number; ts?: number } | null = null;
+            try { owner = JSON.parse(readFileSync(this.lockPath, 'utf-8')) as { pid?: number; ts?: number }; }
+            catch { owner = null; }
+            if (owner && typeof owner.pid === 'number') {
+                if (!this.isProcessAlive(owner.pid)) {
+                    // Owner is dead — reclaim.
+                    try { unlinkSync(this.lockPath); } catch { /* race; loop */ }
+                    try {
+                        this.lockFd = openSync(this.lockPath, 'wx');
+                        writeFileSync(this.lockFd, ownerInfo);
+                        this.lockOwner = true;
+                        return;
+                    } catch { continue; }
                 }
-                // Sleep ~10ms. Atomics.wait is synchronous and dependency-free.
-                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+            } else if (!existsSync(this.lockPath)) {
+                try {
+                    this.lockFd = openSync(this.lockPath, 'wx');
+                    writeFileSync(this.lockFd, ownerInfo);
+                    this.lockOwner = true;
+                    return;
+                } catch { continue; }
             }
-            throw new Error('SystemStore: timed out acquiring cross-process lock');
+            // Sleep ~10ms (synchronous, dependency-free).
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+        }
+        throw new Error('SystemStore: timed out acquiring cross-process lock');
+    }
+
+    /** Best-effort liveness probe (C1). Throws/returns false if not alive. */
+    private isProcessAlive(pid: number): boolean {
+        try { process.kill(pid, 0); return true; }
+        catch (err) {
+            const e = err as NodeJS.ErrnoException;
+            // EPERM means the process exists but we can't signal it.
+            if (e.code === 'EPERM') return true;
+            return false;
         }
     }
 
     private releaseLock(): void {
         if (this.lockFd !== null) {
             try { closeSync(this.lockFd); } catch { /* idempotent */ }
-            try { unlinkSync(this.lockPath); } catch { /* already gone */ }
+            if (this.lockOwner) {
+                try { unlinkSync(this.lockPath); } catch { /* already gone */ }
+            }
             this.lockFd = null;
+            this.lockOwner = false;
         }
     }
 
     /**
-     * Legacy company.db migration (Honey migration audit contract, §5.1,
-     * second review B2/B3/B4): if a legacy company.db exists, copy its
-     * rows into system.db before the first new append, preserving seq,
-     * IDs, timestamps, actor, kind, payload, signature, and prev_hash.
-     * Every legacy row's SIGNATURE is cryptographically verified (with
-     * the legacy signing context) before copying, and every migrated
-     * row is re-verified after. A `migration_meta` row records source
-     * path, row count, chain hash, and a completed marker, committed
-     * atomically with the copied rows. Idempotency checks the marker,
-     * not row count. If migration fails, no feature may append (fail
-     * closed). The legacy file is renamed durably; a failed rename fails
-     * closed (no append) unless the durable marker already exists.
+     * Legacy company.db migration (C3 restart-safe cutover): if a legacy
+     * company.db exists, copy its rows into system.db before the first new
+     * append, preserving seq, IDs, timestamps, actor, kind, payload,
+     * signature, and prev_hash. Every legacy row's SIGNATURE is
+     * cryptographically verified (with the legacy signing context) before
+     * copying, and every migrated row is re-verified after. A
+     * `migration_meta` row records source path, row count, chain hash, a
+     * `completed` marker, and a `retired` marker, committed atomically
+     * with the copied rows.
+     *
+     * C3: only `completed=1 AND retired=1` is accepted on reopen. If a
+     * completed marker exists but the legacy file is still present (a
+     * prior rename failed), the store tries to finish retirement under
+     * the lock and FAILS CLOSED if it cannot.
      */
     private migrateLegacyIfNeeded(): void {
         if (this.migrated) return;
-        if (!existsSync(this.legacyDbPath)) {
-            this.migrated = true;
-            return;
-        }
+        const legacyExists = existsSync(this.legacyDbPath);
 
         // If system.db already exists, check the durable migration_meta
-        // marker for idempotency (Honey B3): the marker — not row count —
-        // is proof migration completed.
+        // marker for idempotency + retirement status (C3).
         if (existsSync(this.dbPath)) {
             const check = new DatabaseSync(this.dbPath);
             try {
-                // Ensure schema exists so the meta query can run.
-                check.exec(`
-                    CREATE TABLE IF NOT EXISTS events (
-                        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                        id TEXT NOT NULL UNIQUE,
-                        prev_hash TEXT NOT NULL,
-                        kind TEXT NOT NULL,
-                        ts INTEGER NOT NULL,
-                        actor TEXT NOT NULL,
-                        sig TEXT NOT NULL,
-                        payload TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS migration_meta (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        source TEXT NOT NULL,
-                        row_count INTEGER NOT NULL,
-                        chain_hash TEXT NOT NULL,
-                        completed INTEGER NOT NULL,
-                        migrated_at INTEGER NOT NULL
-                    );
-                `);
+                this.applySchema(check);
                 const meta = check.prepare(
-                    'SELECT completed, source FROM migration_meta WHERE id = 1'
-                ).get() as { completed: number; source: string } | undefined;
+                    'SELECT completed, retired, source, row_count, chain_hash FROM migration_meta WHERE id = 1'
+                ).get() as { completed: number; retired: number; source: string; row_count: number; chain_hash: string } | undefined;
                 if (meta && meta.completed === 1) {
-                    // Durable marker says migration completed. Verify it
-                    // matches THIS legacy file by source path before
-                    // trusting; a mismatch means a different legacy DB
-                    // appeared after a prior migration — fail closed.
-                    if (meta.source === this.legacyDbPath) {
+                    if (meta.source !== this.legacyDbPath) {
+                        // A different legacy DB appeared after a prior migration.
+                        throw new Error(
+                            `SystemStore: migration_meta completed for source "${meta.source}" but a different legacy DB is present at "${this.legacyDbPath}"`
+                        );
+                    }
+                    if (meta.retired === 1) {
+                        // Fully retired — migration complete. Parity is
+                        // validated after the first feature registers (C4).
                         this.migrated = true;
                         return;
                     }
-                    // Different source: a second legacy DB after a prior
-                    // migration. Fail closed — do not silently skip.
-                    check.close();
-                    throw new Error(
-                        `SystemStore: migration_meta completed for source "${meta.source}" but a different legacy DB is present at "${this.legacyDbPath}"`
-                    );
+                    // completed=1 but retired=0. C3: the legacy file must
+                    // still be present (the rename failed). Try to finish
+                    // retirement under the lock; fail closed if we cannot.
+                    if (!legacyExists) {
+                        // Legacy gone but marker says not retired — treat as
+                        // retired (someone manually removed it). Record it.
+                        check.prepare('UPDATE migration_meta SET retired = 1 WHERE id = 1').run();
+                        this.migrated = true;
+                        return;
+                    }
+                    // Legacy present + completed + not retired: try rename.
+                    try {
+                        renameSync(this.legacyDbPath, this.legacyDbPath + '.migrated');
+                        check.prepare('UPDATE migration_meta SET retired = 1 WHERE id = 1').run();
+                        this.migrated = true;
+                        return;
+                    } catch {
+                        throw new Error(
+                            `SystemStore: migration completed but legacy "${this.legacyDbPath}" was not retired and retirement still fails — aborting (fail-closed). Rename it to "${this.legacyDbPath}.migrated" and reopen.`
+                        );
+                    }
                 }
             } finally {
                 check.close();
             }
         }
 
+        if (!legacyExists) {
+            this.migrated = true;
+            return;
+        }
+
+        // No durable marker + legacy present: run the full migration.
+        if (!this.legacySigning || !this.legacyKeysDir) {
+            throw new Error('SystemStore: legacy company.db present but no legacy signing context configured (call setLegacySigning)');
+        }
+        const legacySigning = this.legacySigning;
+        const legacyKeysDir = this.legacyKeysDir;
+
         // Open the legacy DB and read its rows.
         const legacy = new DatabaseSync(this.legacyDbPath);
         const rows = legacy.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
 
         // Verify legacy chain integrity: prev_hash links AND cryptographic
-        // signatures (Honey B2). Each row's signature is verified with the
-        // legacy signing context (the keys live under legacyKeysDir).
-        if (!this.opts.legacySigning || !this.opts.legacyKeysDir) {
-            legacy.close();
-            throw new Error('SystemStore: legacy company.db present but no legacy signing context configured for verification');
-        }
-        const legacySigning = this.opts.legacySigning;
-        const legacyKeysDir = this.opts.legacyKeysDir;
-        // Cache public keys per actor to avoid re-loading per row.
+        // signatures. Each row's signature is verified with the legacy
+        // signing context.
         const legacyPubkeyCache = new Map<string, KeyObject | null>();
         let prev: Row | undefined;
         let chainHashAccum: string = 'genesis';
@@ -579,7 +761,6 @@ export class SystemStore {
                 legacy.close();
                 throw new Error(`SystemStore: legacy company.db chain link broken at seq ${row.seq}`);
             }
-            // Cryptographic signature verification (Honey B2).
             let pub = legacyPubkeyCache.get(row.actor);
             if (pub === undefined && !legacyPubkeyCache.has(row.actor)) {
                 pub = legacySigning.loadPublicKey(row.actor, legacyKeysDir);
@@ -596,35 +777,13 @@ export class SystemStore {
                 throw new Error(`SystemStore: legacy company.db signature mismatch at seq ${row.seq} (actor "${row.actor}")`);
             }
             prev = row;
-            // Accumulate chain hash for the durable record.
             chainHashAccum = chainHash(row);
         }
 
         // Create system.db and copy rows + migration_meta transactionally.
         mkdirSync(dirname(this.dbPath), { recursive: true });
         const target = new DatabaseSync(this.dbPath);
-        target.exec(`
-            CREATE TABLE IF NOT EXISTS events (
-                seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                id TEXT NOT NULL UNIQUE,
-                prev_hash TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                ts INTEGER NOT NULL,
-                actor TEXT NOT NULL,
-                sig TEXT NOT NULL,
-                payload TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
-            CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
-            CREATE TABLE IF NOT EXISTS migration_meta (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                source TEXT NOT NULL,
-                row_count INTEGER NOT NULL,
-                chain_hash TEXT NOT NULL,
-                completed INTEGER NOT NULL,
-                migrated_at INTEGER NOT NULL
-            );
-        `);
+        this.applySchema(target);
 
         target.exec('BEGIN IMMEDIATE');
         try {
@@ -634,10 +793,10 @@ export class SystemStore {
             for (const row of rows) {
                 insert.run(row.seq, row.id, row.prev_hash, row.kind, row.ts, row.actor, row.sig, row.payload);
             }
-            // Durable cutover marker (Honey B3): committed atomically with
-            // the copied rows. Idempotency checks THIS, not row count.
+            // Durable cutover marker (C3): completed=1, retired=0 until the
+            // rename succeeds.
             target.prepare(
-                'INSERT INTO migration_meta (id, source, row_count, chain_hash, completed, migrated_at) VALUES (1, ?, ?, ?, 1, ?)'
+                'INSERT INTO migration_meta (id, source, row_count, chain_hash, completed, retired, migrated_at) VALUES (1, ?, ?, ?, 1, 0, ?)'
             ).run(this.legacyDbPath, rows.length, chainHashAccum, Date.now());
             target.exec('COMMIT');
         } catch (err) {
@@ -647,19 +806,14 @@ export class SystemStore {
             throw new Error(`SystemStore: legacy migration failed: ${err instanceof Error ? err.message : String(err)}`);
         }
 
-        // Re-verify the migrated chain in system.db (failure barrier, Honey B2).
-        // Signatures re-checked with per-kind signing contexts (which for
-        // legacy rows is the legacy signing context; for any already-present
-        // rows would be the owning feature's). We verify against the legacy
-        // context here since all just-copied rows are legacy Company rows.
+        // Re-verify the migrated chain in system.db (failure barrier).
         const verifyRows = target.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
         const vCache = new Map<string, KeyObject | null>();
         let vprev: Row | undefined;
         for (const row of verifyRows) {
             const expected = chainHash(vprev);
             if (row.prev_hash !== expected) {
-                target.close();
-                legacy.close();
+                target.close(); legacy.close();
                 throw new Error(`SystemStore: post-migration chain link broken at seq ${row.seq}`);
             }
             let pub = vCache.get(row.actor);
@@ -668,46 +822,114 @@ export class SystemStore {
                 vCache.set(row.actor, pub);
             }
             if (!pub) {
-                target.close();
-                legacy.close();
+                target.close(); legacy.close();
                 throw new Error(`SystemStore: post-migration row seq ${row.seq} actor "${row.actor}" has no registered identity`);
             }
             if (!legacySigning.verify(
                 canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, pub
             )) {
-                target.close();
-                legacy.close();
+                target.close(); legacy.close();
                 throw new Error(`SystemStore: post-migration signature mismatch at seq ${row.seq} (actor "${row.actor}")`);
             }
             vprev = row;
         }
-        this.migrationVerified = true;
 
         target.close();
         legacy.close();
 
-        // Retire the legacy DB: rename to <name>.migrated so a later open
-        // does not re-trigger migration. A failed rename FAILS CLOSED
-        // (Honey B4): the durable migration_meta marker prevents data
-        // loss, but we refuse to allow appends until the legacy file is
-        // durably retired, so a partial state cannot silently persist.
+        // Retire the legacy DB: rename to <name>.migrated. C3: on success,
+        // flip retired=1; on failure, retired stays 0 and we fail closed.
         try {
             renameSync(this.legacyDbPath, this.legacyDbPath + '.migrated');
         } catch {
-            // Rename failed — fail closed. The durable marker exists, but
-            // leaving the legacy DB in place risks a later process seeing
-            // both and mis-handling idempotency. Mark migration NOT done
-            // for append purposes so no append proceeds.
-            this.migrated = false;
+            // Rename failed — fail closed. The marker is durable with
+            // retired=0; the next open will try retirement again under the
+            // lock, and fail closed if it still cannot.
             throw new Error(
-                `SystemStore: legacy migration copied rows but failed to retire "${this.legacyDbPath}" — aborting (fail-closed). migration_meta marker is durable; remove the legacy file or rename it manually to "${this.legacyDbPath}.migrated" and reopen.`
+                `SystemStore: legacy migration copied rows but failed to retire "${this.legacyDbPath}" — aborting (fail-closed). migration_meta marker is durable; remove the legacy file or rename it to "${this.legacyDbPath}.migrated" and reopen.`
             );
+        }
+        // Record retirement success.
+        const mark = new DatabaseSync(this.dbPath);
+        try {
+            mark.prepare('UPDATE migration_meta SET retired = 1 WHERE id = 1').run();
+        } finally {
+            mark.close();
         }
 
         this.migrated = true;
     }
 
-    // ── Store-level multi-identity verification (Honey B1) ────────────
+    /**
+     * C4: full parity validation on reopen. Called after the first feature
+     * registers (so its signing context is available). Verifies the
+     * destination's row count, terminal chain hash, complete seq sequence,
+     * and every resolvable signature against the durable marker. A damaged
+     * destination with a surviving marker is rejected.
+     */
+    private maybeValidateMigrationParity(): void {
+        if (this.migrationParityChecked) return;
+        if (!this.opened || !this.db) return;
+        // Only validate when a marker exists.
+        const meta = this.db.prepare(
+            'SELECT completed, retired, source, row_count, chain_hash FROM migration_meta WHERE id = 1'
+        ).get() as { completed: number; retired: number; source: string; row_count: number; chain_hash: string } | undefined;
+        if (!meta || meta.completed !== 1) return;
+        this.migrationParityChecked = true;
+
+        const rows = this.db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
+        // 1) row count.
+        if (rows.length !== meta.row_count) {
+            throw new Error(`SystemStore: migration parity failed — row_count ${rows.length} != marker ${meta.row_count}`);
+        }
+        // 2) complete seq sequence (1..N contiguous).
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i].seq !== i + 1) {
+                throw new Error(`SystemStore: migration parity failed — seq gap/dup at position ${i} (seq=${rows[i].seq})`);
+            }
+        }
+        // 3) terminal chain hash + 4) cryptographic chain (resolvable rows).
+        const pubkeyCache = new Map<string, KeyObject | null>();
+        let prev: Row | undefined;
+        let terminal = 'genesis';
+        for (const row of rows) {
+            const expected = chainHash(prev);
+            if (row.prev_hash !== expected) {
+                throw new Error(`SystemStore: migration parity failed — chain link broken at seq ${row.seq}`);
+            }
+            // Cryptographic verification for resolvable kinds. Unresolvable
+            // kinds (no feature + no legacy signing) are skipped here and
+            // surfaced later by verifyChain/verifyEvent once their feature
+            // registers.
+            try {
+                const { signing, keysDir } = this.signingForKind(row.kind);
+                let key = pubkeyCache.get(`${keysDir}:${row.actor}`);
+                if (key === undefined && !pubkeyCache.has(`${keysDir}:${row.actor}`)) {
+                    key = signing.loadPublicKey(row.actor, keysDir);
+                    pubkeyCache.set(`${keysDir}:${row.actor}`, key);
+                }
+                if (!key) {
+                    throw new Error(`unregistered actor "${row.actor}" for kind "${row.kind}"`);
+                }
+                if (!signing.verify(canonical(row.id, row.prev_hash, row.kind, row.ts, row.actor, row.payload), row.sig, key)) {
+                    throw new Error(`signature mismatch at seq ${row.seq} (kind "${row.kind}", actor "${row.actor}")`);
+                }
+            } catch (err) {
+                // Unresolvable kind — defer to verifyChain. Structural checks
+                // above already guard the chain integrity.
+                if (!/no signing context resolves/.test(err instanceof Error ? err.message : '')) {
+                    throw err;
+                }
+            }
+            prev = row;
+            terminal = chainHash(row);
+        }
+        if (terminal !== meta.chain_hash) {
+            throw new Error(`SystemStore: migration parity failed — terminal chain hash ${terminal} != marker ${meta.chain_hash}`);
+        }
+    }
+
+    // ── Store-level multi-identity verification ───────────────────────
 
     /**
      * Resolve the signing context that owns a row's kind. Registered
@@ -718,17 +940,16 @@ export class SystemStore {
     private signingForKind(kind: string): { signing: SigningContext; keysDir: string } {
         const reg = this.kindToFeature.get(kind);
         if (reg) return { signing: reg.signing, keysDir: reg.keysDir };
-        if (this.opts.legacySigning && this.opts.legacyKeysDir) {
-            return { signing: this.opts.legacySigning, keysDir: this.opts.legacyKeysDir };
+        if (this.legacySigning && this.legacyKeysDir) {
+            return { signing: this.legacySigning, keysDir: this.legacyKeysDir };
         }
         throw new Error(`SystemStore: no signing context resolves kind "${kind}"`);
     }
 
     /**
-     * Store-level chain verification (Honey B1): walks every row in seq
-     * order, checks prev_hash links, and verifies each row's signature
-     * with the signing context that owns its kind (not a single
-     * feature's context). Returns the first failure.
+     * Store-level chain verification: walks every row in seq order, checks
+     * prev_hash links, and verifies each row's signature with the signing
+     * context that owns its kind (not a single feature's context).
      */
     verifyChainStoreWide(): { ok: boolean; badSeq?: number; reason?: string } {
         const db = this.getDb();
@@ -756,8 +977,8 @@ export class SystemStore {
     }
 
     /**
-     * Store-level single-event verification (Honey B1): resolves the
-     * signing context for the row's kind and verifies its signature.
+     * Store-level single-event verification: resolves the signing context
+     * for the row's kind and verifies its signature.
      */
     verifyEventStoreWide(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string } {
         const db = this.getDb();
@@ -776,12 +997,11 @@ export class SystemStore {
         return this.db;
     }
 
-    /** @internal — feature-filtered read for a capability (Honey B6). */
+    /** @internal — feature-filtered read for a capability. */
     readFeatureKinds(kinds: readonly string[], opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
         const db = this.getDb();
         const clauses: string[] = [];
         const params: (string | number)[] = [];
-        // Feature-filtered by default (Honey B6): only this feature's kinds.
         const placeholders = kinds.map(() => '?').join(',');
         clauses.push(`kind IN (${placeholders})`);
         params.push(...kinds);
@@ -798,7 +1018,7 @@ export class SystemStore {
         return rows.map(rowToEvent);
     }
 
-    /** @internal — feature-filtered readAll for a capability (Honey B6). */
+    /** @internal — feature-filtered readAll for a capability. */
     readAllFeatureKinds(kinds: readonly string[]): SystemEvent[] {
         const db = this.getDb();
         const placeholders = kinds.map(() => '?').join(',');
@@ -807,7 +1027,7 @@ export class SystemStore {
         return rows.map(rowToEvent);
     }
 
-    /** @internal — feature-filtered count (Honey B6). */
+    /** @internal — feature-filtered count. */
     countFeatureKinds(kinds: readonly string[]): number {
         const db = this.getDb();
         const placeholders = kinds.map(() => '?').join(',');
@@ -816,14 +1036,14 @@ export class SystemStore {
         return row.n;
     }
 
-    /** @internal — store-wide read for the coordinator (Honey B6). */
+    /** @internal — store-wide read for the coordinator. */
     readAllStoreWide(): SystemEvent[] {
         const db = this.getDb();
         const rows = db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
         return rows.map(rowToEvent);
     }
 
-    /** @internal — store-wide read for the coordinator (Honey B6). */
+    /** @internal — store-wide read for the coordinator. */
     readStoreWide(opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
         const db = this.getDb();
         const clauses: string[] = [];
@@ -850,12 +1070,17 @@ export class SystemStore {
         return db.prepare('SELECT * FROM events ORDER BY seq DESC LIMIT 1').get() as unknown as Row | undefined;
     }
 
-    /** Close the store and invalidate all granted capabilities. */
+    /** Force-close the store and invalidate all granted capabilities. Used
+     *  by tests and by the auto-close when the last consumer releases. */
     close(): void {
-        for (const cap of this.capabilities.values()) {
-            cap.invalidate();
+        for (const set of this.liveCaps.values()) {
+            for (const cap of set) cap.invalidate();
         }
-        this.capabilities.clear();
+        this.liveCaps.clear();
+        this.features.clear();
+        this.featureRefcounts.clear();
+        this.kindToFeature.clear();
+        this.coordinatorRefCount = 0;
         if (this.db) {
             try { this.db.close(); } catch { /* idempotent */ }
             this.db = null;
@@ -946,10 +1171,9 @@ class FeatureCapabilityImpl implements FeatureCapability {
             const ts = Date.now();
             const id = randomUUID();
             if (this.reg.validator) {
-                // Feature-filtered events (Honey B6): the validator only
-                // sees THIS feature's rows, so the Company wrapper's cast
-                // to CompanyEvent[] is sound even when Compiler rows
-                // interleave in the shared store.
+                // Feature-filtered events: the validator only sees THIS
+                // feature's rows, so the Company wrapper's cast to
+                // CompanyEvent[] is sound even when Compiler rows interleave.
                 const events = this.readAll();
                 this.reg.validator({
                     kind: input.kind, actor: input.actor,
@@ -979,35 +1203,33 @@ class FeatureCapabilityImpl implements FeatureCapability {
 
     read(opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
         this.checkValid();
-        // Feature-filtered by default (Honey B6): only this feature's kinds.
+        // Feature-filtered by default: only this feature's kinds.
         return this.store.readFeatureKinds(this.reg.kinds, opts);
     }
 
     readAll(): SystemEvent[] {
         this.checkValid();
-        // Feature-filtered by default (Honey B6): only this feature's kinds.
         return this.store.readAllFeatureKinds(this.reg.kinds);
     }
 
     verifyEvent(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string } {
         this.checkValid();
-        // Delegate to store-level multi-identity verification (Honey B1):
-        // the row's kind determines the signing context, not this cap's own.
+        // Delegate to store-level multi-identity verification: the row's
+        // kind determines the signing context, not this cap's own.
         return this.store.verifyEventStoreWide(eventId);
     }
 
     verifyChain(): { ok: boolean; badSeq?: number; reason?: string } {
         this.checkValid();
-        // Delegate to store-level multi-identity verification (Honey B1):
-        // every row is verified with the signing context of the feature
-        // that owns its kind, so a Compiler cap can verify a chain that
-        // interleaves Company rows.
+        // Delegate to store-level multi-identity verification: every row
+        // is verified with the signing context of the feature that owns its
+        // kind, so a Compiler cap can verify a chain that interleaves
+        // Company rows.
         return this.store.verifyChainStoreWide();
     }
 
     count(): number {
         this.checkValid();
-        // Feature-filtered (Honey B6): count only this feature's kinds.
         return this.store.countFeatureKinds(this.reg.kinds);
     }
 
@@ -1040,50 +1262,108 @@ class FeatureCapabilityImpl implements FeatureCapability {
     }
 
     close(): void {
-        // Closing a capability invalidates it and closes the shared store.
-        // Each test/production instance uses one feature, so closing the
-        // store here is safe; the store coordinator invalidates all caps.
+        // C2: closing a consumer decrements the feature refcount; the
+        // shared store closes only when the last consumer releases.
         this.invalidate();
-        this.store.close();
+        this.store.releaseFeature(this.reg.featureId);
     }
 }
 
 // ── CoordinatorCapabilityImpl — privileged, not exported ────────────
 
 /**
- * Store-wide privileged capability (Honey B1/B6). Reads and verification
- * span ALL features' namespaces. Granted only by {@link SystemStore.coordinator},
- * never by feature registration. Used by maintenance/audit paths that must
- * see the whole log (e.g., discard, scanNonterminal).
+ * Store-wide privileged capability. Reads and verification span ALL
+ * features' namespaces. Granted only via `createCoordinator` (which
+ * requires the module-private RegistrationToken), never by feature
+ * registration.
  */
 class CoordinatorCapabilityImpl implements CoordinatorCapability {
     private store: SystemStore;
+    private valid = true;
 
     constructor(store: SystemStore) {
         this.store = store;
     }
 
+    private checkValid(): void {
+        if (!this.valid) throw new Error('SystemStore: coordinator capability is no longer valid');
+    }
+
     readAll(): SystemEvent[] {
+        this.checkValid();
         return this.store.readAllStoreWide();
     }
 
     read(opts: { afterSeq?: number; kind?: string; limit?: number } = {}): SystemEvent[] {
+        this.checkValid();
         return this.store.readStoreWide(opts);
     }
 
     verifyChain(): { ok: boolean; badSeq?: number; reason?: string } {
+        this.checkValid();
         return this.store.verifyChainStoreWide();
     }
 
     verifyEvent(eventId: string): { ok: boolean; event?: SystemEvent; reason?: string } {
+        this.checkValid();
         return this.store.verifyEventStoreWide(eventId);
     }
 
     count(): number {
+        this.checkValid();
         return this.store.countStoreWide();
     }
 
     close(): void {
-        this.store.close();
+        this.valid = false;
+        this.store.releaseCoordinator();
     }
+}
+
+// ── Exported feature-specific factories (C5) ───────────────────────
+
+/**
+ * Configuration for a feature factory: everything in
+ * {@link FeatureRegistration} except `featureId` (the factory locks it).
+ * The trusted feature wrapper (e.g. CompanyLog) supplies the
+ * feature-specific kinds/authority/signing; external callers cannot set
+ * the featureId.
+ */
+export interface FeatureFactoryConfig {
+    kinds: readonly string[];
+    baseAppendable: readonly string[];
+    extendedAppendable?: readonly string[];
+    authority: AuthorityTable;
+    validator?: SystemLifecycleValidator;
+    extraDdl?: string[];
+    signing: SigningContext;
+    keysDir: string;
+    busEmit: (event: SystemEvent) => void;
+}
+
+/**
+ * Create the Company feature capability on `store` (C5). Locks the
+ * featureId to `'company'`; the caller cannot forge a different id. The
+ * trusted Company wrapper passes Company's kinds/authority/signing.
+ */
+export function createCompanyFeature(store: SystemStore, config: FeatureFactoryConfig): FeatureCapability {
+    return store.registerFeature({ ...config, featureId: 'company' }, REGISTRATION_TOKEN);
+}
+
+/**
+ * Create the Compiler feature capability on `store` (C5). Locks the
+ * featureId to `'compiler'`.
+ */
+export function createCompilerFeature(store: SystemStore, config: FeatureFactoryConfig): FeatureCapability {
+    return store.registerFeature({ ...config, featureId: 'compiler' }, REGISTRATION_TOKEN);
+}
+
+/**
+ * Create the privileged coordinator capability: store-wide reads and
+ * multi-identity verification across ALL features' namespaces (C5). A
+ * feature cap holder cannot reach this (FeatureCapability does not
+ * expose its store reference).
+ */
+export function createCoordinator(store: SystemStore): CoordinatorCapability {
+    return store.coordinator(REGISTRATION_TOKEN);
 }
