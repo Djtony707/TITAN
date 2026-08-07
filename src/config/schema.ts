@@ -1484,6 +1484,19 @@ export const TitanConfigSchema = z.object({
      * Reads existing trajectory log + drive ring buffer + run history; no
      * new data persistence beyond `~/.titan/dreams/<date>.{md,json}`.
      */
+    selfCompiling: z.object({
+        /** Master switch for the v8 self-compiling agent pipeline. Default false = v7 byte-identical. */
+        enabled: z.boolean().default(false),
+        /** Turn recognized task clusters into compiled recipe/skill candidates. */
+        compile: z.boolean().default(false),
+        /** Run the candidate → shadow → active promotion state machine. */
+        promote: z.boolean().default(false),
+        /** Measure and credit active recipe invocations against source-trace baselines. */
+        record: z.boolean().default(false),
+        /** Route active compiled recipes into the agent loop. */
+        route: z.boolean().default(false),
+    }).default({}),
+
     dream: z.object({
         /** Master switch. Default off — opt in via Mission Control or config. */
         enabled: z.boolean().default(false),
