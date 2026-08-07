@@ -324,6 +324,7 @@ tr:hover{background:rgba(6,182,212,.03)}
     <div class="nav-section">System</div>
     <div class="nav-item" data-panel="telemetry" data-load="telemetry"><span class="icon">📈</span>Telemetry</div>
     <div class="nav-item" data-panel="autopilot" data-load="autopilot"><span class="icon">🚁</span>Autopilot</div>
+    <div class="nav-item" data-panel="compile-queue" data-load="compile-queue"><span class="icon">📋</span>Compile Queue</div>
     <div class="nav-item" data-panel="security"><span class="icon">🔒</span>Security</div>
     <div class="nav-item" data-panel="logs" data-load="logs"><span class="icon">📜</span>Logs</div>
     <div class="nav-item" data-panel="workflows" data-load="workflows"><span class="icon">🔀</span>Workflows</div>
@@ -1038,6 +1039,34 @@ tr:hover{background:rgba(6,182,212,.03)}
         </table>
         <div id="autopilot-empty" style="display:none;text-align:center;color:var(--text-dim);padding:40px 20px;font-size:13px">
           No autopilot runs yet. Click "Run Now" or enable the schedule in Settings.
+        </div>
+      </div>
+    </div>
+
+    <!-- Compile Queue Panel (v8 Slice 4 — RECOGNIZE) -->
+    <div id="panel-compile-queue" class="panel">
+      <div class="card-grid">
+        <div class="stat-card cyan"><div class="stat-label">Total Clusters</div><div class="stat-value" id="cq-total">—</div></div>
+        <div class="stat-card purple"><div class="stat-label">Trajectories</div><div class="stat-value" id="cq-trajectories">—</div></div>
+        <div class="stat-card green"><div class="stat-label">Last Run</div><div class="stat-value" id="cq-last-run" style="font-size:14px">—</div></div>
+        <div class="stat-card amber"><div class="stat-label">Top Score</div><div class="stat-value" id="cq-top-score" style="font-size:14px">—</div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <h3 style="margin:0">📋 Compile Queue — Task Pattern Clusters</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn" data-action="refresh-compile-queue" style="font-size:12px;padding:6px 14px">↻ Refresh</button>
+          </div>
+        </div>
+        <div id="compile-queue-info" style="color:var(--text-dim);font-size:13px;margin-bottom:16px;padding:10px;background:var(--bg3);border-radius:var(--radius-sm)">
+          Nightly clustering of successful task trajectories by intent + typed entities. Scored by frequency × outcome-stability × success-rate. <strong>Read-only</strong> — compilation is a separate step (Slice 5).
+        </div>
+        <table class="table" id="compile-queue-table">
+          <thead><tr><th>Intent</th><th>Frequency</th><th>Success Rate</th><th>Stability</th><th>Score</th><th>Dominant Tools</th></tr></thead>
+          <tbody id="compile-queue-body"></tbody>
+        </table>
+        <div id="compile-queue-empty" style="display:none;text-align:center;color:var(--text-dim);padding:40px 20px;font-size:13px">
+          No clusters yet. Enable autopilot mode "recognize" and wait for the nightly run, or run it manually.
         </div>
       </div>
     </div>
@@ -2365,6 +2394,7 @@ async function loadAutopilot() {
     const [status, history] = await Promise.all([
       fetch('/api/autopilot/status', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({})),
       fetch('/api/autopilot/history', {headers:authHeaders()}).then(r=>r.json()).catch(()=>[]),
+      fetch('/api/compile-queue', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({clusters:[],stats:{}})),
     ]);
     const sEl = document.getElementById('ap-status');
     if (sEl) sEl.textContent = status.enabled ? (status.running ? 'Running' : 'Enabled') : 'Disabled';

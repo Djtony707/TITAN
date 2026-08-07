@@ -10,6 +10,9 @@ import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { loadConfig, saveConfig } from '../../config/config.js';
 
+// Recognize (v8 Slice 4)
+import { getCompileQueue, getClusterStats } from '../../agent/recognizeCluster.js';
+
 // Autopilot
 import {
   initAutopilot,
@@ -69,6 +72,13 @@ export function createLifecycleRouter(): Router {
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
+  });
+
+  // v8 Slice 4: Compile Queue (read-only)
+  router.get('/compile-queue', (_req, res) => {
+    const clusters = getCompileQueue();
+    const stats = getClusterStats();
+    res.json({ clusters, stats });
   });
 
   router.post('/autopilot/toggle', (req, res) => {
