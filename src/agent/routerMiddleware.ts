@@ -110,6 +110,45 @@ function resolveSlots(recipe: CompiledRecipe, slots: TypedSlot[]): ResolvedStep[
     return resolved;
 }
 
+// ── Replay capability (action-aware) ─────────────────────────────────────
+
+/**
+ * Polymorphic tools whose replay-safety depends on the resolved `action`
+ * argument, not just the tool name. The `memory` tool is classified `sync`
+ * in TOOL_KINDS, but its `action: "remember"` branch calls rememberFact()
+ * and persistently mutates user memory — NOT replay-safe. Only its read
+ * actions (search, recall, list) are safe to auto-replay.
+ *
+ * This mirrors the same action-aware split in src/agent/parallelTools.ts
+ * (isConcurrencySafe). Keep both in sync if a new polymorphic tool is added.
+ */
+const POLYMORPHIC_READ_ACTIONS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze({
+    memory: Object.freeze(new Set(['search', 'recall', 'list'])),
+});
+
+/**
+ * A resolved step is replay-safe (auto-replay eligible) only if:
+ *   1. Its tool is declared in TOOL_KINDS (unknown tools are non-replayable).
+ *   2. Its tool kind is `sync` (read-only or trivially reversible).
+ *   3. For polymorphic tools, the resolved `action` arg is in the
+ *      read-actions allowlist. `memory {action:"remember"}` fails this gate.
+ *
+ * This is the default-deny replay set. Everything else escalates to
+ * confirm-required. "Declared" is not "read-only" (Honey audit); "sync"
+ * is not "read-only" for polymorphic tools (Honey re-audit).
+ */
+function isReplaySafeStep(tool: string, args: Record<string, unknown>): boolean {
+    if (!(tool in TOOL_KINDS)) return false;
+    if (getToolKind(tool) !== 'sync') return false;
+    // Polymorphic tools: check the resolved action arg.
+    const readActions = POLYMORPHIC_READ_ACTIONS[tool];
+    if (readActions) {
+        const action = args?.action;
+        if (typeof action !== 'string' || !readActions.has(action)) return false;
+    }
+    return true;
+}
+
 // ── The router ───────────────────────────────────────────────────────────
 
 export function routeCompiled(input: RouterInput): RouterDecision {
@@ -127,42 +166,52 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     }
     const recipe = matches[0]!;
 
-    // 2. Capability metadata, default deny (hard gate 3): every step's tool
-    //    must be DECLARED in TOOL_KINDS AND be 'sync' (proven read-only).
-    //    Unknown/plugin/MCP/renamed tools are non-replayable. 'long-running'
-    //    external-write tools (email_send, fb_post, slack_post, etc.) and
-    //    risky/destructive tools escalate to confirm-required even on an
-    //    exact match. "Declared" is not equivalent to "read-only" (Honey
-    //    audit finding): the default-deny replay set is sync-only.
-    const unknownTool = recipe.steps.find(s => !(s.tool in TOOL_KINDS));
-    if (unknownTool) {
-        return { kind: 'miss', reason: `non-replayable-undeclared-tool (${unknownTool.tool})`, expectedSignature: sig };
-    }
-    const nonSyncTool = recipe.steps.find(s => getToolKind(s.tool) !== 'sync');
-    if (nonSyncTool) {
-        // Declared but not read-only: escalate, never auto-replay.
-        const kind = getToolKind(nonSyncTool.tool);
-        const stakes = kind === 'destructive' ? 'high' : 'medium';
-        return {
-            kind: 'confirm-required',
-            recipe,
-            resolvedSteps: resolveSlots(recipe, slots) ?? [],
-            stakes,
-            reason: `${kind} tool (${nonSyncTool.tool}) requires a bound approval before replay`,
-        };
-    }
-
-    // 3. Strict slot fill.
+    // 2. Strict slot fill FIRST (Honey re-audit finding): resolve slots before
+    //    classifying capability/stakes. A malformed/corrupt recipe that
+    //    cannot fill its slots must return miss, never a confirm-required
+    //    with an empty unresolved plan. Slot resolution is the prerequisite
+    //    for both replay and confirm — the executor needs a real plan.
     const resolvedSteps = resolveSlots(recipe, slots);
     if (!resolvedSteps) {
         return { kind: 'miss', reason: 'exact-match-slot-mismatch', expectedSignature: sig };
     }
 
-    // 4. Stakes floor (Finding 2 / hard gate 2): medium/high-effect recipes
-    //    never auto-replay. By this point all steps are 'sync' (step 2
-    //    escalated anything else), but a stakesOverride from the caller
-    //    can still force a higher rung. The decision carries the pre-filled
-    //    plan; `awaitConfirm` metadata survives on every step.
+    // 3. Capability metadata, default deny (hard gate 3): every step's tool
+    //    must be DECLARED in TOOL_KINDS. Unknown/plugin/MCP/renamed tools
+    //    are non-replayable by default.
+    const unknownTool = recipe.steps.find(s => !(s.tool in TOOL_KINDS));
+    if (unknownTool) {
+        return { kind: 'miss', reason: `non-replayable-undeclared-tool (${unknownTool.tool})`, expectedSignature: sig };
+    }
+
+    // 4. Replay-safety check (action-aware): a step is auto-replay eligible
+    //    only if isReplaySafeStep returns true — declared, sync, AND for
+    //    polymorphic tools (memory), the resolved action is a read action.
+    //    memory {action:"remember"} is sync-kind but mutates user memory;
+    //    it escalates to confirm-required. email_send, fb_post, slack_post,
+    //    etc. are long-running and also escalate. "Declared" is not
+    //    "read-only"; "sync" is not "read-only" for polymorphic tools.
+    const nonReplayableStep = resolvedSteps.find(s => !isReplaySafeStep(s.tool, s.args));
+    if (nonReplayableStep) {
+        const kind = getToolKind(nonReplayableStep.tool);
+        const stakes = kind === 'destructive' ? 'high' : 'medium';
+        const reason = kind === 'sync'
+            ? `polymorphic sync tool (${nonReplayableStep.tool}) with non-read action requires a bound approval before replay`
+            : `${kind} tool (${nonReplayableStep.tool}) requires a bound approval before replay`;
+        return {
+            kind: 'confirm-required',
+            recipe,
+            resolvedSteps,
+            stakes,
+            reason,
+        };
+    }
+
+    // 5. Stakes floor (Finding 2 / hard gate 2): medium/high-effect recipes
+    //    never auto-replay. By this point all steps are replay-safe sync
+    //    (step 4 escalated anything else), but a stakesOverride from the
+    //    caller can still force a higher rung. The decision carries the
+    //    pre-filled plan; `awaitConfirm` metadata survives on every step.
     let stakes = recipeStakes(recipe);
     if (input.stakesOverride === 'high') stakes = 'high';
     else if (input.stakesOverride === 'medium' && stakes === 'low') stakes = 'medium';
