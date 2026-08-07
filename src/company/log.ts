@@ -39,7 +39,7 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'CompanyLog';
 
-/** Slice-1 event kinds. Later slices extend this list — nothing else breaks. */
+/** Slice-1 event kinds. */
 export const EVENT_KINDS = [
     'company.created',
     'agent.minted',
@@ -48,7 +48,35 @@ export const EVENT_KINDS = [
     'task.result',
     'task.checked',
 ] as const;
-export type CompanyEventKind = (typeof EVENT_KINDS)[number];
+/** Slice-2 queue kinds (v8 slice 2, design v5). */
+export const QUEUE_KINDS = [
+    'task.started', 'task.retry', 'task.blocked', 'task.unblocked',
+    'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
+] as const;
+/** knownKinds: the FULL immutable schema union — decode/read/verify always
+ *  work over complete history regardless of capabilities (design v5 §1). */
+export const KNOWN_KINDS = [...EVENT_KINDS, ...QUEUE_KINDS] as const;
+export type CompanyEventKind = (typeof KNOWN_KINDS)[number];
+
+/** Context handed to an installed lifecycle validator INSIDE the append txn. */
+export interface AppendContext {
+    kind: CompanyEventKind;
+    actor: string;
+    payload: Record<string, unknown>;
+    /** Full event history read within the same transaction (tail-consistent). */
+    events: readonly CompanyEvent[];
+    /** Set only by the maintenance transaction (queue-discard). */
+    capability?: 'maintenance';
+}
+export type LifecycleValidator = (ctx: AppendContext) => void;
+
+export interface CompanyLogOptions {
+    /** Capability set: kinds appendable through this instance.
+     *  Default: slice-1 kinds only (queue off). knownKinds always decode. */
+    appendableKinds?: readonly CompanyEventKind[];
+    /** Mandatory validator for governed kinds; runs inside the append txn. */
+    validator?: LifecycleValidator;
+}
 
 /** Which actors may append which kinds (slice 1). '*' = any registered actor. */
 const AUTHORITY: Record<CompanyEventKind, readonly string[] | '*'> = {
@@ -58,6 +86,16 @@ const AUTHORITY: Record<CompanyEventKind, readonly string[] | '*'> = {
     'task.delegated': ['ceo', 'user'],
     'task.result': '*',
     'task.checked': ['ceo', 'user'],
+    // Slice-2 coarse authority; the installed queue validator enforces the
+    // fine-grained rules (ownership, refs, transitions, evidence) in-txn.
+    'task.started': '*',
+    'task.retry': ['user'],
+    'task.blocked': '*',
+    'task.unblocked': '*',
+    'hold.set': ['watchman', 'user'],
+    'hold.lifted': ['watchman', 'user'],
+    'commitment.opened': '*',
+    'commitment.closed': '*',
 };
 
 export interface CompanyEvent {
@@ -112,8 +150,13 @@ export class CompanyLog {
     private keysDir: string;
     private pubkeyCache = new Map<string, KeyObject>();
 
-    constructor(dbPath: string, keysDir: string) {
+    private appendable: ReadonlySet<string>;
+    private validator?: LifecycleValidator;
+
+    constructor(dbPath: string, keysDir: string, opts: CompanyLogOptions = {}) {
         this.keysDir = keysDir;
+        this.appendable = new Set(opts.appendableKinds ?? EVENT_KINDS);
+        this.validator = opts.validator;
         mkdirSync(dirname(dbPath), { recursive: true });
         this.db = new DatabaseSync(dbPath);
         this.db.exec(`
@@ -130,6 +173,9 @@ export class CompanyLog {
             CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company
                 ON events(kind) WHERE kind = 'company.created';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_attempt
+                ON events(kind, json_extract(payload,'$.taskRef'), json_extract(payload,'$.attempt'))
+                WHERE kind IN ('task.started','task.result');
             CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
         `);
     }
@@ -151,10 +197,13 @@ export class CompanyLog {
      * Append one signed event. The private key must belong to input.actor's
      * registered identity, and the actor must hold authority for the kind.
      */
-    append(input: AppendInput, privateKey: KeyObject): CompanyEvent {
+    append(input: AppendInput, privateKey: KeyObject, opts: { capability?: 'maintenance' } = {}): CompanyEvent {
         assertValidAgentId(input.actor);
-        if (!EVENT_KINDS.includes(input.kind)) {
+        if (!(KNOWN_KINDS as readonly string[]).includes(input.kind)) {
             throw new Error(`CompanyLog: unknown event kind "${input.kind}"`);
+        }
+        if (!this.appendable.has(input.kind) && opts.capability !== 'maintenance') {
+            throw new Error(`CompanyLog: kind "${input.kind}" is not appendable under current capabilities`);
         }
         const allowed = AUTHORITY[input.kind];
         if (allowed !== '*' && !allowed.includes(input.actor)) {
@@ -171,14 +220,32 @@ export class CompanyLog {
 
         const ts = Date.now();
         const id = randomUUID();
-        const prevHash = chainHash(this.lastRow());
-        const payloadJson = JSON.stringify(input.payload ?? {});
-        const sig = signBytes(canonical(id, prevHash, input.kind, ts, input.actor, payloadJson), privateKey);
-        this.db
-            .prepare('INSERT INTO events (id, prev_hash, kind, ts, actor, sig, payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
-            .run(id, prevHash, input.kind, ts, input.actor, sig, payloadJson);
-        const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as unknown as Row;
-        const event = rowToEvent(row);
+        // v5 §2: write lock BEFORE the tail read — fold/validate/append is one
+        // transaction; concurrent processes serialize on BEGIN IMMEDIATE.
+        this.db.exec('BEGIN IMMEDIATE');
+        let event: CompanyEvent;
+        try {
+            if (this.validator) {
+                const events = this.read({ limit: 5000 });
+                this.validator({
+                    kind: input.kind, actor: input.actor,
+                    payload: input.payload ?? {}, events,
+                    capability: opts.capability,
+                });
+            }
+            const prevHash = chainHash(this.lastRow());
+            const payloadJson = JSON.stringify(input.payload ?? {});
+            const sig = signBytes(canonical(id, prevHash, input.kind, ts, input.actor, payloadJson), privateKey);
+            this.db
+                .prepare('INSERT INTO events (id, prev_hash, kind, ts, actor, sig, payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
+                .run(id, prevHash, input.kind, ts, input.actor, sig, payloadJson);
+            const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as unknown as Row;
+            event = rowToEvent(row);
+            this.db.exec('COMMIT');
+        } catch (err) {
+            try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ }
+            throw err;
+        }
         // Guarded publish on the SHARED emitter (substrate emit swallows
         // subscriber exceptions): persistence is already committed and must
         // never appear failed because a listener threw.
