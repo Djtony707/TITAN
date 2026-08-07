@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { RoomCursor } from '../../../../src/company/roomCursor';
 import { Send, Users, Plus, Shield, GitBranch, CheckCircle2, XCircle, ArrowRight } from 'lucide-react';
 import {
   getCompanyStatus,
@@ -288,126 +289,52 @@ export function CompanyRoom() {
   useEffect(() => { refresh(); }, [refresh]);
 
   // ── SSE: live room events with gap-free recovery ────────────
-  // On open (and on reconnect), perform a paginated catch-up read
-  // from lastSeq until the log is exhausted, buffering any live SSE
-  // events that arrive during catch-up behind a contiguous cursor.
-  // No seq is skipped on races or large backlogs. Dedupe by event id.
+  // All catch-up / live-merge / retry logic lives in the RoomCursor state
+  // machine (src/company/roomCursor.ts — deterministically tested). The
+  // invariants (re-review event 340a6788): a live event advances the
+  // cursor ONLY at exactly cursor+1; jumps buffer and defer to the REST
+  // log as authority; fetch failures retry with backoff WITHOUT letting
+  // live events advance across the gap; retry exhaustion forces an SSE
+  // reconnect (buffer preserved, no seq ever skipped).
+  const [reconnectNonce, setReconnectNonce] = useState(0);
   useEffect(() => {
     if (error || !status?.exists) return;
     const token = localStorage.getItem('titan-token');
     const url = token ? `/api/company/stream?token=${token}` : '/api/company/stream';
     const es = new EventSource(url);
-    let retries = 0;
+    let closed = false;
 
-    // ── Catch-up state ──
-    // `catchingUp` gates whether live events go to state or to the buffer.
-    // `liveBuffer` holds live events that arrive while catch-up is running.
-    // After catch-up completes, the buffer is merged in seq order with dedup.
-    let catchingUp = false;
-    const liveBuffer: CompanyEvent[] = [];
-
-    // Paginated catch-up: loop fetching pages from lastSeq until the
-    // page comes back empty or partial (meaning we've caught up to the
-    // log tail). Each page advances the contiguous cursor. This handles
-    // backlogs larger than the 500-event page limit.
-    const catchUp = async () => {
-      catchingUp = true;
-      liveBuffer.length = 0; // clear stale buffer from a previous run
-      let fetchFailed = false;
-      try {
-        let after = lastSeqRef.current;
-        // Loop until the CONTIGUOUS cursor reaches the log tail AND the
-        // highest live-buffered seq (re-review fix, event a2d54b20 #1):
-        // a partial page alone is NOT sufficient to stop — a live event
-        // buffered during the fetch may sit BEYOND the page tail, and
-        // stopping there would skip the persisted rows in between.
-        while (true) {
-          const page = await getCompanyRoom(after, 500);
-          if (page.events.length > 0) {
-            setEvents(prev => {
-              const seen = new Set(prev.map(e => e.id));
-              const fresh = page.events.filter(e => !seen.has(e.id));
-              return fresh.length > 0 ? [...prev, ...fresh] : prev;
-            });
-            after = page.events.reduce((m, e) => Math.max(m, e.seq), after);
-            lastSeqRef.current = Math.max(lastSeqRef.current, after);
-          }
-          if (page.events.length === 500) continue; // full page → more persisted rows
-          const liveTarget = liveBuffer.reduce((m, e) => Math.max(m, e.seq), 0);
-          if (liveTarget > after) continue;         // live ran ahead → fetch the gap
-          break;                                     // contiguous through the live target
-        }
-      } catch {
-        // Fetch error: DISCARD the buffer — merging it could advance the
-        // cursor across an unfetched gap. Rows are persisted; the next
-        // onopen/reconnect catch-up resumes from the contiguous cursor.
-        fetchFailed = true;
-        liveBuffer.length = 0;
-      }
-      catchingUp = false;
-
-      // ── Merge buffered live events ──
-      // Only after the contiguous cursor covers every buffered seq; page
-      // dedup by id makes the overlap harmless.
-      if (!fetchFailed && liveBuffer.length > 0) {
-        liveBuffer.sort((a, b) => a.seq - b.seq);
+    const cursor = new RoomCursor<CompanyEvent>({
+      fetchPage: async (after, limit) => (await getCompanyRoom(after, limit)).events,
+      emit: fresh => {
+        lastSeqRef.current = Math.max(lastSeqRef.current, fresh[fresh.length - 1].seq);
         setEvents(prev => {
           const seen = new Set(prev.map(e => e.id));
-          const fresh = liveBuffer.filter(e => !seen.has(e.id));
-          // Advance lastSeq past any buffered events we appended
-          if (fresh.length > 0) {
-            const maxBufSeq = fresh.reduce((m, e) => Math.max(m, e.seq), 0);
-            lastSeqRef.current = Math.max(lastSeqRef.current, maxBufSeq);
-          }
-          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+          const add = fresh.filter(e => !seen.has(e.id));
+          return add.length > 0 ? [...prev, ...add] : prev;
         });
-        liveBuffer.length = 0;
-      }
-    };
+      },
+      onExhausted: () => {
+        // REST unreachable: force a full reconnect cycle rather than sit on
+        // an open SSE that could tempt gap-crossing. Cursor state is torn
+        // down with the effect; the fresh effect re-fetches from scratch.
+        if (!closed) { closed = true; es.close(); setTimeout(() => setReconnectNonce(n => n + 1), 2000); }
+      },
+      retryDelay: () => new Promise(r => setTimeout(r, 1000)),
+    });
+    // Seed the contiguous cursor from the initial refresh() load.
+    cursor.cursor = lastSeqRef.current;
 
-    es.onopen = () => {
-      retries = 0;
-      // Gap-free recovery: catch up on anything missed before the
-      // SSE connection was established or during a reconnect.
-      catchUp();
-    };
-
+    es.onopen = () => { void cursor.catchUp(); };
     es.addEventListener('company:event', (e) => {
-      retries = 0;
       try {
-        const evt = JSON.parse(e.data) as CompanyEvent;
-        if (catchingUp) {
-          // ── Buffer mode ──
-          // Catch-up is running. Don't append to state yet — buffer this
-          // live event. It will be merged in seq order after catch-up
-          // completes. This prevents out-of-order appends and ensures
-          // the contiguous cursor is maintained.
-          liveBuffer.push(evt);
-        } else {
-          // ── Live mode ──
-          // Catch-up is done. Append directly, deduping by id.
-          if (evt.seq > lastSeqRef.current) {
-            lastSeqRef.current = evt.seq;
-            setEvents(prev => {
-              if (prev.some(e => e.id === evt.id)) return prev;
-              return [...prev, evt];
-            });
-          }
-        }
+        cursor.onLive(JSON.parse(e.data) as CompanyEvent);
       } catch { /* malformed event */ }
     });
+    es.onerror = () => { /* EventSource auto-reconnects; onopen re-runs catch-up */ };
 
-    es.onerror = () => {
-      retries++;
-      if (retries > 5) {
-        es.close();
-      }
-      // EventSource auto-reconnects; onopen fires again on reconnect,
-      // which triggers catchUp() to fill the gap.
-    };
-
-    return () => es.close();
-  }, [error, status]);
+    return () => { closed = true; es.close(); };
+  }, [error, status, reconnectNonce]);
 
   // ── Auto-scroll to bottom on new events ─────────────────────
   useEffect(() => {
