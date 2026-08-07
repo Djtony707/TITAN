@@ -224,3 +224,43 @@ describe('slice 2 patch 1 — backstops and races', () => {
         verify.close();
     }, 90000);
 });
+
+describe('slice 2 patch 2 — queueCommands intent API', () => {
+    it('startTask derives owner + attempt from the fold; nextDispatchable honors FIFO/holds/blocks/lane', async () => {
+        const { startTask, retryTask, nextDispatchable, setHold, liftHold, blockTask, unblockTask } = await import('../src/company/queueCommands.js');
+        const { foldQueue } = await import('../src/company/queue.js');
+        const s = scenario();
+        const d1 = delegate(s); const d2 = delegate(s, 'scout', 'second');
+        expect(nextDispatchable(foldQueue(s.log.read()))?.taskRef).toBe(d1.id); // FIFO
+        startTask(s.log, s.keysDir, d1.id);
+        expect(nextDispatchable(foldQueue(s.log.read()))).toBeUndefined();      // lane busy
+        result(s, d1.id, 1);
+        expect(nextDispatchable(foldQueue(s.log.read()))?.taskRef).toBe(d2.id);
+        // holds gate dispatchability
+        const h = setHold(s.log, s.keysDir, 'watchman', 'queue', 'audit');
+        expect(nextDispatchable(foldQueue(s.log.read()))).toBeUndefined();
+        liftHold(s.log, s.keysDir, h.id);
+        // blocks gate the specific task
+        const b = blockTask(s.log, s.keysDir, d2.id, 'watchman', 'concern');
+        expect(nextDispatchable(foldQueue(s.log.read()))).toBeUndefined();
+        unblockTask(s.log, s.keysDir, b.id, 'watchman'); // non-stalled: setter clears without evidence
+        expect(nextDispatchable(foldQueue(s.log.read()))?.taskRef).toBe(d2.id);
+        // retry declares next attempt; startTask uses it
+        startTask(s.log, s.keysDir, d2.id);
+        s.log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: d2.id, attempt: 1, content: 'fail', success: false } }, s.scout.privateKey);
+        retryTask(s.log, s.keysDir, d2.id, 'failure-retry');
+        const started2 = startTask(s.log, s.keysDir, d2.id);
+        expect((started2.payload as { attempt: number }).attempt).toBe(2);
+        expect(s.log.verifyChain().ok).toBe(true);
+        s.log.close();
+    });
+
+    it('terminal rejections pass through un-retried (authority is not a race)', async () => {
+        const { unblockTask, blockTask } = await import('../src/company/queueCommands.js');
+        const s = scenario();
+        const d = delegate(s);
+        const b = blockTask(s.log, s.keysDir, d.id, 'scout', 'own-block');
+        expect(() => unblockTask(s.log, s.keysDir, b.id, 'ceo')).toThrow(/E_AUTHORITY|lacks authority/);
+        s.log.close();
+    });
+});
