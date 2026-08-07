@@ -330,6 +330,37 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(log.verifyChain().ok).toBe(true);
     });
 
+    it('TASK-SCOPED HOLD pauses review resumption (close review a4f285ed): no check until the USER lifts', async () => {
+        const { log, keysDir, mk } = scenario();
+        // Signed result, check pending — then the user's verdict pause.
+        const ev = delegate(log, keysDir, 'scout', 'held verdict');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        const seededResult = log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+        const hold = log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: ev.id, reason: 'verdict pause' } }, mintAgentKeys('watchman', keysDir).privateKey);
+        // Restart: recovery must RESPECT the hold — no review, no check.
+        const runner = vi.fn(okRunner);
+        const reviewer = vi.fn(okReviewer);
+        const d = mk(runner, reviewer);
+        d.recover();
+        await d.idle();
+        expect(reviewer).not.toHaveBeenCalled();
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0);
+        // Only the user's lift releases the pause; the kick then reviews
+        // the EXISTING result exactly once.
+        const user = mintAgentKeys('user', keysDir);
+        log.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef: hold.id } }, user.privateKey);
+        d.kick();
+        await d.idle();
+        expect(reviewer).toHaveBeenCalledTimes(1);
+        expect(runner).not.toHaveBeenCalled();          // worker never rerun
+        expect(log.read({ kind: 'task.result' })).toHaveLength(1); // no duplicate
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, resultRef: seededResult.id, verdict: 'accepted', attempt: 1 });
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
     it('CRASH-AFTER-FAILED-RESULT below cap: resumption re-queues via failure-retry and the pipeline completes', async () => {
         const { log, keysDir, mk } = scenario();
         const ev = delegate(log, keysDir, 'scout', 'failed then crashed');

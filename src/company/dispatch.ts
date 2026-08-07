@@ -199,12 +199,19 @@ export class CompanyDispatch {
 
     /** First resulted-but-unchecked task the drain must resume (crash-
      *  after-result boundary, close review 44bf387e) — FIFO, unblocked,
-     *  not stalled. */
+     *  not stalled, and NOT under a task-scoped hold (close review
+     *  a4f285ed): a task-scoped hold is the user-facing per-task verdict
+     *  pause, and only the user's lift may release it — recovery must
+     *  not silently bypass what the validator only enforces for blocks.
+     *  (Queue-scope holds gate dispatch-waiting slots per the approved
+     *  presentation contract; they do not pause an already-recorded
+     *  result's review.) */
     private nextPendingReview(f: QueueFold): TaskFold | undefined {
         return [...f.tasks.values()]
             .filter(t => !t.checked && t.activeBlocks.size === 0
                 && t.attempt > 0 && t.resultedAttempts.has(t.attempt)
-                && !this.stalled.has(`${t.taskRef}:${t.attempt}`))
+                && !this.stalled.has(`${t.taskRef}:${t.attempt}`)
+                && ![...f.activeHolds.values()].some(h => h.scope === t.taskRef))
             .sort((a, b) => a.delegatedSeq - b.delegatedSeq)[0];
     }
 
