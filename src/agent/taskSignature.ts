@@ -131,8 +131,9 @@ export function extractTaskSignature(task: string): TaskSignature {
     const seenPositions = new Set<number>();
     
     for (const pattern of ENTITY_PATTERNS) {
-        // Reset lastIndex for global regexes
-        const re = new RegExp(pattern.regex.source, pattern.regex.flags);
+        // Ensure the regex has the global flag so exec() advances
+        const flags = pattern.regex.flags.includes("g") ? pattern.regex.flags : pattern.regex.flags + "g";
+        const re = new RegExp(pattern.regex.source, flags);
         let match: RegExpExecArray | null;
         while ((match = re.exec(task)) !== null) {
             const pos = match.index;
